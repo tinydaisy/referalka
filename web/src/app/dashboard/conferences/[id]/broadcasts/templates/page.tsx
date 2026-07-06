@@ -30,7 +30,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -38,7 +38,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_topic}', '{stream_url}'],
+    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{stream_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -68,14 +68,14 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '2h_before_unreg',
     title: 'За 2 часа (не зарегистрирован)',
     hint: 'Для тех, кто ещё не зарегистрирован. Кнопка и ссылка — на лендинг регистрации. Фото — горизонтальная афиша.',
-    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{landing_url}'],
+    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{day_program_with_links}', '{landing_url}'],
     showPhoto: true,
   },
   {
     type: '2h_before_reg',
     title: 'За 2 часа (зарегистрирован)',
     hint: 'Для уже зарегистрированных. Эфира ещё нет — лучше предложить позвать друзей через свой партнёрский кабинет ({game_link}).',
-    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{game_link}', '{stream_url}'],
+    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{day_program_with_links}', '{game_link}', '{stream_url}'],
     showPhoto: true,
   },
   {
@@ -125,11 +125,15 @@ const TYPE_DEFS: TypeDef[] = TYPE_DEFS_RAW.map(d => ({
 const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_name}', desc: 'Имя спикера' },
   { name: '{speaker_role}', desc: 'Роль спикера (Спикер / Хедлайнер / Жюри и т.п.)' },
-  { name: '{speaker_personal_tg}', desc: 'Личный ник спикера в Telegram (@username) — для упоминания/связи' },
+  { name: '{speaker_personal_tg}', desc: 'Все соцсети спикера списком (Telegram, VK, MAX, Instagram, сайт)' },
+  { name: '{speaker_socials}', desc: 'Все соцсети спикера списком (то же, что {speaker_personal_tg})' },
   { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
   { name: '{speaker_instagram}', desc: 'Нельзяграм спикера' },
   { name: '{speaker_topic}', desc: 'Тема выступления' },
   { name: '{speaker_achievements}', desc: 'Регалии спикера (строки через · )' },
+  { name: '{speaker_bio}', desc: 'Биография / «о себе» спикера' },
+  { name: '{speaker_positioning}', desc: 'Позиционирование спикера (должность/титул)' },
+  { name: '{speaker_card_link}', desc: 'Ссылка на карточку спикера (веб или Mini App — по настройке события)' },
   { name: '{gift_after_speech_title}', desc: 'Подарок на эфире' },
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
@@ -141,6 +145,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
   { name: '{day_date}', desc: 'Дата дня конференции' },
   { name: '{day_program}', desc: 'Программа дня (список спикеров и тем)' },
+  { name: '{day_program_with_links}', desc: 'Программа дня, но имена спикеров — ссылками на их карточки' },
   { name: '{next_day_mention}', desc: 'Фраза про следующую встречу (авто: завтра/дата, пусто если последний день)' },
   { name: '{raffle_url}', desc: 'Ссылка на розыгрыш' },
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
@@ -153,6 +158,40 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
 const VAR_DESC: Record<string, string> = Object.fromEntries(
   ALL_VARIABLES.map(v => [v.name, v.desc])
 )
+
+// Построчный список плейсхолдеров с расшифровкой. Любой плейсхолдер можно
+// вставить в ЛЮБОЙ шаблон (бэк подставит его, если данные для него есть).
+// «Частые для этого типа» показываем сверху, остальные — под спойлером.
+function PlaceholderPicker({ common, onInsert }: { common: string[]; onInsert: (v: string) => void }) {
+  const [showAll, setShowAll] = useState(false)
+  const commonSet = new Set(common)
+  const commonVars = ALL_VARIABLES.filter(v => commonSet.has(v.name))
+  const otherVars = ALL_VARIABLES.filter(v => !commonSet.has(v.name))
+  const Row = ({ name, desc }: { name: string; desc: string }) => (
+    <button type="button" onClick={() => onInsert(name)}
+      className="w-full flex items-start gap-2 text-left px-2 py-1 rounded-lg hover:bg-gray-100">
+      <code className="text-xs bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 font-mono text-[#25455D] shrink-0">{name}</code>
+      <span className="text-xs text-gray-500 leading-snug">{desc}</span>
+    </button>
+  )
+  return (
+    <div className="mt-2 border border-gray-100 rounded-xl p-2 bg-gray-50/50">
+      <div className="text-xs text-gray-400 mb-1 px-1">Вставить плейсхолдер (клик добавит в текст):</div>
+      <div className="space-y-0.5">
+        {commonVars.map(v => <Row key={v.name} name={v.name} desc={v.desc} />)}
+      </div>
+      <button type="button" onClick={() => setShowAll(s => !s)}
+        className="text-xs text-[#25455D] underline mt-1 px-1">
+        {showAll ? 'Скрыть остальные' : `Показать все плейсхолдеры (ещё ${otherVars.length})`}
+      </button>
+      {showAll && (
+        <div className="space-y-0.5 mt-1 border-t border-gray-100 pt-1">
+          {otherVars.map(v => <Row key={v.name} name={v.name} desc={v.desc} />)}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Роли коллабораторов для выбора в шаблоне «Знакомство со спикерами».
 const INTRO_ROLE_OPTIONS: { value: string; label: string }[] = [
@@ -224,7 +263,7 @@ function PreviewImage({ src, placeholder }: { src: string; placeholder: string }
 
 const CUSTOM_PLACEHOLDERS = [
   '{conf_title}', '{conf_date}', '{conf_description}',
-  '{day_number}', '{day_date}', '{day_program}',
+  '{day_number}', '{day_date}', '{day_program}', '{day_program_with_links}',
   '{stream_url}', '{landing_url}', '{raffle_url}',
   '{first_name}', '{vip_url}',
 ]
@@ -990,17 +1029,10 @@ export default function TemplatesPage() {
                   форматирование не работает — останется только чистый текст и&nbsp;ссылки.
                 </p>
                 {currentType && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="text-xs text-gray-400 mr-1">Вставить:</span>
-                    {currentType.variables.map(v => (
-                      <button key={v} type="button"
-                        title={VAR_DESC[v] || ''}
-                        onClick={() => setForm({ ...form, text: form.text + v })}
-                        className="text-xs bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 py-0.5 font-mono text-gray-600">
-                        {v}
-                      </button>
-                    ))}
-                  </div>
+                  <PlaceholderPicker
+                    common={currentType.variables}
+                    onInsert={(v) => setForm({ ...form, text: form.text + v })}
+                  />
                 )}
               </div>
               <div>
@@ -1350,17 +1382,10 @@ export default function TemplatesPage() {
                   Жирный, курсив, подчёркивание и ссылки. Telegram и MAX покажут как есть. В&nbsp;ВКонтакте
                   форматирование не работает — останется только чистый текст и&nbsp;ссылки.
                 </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="text-xs text-gray-400 mr-1">Вставить:</span>
-                  {CUSTOM_PLACEHOLDERS.map(v => (
-                    <button key={v} type="button"
-                      title={VAR_DESC[v] || ''}
-                      onClick={() => setForm({ ...form, text: ((form as any).text || '') + v } as any)}
-                      className="text-xs bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 py-0.5 font-mono text-gray-600">
-                      {v}
-                    </button>
-                  ))}
-                </div>
+                <PlaceholderPicker
+                  common={CUSTOM_PLACEHOLDERS}
+                  onInsert={(v) => setForm({ ...form, text: ((form as any).text || '') + v } as any)}
+                />
               </div>
 
               <div>

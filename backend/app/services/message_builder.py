@@ -125,10 +125,48 @@ def _fmt_time_msk(val) -> str:
     return f"{s} МСК" if s else ""
 
 
+# ─── Ссылка на карточку спикера + соцсети (общие хелперы) ────────────────────
+
+def speaker_card_link(event_slug, ec_id, link_mode=None, bot_handle=None):
+    """Ссылка на карточку конкретного спикера/жюри.
+    link_mode='miniapp' + есть бот клиента → Mini App (t.me/{bot}?startapp=ref_pg{slug}_spk{ec}).
+    Иначе → веб-страница события pluson.ru/event/{slug}?spk={ec}."""
+    slug = (event_slug or "").strip()
+    if not slug or not ec_id:
+        return ""
+    if link_mode == "miniapp" and bot_handle:
+        h = str(bot_handle).lstrip("@")
+        return f"https://t.me/{h}?startapp=ref_pg{slug}_spk{ec_id}"
+    return f"https://pluson.ru/event/{slug}?spk={ec_id}"
+
+
+def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
+                          instagram_url=None, website_url=None, personal_tg=None):
+    """Все соцсети спикера единым блоком (по строке на непустую). Для {speaker_socials}
+    и как расширение {speaker_personal_tg} (раньше был только личный TG)."""
+    lines = []
+    p = (personal_tg or "").strip().lstrip("@")
+    if p:
+        lines.append(f"Telegram: @{p}")
+    if (tg_channel_url or "").strip():
+        lines.append(f"Тг канал: {tg_channel_url.strip()}")
+    if (vk_url or "").strip():
+        lines.append(f"VK: {vk_url.strip()}")
+    if (max_url or "").strip():
+        lines.append(f"MAX: {max_url.strip()}")
+    if (instagram_url or "").strip():
+        lines.append(f"Instagram: {instagram_url.strip()}")
+    if (website_url or "").strip():
+        lines.append(f"Сайт: {website_url.strip()}")
+    return "\n".join(lines)
+
+
 # ─── Формирование текста: speaker_intro ─────────────────────────────────────
 
 def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
-                                achievements, role, speaker_topic, gift_title, gift_raffle, registration_url):
+                                achievements, role, speaker_topic, gift_title, gift_raffle, registration_url,
+                                bio=None, positioning=None, card_link=None,
+                                vk_url=None, max_url=None, website_url=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -143,6 +181,12 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     # Личный ник спикера (@username) — для упоминания/связи. Из platform_users.
     personal_raw = (personal_tg or "").strip().lstrip("@")
     personal_mention = f"@{personal_raw}" if personal_raw else ""
+    # Все соцсети спикера (для {speaker_socials} и расширенного {speaker_personal_tg}).
+    socials_block = build_speaker_socials(tg_channel_url, vk_url, max_url,
+                                          instagram_url, website_url, personal_tg)
+    bio_v = (bio or "").strip()
+    positioning_v = (positioning or "").strip()
+    card_link_v = (card_link or "").strip()
 
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -158,10 +202,22 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not insta:
         text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not personal_mention:
+    # {speaker_personal_tg} теперь = ВСЕ соцсети спикера (не только личный TG).
+    if not socials_block:
         text = re.sub(r"^[^\n]*\{speaker_personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^[^\n]*\{speaker_socials\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not bio_v:
+        text = re.sub(r"^[^\n]*\{speaker_bio\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not positioning_v:
+        text = re.sub(r"^[^\n]*\{speaker_positioning\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not card_link_v:
+        text = re.sub(r"^[^\n]*\{speaker_card_link\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
-    text = text.replace("{speaker_personal_tg}", personal_mention)
+    text = text.replace("{speaker_personal_tg}", socials_block)
+    text = text.replace("{speaker_socials}", socials_block)
+    text = text.replace("{speaker_bio}", bio_v)
+    text = text.replace("{speaker_positioning}", positioning_v)
+    text = text.replace("{speaker_card_link}", card_link_v)
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_topic}", topic)
@@ -222,11 +278,33 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
 
 # ─── Формирование текста: pre_start (анонс спикера) ─────────────────────────
 
-def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
+def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val,
+                            personal_tg=None, tg_channel_url=None, instagram_url=None,
+                            vk_url=None, max_url=None, website_url=None,
+                            achievements=None, role=None, bio=None, positioning=None,
+                            card_link=None):
     text = tmpl_text or ""
+    text = text.replace("{stream_url}", stream_url_val or "")
+    # Полный набор спикер-плейсхолдеров (те же, что в speaker_intro), чтобы
+    # «за 5 минут до выступления» тоже мог показывать соцсети/био/ссылку и т.п.
+    socials_block = build_speaker_socials(tg_channel_url, vk_url, max_url,
+                                          instagram_url, website_url, personal_tg)
+    ach_list = [a.strip() for a in (achievements or []) if a.strip()]
+    ach_text = "\n".join(f"• {a}" for a in ach_list)
+    role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
+    tg_ch = (tg_channel_url or "").strip()
+    insta = (instagram_url or "").strip()
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_topic}", speaker_topic or "")
-    text = text.replace("{stream_url}", stream_url_val or "")
+    text = text.replace("{speaker_role}", role_label)
+    text = text.replace("{speaker_achievements}", ach_text)
+    text = text.replace("{speaker_personal_tg}", socials_block)
+    text = text.replace("{speaker_socials}", socials_block)
+    text = text.replace("{speaker_bio}", (bio or "").strip())
+    text = text.replace("{speaker_positioning}", (positioning or "").strip())
+    text = text.replace("{speaker_card_link}", (card_link or "").strip())
+    text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}" if tg_ch else "")
+    text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}" if insta else "")
     return text.strip()
 
 
@@ -234,7 +312,7 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
 
 def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
                       stream_url_val, registration_url_val, raffle_url_val="", day_speakers_gifts="",
-                      next_day_mention="", day_title="", day_datetime=""):
+                      next_day_mention="", day_title="", day_datetime="", day_program_with_links=""):
     text = tmpl_text or ""
     ordinal = ORDINALS.get(day_number, f"{day_number}-м")
     text = text.replace("{day_number}", str(day_number))
@@ -246,6 +324,9 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
     # fallback на дату без времени, если время неизвестно.
     text = text.replace("{day_datetime}", (day_datetime or "").strip() or (day_date or ""))
     text = text.replace("{day_date}", day_date or "")
+    # ВАЖНО: {day_program_with_links} заменяем ДО {day_program} — иначе
+    # .replace("{day_program}") затронет подстроку внутри _with_links.
+    text = text.replace("{day_program_with_links}", day_program_with_links or day_program or "")
     text = text.replace("{day_program}", day_program or "")
     text = text.replace("{stream_url}", stream_url_val or "")
     text = text.replace("{landing_url}", registration_url_val or "")
@@ -355,14 +436,20 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             SELECT e.title as conf_title,
                    e.module_slug,
                    e.landing_url AS registration_url,
+                   e.slug AS event_slug,
                    cc.raffle_url,
                    e.stream_url,
                    cd.title AS day_title,
                    COALESCE(cd.day_date,
                             (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date,
-                   (e.start_at AT TIME ZONE 'Europe/Moscow') AS event_start_msk
+                   (e.start_at AT TIME ZONE 'Europe/Moscow') AS event_start_msk,
+                   cl.default_link_mode,
+                   (SELECT ch.handle FROM client_channels cc2 JOIN channels ch ON ch.id=cc2.channel_id
+                      WHERE cc2.client_id=cl.id AND cc2.is_active AND ch.platform_slug='telegram'
+                        AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
             FROM events e
             LEFT JOIN conf_conferences cc ON cc.event_id = e.id
+            LEFT JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
             LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
             WHERE e.id = $1
             """,
@@ -401,7 +488,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             """
             SELECT cs.start_time, cs.end_time,
                    COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
-                   c.name as speaker_name, cse.role
+                   c.name as speaker_name, cse.role, cse.id AS ec_id
             FROM conf_sessions cs
             LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
@@ -411,7 +498,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             """,
             event_id, day
         ) if is_program_event else []
+        _prog_slug = conf_row["event_slug"] if conf_row else None
+        _prog_link_mode = conf_row["default_link_mode"] if conf_row else None
+        _prog_bot = conf_row["bot_handle"] if conf_row else None
         program_lines = []
+        program_lines_links = []   # для {day_program_with_links} — имя спикера ссылкой
         for s in day_sessions:
             t_start = _fmt_time(s["start_time"])
             t_end = _fmt_time(s["end_time"])
@@ -427,7 +518,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             role_label = ROLE_LABELS_DAY.get(s["role"] or "", "")
             speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
             program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
+            # Версия со ссылкой: имя спикера — <a href=карточка>Имя</a>
+            if name:
+                _link = speaker_card_link(_prog_slug, s["ec_id"], _prog_link_mode, _prog_bot)
+                name_html = f'<a href="{_link}">{name}</a>' if _link else name
+                speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
+            else:
+                speaker_part_l = ""
+            program_lines_links.append(f"{bold_time}: {topic}{speaker_part_l}".strip(": "))
         day_program = "\n".join(program_lines)
+        day_program_with_links = "\n".join(program_lines_links)
 
         day_speakers_gifts = ""
         next_day_mention = ""
@@ -490,7 +590,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         text = build_day_message(text, day, conf_title, day_date_str, day_program,
                                   stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention,
-                                  day_title=day_title, day_datetime=day_datetime_str)
+                                  day_title=day_title, day_datetime=day_datetime_str,
+                                  day_program_with_links=day_program_with_links)
         btn_url = (btn_url
                    .replace("{stream_url}", stream_url)
                    .replace("{landing_url}", reg_url)
@@ -510,13 +611,21 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.photo_url AS speaker_photo,
                        pu_tg.username AS personal_tg_username,
                        c.tg_channel_url, c.instagram_url,
+                       c.vk_url, c.max_url, c.website_url,
+                       c.title AS positioning, c.hub_about AS bio,
                        c.achievements,
-                       cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                       cse.id AS ec_id, cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
                        cse.gift_raffle_title,
-                       e.landing_url AS registration_url
+                       e.slug AS event_slug,
+                       e.landing_url AS registration_url,
+                       cl.default_link_mode,
+                       (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+                          WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
+                            AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
                 FROM event_collaborators cse
                 JOIN collaborators c ON c.id = cse.speaker_id
                 JOIN events e ON e.id = cse.event_id
+                JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                 LEFT JOIN platform_users pu_tg
                   ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 WHERE cse.id=$1
@@ -536,12 +645,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 # подставляется — у спикера всегда есть хотя бы фото профиля.
                 if not photo:
                     photo = sp["speaker_poster"] or sp["speaker_photo"]
+                card_link = speaker_card_link(sp["event_slug"], sp["ec_id"],
+                                              sp["default_link_mode"], sp["bot_handle"])
                 text = build_speaker_intro_message(
                     text, sp["speaker_name"], sp["personal_tg_username"],
                     sp["tg_channel_url"], sp["instagram_url"],
                     sp["achievements"], sp["role"],
                     topic, sp["gift_after_speech_title"],
-                    sp["gift_raffle_title"], sp["registration_url"]
+                    sp["gift_raffle_title"], sp["registration_url"],
+                    bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
+                    vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"]
                 )
                 reg_url = sp["registration_url"] or ""
                 btn_url = (btn_url
@@ -561,15 +674,23 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                           ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                           LIMIT 1) as speaker_poster,
                        pu_tg.username as speaker_personal_tg,
+                       c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
+                       c.title AS positioning, c.hub_about AS bio, c.achievements,
+                       cse.role, cse.id AS ec_id, e.slug AS event_slug,
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
                        cse.gift_lead_magnet_id, cse.gift_package_id,
                        lm.name AS lm_name, lm.url AS lm_url,
                        lp.name AS lp_name, lp.slug AS lp_slug,
-                       e.stream_url
+                       e.stream_url,
+                       cl.default_link_mode,
+                       (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+                          WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
+                            AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
                 FROM conf_sessions cs
                 LEFT JOIN events e ON e.id = cs.event_id
+                LEFT JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 LEFT JOIN platform_users pu_tg
@@ -605,11 +726,24 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 tmpl_text=tmpl_text,
             )
         else:  # 5min_before
+            card_link = speaker_card_link(session_data.get("event_slug"), session_data.get("ec_id"),
+                                          session_data.get("default_link_mode"), session_data.get("bot_handle"))
             text = build_pre_start_message(
                 text,
                 session_data.get("speaker_name"),
                 session_data.get("speaker_topic") or session_data.get("session_title"),
                 stream_url,
+                personal_tg=session_data.get("speaker_personal_tg"),
+                tg_channel_url=session_data.get("tg_channel_url"),
+                instagram_url=session_data.get("instagram_url"),
+                vk_url=session_data.get("vk_url"),
+                max_url=session_data.get("max_url"),
+                website_url=session_data.get("website_url"),
+                achievements=session_data.get("achievements"),
+                role=session_data.get("role"),
+                bio=session_data.get("bio"),
+                positioning=session_data.get("positioning"),
+                card_link=card_link,
             )
         btn_url = btn_url.replace("{stream_url}", stream_url)
 
@@ -688,9 +822,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, e.description as conf_description,
-                   e.landing_url AS registration_url, cc.raffle_url
+                   e.landing_url AS registration_url, e.slug AS event_slug, cc.raffle_url,
+                   cl.default_link_mode,
+                   (SELECT ch.handle FROM client_channels cc2 JOIN channels ch ON ch.id=cc2.channel_id
+                      WHERE cc2.client_id=cl.id AND cc2.is_active AND ch.platform_slug='telegram'
+                        AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
+            LEFT JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
             WHERE e.id=$1
             """,
             event_id
@@ -699,6 +838,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_desc = html_to_telegram((conf_row["conf_description"] or "") if conf_row else "")
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
+        _c_slug = conf_row["event_slug"] if conf_row else None
+        _c_link_mode = conf_row["default_link_mode"] if conf_row else None
+        _c_bot = conf_row["bot_handle"] if conf_row else None
 
         raw_first_date = first_day["day_date"] if first_day else None
         conf_date_str = f"{raw_first_date.day} {RU_MONTHS[raw_first_date.month - 1]}" if raw_first_date else ""
@@ -710,12 +852,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         # Программа дня — только если есть привязка к конкретному дню
         day_program = ""
+        day_program_with_links = ""
         if target_day_num:
             day_sessions = await conn.fetch(
                 """
                 SELECT cs.start_time, cs.end_time,
                        COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
-                       c.name as speaker_name, cse.role
+                       c.name as speaker_name, cse.role, cse.id AS ec_id
                 FROM conf_sessions cs
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
@@ -726,6 +869,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 event_id, target_day_num
             )
             program_lines = []
+            program_lines_links = []
             for s in day_sessions:
                 t_start = _fmt_time(s["start_time"])
                 t_end = _fmt_time(s["end_time"])
@@ -741,7 +885,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 role_label = ROLE_LABELS_DAY.get(s["role"] or "", "")
                 speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
                 program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
+                if name:
+                    _link = speaker_card_link(_c_slug, s["ec_id"], _c_link_mode, _c_bot)
+                    name_html = f'<a href="{_link}">{name}</a>' if _link else name
+                    speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
+                else:
+                    speaker_part_l = ""
+                program_lines_links.append(f"{bold_time}: {topic}{speaker_part_l}".strip(": "))
             day_program = "\n".join(program_lines)
+            day_program_with_links = "\n".join(program_lines_links)
 
         if not photo:
             photo = await get_default_event_photo(conn, event_id)
@@ -753,6 +905,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         text = text.replace("{day_number}", str(day_number))
         text = text.replace("{day_ordinal}", ordinal)
         text = text.replace("{day_date}", day_date_str)
+        text = text.replace("{day_program_with_links}", day_program_with_links or day_program)
         text = text.replace("{day_program}", day_program)
         text = text.replace("{stream_url}", stream_url)
         text = text.replace("{landing_url}", reg_url)
@@ -761,6 +914,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         # Убираем незамененные строки с плейсхолдерами, если значение пустое
         if not day_program:
+            text = re.sub(r"^.*\{day_program_with_links\}.*$\n?", "", text, flags=re.MULTILINE)
             text = re.sub(r"^.*\{day_program\}.*$\n?", "", text, flags=re.MULTILINE)
         if not stream_url:
             text = re.sub(r"^.*\{stream_url\}.*$\n?", "", text, flags=re.MULTILINE)
@@ -786,6 +940,29 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Если ссылка пустая — убираем строку с висящим плейсхолдером.
         if not vip_url:
             text = re.sub(r"^.*\{vip_url\}.*$\n?", "", text, flags=re.MULTILINE)
+
+    # Финальная зачистка: любой известный плейсхолдер, не подставленный этим
+    # типом шаблона (клиент вставил его вручную в неподходящий тип), НЕ должен
+    # уйти получателю сырым. Убираем строку целиком, если плейсхолдер — единственное
+    # значимое на ней, иначе просто вырезаем сам плейсхолдер.
+    _KNOWN_PLACEHOLDERS = [
+        "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
+        "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
+        "speaker_bio", "speaker_positioning", "speaker_card_link",
+        "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
+        "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
+        "conf_description", "day_number", "day_ordinal", "day_title", "day_date",
+        "day_datetime", "day_program", "day_program_with_links", "next_day_mention",
+        "raffle_url", "day_speakers_gifts", "vip_url",
+        # ⚠️ НЕ включаем {first_name} и {game_link} — они персонализируются
+        # per-получатель в broadcast.py уже ПОСЛЕ build_message_content.
+    ]
+    for ph in _KNOWN_PLACEHOLDERS:
+        token = "{" + ph + "}"
+        if token in text:
+            # строка, где плейсхолдер один (возможно с ярлыком/эмодзи) → удалить строку
+            text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*$\n?", "", text, flags=re.MULTILINE)
+            text = text.replace(token, "")
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 

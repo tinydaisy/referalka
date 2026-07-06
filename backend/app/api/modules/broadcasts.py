@@ -424,15 +424,14 @@ async def list_templates(
             "day_before_09_12_unreg", "day_before_09_12_reg",
             "event_live",
         }
-        # Турнир получает (помимо общих) рассылку знакомства со спикерами и жюри —
-        # тот же speaker_intro, что у конференции (generate_schedules берёт всех
-        # видимых event_collaborators, включая жюри).
-        TURNIR_EXTRA_TYPES = {"speaker_intro"}
+        # Турнир получает (помимо общих) рассылку знакомства со спикерами и жюри
+        # (speaker_intro) И «за 5 минут до выступления» (5min_before) — как конференция.
+        TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before"}
         for tpl in DEFAULT_TEMPLATES:
-            # event_live — только мероприятиям; 5min_before — только конференциям.
-            if tpl["type"] == "event_live" and is_conf:
+            # event_live — только мероприятиям; 5min_before — конференциям и турнирам.
+            if tpl["type"] == "event_live" and (is_conf or is_turnir):
                 continue
-            if tpl["type"] == "5min_before" and not is_conf:
+            if tpl["type"] == "5min_before" and not (is_conf or is_turnir):
                 continue
             if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
                 # Турниру дополнительно разрешаем speaker_intro (знакомство со спикерами/жюри).
@@ -541,20 +540,18 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
         "30min_before", "2h_before_unreg", "2h_before_reg",
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
-    TURNIR_EXTRA_TYPES = {"speaker_intro"}
-    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf),
-    # «за 5 мин до выступления» (5min_before) и «подарок спикера после
-    # выступления» (gift) — у турнира есть спикеры и программа по сессиям.
+    # Турнир: знакомство (speaker_intro) + «за 5 мин до выступления» (5min_before).
+    TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before"}
+    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf)
+    # и «подарок спикера после выступления» (gift).
     if for_presets:
-        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "5min_before", "gift"}
+        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "gift"}
     out = []
     for tpl in DEFAULT_TEMPLATES:
-        if tpl["type"] == "event_live" and is_conf:
+        if tpl["type"] == "event_live" and (is_conf or is_turnir):
             continue
-        if tpl["type"] == "5min_before" and not is_conf:
-            # Турниру в режиме пресетов 5min_before разрешён.
-            if not (for_presets and is_turnir):
-                continue
+        if tpl["type"] == "5min_before" and not (is_conf or is_turnir):
+            continue
         if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
             if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
                 continue
