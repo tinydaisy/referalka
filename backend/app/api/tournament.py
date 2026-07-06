@@ -781,14 +781,6 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
         if rc:
             juror_refcode_to_ec[rc] = j["juror_ec_id"]
 
-    # contact_id жюри → его juror_ec_id (для конфликта у спикеров-ec, которых
-    # жюри привело в базу: contacts.first_referrer_contact_id = contact жюри).
-    juror_contact_to_ec: dict[int, int] = {}
-    for j in jurors:
-        cid = j.get("contact_id")
-        if cid is not None:
-            juror_contact_to_ec[cid] = j["juror_ec_id"]
-
     # реферер каждого ep-участника + имя реферера
     ep_ids = [s["sid"] for s in subjects if s["kind"] == "ep"]
     referrer_by_sid: dict[int, dict] = {}
@@ -810,23 +802,30 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
                     "ref_code": r["referrer_ref_code"],
                 }
 
-    # реферер каждого ec-спикера: кто привёл его в базу (first_referrer_contact_id).
+    # реферер каждого ec-спикера: кто привёл его НА ЭТО СОБЫТИЕ. Спикер почти всегда
+    # ещё и event_participants — берём referrer_ref_code оттуда (по contact_id спикера),
+    # fallback на contacts.first_referrer_contact_id. Реферер выражен как ref_code.
     ec_ids = [s["sid"] for s in subjects if s["kind"] == "ec"]
     ec_referrer_by_sid: dict[int, dict] = {}
     if ec_ids:
         ec_ref_rows = await db.fetch(
-            """SELECT cse.id AS sid, ct.first_referrer_contact_id AS rcid,
-                      rc.name AS referrer_name
+            """SELECT cse.id AS sid,
+                      COALESCE(ep.referrer_ref_code, fr.ref_code) AS rcode,
+                      COALESCE(epr.name, fr.name) AS referrer_name
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
                  JOIN contacts ct ON ct.id = c.contact_id
-                 LEFT JOIN contacts rc ON rc.id = ct.first_referrer_contact_id
-                WHERE cse.id = ANY($1::int[]) AND ct.first_referrer_contact_id IS NOT NULL""",
+                 LEFT JOIN event_participants ep
+                        ON ep.event_id = cse.event_id AND ep.contact_id = ct.id
+                 LEFT JOIN contacts epr ON epr.ref_code = ep.referrer_ref_code AND epr.merged_into IS NULL
+                 LEFT JOIN contacts fr ON fr.id = ct.first_referrer_contact_id
+                WHERE cse.id = ANY($1::int[])""",
             ec_ids,
         )
         for r in ec_ref_rows:
-            ec_referrer_by_sid[r["sid"]] = {
-                "name": r["referrer_name"], "contact_id": r["rcid"]}
+            if r["rcode"]:
+                ec_referrer_by_sid[r["sid"]] = {
+                    "name": r["referrer_name"], "ref_code": r["rcode"]}
 
     # обогащаем subjects: имя реферода + список жюри-рефоводов (конфликтных)
     subjects_out = []
@@ -844,7 +843,7 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
             ref = ec_referrer_by_sid.get(s["sid"])
             if ref:
                 item["referrer_name"] = ref["name"]
-                jec = juror_contact_to_ec.get(ref["contact_id"])
+                jec = juror_refcode_to_ec.get(ref["ref_code"])
                 if jec is not None:
                     item["referrer_juror_ec_ids"] = [jec]
         subjects_out.append(item)
@@ -988,7 +987,6 @@ async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_curr
     #  • ep-участник: referrer_ref_code == ref_code жюри;
     #  • ec-спикер: contacts.first_referrer_contact_id == contact_id жюри.
     juror_refcode_to_ec = {j["ref_code"]: j["juror_ec_id"] for j in jurors if j.get("ref_code")}
-    juror_contact_to_ec = {j["contact_id"]: j["juror_ec_id"] for j in jurors if j.get("contact_id") is not None}
     conflict_juror_by_key: dict[str, set] = {}
     # реферер каждого ep-субъекта
     ep_ids = [s["sid"] for s in pool if s["kind"] == "ep"]
@@ -1000,18 +998,23 @@ async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_curr
             jec = juror_refcode_to_ec.get(r["referrer_ref_code"])
             if jec is not None:
                 conflict_juror_by_key[_skey("ep", r["sid"])] = {jec}
-    # реферер каждого ec-спикера (кто привёл его в базу)
+    # реферер каждого ec-спикера: кто привёл его НА ЭТО СОБЫТИЕ (event_participants
+    # по contact_id спикера), fallback на first_referrer_contact_id. Через ref_code.
     ec_ids = [s["sid"] for s in pool if s["kind"] == "ec"]
     if ec_ids:
         ec_ref_rows = await db.fetch(
-            """SELECT cse.id AS sid, ct.first_referrer_contact_id AS rcid
+            """SELECT cse.id AS sid,
+                      COALESCE(ep.referrer_ref_code, fr.ref_code) AS rcode
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
                  JOIN contacts ct ON ct.id = c.contact_id
-                WHERE cse.id = ANY($1::int[]) AND ct.first_referrer_contact_id IS NOT NULL""",
+                 LEFT JOIN event_participants ep
+                        ON ep.event_id = cse.event_id AND ep.contact_id = ct.id
+                 LEFT JOIN contacts fr ON fr.id = ct.first_referrer_contact_id
+                WHERE cse.id = ANY($1::int[])""",
             ec_ids)
         for r in ec_ref_rows:
-            jec = juror_contact_to_ec.get(r["rcid"])
+            jec = juror_refcode_to_ec.get(r["rcode"])
             if jec is not None:
                 conflict_juror_by_key.setdefault(_skey("ec", r["sid"]), set()).add(jec)
 
