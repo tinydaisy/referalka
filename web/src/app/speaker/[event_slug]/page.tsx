@@ -2464,6 +2464,34 @@ function MyResultsTab({ token }: { token: string }) {
                         )}
                       </div>
                     ))}
+                    {/* Пакет схемы s1 (напр. «Вовлечение»): полный расчёт —
+                        моя сырая сумма, лидер (фамилия+значение), нормализация ×10. */}
+                    {!pkgCollapsed && pkg.scheme === 's1' && (() => {
+                      const myRaw = st.package_raw_sums?.[String(pkg.id)]
+                      const leader = pkg.leader
+                      return (
+                        <div style={{ marginTop: 8, borderTop: '2px solid #e2e8f0', paddingTop: 8, fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Моя сумма баллов (с учётом весов)</span>
+                            <b style={{ color: DARK }}>{myRaw ?? '—'}</b>
+                          </div>
+                          {leader && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Лидер: {leader.name}</span>
+                              <b style={{ color: DARK }}>{leader.value}</b>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 12 }}>
+                            <span>Расчёт: моя сумма ÷ сумма лидера × 10</span>
+                            <span>{myRaw != null && leader?.value ? `${myRaw} ÷ ${leader.value} × 10` : ''}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: DARK, marginTop: 2 }}>
+                            <span>Нормализованный балл пакета</span>
+                            <span>{pkgScore ?? '—'}</span>
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })}

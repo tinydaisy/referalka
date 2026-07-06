@@ -1778,6 +1778,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
             "total": me["total"] if me else None,
             "cells": me["cells"] if me else {},
             "package_scores": me.get("package_scores") if me else {},
+            "package_raw_sums": me.get("package_raw_sums") if me else {},
             "jury_detail": me.get("jury_detail") if me else {},
             "columns": cols,
             "packages": result.get("packages", []),
