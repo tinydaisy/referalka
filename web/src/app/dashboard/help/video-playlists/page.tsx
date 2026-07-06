@@ -81,25 +81,22 @@ export default function VideoPlaylistsPage() {
         </a>
       </div>
 
-      {/* Уроки по шагам */}
-      <div className="space-y-4">
-        {LESSONS.map((l) => (
-          <div key={l.step} className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                   style={{ background: 'linear-gradient(135deg, #25455D, #0a1520)' }}>
-                {l.step}
-              </div>
-              <div className="flex-1 min-w-0 pt-0.5">
-                <div className="text-xs font-bold uppercase tracking-wide" style={{ color: PEACH === '#FFCFA4' ? '#c98a4b' : PEACH }}>
-                  Шаг {l.step}
+      {/* YouTube — каждый урок отдельным плеером */}
+      {tab === 'yt' && (
+        <div className="space-y-4">
+          {LESSONS.map((l) => (
+            <div key={l.step} className="bg-white rounded-2xl border border-gray-100 p-4">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                     style={{ background: 'linear-gradient(135deg, #25455D, #0a1520)' }}>
+                  {l.step}
                 </div>
-                <h2 className="text-sm font-bold leading-snug" style={{ color: BRAND }}>{l.title}</h2>
+                <div className="flex-1 min-w-0 pt-0.5">
+                  <div className="text-xs font-bold uppercase tracking-wide" style={{ color: '#c98a4b' }}>Шаг {l.step}</div>
+                  <h2 className="text-sm font-bold leading-snug" style={{ color: BRAND }}>{l.title}</h2>
+                </div>
               </div>
-            </div>
-
-            <div className="relative w-full rounded-xl overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
-              {tab === 'yt' ? (
+              <div className="relative w-full rounded-xl overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
                 <iframe
                   src={`https://www.youtube-nocookie.com/embed/${l.yt}`}
                   title={`Шаг ${l.step}: ${l.title}`}
@@ -107,33 +104,53 @@ export default function VideoPlaylistsPage() {
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />
-              ) : l.vk ? (
-                <iframe
-                  src={`https://vkvideo.ru/video_ext.php?oid=-212804884&id=${l.vk}&hd=2`}
-                  title={`Шаг ${l.step}: ${l.title}`}
-                  className="absolute inset-0 w-full h-full"
-                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture; screen-wake-lock;"
-                  allowFullScreen
-                  frameBorder="0"
-                />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 gap-2 bg-gray-50">
-                  <p className="text-sm text-gray-500">Это видео пока доступно только на YouTube.</p>
-                  <a href={VK_PLAYLIST_LINK} target="_blank" rel="noopener noreferrer"
-                     className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    Открыть плейлист во ВКонтакте <ExternalLink size={12} />
-                  </a>
-                </div>
-              )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ВКонтакте — один плеер всего плейлиста (VK не даёт встроить отдельные видео
+          без прямых ссылок) + список шагов. Навигация по урокам — внутри плеера. */}
+      {tab === 'vk' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div className="flex items-center gap-2 mb-3 font-bold" style={{ color: BRAND }}>
+              <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold" style={{ background: '#0077FF' }}>VK</span>
+              Плейлист целиком — переключайте уроки прямо в плеере
+            </div>
+            <div className="relative w-full rounded-xl overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
+              <iframe
+                src="https://vkvideo.ru/video_ext.php?oid=-212804884&id=456239050&hd=2&list=ln-placeholder"
+                title="Видео-инструкции ПЛЮСОН (ВКонтакте)"
+                className="absolute inset-0 w-full h-full"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture; screen-wake-lock;"
+                allowFullScreen
+                frameBorder="0"
+              />
             </div>
           </div>
-        ))}
-      </div>
 
-      {tab === 'vk' && (
-        <p className="text-xs text-gray-400 mt-4">
-          Отдельные видео во ВКонтакте добавим по мере получения ссылок — пока откройте весь плейлист по кнопке выше.
-        </p>
+          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+            <h2 className="text-base font-bold mb-3" style={{ color: BRAND }}>Уроки в плейлисте — по шагам</h2>
+            <div className="space-y-2.5">
+              {LESSONS.map((l) => (
+                <div key={l.step} className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                       style={{ background: 'linear-gradient(135deg, #25455D, #0a1520)' }}>
+                    {l.step}
+                  </div>
+                  <div className="text-sm text-gray-700 leading-snug pt-0.5">{l.title}</div>
+                </div>
+              ))}
+            </div>
+            <a href={VK_PLAYLIST_LINK} target="_blank" rel="noopener noreferrer"
+               className="inline-flex items-center gap-1.5 mt-4 px-3 py-2 rounded-lg text-white text-sm font-medium"
+               style={{ background: '#0077FF' }}>
+              Открыть весь плейлист во ВКонтакте <ExternalLink size={14} />
+            </a>
+          </div>
+        </div>
       )}
     </div>
   )
