@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
+import WhatsAppTab from '@/components/channels/WhatsAppTab'
 
 interface Platform {
   slug: string
@@ -63,7 +64,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 export default function ChannelsPage() {
-  const [tab, setTab] = useState<'bots' | 'chats'>('bots')
+  const [tab, setTab] = useState<'bots' | 'chats' | 'whatsapp'>('bots')
   const [me, setMe] = useState<Me | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
@@ -132,6 +133,7 @@ export default function ChannelsPage() {
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
         <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
+        <TabBtn active={tab === 'whatsapp'} onClick={() => setTab('whatsapp')}>WhatsApp</TabBtn>
       </div>
 
       {tab === 'bots' && (
@@ -156,6 +158,8 @@ export default function ChannelsPage() {
       )}
 
       {tab === 'chats' && <BroadcastChatsTab />}
+
+      {tab === 'whatsapp' && <WhatsAppTab />}
 
       {(creating || editing) && (
         <ChannelModal

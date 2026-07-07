@@ -1,0 +1,15 @@
+{
+  "name": "plusson-wa-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WhatsApp-мост ПЛЮСОН: мультисессия (сессия на client_id) через whatsapp-web.js. Слушает только 127.0.0.1, доступен FastAPI-бэкенду.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

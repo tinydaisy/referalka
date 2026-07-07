@@ -536,6 +536,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ bot_token }),
       }),
+    // WhatsApp через мост (привязка по QR)
+    connectWhatsapp: () =>
+      request('/api/v1/channels/connect-whatsapp', { method: 'POST' }),
+    whatsappStatus: () => request('/api/v1/channels/whatsapp/status'),
+    whatsappQr: () => request('/api/v1/channels/whatsapp/qr'),
+    whatsappChats: () => request('/api/v1/channels/whatsapp/chats'),
+    whatsappLogout: () =>
+      request('/api/v1/channels/whatsapp/logout', { method: 'POST' }),
     vkOauthUrl: (channel_id: number) =>
       request(`/api/v1/channels/vk/oauth-url?channel_id=${channel_id}`),
     vkDeleteAdminToken: (channel_id: number) =>

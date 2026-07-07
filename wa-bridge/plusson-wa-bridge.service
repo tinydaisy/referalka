@@ -1,0 +1,19 @@
+[Unit]
+Description=PLUSSON WhatsApp Bridge (whatsapp-web.js, multi-session)
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/var/www/plusson/wa-bridge
+EnvironmentFile=/var/www/plusson/wa-bridge/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+# Chromium может распухнуть — мягкий предел, systemd перезапустит при превышении
+MemoryHigh=1200M
+MemoryMax=1600M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

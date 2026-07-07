@@ -805,7 +805,7 @@ async def _send_broadcast_to_client_chats(
     client_id = schedule["client_id"]
     rows = await conn.fetch(
         """SELECT platform, chat_id FROM client_broadcast_chats
-            WHERE client_id = $1 AND platform IN ('vk','max') AND is_active = TRUE
+            WHERE client_id = $1 AND platform IN ('vk','max','whatsapp') AND is_active = TRUE
               AND use_for_broadcasts = TRUE AND is_private = $2""",
         client_id, is_private,
     )
@@ -870,6 +870,32 @@ async def _send_broadcast_to_client_chats(
                         logger.warning(f"Отправка в MAX-чат клиента {c} упала: {ex}")
         except Exception as ex:
             logger.warning(f"MAX-часть чатов клиента упала: {ex}")
+
+    # ── WhatsApp-чаты (через мост, только текст; ссылки/видео/кнопка — в тексте) ──
+    wa_chats = [str(r["chat_id"]).strip() for r in rows if r["platform"] == "whatsapp" and r["chat_id"]]
+    wa_chats = [c for c in wa_chats if c]
+    if wa_chats:
+        try:
+            from app.services import whatsapp_api as wa
+            from app.services.message_builder import html_to_vk_text as _to_plain
+            wa_text = _to_plain(text or "")
+            if media_type == "video" and video_url:
+                wa_text = f"{wa_text}\n\n🎬 Видео: {video_url}" if wa_text else video_url
+            elif photo_url:
+                # WhatsApp через мост шлём текстом; картинку прикладываем ссылкой
+                wa_text = f"{wa_text}\n\n{photo_url}" if wa_text else photo_url
+            if button_url:
+                wa_text = f"{wa_text}\n\n{button_text or 'Подробнее'}: {button_url}"
+            if wa_text.strip():
+                for c in wa_chats:
+                    try:
+                        res = await wa.send_message(client_id, c, wa_text)
+                        if res and res.get("ok"):
+                            sent += 1
+                    except Exception as ex:
+                        logger.warning(f"Отправка в WhatsApp-чат клиента {c} упала: {ex}")
+        except Exception as ex:
+            logger.warning(f"WhatsApp-часть чатов клиента упала: {ex}")
 
     # ── VK-беседы ──
     vk_chats = [str(r["chat_id"]).strip() for r in rows if r["platform"] == "vk" and r["chat_id"]]

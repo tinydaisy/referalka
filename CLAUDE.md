@@ -90,6 +90,20 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### WhatsApp как канал доставки через мост (миграция 198 от 2026-07-07, в разработке)
+
+**Зачем.** WhatsApp (в отличие от TG/VK/MAX) НЕ даёт бота с токеном — сообщения шлёт залогиненный через WhatsApp Web клиент (headless Chromium). Поэтому WhatsApp не ложится в модель `channels` с `bot_token`. Решение — отдельный **Node-мост** ([wa-bridge/](wa-bridge/), `whatsapp-web.js`), мультисессия: **одна сессия на `client_id`** (клиент привязывает свой аккаунт по QR). Массовая рассылка идёт только в **свои чаты/группы**, где состоит аккаунт (не по холодной базе номеров — это бан).
+
+**Мост** [wa-bridge/server.js](wa-bridge/server.js): Express + whatsapp-web.js, слушает **только `127.0.0.1:8790`**, защищён заголовком `X-Bridge-Token` (общий секрет). Сессии на диске (LocalAuth, `wa-bridge/data/wa-<client_id>/`) переживают рестарт. systemd-юнит `plusson-wa-bridge` ([wa-bridge/plusson-wa-bridge.service](wa-bridge/plusson-wa-bridge.service), MemoryMax=1600M). Эндпоинты: `POST /sessions/:cid/start`, `GET /status|/qr|/chats`, `POST /send {chatId,text}`, `POST /logout`. ⚠️ `state` часто подвисает на `authenticated` (не доходит до `ready`) — `getChats`/`sendMessage` при этом уже работают, поэтому «пригодны» ОБА состояния (`USABLE_STATES`).
+
+**БД (миграция 198):** платформа `whatsapp` в `platforms` (sort_order 4, `supports_buttons=FALSE`); CHECK `client_broadcast_chats.platform` расширен на `whatsapp`. WhatsApp-канал в `channels` — БЕЗ `bot_token` (привязка живёт на мосту), одна запись на клиента + `client_channels`.
+
+**Бэкенд:** обёртка [whatsapp_api.py](backend/app/services/whatsapp_api.py) (HTTP к мосту, `settings.wa_bridge_url/wa_bridge_token`). Эндпоинты в [channels.py](backend/app/api/channels.py): `POST /connect-whatsapp` (создаёт канал + стартует сессию), `GET /whatsapp/status|/qr|/chats`, `POST /whatsapp/logout`. Гейт — фича `channels` (та же, что своя-бота). Отправка — ветка в `_send_broadcast_to_client_chats` ([broadcast.py](backend/app/tasks/broadcast.py)): WhatsApp шлём **только текст** (картинку/видео/кнопку — ссылкой в тексте), через `wa.send_message(client_id, chat_id, text)`. `chat_id` = `<номер>@c.us` (личный) / `<...>@g.us` (группа) из `/chats`.
+
+**Фронт:** вкладка «WhatsApp» в разделе Каналы ([WhatsAppTab.tsx](web/src/components/channels/WhatsAppTab.tsx)) — кнопка «Подключить» → поллинг QR → после привязки список чатов аккаунта с галочками (выбранные пишутся в `client_broadcast_chats` platform=whatsapp через `api.miniApp.broadcastChats`). Рассылка уходит в них при галочке «слать также в общие чаты».
+
+**⚠️ Прод-требования:** Node 20 + системные libs Chromium (`libnss3` и т.д.) + Chromium из puppeteer (`~/.cache/puppeteer`). swap ≥2G (Chromium прожорлив). Мост — отдельный процесс, основной стек (api/celery/bot/web) не задевает.
+
 ### Коллабораторная: автозапись рейтинга + подписка на всех организаторов + рассылки v1 (миграции 193, 194 от 2026-07-03)
 
 **Организаторы коллаб-события РАВНОПРАВНЫ** — «главного создателя» нет. Владелец = любая запись `event_owners(status='accepted')`. Раньше рассылки коллаб-события ошибочно шли по базе owner-а; исправлено.

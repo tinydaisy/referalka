@@ -1116,3 +1116,126 @@ async def import_channel_csv(
         raise HTTPException(status_code=400, detail=str(e))
 
     return result
+
+
+# ─── WhatsApp: подключение через мост (whatsapp-web.js, привязка по QR) ─────
+#
+# WhatsApp работает не токеном, а залогиненной WhatsApp Web-сессией на мосту
+# (wa-bridge/, сессия на client_id). Привязка асинхронная:
+#   1. POST /connect-whatsapp — создаёт запись channels(platform=whatsapp) +
+#      client_channels, стартует сессию на мосту (тот начинает логин, родит QR).
+#   2. GET  /whatsapp/qr      — фронт поллит, показывает QR-картинку.
+#   3. Клиент сканирует WhatsApp'ом → state становится ready/authenticated.
+#   4. GET  /whatsapp/chats   — список чатов аккаунта для выбора в рассылки.
+#   5. POST /whatsapp/logout  — отвязать.
+#
+# Гейт — та же фича 'channels', что и для своего бота (VIP).
+
+async def _get_wa_channel(db, client_id: int):
+    """Не-системный WhatsApp-канал клиента (или None)."""
+    return await db.fetchrow(
+        """SELECT ch.id, cc.id AS cc_id
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'whatsapp' AND ch.is_system = FALSE
+            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
+        client_id,
+    )
+
+
+@router.post("/connect-whatsapp", summary="Подключить свой WhatsApp (привязка по QR)")
+async def connect_whatsapp(client=Depends(get_current_client), db=Depends(get_db)):
+    client_id = int(client["sub"])
+    await _assert_can_use_custom_bot(db, client_id)
+
+    from app.services import whatsapp_api as wa
+
+    if not await wa.is_alive():
+        raise HTTPException(status_code=502, detail="WhatsApp-мост недоступен. Попробуйте позже.")
+
+    # Создаём канал, если ещё нет (одна запись на клиента)
+    existing = await _get_wa_channel(db, client_id)
+    if not existing:
+        async with db.transaction():
+            channel_id = await db.fetchval(
+                """INSERT INTO channels (platform_slug, display_name, handle, is_system, is_test)
+                   VALUES ('whatsapp', 'WhatsApp', NULL, FALSE, FALSE) RETURNING id""",
+            )
+            await db.execute(
+                """UPDATE client_channels cc SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id AND cc.client_id = $1
+                      AND ch.platform_slug = 'whatsapp' AND cc.is_active = TRUE""",
+                client_id,
+            )
+            await db.execute(
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
+                client_id, channel_id,
+            )
+    else:
+        channel_id = existing["id"]
+
+    try:
+        await wa.start_session(client_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Не удалось запустить сессию на мосту: {e}")
+
+    return {"ok": True, "channel_id": channel_id}
+
+
+@router.get("/whatsapp/status", summary="Статус привязки WhatsApp")
+async def whatsapp_status(client=Depends(get_current_client), db=Depends(get_db)):
+    client_id = int(client["sub"])
+    from app.services import whatsapp_api as wa
+    channel = await _get_wa_channel(db, client_id)
+    if not channel:
+        return {"connected": False, "state": "none"}
+    try:
+        state = await wa.get_status(client_id)
+    except Exception:
+        state = "unknown"
+    return {"connected": True, "channel_id": channel["id"], "state": state}
+
+
+@router.get("/whatsapp/qr", summary="QR-код привязки WhatsApp")
+async def whatsapp_qr(client=Depends(get_current_client), db=Depends(get_db)):
+    client_id = int(client["sub"])
+    await _assert_can_use_custom_bot(db, client_id)
+    from app.services import whatsapp_api as wa
+    try:
+        data = await wa.get_qr(client_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Мост недоступен: {e}")
+    return {"state": data.get("state", "none"), "qr": data.get("qr")}
+
+
+@router.get("/whatsapp/chats", summary="Список чатов WhatsApp-аккаунта клиента")
+async def whatsapp_chats(client=Depends(get_current_client), db=Depends(get_db)):
+    client_id = int(client["sub"])
+    await _assert_can_use_custom_bot(db, client_id)
+    from app.services import whatsapp_api as wa
+    try:
+        chats = await wa.list_chats(client_id)
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"WhatsApp ещё не готов: {e}")
+    # Группы сверху, потом по имени
+    chats.sort(key=lambda c: (not c.get("isGroup"), (c.get("name") or "").lower()))
+    return {"chats": chats}
+
+
+@router.post("/whatsapp/logout", summary="Отвязать WhatsApp")
+async def whatsapp_logout(client=Depends(get_current_client), db=Depends(get_db)):
+    client_id = int(client["sub"])
+    await _assert_can_use_custom_bot(db, client_id)
+    from app.services import whatsapp_api as wa
+    try:
+        await wa.logout(client_id)
+    except Exception:
+        pass  # мост мог не держать сессию — не критично
+    channel = await _get_wa_channel(db, client_id)
+    if channel:
+        async with db.transaction():
+            await db.execute("DELETE FROM client_channels WHERE id = $1", channel["cc_id"])
+            # чат-записи этой платформы больше не отправятся (канал ушёл)
+            await db.execute("DELETE FROM channels WHERE id = $1", channel["id"])
+    return {"ok": True}

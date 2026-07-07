@@ -186,8 +186,8 @@ async def add_chat(
     client_id = int(client["sub"])
     level = await _assert_feature(db, client_id)
     platform = (data.platform or "").lower()
-    if platform not in ("telegram", "vk", "max"):
-        raise HTTPException(status_code=400, detail="platform должен быть telegram | vk | max")
+    if platform not in ("telegram", "vk", "max", "whatsapp"):
+        raise HTTPException(status_code=400, detail="platform должен быть telegram | vk | max | whatsapp")
     chat_id = (data.chat_id or "").strip()
     if not chat_id:
         raise HTTPException(status_code=400, detail="Укажите ID чата")
@@ -202,7 +202,7 @@ async def add_chat(
             client_id, platform,
         )
         if existing is not None and str(existing) != chat_id:
-            plat_label = {"telegram": "Telegram", "vk": "VK", "max": "MAX"}.get(platform, platform)
+            plat_label = {"telegram": "Telegram", "vk": "VK", "max": "MAX", "whatsapp": "WhatsApp"}.get(platform, platform)
             raise HTTPException(
                 status_code=403,
                 detail=f"На тарифе Профи можно добавить только один чат для площадки {plat_label}. "

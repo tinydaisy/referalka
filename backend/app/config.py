@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     max_system_bot_username: str = "id890306512862_1_bot"
     max_api_base: str = "https://botapi.max.ru"
 
+    # WhatsApp-мост (whatsapp-web.js, отдельный Node-сервис на 127.0.0.1).
+    # Клиент привязывает свой WhatsApp по QR — сессия на client_id живёт на мосту.
+    wa_bridge_url: str = "http://127.0.0.1:8790"
+    wa_bridge_token: str = ""  # общий секрет с мостом (заголовок X-Bridge-Token)
+
     class Config:
         env_file = ".env"
         extra = "ignore"
