@@ -78,9 +78,9 @@ export default function PartnerProgramPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Партнёрская программа</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Приводите клиентов и получайте <b>10% бонусами</b> с каждой их оплаты подписки — пожизненно.
-          От {data.withdrawal_threshold_kopecks / 100}₽ можно вывести деньги (при активной платной подписке).
-          Бонусы можно тратить на свою подписку.
+          Приводите клиентов и получайте <b>10% бонусами</b> с каждой их оплаты подписки — в течение года.
+          Пока начисляем бонусными рублями — их можно тратить на свою подписку. Вывод живыми деньгами
+          сделаем позже, после решения юридических вопросов.
         </p>
       </div>
 
@@ -115,26 +115,18 @@ export default function PartnerProgramPage() {
                 </div>
               </div>
               <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => data.can_withdraw && setShowWithdrawModal(true)}
-                  disabled={!data.can_withdraw}
-                  title={data.withdrawal_block_reason || ''}
-                  className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  <Wallet size={14} /> Вывести
-                </button>
                 <a
                   href="/dashboard/settings?tab=subscription"
-                  className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2"
                 >
-                  На свою подписку
+                  <Wallet size={14} /> Потратить на подписку
                   <ArrowRight size={14} />
                 </a>
               </div>
             </div>
-            {data.withdrawal_block_reason && (
-              <div className="mt-3 text-xs text-gray-500 italic">{data.withdrawal_block_reason}</div>
-            )}
+            <div className="mt-3 text-xs text-gray-500 italic">
+              Вывод живыми деньгами станет доступен позже. Сейчас бонусы можно потратить на свою подписку.
+            </div>
           </div>
 
           {/* Реф-ссылки */}
