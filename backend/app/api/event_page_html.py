@@ -516,9 +516,14 @@ def _tg_url(raw):
     return "https://t.me/" + raw
 
 
-def _avatar_html(photo, name, size=56):
+def _avatar_html(photo, name, size=56, logo=False):
     photo = esc(photo or "")
     if photo:
+        if logo:
+            # Логотип партнёра — показываем целиком, с сохранением пропорций,
+            # без круга. Высота фиксирована, ширина авто (логотипы бывают широкие).
+            return (f'<div class="ava ava-logo" style="height:{size}px">'
+                    f'<img src="{photo}" alt="{esc(name or "")}"></div>')
         return (f'<div class="ava" style="width:{size}px;height:{size}px;'
                 f'background:center/cover url(\'{photo}\')"></div>')
     return (f'<div class="ava ava-empty" style="width:{size}px;height:{size}px">'
@@ -632,7 +637,7 @@ def _speaker_card(p, slot=None) -> str:
     return (
         f'<div class="sp-card" id="speaker-{ec_id}">'
         f'<div class="sp-head">'
-        f'{_avatar_html(p.get("photo_url"), p.get("name"), 56)}'
+        f'{_avatar_html(p.get("photo_url"), p.get("name"), 56, logo=role in ("general_partner", "partner"))}'
         f'<div class="sp-meta">{badge}'
         f'<div class="pname">{name}</div>{title_html}</div>'
         f'</div>'
@@ -1504,6 +1509,11 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .ava {{ border-radius:50%; flex:0 0 auto; border:2px solid #FFCFA4; margin:0 auto; }}
   .ava-empty {{ background: linear-gradient(45deg,#25455D,#0a1520); color:#FFCFA4;
     display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }}
+  /* Логотип партнёра — показываем целиком, не в круге (логотипы бывают широкие). */
+  .ava-logo {{ border-radius:12px; border:1px solid #eadfd2; background:#fff; padding:5px 8px;
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+    max-width:160px; box-sizing:border-box; }}
+  .ava-logo img {{ max-width:100%; height:100%; width:auto; object-fit:contain; display:block; }}
 
   /* VIP-кнопка */
   .vip-btn {{ display:block; width:100%; text-align:center; text-decoration:none;
