@@ -238,6 +238,11 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
     # lead_since (tournament_criteria.lead_count_since) — если задана, считаем
     # только funnel_runs.landed_at >= этой даты (чтобы старый лид-магнит с уже
     # накопленными лидами не давал фору). NULL → считаем все, как раньше.
+    # 'auto' без явного auto_kind = 'referrals' (исторический дефолт авто-сида).
+    # Раньше пустой auto_kind молча давал 0, хотя в UI критерий показывался как
+    # «Рефералы (авто)» (crit.auto_kind || 'referrals') — отсюда рассинхрон.
+    if not auto_kind:
+        auto_kind = "referrals"
     if auto_kind == "lead_magnet":
         if not subj or subj.get("kind") != "ec":
             return 0.0
@@ -699,7 +704,9 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
         raise HTTPException(status_code=404, detail="Пакет не найден")
     # auto_kind: для 'auto' → referrals/lead_magnet; для 'auto_number' → replace/sum
     if data.scorer == "auto":
-        auto_kind = data.auto_kind
+        # пустой auto_kind у 'auto' = referrals (иначе критерий молча считает 0,
+        # хотя в UI показывается как «Рефералы (авто)»)
+        auto_kind = data.auto_kind if data.auto_kind in ("referrals", "lead_magnet") else "referrals"
     elif data.scorer == "auto_number":
         auto_kind = data.auto_kind if data.auto_kind in ("replace", "sum") else "replace"
     else:
