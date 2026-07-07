@@ -55,23 +55,20 @@ export default function SubscriptionPage() {
 
   const sub = me?.subscription
   const features: string[] = me?.features || []
-  const selectedTariff = tariffs.find(t => t.slug === selectedSlug)
-  const selectedPriceKopecks = selectedTariff ? Math.round(Number(selectedTariff.price) * 100) : 0
-  const canPayWithBonus = selectedTariff && bonusBalance >= selectedPriceKopecks && selectedPriceKopecks > 0
-
   const isExpired = !sub || !sub.is_active || sub.days_left < 0
   const expiresStr = sub?.expires_at
     ? new Date(sub.expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
     : '—'
 
-  async function pay() {
-    if (!selectedSlug) return
+  async function pay(slug: string, tariff: any) {
+    if (!slug) return
+    setSelectedSlug(slug)
     setLoading(true)
     setError('')
     try {
       // Провайдер: LeadPay если у тарифа настроена карточка, иначе Prodamus.
-      const provider = selectedTariff?.leadpay_product_id ? 'leadpay' : 'prodamus'
-      const res = await api.subscriptions.createOrder(selectedSlug, provider)
+      const provider = tariff?.leadpay_product_id ? 'leadpay' : 'prodamus'
+      const res = await api.subscriptions.createOrder(slug, provider)
       if (res?.payment_url) window.location.href = res.payment_url
       else { setError('Не удалось создать заказ'); setLoading(false) }
     } catch (e: any) {
@@ -79,14 +76,15 @@ export default function SubscriptionPage() {
     }
   }
 
-  async function payWithBonus() {
-    if (!selectedSlug || !canPayWithBonus) return
-    if (!confirm(`Списать ${(selectedPriceKopecks / 100).toLocaleString('ru-RU')} ₽ с бонусного баланса?`)) return
+  async function payWithBonus(slug: string, priceKopecks: number) {
+    if (!slug || bonusBalance < priceKopecks || priceKopecks <= 0) return
+    if (!confirm(`Списать ${(priceKopecks / 100).toLocaleString('ru-RU')} ₽ с бонусного баланса?`)) return
+    setSelectedSlug(slug)
     setBonusLoading(true); setError('')
     try {
-      await api.subscriptions.payWithBonus(selectedSlug)
+      await api.subscriptions.payWithBonus(slug)
       setPaidBanner(true)
-      setBonusBalance(b => b - selectedPriceKopecks)
+      setBonusBalance(b => b - priceKopecks)
       setTimeout(() => window.location.reload(), 1500)
     } catch (e: any) {
       setError(e?.message || 'Ошибка списания бонусов'); setBonusLoading(false)
@@ -140,16 +138,25 @@ export default function SubscriptionPage() {
             Оплата идёт через Prodamus, чек 54-ФЗ приходит на email автоматически.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          {bonusBalance > 0 && (
+            <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+              💰 Бонусный баланс: <b>{(bonusBalance / 100).toLocaleString('ru-RU')} ₽</b>
+            </div>
+          )}
+
+          {error && <div className="mb-3 text-sm text-red-600">{error}</div>}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {tariffs.map(t => {
-              const selected = selectedSlug === t.slug
+              const isCurrent = me?.subscription?.tariff_slug === t.slug
+              const priceKopecks = Math.round(Number(t.price) * 100)
+              const busy = selectedSlug === t.slug && (loading || bonusLoading)
+              const canBonus = bonusBalance >= priceKopecks && priceKopecks > 0
               return (
-                <button
+                <div
                   key={t.id}
-                  type="button"
-                  onClick={() => setSelectedSlug(t.slug)}
-                  className={`text-left rounded-xl border p-4 transition-all ${
-                    selected ? 'border-[#25455D] ring-2 ring-[#25455D]/20 bg-blue-50/30' : 'border-gray-200 hover:border-gray-300'
+                  className={`flex flex-col rounded-xl border p-4 ${
+                    isCurrent ? 'border-[#25455D] ring-2 ring-[#25455D]/20 bg-blue-50/30' : 'border-gray-200'
                   }`}
                 >
                   {t.promo_banner_text && (
@@ -170,48 +177,33 @@ export default function SubscriptionPage() {
                   </div>
                   <div className="text-[11px] text-gray-400 mt-0.5">за {t.default_duration_days} дн.</div>
 
-                  <div className="space-y-1 mt-3 text-xs text-gray-600">
+                  <div className="space-y-1 mt-3 text-xs text-gray-600 flex-1">
                     <div>До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал</div>
                     <div>{t.broadcasts_daily_limit ? `${t.broadcasts_daily_limit.toLocaleString('ru-RU')} рассылок/сутки` : 'Безлимит рассылок'}</div>
                     {(t.feature_slugs || []).map((slug: string) => (
                       <div key={slug}>· {featureLabels[slug] || slug}</div>
                     ))}
                   </div>
-                </button>
+
+                  <button
+                    onClick={() => pay(t.slug, t)}
+                    disabled={busy}
+                    className="btn-gold w-full mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {busy && loading ? 'Создаём заказ…' : `Оплатить ${Number(t.price).toLocaleString('ru-RU')} ₽`}
+                  </button>
+                  {canBonus && (
+                    <button
+                      onClick={() => payWithBonus(t.slug, priceKopecks)}
+                      disabled={busy}
+                      className="w-full mt-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {busy && bonusLoading ? 'Списываем…' : 'Оплатить бонусами'}
+                    </button>
+                  )}
+                </div>
               )
             })}
-          </div>
-
-          {bonusBalance > 0 && (
-            <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-              💰 Бонусный баланс: <b>{(bonusBalance / 100).toLocaleString('ru-RU')} ₽</b>
-              {!canPayWithBonus && selectedTariff && (
-                <span className="text-gray-500 ml-2">
-                  · нужно ещё {((selectedPriceKopecks - bonusBalance) / 100).toLocaleString('ru-RU')} ₽ чтобы оплатить целиком
-                </span>
-              )}
-            </div>
-          )}
-
-          {error && <div className="mb-3 text-sm text-red-600">{error}</div>}
-
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={pay}
-              disabled={!selectedSlug || loading || bonusLoading}
-              className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Создаём заказ…' : 'Оплатить картой'}
-            </button>
-            {canPayWithBonus && (
-              <button
-                onClick={payWithBonus}
-                disabled={bonusLoading || loading}
-                className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {bonusLoading ? 'Списываем…' : `Оплатить бонусами (${(selectedPriceKopecks / 100).toLocaleString('ru-RU')} ₽)`}
-              </button>
-            )}
           </div>
         </div>
       )}
