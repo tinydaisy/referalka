@@ -70,11 +70,12 @@ async def list_addons(
     feats = await db.fetch(
         """SELECT id, slug, name, description, tagline, bullet_points,
                   price_monthly, price_6mo, promo_old_monthly, promo_old_6mo,
-                  min_tariff_slug
+                  min_tariff_slug, coming_soon, leadpay_bundle_pro_product_id
              FROM features
             WHERE is_addon = TRUE
-            ORDER BY price_monthly NULLS LAST, sort"""
+            ORDER BY coming_soon ASC, price_monthly NULLS LAST, sort"""
     )
+    pro_price = int(await db.fetchval("SELECT price FROM tariffs WHERE slug='pro'") or 0)
     # Активные аддоны клиента.
     owned = await db.fetch(
         """SELECT ca.feature_id, ca.expires_at, ca.status
@@ -107,7 +108,16 @@ async def list_addons(
         d["owned"] = bool(ow)
         d["expires_at"] = ow["expires_at"] if ow else None
         d["included_in_tariff"] = f["slug"] in in_tariff_slugs
-        d["available"] = _meets_min_tariff(client_slug, f["min_tariff_slug"])
+        d["coming_soon"] = bool(f["coming_soon"])
+        # «Скоро будет» — купить нельзя, показываем без цены/кнопки.
+        d["available"] = (not f["coming_soon"]) and _meets_min_tariff(client_slug, f["min_tariff_slug"])
+        # Комплект «Профи + модуль» одной оплатой — доступен, только если клиенту НЕ хватает тарифа
+        # и у модуля настроена bundle-карточка LeadPay.
+        d["bundle_available"] = bool(
+            (not f["coming_soon"]) and not d["available"] and f["leadpay_bundle_pro_product_id"]
+        )
+        d["bundle_price"] = (int(f["price_monthly"] or 0) + pro_price) if d["bundle_available"] else None
+        d.pop("leadpay_bundle_pro_product_id", None)
         out.append(d)
     return {"addons": out, "client_tariff": client_slug}
 
@@ -116,6 +126,7 @@ class AddonOrderRequest(BaseModel):
     feature_slug: str
     months: int = 1            # 1 или 6 (6 = цена со скидкой)
     provider: str = "prodamus"  # 'prodamus' | 'leadpay'
+    bundle: bool = False        # True = комплект «тариф Профи + модуль» одной оплатой (для клиента без Профи)
 
 
 @router.post("/order", summary="Создать заказ на оплату модуля")
@@ -133,25 +144,41 @@ async def create_addon_order(
 
     client_id = int(user["sub"])
     months = 6 if data.months >= 6 else 1
+    bundle = bool(data.bundle)
+    if bundle:
+        # Комплект «Профи + модуль» — только LeadPay-карточка, только на месяц.
+        provider = "leadpay"
+        months = 1
 
     feat = await db.fetchrow(
-        """SELECT id, slug, name, is_addon, price_monthly, price_6mo, min_tariff_slug,
+        """SELECT id, slug, name, is_addon, coming_soon, price_monthly, price_6mo, min_tariff_slug,
                   prodamus_payment_url, prodamus_payment_url_6mo,
-                  leadpay_product_id, leadpay_product_id_6mo
+                  leadpay_product_id, leadpay_product_id_6mo, leadpay_bundle_pro_product_id
              FROM features WHERE slug = $1""",
         data.feature_slug,
     )
     if not feat or not feat["is_addon"]:
         raise HTTPException(status_code=404, detail="Модуль не найден")
+    if feat["coming_soon"]:
+        raise HTTPException(status_code=400, detail="Этот модуль скоро будет доступен")
 
     client_slug = await _client_tariff_slug(db, client_id)
-    if not _meets_min_tariff(client_slug, feat["min_tariff_slug"]):
+    # Для комплекта проверку тарифа НЕ делаем — клиент как раз покупает Профи вместе с модулем.
+    if not bundle and not _meets_min_tariff(client_slug, feat["min_tariff_slug"]):
         raise HTTPException(
             status_code=403,
             detail=f"Модуль «{feat['name']}» доступен только на тарифе Профи и выше.",
         )
 
-    if months == 6:
+    if bundle:
+        leadpay_pid = feat["leadpay_bundle_pro_product_id"]
+        if not leadpay_pid:
+            raise HTTPException(status_code=400, detail="Для этого модуля не настроена карточка-комплект LeadPay")
+        # Цена комплекта = месяц модуля + цена тарифа Профи.
+        pro_price = await db.fetchval("SELECT price FROM tariffs WHERE slug='pro'")
+        price_month = int(feat["price_monthly"] or 0) + int(pro_price or 0)
+        pay_url = None
+    elif months == 6:
         price_month = feat["price_6mo"] or feat["price_monthly"]
         pay_url = feat["prodamus_payment_url_6mo"] or feat["prodamus_payment_url"]
         leadpay_pid = feat["leadpay_product_id_6mo"] or feat["leadpay_product_id"]
@@ -173,9 +200,9 @@ async def create_addon_order(
     client = await db.fetchrow("SELECT email, phone, name FROM clients WHERE id = $1", client_id)
 
     order_id = await db.fetchval(
-        """INSERT INTO addon_orders (client_id, feature_id, months, amount_total_kopecks, status, payment_provider)
-           VALUES ($1, $2, $3, $4, 'created', $5) RETURNING id""",
-        client_id, feat["id"], months, amount_kopecks, provider,
+        """INSERT INTO addon_orders (client_id, feature_id, months, amount_total_kopecks, status, payment_provider, bundle_with_pro)
+           VALUES ($1, $2, $3, $4, 'created', $5, $6) RETURNING id""",
+        client_id, feat["id"], months, amount_kopecks, provider, bundle,
     )
 
     if provider == "leadpay":
@@ -269,7 +296,7 @@ async def prodamus_addon_webhook(
         return {"ok": True, "ignored": "bad order_id"}
 
     order = await db.fetchrow(
-        "SELECT id, client_id, feature_id, months, status FROM addon_orders WHERE id = $1",
+        "SELECT id, client_id, feature_id, months, status, bundle_with_pro FROM addon_orders WHERE id = $1",
         order_id,
     )
     if not order:
@@ -338,6 +365,37 @@ async def _apply_paid_addon_order(
                 order["client_id"], order["feature_id"], str(add_days), months,
             )
 
+        # Комплект «Профи + модуль» — вместе с модулем активируем/продлеваем тариф Профи.
+        if order.get("bundle_with_pro"):
+            pro = await db.fetchrow(
+                "SELECT id, COALESCE(default_duration_days, 30) AS dur FROM tariffs WHERE slug='pro'"
+            )
+            if pro:
+                pro_days = int(pro["dur"] or 30)
+                ex_sub = await db.fetchrow(
+                    """SELECT id, expires_at FROM client_subscriptions
+                        WHERE client_id=$1 AND tariff_id=$2 AND status='active' AND expires_at > NOW()
+                        ORDER BY expires_at DESC LIMIT 1""",
+                    order["client_id"], pro["id"],
+                )
+                if ex_sub:
+                    await db.execute(
+                        "UPDATE client_subscriptions SET expires_at=$2 WHERE id=$1",
+                        ex_sub["id"], ex_sub["expires_at"] + timedelta(days=pro_days),
+                    )
+                else:
+                    sub_id = await db.fetchval(
+                        """INSERT INTO client_subscriptions
+                             (client_id, tariff_id, started_at, expires_at, status, source)
+                           VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'paid')
+                           RETURNING id""",
+                        order["client_id"], pro["id"], str(pro_days),
+                    )
+                    await db.execute(
+                        "UPDATE clients SET current_subscription_id=$1 WHERE id=$2",
+                        sub_id, order["client_id"],
+                    )
+
     return {"ok": True, "status": "paid", "addon_id": addon_id}
 
 
@@ -373,7 +431,7 @@ async def leadpay_addon_webhook(
         return {"ok": True, "ignored": "bad order_id"}
 
     order = await db.fetchrow(
-        "SELECT id, client_id, feature_id, months, status FROM addon_orders WHERE id = $1",
+        "SELECT id, client_id, feature_id, months, status, bundle_with_pro FROM addon_orders WHERE id = $1",
         order_id,
     )
     if not order:

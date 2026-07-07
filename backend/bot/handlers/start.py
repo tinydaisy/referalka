@@ -1536,8 +1536,9 @@ async def handle_pluson_connect_command(message: Message):
             InlineKeyboardButton(text="🔗 Связать ПЛЮСОН-аккаунт", url=url)
         ]])
         await message.answer(
-            "Свяжите свой аккаунт ПЛЮСОН с этим профилем — тогда приведённые вами "
-            "смогут закрепляться за вами.\n\nНажмите кнопку ниже — откроется форма "
+            "Свяжите свой аккаунт ПЛЮСОН с этим профилем — тогда все, кто "
+            "зарегистрируются на событие и заберут в подарок доступ к ПЛЮСОН, "
+            "закрепятся за вами.\n\nНажмите кнопку ниже — откроется форма "
             "на pluson.ru (ссылка действует 1 час).",
             reply_markup=kb,
         )
@@ -1724,16 +1725,29 @@ async def handle_getmyid(message: Message):
     Для КАНАЛА (бот не ловит команды в канале) — перешлите сообщение из канала
     в личку боту, ответим id канала (forward_from_chat.id).
     """
-    uid = message.from_user.id if message.from_user else "?"
     chat = message.chat
     fwd = message.forward_from_chat
+    # Анонимная отправка «от имени группы»: настоящего отправителя нет —
+    # Telegram кладёт его в sender_chat, а from_user либо пуст, либо это
+    # служебный GroupAnonymousBot (id 1087968824). Личный ID в этом случае скрыт.
+    anonymous = message.sender_chat is not None or (
+        message.from_user is not None and message.from_user.id == 1087968824
+    )
+    uid = message.from_user.id if (message.from_user and not anonymous) else None
 
     lines = []
     if fwd:
         # Переслали сообщение из канала/чата — отдаём id источника.
         lines.append(f"<b>ID канала/чата:</b> <code>{fwd.id}</code>")
     lines.append(f"<b>ID этого чата:</b> <code>{chat.id}</code>")
-    lines.append(f"<b>Ваш ID:</b> <code>{uid}</code>")
+    if uid is not None:
+        lines.append(f"<b>Ваш ID:</b> <code>{uid}</code>")
+    else:
+        lines.append(
+            "<b>Ваш ID:</b> не смог узнать — вы пишете от имени группы "
+            "(анонимный админ). Ваш личный ID Telegram скрывает. "
+            "Чтобы узнать его — снимите анонимность или напишите мне <code>/getmyid</code> в личку."
+        )
     lines.append("")
     lines.append(
         "Вставьте нужный ID в Настройки → Технические "

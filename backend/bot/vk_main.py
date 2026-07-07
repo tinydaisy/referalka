@@ -1167,8 +1167,9 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             kb = tg_inline_to_vk_keyboard([[{"text": "Связать ПЛЮСОН-аккаунт", "url": url}]])
             await _vk_send(
                 int(from_id),
-                "Свяжите свой аккаунт ПЛЮСОН — тогда приведённые вами смогут "
-                "закрепляться за вами. Откройте форму на pluson.ru (ссылка на 1 час).",
+                "Свяжите свой аккаунт ПЛЮСОН — тогда все, кто зарегистрируются "
+                "на событие и заберут в подарок доступ к ПЛЮСОН, закрепятся за "
+                "вами. Откройте форму на pluson.ru (ссылка на 1 час).",
                 keyboard=kb, token=ctx.token,
             )
         except Exception as e:

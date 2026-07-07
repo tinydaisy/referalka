@@ -76,7 +76,7 @@ function LinkPlusonInner() {
             <h1 className="text-lg font-semibold text-gray-900 mt-3">Связать аккаунт ПЛЮСОН</h1>
             <p className="text-xs text-gray-500 mt-1 mb-4">
               {info?.contact_name ? `${info.contact_name}, свяжите` : 'Свяжите'} свой аккаунт ПЛЮСОН —
-              тогда приведённые вами смогут закрепляться за вами.
+              тогда все, кто зарегистрируются на событие и заберут в подарок доступ к ПЛЮСОН, закрепятся за вами.
               {info?.already_linked_email && (
                 <span className="block mt-1 text-amber-700">Уже привязан: {info.already_linked_email}. Можно перепривязать.</span>
               )}

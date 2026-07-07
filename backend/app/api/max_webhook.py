@@ -130,6 +130,13 @@ async def handle_max_update(secret: str, request: Request):
 
     update_type = update.get("update_type", "")
     logger.info(f"MAX update_type={update_type!r} keys={list(update.keys())[:8]}")
+    # TEMP DEBUG: полный dump апдейта — чтобы выцепить chat_id каналов MAX.
+    # Убрать после разовой задачи получения ID каналов.
+    try:
+        import json as _json_dbg
+        logger.info("MAX RAW UPDATE: %s", _json_dbg.dumps(update, ensure_ascii=False)[:2000])
+    except Exception:
+        pass
 
     if update_type == "bot_stopped":
         await _handle_bot_stopped(update, bot_token=bot_token, client_id_override=client_id_override)
@@ -489,8 +496,9 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
             url = f"{_s.frontend_url.rstrip('/')}/link-pluson?token={token}"
             await max_send_message(
                 chat_id,
-                "Свяжите свой аккаунт ПЛЮСОН — тогда приведённые вами смогут "
-                f"закрепляться за вами. Откройте форму (ссылка на 1 час):\n{url}",
+                "Свяжите свой аккаунт ПЛЮСОН — тогда все, кто зарегистрируются "
+                "на событие и заберут в подарок доступ к ПЛЮСОН, закрепятся за "
+                f"вами. Откройте форму (ссылка на 1 час):\n{url}",
                 token=bot_token,
             )
         except Exception as e:  # noqa: BLE001

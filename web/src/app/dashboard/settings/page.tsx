@@ -1150,10 +1150,11 @@ function ModulesBlock() {
   }
   useEffect(load, [])
 
-  async function buy(slug: string, months: number) {
-    setError(''); setLoadingSlug(slug + ':' + months)
+  async function buy(slug: string, months: number, bundle = false) {
+    setError(''); setLoadingSlug(slug + ':' + (bundle ? 'bundle' : months))
     try {
-      const r = await api.addons.createOrder(slug, months)
+      // Комплект «Профи + модуль» идёт через LeadPay (карточка-комплект).
+      const r = await api.addons.createOrder(slug, months, bundle ? 'leadpay' : 'prodamus', bundle)
       if (r.payment_url) window.location.href = r.payment_url
     } catch (e: any) {
       setError(e?.message || 'Не удалось создать заказ')
@@ -1182,15 +1183,19 @@ function ModulesBlock() {
                 {owned && <span className="text-xs font-semibold text-emerald-600">Подключён</span>}
               </div>
               {a.tagline && <p className="text-xs text-gray-500 mt-0.5">{a.tagline}</p>}
-              <div className="mt-3 mb-1 flex items-baseline gap-2">
-                {a.promo_old_monthly && a.promo_old_monthly > (a.price_monthly || 0) && (
-                  <span className="text-base line-through text-gray-400">{a.promo_old_monthly.toLocaleString('ru-RU')} ₽</span>
-                )}
-                <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
-                <span className="text-xs text-gray-400"> / мес</span>
-              </div>
-              {a.price_6mo && a.price_6mo < a.price_monthly && (
-                <p className="text-xs text-emerald-600">{a.price_6mo.toLocaleString('ru-RU')} ₽/мес за 6 мес</p>
+              {!a.coming_soon && (
+                <>
+                  <div className="mt-3 mb-1 flex items-baseline gap-2">
+                    {a.promo_old_monthly && a.promo_old_monthly > (a.price_monthly || 0) && (
+                      <span className="text-base line-through text-gray-400">{a.promo_old_monthly.toLocaleString('ru-RU')} ₽</span>
+                    )}
+                    <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
+                    <span className="text-xs text-gray-400"> / мес</span>
+                  </div>
+                  {a.price_6mo && a.price_6mo < a.price_monthly && (
+                    <p className="text-xs text-emerald-600">{a.price_6mo.toLocaleString('ru-RU')} ₽/мес за 6 мес</p>
+                  )}
+                </>
               )}
               <ul className="mt-3 space-y-1.5 text-xs text-gray-600 flex-1">
                 {(a.bullet_points || []).slice(0, 5).map((b: string, i: number) => (
@@ -1200,12 +1205,24 @@ function ModulesBlock() {
                 ))}
               </ul>
 
-              {owned ? (
+              {a.coming_soon ? (
+                <p className="mt-4 text-xs font-semibold text-amber-600">🔜 Скоро будет</p>
+              ) : owned ? (
                 <p className="mt-4 text-xs text-gray-500">
                   {a.included_in_tariff ? 'Входит в ваш тариф' : a.expires_at ? `Активен до ${new Date(a.expires_at).toLocaleDateString('ru-RU')}` : 'Активен'}
                 </p>
               ) : locked ? (
-                <p className="mt-4 text-xs text-amber-600">🔒 Нужен тариф Профи или выше</p>
+                a.bundle_available ? (
+                  <div className="mt-4">
+                    <button onClick={() => buy(a.slug, 1, true)} disabled={!!loadingSlug}
+                      className="w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50">
+                      {loadingSlug === a.slug + ':bundle' ? '…' : `Оформить с Профи — ${a.bundle_price?.toLocaleString('ru-RU')} ₽`}
+                    </button>
+                    <p className="mt-1.5 text-[11px] text-gray-400 text-center">Тариф Профи + модуль на 30 дней одной оплатой</p>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-xs text-amber-600">🔒 Нужен тариф Профи или выше</p>
+                )
               ) : (
                 <div className="mt-4 flex gap-2">
                   <button onClick={() => buy(a.slug, 1)} disabled={!!loadingSlug}

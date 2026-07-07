@@ -64,9 +64,10 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
         """SELECT slug, name, description, sort,
                   is_addon, price_monthly, price_6mo, min_tariff_slug,
                   promo_old_monthly, promo_old_6mo,
-                  tagline, bullet_points
+                  tagline, bullet_points, coming_soon, leadpay_bundle_pro_product_id
              FROM features ORDER BY sort, slug"""
     )
+    pro_price = int(await db.fetchval("SELECT price FROM tariffs WHERE slug='pro'") or 0)
     out = []
     for r in rows:
         d = dict(r)
@@ -77,6 +78,9 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
                 d["bullet_points"] = json.loads(bp)
             except Exception:
                 d["bullet_points"] = []
+        # Цена комплекта «Профи + модуль» (для кнопки на лендинге). Только если есть bundle-карточка.
+        d["bundle_price"] = (int(r["price_monthly"] or 0) + pro_price) if r["leadpay_bundle_pro_product_id"] else None
+        d.pop("leadpay_bundle_pro_product_id", None)
         out.append(d)
     return {"features": out}
 

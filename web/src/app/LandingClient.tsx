@@ -40,6 +40,7 @@ interface Feature {
   name: string
   description: string | null
   is_addon: boolean
+  coming_soon?: boolean
   price_monthly: number | null
   price_6mo: number | null
   promo_old_monthly: number | null
@@ -47,6 +48,7 @@ interface Feature {
   min_tariff_slug: string | null
   tagline: string | null
   bullet_points: string[]
+  bundle_price?: number | null
 }
 
 
@@ -338,21 +340,29 @@ function ModuleCard({ m, registerHref }: { m: Feature; registerHref: string }) {
       <h3 className="font-bold text-xl text-gray-900">{m.name}</h3>
       {m.tagline && <p className="mt-1 text-sm text-gray-500">{m.tagline}</p>}
 
-      <div className="mt-4 mb-1 flex items-baseline gap-2">
-        {m.promo_old_monthly && m.promo_old_monthly > (m.price_monthly || 0) && (
-          <span className="text-xl line-through text-gray-400">
-            {m.promo_old_monthly.toLocaleString('ru-RU')} ₽
-          </span>
-        )}
-        <span className="text-3xl font-bold" style={{ color: '#25455D' }}>
-          {m.price_monthly?.toLocaleString('ru-RU')} ₽
-        </span>
-        <span className="text-sm text-gray-400">/ мес</span>
-      </div>
-      {m.price_6mo && m.price_6mo < (m.price_monthly || 0) && (
-        <p className="text-xs text-emerald-600 font-medium">
-          {m.price_6mo.toLocaleString('ru-RU')} ₽/мес при оплате за 6 мес (−20%)
-        </p>
+      {m.coming_soon ? (
+        <div className="mt-4 mb-1">
+          <span className="inline-block px-3 py-1 rounded-lg bg-amber-50 text-amber-700 text-sm font-semibold">🔜 Скоро будет</span>
+        </div>
+      ) : (
+        <>
+          <div className="mt-4 mb-1 flex items-baseline gap-2">
+            {m.promo_old_monthly && m.promo_old_monthly > (m.price_monthly || 0) && (
+              <span className="text-xl line-through text-gray-400">
+                {m.promo_old_monthly.toLocaleString('ru-RU')} ₽
+              </span>
+            )}
+            <span className="text-3xl font-bold" style={{ color: '#25455D' }}>
+              {m.price_monthly?.toLocaleString('ru-RU')} ₽
+            </span>
+            <span className="text-sm text-gray-400">/ мес</span>
+          </div>
+          {m.price_6mo && m.price_6mo < (m.price_monthly || 0) && (
+            <p className="text-xs text-emerald-600 font-medium">
+              {m.price_6mo.toLocaleString('ru-RU')} ₽/мес при оплате за 6 мес (−20%)
+            </p>
+          )}
+        </>
       )}
 
       <div className="space-y-2 mt-5 text-sm text-gray-600 flex-1">
@@ -364,14 +374,28 @@ function ModuleCard({ m, registerHref }: { m: Feature; registerHref: string }) {
         ))}
       </div>
 
-      <div className="mt-5 flex items-center gap-1.5 text-xs text-gray-400">
-        <span>🔒</span>
-        <span>Нужен тариф Профи или выше</span>
-      </div>
+      {m.coming_soon ? (
+        <div className="mt-5 text-center px-5 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-400">
+          Скоро будет
+        </div>
+      ) : (
+        <>
+          {m.bundle_price ? (
+            <div className="mt-5 text-xs text-gray-500">
+              С тарифом Профи — <span className="font-semibold text-[#25455D]">{m.bundle_price.toLocaleString('ru-RU')} ₽</span> / мес одной оплатой
+            </div>
+          ) : (
+            <div className="mt-5 flex items-center gap-1.5 text-xs text-gray-400">
+              <span>🔒</span>
+              <span>Нужен тариф Профи или выше</span>
+            </div>
+          )}
 
-      <Link href={registerHref} className="mt-4 text-center px-5 py-2.5 rounded-xl text-sm font-semibold bg-[#25455D] text-white hover:opacity-90">
-        Подключить
-      </Link>
+          <Link href={registerHref} className="mt-4 text-center px-5 py-2.5 rounded-xl text-sm font-semibold btn-gold">
+            {m.bundle_price ? `Оформить с Профи — ${m.bundle_price.toLocaleString('ru-RU')} ₽` : 'Подключить'}
+          </Link>
+        </>
+      )}
     </div>
   )
 }
