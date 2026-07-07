@@ -62,31 +62,33 @@ function CollapsibleChatGroup({ platform, count, children }: {
 }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="space-y-2">
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      {/* Чёткая персиковая плашка-заголовок площадки */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 text-left px-1"
+        className="w-full flex items-center gap-2.5 text-left px-4 py-3"
+        style={{ background: '#FFF3E8' }}
       >
-        <ChevronDown
-          size={18}
-          strokeWidth={2.5}
-          className={`shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
-          style={{ color: '#FFCFA4' }}
-        />
         <PlatformBadge platform={platform} />
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        <span className="text-sm font-bold uppercase tracking-wide" style={{ color: '#25455D' }}>
           {PLATFORM_META[platform].label}
         </span>
         <span
-          className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+          className="text-[11px] font-bold px-2 py-0.5 rounded-full"
           style={{ background: '#FFCFA4', color: '#25455D' }}
         >
           {count}
         </span>
-        <span className="flex-1 h-px bg-gray-100 ml-1" />
+        <span className="flex-1" />
+        <ChevronDown
+          size={18}
+          strokeWidth={2.5}
+          className={`shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
+          style={{ color: '#25455D' }}
+        />
       </button>
-      {open && <div className="space-y-2">{children}</div>}
+      {open && <div className="p-3 space-y-2 bg-white">{children}</div>}
     </div>
   )
 }

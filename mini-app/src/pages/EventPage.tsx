@@ -468,6 +468,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         event={event}
         tgUser={tgUser}
         contactId={contactId}
+        partnerId={partnerId}
         isRegistered={!!participant?.is_registered}
         onRegistered={() => setParticipant((p: any) => ({ ...(p || {}), is_registered: true }))}
       />

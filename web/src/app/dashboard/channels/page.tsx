@@ -2089,9 +2089,13 @@ function WhatsAppConnectInline({ onClose }: { onClose: () => void }) {
   const connect = async () => {
     setBusy(true)
     try {
-      await api.channels.connectWhatsapp()
-      setState('starting')
-      startPolling()
+      const r: any = await api.channels.connectWhatsapp()
+      if (r?.already_connected) {
+        setState(r.state || 'ready')  // уже привязан — не крутим QR
+      } else {
+        setState('starting')
+        startPolling()
+      }
     } catch (e: any) {
       alert(e?.message || 'Не удалось запустить привязку WhatsApp')
     } finally { setBusy(false) }

@@ -1069,6 +1069,15 @@ async def delete_channel(channel_id: int, client=Depends(get_current_client), db
     if info["platform_slug"] == "telegram" and info["is_active"] and info["bot_token"]:
         await reload_bot_polling()
 
+    # WhatsApp — разлогинить сессию на мосту, иначе рассинхрон
+    # (канал удалён, а мост держит привязку → повторное подключение говорит «уже привязан»).
+    if info["platform_slug"] == "whatsapp":
+        from app.services import whatsapp_api as wa
+        try:
+            await wa.logout(client_id)
+        except Exception:
+            pass  # мост мог не держать сессию — не критично
+
     return {"ok": True}
 
 
@@ -1180,7 +1189,13 @@ async def connect_whatsapp(client=Depends(get_current_client), db=Depends(get_db
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Не удалось запустить сессию на мосту: {e}")
 
-    return {"ok": True, "channel_id": channel_id}
+    # Если сессия уже привязана (ready/authenticated) — вернём это, фронт не будет крутить QR
+    try:
+        state = await wa.get_status(client_id)
+    except Exception:
+        state = "starting"
+    return {"ok": True, "channel_id": channel_id, "state": state,
+            "already_connected": state in ("ready", "authenticated")}
 
 
 @router.get("/whatsapp/status", summary="Статус привязки WhatsApp")
@@ -1214,10 +1229,19 @@ async def whatsapp_chats(client=Depends(get_current_client), db=Depends(get_db))
     client_id = int(client["sub"])
     await _assert_can_use_custom_bot(db, client_id)
     from app.services import whatsapp_api as wa
+    # Проверим состояние — дадим понятную подсказку вместо техножаргона моста
+    try:
+        state = await wa.get_status(client_id)
+    except Exception:
+        state = "unknown"
+    if state not in ("ready", "authenticated"):
+        if state in ("none", "unknown"):
+            raise HTTPException(status_code=409, detail="WhatsApp не подключён. Привяжите аккаунт: «Добавить канал» → WhatsApp.")
+        raise HTTPException(status_code=409, detail="WhatsApp ещё подключается — подождите несколько секунд и нажмите «Повторить».")
     try:
         chats = await wa.list_chats(client_id)
-    except Exception as e:
-        raise HTTPException(status_code=409, detail=f"WhatsApp ещё не готов: {e}")
+    except Exception:
+        raise HTTPException(status_code=409, detail="Не удалось получить чаты — WhatsApp ещё синхронизируется. Подождите и нажмите «Повторить».")
     # Группы сверху, потом по имени
     chats.sort(key=lambda c: (not c.get("isGroup"), (c.get("name") or "").lower()))
     return {"chats": chats}

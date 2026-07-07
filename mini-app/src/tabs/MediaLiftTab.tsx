@@ -23,6 +23,7 @@ interface Props {
   event: any          // landing события (module_slug='medialift')
   tgUser?: any        // { id, first_name, last_name, username }
   contactId?: number  // contact_id зашедшего (если известен из startapp _ct)
+  partnerId?: string  // pid = реф-код рефовода (кто привёл) — для цепочки
   isRegistered?: boolean
   onRegistered?: () => void
 }
@@ -40,7 +41,7 @@ function tgLink(url?: string | null): string | null {
   return `https://t.me/${url}`
 }
 
-export default function MediaLiftTab({ event, tgUser, contactId, isRegistered, onRegistered }: Props) {
+export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRegistered, onRegistered }: Props) {
   const [cards, setCards] = useState<Card[]>([])
   const [required, setRequired] = useState(3)
   const [selected, setSelected] = useState<Set<number>>(new Set())  // collaborator_id
@@ -107,6 +108,8 @@ export default function MediaLiftTab({ event, tgUser, contactId, isRegistered, o
         username: tgUser?.username,
         first_name: tgUser?.first_name,
         last_name: tgUser?.last_name,
+        ref_code: partnerId,   // pid рефовода → встаём в цепочку под ним
+        contact_id: contactId,
       } as any)
       setRegistered(true)
       onRegistered?.()
