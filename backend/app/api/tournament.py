@@ -247,9 +247,12 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
         if not subj or subj.get("kind") != "ec":
             return 0.0
         # Спикер привязывает СПИСОК до 4 лид-магнитов/пакетов (миграция 200).
-        # Считаем СУММУ переходов funnel_runs по всем привязанным магнитам И пакетам,
-        # с учётом даты «считать с» (lead_since). Fallback на старые одиночные поля
-        # event_collaborators.gift_lead_magnet_id/gift_package_id (обратная совместимость).
+        # Считаем СУММУ уникальных людей (COUNT DISTINCT contact_id) по КАЖДОЙ
+        # привязке ОТДЕЛЬНО и складываем — ровно как счётчик «👥 N» на странице
+        # лид-магнитов (сумма 9+4+…). Считаем именно по каждому отдельно (а не
+        # DISTINCT по объединению), чтобы человек, забравший 2 разных магнита,
+        # давал +1 в каждом — тогда сумма совпадает с плашками магнитов.
+        # С учётом даты «считать с» (lead_since). Fallback на старые одиночные поля.
         rows = await db.fetch(
             "SELECT lead_magnet_id, package_id FROM event_collaborator_lead_magnets WHERE ec_id = $1",
             subj["sid"],
@@ -268,20 +271,23 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
                     pkg_ids = [link["gift_package_id"]]
         if not lm_ids and not pkg_ids:
             return 0.0
+        since_cond = " AND landed_at >= $2" if lead_since else ""
         total = 0
-        if lm_ids:
-            args = [lm_ids] + ([lead_since] if lead_since else [])
-            since_cond = " AND landed_at >= $2" if lead_since else ""
+        # Уникальные люди по каждому магниту отдельно → сумма.
+        for lm in lm_ids:
+            args = [lm] + ([lead_since] if lead_since else [])
             v = await db.fetchval(
-                f"SELECT COUNT(*) FROM funnel_runs WHERE lead_magnet_id = ANY($1::int[]){since_cond}",
+                f"SELECT COUNT(DISTINCT contact_id) FROM funnel_runs "
+                f"WHERE lead_magnet_id = $1 AND contact_id IS NOT NULL{since_cond}",
                 *args,
             )
             total += int(v or 0)
-        if pkg_ids:
-            args = [pkg_ids] + ([lead_since] if lead_since else [])
-            since_cond = " AND landed_at >= $2" if lead_since else ""
+        # Уникальные люди по каждому пакету отдельно → сумма.
+        for pkg in pkg_ids:
+            args = [pkg] + ([lead_since] if lead_since else [])
             v = await db.fetchval(
-                f"SELECT COUNT(*) FROM funnel_runs WHERE package_id = ANY($1::bigint[]){since_cond}",
+                f"SELECT COUNT(DISTINCT contact_id) FROM funnel_runs "
+                f"WHERE package_id = $1 AND contact_id IS NOT NULL{since_cond}",
                 *args,
             )
             total += int(v or 0)
