@@ -433,9 +433,10 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
         api.miniApp.broadcastChats.list(),
       ])
       setWaChats(r.chats || [])
-      setWaSaved(new Set((saved || []).filter((x: any) => x.platform === 'whatsapp').map((x: any) => x.chat_id)))
+      const savedRows: any[] = saved?.chats || []
+      setWaSaved(new Set(savedRows.filter((x: any) => x.platform === 'whatsapp').map((x: any) => x.chat_id)))
     } catch (e: any) {
-      setWaErr(e?.message || 'WhatsApp не привязан. Привяжите аккаунт на вкладке «Боты» → платформа WhatsApp.')
+      setWaErr(e?.message || 'WhatsApp не подключён. Привяжите аккаунт: вкладка «Боты» → «Добавить канал» → WhatsApp.')
     } finally { setWaLoading(false) }
   }
 
@@ -448,8 +449,8 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
     const isSaved = waSaved.has(c.id)
     try {
       if (isSaved) {
-        const list: any[] = await api.miniApp.broadcastChats.list()
-        const row = (list || []).find((x: any) => x.platform === 'whatsapp' && x.chat_id === c.id)
+        const listResp: any = await api.miniApp.broadcastChats.list()
+        const row = (listResp?.chats || []).find((x: any) => x.platform === 'whatsapp' && x.chat_id === c.id)
         if (row) await api.miniApp.broadcastChats.delete(row.id)
         setWaSaved(prev => { const n = new Set(prev); n.delete(c.id); return n })
       } else {
