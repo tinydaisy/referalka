@@ -671,11 +671,24 @@ function TemplateEditor() {
       <div className="text-sm text-gray-600 bg-amber-50 border border-amber-100 rounded-lg p-3">
         Один шаблон на все лид-магниты и пакеты. Тексты можно править — создавать новые
         шаблоны пока нельзя. Доступные плейсхолдеры:
-        <code className="block mt-1 font-mono text-xs">
-          {'{materials_list}'} · {'{materials_with_links}'} · {'{client_brand_name}'} ·{' '}
-          {'{client_owner_name}'} · {'{client_owner_positioning}'} · {'{client_owner_bio}'} · {'{client_owner_achievements}'} ·{' '}
-          {'{subscription_channel}'} · {'{owner_telegram}'}
-        </code>
+        <dl className="mt-2 space-y-1.5 text-xs">
+          {[
+            ['{materials_list}', 'нумерованный список названий подарков (без ссылок)'],
+            ['{materials_with_links}', 'список подарков с готовыми ссылками на файлы'],
+            ['{client_brand_name}', 'название вашего бренда'],
+            ['{client_owner_name}', 'имя основателя'],
+            ['{client_owner_positioning}', 'позиционирование основателя (короткая строка о вас)'],
+            ['{client_owner_bio}', 'биография основателя'],
+            ['{client_owner_achievements}', 'ваши регалии и факты в цифрах'],
+            ['{subscription_channel}', 'ссылка на канал, на который нужно подписаться за подарок'],
+            ['{owner_telegram}', 'ваш аккаунт службы поддержки в Telegram'],
+          ].map(([ph, desc]) => (
+            <div key={ph} className="flex flex-col sm:flex-row sm:gap-2">
+              <code className="font-mono text-amber-900 whitespace-nowrap">{ph}</code>
+              <span className="text-gray-600">— {desc}</span>
+            </div>
+          ))}
+        </dl>
       </div>
 
       <div className="text-xs text-gray-600 bg-sky-50 border border-sky-100 rounded-lg p-3 leading-snug">

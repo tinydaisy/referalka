@@ -11,6 +11,11 @@ import secrets
 
 router = APIRouter(prefix="/events", tags=["События"])
 
+# Сервисный клиент «ПЛЮСОН Сервис» (email system@pluson.ru) — владелец служебных
+# событий (в т.ч. МедиаЛифт) и системного @pluson_bot. Тип события 'medialift'
+# может создавать только он (см. create_event).
+MEDIALIFT_CLIENT_ID = 3
+
 # Алфавит без визуально похожих символов (без 0/o, 1/l/i)
 _SLUG_CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
 
@@ -231,6 +236,13 @@ async def create_event(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
+
+    # МедиаЛифт — служебный тип события (многоуровневая автоподписка).
+    # Создавать его может только сервисный клиент «ПЛЮСОН Сервис» (id 3).
+    # Это НЕ покупаемая фича — обычным клиентам тип недоступен и в UI не показывается.
+    if data.module_slug == "medialift" and client_id != MEDIALIFT_CLIENT_ID:
+        raise HTTPException(status_code=403, detail="Тип «МедиаЛифт» доступен только сервисному аккаунту.")
+
     slug = await _make_unique_short_slug(db)
 
     from datetime import datetime as _dt

@@ -3,7 +3,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
-  Upload, Download, FileText, HelpCircle, Sparkles, Loader2,
+  Upload, Download, FileText, HelpCircle, Sparkles, Loader2, ChevronDown,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
@@ -287,6 +287,43 @@ function NonVipView({ channels, onUpgrade }: { channels: Channel[]; onUpgrade: (
   )
 }
 
+/* ─────── Сворачиваемая группа каналов по площадке ─────── */
+function PlatformGroup({ title, count, children, defaultOpen = true }: {
+  title: string
+  count: number
+  children: ReactNode
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 text-left group"
+      >
+        <ChevronDown
+          size={18}
+          strokeWidth={2.5}
+          className={`shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
+          style={{ color: '#FFCFA4' }}
+        />
+        <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
+          {title}
+        </span>
+        <span
+          className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+          style={{ background: '#FFCFA4', color: '#25455D' }}
+        >
+          {count}
+        </span>
+        <span className="flex-1 h-px bg-gray-100 ml-1" />
+      </button>
+      {open && <div className="space-y-4">{children}</div>}
+    </div>
+  )
+}
+
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
 function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport }: {
   channels: Channel[]
@@ -302,76 +339,97 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
   const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active && !c.is_system)
   const mainVkChannel = channels.find(c => c.platform_slug === 'vk' && c.is_active && !c.is_system)
   const mainMaxChannel = channels.find(c => c.platform_slug === 'max' && c.is_active && !c.is_system)
-  const restChannels = channels.filter(c => c !== mainTgChannel && c !== mainVkChannel && c !== mainMaxChannel)
+
+  const card = (ch: Channel) => (
+    <ChannelCard
+      key={ch.id}
+      channel={ch}
+      onEdit={() => onEdit(ch)}
+      onDelete={() => onDelete(ch)}
+      onImport={() => onImport(ch)}
+    />
+  )
+
+  // Доп. каналы каждой площадки (кроме главного, у которого своя карточка выше)
+  const tgRest = channels.filter(c => c.platform_slug === 'telegram' && c !== mainTgChannel)
+  const vkRest = channels.filter(c => c.platform_slug === 'vk' && c !== mainVkChannel)
+  const maxRest = channels.filter(c => c.platform_slug === 'max' && c !== mainMaxChannel)
+  // Прочие площадки (email и любые будущие) — в отдельную группу «Другие»
+  const otherChannels = channels.filter(
+    c => !['telegram', 'vk', 'max'].includes(c.platform_slug),
+  )
+  // Заголовки групп с человекочитаемыми названиями площадок
+  const platformTitle = (slug: string) =>
+    platforms.find(p => p.slug === slug)?.display_name ||
+    ({ telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX', email: 'Email' }[slug] || slug)
+
+  // Группируем «Другие» по площадкам
+  const otherBySlug = otherChannels.reduce<Record<string, Channel[]>>((acc, c) => {
+    (acc[c.platform_slug] ||= []).push(c)
+    return acc
+  }, {})
+
+  const tgCount = (mainTgChannel ? 1 : 0) + tgRest.length
+  const vkCount = (mainVkChannel ? 1 : 0) + vkRest.length
+  const maxCount = (mainMaxChannel ? 1 : 0) + maxRest.length
 
   return (
-    <div className="space-y-4">
-      {!mainTgChannel ? (
-        <ConnectInvite
-          title="Подключите свой Telegram-бот"
-          description="Вставьте токен от @BotFather — мы подключим бот, настроим Mini App и дадим инструкцию для финальной привязки. Займёт 2 минуты."
-          buttonText="Запустить мастер"
-          badge="TG"
-          badgeColor="#0088CC"
-          onClick={onOpenWizard}
-        />
-      ) : (
-        <ChannelCard
-          channel={mainTgChannel}
-          onEdit={() => onEdit(mainTgChannel)}
-          onDelete={() => onDelete(mainTgChannel)}
-          onImport={() => onImport(mainTgChannel)}
-        />
-      )}
-
-      {!mainVkChannel ? (
-        <ConnectInvite
-          title="Подключите своё VK-сообщество"
-          description="Создайте сообщество и Mini App в ВКонтакте, вставьте 4 параметра — мы валидируем токен и включим Long Poll. Подробная инструкция со скриншотами — внутри мастера."
-          buttonText="Запустить мастер VK"
-          badge="VK"
-          badgeColor="#0077FF"
-          onClick={onOpenVkWizard}
-        />
-      ) : (
-        <>
-          <ChannelCard
-            channel={mainVkChannel}
-            onEdit={() => onEdit(mainVkChannel)}
-            onDelete={() => onDelete(mainVkChannel)}
-            onImport={() => onImport(mainVkChannel)}
+    <div className="space-y-6">
+      <PlatformGroup title="Telegram" count={tgCount}>
+        {!mainTgChannel ? (
+          <ConnectInvite
+            title="Подключите свой Telegram-бот"
+            description="Вставьте токен от @BotFather — мы подключим бот, настроим Mini App и дадим инструкцию для финальной привязки. Займёт 2 минуты."
+            buttonText="Запустить мастер"
+            badge="TG"
+            badgeColor="#0088CC"
+            onClick={onOpenWizard}
           />
-          <VkVideoTokenBlock channel={mainVkChannel} />
-        </>
-      )}
+        ) : (
+          card(mainTgChannel)
+        )}
+        {tgRest.map(card)}
+      </PlatformGroup>
 
-      {!mainMaxChannel ? (
-        <ConnectInvite
-          title="Подключите свой MAX-бот"
-          description="Создайте бота в @MasterBot на платформе MAX, вставьте токен — мы проверим его и зарегистрируем webhook. Бот начнёт принимать сообщения и слать ваши рассылки от вашего имени."
-          buttonText="Запустить мастер MAX"
-          badge="MX"
-          badgeColor="#5B2FC0"
-          onClick={onOpenMaxWizard}
-        />
-      ) : (
-        <ChannelCard
-          channel={mainMaxChannel}
-          onEdit={() => onEdit(mainMaxChannel)}
-          onDelete={() => onDelete(mainMaxChannel)}
-          onImport={() => onImport(mainMaxChannel)}
-        />
-      )}
+      <PlatformGroup title="ВКонтакте" count={vkCount}>
+        {!mainVkChannel ? (
+          <ConnectInvite
+            title="Подключите своё VK-сообщество"
+            description="Создайте сообщество и Mini App в ВКонтакте, вставьте 4 параметра — мы валидируем токен и включим Long Poll. Подробная инструкция со скриншотами — внутри мастера."
+            buttonText="Запустить мастер VK"
+            badge="VK"
+            badgeColor="#0077FF"
+            onClick={onOpenVkWizard}
+          />
+        ) : (
+          <>
+            {card(mainVkChannel)}
+            <VkVideoTokenBlock channel={mainVkChannel} />
+          </>
+        )}
+        {vkRest.map(card)}
+      </PlatformGroup>
 
-      {/* Остальные каналы (системные + дополнительные TG-боты для рассылок) */}
-      {restChannels.map(ch => (
-        <ChannelCard
-          key={ch.id}
-          channel={ch}
-          onEdit={() => onEdit(ch)}
-          onDelete={() => onDelete(ch)}
-          onImport={() => onImport(ch)}
-        />
+      <PlatformGroup title="MAX" count={maxCount}>
+        {!mainMaxChannel ? (
+          <ConnectInvite
+            title="Подключите свой MAX-бот"
+            description="Создайте бота в @MasterBot на платформе MAX, вставьте токен — мы проверим его и зарегистрируем webhook. Бот начнёт принимать сообщения и слать ваши рассылки от вашего имени."
+            buttonText="Запустить мастер MAX"
+            badge="MX"
+            badgeColor="#5B2FC0"
+            onClick={onOpenMaxWizard}
+          />
+        ) : (
+          card(mainMaxChannel)
+        )}
+        {maxRest.map(card)}
+      </PlatformGroup>
+
+      {Object.entries(otherBySlug).map(([slug, chs]) => (
+        <PlatformGroup key={slug} title={platformTitle(slug)} count={chs.length}>
+          {chs.map(card)}
+        </PlatformGroup>
       ))}
 
       <button
@@ -1374,7 +1432,7 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
                 onChange={e => setPlatformSlug(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
               >
-                {platforms.map(p => (
+                {platforms.filter(p => p.slug !== 'whatsapp').map(p => (
                   <option key={p.slug} value={p.slug}>{p.display_name}</option>
                 ))}
               </select>

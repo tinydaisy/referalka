@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import {
   Plus, X, Trash2, Edit2, Megaphone, Crown, ArrowRight,
-  CheckCircle2, Loader2, Link2, Check, Lock,
+  CheckCircle2, Loader2, Link2, Check, Lock, ChevronDown,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -50,6 +50,43 @@ function PlatformBadge({ platform }: { platform: Platform }) {
     >
       {meta.badge}
     </span>
+  )
+}
+
+/* ─────── Сворачиваемая группа чатов по площадке ─────── */
+function CollapsibleChatGroup({ platform, count, children }: {
+  platform: Platform
+  count: number
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 text-left px-1"
+      >
+        <ChevronDown
+          size={18}
+          strokeWidth={2.5}
+          className={`shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
+          style={{ color: '#FFCFA4' }}
+        />
+        <PlatformBadge platform={platform} />
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          {PLATFORM_META[platform].label}
+        </span>
+        <span
+          className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+          style={{ background: '#FFCFA4', color: '#25455D' }}
+        >
+          {count}
+        </span>
+        <span className="flex-1 h-px bg-gray-100 ml-1" />
+      </button>
+      {open && <div className="space-y-2">{children}</div>}
+    </div>
   )
 }
 
@@ -220,12 +257,11 @@ export default function BroadcastChatsTab() {
       ) : (
         <>
           {grouped.map(group => (
-            <div key={group.platform} className="space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">
-                <PlatformBadge platform={group.platform} />
-                {PLATFORM_META[group.platform].label}
-                <span className="text-gray-400 font-normal">· {group.items.length}</span>
-              </div>
+            <CollapsibleChatGroup
+              key={group.platform}
+              platform={group.platform}
+              count={group.items.length}
+            >
               {group.items.map(chat => (
                 <ChatCard
                   key={chat.id}
@@ -235,7 +271,7 @@ export default function BroadcastChatsTab() {
                   onDeleted={load}
                 />
               ))}
-            </div>
+            </CollapsibleChatGroup>
           ))}
 
           <AddBtn full />
