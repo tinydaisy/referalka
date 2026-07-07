@@ -938,7 +938,7 @@ async def handle_vk_event(body: VkEventRequest):
                 logger.warning(f"VK /vk/event client_id by app_id failed (app={vk_app_id_raw}): {e}")
         if not client_id:
             # системный клиент «ПЛЮСОН Сервис» — для трафика без контекста
-            row = await conn.fetchrow("SELECT id FROM clients WHERE email = $1", "system@pluson.ru")
+            row = await conn.fetchrow("SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1")
             client_id = row["id"] if row else 0
         if not client_id:
             return {"ok": False, "error": "no_client_resolved"}

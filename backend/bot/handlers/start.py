@@ -48,7 +48,7 @@ async def _record_subscription(message: Message) -> None:
             # Определяем client_id для записи подписки
             if ch["is_system"]:
                 client_id = await db.fetchval(
-                    "SELECT id FROM clients WHERE email='system@pluson.ru' AND is_active=TRUE LIMIT 1"
+                    "SELECT id FROM clients WHERE is_system_service=TRUE AND is_active=TRUE LIMIT 1"
                 )
             else:
                 client_id = await db.fetchval(
@@ -1600,7 +1600,7 @@ async def handle_vip_link_command(message: Message):
             if ch:
                 if ch["is_system"]:
                     client_id = await db.fetchval(
-                        "SELECT id FROM clients WHERE email='system@pluson.ru' AND is_active=TRUE LIMIT 1")
+                        "SELECT id FROM clients WHERE is_system_service=TRUE AND is_active=TRUE LIMIT 1")
                 else:
                     client_id = await db.fetchval(
                         """SELECT client_id FROM client_channels
@@ -1804,7 +1804,7 @@ async def handle_merge(message: Message, command: CommandObject):
             return
         if ch["is_system"]:
             client_id = await db.fetchval(
-                "SELECT id FROM clients WHERE email = 'system@pluson.ru' LIMIT 1"
+                "SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1"
             )
         else:
             client_id = await db.fetchval(

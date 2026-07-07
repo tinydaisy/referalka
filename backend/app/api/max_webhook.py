@@ -895,7 +895,7 @@ async def _handle_max_merge(
         client_id = client_id_override or 0
         if not client_id:
             client_id = await conn.fetchval(
-                "SELECT id FROM clients WHERE email = 'system@pluson.ru' LIMIT 1"
+                "SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1"
             ) or 0
         if not client_id:
             await max_send_message(chat_id, "😕 Не удалось определить организатора.", token=bot_token)
@@ -1145,7 +1145,7 @@ async def _process_start(
             if row:
                 client_id = row["client_id"]
         if not client_id:
-            row = await conn.fetchrow("SELECT id FROM clients WHERE email = $1", "system@pluson.ru")
+            row = await conn.fetchrow("SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1")
             client_id = row["id"] if row else 0
         if not client_id:
             logger.warning(f"MAX /start: no client resolved (user_id={user_id})")

@@ -1,13 +1,12 @@
 'use client'
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
-  Upload, Download, FileText, HelpCircle, Sparkles, Loader2, ChevronDown,
+  Upload, Download, FileText, HelpCircle, Sparkles, Loader2, ChevronDown, Smartphone,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
-import WhatsAppTab from '@/components/channels/WhatsAppTab'
 
 interface Platform {
   slug: string
@@ -64,7 +63,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 export default function ChannelsPage() {
-  const [tab, setTab] = useState<'bots' | 'chats' | 'whatsapp'>('bots')
+  const [tab, setTab] = useState<'bots' | 'chats'>('bots')
   const [me, setMe] = useState<Me | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
@@ -133,7 +132,6 @@ export default function ChannelsPage() {
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
         <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
-        <TabBtn active={tab === 'whatsapp'} onClick={() => setTab('whatsapp')}>WhatsApp</TabBtn>
       </div>
 
       {tab === 'bots' && (
@@ -158,8 +156,6 @@ export default function ChannelsPage() {
       )}
 
       {tab === 'chats' && <BroadcastChatsTab />}
-
-      {tab === 'whatsapp' && <WhatsAppTab />}
 
       {(creating || editing) && (
         <ChannelModal
@@ -1432,16 +1428,19 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
                 onChange={e => setPlatformSlug(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
               >
-                {platforms.filter(p => p.slug !== 'whatsapp').map(p => (
+                {platforms.map(p => (
                   <option key={p.slug} value={p.slug}>{p.display_name}</option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* VK подключается отдельным мастером — у обычной формы нет нужных полей
-              (Access Token, App ID, Secure Key, ID сообщества). Перебрасываем туда. */}
-          {!channel && platformSlug === 'vk' ? (
+          {/* WhatsApp — привязка по QR прямо в форме (нет токена/handle). */}
+          {!channel && platformSlug === 'whatsapp' ? (
+            <WhatsAppConnectInline onClose={onClose} />
+          ) : /* VK подключается отдельным мастером — у обычной формы нет нужных полей
+              (Access Token, App ID, Secure Key, ID сообщества). Перебрасываем туда. */
+          !channel && platformSlug === 'vk' ? (
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
               <div className="text-sm font-semibold text-gray-900 mb-1">
                 Для VK нужен отдельный мастер
@@ -1530,7 +1529,7 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
           {/* Главный канал — переключение через явное действие с подтверждением.
               Без простой галочки, чтобы случайно не переключить воронку.
               Для VK при создании прячем — там отдельный мастер. */}
-          {!channel && platformSlug === 'vk' ? null : !channel ? (
+          {!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp') ? null : !channel ? (
             // Создание нового канала — обычная галочка
             <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50">
               <input
@@ -1606,9 +1605,9 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
 
         <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
-            {(!channel && platformSlug === 'vk') ? 'Закрыть' : 'Отмена'}
+            {(!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp')) ? 'Закрыть' : 'Отмена'}
           </button>
-          {!(!channel && platformSlug === 'vk') && (
+          {!(!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp')) && (
             <button
               onClick={submit}
               disabled={saving}
@@ -2048,6 +2047,96 @@ function StatCard({ label, value, color }: { label: string; value: number; color
     <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
       <div className="text-xs text-gray-500 mb-1">{label}</div>
       <div className="text-2xl font-bold" style={{ color }}>{value.toLocaleString('ru')}</div>
+    </div>
+  )
+}
+
+
+// Привязка WhatsApp по QR прямо внутри формы «Добавить канал».
+// Нет токена/handle — жмёшь «Подключить», сканируешь QR, дальше чаты выбираются
+// на вкладке «Чаты для рассылок».
+function WhatsAppConnectInline({ onClose }: { onClose: () => void }) {
+  const [state, setState] = useState<string>('none')
+  const [qr, setQr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const READY = ['ready', 'authenticated']
+  const isReady = READY.includes(state)
+
+  useEffect(() => {
+    // при открытии проверим — вдруг уже привязан
+    api.channels.whatsappStatus().then((r: any) => {
+      if (r.connected) setState(r.state || 'none')
+    }).catch(() => {})
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
+
+  const startPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const q: any = await api.channels.whatsappQr()
+        setState(q.state || 'none')
+        setQr(q.state === 'qr' ? q.qr : null)
+        if (READY.includes(q.state)) {
+          if (pollRef.current) clearInterval(pollRef.current)
+          setQr(null)
+        }
+      } catch {}
+    }, 3000)
+  }
+
+  const connect = async () => {
+    setBusy(true)
+    try {
+      await api.channels.connectWhatsapp()
+      setState('starting')
+      startPolling()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось запустить привязку WhatsApp')
+    } finally { setBusy(false) }
+  }
+
+  if (isReady) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+        <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto mb-1" />
+        <p className="text-sm font-semibold text-emerald-800">WhatsApp привязан</p>
+        <p className="text-xs text-emerald-700 mt-1">Теперь на вкладке «Чаты для рассылок» выберите свои группы WhatsApp.</p>
+        <button onClick={onClose} className="mt-3 text-sm font-semibold px-4 py-2 rounded-lg text-white" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>Готово</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+      <p className="text-sm text-gray-700 mb-3">
+        У WhatsApp нет токена и handle — аккаунт привязывается по QR-коду.
+      </p>
+      {state === 'none' || state === 'unknown' ? (
+        <button
+          type="button"
+          onClick={connect}
+          disabled={busy}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-60"
+          style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+        >
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
+          Подключить WhatsApp
+        </button>
+      ) : qr ? (
+        <div className="text-center">
+          <p className="text-xs text-gray-700 mb-2">
+            WhatsApp на телефоне → <b>Настройки → Связанные устройства → Привязать устройство</b> → наведите на QR:
+          </p>
+          <img src={qr} alt="QR WhatsApp" className="mx-auto rounded-xl border border-gray-200" style={{ width: 'min(70vw, 260px)' }} />
+          <p className="text-[11px] text-gray-400 mt-2">QR обновляется автоматически · {state}</p>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-gray-600 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Готовим QR-код… ({state})
+        </div>
+      )}
     </div>
   )
 }

@@ -421,7 +421,7 @@ async def _notify_owner_about_new_withdrawal(db, client_id: int, wd_id: int, amo
     """Уведомление Маргарите (Owner ПЛЮСОНа) о новой заявке."""
     owner = await db.fetchrow(
         """SELECT notifications_telegram_chat_id FROM clients
-            WHERE email = 'system@pluson.ru' OR id = 1
+            WHERE is_system_service = TRUE OR id = 1
             ORDER BY id LIMIT 1"""
     )
     if not owner or not owner["notifications_telegram_chat_id"]:

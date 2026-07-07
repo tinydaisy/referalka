@@ -82,7 +82,7 @@ async def handle_max_event(body: MaxEventRequest):
             if row:
                 client_id = row["client_id"]
         if not client_id:
-            row = await conn.fetchrow("SELECT id FROM clients WHERE email = $1", "system@pluson.ru")
+            row = await conn.fetchrow("SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1")
             client_id = row["id"] if row else 0
         if not client_id:
             return {"ok": False, "error": "no_client_resolved"}
