@@ -1178,16 +1178,35 @@ async def my_lead_magnets(
     if not linked:
         return {"linked": False, "magnets": [], "packages": []}
 
+    # known — уникальные идентифицированные контакты (первая цифра плашки),
+    # delivered — уникальные, дошедшие до выдачи (вторая цифра). Ровно как счётчик
+    # «N/M» на странице /dashboard/lead-magnets (lead_magnets.py).
     magnets = await db.fetch(
-        "SELECT id, name, slug FROM lead_magnets WHERE client_id = $1 ORDER BY id DESC", linked
+        """SELECT lm.id, lm.name, lm.slug,
+                  COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.contact_id IS NOT NULL), 0) AS known,
+                  COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.stage='delivered' AND fr.contact_id IS NOT NULL), 0) AS delivered
+             FROM lead_magnets lm
+             LEFT JOIN funnel_runs fr ON fr.lead_magnet_id = lm.id
+            WHERE lm.client_id = $1
+            GROUP BY lm.id ORDER BY lm.id DESC""",
+        linked,
     )
     packages = await db.fetch(
-        "SELECT id, name, slug FROM lead_magnet_packages WHERE client_id = $1 ORDER BY id DESC", linked
+        """SELECT lp.id, lp.name, lp.slug,
+                  COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.contact_id IS NOT NULL), 0) AS known,
+                  COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.stage='delivered' AND fr.contact_id IS NOT NULL), 0) AS delivered
+             FROM lead_magnet_packages lp
+             LEFT JOIN funnel_runs fr ON fr.package_id = lp.id
+            WHERE lp.client_id = $1
+            GROUP BY lp.id ORDER BY lp.id DESC""",
+        linked,
     )
     return {
         "linked": True,
-        "magnets": [{"id": m["id"], "name": m["name"], "slug": m["slug"]} for m in magnets],
-        "packages": [{"id": p["id"], "name": p["name"], "slug": p["slug"]} for p in packages],
+        "magnets": [{"id": m["id"], "name": m["name"], "slug": m["slug"],
+                     "known": int(m["known"]), "delivered": int(m["delivered"])} for m in magnets],
+        "packages": [{"id": p["id"], "name": p["name"], "slug": p["slug"],
+                      "known": int(p["known"]), "delivered": int(p["delivered"])} for p in packages],
     }
 
 

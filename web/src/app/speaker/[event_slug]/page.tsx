@@ -158,7 +158,7 @@ export default function SpeakerCabinetPage() {
   const [plPassword, setPlPassword] = useState('')
   const [plBusy, setPlBusy] = useState(false)
   const [plError, setPlError] = useState<string | null>(null)
-  const [myMagnets, setMyMagnets] = useState<{ magnets: { id: number; name: string }[]; packages: { id: number; name: string }[] } | null>(null)
+  const [myMagnets, setMyMagnets] = useState<{ magnets: { id: number; name: string; known?: number; delivered?: number }[]; packages: { id: number; name: string; known?: number; delivered?: number }[] } | null>(null)
   // Источник подарка после эфира: 'pluson' (лид-магнит из ПЛЮСОН) ИЛИ 'manual'
   // (ручной ввод). Взаимоисключающие — показываем только выбранный.
   const [giftSource, setGiftSource] = useState<'pluson' | 'manual'>('pluson')
@@ -1032,10 +1032,20 @@ export default function SpeakerCabinetPage() {
                     {/* Список выбранных с управлением порядком/удалением */}
                     {(me.gift_lead_magnets || []).length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
-                        {(me.gift_lead_magnets || []).map((g, i) => (
+                        {(me.gift_lead_magnets || []).map((g, i) => {
+                          const stat = g.kind === 'package'
+                            ? (myMagnets?.packages || []).find((x) => x.id === g.id)
+                            : (myMagnets?.magnets || []).find((x) => x.id === g.id)
+                          return (
                           <div key={`${g.kind}${g.id}`} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #d7e4f0', borderRadius: 8, padding: '6px 8px' }}>
                             <span style={{ fontSize: 12, color: '#5b7286', minWidth: 16 }}>{i + 1}.</span>
                             <span style={{ flex: 1, fontSize: 13, color: DARK }}>{g.kind === 'package' ? '📦 ' : '🎁 '}{g.name}</span>
+                            {stat && (
+                              <span title={`${stat.known ?? 0} перешли, ${stat.delivered ?? 0} получили материалы`}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#FFCFA4', color: '#25455D', fontSize: 11.5, fontWeight: 600, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                                👤 {stat.known ?? 0}/{stat.delivered ?? 0}
+                              </span>
+                            )}
                             <button onClick={() => moveGiftMagnet(i, -1)} disabled={i === 0} title="Выше"
                               style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px' }}>↑</button>
                             <button onClick={() => moveGiftMagnet(i, 1)} disabled={i === (me.gift_lead_magnets || []).length - 1} title="Ниже"
@@ -1043,7 +1053,8 @@ export default function SpeakerCabinetPage() {
                             <button onClick={() => removeGiftMagnet(i)} title="Убрать"
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b04a4a', fontSize: 15, padding: '0 3px' }}>×</button>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                     {(me.gift_lead_magnets || []).length < 4 ? (
@@ -1052,10 +1063,10 @@ export default function SpeakerCabinetPage() {
                         <option value="">+ Добавить лид-магнит / пакет…</option>
                         {(myMagnets?.magnets || [])
                           .filter((m) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'magnet' && g.id === m.id))
-                          .map((m) => (<option key={`m${m.id}`} value={`m:${m.id}`}>🎁 {m.name}</option>))}
+                          .map((m) => (<option key={`m${m.id}`} value={`m:${m.id}`}>🎁 {m.name} ({m.known ?? 0}/{m.delivered ?? 0})</option>))}
                         {(myMagnets?.packages || [])
                           .filter((p) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'package' && g.id === p.id))
-                          .map((p) => (<option key={`p${p.id}`} value={`p:${p.id}`}>📦 Пакет: {p.name}</option>))}
+                          .map((p) => (<option key={`p${p.id}`} value={`p:${p.id}`}>📦 Пакет: {p.name} ({p.known ?? 0}/{p.delivered ?? 0})</option>))}
                       </select>
                     ) : (
                       <div style={{ fontSize: 11.5, color: '#a06a2a', marginTop: 4 }}>Максимум 4 лид-магнита.</div>
