@@ -114,23 +114,6 @@ export default function VideoPlaylistsPage() {
           без прямых ссылок) + список шагов. Навигация по урокам — внутри плеера. */}
       {tab === 'vk' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-3 font-bold" style={{ color: BRAND }}>
-              <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold" style={{ background: '#0077FF' }}>VK</span>
-              Плейлист целиком — переключайте уроки прямо в плеере
-            </div>
-            <div className="relative w-full rounded-xl overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
-              <iframe
-                src="https://vkvideo.ru/video_ext.php?oid=-212804884&id=456239050&hd=2&list=ln-placeholder"
-                title="Видео-инструкции ПЛЮСОН (ВКонтакте)"
-                className="absolute inset-0 w-full h-full"
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture; screen-wake-lock;"
-                allowFullScreen
-                frameBorder="0"
-              />
-            </div>
-          </div>
-
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             <h2 className="text-base font-bold mb-3" style={{ color: BRAND }}>Уроки в плейлисте — по шагам</h2>
             <div className="space-y-2.5">
