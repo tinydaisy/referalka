@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     max_system_bot_username: str = "id890306512862_1_bot"
     max_api_base: str = "https://botapi.max.ru"
 
+    # Клиентские email-рассылки. False (default) — рассылки по email отключены
+    # (Gmail рейтлимитит домен), уходят только системные письма ПЛЮСОНа.
+    email_broadcasts_enabled: bool = False
+
     # WhatsApp-мост (whatsapp-web.js, отдельный Node-сервис на 127.0.0.1).
     # Клиент привязывает свой WhatsApp по QR — сессия на client_id живёт на мосту.
     wa_bridge_url: str = "http://127.0.0.1:8790"

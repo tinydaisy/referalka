@@ -1493,6 +1493,16 @@ async def _send_broadcast_email_part(
 
     Возвращает количество успешно отправленных писем.
     """
+    # Клиентские email-рассылки временно ОТКЛЮЧЕНЫ (2026-07-07): Gmail рейтлимитит
+    # весь домен pluson.ru (421-4.7.28), письма застревают в очереди Postfix.
+    # Пока email-рассылки не разрешены — уходят только СИСТЕМНЫЕ письма ПЛЮСОНа
+    # (подтверждение почты, сброс пароля, письма ассистенту — они идут мимо этой
+    # функции, напрямую через EmailSender). Флаг вернуть: settings.email_broadcasts_enabled=True.
+    from app.config import settings as _cfg
+    if not getattr(_cfg, "email_broadcasts_enabled", False):
+        logger.info("Email-рассылки отключены (email_broadcasts_enabled=False) — пропускаю email-часть")
+        return 0
+
     from app.services.email_sender import EmailSender, EmailSendError
     from app.services.unsubscribe_token import make_email_unsubscribe_token
     from app.api.email_tracking import make_open_token, make_click_token
