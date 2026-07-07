@@ -1110,6 +1110,94 @@ _VIDEO_BYTES_CACHE: dict[str, bytes] = {}
 # Кеш метаданных видео (width, height, duration) и обложки-JPEG по URL —
 # чтобы ffprobe/ffmpeg отработали один раз на рассылку, а не на каждого.
 _VIDEO_META_CACHE: dict[str, dict] = {}
+# Кеш скачанных байт фото и полученного file_id по URL — фото качается с R2
+# максимум один раз на рассылку, дальше остальным шлём по file_id (мгновенно).
+_PHOTO_BYTES_CACHE: dict[str, bytes] = {}
+_PHOTO_FID_CACHE: dict[str, str] = {}
+
+
+async def _tg_send_photo(
+    client: httpx.AsyncClient,
+    bot_token: str,
+    chat_id: str,
+    photo_url: str,
+    caption: str | None = None,
+    reply_markup: dict | None = None,
+) -> tuple[bool, str]:
+    """Надёжно отправляет ФОТО в Telegram (аналогично _tg_send_video).
+
+    Раньше фото слали по R2-URL и НЕ проверяли результат → если Telegram не мог
+    скачать картинку по ссылке (частая проблема с R2), фото молча терялось, а
+    текст уходил отдельно. Теперь: 1) по file_id (мгновенно, если уже качали);
+    2) иначе скачиваем байты с R2 и грузим multipart-ом (Telegram принимает
+    байты всегда), проверяем ok, кешируем file_id для остальных получателей.
+
+    caption — подпись под фото (для короткого текста ≤1024); при длинном тексте
+    вызывающий шлёт caption=None и досылает текст отдельным сообщением.
+    Возвращает (успех, ошибка)."""
+    def _fields() -> dict:
+        d = {"chat_id": chat_id}
+        if caption:
+            d["caption"] = caption
+            d["parse_mode"] = "HTML"
+        if reply_markup:
+            import json as _j
+            d["reply_markup"] = _j.dumps(reply_markup)
+        return d
+
+    # 1) уже есть file_id с прошлого получателя — шлём по нему (JSON, мгновенно)
+    fid = _PHOTO_FID_CACHE.get(photo_url)
+    if fid:
+        payload = {"chat_id": chat_id, "photo": fid}
+        if caption:
+            payload["caption"] = caption
+            payload["parse_mode"] = "HTML"
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        try:
+            r = await client.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload, timeout=60)
+            data = r.json()
+            if data.get("ok"):
+                return True, ""
+            # file_id мог быть от другого бота (fanout) — падаем на multipart
+        except Exception:
+            pass
+
+    # 2) скачиваем байты (кеш на рассылку) и грузим multipart-ом
+    content = _PHOTO_BYTES_CACHE.get(photo_url)
+    if content is None:
+        try:
+            rr = await client.get(photo_url, timeout=60)
+            if rr.status_code != 200:
+                return False, f"R2 GET {rr.status_code}"
+            content = rr.content
+            _PHOTO_BYTES_CACHE[photo_url] = content
+        except Exception as e:
+            return False, f"download: {e}"
+    ext = ".jpg"
+    low = photo_url.lower()
+    for e in (".png", ".jpeg", ".jpg", ".webp"):
+        if e in low:
+            ext = e
+            break
+    ctype = {".png": "image/png", ".webp": "image/webp"}.get(ext, "image/jpeg")
+    try:
+        r = await client.post(
+            f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+            data=_fields(),
+            files={"photo": (f"photo{ext}", content, ctype)},
+            timeout=120,
+        )
+        data = r.json()
+        if data.get("ok"):
+            # достаём file_id самого большого размера для кеша
+            photos = (data.get("result", {}) or {}).get("photo") or []
+            if photos:
+                _PHOTO_FID_CACHE[photo_url] = photos[-1].get("file_id")
+            return True, ""
+        return False, data.get("description", f"HTTP {r.status_code}")
+    except Exception as e:
+        return False, str(e)
 
 
 async def _tg_send_video(
@@ -1312,13 +1400,21 @@ async def send_telegram_message(
             return False, err2
 
         if photo_url and len(text) <= 1024:
-            payload = {"chat_id": chat_id, "photo": photo_url, "caption": text, "parse_mode": "HTML"}
-            if reply_markup:
-                payload["reply_markup"] = reply_markup
-            resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
+            # Короткий текст — фото с подписью одним сообщением. Надёжная отправка
+            # (скачиваем байты → multipart → кеш file_id), с проверкой результата.
+            ok, err = await _tg_send_photo(client, bot_token, chat_id, photo_url,
+                                           caption=text, reply_markup=reply_markup)
+            if ok:
+                return True, ""
+            return False, err
         elif photo_url:
-            await client.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                              json={"chat_id": chat_id, "photo": photo_url})
+            # Длинный текст (>1024) — фото ОТДЕЛЬНЫМ сообщением, следом текст.
+            # ⚠️ Раньше первый sendPhoto по URL не проверялся → фото молча терялось,
+            # уходил только текст. Теперь надёжная отправка фото с проверкой.
+            ok_p, err_p = await _tg_send_photo(client, bot_token, chat_id, photo_url,
+                                               caption=None, reply_markup=None)
+            if not ok_p:
+                logger.warning(f"broadcast: фото не ушло ({err_p}) для {chat_id} — шлём только текст")
             payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
             if reply_markup:
                 payload["reply_markup"] = reply_markup
