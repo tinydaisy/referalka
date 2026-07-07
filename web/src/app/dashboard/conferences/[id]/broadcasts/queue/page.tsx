@@ -400,6 +400,11 @@ export default function QueuePage() {
       showMsg('Выберите шаблон и укажите время', 'err')
       return
     }
+    // ⚠️ Дата в прошлом при «Запланировать» — рассылка ушла бы сразу. Люфт 2 мин.
+    if (!isNow && manualForm.fire_at && new Date(manualForm.fire_at).getTime() < Date.now() - 2 * 60 * 1000) {
+      showMsg('Дата отправки уже прошла — укажите будущее время (иначе рассылка ушла бы сразу)', 'err')
+      return
+    }
     const fireAtToSend = isNow ? nowMoscowMinus1MinLocal() : manualForm.fire_at
     const tpl = templates.find(t => String(t.id) === manualForm.template_id)
     const tplType = tpl?.type || ''

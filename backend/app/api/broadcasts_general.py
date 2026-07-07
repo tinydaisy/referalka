@@ -80,6 +80,28 @@ def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
     return dt_aware.astimezone(ZoneInfo("UTC"))
 
 
+# Люфт для «отправить немедленно» (фронт ставит now−1мин, чтобы уйти сразу).
+# Всё, что раньше now минус этот люфт, считаем ошибочно-прошедшей датой.
+_PAST_GRACE_MIN = 5
+
+
+def _assert_fire_at_not_past(fire_at_utc: datetime) -> None:
+    """Защита от ошибочной отправки: рассылку с датой в прошлом ставить в очередь нельзя.
+
+    Без этого скопированная старая рассылка с fire_at в прошлом при сохранении
+    мгновенно уходит (Celery берёт fire_at <= NOW()). Люфт _PAST_GRACE_MIN —
+    чтобы легитимное «отправить немедленно» (now−1мин) не блокировалось.
+    """
+    from datetime import timedelta
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    if fire_at_utc < now_utc - timedelta(minutes=_PAST_GRACE_MIN):
+        raise HTTPException(
+            status_code=400,
+            detail="Дата отправки уже прошла. Укажите будущее время — иначе рассылка ушла бы сразу. "
+                   "Отредактируйте дату и сохраните заново.",
+        )
+
+
 _TG_ALLOWED_TAGS = {"b","strong","i","em","u","ins","s","strike","del","a","code","pre","blockquote","tg-spoiler","span","br"}
 _TG_SELF_CLOSING = {"br"}
 
@@ -226,7 +248,7 @@ async def list_schedules(
                audience_include, audience_exclude, started_at, finished_at,
                error_log, snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons,
                snapshot_video, snapshot_media_type,
-               target_channel_ids,
+               target_channel_ids, send_to_client_chats, send_to_private_chats,
                CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (finished_at - started_at))::int
                     ELSE NULL END as duration_seconds,
@@ -295,6 +317,7 @@ async def add_custom(
         dt_utc = _parse_fire_at(data.fire_at, tz)
     except Exception:
         raise HTTPException(400, "Неверный формат даты")
+    _assert_fire_at_not_past(dt_utc)
     buttons = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
     snap_photo, snap_video, snap_mtype = _resolve_media(data.photo_url, data.video_url, data.media_type)
     row = await db.fetchrow(
@@ -335,6 +358,11 @@ async def bulk_add(
                 dt_utc = _parse_fire_at(it.fire_at, tz)
             except Exception:
                 errs.append("неверный формат даты")
+        # Если ставим сразу в очередь — дата не должна быть в прошлом
+        if not errs and data.enqueue and dt_utc is not None:
+            from datetime import timedelta
+            if dt_utc < datetime.now(ZoneInfo("UTC")) - timedelta(minutes=_PAST_GRACE_MIN):
+                errs.append("дата уже прошла — рассылка ушла бы сразу; укажите будущее время")
         if errs:
             errors_by_idx.append({"index": idx, "errors": errs})
         sp, sv, smt = _resolve_media(it.photo_url, it.video_url, it.media_type)
@@ -510,20 +538,25 @@ async def copy(
     client_id = int(client["sub"])
     src = await _check_owner(db, schedule_id, client_id)
     full = await db.fetchrow("SELECT * FROM broadcast_schedules WHERE id=$1", schedule_id)
+    # ⚠️ Копия создаётся БЕЗ даты (fire_at=NULL) — чтобы старая дата не утащила
+    # рассылку в мгновенную отправку. Клиент обязан указать новую дату при сохранении.
     new = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids)
-        VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'draft', $3, 'all_client', 'none',
-                $4, $5, $6, $7::jsonb, $8)
+           snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
+           snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats)
+        VALUES (NULL, $1, NULL, 'custom', NULL, NULL, 'draft', $2, 'all_client', 'none',
+                $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11)
         RETURNING id
         """,
-        client_id, full["fire_at"], full["is_test"],
+        client_id, full["is_test"],
         full["snapshot_text"], full["snapshot_subject"], full["snapshot_photo"],
         full["snapshot_buttons"] if isinstance(full["snapshot_buttons"], str) else _json.dumps(full["snapshot_buttons"] or []),
         full["target_channel_ids"],
+        full["snapshot_video"], full["snapshot_media_type"],
+        full["send_to_client_chats"], full["send_to_private_chats"],
     )
     return {"ok": True, "id": new["id"]}
 
@@ -570,6 +603,8 @@ class UpdateScheduleRequest(BaseModel):
     photo_url: Optional[str] = None
     buttons: Optional[List[ButtonItem]] = None
     target_channel_ids: Optional[List[int]] = None
+    send_to_client_chats: Optional[bool] = None
+    send_to_private_chats: Optional[bool] = None
 
 
 @router.patch("/schedules/{schedule_id}", summary="Обновить содержимое рассылки (draft/pending)")
@@ -629,8 +664,23 @@ async def update_schedule(
         sets.append(f"target_channel_ids=${idx}::int[]")
         args.append(data.target_channel_ids); idx += 1
 
+    if data.send_to_client_chats is not None:
+        sets.append(f"send_to_client_chats=${idx}"); args.append(data.send_to_client_chats); idx += 1
+
+    if data.send_to_private_chats is not None:
+        sets.append(f"send_to_private_chats=${idx}"); args.append(data.send_to_private_chats); idx += 1
+
     if not sets:
         return {"ok": True, "no_change": True}
+
+    # Редактирование переводит в pending (уйдёт по fire_at). Поэтому проверяем,
+    # что итоговый fire_at не в прошлом — иначе рассылка ушла бы мгновенно.
+    if data.fire_at is not None:
+        _assert_fire_at_not_past(dt_utc)  # type: ignore[name-defined]
+    else:
+        existing_fire = await db.fetchval("SELECT fire_at FROM broadcast_schedules WHERE id=$1", schedule_id)
+        if existing_fire is not None:
+            _assert_fire_at_not_past(existing_fire)
 
     # Если редактируется черновик — переводим в pending (как и в set_fire_at).
     sets.append("status='pending'")
@@ -657,6 +707,7 @@ async def set_fire_at(
         dt_utc = _parse_fire_at(data.fire_at, tz)
     except Exception:
         raise HTTPException(400, "Неверный формат даты")
+    _assert_fire_at_not_past(dt_utc)
     if data.is_test is not None:
         await db.execute(
             "UPDATE broadcast_schedules SET fire_at=$1, is_test=$2, status='pending' WHERE id=$3 AND status IN ('draft','pending')",

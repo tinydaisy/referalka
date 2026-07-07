@@ -1482,6 +1482,8 @@ async def add_manual_schedule(
     aud_exclude = data.audience_exclude if data.audience_exclude is not None else tpl["audience_exclude"]
     # enqueue=True → сразу в очередь (pending, отправится по fire_at), иначе черновик (draft).
     new_status = "pending" if data.enqueue else "draft"
+    if data.enqueue:
+        _assert_fire_at_not_past(dt_utc)
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
@@ -1550,6 +1552,20 @@ def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
     return dt_aware.astimezone(ZoneInfo("UTC"))
 
 
+_PAST_GRACE_MIN = 5
+
+
+def _assert_fire_at_not_past(fire_at_utc: datetime) -> None:
+    """Защита от ошибочной отправки: рассылку с датой в прошлом ставить в очередь нельзя
+    (иначе Celery берёт fire_at <= NOW() и шлёт мгновенно). Люфт — под «отправить немедленно»."""
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    if fire_at_utc < now_utc - timedelta(minutes=_PAST_GRACE_MIN):
+        raise HTTPException(
+            status_code=400,
+            detail="Дата отправки уже прошла. Укажите будущее время — иначе рассылка ушла бы сразу.",
+        )
+
+
 def _validate_custom_item(item: dict) -> list:
     """Возвращает список ошибок (пустой — всё ок)."""
     from app.api.broadcasts_general import validate_telegram_html, validate_button_pair
@@ -1596,6 +1612,7 @@ async def add_custom_schedule(
         dt_utc = _parse_fire_at(data.fire_at, tz)
     except Exception:
         raise HTTPException(status_code=400, detail="Неверный формат даты")
+    _assert_fire_at_not_past(dt_utc)
 
     buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
 
@@ -1659,6 +1676,9 @@ async def edit_custom_schedule(
         dt_utc = _parse_fire_at(data.fire_at, tz)
     except Exception:
         raise HTTPException(status_code=400, detail="Неверный формат даты")
+    # Рассылка в очереди (pending) с датой в прошлом ушла бы мгновенно — запрещаем.
+    if cur["status"] == "pending":
+        _assert_fire_at_not_past(dt_utc)
 
     import json as _json
     buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
@@ -1736,6 +1756,9 @@ async def bulk_add_schedules(
                 dt_utc = _parse_fire_at(it.fire_at, tz)
             except Exception:
                 errs.append("неверный формат даты")
+        if not errs and data.enqueue and dt_utc is not None:
+            if dt_utc < datetime.now(ZoneInfo("UTC")) - timedelta(minutes=_PAST_GRACE_MIN):
+                errs.append("дата уже прошла — рассылка ушла бы сразу; укажите будущее время")
         if errs:
             errors_by_idx.append({"index": idx, "errors": errs})
         sp, sv, smt = _resolve_snapshot_media(it.photo_url, it.video_url, it.media_type)
@@ -1833,6 +1856,20 @@ async def run_all_schedules(
             detail=f"У {null_fire} рассылок не задано время отправки. Установите дату для «Знакомства со спикерами» перед запуском."
         )
 
+    # ⚠️ Защита от ошибочной массовой отправки: рассылки с датой в прошлом
+    # ушли бы немедленно. Блокируем запуск, пока клиент не поправит дату.
+    past_fire = await db.fetchval(
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='draft' "
+        "AND fire_at IS NOT NULL AND fire_at < (NOW() - INTERVAL '5 minutes')",
+        event_id
+    )
+    if past_fire and past_fire > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"У {past_fire} рассылок дата отправки уже прошла — они ушли бы сразу. "
+                   "Исправьте дату (или удалите старые копии) перед запуском."
+        )
+
     # Переводим draft → pending
     await db.execute(
         "UPDATE broadcast_schedules SET status='pending' WHERE event_id=$1 AND status='draft' AND fire_at IS NOT NULL",
@@ -1868,6 +1905,17 @@ async def run_selected_schedules(
         raise HTTPException(
             status_code=400,
             detail=f"У {null_fire} выбранных рассылок не задано время отправки."
+        )
+
+    past_fire = await db.fetchval(
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE id = ANY($1::int[]) AND event_id=$2 "
+        "AND status='draft' AND fire_at IS NOT NULL AND fire_at < (NOW() - INTERVAL '5 minutes')",
+        ids, event_id
+    )
+    if past_fire and past_fire > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"У {past_fire} выбранных рассылок дата уже прошла — они ушли бы сразу. Исправьте дату."
         )
 
     await db.execute(
@@ -1976,16 +2024,18 @@ async def copy_schedule(
     if not row:
         raise HTTPException(status_code=404, detail="Задача не найдена")
 
+    # ⚠️ Копия создаётся БЕЗ даты (fire_at=NULL), чтобы старая дата не утащила
+    # рассылку в мгновенную отправку. Клиент указывает новую дату при запуске.
     new_id = await db.fetchval(
         """INSERT INTO broadcast_schedules
            (event_id, template_id, session_id, type, audience_include, audience_exclude,
             audience_type, fire_at, status, is_test,
             snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9,$10,$11,$12,$13)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,'draft',$8,$9,$10,$11,$12)
            RETURNING id""",
         row["event_id"], row["template_id"], row["session_id"], row["type"],
         row["audience_include"], row["audience_exclude"], row["audience_type"],
-        row["fire_at"], row["is_test"],
+        row["is_test"],
         row["snapshot_text"], row["snapshot_photo"], row["snapshot_btn_text"], row["snapshot_btn_url"]
     )
     return {"ok": True, "id": new_id}

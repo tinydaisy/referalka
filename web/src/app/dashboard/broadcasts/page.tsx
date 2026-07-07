@@ -812,6 +812,14 @@ function CustomBroadcastModal(props: {
     const errs: string[] = []
     // Дата нужна только в режиме «Запланировать». «Немедленно» — fire_at подставим now().
     if (sendMode === 'schedule' && !fireAt) errs.push('Не указана дата и время рассылки')
+    // ⚠️ Защита от ошибочной мгновенной отправки: дата в прошлом (частый случай —
+    // скопировали старую рассылку). Люфт 2 мин от текущего времени.
+    if (sendMode === 'schedule' && fireAt) {
+      const picked = new Date(fireAt).getTime()
+      if (picked < Date.now() - 2 * 60 * 1000) {
+        errs.push('Дата отправки уже прошла — укажите будущее время (иначе рассылка ушла бы сразу)')
+      }
+    }
     // Проверка «пусто» по plain-text (без тегов и &nbsp;)
     const plain = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
     // Диагностика: пишем в Console сколько символов в каждом поле.
