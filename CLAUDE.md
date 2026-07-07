@@ -1143,6 +1143,29 @@ SELECT $new_client_id, ch.id, TRUE
 - `get_telegram_send_targets` в services/channels.py — JOIN на `client_channels`
 - Импорт CSV — пишет `platform_user_channels` с `client_channel_id` найденным через `client_channels(client_id, channel_id)`.
 
+### Комплект «тариф Профи + модуль» одной оплатой LeadPay (миграция 197 от 2026-07-07, ПРОД)
+
+**Зачем.** Клиент без тарифа Профи под заблокированным модулем (в кабинете `/dashboard/settings?tab=subscription` → блок «Модули» и на лендинге) видел только «🔒 Нужен тариф Профи или выше» — без кнопки. Теперь там **кнопка «Оформить с Профи — N ₽»**, которая одним платежом по комплект-карточке LeadPay выдаёт **и тариф Профи, и модуль** на 30 дней.
+
+**Карточки-комплекты LeadPay** (клиент завёл в кабинете LeadPay, сумма = модуль + Профи 1990):
+- Профи + Коллабораторная = 2990 ₽ → LeadPay **62862**
+- Профи + Конференции = 4990 ₽ → LeadPay **62863**
+- Профи + Премии-Турниры = 6990 ₽ → LeadPay **62864**
+
+**БД (миграция 197):** `features.leadpay_bundle_pro_product_id TEXT` (карточка-комплект модуля) + `addon_orders.bundle_with_pro BOOL DEFAULT FALSE` (заказ куплен как комплект → при выдаче активировать ещё и Профи).
+
+**Бэкенд** ([addons.py](backend/app/api/addons.py)):
+- `POST /addons/order {bundle:true}` — форсит `provider='leadpay'`, `months=1`, берёт `leadpay_bundle_pro_product_id`, цена = `price_monthly + tariffs.pro.price`, **проверка min_tariff НЕ делается** (клиент как раз покупает Профи вместе с модулем), ставит `bundle_with_pro=TRUE`.
+- Webhook выдачи `_apply_paid_addon_order` при `order.bundle_with_pro` в той же транзакции выдаёт/продлевает тариф Профи (INSERT/UPDATE `client_subscriptions` на 30 дн + `clients.current_subscription_id`), помимо `client_addons`.
+- `GET /addons` отдаёт `bundle_available` (только если клиенту НЕ хватает тарифа И есть bundle-карточка) + `bundle_price`.
+- Публичный `GET /public/features` ([pricing_public.py](backend/app/api/pricing_public.py)) отдаёт `bundle_price` (для лендинга, там оплата невозможна без логина → кнопка ведёт на регистрацию).
+
+**Фронт:** `ModulesBlock` в [settings/page.tsx](web/src/app/dashboard/settings/page.tsx) — при `bundle_available` кнопка «Оформить с Профи — N ₽» (`buy(slug,1,true)` → LeadPay). Лендинг [LandingClient.tsx](web/src/app/LandingClient.tsx) — та же кнопка ведёт на регистрацию (`btn-gold`), + подпись «С тарифом Профи — N ₽/мес одной оплатой».
+
+**⚠️ Побочно на проде:** миграция 192 (`features.coming_soon`) не была накатана на прод — из-за этого `/public/features` падал 500 и модули на лендинге вообще не показывались (лендинг глотал ошибку в `.catch`). Колонку добрал ALTER'ом, но `collab_hub` НЕ помечен `coming_soon=TRUE` (продаётся комплектом). [[project_prod_dev_main_divergence]]
+
+**⚠️ DDL на проде:** роль `plusson` НЕ владелец таблиц — `ALTER TABLE` только через `sudo -u postgres psql -d plusson`.
+
 ### Тарифы и подписки клиентов (миграции 067-072 от 07.05.2026)
 
 **Концепция.** Тарифы хранят только параметры (цена, лимиты, длительность). Опциональные модули («свой бот», «модуль Конференции», «экспорт контактов» и т.п.) — отдельные сущности (`features`), привязываются к тарифам через junction. Активность тарифа у клиента — отдельная запись (`client_subscriptions`).
