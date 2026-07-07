@@ -40,6 +40,21 @@ export async function req(path: string, options?: RequestInit) {
 export const checkConferenceSubscription = (eventId: number, tgId: number) =>
   req(`/api/v1/public/conference/${eventId}/check-subscription?tg_id=${tgId}`)
 
+// ── МедиаЛифт (тип события medialift) ──
+// Ветка участников для зашедшего (до 7, подписка на 3). contact_id опционален.
+export const getMedialiftChain = (slug: string, contactId?: number) =>
+  req(`/api/v1/public/medialift/${slug}/chain${contactId ? `?contact_id=${contactId}` : ''}`)
+// Проверить подписку зашедшего на выбранные каналы.
+export const medialiftCheckSubscribe = (slug: string, tgId: number, collaboratorIds: number[]) =>
+  req(`/api/v1/public/medialift/${slug}/check-subscribe`, {
+    method: 'POST', body: JSON.stringify({ tg_id: tgId, collaborator_ids: collaboratorIds }),
+  })
+// Участник сам добавляет свой канал → становится карточкой.
+export const medialiftAddChannel = (slug: string, tgId: number, tgChannelUrl: string, description?: string) =>
+  req(`/api/v1/public/medialift/${slug}/add-channel`, {
+    method: 'POST', body: JSON.stringify({ tg_id: tgId, tg_channel_url: tgChannelUrl, description: description || null }),
+  })
+
 // ── Регистрация и участники ──
 // Передаём platform в body: бэк пишет в platform_users с правильным platform_slug.
 // Для TG это 'telegram' (или опускается — дефолт на бэке), для VK — 'vk', для MAX — 'max'.

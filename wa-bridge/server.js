@@ -24,7 +24,7 @@
 const express = require('express');
 const qrcode = require('qrcode');
 const path = require('path');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
 const PORT = parseInt(process.env.WA_BRIDGE_PORT || '8790', 10);
 const TOKEN = process.env.WA_BRIDGE_TOKEN || '';
@@ -130,12 +130,28 @@ app.get('/sessions/:clientId/chats', async (req, res) => {
 app.post('/sessions/:clientId/send', async (req, res) => {
   const s = sessions.get(req.params.clientId);
   if (!isUsable(s)) return res.status(409).json({ error: 'session not ready', state: s ? s.state : 'none' });
-  const { chatId, text } = req.body || {};
-  if (!chatId || !text) return res.status(400).json({ error: 'chatId и text обязательны' });
+  const { chatId, text, mediaUrl } = req.body || {};
+  if (!chatId || (!text && !mediaUrl)) return res.status(400).json({ error: 'нужен chatId и text или mediaUrl' });
   try {
-    const msg = await s.client.sendMessage(chatId, text);
+    let msg;
+    if (mediaUrl) {
+      // Картинка (или видео) с подписью-текстом одним сообщением.
+      const media = await MessageMedia.fromUrl(mediaUrl, { unsafeMime: true });
+      msg = await s.client.sendMessage(chatId, media, { caption: text || undefined });
+    } else {
+      msg = await s.client.sendMessage(chatId, text);
+    }
     res.json({ ok: true, id: msg.id._serialized });
-  } catch (e) { res.status(500).json({ error: String(e) }); }
+  } catch (e) {
+    // Если медиа не скачалось/не отправилось — фолбэк на текст, чтобы рассылка дошла
+    if (mediaUrl && text) {
+      try {
+        const msg = await s.client.sendMessage(chatId, text);
+        return res.json({ ok: true, id: msg.id._serialized, media_failed: true });
+      } catch (e2) { return res.status(500).json({ error: String(e2) }); }
+    }
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 app.post('/sessions/:clientId/logout', async (req, res) => {

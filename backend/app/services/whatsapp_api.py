@@ -84,12 +84,18 @@ async def list_chats(client_id: int) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
-async def send_message(client_id: int, chat_id: str, text: str) -> dict[str, Any]:
-    """Отправить текст в чат (chat_id вида <номер>@c.us или <...>@g.us)."""
+async def send_message(client_id: int, chat_id: str, text: str, media_url: str | None = None) -> dict[str, Any]:
+    """Отправить сообщение в чат (chat_id вида <номер>@c.us или <...>@g.us).
+
+    media_url — если задан, отправляется картинкой/видео с подписью text.
+    """
+    body: dict[str, Any] = {"chatId": chat_id, "text": text}
+    if media_url:
+        body["mediaUrl"] = media_url
     return await _call(  # type: ignore[return-value]
         "POST", f"/sessions/{client_id}/send",
-        json_body={"chatId": chat_id, "text": text},
-        timeout=40.0,
+        json_body=body,
+        timeout=90.0,  # скачивание+загрузка медиа дольше
     )
 
 

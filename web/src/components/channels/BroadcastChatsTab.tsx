@@ -97,7 +97,6 @@ export default function BroadcastChatsTab() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<BroadcastChat | null>(null)
-  const [waPicker, setWaPicker] = useState(false)  // модалка выбора чатов WhatsApp из моста
   // Тариф с фичей broadcast_chats (для апсейл-заглушки) — подтягиваем динамически.
   const [upsellTariff, setUpsellTariff] = useState<{ name: string; price: number } | null>(null)
   // Уровень доступа с бэка: 'unlimited' (безлимит, Экстра) | 'one' (1/площадка, Профи) | null.
@@ -251,20 +250,6 @@ export default function BroadcastChatsTab() {
         </div>
       )}
 
-      {/* WhatsApp — чаты выбираются из привязанного аккаунта (ID группы вручную не вписать) */}
-      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3">
-        <div className="text-sm text-emerald-900">
-          <span className="font-semibold">WhatsApp:</span> выберите свои группы/чаты из привязанного аккаунта.
-          <span className="block text-xs text-emerald-700 mt-0.5">Привязать аккаунт можно на вкладке «Боты» → платформа WhatsApp.</span>
-        </div>
-        <button
-          onClick={() => setWaPicker(true)}
-          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
-          style={{ background: '#25D366' }}
-        >
-          Выбрать чаты WhatsApp
-        </button>
-      </div>
 
       {chats.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center">
@@ -312,114 +297,6 @@ export default function BroadcastChatsTab() {
         />
       )}
 
-      {waPicker && (
-        <WaChatPickerModal
-          savedChatIds={new Set(chats.filter(c => c.platform === 'whatsapp').map(c => c.chat_id))}
-          onClose={() => setWaPicker(false)}
-          onChanged={load}
-        />
-      )}
-    </div>
-  )
-}
-
-/* ─────── Модалка выбора чатов WhatsApp из привязанного аккаунта ─────── */
-function WaChatPickerModal({ savedChatIds, onClose, onChanged }: {
-  savedChatIds: Set<string>
-  onClose: () => void
-  onChanged: () => void
-}) {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [waChats, setWaChats] = useState<{ id: string; name: string; isGroup: boolean }[]>([])
-  const [saved, setSaved] = useState<Set<string>>(savedChatIds)
-  const [search, setSearch] = useState('')
-
-  const loadChats = async () => {
-    setLoading(true); setError(null)
-    try {
-      const r: any = await api.channels.whatsappChats()
-      setWaChats(r.chats || [])
-    } catch (e: any) {
-      setError(e?.message || 'WhatsApp не привязан или ещё не готов. Привяжите аккаунт на вкладке «Боты».')
-    } finally { setLoading(false) }
-  }
-
-  useEffect(() => { loadChats() }, [])
-
-  const toggle = async (c: { id: string; name: string }) => {
-    const isSaved = saved.has(c.id)
-    try {
-      if (isSaved) {
-        // найти сохранённый и удалить
-        const list: any[] = await api.miniApp.broadcastChats.list()
-        const row = (list || []).find((x: any) => x.platform === 'whatsapp' && x.chat_id === c.id)
-        if (row) await api.miniApp.broadcastChats.delete(row.id)
-        setSaved(prev => { const n = new Set(prev); n.delete(c.id); return n })
-      } else {
-        await api.miniApp.broadcastChats.create({
-          platform: 'whatsapp', chat_id: c.id, title: c.name,
-          is_public: false, added_via: 'manual',
-        })
-        setSaved(prev => new Set(prev).add(c.id))
-      }
-      onChanged()
-    } catch (e: any) {
-      alert(e?.message || 'Не удалось изменить список')
-    }
-  }
-
-  const filtered = waChats.filter(c => !search || (c.name || '').toLowerCase().includes(search.toLowerCase()))
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">Чаты WhatsApp</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20} /></button>
-        </div>
-        <div className="p-5 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center gap-2 text-gray-500 text-sm py-6 justify-center">
-              <Loader2 className="w-4 h-4 animate-spin" /> Загружаю чаты вашего WhatsApp…
-            </div>
-          ) : error ? (
-            <div className="text-sm text-rose-600 py-4 text-center">
-              {error}
-              <div><button onClick={loadChats} className="mt-3 text-sm underline text-gray-600">Повторить</button></div>
-            </div>
-          ) : (
-            <>
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Поиск по названию…"
-                className="w-full mb-3 rounded-xl border border-gray-200 px-3 py-2 text-sm"
-              />
-              <p className="text-xs text-gray-500 mb-2">Отметьте конкретные чаты — в них будет уходить рассылка при галочке «слать в общие чаты».</p>
-              <div className="divide-y divide-gray-100">
-                {filtered.map(c => {
-                  const isSaved = saved.has(c.id)
-                  return (
-                    <button key={c.id} onClick={() => toggle(c)} className="w-full flex items-center gap-3 py-2.5 px-1 text-left hover:bg-gray-50 rounded-lg">
-                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md border shrink-0 ${isSaved ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300'}`}>
-                        {isSaved && <Check className="w-3.5 h-3.5 text-white" />}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block truncate text-sm text-gray-800">{c.name || c.id}</span>
-                        <span className="text-[11px] text-gray-400">{c.isGroup ? 'Группа' : 'Личный чат'}</span>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="flex justify-end p-4 border-t border-gray-100">
-          <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg text-white font-medium" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>Готово</button>
-        </div>
-      </div>
     </div>
   )
 }
@@ -539,7 +416,53 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
   const [resolvedOk, setResolvedOk] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const canResolve = platform !== 'max'
+  // WhatsApp — чаты выбираются из привязанного аккаунта (ID вручную не вписать).
+  const [waChats, setWaChats] = useState<{ id: string; name: string; isGroup: boolean }[]>([])
+  const [waLoading, setWaLoading] = useState(false)
+  const [waErr, setWaErr] = useState('')
+  const [waSaved, setWaSaved] = useState<Set<string>>(new Set())
+  const [waSearch, setWaSearch] = useState('')
+
+  const loadWaChats = async () => {
+    setWaLoading(true); setWaErr('')
+    try {
+      const [r, saved]: any = await Promise.all([
+        api.channels.whatsappChats(),
+        api.miniApp.broadcastChats.list(),
+      ])
+      setWaChats(r.chats || [])
+      setWaSaved(new Set((saved || []).filter((x: any) => x.platform === 'whatsapp').map((x: any) => x.chat_id)))
+    } catch (e: any) {
+      setWaErr(e?.message || 'WhatsApp не привязан. Привяжите аккаунт на вкладке «Боты» → платформа WhatsApp.')
+    } finally { setWaLoading(false) }
+  }
+
+  useEffect(() => {
+    if (platform === 'whatsapp' && waChats.length === 0 && !waErr) loadWaChats()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platform])
+
+  const toggleWa = async (c: { id: string; name: string }) => {
+    const isSaved = waSaved.has(c.id)
+    try {
+      if (isSaved) {
+        const list: any[] = await api.miniApp.broadcastChats.list()
+        const row = (list || []).find((x: any) => x.platform === 'whatsapp' && x.chat_id === c.id)
+        if (row) await api.miniApp.broadcastChats.delete(row.id)
+        setWaSaved(prev => { const n = new Set(prev); n.delete(c.id); return n })
+      } else {
+        await api.miniApp.broadcastChats.create({
+          platform: 'whatsapp', chat_id: c.id, title: c.name, is_public: false, added_via: 'manual',
+        })
+        setWaSaved(prev => new Set(prev).add(c.id))
+      }
+      onSaved()  // обновить список чатов на странице
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось изменить список')
+    }
+  }
+
+  const canResolve = platform !== 'max' && platform !== 'whatsapp'
 
   async function resolve() {
     setResolveErr('')
@@ -605,8 +528,8 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
           {/* Платформа — сегмент */}
           <div>
             <label className="block text-xs text-gray-500 mb-1.5">Площадка</label>
-            <div className="flex gap-2">
-              {(['telegram', 'vk', 'max'] as const).map(p => {
+            <div className="flex gap-2 flex-wrap">
+              {(['telegram', 'vk', 'max', 'whatsapp'] as const).map(p => {
                 const meta = PLATFORM_META[p]
                 const active = platform === p
                 const locked = isLocked(p)
@@ -651,6 +574,51 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
             )}
           </div>
 
+          {/* WhatsApp — выбор чатов из привязанного аккаунта (ID вручную не вписать) */}
+          {platform === 'whatsapp' ? (
+            <div>
+              {waLoading ? (
+                <div className="flex items-center gap-2 text-gray-500 text-sm py-6 justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Загружаю чаты вашего WhatsApp…
+                </div>
+              ) : waErr ? (
+                <div className="text-sm text-rose-600 py-4 text-center">
+                  {waErr}
+                  <div><button type="button" onClick={loadWaChats} className="mt-3 text-sm underline text-gray-600">Повторить</button></div>
+                </div>
+              ) : (
+                <>
+                  <input
+                    value={waSearch}
+                    onChange={e => setWaSearch(e.target.value)}
+                    placeholder="Поиск по названию…"
+                    className="w-full mb-2 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                  <p className="text-[11px] text-gray-500 mb-2">Отметьте конкретные чаты — в них будет уходить рассылка при галочке «слать в общие чаты».</p>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 border border-gray-100 rounded-lg">
+                    {waChats.filter(c => !waSearch || (c.name || '').toLowerCase().includes(waSearch.toLowerCase())).map(c => {
+                      const isSaved = waSaved.has(c.id)
+                      return (
+                        <button key={c.id} type="button" onClick={() => toggleWa(c)} className="w-full flex items-center gap-3 py-2.5 px-2 text-left hover:bg-gray-50">
+                          <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md border shrink-0 ${isSaved ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300'}`}>
+                            {isSaved && <Check className="w-3.5 h-3.5 text-white" />}
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate text-sm text-gray-800">{c.name || c.id}</span>
+                            <span className="text-[11px] text-gray-400">{c.isGroup ? 'Группа' : 'Личный чат'}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+              <div className="flex justify-end pt-4">
+                <button onClick={onClose} className="px-4 py-2.5 rounded-xl font-semibold text-sm text-white" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>Готово</button>
+              </div>
+            </div>
+          ) : (
+          <>
           {/* Ссылка + Определить ID */}
           <div>
             <label className="block text-xs text-gray-500 mb-1">Ссылка на группу / канал</label>
@@ -726,6 +694,8 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
               {saving ? 'Добавляем…' : 'Добавить'}
             </button>
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

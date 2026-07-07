@@ -879,17 +879,16 @@ async def _send_broadcast_to_client_chats(
             from app.services import whatsapp_api as wa
             from app.services.message_builder import html_to_vk_text as _to_plain
             wa_text = _to_plain(text or "")
+            # Фото — отправляем картинкой с подписью. Видео — тяжёлое, ссылкой в тексте.
+            wa_media = photo_url if (photo_url and media_type != "video") else None
             if media_type == "video" and video_url:
                 wa_text = f"{wa_text}\n\n🎬 Видео: {video_url}" if wa_text else video_url
-            elif photo_url:
-                # WhatsApp через мост шлём текстом; картинку прикладываем ссылкой
-                wa_text = f"{wa_text}\n\n{photo_url}" if wa_text else photo_url
             if button_url:
                 wa_text = f"{wa_text}\n\n{button_text or 'Подробнее'}: {button_url}"
-            if wa_text.strip():
+            if wa_text.strip() or wa_media:
                 for c in wa_chats:
                     try:
-                        res = await wa.send_message(client_id, c, wa_text)
+                        res = await wa.send_message(client_id, c, wa_text, media_url=wa_media)
                         if res and res.get("ok"):
                             sent += 1
                     except Exception as ex:

@@ -10,6 +10,7 @@ import RaffleTab from '../tabs/RaffleTab'
 import ResultsTab from '../tabs/ResultsTab'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
+import MediaLiftTab from '../tabs/MediaLiftTab'
 import RegistrationFlow from '../components/RegistrationFlow'
 import WelcomePage from '../components/WelcomePage'
 import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed } from '../api'
@@ -456,6 +457,20 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
         Загружаем...
       </div>
+    )
+  }
+
+  // МедиаЛифт — весь флоу на одном экране (карточки ветки → подписка на 3 →
+  // регистрация → добавь свой канал → апселл). Обычная навигация события не нужна.
+  if (event.module_slug === 'medialift') {
+    return (
+      <MediaLiftTab
+        event={event}
+        tgUser={tgUser}
+        contactId={contactId}
+        isRegistered={!!participant?.is_registered}
+        onRegistered={() => setParticipant((p: any) => ({ ...(p || {}), is_registered: true }))}
+      />
     )
   }
 
