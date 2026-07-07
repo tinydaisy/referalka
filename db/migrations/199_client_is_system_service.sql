@@ -19,3 +19,10 @@ UPDATE clients SET is_system_service = TRUE WHERE id = 3;
 -- Гарантия: системный сервисный клиент — РОВНО ОДИН (нельзя случайно пометить двух).
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_clients_system_service
   ON clients ((TRUE)) WHERE is_system_service = TRUE;
+
+-- Тип события МедиаЛифт (многоуровневая автоподписка) — служебный, только для
+-- сервисного аккаунта. Регистрируем в справочнике modules (FK events.module_slug).
+INSERT INTO modules (slug, name, description, is_active)
+VALUES ('medialift', 'МедиаЛифт',
+        'Многоуровневая система автоподписки (служебный тип, только сервисный аккаунт)', TRUE)
+ON CONFLICT (slug) DO NOTHING;

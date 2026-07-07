@@ -92,7 +92,7 @@ async def _fetch_cards(
                ec.gift_lead_magnet_id AS gift_lead_magnet_id,
                ct.ref_code          AS ref_code
           FROM event_collaborators ec
-          JOIN collaborators c  ON c.id = ec.collaborator_id
+          JOIN collaborators c  ON c.id = ec.speaker_id
           JOIN contacts ct      ON ct.id = c.contact_id
          WHERE ec.event_id = $1
            AND ct.id = ANY($2::int[])
@@ -126,7 +126,7 @@ async def _fill_recent(
                ec.gift_lead_magnet_id AS gift_lead_magnet_id,
                ct.ref_code          AS ref_code
           FROM event_collaborators ec
-          JOIN collaborators c  ON c.id = ec.collaborator_id
+          JOIN collaborators c  ON c.id = ec.speaker_id
           JOIN contacts ct      ON ct.id = c.contact_id
          WHERE ec.event_id = $1
            AND COALESCE(ec.is_visible, TRUE) = TRUE
@@ -231,7 +231,7 @@ async def check_subscribe(
                   c.tg_channel_id, c.tg_channel_url,
                   pu.platform_user_id AS owner_tg_id
              FROM event_collaborators ec
-             JOIN collaborators c ON c.id = ec.collaborator_id
+             JOIN collaborators c ON c.id = ec.speaker_id
              JOIN contacts ct ON ct.id = c.contact_id
              LEFT JOIN platform_users pu
                ON pu.contact_id = c.contact_id AND pu.platform_slug='telegram'
