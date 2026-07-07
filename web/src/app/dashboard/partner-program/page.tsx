@@ -32,11 +32,16 @@ const WD_STATUS: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Отклонено',    color: 'text-red-700 bg-red-50' },
 }
 
+type Tab = 'main' | 'referrals' | 'payouts'
+type RefFilter = 'all' | 'active' | 'inactive'
+
 export default function PartnerProgramPage() {
   const [data, setData] = useState<RefData | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState<string | null>(null)
   const [showWithdrawModal, setShowWithdrawModal] = useState(false)
+  const [tab, setTab] = useState<Tab>('main')
+  const [refFilter, setRefFilter] = useState<RefFilter>('all')
 
   function load() {
     api.referrals.me()
@@ -55,6 +60,19 @@ export default function PartnerProgramPage() {
   if (loading) return <div className="text-gray-500 p-8">Загрузка…</div>
   if (!data) return <div className="text-gray-500 p-8">Не удалось загрузить данные</div>
 
+  // Реферал «действующий» = есть активная подписка (sub_active). Иначе — недействующий (подписка остановилась/истекла).
+  const activeCount = data.referrals.filter((r: any) => r.sub_active).length
+  const inactiveCount = data.referrals.length - activeCount
+  const filteredReferrals = data.referrals.filter((r: any) =>
+    refFilter === 'all' ? true : refFilter === 'active' ? r.sub_active : !r.sub_active
+  )
+
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'main', label: 'Основное' },
+    { key: 'referrals', label: 'Приведённые клиенты' },
+    { key: 'payouts', label: 'История выплат' },
+  ]
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
@@ -66,160 +84,218 @@ export default function PartnerProgramPage() {
         </p>
       </div>
 
-      {/* Баланс + действия */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-sm text-gray-500 mb-1">Бонусный баланс</div>
-            <div className="text-4xl font-bold" style={{ color: '#25455D' }}>
-              {data.balance_rub.toLocaleString('ru-RU')} ₽
-            </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => data.can_withdraw && setShowWithdrawModal(true)}
-              disabled={!data.can_withdraw}
-              title={data.withdrawal_block_reason || ''}
-              className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              <Wallet size={14} /> Вывести
-            </button>
-            <a
-              href="/dashboard/settings?tab=subscription"
-              className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-            >
-              На свою подписку
-              <ArrowRight size={14} />
-            </a>
-          </div>
-        </div>
-        {data.withdrawal_block_reason && (
-          <div className="mt-3 text-xs text-gray-500 italic">{data.withdrawal_block_reason}</div>
-        )}
+      {/* Вкладки */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === t.key
+                ? 'border-[#25455D] text-[#25455D]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+            {t.key === 'referrals' && <span className="ml-1.5 text-xs text-gray-400">{data.referrals_count}</span>}
+          </button>
+        ))}
       </div>
 
-      {/* Реф-ссылки */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h3 className="font-semibold text-gray-800 mb-1">Ваши реф-ссылки</h3>
-        <p className="text-xs text-gray-400 mb-4">
-          Реф-код: <code className="bg-gray-50 px-1.5 py-0.5 rounded">{data.referral_code}</code>
-        </p>
-        <div className="space-y-2">
-          {[
-            { key: 'web', label: 'Сайт', url: data.links.web },
-            { key: 'telegram', label: 'Telegram', url: data.links.telegram },
-          ].map(({ key, label, url }) => (
-            <div key={key} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-              <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
-              <code className="flex-1 text-xs text-gray-700 truncate">{url}</code>
-              <button onClick={() => copy(key, url)} className="text-gray-400 hover:text-[#25455D] p-1 shrink-0" title="Скопировать">
-                {copied === key ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-              </button>
-              <a href={url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#25455D] p-1 shrink-0">
-                <ExternalLink size={14} />
-              </a>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Приведённые клиенты */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-            <Users size={16} /> Приведённые клиенты
-          </h3>
-          <span className="text-sm text-gray-500">{data.referrals_count}</span>
-        </div>
-        {data.referrals.length === 0 ? (
-          <p className="text-sm text-gray-400">Пока никого нет. Поделитесь реф-ссылкой!</p>
-        ) : (
-          <div className="space-y-2">
-            {data.referrals.map((r: any) => (
-              <div key={r.id} className="flex items-center justify-between border-b border-gray-50 last:border-0 py-2">
-                <div>
-                  <div className="font-medium text-gray-800">{r.name}</div>
-                  <div className="text-xs text-gray-400">
-                    {r.email} · с {new Date(r.created_at).toLocaleDateString('ru-RU')}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm">
-                    {r.tariff_name ? (
-                      <span className={r.sub_active ? 'text-emerald-700' : 'text-gray-400'}>
-                        {r.tariff_name}{r.sub_source === 'trial' ? ' (trial)' : ''}
-                      </span>
-                    ) : <span className="text-gray-400">—</span>}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Оплатил всего: {((r.total_paid_kopecks || 0) / 100).toLocaleString('ru-RU')} ₽
-                  </div>
+      {/* ── ОСНОВНОЕ ── */}
+      {tab === 'main' && (
+        <>
+          {/* Баланс + действия */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-sm text-gray-500 mb-1">Бонусный баланс</div>
+                <div className="text-4xl font-bold" style={{ color: '#25455D' }}>
+                  {data.balance_rub.toLocaleString('ru-RU')} ₽
                 </div>
               </div>
-            ))}
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => data.can_withdraw && setShowWithdrawModal(true)}
+                  disabled={!data.can_withdraw}
+                  title={data.withdrawal_block_reason || ''}
+                  className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Wallet size={14} /> Вывести
+                </button>
+                <a
+                  href="/dashboard/settings?tab=subscription"
+                  className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  На свою подписку
+                  <ArrowRight size={14} />
+                </a>
+              </div>
+            </div>
+            {data.withdrawal_block_reason && (
+              <div className="mt-3 text-xs text-gray-500 italic">{data.withdrawal_block_reason}</div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Заявки */}
-      {data.withdrawal_requests.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Заявки на вывод</h3>
-          <div className="space-y-2">
-            {data.withdrawal_requests.map((w: any) => {
-              const st = WD_STATUS[w.status] || { label: w.status, color: 'text-gray-600 bg-gray-100' }
-              return (
-                <div key={w.id} className="flex items-center justify-between border-b border-gray-50 last:border-0 py-2 text-sm">
-                  <div>
-                    <div className="font-medium text-gray-800">{(w.amount_kopecks / 100).toLocaleString('ru-RU')} ₽</div>
-                    <div className="text-xs text-gray-400">
-                      {new Date(w.requested_at).toLocaleString('ru-RU')}
-                    </div>
-                    {w.admin_note && <div className="text-xs text-gray-500 italic mt-1">{w.admin_note}</div>}
-                  </div>
-                  <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${st.color}`}>
-                    {st.label}
-                  </span>
+          {/* Реф-ссылки */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h3 className="font-semibold text-gray-800 mb-1">Ваши реф-ссылки</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Реф-код: <code className="bg-gray-50 px-1.5 py-0.5 rounded">{data.referral_code}</code>
+            </p>
+            <div className="space-y-2">
+              {[
+                { key: 'web', label: 'Сайт', url: data.links.web },
+                { key: 'telegram', label: 'Telegram', url: data.links.telegram },
+              ].map(({ key, label, url }) => (
+                <div key={key} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                  <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
+                  <code className="flex-1 text-xs text-gray-700 truncate">{url}</code>
+                  <button onClick={() => copy(key, url)} className="text-gray-400 hover:text-[#25455D] p-1 shrink-0" title="Скопировать">
+                    {copied === key ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  </button>
+                  <a href={url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#25455D] p-1 shrink-0">
+                    <ExternalLink size={14} />
+                  </a>
                 </div>
-              )
-            })}
+              ))}
+            </div>
           </div>
+        </>
+      )}
+
+      {/* ── ПРИВЕДЁННЫЕ КЛИЕНТЫ ── */}
+      {tab === 'referrals' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+              <Users size={16} /> Приведённые клиенты
+            </h3>
+            {/* Фильтр действующие / недействующие */}
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 text-xs">
+              {[
+                { key: 'all' as RefFilter, label: `Все · ${data.referrals.length}` },
+                { key: 'active' as RefFilter, label: `Действующие · ${activeCount}` },
+                { key: 'inactive' as RefFilter, label: `Остановлены · ${inactiveCount}` },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setRefFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                    refFilter === f.key ? 'bg-white text-[#25455D] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {filteredReferrals.length === 0 ? (
+            <p className="text-sm text-gray-400">
+              {data.referrals.length === 0 ? 'Пока никого нет. Поделитесь реф-ссылкой!' : 'Нет клиентов в этой категории.'}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {filteredReferrals.map((r: any) => (
+                <div key={r.id} className="flex items-center justify-between border-b border-gray-50 last:border-0 py-2">
+                  <div>
+                    <div className="font-medium text-gray-800 flex items-center gap-2">
+                      {r.name}
+                      <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        r.sub_active ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'
+                      }`}>
+                        {r.sub_active ? 'Действует' : 'Остановлена'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {r.email} · с {new Date(r.created_at).toLocaleDateString('ru-RU')}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm">
+                      {r.tariff_name ? (
+                        <span className={r.sub_active ? 'text-emerald-700' : 'text-gray-400'}>
+                          {r.tariff_name}{r.sub_source === 'trial' ? ' (trial)' : ''}
+                        </span>
+                      ) : <span className="text-gray-400">—</span>}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Оплатил всего: {((r.total_paid_kopecks || 0) / 100).toLocaleString('ru-RU')} ₽
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* История */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h3 className="font-semibold text-gray-800 mb-4">История бонусов</h3>
-        {data.transactions.length === 0 ? (
-          <p className="text-sm text-gray-400">Операций пока нет</p>
-        ) : (
-          <div className="space-y-2">
-            {data.transactions.map((t: any) => {
-              const meta = TX_LABEL[t.type] || { label: t.type, icon: '·' }
-              const amt = t.amount_kopecks / 100
-              const isPositive = t.amount_kopecks > 0
-              return (
-                <div key={t.id} className="flex items-center justify-between border-b border-gray-50 last:border-0 py-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span>{meta.icon}</span>
-                    <div>
-                      <div className="font-medium text-gray-800">{meta.label}</div>
-                      <div className="text-xs text-gray-400">
-                        {new Date(t.created_at).toLocaleDateString('ru-RU')}
-                        {t.source_payer_name && ` · от ${t.source_payer_name}`}
+      {/* ── ИСТОРИЯ ВЫПЛАТ ── */}
+      {tab === 'payouts' && (
+        <>
+          {/* Заявки на вывод */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">Заявки на вывод</h3>
+            {data.withdrawal_requests.length === 0 ? (
+              <p className="text-sm text-gray-400">Заявок на вывод пока не было</p>
+            ) : (
+              <div className="space-y-2">
+                {data.withdrawal_requests.map((w: any) => {
+                  const st = WD_STATUS[w.status] || { label: w.status, color: 'text-gray-600 bg-gray-100' }
+                  return (
+                    <div key={w.id} className="flex items-center justify-between border-b border-gray-50 last:border-0 py-2 text-sm">
+                      <div>
+                        <div className="font-medium text-gray-800">{(w.amount_kopecks / 100).toLocaleString('ru-RU')} ₽</div>
+                        <div className="text-xs text-gray-400">
+                          {new Date(w.requested_at).toLocaleString('ru-RU')}
+                        </div>
+                        {w.admin_note && <div className="text-xs text-gray-500 italic mt-1">{w.admin_note}</div>}
                       </div>
-                      {t.description && <div className="text-xs text-gray-500 mt-0.5">{t.description}</div>}
+                      <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${st.color}`}>
+                        {st.label}
+                      </span>
                     </div>
-                  </div>
-                  <div className={`font-semibold ${isPositive ? 'text-green-600' : t.amount_kopecks < 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                    {isPositive ? '+' : ''}{amt.toLocaleString('ru-RU')} ₽
-                  </div>
-                </div>
-              )
-            })}
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* История бонусов */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">История бонусов</h3>
+            {data.transactions.length === 0 ? (
+              <p className="text-sm text-gray-400">Операций пока нет</p>
+            ) : (
+              <div className="space-y-2">
+                {data.transactions.map((t: any) => {
+                  const meta = TX_LABEL[t.type] || { label: t.type, icon: '·' }
+                  const amt = t.amount_kopecks / 100
+                  const isPositive = t.amount_kopecks > 0
+                  return (
+                    <div key={t.id} className="flex items-center justify-between border-b border-gray-50 last:border-0 py-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span>{meta.icon}</span>
+                        <div>
+                          <div className="font-medium text-gray-800">{meta.label}</div>
+                          <div className="text-xs text-gray-400">
+                            {new Date(t.created_at).toLocaleDateString('ru-RU')}
+                            {t.source_payer_name && ` · от ${t.source_payer_name}`}
+                          </div>
+                          {t.description && <div className="text-xs text-gray-500 mt-0.5">{t.description}</div>}
+                        </div>
+                      </div>
+                      <div className={`font-semibold ${isPositive ? 'text-green-600' : t.amount_kopecks < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                        {isPositive ? '+' : ''}{amt.toLocaleString('ru-RU')} ₽
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {showWithdrawModal && (
         <WithdrawModal
