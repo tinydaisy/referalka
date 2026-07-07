@@ -9,6 +9,7 @@
 НИКОГДА не писать аналогичный код в другом месте.
 """
 import re
+import json as _json
 import logging
 import httpx
 from datetime import datetime
@@ -238,25 +239,81 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
 
 # ─── Формирование текста: gift (подарок спикера) ────────────────────────────
 
-def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_text=None):
+def build_speaker_material(kb_title, kb_url):
+    """Материал спикера в базу знаний ({speaker_material}): «Название\\nссылка».
+    Пусто → пустая строка (плейсхолдер потом убирается вместе со своей строкой)."""
+    t = (kb_title or "").strip()
+    u = (kb_url or "").strip()
+    if not t and not u:
+        return ""
+    if t and u:
+        return f"{t}\n{u}"
+    return t or u
+
+
+def apply_speaker_material(text, material):
+    """Подставить {speaker_material} в текст. Если материала нет — удалить строку
+    с плейсхолдером целиком (как gift_url/personal_tg)."""
+    if "{speaker_material}" not in (text or ""):
+        return text
+    if not material:
+        return re.sub(r"^[^\n]*\{speaker_material\}[^\n]*\n?", "", text, flags=re.MULTILINE).strip()
+    return text.replace("{speaker_material}", material)
+
+
+def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_text=None, gifts=None):
     """Формирует сообщение-подарок.
     Если задан tmpl_text — используется он с подстановкой плейсхолдеров
     ({speaker_name}, {gift_title}, {gift_url}, {personal_tg}).
     Иначе — встроенный формат по умолчанию.
+
+    gifts — СПИСОК подарков-лид-магнитов спикера (до 4): [{"title","url"}, ...].
+    Если передан и непуст, {gift_title}/{gift_url} (или дефолтное тело) заменяются
+    на многострочный блок «Название\\nссылка» по всем подаркам. Одиночные
+    gift_title/gift_url — fallback (ручной подарок / обратная совместимость).
     """
     tg_raw = (personal_tg or "").strip()
     tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
-    title = (gift_title or "").strip()
-    url = (gift_url or "").strip()
+
+    # Нормализуем список подарков (непустые названия)
+    glist = []
+    for g in (gifts or []):
+        t = ((g or {}).get("title") or "").strip()
+        u = ((g or {}).get("url") or "").strip()
+        if t:
+            glist.append((t, u))
+    # Если списка нет — используем одиночный подарок как единственный элемент.
+    if not glist:
+        t0 = (gift_title or "").strip()
+        u0 = (gift_url or "").strip()
+        if t0:
+            glist = [(t0, u0)]
+
+    def _gifts_block():
+        # «Название\nссылка» по каждому подарку, разделитель — пустая строка
+        parts = []
+        for t, u in glist:
+            parts.append(f"{t}\n{u}" if u else t)
+        return "\n\n".join(parts)
+
+    title = glist[0][0] if glist else ""
+    url = glist[0][1] if glist else ""
 
     tmpl = (tmpl_text or "").strip()
     if tmpl and any(p in tmpl for p in ("{speaker_name}", "{gift_title}", "{gift_url}", "{personal_tg}")):
         text = tmpl
-        # Построчно удаляем строки с пустыми плейсхолдерами
-        if not title:
-            text = re.sub(r"^[^\n]*\{gift_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-        if not url:
+        multi = len(glist) > 1
+        # Многоподарочный случай: строку с {gift_title} превращаем в блок всех подарков,
+        # строку с {gift_url} убираем (ссылки уже внутри блока).
+        if multi and "{gift_title}" in text:
             text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+            title = _gifts_block()
+            url = ""
+        else:
+            if not title:
+                text = re.sub(r"^[^\n]*\{gift_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+            if not url:
+                text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
         if not tg_mention:
             text = re.sub(r"^[^\n]*\{personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
         text = (text
@@ -267,12 +324,10 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         return text.strip()
 
     header = f"🎁 {speaker_name}: Подарки после эфира"
-    if not title:
+    if not glist:
         body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
-    elif not url:
-        body = f"{title}\nПишите в личку {tg_mention}" if tg_mention else title
     else:
-        body = f"{title}\n{url}"
+        body = _gifts_block()
     return f"{header}\n\n{body}"
 
 
@@ -536,7 +591,18 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """
                 SELECT c.name as speaker_name,
                        pu_tg.username AS personal_tg_username,
-                       cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial
+                       cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial,
+                       (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
+                          SELECT eclm.id, eclm.sort_order,
+                                 COALESCE(glm.name, glp.name) AS title,
+                                 CASE WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                      THEN 'https://pluson.ru/p/'||glp.slug
+                                      ELSE glm.url END AS url
+                            FROM event_collaborator_lead_magnets eclm
+                            LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                            LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                           WHERE eclm.ec_id = cse.id
+                       ) g) AS gift_magnets_json
                 FROM conf_sessions cs
                 JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 JOIN collaborators c ON c.id = cse.speaker_id
@@ -554,7 +620,18 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 url = (gs["gift_after_speech_url"] or "").strip()
                 tg = (gs["personal_tg_username"] or "").strip()
                 tg_mention = ("@" + tg.lstrip("@")) if tg else ""
-                if not title:
+                # Список подарков-лид-магнитов спикера (до 4). Приоритет ручному подарку.
+                _gm = gs["gift_magnets_json"]
+                if isinstance(_gm, str):
+                    try:
+                        _gm = _json.loads(_gm)
+                    except (ValueError, TypeError):
+                        _gm = None
+                magnets = [(g.get("title"), g.get("url")) for g in (_gm or []) if g and g.get("title")]
+                if not title and magnets:
+                    body = "\n\n".join(f"{t}\n{u}" if u else t for t, u in magnets)
+                    block = f"🎁 <b>{gs['speaker_name']}:</b>\n{body}"
+                elif not title:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> пишите в личку {tg_mention}" if tg_mention else f"🎁 <b>{gs['speaker_name']}:</b> уточните у спикера"
                 elif not url:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
@@ -616,6 +693,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.achievements,
                        cse.id AS ec_id, cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
                        cse.gift_raffle_title,
+                       cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
                        e.landing_url AS registration_url,
                        cl.default_link_mode,
@@ -656,6 +734,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
                     vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"]
                 )
+                text = apply_speaker_material(
+                    text,
+                    build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]),
+                )
                 reg_url = sp["registration_url"] or ""
                 btn_url = (btn_url
                            .replace("{landing_url}", reg_url)
@@ -680,9 +762,21 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
+                       cse.knowledge_base_title, cse.knowledge_base_url,
                        cse.gift_lead_magnet_id, cse.gift_package_id,
                        lm.name AS lm_name, lm.url AS lm_url,
                        lp.name AS lp_name, lp.slug AS lp_slug,
+                       (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
+                          SELECT eclm.id, eclm.sort_order,
+                                 COALESCE(glm.name, glp.name) AS title,
+                                 CASE WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                      THEN 'https://pluson.ru/p/'||glp.slug
+                                      ELSE glm.url END AS url
+                            FROM event_collaborator_lead_magnets eclm
+                            LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                            LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                           WHERE eclm.ec_id = cse.id
+                       ) g) AS gift_magnets_json,
                        e.stream_url,
                        cl.default_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
@@ -704,8 +798,18 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             )
             if session:
                 session_data = dict(session)
-                # Подарок: приоритет ручному вводу; иначе берём из ПЛЮСОНа
-                # (лид-магнит → его название+ссылка; пакет → название+ссылка /p/{slug}).
+                # Список подарков-лид-магнитов спикера (до 4, миграция 200).
+                _gm = session_data.get("gift_magnets_json")
+                if isinstance(_gm, str):
+                    try:
+                        _gm = _json.loads(_gm)
+                    except (ValueError, TypeError):
+                        _gm = None
+                session_data["gift_magnets_list"] = [
+                    {"title": g.get("title"), "url": g.get("url")}
+                    for g in (_gm or []) if g and g.get("title")
+                ]
+                # Одиночный подарок (fallback): приоритет ручному вводу; иначе из ПЛЮСОНа.
                 if not session_data.get("gift_title"):
                     if session_data.get("lm_name"):
                         session_data["gift_title"] = session_data["lm_name"]
@@ -717,6 +821,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if not photo:
             photo = session_data.get("speaker_poster")
         stream_url = session_data.get("stream_url") or ""
+        speaker_material = build_speaker_material(
+            session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
         if tpl_type == "gift":
             text = build_gift_message(
                 session_data.get("speaker_name"),
@@ -724,7 +830,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 session_data.get("gift_title"),
                 session_data.get("gift_url"),
                 tmpl_text=tmpl_text,
+                gifts=session_data.get("gift_magnets_list"),
             )
+            text = apply_speaker_material(text, speaker_material)
         else:  # 5min_before
             card_link = speaker_card_link(session_data.get("event_slug"), session_data.get("ec_id"),
                                           session_data.get("default_link_mode"), session_data.get("bot_handle"))
@@ -745,6 +853,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 positioning=session_data.get("positioning"),
                 card_link=card_link,
             )
+            text = apply_speaker_material(text, speaker_material)
         btn_url = btn_url.replace("{stream_url}", stream_url)
 
     elif tpl_type == "pre_conf":
@@ -948,7 +1057,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     _KNOWN_PLACEHOLDERS = [
         "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
         "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
-        "speaker_bio", "speaker_positioning", "speaker_card_link",
+        "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",

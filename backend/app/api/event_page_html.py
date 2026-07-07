@@ -77,6 +77,11 @@ async def _load_collaborators(db, event_id):
                    cse.gift_after_speech_title, cse.gift_raffle_title,
                    cse.gift_lead_magnet_id, cse.gift_package_id,
                    lm.name AS gift_lm_name, lp.name AS gift_lp_name,
+                   (SELECT string_agg(COALESCE(glm.name, glp.name), ' · ' ORDER BY eclm.sort_order, eclm.id)
+                      FROM event_collaborator_lead_magnets eclm
+                      LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                      LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                     WHERE eclm.ec_id = cse.id) AS gift_magnet_names,
                    c.name, c.title, c.achievements, c.photo_url,
                    c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
               FROM event_collaborators cse
@@ -543,9 +548,12 @@ def _speaker_card(p, slot=None) -> str:
 
     # Подарок на эфире / в розыгрыше — идёт ПОД темой, внутри блока темы.
     gift_html = ""
-    # Подарок на эфире: ручной (gift_after_speech_title) ИЛИ из ПЛЮСОНа
-    # (лид-магнит/пакет спикера — показываем его название). Взаимоисключающие.
-    gas = p.get("gift_after_speech_title") or p.get("gift_lm_name") or p.get("gift_lp_name")
+    # Подарок на эфире: ручной (gift_after_speech_title) ИЛИ список лид-магнитов
+    # из ПЛЮСОНа (до 4, миграция 200 — показываем их названия через · ),
+    # fallback на одиночное имя. Взаимоисключающие.
+    gas = (p.get("gift_after_speech_title")
+           or p.get("gift_magnet_names")
+           or p.get("gift_lm_name") or p.get("gift_lp_name"))
     if gas:
         gift_html += (
             '<div class="gift-tag gift-tag-air">'

@@ -30,7 +30,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -38,7 +38,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{stream_url}'],
+    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{stream_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -60,7 +60,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'gift',
     title: 'Подарок спикера',
     hint: 'Отправляется за 10 минут до конца выступления. Без фото.',
-    variables: ['{speaker_name}', '{gift_title}', '{gift_url}'],
+    variables: ['{speaker_name}', '{gift_title}', '{gift_url}', '{speaker_material}'],
     hasSpeaker: true,
     showPhoto: false,
   },
@@ -134,6 +134,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_bio}', desc: 'Биография / «о себе» спикера' },
   { name: '{speaker_positioning}', desc: 'Позиционирование спикера (должность/титул)' },
   { name: '{speaker_card_link}', desc: 'Ссылка на карточку спикера (веб или Mini App — по настройке события)' },
+  { name: '{speaker_material}', desc: 'Материал спикера в базу знаний (название + ссылка под ним). Пусто — строка убирается' },
   { name: '{gift_after_speech_title}', desc: 'Подарок на эфире' },
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
@@ -616,8 +617,15 @@ export default function TemplatesPage() {
         out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')
         out = out.replace(/^.*\{gift_url\}.*$\n?/gm, '')
 
+        // Список подарков-лид-магнитов спикера (до 4, миграция 200). Приоритет
+        // ручному подарку; иначе показываем все магниты «Название\nссылка».
+        const magnets: Array<{ title: string; url: string }> = (Array.isArray(speaker.gift_magnets) ? speaker.gift_magnets : [])
+          .filter((g: any) => g && g.name)
+          .map((g: any) => ({ title: g.name, url: g.url || '' }))
         let giftBlock = ''
-        if (!giftTitle) {
+        if (!giftTitle && magnets.length) {
+          giftBlock = magnets.map((g) => (g.url ? `${g.title}\n${g.url}` : g.title)).join('\n\n')
+        } else if (!giftTitle) {
           giftBlock = tgUrl
             ? `🎁 Чтобы забрать материалы — пишите в личку ${tgUrl}`
             : `🎁 Чтобы забрать материалы — напишите спикеру в личку`
@@ -654,6 +662,17 @@ export default function TemplatesPage() {
           .replace(/\{speaker_name\}/g, speaker.name || '')
           .replace(/\{speaker_topic\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0) ? speaker.topics.map((t: any) => t?.topic || '').filter(Boolean).join('\n') : speaker.topic) || 'уточняется')
           .replace(/\{stream_url\}/g, getStreamUrl(day))
+      }
+
+      // {speaker_material} — материал спикера в базу знаний (название + ссылка).
+      // Пусто → убираем строку с плейсхолдером; едино для всех спикерских шаблонов.
+      const kbT = (speaker.knowledge_base_title || '').trim()
+      const kbU = (speaker.knowledge_base_url || '').trim()
+      const material = (kbT && kbU) ? `${kbT}\n${kbU}` : (kbT || kbU)
+      if (out.includes('{speaker_material}')) {
+        out = material
+          ? out.replace(/\{speaker_material\}/g, material)
+          : out.replace(/^[^\n]*\{speaker_material\}[^\n]*\n?/gm, '')
       }
     }
 

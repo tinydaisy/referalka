@@ -733,6 +733,17 @@ async def list_event_speakers(
                   cse.gift_lead_magnet_id, cse.gift_package_id,
                   lm.name AS gift_lm_name, lm.url AS gift_lm_url,
                   lp.name AS gift_lp_name, lp.slug AS gift_lp_slug,
+                  (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
+                     SELECT eclm.id, eclm.sort_order, eclm.lead_magnet_id, eclm.package_id,
+                            COALESCE(glm.name, glp.name) AS name,
+                            CASE WHEN eclm.lead_magnet_id IS NOT NULL THEN 'magnet' ELSE 'package' END AS kind,
+                            CASE WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                 THEN 'https://pluson.ru/p/'||glp.slug ELSE glm.url END AS url
+                       FROM event_collaborator_lead_magnets eclm
+                       LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                       LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                      WHERE eclm.ec_id = cse.id
+                  ) g) AS gift_magnets,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
@@ -781,15 +792,28 @@ async def list_event_speakers(
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)
     result = []
+    import json as _json_c
     for r in rows:
         d = dict(r)
         d["topics"] = topics_map.get(d["id"], [])
         d["poster_url"] = d.get("cse_poster_url") or d.get("speaker_poster_url")
-        # Подарок спикера: приоритет ручному вводу; иначе резолвим из ПЛЮСОНа
-        # (лид-магнит → name+url; пакет → name + ссылка /p/{slug}).
-        # Так предпросмотр рассылки gift показывает реальный подарок.
+        # Список подарков-лид-магнитов (до 4, миграция 200) — для карточки спикера
+        # и превью рассылки gift.
+        gm = d.get("gift_magnets")
+        if isinstance(gm, str):
+            try:
+                gm = _json_c.loads(gm)
+            except (ValueError, TypeError):
+                gm = None
+        d["gift_magnets"] = [g for g in (gm or []) if g and g.get("name")]
+        # Подарок спикера (одиночный, обратная совместимость): приоритет ручному
+        # вводу; иначе первый из списка / резолв из ПЛЮСОНа.
         if not (d.get("gift_after_speech_title") or "").strip():
-            if d.get("gift_lm_name"):
+            if d["gift_magnets"]:
+                first = d["gift_magnets"][0]
+                d["gift_after_speech_title"] = first.get("name")
+                d["gift_after_speech_url"] = first.get("url") or d.get("gift_after_speech_url")
+            elif d.get("gift_lm_name"):
                 d["gift_after_speech_title"] = d["gift_lm_name"]
                 d["gift_after_speech_url"] = d.get("gift_lm_url") or d.get("gift_after_speech_url")
             elif d.get("gift_lp_name"):

@@ -201,6 +201,8 @@ export default function ConferenceSpeakerPage() {
   // кабинете. Показываем отдельной read-only плашкой — иначе выглядит будто
   // подарка нет, хотя он есть.
   const [giftPluson, setGiftPluson] = useState<{ name: string; url: string | null } | null>(null)
+  // Список подарков-лид-магнитов из ПЛЮСОНа (до 4, миграция 200) — read-only.
+  const [giftMagnets, setGiftMagnets] = useState<Array<{ name: string; url: string | null; kind: string }>>([])
   // Этапы турнира + в каких участвует этот спикер/жюри (event_collaborator_stages)
   const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
   const [stageIds, setStageIds] = useState<number[]>([])
@@ -247,8 +249,10 @@ export default function ConferenceSpeakerPage() {
         // Бэк для рассылок подставляет имя магнита в gift_after_speech_title —
         // но здесь это НЕ ручной ввод, поэтому показываем отдельной плашкой и НЕ
         // кладём в редактируемое поле (иначе при сохранении перезапишет привязку).
-        const fromPluson = !!(sp.gift_lead_magnet_id || sp.gift_package_id)
-        setGiftPluson(fromPluson
+        const magnetList = Array.isArray(sp.gift_magnets) ? sp.gift_magnets : []
+        setGiftMagnets(magnetList.map((g: any) => ({ name: g.name, url: g.url || null, kind: g.kind })))
+        const fromPluson = !!(sp.gift_lead_magnet_id || sp.gift_package_id || magnetList.length)
+        setGiftPluson(fromPluson && !magnetList.length
           ? { name: sp.gift_lm_name || sp.gift_lp_name || sp.gift_after_speech_title || 'Лид-магнит из ПЛЮСОН',
               url: sp.gift_lm_url || sp.gift_after_speech_url || null }
           : null)
@@ -731,6 +735,25 @@ export default function ConferenceSpeakerPage() {
         {/* Подарок после эфира */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
+          {giftMagnets.length > 0 && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+              <div className="font-semibold text-emerald-800">🎁 Подарки-лид-магниты из ПЛЮСОНа ({giftMagnets.length})</div>
+              <ol className="mt-1.5 space-y-1.5 list-decimal list-inside">
+                {giftMagnets.map((g, i) => (
+                  <li key={i} className="text-emerald-900">
+                    {g.kind === 'package' ? '📦 ' : ''}{g.name}
+                    {g.url && (
+                      <div><a href={g.url} target="_blank" rel="noreferrer"
+                        className="text-emerald-700 underline break-all text-xs">{g.url}</a></div>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              <div className="text-emerald-700 text-xs mt-1.5">
+                Спикер выбрал их в своём кабинете (порядок настраивает он же). Ручные поля ниже можно оставить пустыми.
+              </div>
+            </div>
+          )}
           {giftPluson && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
               <div className="font-semibold text-emerald-800">🎁 Подарок из ПЛЮСОНа</div>
@@ -745,7 +768,7 @@ export default function ConferenceSpeakerPage() {
             </div>
           )}
           <div>
-            <FieldLabel label="Название" empty={!giftPluson && !eventForm.gift_after_speech_title.trim()} />
+            <FieldLabel label="Название" empty={!giftPluson && giftMagnets.length === 0 && !eventForm.gift_after_speech_title.trim()} />
             <textarea value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
               rows={3} placeholder="Например: Чек-лист по нутрициологии"
               className="input resize-y text-sm" />

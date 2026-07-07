@@ -126,6 +126,29 @@ def _auth_session(authorization: Optional[str] = Header(None)) -> dict:
     return _decode(token)
 
 
+async def _sync_gift_magnet_list_from_legacy(db: asyncpg.Connection, ec_id: int):
+    """Синхронизировать список event_collaborator_lead_magnets с одиночной legacy-
+    привязкой event_collaborators.gift_lead_magnet_id/gift_package_id. Нужен когда
+    старый клиент шлёт только legacy-поля (без gift_lead_magnets) — чтобы список
+    (который читают критерий/рассылка/страница) не рассинхронился с одиночным полем."""
+    link = await db.fetchrow(
+        "SELECT gift_lead_magnet_id, gift_package_id FROM event_collaborators WHERE id = $1", ec_id
+    )
+    await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id = $1", ec_id)
+    if not link:
+        return
+    if link["gift_lead_magnet_id"]:
+        await db.execute(
+            "INSERT INTO event_collaborator_lead_magnets (ec_id, lead_magnet_id, sort_order) VALUES ($1, $2, 0)",
+            ec_id, link["gift_lead_magnet_id"],
+        )
+    elif link["gift_package_id"]:
+        await db.execute(
+            "INSERT INTO event_collaborator_lead_magnets (ec_id, package_id, sort_order) VALUES ($1, $2, 0)",
+            ec_id, link["gift_package_id"],
+        )
+
+
 @router.get("/me", summary="Профиль спикера (после авторизации)")
 async def get_me(
     session: dict = Depends(_auth_session),
@@ -238,16 +261,27 @@ async def get_me(
     except Exception:
         d["ref_links"] = {}
 
-    # Выбранный лид-магнит/пакет как «подарок после эфира» — название для UI.
-    d["gift_lead_magnet"] = None
-    if d.get("gift_lead_magnet_id"):
-        nm = await db.fetchval("SELECT name FROM lead_magnets WHERE id = $1", d["gift_lead_magnet_id"])
-        if nm:
-            d["gift_lead_magnet"] = {"kind": "magnet", "id": d["gift_lead_magnet_id"], "name": nm}
-    elif d.get("gift_package_id"):
-        nm = await db.fetchval("SELECT name FROM lead_magnet_packages WHERE id = $1", d["gift_package_id"])
-        if nm:
-            d["gift_lead_magnet"] = {"kind": "package", "id": d["gift_package_id"], "name": nm}
+    # Подарки-лид-магниты после эфира — СПИСОК до 4 (миграция 200), с порядком.
+    lm_rows = await db.fetch(
+        """SELECT eclm.id, eclm.lead_magnet_id, eclm.package_id, eclm.sort_order,
+                  lm.name AS lm_name, lm.slug AS lm_slug,
+                  lp.name AS lp_name, lp.slug AS lp_slug
+             FROM event_collaborator_lead_magnets eclm
+             LEFT JOIN lead_magnets lm ON lm.id = eclm.lead_magnet_id
+             LEFT JOIN lead_magnet_packages lp ON lp.id = eclm.package_id
+            WHERE eclm.ec_id = $1
+            ORDER BY eclm.sort_order, eclm.id""",
+        se_id,
+    )
+    gift_list = []
+    for r in lm_rows:
+        if r["lead_magnet_id"] and r["lm_name"]:
+            gift_list.append({"kind": "magnet", "id": r["lead_magnet_id"], "name": r["lm_name"]})
+        elif r["package_id"] and r["lp_name"]:
+            gift_list.append({"kind": "package", "id": r["package_id"], "name": r["lp_name"]})
+    d["gift_lead_magnets"] = gift_list
+    # Первый — для обратной совместимости старого одиночного поля gift_lead_magnet.
+    d["gift_lead_magnet"] = gift_list[0] if gift_list else None
     return d
 
 
@@ -292,9 +326,13 @@ class CabinetUpdate(BaseModel):
     knowledge_base_url: Optional[str] = None
     # Подарок-лид-магнит из ПЛЮСОН-аккаунта спикера (миграция 167).
     # Передаётся {gift_lead_magnet_id} ИЛИ {gift_package_id}; чтобы снять —
-    # передать gift_lead_magnet_id=0 (обнуляет обе привязки).
+    # передать gift_lead_magnet_id=0 (обнуляет обе привязки). Legacy-одиночный.
     gift_lead_magnet_id: Optional[int] = None
     gift_package_id: Optional[int] = None
+    # Список до 4 подарков-лид-магнитов (миграция 200). Массив в нужном ПОРЯДКЕ:
+    # [{"kind": "magnet"|"package", "id": N}, ...]. Пустой список [] — снять все.
+    # Приоритетнее legacy-полей gift_lead_magnet_id/gift_package_id.
+    gift_lead_magnets: Optional[List[dict]] = None
 
 
 @router.patch("/me", summary="Сохранить правки спикера")
@@ -481,6 +519,73 @@ async def patch_me(
             await db.execute(
                 "UPDATE event_collaborators SET gift_package_id = $2, gift_lead_magnet_id = NULL WHERE id = $1",
                 se_id, pkg_id,
+            )
+        # После legacy-обновления синхронизируем список-таблицу с одиночной привязкой,
+        # чтобы старые клиенты (шлющие gift_lead_magnet_id) не рассинхронили список.
+        if "gift_lead_magnets" not in sent_fields:
+            await _sync_gift_magnet_list_from_legacy(db, se_id)
+
+    # 5c. Список до 4 подарков-лид-магнитов (миграция 200). Приоритетнее legacy.
+    if "gift_lead_magnets" in sent_fields:
+        items = data.gift_lead_magnets or []
+        if len(items) > 4:
+            raise HTTPException(status_code=400, detail="Можно привязать не более 4 лид-магнитов")
+        linked = await db.fetchval(
+            "SELECT linked_client_id FROM collaborators WHERE id = $1", c_id
+        )
+        # Валидируем каждый элемент — принадлежность ПЛЮСОН-аккаунту спикера.
+        clean = []  # [(kind, id)]
+        for it in items:
+            kind = (it or {}).get("kind")
+            try:
+                iid = int((it or {}).get("id") or 0)
+            except (ValueError, TypeError):
+                iid = 0
+            if iid <= 0 or kind not in ("magnet", "package"):
+                continue
+            if kind == "magnet":
+                ok = await db.fetchval(
+                    "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2", iid, linked
+                )
+                if not ok:
+                    raise HTTPException(status_code=400, detail="Лид-магнит не найден в вашем ПЛЮСОН-аккаунте")
+            else:
+                ok = await db.fetchval(
+                    "SELECT 1 FROM lead_magnet_packages WHERE id = $1 AND client_id = $2", iid, linked
+                )
+                if not ok:
+                    raise HTTPException(status_code=400, detail="Пакет не найден в вашем ПЛЮСОН-аккаунте")
+            clean.append((kind, iid))
+        # Переписываем список целиком в переданном порядке.
+        await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id = $1", se_id)
+        for idx, (kind, iid) in enumerate(clean):
+            if kind == "magnet":
+                await db.execute(
+                    "INSERT INTO event_collaborator_lead_magnets (ec_id, lead_magnet_id, sort_order) VALUES ($1, $2, $3)",
+                    se_id, iid, idx,
+                )
+            else:
+                await db.execute(
+                    "INSERT INTO event_collaborator_lead_magnets (ec_id, package_id, sort_order) VALUES ($1, $2, $3)",
+                    se_id, iid, idx,
+                )
+        # Синхронизируем legacy-поля с ПЕРВОЙ записью (для medialift и др.).
+        if clean:
+            first_kind, first_id = clean[0]
+            if first_kind == "magnet":
+                await db.execute(
+                    "UPDATE event_collaborators SET gift_lead_magnet_id = $2, gift_package_id = NULL WHERE id = $1",
+                    se_id, first_id,
+                )
+            else:
+                await db.execute(
+                    "UPDATE event_collaborators SET gift_package_id = $2, gift_lead_magnet_id = NULL WHERE id = $1",
+                    se_id, first_id,
+                )
+        else:
+            await db.execute(
+                "UPDATE event_collaborators SET gift_lead_magnet_id = NULL, gift_package_id = NULL WHERE id = $1",
+                se_id,
             )
 
     return await get_me(session, db)
@@ -1053,12 +1158,13 @@ async def unlink_pluson(
         "UPDATE collaborators SET linked_client_id = NULL, updated_at = NOW() WHERE id = $1",
         c_id,
     )
-    # снимаем и выбранный подарок-магнит на этом событии
+    # снимаем и выбранный подарок-магнит на этом событии (одиночный + список)
     se_id = int(session["se_id"])
     await db.execute(
         "UPDATE event_collaborators SET gift_lead_magnet_id = NULL, gift_package_id = NULL WHERE id = $1",
         se_id,
     )
+    await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id = $1", se_id)
     return {"ok": True}
 
 

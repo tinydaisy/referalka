@@ -70,6 +70,7 @@ type SpeakerMe = {
   gift_lead_magnet_id: number | null
   gift_package_id: number | null
   gift_lead_magnet: { kind: string; id: number; name: string } | null
+  gift_lead_magnets: { kind: string; id: number; name: string }[]
   linked_client_id: number | null
   linked_client_email: string | null
   gift_raffle_title: string | null
@@ -255,7 +256,7 @@ export default function SpeakerCabinetPage() {
   useEffect(() => {
     if (!me || giftInitDone.current) return
     giftInitDone.current = true
-    const hasPluson = !!(me.gift_lead_magnet_id || me.gift_package_id)
+    const hasPluson = !!(me.gift_lead_magnet_id || me.gift_package_id || (me.gift_lead_magnets || []).length)
     const hasManual = !!(me.gift_after_speech_title || me.gift_after_speech_url)
     setGiftSource(hasManual && !hasPluson ? 'manual' : 'pluson')
   }, [me])
@@ -319,8 +320,9 @@ export default function SpeakerCabinetPage() {
           payload.gift_after_speech_url = me.gift_after_speech_url
           payload.gift_lead_magnet_id = null
           payload.gift_package_id = null
+          payload.gift_lead_magnets = []  // снять список ПЛЮСОН-подарков
         } else {
-          // источник ПЛЮСОН — ручной текст не сохраняем (магнит сохранён через pickGiftMagnet)
+          // источник ПЛЮСОН — ручной текст не сохраняем (список сохранён через saveGiftMagnets)
           payload.gift_after_speech_title = null
           payload.gift_after_speech_url = null
         }
@@ -510,28 +512,17 @@ export default function SpeakerCabinetPage() {
     await fetch(`${API}/api/v1/public/speaker-cabinet/me/unlink-pluson`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}` },
     })
-    update({ linked_client_id: null, linked_client_email: null, gift_lead_magnet_id: null, gift_package_id: null, gift_lead_magnet: null })
+    update({ linked_client_id: null, linked_client_email: null, gift_lead_magnet_id: null, gift_package_id: null, gift_lead_magnet: null, gift_lead_magnets: [] })
     setMyMagnets(null)
   }
 
   // Выбор магнита/пакета из списка → сохраняем сразу.
-  // Подарок взаимоисключающий: выбор ПЛЮСОН-магнита обнуляет ручной текст.
-  const pickGiftMagnet = async (val: string) => {
+  // Список до 4 подарков-лид-магнитов (миграция 200). Всегда шлём полный массив
+  // в нужном порядке. Выбор ПЛЮСОН-подарков обнуляет ручной текст (взаимоисключение).
+  const saveGiftMagnets = async (list: { kind: string; id: number; name: string }[]) => {
     if (!token) return
-    // снять выбор: обнуляем оба ПЛЮСОН-поля; ручной не трогаем (его источник свой)
-    let body: any = { gift_lead_magnet_id: 0, gift_package_id: 0 }
-    let chosen: SpeakerMe['gift_lead_magnet'] = null
-    if (val.startsWith('m:')) {
-      const id = parseInt(val.slice(2), 10)
-      body = { gift_lead_magnet_id: id, gift_package_id: 0, gift_after_speech_title: null, gift_after_speech_url: null }
-      const m = myMagnets?.magnets.find((x) => x.id === id)
-      if (m) chosen = { kind: 'magnet', id, name: m.name }
-    } else if (val.startsWith('p:')) {
-      const id = parseInt(val.slice(2), 10)
-      body = { gift_package_id: id, gift_lead_magnet_id: 0, gift_after_speech_title: null, gift_after_speech_url: null }
-      const p = myMagnets?.packages.find((x) => x.id === id)
-      if (p) chosen = { kind: 'package', id, name: p.name }
-    }
+    const body: any = { gift_lead_magnets: list.map((x) => ({ kind: x.kind, id: x.id })) }
+    if (list.length) { body.gift_after_speech_title = null; body.gift_after_speech_url = null }
     const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -539,15 +530,44 @@ export default function SpeakerCabinetPage() {
     })
     if (r.ok) {
       update({
-        gift_lead_magnet_id: body.gift_lead_magnet_id && body.gift_lead_magnet_id > 0 ? body.gift_lead_magnet_id : null,
-        gift_package_id: body.gift_package_id && body.gift_package_id > 0 ? body.gift_package_id : null,
-        gift_lead_magnet: chosen,
-        ...(val ? { gift_after_speech_title: '', gift_after_speech_url: '' } : {}),
+        gift_lead_magnets: list,
+        gift_lead_magnet: list[0] || null,
+        gift_lead_magnet_id: list[0]?.kind === 'magnet' ? list[0].id : null,
+        gift_package_id: list[0]?.kind === 'package' ? list[0].id : null,
+        ...(list.length ? { gift_after_speech_title: '', gift_after_speech_url: '' } : {}),
       })
     } else {
       const j = await r.json().catch(() => ({}))
       alert(j.detail || 'Не удалось сохранить выбор')
     }
+  }
+  const addGiftMagnet = (val: string) => {
+    const cur = me?.gift_lead_magnets || []
+    if (cur.length >= 4 || !val) return
+    let item: { kind: string; id: number; name: string } | null = null
+    if (val.startsWith('m:')) {
+      const id = parseInt(val.slice(2), 10)
+      const m = myMagnets?.magnets.find((x) => x.id === id)
+      if (m) item = { kind: 'magnet', id, name: m.name }
+    } else if (val.startsWith('p:')) {
+      const id = parseInt(val.slice(2), 10)
+      const p = myMagnets?.packages.find((x) => x.id === id)
+      if (p) item = { kind: 'package', id, name: p.name }
+    }
+    if (!item) return
+    if (cur.some((x) => x.kind === item!.kind && x.id === item!.id)) return  // без дублей
+    saveGiftMagnets([...cur, item])
+  }
+  const removeGiftMagnet = (idx: number) => {
+    const cur = me?.gift_lead_magnets || []
+    saveGiftMagnets(cur.filter((_, i) => i !== idx))
+  }
+  const moveGiftMagnet = (idx: number, dir: -1 | 1) => {
+    const cur = [...(me?.gift_lead_magnets || [])]
+    const j = idx + dir
+    if (j < 0 || j >= cur.length) return
+    ;[cur[idx], cur[j]] = [cur[j], cur[idx]]
+    saveGiftMagnets(cur)
   }
 
   const updTopics = (i: number, v: string) => {
@@ -1008,18 +1028,38 @@ export default function SpeakerCabinetPage() {
                       <div style={{ fontSize: 12.5, color: '#1d6b3a', fontWeight: 600 }}>✓ Подключён ПЛЮСОН: {me.linked_client_email}</div>
                       <button onClick={unlinkPluson} style={{ background: 'none', border: 'none', color: '#b04a4a', fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline' }}>отвязать</button>
                     </div>
-                    <label style={labelCss}>Выберите лид-магнит / пакет (подарок)</label>
-                    <select style={inputCss}
-                      value={me.gift_lead_magnet_id ? `m:${me.gift_lead_magnet_id}` : me.gift_package_id ? `p:${me.gift_package_id}` : ''}
-                      onChange={(e) => pickGiftMagnet(e.target.value)}>
-                      <option value="">— не выбран —</option>
-                      {(myMagnets?.magnets || []).map((m) => (
-                        <option key={`m${m.id}`} value={`m:${m.id}`}>🎁 {m.name}</option>
-                      ))}
-                      {(myMagnets?.packages || []).map((p) => (
-                        <option key={`p${p.id}`} value={`p:${p.id}`}>📦 Пакет: {p.name}</option>
-                      ))}
-                    </select>
+                    <label style={labelCss}>Подарки-лид-магниты (до 4, в порядке показа)</label>
+                    {/* Список выбранных с управлением порядком/удалением */}
+                    {(me.gift_lead_magnets || []).length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                        {(me.gift_lead_magnets || []).map((g, i) => (
+                          <div key={`${g.kind}${g.id}`} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #d7e4f0', borderRadius: 8, padding: '6px 8px' }}>
+                            <span style={{ fontSize: 12, color: '#5b7286', minWidth: 16 }}>{i + 1}.</span>
+                            <span style={{ flex: 1, fontSize: 13, color: DARK }}>{g.kind === 'package' ? '📦 ' : '🎁 '}{g.name}</span>
+                            <button onClick={() => moveGiftMagnet(i, -1)} disabled={i === 0} title="Выше"
+                              style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px' }}>↑</button>
+                            <button onClick={() => moveGiftMagnet(i, 1)} disabled={i === (me.gift_lead_magnets || []).length - 1} title="Ниже"
+                              style={{ background: 'none', border: 'none', cursor: i === (me.gift_lead_magnets || []).length - 1 ? 'default' : 'pointer', color: i === (me.gift_lead_magnets || []).length - 1 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px' }}>↓</button>
+                            <button onClick={() => removeGiftMagnet(i)} title="Убрать"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b04a4a', fontSize: 15, padding: '0 3px' }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(me.gift_lead_magnets || []).length < 4 ? (
+                      <select style={inputCss} value=""
+                        onChange={(e) => { addGiftMagnet(e.target.value); e.currentTarget.value = '' }}>
+                        <option value="">+ Добавить лид-магнит / пакет…</option>
+                        {(myMagnets?.magnets || [])
+                          .filter((m) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'magnet' && g.id === m.id))
+                          .map((m) => (<option key={`m${m.id}`} value={`m:${m.id}`}>🎁 {m.name}</option>))}
+                        {(myMagnets?.packages || [])
+                          .filter((p) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'package' && g.id === p.id))
+                          .map((p) => (<option key={`p${p.id}`} value={`p:${p.id}`}>📦 Пакет: {p.name}</option>))}
+                      </select>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: '#a06a2a', marginTop: 4 }}>Максимум 4 лид-магнита.</div>
+                    )}
                     {myMagnets && myMagnets.magnets.length === 0 && myMagnets.packages.length === 0 && (
                       <div style={{ fontSize: 11.5, color: '#a06a2a', marginTop: 6 }}>
                         В вашем ПЛЮСОН пока нет лид-магнитов. Создайте их в кабинете → раздел «Лид-магниты».

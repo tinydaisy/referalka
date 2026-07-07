@@ -246,28 +246,46 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
     if auto_kind == "lead_magnet":
         if not subj or subj.get("kind") != "ec":
             return 0.0
-        link = await db.fetchrow(
-            "SELECT gift_lead_magnet_id, gift_package_id FROM event_collaborators WHERE id = $1",
+        # Спикер привязывает СПИСОК до 4 лид-магнитов/пакетов (миграция 200).
+        # Считаем СУММУ переходов funnel_runs по всем привязанным магнитам И пакетам,
+        # с учётом даты «считать с» (lead_since). Fallback на старые одиночные поля
+        # event_collaborators.gift_lead_magnet_id/gift_package_id (обратная совместимость).
+        rows = await db.fetch(
+            "SELECT lead_magnet_id, package_id FROM event_collaborator_lead_magnets WHERE ec_id = $1",
             subj["sid"],
         )
-        if not link:
+        lm_ids = [r["lead_magnet_id"] for r in rows if r["lead_magnet_id"]]
+        pkg_ids = [r["package_id"] for r in rows if r["package_id"]]
+        if not lm_ids and not pkg_ids:
+            link = await db.fetchrow(
+                "SELECT gift_lead_magnet_id, gift_package_id FROM event_collaborators WHERE id = $1",
+                subj["sid"],
+            )
+            if link:
+                if link["gift_lead_magnet_id"]:
+                    lm_ids = [link["gift_lead_magnet_id"]]
+                elif link["gift_package_id"]:
+                    pkg_ids = [link["gift_package_id"]]
+        if not lm_ids and not pkg_ids:
             return 0.0
-        since_cond = " AND landed_at >= $2" if lead_since else ""
-        if link["gift_lead_magnet_id"]:
-            args = [link["gift_lead_magnet_id"]] + ([lead_since] if lead_since else [])
+        total = 0
+        if lm_ids:
+            args = [lm_ids] + ([lead_since] if lead_since else [])
+            since_cond = " AND landed_at >= $2" if lead_since else ""
             v = await db.fetchval(
-                f"SELECT COUNT(*) FROM funnel_runs WHERE lead_magnet_id = $1{since_cond}",
+                f"SELECT COUNT(*) FROM funnel_runs WHERE lead_magnet_id = ANY($1::int[]){since_cond}",
                 *args,
             )
-            return float(v or 0)
-        if link["gift_package_id"]:
-            args = [link["gift_package_id"]] + ([lead_since] if lead_since else [])
+            total += int(v or 0)
+        if pkg_ids:
+            args = [pkg_ids] + ([lead_since] if lead_since else [])
+            since_cond = " AND landed_at >= $2" if lead_since else ""
             v = await db.fetchval(
-                f"SELECT COUNT(*) FROM funnel_runs WHERE package_id = $1{since_cond}",
+                f"SELECT COUNT(*) FROM funnel_runs WHERE package_id = ANY($1::bigint[]){since_cond}",
                 *args,
             )
-            return float(v or 0)
-        return 0.0
+            total += int(v or 0)
+        return float(total)
     if not contact_id:
         return 0.0
     if auto_kind == "referrals":
