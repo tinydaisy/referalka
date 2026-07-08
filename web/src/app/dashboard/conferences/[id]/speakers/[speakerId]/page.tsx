@@ -333,6 +333,8 @@ export default function ConferenceSpeakerPage() {
         personal_max_username: profile.personal_max_username,
         assistant_tg_username: profile.assistant_tg_username,
         media_assets: Array.isArray(profile.media_assets) ? profile.media_assets : [],
+        ask_topics: profile.ask_topics ?? null,
+        show_ask_topics_field: !!profile.show_ask_topics_field,
       })
       setProfileSaved(true)
       setTimeout(() => setProfileSaved(false), 3000)
@@ -903,6 +905,26 @@ export default function ConferenceSpeakerPage() {
               placeholder={'Регалия 1\nРегалия 2\nРегалия 3'}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-y" />
           </div>
+        </div>
+
+        {/* С какими вопросами можно обращаться (глобально на коллабе) */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900 text-sm">С какими вопросами можно обращаться?</h3>
+          <p className="text-xs text-gray-500">
+            Список тем/вопросов эксперта. Подставляется в рассылку «Экспертный день» (плейсхолдер {'{speaker_ask_topics}'}). Если пусто — блок в рассылке не показывается.
+          </p>
+          <textarea
+            value={profile.ask_topics || ''}
+            onChange={e => setProfile((p: any) => ({ ...p, ask_topics: e.target.value }))}
+            rows={5}
+            placeholder={'Как выступать бесплатно с лидерами рынка?\nКак запоминаться аудитории?\nКак регулярно выступать?'}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-y" />
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={!!profile.show_ask_topics_field}
+              onChange={e => setProfile((p: any) => ({ ...p, show_ask_topics_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Показывать в кабинете спикера — спикер может заполнить сам</span>
+          </label>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">

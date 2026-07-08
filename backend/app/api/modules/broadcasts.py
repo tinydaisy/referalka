@@ -234,8 +234,7 @@ DEFAULT_TEMPLATES = [
         "subject": "🚨 [Экспертный день] Завтра {speaker_name} ответит на ваши вопросы!",
         "text": (
             "Завтра в {brand_name} на связи — {speaker_name}: {speaker_positioning}\n\n"
-            "<b>С какими темами и вопросами можно обращаться:</b>\n"
-            "{speaker_notes}\n\n\n"
+            "{speaker_ask_topics}\n\n\n"
             "<b>Как принять участие:</b>\n"
             "1️⃣ Напишите сейчас свой вопрос в чат: {event_chat_tg}\n"
             "2️⃣ Обязательно отметьте никнейм эксперта: {speaker_tg_username}\n"

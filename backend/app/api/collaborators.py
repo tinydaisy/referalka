@@ -149,6 +149,10 @@ class CollaboratorUpdate(BaseModel):
     assistant_tg_username: Optional[str] = None
     contact_id: Optional[int] = None
     media_assets: Optional[List[dict]] = None
+    # «С какими вопросами можно обращаться?» (глобально на коллабе) + галочка
+    # показа в кабинете спикера. Отдельно от per-event заметок (event_collaborators.notes).
+    ask_topics: Optional[str] = None
+    show_ask_topics_field: Optional[bool] = None
 
 
 def row_to_dict(row):
@@ -184,6 +188,7 @@ _COLLAB_SELECT = """
     c.tg_channel_id, c.vk_channel_id, c.max_channel_id, c.assistant_tg_username,
     c.access_code,
     c.media_assets,
+    c.ask_topics, c.show_ask_topics_field,
     c.contact_id, c.created_by_client_id, c.created_at, c.updated_at,
     pu_tg.platform_user_id  AS personal_tg_id,
     pu_tg.username          AS personal_tg_username,

@@ -207,7 +207,7 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
                                 achievements, role, speaker_topic, gift_title, gift_raffle, registration_url,
                                 bio=None, positioning=None, card_link=None,
                                 vk_url=None, max_url=None, website_url=None,
-                                speaker_notes=None,
+                                speaker_notes=None, speaker_ask_topics=None,
                                 speaker_time=None, speaker_date=None, speaker_datetime=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
@@ -230,6 +230,7 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     positioning_v = (positioning or "").strip()
     card_link_v = (card_link or "").strip()
     notes_v = (speaker_notes or "").strip()
+    ask_topics_v = (speaker_ask_topics or "").strip()
 
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -258,6 +259,10 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_card_link\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not notes_v:
         text = re.sub(r"^[^\n]*\{speaker_notes\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    # {speaker_ask_topics} — сам содержит жирный заголовок + список вопросов.
+    # Пусто → убираем строку с плейсхолдером целиком (без заголовка).
+    if not ask_topics_v:
+        text = re.sub(r"^[^\n]*\{speaker_ask_topics\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not personal_mention:
         text = re.sub(r"^[^\n]*\{speaker_tg_username\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     # Слот выступления: пусто → убираем строку с плейсхолдером.
@@ -282,6 +287,12 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     text = text.replace("{speaker_card_link}", card_link_v)
     # {speaker_notes} (темы/вопросы эксперта) — жирным.
     text = text.replace("{speaker_notes}", f"<b>{notes_v}</b>" if notes_v else "")
+    # {speaker_ask_topics} — жирный заголовок «С какими темами и вопросами можно
+    # обратиться?» + список вопросов из поля коллаба. Пусто (обработано выше) — уже удалён.
+    if ask_topics_v:
+        text = text.replace(
+            "{speaker_ask_topics}",
+            f"<b>С какими темами и вопросами можно обратиться?</b>\n{ask_topics_v}")
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_topic}", topic)
@@ -850,6 +861,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.achievements,
                        cse.id AS ec_id, cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
                        cse.gift_raffle_title, cse.notes AS speaker_notes,
+                       c.ask_topics AS speaker_ask_topics,
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
                        e.landing_url AS registration_url,
@@ -910,6 +922,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
                     vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
                     speaker_notes=sp["speaker_notes"],
+                    speaker_ask_topics=sp["speaker_ask_topics"],
                     speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
                 )
                 text = apply_speaker_material(
@@ -1252,6 +1265,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
         "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
+        "speaker_notes", "speaker_ask_topics",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",

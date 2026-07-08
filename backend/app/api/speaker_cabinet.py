@@ -166,6 +166,7 @@ async def get_me(
                   cse.notes,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
                   cse.show_knowledge_base_field, cse.show_notes_field,
+                  c.ask_topics, c.show_ask_topics_field,
                   cse.bot_in_channel,
                   c.id AS collaborator_id, c.name, c.title, c.achievements,
                   c.photo_url,
@@ -328,6 +329,9 @@ class CabinetUpdate(BaseModel):
     # Заметки спикера (event_collaborators.notes) — если организатор включил
     # тоггл show_notes_field, спикер может редактировать своё поле «Заметки».
     notes: Optional[str] = None
+    # «С какими вопросами можно обращаться?» (collaborators.ask_topics, глобально).
+    # Спикер редактирует, если организатор включил show_ask_topics_field.
+    ask_topics: Optional[str] = None
     # Подарок-лид-магнит из ПЛЮСОН-аккаунта спикера (миграция 167).
     # Передаётся {gift_lead_magnet_id} ИЛИ {gift_package_id}; чтобы снять —
     # передать gift_lead_magnet_id=0 (обнуляет обе привязки). Legacy-одиночный.
@@ -370,6 +374,11 @@ async def patch_me(
     # передано как null — пишем NULL, иначе фильтр выше его пропускает.
     if "photo_url" in data.model_fields_set and data.photo_url is None:
         upd["photo_url"] = None
+    # ask_topics (глобально на коллабе) — через model_fields_set, чтобы можно было
+    # очистить (передать null/пусто). Спикер видит поле только если организатор
+    # включил show_ask_topics_field (гейт на фронте, как у notes).
+    if "ask_topics" in data.model_fields_set:
+        upd["ask_topics"] = (data.ask_topics or None)
     # Ник ассистента — нормализуем (срезаем @ и пробелы); пустая строка → NULL.
     if data.assistant_tg_username is not None:
         upd["assistant_tg_username"] = (data.assistant_tg_username or "").lstrip("@").strip() or None

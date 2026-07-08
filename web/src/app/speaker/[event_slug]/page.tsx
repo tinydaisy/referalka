@@ -78,10 +78,12 @@ type SpeakerMe = {
   knowledge_base_title: string | null
   knowledge_base_url: string | null
   notes: string | null
+  ask_topics: string | null
   show_topic_field: boolean
   show_gift_after_speech_field: boolean
   show_knowledge_base_field: boolean
   show_notes_field: boolean
+  show_ask_topics_field: boolean
   raffle_enabled: boolean | null
   // subscribers — число в тысячах (float, например 19.9 = 19.9к)
   media_assets: { platform: string; subscribers: number }[] | null
@@ -339,6 +341,9 @@ export default function SpeakerCabinetPage() {
       }
       if (me.show_notes_field) {
         payload.notes = me.notes
+      }
+      if (me.show_ask_topics_field) {
+        payload.ask_topics = me.ask_topics
       }
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me`, {
         method: 'PATCH',
@@ -844,6 +849,20 @@ export default function SpeakerCabinetPage() {
               value={me.notes || ''}
               onChange={(e) => update({ notes: e.target.value })}
               placeholder="Например: удобное время созвона, пожелания по гонорару, реквизиты…"
+            />
+          </Section>
+        )}
+
+        {me.show_ask_topics_field && (
+          <Section title="С какими вопросами можно обращаться?">
+            <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
+              Список тем и вопросов, с которыми к вам можно обратиться. Показывается участникам в рассылке «Экспертный день».
+            </div>
+            <textarea
+              style={{ ...inputCss, minHeight: 90, resize: 'vertical', fontFamily: 'inherit' }}
+              value={me.ask_topics || ''}
+              onChange={(e) => update({ ask_topics: e.target.value })}
+              placeholder={'Как выступать бесплатно с лидерами рынка?\nКак запоминаться аудитории?\nКак регулярно выступать?'}
             />
           </Section>
         )}
