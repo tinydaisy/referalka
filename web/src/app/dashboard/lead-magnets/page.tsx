@@ -731,6 +731,9 @@ function TemplateEditor() {
             Если медиа добавлено и итоговый текст ≤ 1024 символов — отправим одно сообщение
             с подписью и кнопкой. Если длиннее — сначала медиа, потом текст отдельным сообщением.
           </p>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
+            ⚠️ В MAX и VK видео не отправляется — только фото. Видео уйдёт лишь подписчикам в Telegram.
+          </p>
         </Field>
 
         <Field label="Подпись на кнопке">
@@ -768,6 +771,9 @@ function TemplateEditor() {
             value={data.text_2_media_url || null}
             onChange={setMedia('text_2_media_url')}
           />
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
+            ⚠️ В MAX и VK видео не отправляется — только фото. Видео уйдёт лишь подписчикам в Telegram.
+          </p>
         </Field>
       </section>
 

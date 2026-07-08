@@ -241,11 +241,14 @@
 
 ### MAX-воронка лид-магнитов доделана (2026-07-08)
 
-**Была недоделана изначально** (не регрессия): ссылка `pluson.ru/m/{slug}?to=max` → 302 на `max.ru/{handle}?start=fnl_{run_id}` строилась, но MAX-бот не ловил payload `fnl_` и не было `run_started_max` — по ссылке «ничего не присылалось» (забег застревал на `landed`). Реализовано по образцу VK:
+**Была недоделана изначально** (не регрессия): по ссылке «ничего не присылалось» (забег застревал на `landed`). Реализовано по образцу VK:
+- **⚠️ Реальный формат ссылки — `max.ru/{handle}?start=m_<slug>`** (лид-магнит) / `p_<slug>` (пакет), как у TG-бота — НЕ `fnl_<run_id>`. Прежний обработчик ловил только `fnl_` → payload проваливался в welcome-ветку (падал на `'events_label'`), воронка не запускалась. `_start_max_lead_magnet_funnel` ([max_webhook.py](backend/app/api/max_webhook.py)) резолвит slug (`m_`/`p_`, опц. `_pid<ref>_src<utm>`) → создаёт `funnel_run(platform='max')` → `run_started_max`. Старый `fnl_<run_id>` (landing pluson.ru/m/…) тоже поддержан.
 - **`run_started_max`** ([funnel_service.py](backend/app/services/funnel_service.py)) — зеркало `run_started_vk`: апсерт contact + `platform_users('max')`, подписка на активный MAX `client_channel`, `stage=started`, уведомление организатору, Текст 1 + callback-кнопка «ГОТОВО» (payload `fnl_check_<run_id>`) через `max_api.send_message(recipient_kind='user')`.
-- **Ветка `fnl_`** в `_process_start` ([max_webhook.py](backend/app/api/max_webhook.py)) — ловит `?start=fnl_<run_id>` (bot_started/`/start`) → `run_started_max`.
+- **Ветка `m_`/`p_`/`fnl_`** в `_process_start` → `_start_max_lead_magnet_funnel`.
 - **Ветка `fnl_check_`** в `_handle_message_callback` — кнопка «ГОТОВО» → `run_check_subscription(platform='max')`.
 - **max-ветка в `run_check_subscription`** — проверка подписки на MAX-каналы основателя (`_check_max_founder_subscription` через `max_api.check_channel_membership`, fail-open) + выдача Текста 2 через MAX-бот. Не подписан → список каналов + «нажмите ГОТОВО снова».
+- **⚠️ HTML в тексте:** MAX парсит inline-HTML (`<b>/<i>/<a>`) только при `parse_mode='html'`; блочные теги чистятся через `html_to_telegram` (как в рассылках). Без этого теги приходят сырым текстом.
+- **⚠️ Видео в MAX и VK НЕ отправляется — только фото** (решение 2026-07-08). MAX: `_max_media_for_text` при `media_type='video'` шлёт только текст (фото → attachment). VK: `_vk_funnel_media` зануляет видео (фото остаётся). Видео уходит лишь в TG. Причина: нативной загрузки видео из URL в MAX нет, в VK видео-воронка не нужна. В UI редактора шаблона воронки ([lead-magnets/page.tsx](web/src/app/dashboard/lead-magnets/page.tsx)) под медиа Текста 1/2 — плашка «В MAX и VK видео не отправляется — только фото». Заодно исправлен старый баг vk-ветки `run_check_subscription`: `ctx` не был определён (Текст 2 в VK падал) — теперь `vk_ctx`.
 - Токен — только свой MAX-бот клиента (`get_client_max_token`); нет своего MAX-бота → воронка на MAX не работает (graceful), системный MAX не используется.
 
 ### Email убран из выбора каналов в рассылках (2026-07-08)

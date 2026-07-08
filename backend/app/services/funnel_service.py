@@ -1111,14 +1111,17 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
         "text": button_label,
         "callback_data": f"fnl_check_{run_id}"
     }]])
+    # Видео в VK-воронке НЕ отправляется (по решению 2026-07-08) — только фото.
+    vk_media_url, vk_media_type = _vk_funnel_media(
+        template.get("text_1_media_url"), template.get("text_1_media_type"))
     # User-токен админа сообщества для нативной загрузки видео (video.save).
     # Без него видео упадёт в fallback на docs.save — файл вместо плеера.
     vk_user_tok, vk_user_grp = await _vk_admin_user_token_for_client(client_id, db)
     try:
         msg_id = await vk_send_with_media(
             int(vk_id), text_1,
-            media_url=template.get("text_1_media_url"),
-            media_type=template.get("text_1_media_type"),
+            media_url=vk_media_url,
+            media_type=vk_media_type,
             keyboard=keyboard, token=token,
             user_token=vk_user_tok, user_token_group_id=vk_user_grp,
         )
@@ -1138,17 +1141,24 @@ async def _max_token_for_client(client_id: int, db) -> Optional[str]:
     return await get_client_max_token(client_id, db)
 
 
+def _vk_funnel_media(media_url: Optional[str], media_type: Optional[str]
+                     ) -> Tuple[Optional[str], Optional[str]]:
+    """VK-воронка: видео НЕ отправляется (решение 2026-07-08) — только фото.
+    Видео → зануляем медиа (уйдёт только текст). Фото/пусто → как есть."""
+    if media_type == "video":
+        return None, None
+    return media_url, media_type
+
+
 async def _max_media_for_text(text: str, media_url: Optional[str],
                               media_type: Optional[str], token: str
                               ) -> Tuple[str, Optional[list]]:
     """Готовит медиа для MAX-сообщения воронки. Возвращает (text, attachments).
-    Фото → загружаем как attachment (MAX-плеер). Видео → ссылкой в текст (MAX-видео
-    тяжёлое, upload видео нестабилен) — гарантируем доставку. Ошибка загрузки фото
-    → фолбэк на ссылку в тексте."""
-    if not media_url:
+    Фото → загружаем как attachment (MAX-плеер). Видео в MAX НЕ отправляется —
+    ни файлом, ни ссылкой (по решению 2026-07-08): шлём только текст. Ошибка
+    загрузки фото → фолбэк на текст без картинки."""
+    if not media_url or media_type == "video":
         return text, None
-    if media_type == "video":
-        return (text + f"\n\n🎬 Видео: {media_url}"), None
     # фото
     try:
         from app.api.max_webhook import _max_image_attachment_from_url
@@ -1157,7 +1167,7 @@ async def _max_media_for_text(text: str, media_url: Optional[str],
             return text, [att]
     except Exception as e:  # noqa: BLE001
         log.warning("_max_media_for_text: photo attach failed: %s", e)
-    return (text + f"\n\n🖼 {media_url}"), None
+    return text, None
 
 
 async def _check_max_founder_subscription(client_id: int, max_user_id: str,
@@ -1451,13 +1461,17 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             template = await _get_or_create_template(client_id, "lead_magnet", db)
             template = dict(template)
         materials = await _materials_for_run(dict(run), db)
-        text_2 = _format_text(template["text_2"], ctx, materials)
+        vk_ctx = await _get_brand_context(client_id, db, platform="vk")
+        text_2 = _format_text(template["text_2"], vk_ctx, materials)
+        # Видео в VK НЕ отправляется — только фото (решение 2026-07-08).
+        vk_m2_url, vk_m2_type = _vk_funnel_media(
+            template.get("text_2_media_url"), template.get("text_2_media_type"))
         vk_user_tok, vk_user_grp = await _vk_admin_user_token_for_client(client_id, db)
         try:
             await vk_send_with_media(
                 int(tg_id), text_2,
-                media_url=template.get("text_2_media_url"),
-                media_type=template.get("text_2_media_type"),
+                media_url=vk_m2_url,
+                media_type=vk_m2_type,
                 token=vk_token,
                 user_token=vk_user_tok, user_token_group_id=vk_user_grp,
             )
