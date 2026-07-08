@@ -691,6 +691,81 @@ def _apply_repl(s: str, repl: dict) -> str:
     return s
 
 
+async def _resolve_day_placeholders(conn, event_id: int, ref_date):
+    """Для ПРОИЗВОЛЬНОЙ рассылки: собирает плейсхолдеры программы «завтрашнего дня»
+    ({day_date}, {day_program}, {day_program_with_links}, {day_datetime}, {day_title}).
+    Завтрашний день = ближайший conf_days с day_date > ref_date (дата отправки, МСК).
+    Возвращает dict {placeholder: value}. Если такого дня нет — значения пустые."""
+    row = await conn.fetchrow(
+        """
+        SELECT cd.day_number, cd.day_date, cd.title AS day_title, cd.open_time,
+               e.slug AS event_slug, cl.default_link_mode,
+               (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+                  WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
+                    AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
+          FROM conf_days cd
+          JOIN events e ON e.id = cd.event_id
+          LEFT JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo
+                                             WHERE eo.event_id=e.id AND eo.status='accepted'
+                                             ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+         WHERE cd.event_id=$1 AND cd.day_date > $2
+         ORDER BY cd.day_date
+         LIMIT 1
+        """,
+        event_id, ref_date,
+    )
+    empty = {"{day_date}": "", "{day_program}": "", "{day_program_with_links}": "",
+             "{day_datetime}": "", "{day_title}": ""}
+    if not row:
+        return empty
+    raw_date = row["day_date"]
+    day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else ""
+    day_title = (row["day_title"] or "").strip() or (f"День {row['day_number']}" if row["day_number"] else "")
+    sessions = await conn.fetch(
+        """
+        SELECT cs.start_time, cs.end_time,
+               COALESCE(cst.topic,
+                        (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id
+                           ORDER BY t.sort_order, t.id LIMIT 1),
+                        cs.title) AS session_title,
+               c.name AS speaker_name, cse.role, cse.id AS ec_id
+          FROM conf_sessions cs
+          LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
+          LEFT JOIN collaborators c ON c.id = cse.speaker_id
+          LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
+         WHERE cs.event_id=$1 AND cs.day=$2
+         ORDER BY cs.sort_order, cs.start_time
+        """,
+        event_id, row["day_number"],
+    )
+    lines, lines_links = [], []
+    for s in sessions:
+        t_start = _fmt_time(s["start_time"]); t_end = _fmt_time(s["end_time"])
+        time_part = f"{t_start}–{t_end} МСК" if t_start and t_end else (f"{t_start} МСК" if t_start else "")
+        bold_time = f"<b>{time_part}</b>" if time_part else ""
+        topic = s["session_title"] or ""
+        name = s["speaker_name"] or ""
+        role_label = ROLE_LABELS_DAY.get(s["role"] or "", "")
+        speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
+        lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
+        if name:
+            _link = speaker_card_link(row["event_slug"], s["ec_id"], row["default_link_mode"], row["bot_handle"])
+            name_html = f'<a href="{_link}">{name}</a>' if _link else name
+            speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
+        else:
+            speaker_part_l = ""
+        lines_links.append(f"{bold_time}: {topic}{speaker_part_l}".strip(": "))
+    day_program = "\n".join(lines)
+    day_program_links = "\n".join(lines_links)
+    return {
+        "{day_date}": day_date_str,
+        "{day_title}": day_title,
+        "{day_datetime}": day_date_str,
+        "{day_program}": day_program,
+        "{day_program_with_links}": day_program_links or day_program,
+    }
+
+
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
                                  template_id=None, snapshot=None,
@@ -758,6 +833,20 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 raw_text = raw_text.replace(token, val) if val else \
                     re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
             raw_buttons = [{**b, "url": (b.get("url") or "").replace(token, val)} for b in raw_buttons]
+        # Программа «завтрашнего дня» {day_date}/{day_program_with_links}/{day_program}/
+        # {day_datetime}/{day_title} — раскрываем и в произвольной рассылке (завтрашний
+        # день считается от даты отправки fire_at, МСК).
+        if any(p in raw_text for p in ("{day_date}", "{day_program", "{day_datetime}", "{day_title}")):
+            ref_date = (fire_at.astimezone(tz).date() if fire_at else None)
+            if ref_date is not None:
+                day_repl = await _resolve_day_placeholders(conn, event_id, ref_date)
+                # {day_program_with_links} — ДО {day_program} (подстрока).
+                for token in ("{day_program_with_links}", "{day_program}",
+                              "{day_date}", "{day_datetime}", "{day_title}"):
+                    val = day_repl.get(token, "")
+                    if token in raw_text:
+                        raw_text = raw_text.replace(token, val) if val else \
+                            re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
         # Если у произвольной рассылки выбран спикер (session_id = event_collaborators.id) —
         # раскрываем спикерские плейсхолдеры (имя/позиционирование/регалии/соцсети/
         # материал/{stream_url} и т.д.). ⚠️ ФОТО В ПРОИЗВОЛЬНОМ сообщении берётся ТОЛЬКО
