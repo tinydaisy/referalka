@@ -72,6 +72,8 @@ class TemplateCreate(BaseModel):
     send_to_client_chats: Optional[bool] = None
     # Слать ещё и в личные каналы клиента (client_broadcast_chats, is_private=TRUE).
     send_to_private_chats: Optional[bool] = None
+    # Источник фото для speaker_intro/5min_before/expert_day: 'poster' (афиша) | 'photo' (фото коллаба).
+    speaker_photo_mode: Optional[str] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -100,6 +102,8 @@ class TemplateUpdate(BaseModel):
     send_to_private_chats: Optional[bool] = None
     # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
     intro_roles: Optional[List[str]] = None
+    # Источник фото: 'poster' (афиша) | 'photo' (фото коллаба).
+    speaker_photo_mode: Optional[str] = None
 
 
 DEFAULT_TEMPLATES = [
@@ -235,7 +239,7 @@ DEFAULT_TEMPLATES = [
             "<b>Как принять участие:</b>\n"
             "1️⃣ Напишите сейчас свой вопрос в чат: {event_chat_tg}\n"
             "2️⃣ Обязательно отметьте никнейм эксперта: {speaker_tg_username}\n"
-            "3️⃣ Завтра с 10:00 до 12:00 по МСК {speaker_name} лично ответит в чате на ваши вопросы\n"
+            "3️⃣ Завтра с 10:00 до 11:00 по МСК {speaker_name} лично ответит в чате на ваши вопросы\n"
             "4️⃣ Будьте в это время в чате — чтобы задать уточняющие вопросы в моменте\n\n"
             "——\n"
             "<b>{speaker_name}:</b>\n"
@@ -434,6 +438,7 @@ async def list_templates(
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
                target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles,
+               speaker_photo_mode,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -544,16 +549,18 @@ async def create_template(
           (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            audience_include, audience_exclude, custom_day_ref, custom_time,
            schedule_mode, allow_custom_datetime, target_channel_ids,
-           video_url, media_type, send_to_event_chats, send_to_client_chats, send_to_private_chats)
+           video_url, media_type, send_to_event_chats, send_to_client_chats, send_to_private_chats,
+           speaker_photo_mode)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
                 COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
-                $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE), COALESCE($21, FALSE))
+                $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE), COALESCE($21, FALSE),
+                COALESCE($22, 'poster'))
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats,
-                  send_to_private_chats, created_at
+                  send_to_private_chats, speaker_photo_mode, created_at
         """,
         client_id, event_id, data.name, data.type, data.subject,
         data.text, data.photo_url, data.button_text, data.button_url,
@@ -563,6 +570,7 @@ async def create_template(
         data.target_channel_ids,
         data.video_url, data.media_type,
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats,
+        data.speaker_photo_mode,
     )
     return dict(row)
 
@@ -728,13 +736,14 @@ async def update_template(
             intro_roles = COALESCE($24::text[], intro_roles),
             send_to_client_chats = COALESCE($25, send_to_client_chats),
             send_to_private_chats = COALESCE($26, send_to_private_chats),
+            speaker_photo_mode = COALESCE($27, speaker_photo_mode),
             updated_at = NOW()
         WHERE id = $19 AND event_id = $20
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats,
-                  send_to_client_chats, send_to_private_chats, intro_roles
+                  send_to_client_chats, send_to_private_chats, intro_roles, speaker_photo_mode
         """,
         data.name, data.type, data.subject, new_text,
         data.photo_url, data.button_text, data.button_url,
@@ -749,6 +758,7 @@ async def update_template(
         data.intro_roles,
         data.send_to_client_chats,
         data.send_to_private_chats,
+        data.speaker_photo_mode,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -2161,7 +2171,7 @@ async def preview_schedule(
         SELECT bs.*, bt.text as tmpl_text, bt.photo_url as tmpl_photo,
                bt.video_url as tmpl_video, bt.media_type as tmpl_media_type,
                bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url,
-               bt.type as tmpl_type
+               bt.type as tmpl_type, bt.speaker_photo_mode as tmpl_speaker_photo_mode
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         WHERE bs.id=$1 AND bs.event_id=$2
@@ -2208,6 +2218,7 @@ async def preview_schedule(
         snapshot=snap,
         video_url=schedule["tmpl_video"],
         media_type=schedule["tmpl_media_type"],
+        speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
     )
 
     return {
@@ -2389,6 +2400,7 @@ async def test_template(
                     event_id=event_id, session_id=s["session_id"],
                     fire_at=None, tz=tz,
                     video_url=tpl["video_url"], media_type=tpl["media_type"],
+                    speaker_photo_mode=tpl.get("speaker_photo_mode") or "poster",
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
@@ -2417,6 +2429,7 @@ async def test_template(
                     event_id=event_id, session_id=s["session_id"],
                     fire_at=None, tz=tz,
                     video_url=tpl["video_url"], media_type=tpl["media_type"],
+                    speaker_photo_mode=tpl.get("speaker_photo_mode") or "poster",
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})

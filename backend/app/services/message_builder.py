@@ -491,7 +491,8 @@ async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
                                  template_id=None, snapshot=None,
-                                 video_url=None, media_type=None) -> dict:
+                                 video_url=None, media_type=None,
+                                 speaker_photo_mode: str = "poster") -> dict:
     """
     Единственная функция сборки текста, фото/видео и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
@@ -803,11 +804,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 # Все темы спикера через перенос строки (а не первая) —
                 # у спикеров с темами по дням было видно только одну.
                 topic = "\n".join((t["topic"] or "").strip() for t in topics if (t["topic"] or "").strip())
-                # Приоритет фото: фото шаблона → индивидуальная афиша спикера →
-                # фото коллаборатора (аватар). Афиша события для speaker_intro НЕ
-                # подставляется — у спикера всегда есть хотя бы фото профиля.
+                # Приоритет фото: фото шаблона → (в зависимости от режима
+                # speaker_photo_mode) афиша спикера ИЛИ фото коллаба → второй как
+                # fallback. Режим 'photo' = сначала фото коллаба (просто аватар),
+                # 'poster' (default) = сначала индивидуальная афиша спикера.
                 if not photo:
-                    photo = sp["speaker_poster"] or sp["speaker_photo"]
+                    if speaker_photo_mode == "photo":
+                        photo = sp["speaker_photo"] or sp["speaker_poster"]
+                    else:
+                        photo = sp["speaker_poster"] or sp["speaker_photo"]
                 card_link = speaker_card_link(sp["event_slug"], sp["ec_id"],
                                               sp["default_link_mode"], sp["bot_handle"])
                 text = build_speaker_intro_message(
@@ -841,6 +846,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                 (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
                           ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                           LIMIT 1) as speaker_poster,
+                       c.photo_url AS speaker_photo,
                        pu_tg.username as speaker_personal_tg,
                        c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                        c.title AS positioning, c.hub_about AS bio, c.achievements,
@@ -906,7 +912,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                         if session_data.get("lp_slug"):
                             session_data["gift_url"] = f"https://pluson.ru/p/{session_data['lp_slug']}"
         if not photo:
-            photo = session_data.get("speaker_poster")
+            # 5min_before уважает режим speaker_photo_mode (афиша/просто фото);
+            # gift оставляем на афише (poster) как прежде.
+            if tpl_type == "5min_before" and speaker_photo_mode == "photo":
+                photo = session_data.get("speaker_photo") or session_data.get("speaker_poster")
+            else:
+                photo = session_data.get("speaker_poster") or session_data.get("speaker_photo")
         stream_url = session_data.get("stream_url") or ""
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))

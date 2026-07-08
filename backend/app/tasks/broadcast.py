@@ -127,7 +127,7 @@ async def _send_broadcast(schedule_id: int):
         # чтобы правки шаблона применились даже если очередь уже активирована
         tmpl = await conn.fetchrow(
             "SELECT subject, text, photo_url, video_url, media_type, video_file_id, "
-            "button_text, button_url, target_channel_ids, "
+            "button_text, button_url, target_channel_ids, speaker_photo_mode, "
             "send_to_event_chats, send_to_client_chats, send_to_private_chats "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
@@ -245,6 +245,7 @@ async def _send_broadcast(schedule_id: int):
             snapshot=snap,
             video_url=tmpl_video_val,
             media_type=tmpl_media_type_val,
+            speaker_photo_mode=(tmpl["speaker_photo_mode"] if tmpl else "poster") or "poster",
         )
 
         text = content["text"]

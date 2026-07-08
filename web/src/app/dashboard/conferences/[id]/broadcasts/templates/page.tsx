@@ -248,6 +248,7 @@ const emptyForm = {
   send_to_event_chats: false,
   send_to_client_chats: false,
   send_to_private_chats: false,
+  speaker_photo_mode: 'poster',
   custom_day_ref: '', custom_time: '12:00',
   // target_channel_ids: null = «по всем каналам клиента» (default),
   // [] = никуда не слать, [N,M] = только эти channel_id.
@@ -488,6 +489,7 @@ export default function TemplatesPage() {
       send_to_event_chats: !!t.send_to_event_chats,
       send_to_client_chats: !!t.send_to_client_chats,
       send_to_private_chats: !!t.send_to_private_chats,
+      speaker_photo_mode: t.speaker_photo_mode || 'poster',
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
@@ -1255,6 +1257,36 @@ export default function TemplatesPage() {
                 </div>
               )}
 
+              {/* Источник фото — только для спикерских шаблонов с фото человека */}
+              {(editModal?.type === 'speaker_intro' || editModal?.type === 'expert_day' || editModal?.type === '5min_before') && (
+                <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+                  <p className="text-xs font-medium text-gray-600">🖼 Какое фото спикера брать</p>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'poster', label: 'Афиша спикера' },
+                      { value: 'photo', label: 'Просто фото' },
+                    ].map(opt => {
+                      const cur = (form as any).speaker_photo_mode || 'poster'
+                      const active = cur === opt.value
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setForm({ ...form, speaker_photo_mode: opt.value } as any)}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium border ${active ? 'text-white border-transparent' : 'bg-white text-gray-600 border-gray-200'}`}
+                          style={active ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : undefined}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    «Афиша» — индивидуальная афиша спикера из библиотеки. «Просто фото» — фото профиля коллаба. Если у шаблона задано своё фото — берётся оно.
+                  </p>
+                </div>
+              )}
+
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория рассылки</p>
                 <div>
@@ -1639,12 +1671,15 @@ export default function TemplatesPage() {
                 const eventPoster = confPosters.square[0] || confPosters.horizontal[0] || confPosters.vertical[0]
                 const speakerPoster = previewSpeaker?.cse_poster_url || previewSpeaker?.speaker_poster_url || previewSpeaker?.poster_url
                 const speakerPhoto = previewSpeaker?.photo_url
-                // Для спикерских шаблонов приоритет: фото шаблона → инд. афиша спикера →
-                // фото коллаборатора (аватар). Афиша события НЕ подставляется (как в бэке).
+                // Режим фото: 'photo' → сначала фото коллаба, 'poster' (default) → афиша.
+                const photoMode = previewModal.tpl.speaker_photo_mode || 'poster'
+                const speakerMedia = photoMode === 'photo'
+                  ? (speakerPhoto || speakerPoster)
+                  : (speakerPoster || speakerPhoto)
+                // Для спикерских шаблонов приоритет: фото шаблона → выбранный источник.
+                // Афиша события НЕ подставляется (как в бэке).
                 const photoSrc = previewModal.tpl.photo_url
-                  || (isEventLevelTpl
-                    ? eventPoster
-                    : (speakerPoster || speakerPhoto))
+                  || (isEventLevelTpl ? eventPoster : speakerMedia)
                 const placeholder = isEventLevelTpl
                   ? '📸 Афиша события'
                   : (speakers.length > 0 ? '📸 Афиша или фото спикера' : '📸 Афиша события')
