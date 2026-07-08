@@ -1377,7 +1377,11 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
 
     ctx = await _get_brand_context(client_id, db, platform="max")
     materials = await _materials_for_run(dict(run), db)
-    text_1 = _format_text(template["text_1"], ctx, materials)
+    # MAX парсит inline-HTML (<b>/<i>/<a>) только при parse_mode='html'; блочные
+    # теги (<p>/<br>/<ul>) он не понимает — чистим через html_to_telegram (как в
+    # рассылках). Иначе теги приходят сырым текстом.
+    from app.services.message_builder import html_to_telegram
+    text_1 = html_to_telegram(_format_text(template["text_1"], ctx, materials))
 
     from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
     button_label = template["button_label"] or "ГОТОВО"
@@ -1394,7 +1398,7 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
         await max_send(
             int(max_user_id), text_1,
             token=token, buttons=buttons, recipient_kind="user",
-            attachments=media_att,
+            attachments=media_att, parse_mode="html",
         )
     except Exception as e:
         log.warning("run_started_max: send text_1 failed: %s", e)
@@ -1494,13 +1498,15 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             template = await _get_or_create_template(client_id, "lead_magnet", db)
             template = dict(template)
         materials = await _materials_for_run(dict(run), db)
-        text_2 = _format_text(template["text_2"], max_ctx, materials)
+        from app.services.message_builder import html_to_telegram
+        text_2 = html_to_telegram(_format_text(template["text_2"], max_ctx, materials))
         text_2, media_att2 = await _max_media_for_text(
             text_2, template.get("text_2_media_url"), template.get("text_2_media_type"), max_token)
         from app.services.max_api import send_message as max_send
         try:
             await max_send(int(tg_id), text_2, token=max_token,
-                           recipient_kind="user", attachments=media_att2)
+                           recipient_kind="user", attachments=media_att2,
+                           parse_mode="html")
         except Exception as e:
             log.warning("MAX send text_2 failed for run %s: %s", run_id, e)
         if is_first_delivery:
