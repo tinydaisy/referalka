@@ -572,6 +572,8 @@ export const api = {
     list: () => request('/api/v1/broadcasts/schedules'),
     addCustom: (data: any) =>
       request('/api/v1/broadcasts/schedules/add-custom', { method: 'POST', body: JSON.stringify(data) }),
+    testNow: (data: any) =>
+      request('/api/v1/broadcasts/schedules/test-now', { method: 'POST', body: JSON.stringify(data) }),
     bulkAdd: (data: any) =>
       request('/api/v1/broadcasts/schedules/bulk-add', { method: 'POST', body: JSON.stringify(data) }),
     preview: (id: number) =>

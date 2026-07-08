@@ -342,6 +342,44 @@ async def add_custom(
     return dict(row)
 
 
+class GeneralTestNowRequest(BaseModel):
+    text: str
+    subject: Optional[str] = None
+    photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    media_type: Optional[str] = None
+    buttons: List[ButtonItem] = []
+
+
+@router.post("/schedules/test-now", summary="Отправить тестовую общую рассылку немедленно")
+async def general_test_now(
+    data: GeneralTestNowRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Шлёт произвольное общее сообщение СРАЗУ на тестовые ID клиента (без очереди)."""
+    from app.api.modules.broadcasts import _load_test_targets, _send_content_to_tests
+    client_id = int(client["sub"])
+    if not (data.text or "").strip():
+        raise HTTPException(400, "Пустой текст")
+    bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz = await _load_test_targets(db, client_id)
+    snap_photo, snap_video, snap_mtype = _resolve_media(data.photo_url, data.video_url, data.media_type)
+    text = (data.text or "")
+    if (data.subject or "").strip():
+        text = f"<b>{data.subject.strip()}</b>\n\n{text}"
+    buttons = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
+    content = {
+        "text": text,
+        "photo": snap_photo if snap_mtype != "video" else None,
+        "video": snap_video if snap_mtype == "video" else None,
+        "media_type": snap_mtype,
+        "buttons": buttons,
+    }
+    results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token)
+    sent = sum(1 for r in results if r.get("ok"))
+    return {"ok": True, "sent": sent, "total": len(results), "results": results}
+
+
 @router.post("/schedules/bulk-add", summary="Пакетное добавление общих рассылок")
 async def bulk_add(
     data: BulkAddRequest,
