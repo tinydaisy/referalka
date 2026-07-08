@@ -834,7 +834,7 @@ async def list_schedules(
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_subject, bs.snapshot_photo, bs.snapshot_video,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
-               bs.send_to_client_chats, bs.send_to_private_chats
+               bs.send_to_client_chats, bs.send_to_private_chats, bs.target_channel_ids
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         -- speaker_intro/expert_day: session_id = event_collaborators.id (спикер),
@@ -1463,6 +1463,12 @@ class SetFireAtRequest(BaseModel):
     is_test: bool = False
     audience_include: Optional[str] = None
     audience_exclude: Optional[str] = None
+    # Каналы для отправки: None = не менять; [] = никуда; [N,M] = только эти.
+    target_channel_ids: Optional[List[int]] = None
+    # Флаги «слать также в чаты» — None = не менять.
+    send_to_event_chats: Optional[bool] = None
+    send_to_client_chats: Optional[bool] = None
+    send_to_private_chats: Optional[bool] = None
 
 
 @router.put("/schedules/{schedule_id}/fire-at", summary="Установить время отправки (для custom_datetime)")
@@ -1491,24 +1497,37 @@ async def set_schedule_fire_at(
     except Exception:
         raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO 8601, например 2026-04-21T14:30:00")
 
-    aud_include = data.audience_include
-    aud_exclude = data.audience_exclude
-    if aud_include and aud_exclude:
-        row = await db.fetchrow(
-            """UPDATE broadcast_schedules
-               SET fire_at=$1, is_test=$2, audience_include=$3, audience_exclude=$4, status='draft'
-               WHERE id=$5 AND event_id=$6
-               RETURNING id, fire_at, is_test, audience_include, audience_exclude, status""",
-            dt_utc, data.is_test, aud_include, aud_exclude, schedule_id, event_id
-        )
-    else:
-        row = await db.fetchrow(
-            """UPDATE broadcast_schedules
-               SET fire_at=$1, is_test=$2, status='draft'
-               WHERE id=$3 AND event_id=$4
-               RETURNING id, fire_at, is_test, audience_include, audience_exclude, status""",
-            dt_utc, data.is_test, schedule_id, event_id
-        )
+    # Динамический SET: базово fire_at/is_test/status, плюс опциональные поля,
+    # которые пришли (None = не трогаем текущее значение в БД).
+    set_parts = ["fire_at = $1", "is_test = $2", "status = 'draft'"]
+    vals: list = [dt_utc, data.is_test]
+
+    def _add(col: str, value):
+        vals.append(value)
+        set_parts.append(f"{col} = ${len(vals)}")
+
+    if data.audience_include and data.audience_exclude:
+        _add("audience_include", data.audience_include)
+        _add("audience_exclude", data.audience_exclude)
+    if data.target_channel_ids is not None:
+        _add("target_channel_ids", data.target_channel_ids)
+    if data.send_to_event_chats is not None:
+        _add("send_to_event_chats", data.send_to_event_chats)
+    if data.send_to_client_chats is not None:
+        _add("send_to_client_chats", data.send_to_client_chats)
+    if data.send_to_private_chats is not None:
+        _add("send_to_private_chats", data.send_to_private_chats)
+
+    vals.append(schedule_id)
+    vals.append(event_id)
+    row = await db.fetchrow(
+        f"""UPDATE broadcast_schedules SET {', '.join(set_parts)}
+             WHERE id = ${len(vals)-1} AND event_id = ${len(vals)}
+             RETURNING id, fire_at, is_test, audience_include, audience_exclude,
+                       target_channel_ids, send_to_event_chats, send_to_client_chats,
+                       send_to_private_chats, status""",
+        *vals
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Запись не найдена")
     return dict(row)

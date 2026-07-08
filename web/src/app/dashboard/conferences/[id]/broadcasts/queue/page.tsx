@@ -9,6 +9,7 @@ import {
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
+import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import { useMe } from '@/hooks/useMe'
 
 const INCLUDE_LABELS: Record<string, string> = {
@@ -151,6 +152,10 @@ export default function QueuePage() {
   const [isTestValue, setIsTestValue] = useState(false)
   const [editAudienceInclude, setEditAudienceInclude] = useState('all_event')
   const [editAudienceExclude, setEditAudienceExclude] = useState('none')
+  const [editChannelIds, setEditChannelIds] = useState<number[] | null>(null)
+  const [editEventChats, setEditEventChats] = useState(false)
+  const [editClientChats, setEditClientChats] = useState(false)
+  const [editPrivateChats, setEditPrivateChats] = useState(false)
   const [logModal, setLogModal] = useState<{ schedule: any; rows: any[] } | null>(null)
   const [logLoading, setLogLoading] = useState(false)
   const [manualForm, setManualForm] = useState({
@@ -374,6 +379,10 @@ export default function QueuePage() {
     setIsTestValue(schedule.is_test || false)
     setEditAudienceInclude(schedule.audience_include || 'all_event')
     setEditAudienceExclude(schedule.audience_exclude || 'none')
+    setEditChannelIds(Array.isArray(schedule.target_channel_ids) ? schedule.target_channel_ids : null)
+    setEditEventChats(!!schedule.send_to_event_chats)
+    setEditClientChats(!!schedule.send_to_client_chats)
+    setEditPrivateChats(!!schedule.send_to_private_chats)
   }
 
   async function saveFireAt() {
@@ -393,6 +402,10 @@ export default function QueuePage() {
         is_test: isTestValue,
         audience_include: editAudienceInclude,
         audience_exclude: editAudienceExclude,
+        target_channel_ids: editChannelIds,
+        send_to_event_chats: editEventChats,
+        send_to_client_chats: editClientChats,
+        send_to_private_chats: editPrivateChats,
       })
       setFireAtModal(null)
       await load()
@@ -987,7 +1000,7 @@ export default function QueuePage() {
       {/* ── Модалка: установить время отправки ── */}
       {fireAtModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Настройки задачи</h3>
               <button onClick={() => setFireAtModal(null)}><X size={18} /></button>
@@ -1032,6 +1045,44 @@ export default function QueuePage() {
                   Итого: {audienceLabel(editAudienceInclude, editAudienceExclude)}
                 </p>
               </div>
+
+              {/* Каналы для отправки */}
+              <BroadcastChannelPicker
+                value={editChannelIds}
+                onChange={(next) => setEditChannelIds(next)}
+              />
+
+              {/* Три независимые галочки: чаты события / общие чаты / личные каналы */}
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                  <input type="checkbox" checked={editEventChats}
+                    onChange={e => setEditEventChats(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                  <span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">В групповые чаты этого события (заданы в настройках события).</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                  <input type="checkbox" checked={editClientChats}
+                    onChange={e => setEditClientChats(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                  <span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок»).</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                  <input type="checkbox" checked={editPrivateChats}
+                    onChange={e => setEditPrivateChats(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                  <span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">В каналы из базы чатов, помеченные галочкой «Личный».</span>
+                  </span>
+                </label>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={isTestValue} onChange={e => setIsTestValue(e.target.checked)}
