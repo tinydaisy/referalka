@@ -30,7 +30,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -38,7 +38,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{stream_url}'],
+    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -135,6 +135,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_positioning}', desc: 'Позиционирование спикера (должность/титул)' },
   { name: '{speaker_card_link}', desc: 'Ссылка на карточку спикера (веб или Mini App — по настройке события)' },
   { name: '{speaker_material}', desc: 'Материал спикера в базу знаний (название + ссылка под ним). Пусто — строка убирается' },
+  { name: '{speaker_notes}', desc: 'Заметки спикера (внутренняя шпаргалка ведущего под этого спикера). Пусто — строка убирается' },
   { name: '{gift_after_speech_title}', desc: 'Подарок на эфире' },
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
@@ -674,6 +675,16 @@ export default function TemplatesPage() {
           ? out.replace(/\{speaker_material\}/g, material)
           : out.replace(/^[^\n]*\{speaker_material\}[^\n]*\n?/gm, '')
       }
+
+      // {speaker_notes} — заметки спикера (шпаргалка под этого спикера в событии).
+      // Пусто → убираем строку с плейсхолдером; едино для всех спикерских шаблонов.
+      const notes = (speaker.notes || '').trim()
+      if (out.includes('{speaker_notes}')) {
+        out = notes
+          ? out.replace(/\{speaker_notes\}/g, notes)
+          : out.replace(/^[^\n]*\{speaker_notes\}[^\n]*\n?/gm, '')
+      }
+      out = out.replace(/\n{3,}/g, '\n\n').trim()
     }
 
     const d = day ?? testDay

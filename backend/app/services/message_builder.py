@@ -167,7 +167,8 @@ def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
 def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
                                 achievements, role, speaker_topic, gift_title, gift_raffle, registration_url,
                                 bio=None, positioning=None, card_link=None,
-                                vk_url=None, max_url=None, website_url=None):
+                                vk_url=None, max_url=None, website_url=None,
+                                speaker_notes=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -188,6 +189,7 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     bio_v = (bio or "").strip()
     positioning_v = (positioning or "").strip()
     card_link_v = (card_link or "").strip()
+    notes_v = (speaker_notes or "").strip()
 
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -213,12 +215,15 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_positioning\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not card_link_v:
         text = re.sub(r"^[^\n]*\{speaker_card_link\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not notes_v:
+        text = re.sub(r"^[^\n]*\{speaker_notes\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
     text = text.replace("{speaker_bio}", bio_v)
     text = text.replace("{speaker_positioning}", positioning_v)
     text = text.replace("{speaker_card_link}", card_link_v)
+    text = text.replace("{speaker_notes}", notes_v)
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_topic}", topic)
@@ -337,7 +342,7 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
                             personal_tg=None, tg_channel_url=None, instagram_url=None,
                             vk_url=None, max_url=None, website_url=None,
                             achievements=None, role=None, bio=None, positioning=None,
-                            card_link=None):
+                            card_link=None, speaker_notes=None):
     text = tmpl_text or ""
     text = text.replace("{stream_url}", stream_url_val or "")
     # Полный набор спикер-плейсхолдеров (те же, что в speaker_intro), чтобы
@@ -358,6 +363,10 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
     text = text.replace("{speaker_bio}", (bio or "").strip())
     text = text.replace("{speaker_positioning}", (positioning or "").strip())
     text = text.replace("{speaker_card_link}", (card_link or "").strip())
+    notes_v = (speaker_notes or "").strip()
+    if not notes_v:
+        text = re.sub(r"^[^\n]*\{speaker_notes\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{speaker_notes}", notes_v)
     text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}" if tg_ch else "")
     text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}" if insta else "")
     return text.strip()
@@ -692,7 +701,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.title AS positioning, c.hub_about AS bio,
                        c.achievements,
                        cse.id AS ec_id, cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
-                       cse.gift_raffle_title,
+                       cse.gift_raffle_title, cse.notes AS speaker_notes,
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
                        e.landing_url AS registration_url,
@@ -732,7 +741,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     topic, sp["gift_after_speech_title"],
                     sp["gift_raffle_title"], sp["registration_url"],
                     bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
-                    vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"]
+                    vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
+                    speaker_notes=sp["speaker_notes"]
                 )
                 text = apply_speaker_material(
                     text,
@@ -759,6 +769,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                        c.title AS positioning, c.hub_about AS bio, c.achievements,
                        cse.role, cse.id AS ec_id, e.slug AS event_slug,
+                       cse.notes AS speaker_notes,
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
@@ -852,6 +863,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 bio=session_data.get("bio"),
                 positioning=session_data.get("positioning"),
                 card_link=card_link,
+                speaker_notes=session_data.get("speaker_notes"),
             )
             text = apply_speaker_material(text, speaker_material)
         btn_url = btn_url.replace("{stream_url}", stream_url)
