@@ -1625,6 +1625,8 @@ function CustomBroadcastModal(props: {
   const [sendToChats, setSendToChats] = useState(!!ed?.send_to_event_chats)
   const [sendToClientChats, setSendToClientChats] = useState(!!ed?.send_to_client_chats)
   const [sendToPrivateChats, setSendToPrivateChats] = useState(!!ed?.send_to_private_chats)
+  const [channelIds, setChannelIds] = useState<number[] | null>(
+    Array.isArray(ed?.target_channel_ids) ? ed.target_channel_ids : null)
   const { me } = useMe()
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   const [saving, setSaving] = useState(false)
@@ -1664,6 +1666,7 @@ function CustomBroadcastModal(props: {
         send_to_event_chats: sendToChats,
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
+        target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
         enqueue: enqueue,
         ...(props.isCollab && !ed?.id && reqConfirm ? { request_owner_confirm: true } : {}),
@@ -1761,11 +1764,11 @@ function CustomBroadcastModal(props: {
                       <p className="text-[10px] text-gray-400 mt-0.5 ml-1">текст кнопки</p>
                     </div>
                     <div className="flex-1">
-                      <input type="url" value={b.url} placeholder="https://example.com"
+                      <input type="text" value={b.url} placeholder="https://… или {stream_url}"
                         autoComplete="off" autoCorrect="off" spellCheck={false}
                         onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, url: e.target.value } : x))}
                         className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${buttonErrors[i].some(er => er.toLowerCase().includes('ссылк') || er.toLowerCase().includes('url')) ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`} />
-                      <p className="text-[10px] text-gray-400 mt-0.5 ml-1">URL — куда ведёт кнопка</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 ml-1">URL или плейсхолдер: {'{stream_url}'} (эфир), {'{landing_url}'} (регистрация), {'{vip_url}'}, {'{event_chat_tg}'}</p>
                     </div>
                     <button onClick={() => setButtons(buttons.filter((_, j) => j !== i))}
                       className="p-1.5 text-red-400 hover:text-red-600 mt-1">
@@ -1819,6 +1822,8 @@ function CustomBroadcastModal(props: {
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым Telegram ID)</span>
           </label>
+          {/* Каналы для отправки */}
+          <BroadcastChannelPicker value={channelIds} onChange={(next) => setChannelIds(next)} />
           {/* Три независимые галочки: чат события / общие чаты / личные каналы. */}
           <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
             <input type="checkbox" checked={sendToChats} onChange={e => setSendToChats(e.target.checked)}

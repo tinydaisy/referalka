@@ -154,11 +154,14 @@ def validate_button_pair(text: str, url: str) -> list:
         errs.append("пустая ссылка кнопки")
     if t and _re.search(r"<[^>]+>", t):
         errs.append("в тексте кнопки нельзя использовать HTML-теги")
-    if u and not _re.match(r"^(https?://|tg://|mailto:|tel:)", u):
+    # Плейсхолдер-ссылка ({stream_url}/{landing_url}/{vip_url}/{event_chat_tg}…) раскроется
+    # на сервере в реальный URL — считаем валидной.
+    is_placeholder_url = bool(_re.match(r"^\{[a-z_]+\}", u)) and not _re.search(r"\s", u)
+    if u and not is_placeholder_url and not _re.match(r"^(https?://|tg://|mailto:|tel:)", u):
         if _re.search(r"<[^>]+>", u) or _re.search(r"\s", u):
             errs.append("в поле ссылки указан текст вместо URL — должно быть https://...")
         else:
-            errs.append("ссылка должна начинаться с https:// или http://")
+            errs.append("ссылка должна начинаться с https:// или быть плейсхолдером {stream_url}")
     return errs
 
 

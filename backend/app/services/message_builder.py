@@ -708,6 +708,21 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             raw_buttons = [{**b, "url": (b.get("url") or "").replace(token, val)} for b in raw_buttons]
         raw_text = raw_text.replace("{brand_name}", g["brand_name"])
         raw_buttons = [{**b, "url": (b.get("url") or "").replace("{brand_name}", g["brand_name"])} for b in raw_buttons]
+        # Событийные плейсхолдеры-ссылки {stream_url}/{landing_url}/{registration_url}
+        # (ссылка на эфир / регистрацию) — раскрываем и в тексте, и в кнопках, ДАЖЕ БЕЗ
+        # выбранного спикера (это данные события, не спикера).
+        ev_links = await conn.fetchrow(
+            "SELECT stream_url, landing_url FROM events WHERE id=$1", event_id)
+        _ev_repl = {
+            "{stream_url}": (ev_links["stream_url"] if ev_links else None) or "",
+            "{landing_url}": (ev_links["landing_url"] if ev_links else None) or "",
+            "{registration_url}": (ev_links["landing_url"] if ev_links else None) or "",
+        }
+        for token, val in _ev_repl.items():
+            if token in raw_text:
+                raw_text = raw_text.replace(token, val) if val else \
+                    re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
+            raw_buttons = [{**b, "url": (b.get("url") or "").replace(token, val)} for b in raw_buttons]
         # Если у произвольной рассылки выбран спикер (session_id = event_collaborators.id) —
         # раскрываем спикерские плейсхолдеры (имя/позиционирование/регалии/соцсети/
         # материал/{stream_url} и т.д.). ⚠️ ФОТО В ПРОИЗВОЛЬНОМ сообщении берётся ТОЛЬКО

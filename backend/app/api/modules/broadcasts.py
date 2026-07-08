@@ -1623,6 +1623,8 @@ class AddCustomRequest(BaseModel):
     send_to_event_chats: bool = False
     send_to_client_chats: bool = False
     send_to_private_chats: bool = False
+    # Каналы для отправки: None = все каналы клиента; [] = никуда; [N,M] = только эти.
+    target_channel_ids: Optional[List[int]] = None
     # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
     request_owner_confirm: bool = False
     # Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
@@ -1741,14 +1743,14 @@ async def add_custom_schedule(
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
            snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats,
-           send_to_private_chats, client_id)
-        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14)
+           send_to_private_chats, client_id, target_channel_ids)
+        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $17)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id,
-        speaker_ec_id, status_val
+        speaker_ec_id, status_val, data.target_channel_ids
     )
     result = dict(row)
     # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).
@@ -1816,14 +1818,14 @@ async def edit_custom_schedule(
             snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
             snapshot_video = $8, snapshot_media_type = $9,
             send_to_event_chats = $12, send_to_client_chats = $13, send_to_private_chats = $14,
-            session_id = $15
+            session_id = $15, target_channel_ids = $16
         WHERE id = $10 AND event_id = $11 AND type = 'custom'
         RETURNING id, type, fire_at, status, is_test
         """,
         dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         schedule_id, event_id, data.send_to_event_chats, data.send_to_client_chats,
-        data.send_to_private_chats, speaker_ec_id,
+        data.send_to_private_chats, speaker_ec_id, data.target_channel_ids,
     )
     return dict(row)
 

@@ -100,13 +100,17 @@ export function validateButton(text: string, url: string): string[] {
   }
 
   if (u) {
-    const urlOk = /^(https?:\/\/|tg:\/\/|mailto:|tel:)/.test(u)
+    // Плейсхолдер-ссылка ({stream_url}, {landing_url}, {vip_url}, {event_chat_tg} и т.п.)
+    // раскроется на сервере в реальный URL — считаем валидной (сам плейсхолдер или
+    // плейсхолдер в начале ссылки без пробелов).
+    const isPlaceholderUrl = /^\{[a-z_]+\}/.test(u) && !/\s/.test(u)
+    const urlOk = isPlaceholderUrl || /^(https?:\/\/|tg:\/\/|mailto:|tel:)/.test(u)
     if (!urlOk) {
       // Похоже что в URL вставили текст (или забыли http://)
       if (/<[^>]+>/.test(u) || /\s/.test(u)) {
-        errors.push('в поле ссылки указан текст вместо URL — должно быть https://...')
+        errors.push('в поле ссылки указан текст вместо URL — должно быть https:// или плейсхолдер {stream_url}')
       } else {
-        errors.push('ссылка должна начинаться с https:// или http://')
+        errors.push('ссылка должна начинаться с https:// или быть плейсхолдером, например {stream_url}')
       }
     }
   }
