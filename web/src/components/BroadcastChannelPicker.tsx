@@ -51,7 +51,10 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
     let cancelled = false
     api.channels.list().then((res: any) => {
       if (cancelled) return
-      const items: Channel[] = res?.items || []
+      // Email убран из выбора каналов рассылки (с 2026-07-08): email системный
+      // и не отмечается по умолчанию. Отфильтровываем до onChange, чтобы email
+      // не рисовался секцией и не попадал в target_channel_ids.
+      const items: Channel[] = (res?.items || []).filter((c: Channel) => c.platform_slug !== 'email')
       setChannels(items)
       // Первая инициализация: NULL → выбрать все каналы (поведение по умолчанию).
       if (value === null) {

@@ -120,9 +120,11 @@ function FieldLabel({ label, empty }: { label: string; empty: boolean }) {
 // Прямые ссылки на карточку конкретного спикера: веб-страница события и Mini App.
 function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number; botHandle: string }) {
   const webUrl = `https://pluson.ru/event/${slug}?spk=${ecId}`
+  // Mini App-ссылка — только при своём боте клиента. Системный @pluson_bot
+  // не подставляем (с 2026-07-08): нет бота → показываем только веб-ссылку.
   const tgUrl = botHandle
     ? `https://t.me/${botHandle}?startapp=ref_pg${slug}_spk${ecId}`
-    : `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_spk${ecId}`
+    : ''
   const [copied, setCopied] = useState<string | null>(null)
   const copy = async (url: string, key: string) => {
     try { await navigator.clipboard.writeText(url); setCopied(key); setTimeout(() => setCopied(null), 2000) } catch {}
@@ -140,7 +142,7 @@ function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number
   return (
     <div className="space-y-2">
       <Row label="Веб" url={webUrl} k="web" />
-      <Row label="Mini App" url={tgUrl} k="tg" />
+      {tgUrl && <Row label="Mini App" url={tgUrl} k="tg" />}
     </div>
   )
 }

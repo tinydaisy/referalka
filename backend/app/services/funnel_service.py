@@ -1131,6 +1131,249 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
         log.warning("run_started_vk: send text_1 failed: %s", e)
 
 
+async def _max_token_for_client(client_id: int, db) -> Optional[str]:
+    """Токен собственного MAX-бота клиента для отправки участнику воронки.
+    Нет своего MAX-бота → None (системный MAX ПЛЮСОНа не используем)."""
+    from app.services.channels import get_client_max_token
+    return await get_client_max_token(client_id, db)
+
+
+async def _check_max_founder_subscription(client_id: int, max_user_id: str,
+                                          token: str, db) -> list[dict]:
+    """MAX-аналог check_telegram_channels_subscription: возвращает список
+    MAX-каналов ОСНОВАТЕЛЯ (clients.social_links.max_channels с числовым chat_id),
+    на которые пользователь НЕ подписан. Пусто = подписан на всё / нечего
+    проверять. Бот не админ канала / нет данных → fail-open (канал пройден)."""
+    from app.services.social_links import normalize_max_channels
+    from app.services.max_api import check_channel_membership
+    row = await db.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
+    if not row:
+        return []
+    social = row["social_links"]
+    if isinstance(social, str):
+        try:
+            social = json.loads(social)
+        except Exception:
+            social = {}
+    channels = normalize_max_channels((social or {}).get("max_channels") or [])
+    to_check = [c for c in channels if (c.get("chat_id") or "").strip()]
+    not_subscribed: list[dict] = []
+    for ch in to_check:
+        is_member = await check_channel_membership(ch["chat_id"], max_user_id, token=token)
+        if is_member is False:  # None = нет данных (fail-open), False = не подписан
+            not_subscribed.append(ch)
+    return not_subscribed
+
+
+async def run_started_max(run_id: int, max_user_id: str, username: Optional[str],
+                          first_name: Optional[str], last_name: Optional[str],
+                          db, token: str) -> None:
+    """MAX-аналог run_started. Вызывается из max_webhook при получении payload
+    `fnl_<run_id>` (bot_started / /start). Полностью зеркалит run_started_vk, но
+    отправка и подписочный контекст — через MAX.
+
+    Идемпотентно:
+    - привязывает забег к platform_user (max) — создаёт contact если нужно,
+    - регистрирует подписку на активный MAX client_channel клиента,
+    - ставит stage=started, platform_slug='max',
+    - шлёт уведомление организатору (один раз),
+    - отправляет Текст 1 + callback-кнопку «ГОТОВО» через MAX API."""
+    run = await db.fetchrow(
+        """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
+                  contact_id, platform_slug, platform_user_id, started_at,
+                  utm, referrer_contact_id
+             FROM funnel_runs WHERE id = $1""",
+        run_id
+    )
+    if not run:
+        log.info("run_started_max: run %s not found", run_id)
+        return
+
+    client_id = run["client_id"]
+    skeleton_contact_id = run["contact_id"]
+
+    # Дедуп забегов на MAX той же связки (магнит/пакет).
+    existing_run = await db.fetchrow(
+        """SELECT id, stage, contact_id
+             FROM funnel_runs
+            WHERE client_id = $1
+              AND platform_slug = 'max'
+              AND platform_user_id = $2
+              AND COALESCE(lead_magnet_id, 0) = COALESCE($3, 0)
+              AND COALESCE(package_id, 0)     = COALESCE($4, 0)
+              AND id <> $5
+            ORDER BY id ASC LIMIT 1""",
+        client_id, str(max_user_id),
+        run["lead_magnet_id"], run["package_id"], run_id
+    )
+    if existing_run:
+        if skeleton_contact_id:
+            used_elsewhere = await db.fetchval(
+                """SELECT EXISTS (
+                       SELECT 1 FROM funnel_runs WHERE contact_id = $1 AND id <> $2
+                       UNION ALL SELECT 1 FROM event_participants WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM platform_users  WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM collaborators    WHERE contact_id = $1
+                   )""",
+                skeleton_contact_id, run_id
+            )
+            await db.execute("DELETE FROM funnel_runs WHERE id = $1", run_id)
+            if not used_elsewhere:
+                await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
+        else:
+            await db.execute("DELETE FROM funnel_runs WHERE id = $1", run_id)
+        run_id = existing_run["id"]
+        run = await db.fetchrow(
+            """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
+                      contact_id, platform_slug, platform_user_id, started_at,
+                      utm, referrer_contact_id
+                 FROM funnel_runs WHERE id = $1""",
+            run_id
+        )
+        skeleton_contact_id = None
+
+    # platform_users — MAX identity клиента
+    pu = await db.fetchrow(
+        """SELECT pu.id, pu.contact_id
+             FROM platform_users pu
+            WHERE pu.client_id = $1 AND pu.platform_slug = 'max' AND pu.platform_user_id = $2""",
+        client_id, str(max_user_id)
+    )
+    contact_id: Optional[int] = None
+    if pu:
+        contact_id = pu["contact_id"]
+        await db.execute(
+            """UPDATE platform_users
+                  SET username = COALESCE(NULLIF($1,''), username),
+                      first_name = COALESCE(NULLIF($2,''), first_name),
+                      last_name = COALESCE(NULLIF($3,''), last_name)
+                WHERE id = $4""",
+            username or "", first_name or "", last_name or "", pu["id"]
+        )
+        if skeleton_contact_id and skeleton_contact_id != contact_id:
+            used_elsewhere = await db.fetchval(
+                """SELECT EXISTS (
+                       SELECT 1 FROM funnel_runs WHERE contact_id = $1 AND id <> $2
+                       UNION ALL SELECT 1 FROM event_participants WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM platform_users  WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM collaborators    WHERE contact_id = $1
+                   )""",
+                skeleton_contact_id, run_id
+            )
+            if not used_elsewhere:
+                await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
+    else:
+        if skeleton_contact_id:
+            contact_id = skeleton_contact_id
+            full_name = ((first_name or "") + " " + (last_name or "")).strip() or (username or "")
+            await db.execute(
+                """UPDATE contacts
+                      SET name = COALESCE(name, NULLIF($1, '')),
+                          last_contact_at = NOW()
+                    WHERE id = $2""",
+                full_name, contact_id
+            )
+        else:
+            from app.services.contact_merge import _generate_unique_ref_code
+            ref_code = await _generate_unique_ref_code(db)
+            run_utm = run["utm"]
+            if isinstance(run_utm, str):
+                try:
+                    run_utm = json.loads(run_utm)
+                except Exception:
+                    run_utm = {}
+            utm_source = (run_utm or {}).get("utm_source")
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts
+                      (client_id, name, ref_code, utm_source,
+                       first_referrer_contact_id, last_contact_at)
+                   VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id""",
+                client_id,
+                ((first_name or "") + " " + (last_name or "")).strip() or (username or ""),
+                ref_code,
+                utm_source,
+                run["referrer_contact_id"],
+            )
+        await db.execute(
+            """INSERT INTO platform_users
+                  (client_id, contact_id, platform_slug, platform_user_id,
+                   username, first_name, last_name)
+               VALUES ($1, $2, 'max', $3, $4, $5, $6)
+               ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
+            client_id, contact_id, str(max_user_id),
+            username, first_name, last_name
+        )
+
+    # Регистрируем подписку на активный MAX client_channel клиента.
+    try:
+        cc_id = await db.fetchval(
+            """SELECT cc.id FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1 AND ch.platform_slug = 'max'
+                  AND ch.is_system = FALSE
+                ORDER BY cc.is_active DESC, cc.id ASC LIMIT 1""",
+            client_id,
+        )
+        pu_id = await db.fetchval(
+            """SELECT id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'max' AND platform_user_id = $2""",
+            client_id, str(max_user_id),
+        )
+        if cc_id and pu_id:
+            await db.execute(
+                """INSERT INTO platform_user_channels
+                       (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
+                   VALUES ($1, $2, FALSE, NOW())
+                   ON CONFLICT (platform_user_id, client_channel_id)
+                   DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
+                pu_id, cc_id,
+            )
+    except Exception as e:
+        log.warning("run_started_max: register subscription failed: %s", e)
+
+    is_new_started = run["stage"] == "landed"
+    await db.execute(
+        """UPDATE funnel_runs
+              SET contact_id = COALESCE(contact_id, $1),
+                  platform_slug = 'max',
+                  platform_user_id = $2,
+                  stage = CASE WHEN stage = 'landed' THEN 'started' ELSE stage END,
+                  started_at = COALESCE(started_at, NOW())
+            WHERE id = $3""",
+        contact_id, str(max_user_id), run_id
+    )
+
+    if is_new_started:
+        await _send_organizer_notification(client_id, run_id, db)
+
+    # Шлём Текст 1 через MAX API с callback-кнопкой «ГОТОВО».
+    template = await _get_template(client_id, db)
+    if not template:
+        from app.api.funnels import _get_or_create_template
+        template = await _get_or_create_template(client_id, "lead_magnet", db)
+        template = dict(template)
+
+    ctx = await _get_brand_context(client_id, db, platform="max")
+    materials = await _materials_for_run(dict(run), db)
+    text_1 = _format_text(template["text_1"], ctx, materials)
+
+    from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
+    button_label = template["button_label"] or "ГОТОВО"
+    buttons = tg_inline_to_max_keyboard([[{
+        "text": button_label,
+        "callback_data": f"fnl_check_{run_id}"
+    }]])
+    # last_message_id не пишем: это BIGINT для TG-mid (редактирование inline-кнопки),
+    # а MAX mid — строковый. MAX-воронке редактирование кнопки не требуется.
+    try:
+        await max_send(
+            int(max_user_id), text_1,
+            token=token, buttons=buttons, recipient_kind="user",
+        )
+    except Exception as e:
+        log.warning("run_started_max: send text_1 failed: %s", e)
+
+
 async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "telegram") -> str:
     """Проверка подписки. Возвращает status:
        'subscribed'             — материалы отправлены (повторный клик = повторная отправка)
@@ -1190,6 +1433,47 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             )
         except Exception as e:
             log.warning("VK send text_2 failed for run %s: %s", run_id, e)
+        if is_first_delivery:
+            try:
+                from app.tasks.funnel import send_text_3
+                send_text_3.apply_async(args=[run_id], countdown=30 * 60)
+            except Exception as e:
+                log.warning("Failed to schedule text_3 for run %s: %s", run_id, e)
+        return "subscribed"
+
+    if platform == "max":
+        # Проверка подписки на MAX-каналы основателя (fail-open: бот не админ /
+        # нет каналов → пускаем). Затем выдача Текста 2 через MAX-бот клиента.
+        max_ctx = await _get_brand_context(client_id, db, platform="max")
+        max_token = await _max_token_for_client(client_id, db)
+        if not max_token:
+            return "no_token"
+
+        not_sub = await _check_max_founder_subscription(client_id, str(tg_id), max_token, db)
+        if not_sub:
+            return "not_subscribed"
+
+        is_first_delivery = run["stage"] != "delivered"
+        await db.execute(
+            """UPDATE funnel_runs
+                  SET stage = 'delivered',
+                      subscribed_at = COALESCE(subscribed_at, NOW()),
+                      delivered_at = COALESCE(delivered_at, NOW())
+                WHERE id = $1""",
+            run_id
+        )
+        template = await _get_template(client_id, db)
+        if not template:
+            from app.api.funnels import _get_or_create_template
+            template = await _get_or_create_template(client_id, "lead_magnet", db)
+            template = dict(template)
+        materials = await _materials_for_run(dict(run), db)
+        text_2 = _format_text(template["text_2"], max_ctx, materials)
+        from app.services.max_api import send_message as max_send
+        try:
+            await max_send(int(tg_id), text_2, token=max_token, recipient_kind="user")
+        except Exception as e:
+            log.warning("MAX send text_2 failed for run %s: %s", run_id, e)
         if is_first_delivery:
             try:
                 from app.tasks.funnel import send_text_3

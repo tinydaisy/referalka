@@ -11,6 +11,7 @@ export const en = {
     collaborations: 'Collaborations',
     clients: 'Contacts',
     leadMagnets: 'Lead magnets',
+    analytics: 'Analytics',
     channels: 'Channels',
     broadcasts: 'Broadcasts',
     miniAppSection: 'MINI APP',

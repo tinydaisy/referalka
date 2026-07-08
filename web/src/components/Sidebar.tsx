@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -66,6 +66,7 @@ export default function Sidebar() {
         // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
         ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
+        { href: '/dashboard/analytics', label: t.nav.analytics, icon: BarChart3 },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),
         // Mini App: Продукты — отдельная ссылка ТОЛЬКО для ассистента. Владелец

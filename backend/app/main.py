@@ -7,7 +7,7 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, analytics
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -78,6 +78,7 @@ app.include_router(contacts_export.router, prefix="/api/v1")  # /api/v1/integrat
 app.include_router(subscription_check.router)  # /api/v1/public/...
 app.include_router(medialift.router)  # /api/v1/public/medialift/... — МедиаЛифт (тип события medialift)
 app.include_router(contacts.router,     prefix="/api/v1")
+app.include_router(analytics.router,    prefix="/api/v1")  # /api/v1/analytics/utm — сводка по UTM
 app.include_router(lead_magnets.router, prefix="/api/v1")
 app.include_router(lead_magnet_packages.router, prefix="/api/v1")  # пакеты лид-магнитов (миграция 062)
 app.include_router(funnels.template_router, prefix="/api/v1")      # шаблоны воронок (миграция 063)

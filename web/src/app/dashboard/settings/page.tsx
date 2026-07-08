@@ -182,9 +182,10 @@ export default function SettingsPage() {
   // Защита от прямого перехода ?tab=integration у не-vip: переключаем на профиль.
   const effectiveTab: Tab = (tab === 'integration' && !hasPartnerRegistration) ? 'profile' : tab
 
-  // Бот, который реально пишет в канал уведомлений: свой (VIP) бот клиента, если подключён,
-  // иначе системный @pluson_bot.
-  const notifyBotHandle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+  // Бот, который реально пишет в канал уведомлений — ТОЛЬКО свой (VIP) бот клиента.
+  // Системный @pluson_bot уведомления организатору больше не шлёт (2026-07-08):
+  // нет своего бота → уведомления не работают, показываем подсказку подключить бота.
+  const notifyBotHandle = (botHandles?.telegram || '').replace(/^@/, '')
 
   return (
     <div className="max-w-3xl">
@@ -447,11 +448,18 @@ export default function SettingsPage() {
               />
               <details className="mt-3 text-sm text-gray-600">
                 <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
-                <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
-                  <li>Создайте <strong>закрытый</strong> Telegram-канал.</li>
-                  <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
-                  <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из канала — бот ответит с ID.</li>
-                </ol>
+                {notifyBotHandle ? (
+                  <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
+                    <li>Создайте <strong>закрытый</strong> Telegram-канал.</li>
+                    <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
+                    <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из канала — бот ответит с ID.</li>
+                  </ol>
+                ) : (
+                  <p className="mt-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Уведомления в Telegram шлёт ваш бот. Сначала подключите своего бота в разделе{' '}
+                    <a href="/dashboard/channels" className="underline font-medium">Каналы</a>.
+                  </p>
+                )}
               </details>
             </div>
           )}
@@ -1461,7 +1469,6 @@ function SubscriptionHistoryBlock() {
 
 
 // ─── Блок «Регистрация партнёров» (миграция 105) ────────────────────────────
-const PLUSON_BOT_HANDLE = 'pluson_bot'
 // Партнёрка живёт ТОЛЬКО в TG/VK/MAX. Email не показываем (нет интерактивности).
 const PARTNER_PLATFORMS = ['telegram', 'vk', 'max']
 
@@ -1501,7 +1508,10 @@ function PartnerRegistrationBlock({
   function rootUrlFor(p: string): string | null {
     if (!clientId) return null
     if (p === 'telegram') {
-      const handle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+      // Только свой бот клиента (как VK/MAX ниже). Нет бота → ссылки нет,
+      // системный @pluson_bot не подставляем (2026-07-08).
+      const handle = (botHandles?.telegram || '').replace(/^@/, '')
+      if (!handle) return null
       return `https://t.me/${handle}?start=prtc_${clientId}`
     }
     if (p === 'vk') {
@@ -1523,7 +1533,9 @@ function PartnerRegistrationBlock({
   function returnUrlFor(p: string): string | null {
     if (!clientId) return null
     if (p === 'telegram') {
-      const handle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+      // Только свой бот клиента. Нет бота → ссылки возврата нет (2026-07-08).
+      const handle = (botHandles?.telegram || '').replace(/^@/, '')
+      if (!handle) return null
       return `https://t.me/${handle}?start=partner_done_${clientId}`
     }
     if (p === 'vk') {

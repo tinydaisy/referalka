@@ -971,17 +971,25 @@ function PlatformShareLinks({ kind, slug, links, name }: {
   links?: PlatformLinks
   name?: string
 }) {
-  // Fallback: если бэк ещё не отдал platform_links — показываем прямой
-  // deeplink на системный @pluson_bot. Бот сам распарсит /start m_<slug> или
-  // /start p_<slug> (см. backend/bot/handlers/start.py). VIP-бот клиента
-  // приходит с бэка через platform_links — здесь не пытаемся угадать.
-  const resolved: PlatformLinks = (links && Object.keys(links).length > 0)
-    ? links
-    : { telegram: `https://t.me/pluson_bot?start=${kind}_${slug}` }
+  // Ссылки строятся ТОЛЬКО из platform_links, которые отдал бэк — по площадкам,
+  // где у клиента подключён СВОЙ бот/сообщество. Системный @pluson_bot больше не
+  // подставляется (с 2026-07-08): у клиента без своего бота ссылки на этой
+  // площадке нет — показываем подсказку подключить канал, а не мёртвую ссылку
+  // на чужой бот.
+  const resolved: PlatformLinks = links || {}
   const order: PlatformKey[] = ['telegram', 'vk', 'max']
+  const available = order.filter(p => resolved[p])
+  if (available.length === 0) {
+    return (
+      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+        Нет подключённого бота. Подключите свой бот в разделе{' '}
+        <a href="/dashboard/channels" className="underline font-medium">Каналы</a>, чтобы получить ссылку.
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-1">
-      {order.filter(p => resolved[p]).map(p => (
+      {available.map(p => (
         <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} name={name} />
       ))}
     </div>

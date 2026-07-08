@@ -631,12 +631,14 @@ async def public_event_external_ref(
 )
 async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(get_db)):
     """Используется страницей /r/{slug} в fallback'е — отдаёт client_id события
-    и handle бота (для информации о VIP-статусе)."""
+    и handle СВОЕГО бота клиента (если есть). Системный @pluson_bot больше не
+    подставляется (2026-07-08): нет своего бота → bot_handle=None, фронт уводит
+    на веб-страницу события."""
     row = await db.fetchrow(
         "SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )
     if not row:
-        return {"bot_handle": "pluson_bot", "is_vip_bot": False, "client_id": None}
+        return {"bot_handle": None, "is_vip_bot": False, "client_id": None}
     vip_handle = await db.fetchval(
         """SELECT ch.handle
              FROM channels ch
@@ -651,7 +653,7 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
     )
     if vip_handle:
         return {"bot_handle": vip_handle.lstrip('@'), "is_vip_bot": True, "client_id": row["client_id"]}
-    return {"bot_handle": "pluson_bot", "is_vip_bot": False, "client_id": row["client_id"]}
+    return {"bot_handle": None, "is_vip_bot": False, "client_id": row["client_id"]}
 
 
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")

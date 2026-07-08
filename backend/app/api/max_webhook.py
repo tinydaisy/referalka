@@ -769,6 +769,43 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         logger.info(f"MAX message_callback without payload/user/chat: {str(update)[:300]}")
         return
 
+    # Воронка лид-магнита: кнопка «ГОТОВО» (payload `fnl_check_<run_id>`).
+    # Проверяем подписку на MAX-каналы основателя и выдаём материалы (Текст 2).
+    if payload.startswith("fnl_check_"):
+        rest = payload.removeprefix("fnl_check_").strip()
+        if not rest.isdigit():
+            return
+        run_id = int(rest)
+        pool = await get_pool()
+        if not pool:
+            return
+        from app.services.funnel_service import run_check_subscription
+        async with pool.acquire() as conn:
+            try:
+                status = await run_check_subscription(run_id, str(user_id), conn, platform="max")
+            except Exception as e:
+                logger.warning(f"MAX fnl_check failed (run={run_id}, user={user_id}): {e}")
+                return
+            if status == "not_subscribed":
+                # Не подписан на канал(ы) основателя — просим подписаться и жать снова.
+                not_sub = []
+                try:
+                    from app.services.funnel_service import _check_max_founder_subscription
+                    not_sub = await _check_max_founder_subscription(
+                        (await conn.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)),
+                        str(user_id), bot_token, conn,
+                    )
+                except Exception:
+                    pass
+                lines = ["Похоже, вы ещё не подписаны на канал(ы):"]
+                for ch in not_sub[:3]:
+                    nm = ch.get("name") or "MAX-канал"
+                    url = ch.get("url") or ""
+                    lines.append(f"• {nm}{(' — ' + url) if url else ''}")
+                lines.append("\nПодпишитесь и нажмите «ГОТОВО» снова.")
+                await max_send_message(chat_id, "\n".join(lines), token=bot_token)
+        return
+
     if payload.startswith("evchat_"):
         try:
             event_id = int(payload.removeprefix("evchat_"))
@@ -1125,6 +1162,25 @@ async def _process_start(
                 logger.exception(f"MAX spkinv handler failed: {e}")
             return
 
+    # Воронка лид-магнита: `?start=fnl_<run_id>` (через pluson.ru/m/{slug}?to=max
+    # → 302 → max.ru/{handle}?start=fnl_<run_id>). Запускаем воронку через MAX-бот
+    # клиента — шлём Текст 1 + кнопку «ГОТОВО».
+    if payload and payload.startswith("fnl_"):
+        rest = payload.removeprefix("fnl_").strip()
+        if rest.isdigit():
+            try:
+                from app.services.funnel_service import run_started_max
+                pool_f = await get_pool()
+                if pool_f:
+                    async with pool_f.acquire() as conn_f:
+                        await run_started_max(
+                            int(rest), str(user_id), username or None,
+                            first_name, last_name, conn_f, bot_token,
+                        )
+            except Exception as e:  # noqa: BLE001
+                logger.exception(f"MAX fnl_ start handler failed: {e}")
+        return
+
     # Парсим payload: ref_pg{slug}_pid{partner_id}_src{utm}_tab{tab}_reg
     parsed = parse_startapp_ref_payload(payload) if payload else {
         "event_slug": "", "partner_ref_code": "", "utm_source": "", "tab": "", "reg_from_landing": False,
@@ -1351,8 +1407,9 @@ async def _process_start(
                     bot_token=bot_token, client_id_override=client_id_override,
                 )
                 return
-            # Режим «лид-магнит»: MAX-воронок лид-магнитов пока нет (нет run_started_max),
-            # поэтому graceful — показываем обычное приветствие (ниже), не падаем.
+            # Режим «лид-магнит» из НАСТРОЕК старта (start_mode=lead_magnet) —
+            # это НЕ воронка по ссылке fnl_ (та обработана выше). Здесь просто
+            # показываем обычное приветствие с кнопками.
             _txt = greeting_text_plain(g.get("text") or "")
             _btn = tg_inline_to_max_keyboard([
                 [{"text": g["events_label"], "url": g["events_url"]}],

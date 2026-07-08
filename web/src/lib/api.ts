@@ -591,6 +591,16 @@ export const api = {
     publish: (id: number) =>
       request(`/api/v1/broadcasts/schedules/${id}/publish`, { method: 'POST' }),
   },
+  analytics: {
+    utm: (params?: { group_by?: string; lead_magnet_id?: number; package_id?: number }) => {
+      const qs = new URLSearchParams()
+      if (params?.group_by) qs.set('group_by', params.group_by)
+      if (params?.lead_magnet_id != null) qs.set('lead_magnet_id', String(params.lead_magnet_id))
+      if (params?.package_id != null) qs.set('package_id', String(params.package_id))
+      const s = qs.toString()
+      return request(`/api/v1/analytics/utm${s ? `?${s}` : ''}`)
+    },
+  },
   leadMagnets: {
     list: () => request('/api/v1/lead-magnets'),
     counts: () => request('/api/v1/lead-magnets/counts'),

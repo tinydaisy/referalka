@@ -46,9 +46,10 @@ export default function ChatGatesTab() {
   const [gates, setGates] = useState<Gate[]>([])
   const [loading, setLoading] = useState(true)
   const [hasChannels, setHasChannels] = useState<boolean | null>(null)
-  // Handle бота клиента (VIP — собственный, у Марго @ivision_conf_bot; обычный — @pluson_bot).
-  // Подставляется в инструкцию про privacy mode и в подсказку при добавлении чата.
-  const [botHandle, setBotHandle] = useState<string>('pluson_bot')
+  // Handle СВОЕГО бота клиента (напр. @ivision_conf_bot). Пусто = нет своего бота.
+  // Гейт в чатах работает только у клиента со своим ботом — системный @pluson_bot
+  // больше не подставляется (2026-07-08). Подставляется в инструкцию про privacy mode.
+  const [botHandle, setBotHandle] = useState<string>('')
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Gate | null>(null)
   const [verifyResults, setVerifyResults] = useState<Record<number, VerifyResult>>({})
@@ -65,12 +66,10 @@ export default function ChatGatesTab() {
       setGates(list.items || [])
       const channels = (profile as any)?.social_links?.telegram_channels
       setHasChannels(Array.isArray(channels) && channels.length > 0)
-      // Резолв какого бота показывать в инструкции:
-      // VIP-клиент с подключённым TG-каналом → `me.bot_handles.telegram` (например @ivision_conf_bot)
-      // Иначе fallback на системный @pluson_bot
+      // Свой TG-бот клиента для инструкции. Нет своего бота → пусто (гейт не работает).
       const handles = (me as any)?.bot_handles || {}
       const tg = (handles.telegram || '').replace(/^@/, '')
-      setBotHandle(tg || 'pluson_bot')
+      setBotHandle(tg)
     } catch (e: any) {
       alert(e?.message || 'Не удалось загрузить гейты')
     } finally {
@@ -132,17 +131,24 @@ export default function ChatGatesTab() {
         </p>
       </div>
 
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
-        <div className="font-semibold text-amber-900 mb-1 flex items-center gap-1.5">
-          <AlertTriangle size={16} /> Отключите privacy mode у бота <code className="font-mono">@{botHandle}</code>
+      {botHandle ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+          <div className="font-semibold text-amber-900 mb-1 flex items-center gap-1.5">
+            <AlertTriangle size={16} /> Отключите privacy mode у бота <code className="font-mono">@{botHandle}</code>
+          </div>
+          <div className="text-amber-800">
+            В <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="underline">@BotFather</a>:
+            {' '}<code className="font-mono">/mybots</code> → выберите <code className="font-mono">@{botHandle}</code> → <code>Bot Settings</code> → <code>Group Privacy</code> → <code>Turn off</code>.
+            После этого нужно <strong>удалить бота из чата и заново добавить</strong> — privacy mode применяется только при добавлении.
+            Без этого Telegram присылает боту только сообщения с упоминанием — гейт работать не будет.
+          </div>
         </div>
-        <div className="text-amber-800">
-          В <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="underline">@BotFather</a>:
-          {' '}<code className="font-mono">/mybots</code> → выберите <code className="font-mono">@{botHandle}</code> → <code>Bot Settings</code> → <code>Group Privacy</code> → <code>Turn off</code>.
-          После этого нужно <strong>удалить бота из чата и заново добавить</strong> — privacy mode применяется только при добавлении.
-          Без этого Telegram присылает боту только сообщения с упоминанием — гейт работать не будет.
+      ) : (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          Гейт в чатах работает через вашего бота. Сначала подключите своего бота в разделе{' '}
+          <a href="/dashboard/channels" className="underline font-medium">Каналы</a>.
         </div>
-      </div>
+      )}
 
       {hasChannels === false && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">
@@ -475,7 +481,7 @@ function GateModal({
           )}
           <p className="text-xs text-gray-500 mt-2">
             Чаты берутся из вашей базы (<a href="/dashboard/channels" target="_blank" rel="noopener" className="text-[#25455D] underline">Каналы → «Чаты для рассылок»</a>).
-            Добавьте бота <code className="font-mono">@{botHandle}</code> админом в чат с правом «Удаление сообщений».
+            Добавьте {botHandle ? <code className="font-mono">@{botHandle}</code> : 'вашего бота'} админом в чат с правом «Удаление сообщений».
           </p>
         </div>
 

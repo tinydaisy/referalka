@@ -216,7 +216,7 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
     ? {
         event_title: previewUrls?.event_title || 'Название события',
         chats: previewUrls?.chats_html || '<i>(чаты события не заданы)</i>',
-        bot_handle: previewUrls?.bot_handle || '@pluson_bot',
+        bot_handle: previewUrls?.bot_handle || '(ваш бот)',
         support_link: previewUrls?.support_link || 'в этом боте',
         program_link: previewUrls?.program_link || '',
         gifts_link: previewUrls?.gifts_link || '',

@@ -157,7 +157,7 @@ export default function RegisteredReturnPage() {
     // Telegram webview). Универсальное решение — t.me-ссылка: iOS/Android
     // откроют Telegram через universal link, пользователь окажется в боте.
     // Mini App видит startapp `ref_pg{slug}_reg` → авто-регистрация + welcome.
-    let handle = 'pluson_bot'
+    let handle = ''
     try {
       const ctrl = new AbortController()
       const t = setTimeout(() => ctrl.abort(), 4000)
@@ -170,10 +170,13 @@ export default function RegisteredReturnPage() {
         const j = await r.json()
         if (j?.bot_handle) handle = String(j.bot_handle)
       }
-    } catch (_) { /* ignore — пойдём с pluson_bot */ }
-    // Short-name `pluson` уникален per-бот (не глобально) — работает у общего
-    // @pluson_bot и у всех VIP-ботов.
-    const url = `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
+    } catch (_) { /* ignore — уйдём на веб-страницу события */ }
+    // Свой бот клиента → открываем его Mini App (short-name `pluson` уникален
+    // per-бот). Нет своего бота → веб-страница события (без Telegram): системный
+    // @pluson_bot больше не используется (2026-07-08).
+    const url = handle
+      ? `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
+      : `https://pluson.ru/event/${encodeURIComponent(slug)}`
     setFallbackUrl(url)
     setStatus('fallback')
     // Сначала пробуем top-window автоматом (Tilda overlay). Если заблокировано

@@ -230,6 +230,32 @@
 
 ⚠️ При правках любого клиентского флоу — **никогда не возвращать системный бот как fallback**. Старые упоминания «иначе системный @pluson_bot» в разделах ниже считать неактуальными.
 
+**⚠️ Зачистка ФРОНТЕНД-fallback'ов на @pluson_bot (2026-07-08).** Бэкенд был чист (регистрация клиента привязывает ТОЛЬКО email-канал, `auth.py` фильтр `ch.platform_slug='email'`; ни у одного реального клиента системный бот в `client_channels` не привязан — он только у системного «ПЛЮСОН Сервис» client 3). Но **фронт** сам дорисовывал `t.me/pluson_bot?start=...`, когда бэк отдавал пустые ссылки (у клиента нет своего бота) — из-за этого у клиента без бота (напр. Надежда Берлиба, client 53) генерилась ссылка на лид-магнит с чужим ботом. Вычищено:
+- **Лид-магниты** ([lead-magnets/page.tsx](web/src/app/dashboard/lead-magnets/page.tsx) `PlatformShareLinks`): нет `platform_links` → показываем плашку «Подключите своего бота в Каналах», а не `t.me/pluson_bot`.
+- **Карточка спикера** ([speakers/[speakerId]/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/speakers/%5BspeakerId%5D/page.tsx)): нет бота → только веб-ссылка `pluson.ru/event/...?spk=`, строка Mini App скрыта.
+- **Превью {game_link}** (templates page): нет бота → веб `pluson.ru/event/{slug}#game`.
+- **Партнёрские ссылки** ([settings/page.tsx](web/src/app/dashboard/settings/page.tsx) `rootUrlFor`/`returnUrlFor`): TG приведён к поведению VK/MAX — нет своего бота → `return null` (ссылки нет). Удалена константа `PLUSON_BOT_HANDLE`.
+- **Инструкции** (канал уведомлений в Настройках + Гейт в чатах [ChatGatesTab.tsx](web/src/components/settings/ChatGatesTab.tsx)): без своего бота — плашка «сначала подключите бота», а не инструкция про @pluson_bot (эти функции без своего бота и не работают).
+- **Публичный лендинг /l/ и возврат /r/**: нет своего бота → веб-страница события `pluson.ru/event/{slug}` вместо `t.me/pluson_bot/pluson`. Бэк-эндпоинт `/events/{slug}/bot-handle` ([client_profile.py](backend/app/api/client_profile.py)) теперь отдаёт `bot_handle=None` (раньше «pluson_bot») при отсутствии своего бота.
+- **Nurture-превью {bot_handle}** — заглушка «(ваш бот)» вместо «@pluson_bot».
+
+### MAX-воронка лид-магнитов доделана (2026-07-08)
+
+**Была недоделана изначально** (не регрессия): ссылка `pluson.ru/m/{slug}?to=max` → 302 на `max.ru/{handle}?start=fnl_{run_id}` строилась, но MAX-бот не ловил payload `fnl_` и не было `run_started_max` — по ссылке «ничего не присылалось» (забег застревал на `landed`). Реализовано по образцу VK:
+- **`run_started_max`** ([funnel_service.py](backend/app/services/funnel_service.py)) — зеркало `run_started_vk`: апсерт contact + `platform_users('max')`, подписка на активный MAX `client_channel`, `stage=started`, уведомление организатору, Текст 1 + callback-кнопка «ГОТОВО» (payload `fnl_check_<run_id>`) через `max_api.send_message(recipient_kind='user')`.
+- **Ветка `fnl_`** в `_process_start` ([max_webhook.py](backend/app/api/max_webhook.py)) — ловит `?start=fnl_<run_id>` (bot_started/`/start`) → `run_started_max`.
+- **Ветка `fnl_check_`** в `_handle_message_callback` — кнопка «ГОТОВО» → `run_check_subscription(platform='max')`.
+- **max-ветка в `run_check_subscription`** — проверка подписки на MAX-каналы основателя (`_check_max_founder_subscription` через `max_api.check_channel_membership`, fail-open) + выдача Текста 2 через MAX-бот. Не подписан → список каналов + «нажмите ГОТОВО снова».
+- Токен — только свой MAX-бот клиента (`get_client_max_token`); нет своего MAX-бота → воронка на MAX не работает (graceful), системный MAX не используется.
+
+### Email убран из выбора каналов в рассылках (2026-07-08)
+
+В формах рассылок (произвольной и событийных/шаблонных) email больше НЕ показывается в выборе каналов и НЕ отмечается по умолчанию. Правка — одна точка: [BroadcastChannelPicker.tsx](web/src/components/BroadcastChannelPicker.tsx) фильтрует `platform_slug !== 'email'` сразу после загрузки (до `onChange`) — email не рисуется секцией и не попадает в `target_channel_ids`. Бэк ([tasks/broadcast.py](backend/app/tasks/broadcast.py)) уже пропускает канал, если `target_channel_set` задан и id канала не в нём — email на отправку не уйдёт.
+
+### Раздел «Аналитика» — сводка по UTM (2026-07-08)
+
+Новая страница [/dashboard/analytics](web/src/app/dashboard/analytics/page.tsx) (пункт в сайдбаре «База», иконка `BarChart3`, доступна всем клиентам, ассистенту — просмотр). Эндпоинт `GET /api/v1/analytics/utm` ([analytics.py](backend/app/api/analytics.py)): (1) **воронка по источникам** из `funnel_runs` — по каждому значению UTM-метки «Зашло в бот» (`stage IN started/subscribed/delivered`, distinct contact_id — стадия `landed`/«перешёл» НЕ показывается по требованию) → «Получили файл» (`delivered`) → конверсия; фильтр по лид-магниту/пакету + переключатель `utm_source|medium|campaign|content|term`; (2) **распределение всей базы контактов** по `contacts.utm_source`.
+
 ### Каналы уведомлений организатору на 3 площадках TG+MAX+VK (миграция 178 от 2026-06-28)
 
 **Зачем.** Раньше уведомления организатору (`#user_message`, «🆕 Новый интерес») шли только в Telegram (`clients.notifications_telegram_chat_id`). Теперь клиент задаёт канал на каждой площадке — уведомление **ДУБЛИРУЕТСЯ во все три заполненных** (TG + MAX + VK), независимо от площадки человека.

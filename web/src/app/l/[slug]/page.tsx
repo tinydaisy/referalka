@@ -25,7 +25,8 @@ type LandingEvent = {
   landing_url: string | null
 }
 
-const FALLBACK_TG_URL = 'https://t.me/pluson_bot/pluson'
+// У клиента без своего бота вход идёт на веб-страницу события ПЛЮСОНа
+// (работает без бота). Системный @pluson_bot больше не используется (2026-07-08).
 
 async function getEvent(slug: string): Promise<LandingEvent> {
   const apiBase =
@@ -54,11 +55,13 @@ async function getEvent(slug: string): Promise<LandingEvent> {
   }
 }
 
-function buildTgRedirectUrl(botHandle: string | null): string {
-  if (!botHandle) return FALLBACK_TG_URL
+function buildTgRedirectUrl(botHandle: string | null, slug: string): string {
   // Бот клиента: Main Mini App открывается через t.me/<handle> + ?startapp=...
-  // (скрипт redirect_web_app.js допишет ?startapp=ref_pgSLUG_pidX_srcY)
-  return `https://t.me/${botHandle}`
+  // (скрипт redirect_web_app.js допишет ?startapp=ref_pgSLUG_pidX_srcY).
+  if (botHandle) return `https://t.me/${botHandle}`
+  // Нет своего бота → веб-страница события (без Telegram). Системный @pluson_bot
+  // не используем (2026-07-08).
+  return `https://pluson.ru/event/${slug}`
 }
 
 // Служебные query-ключи, которые мы НЕ передаём как «флаги тарифа» — они
@@ -137,7 +140,7 @@ export default async function EventLandingPage({
     redirect(redirectUrl)
   }
 
-  const tgUrl = buildTgRedirectUrl(event.client_bot_handle)
+  const tgUrl = buildTgRedirectUrl(event.client_bot_handle, event.slug)
 
   return (
     <html lang="ru">

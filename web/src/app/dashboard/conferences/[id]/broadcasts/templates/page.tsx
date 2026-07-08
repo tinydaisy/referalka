@@ -575,9 +575,13 @@ export default function TemplatesPage() {
 
   function getGameLink(): string {
     // Превью {game_link}: уходит к уже зарегистрированным — pid не нужен, их реферер
-    // уже учтён при регистрации. Просто открываем их вкладку «Игра».
+    // уже учтён при регистрации. В реальной рассылке ссылка строится в Celery
+    // через СВОЙ бот клиента. Здесь превью: есть свой бот — показываем его, иначе
+    // веб-страницу события (системный @pluson_bot в превью не показываем — 2026-07-08).
     const slug = eventData?.slug || '{slug}'
-    return `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_tabgame`
+    const handle = (eventData as any)?.client_bot_handle || (confData as any)?.client_bot_handle || ''
+    if (handle) return `https://t.me/${handle}?startapp=ref_pg${slug}_tabgame`
+    return `https://pluson.ru/event/${slug}#game`
   }
 
   function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
