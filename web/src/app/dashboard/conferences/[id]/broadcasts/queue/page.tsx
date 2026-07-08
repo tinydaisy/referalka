@@ -1462,6 +1462,10 @@ export default function QueuePage() {
                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                 />
               )}
+              {previewModal.subject && (
+                <p className="text-sm font-bold text-gray-900 mb-2 break-words"
+                  style={{ overflowWrap: 'anywhere' }}>{previewModal.subject}</p>
+              )}
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed break-words"
                 style={{ overflowWrap: 'anywhere' }}
                 dangerouslySetInnerHTML={{ __html: previewModal.text || '' }} />

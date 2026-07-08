@@ -231,8 +231,8 @@ DEFAULT_TEMPLATES = [
         # ровно как speaker_intro, но со своим текстом и очередью.
         "name": "Экспертный день (вопросы эксперту)",
         "type": "expert_day",
+        "subject": "🚨 [Экспертный день] Завтра {speaker_name} ответит на ваши вопросы!",
         "text": (
-            "🚨<b>[Экспертный день] Завтра {speaker_name} ответит на ваши вопросы!</b>\n\n"
             "Завтра в {brand_name} на связи — {speaker_name}: {speaker_positioning}\n\n"
             "<b>С какими темами и вопросами можно обращаться:</b>\n"
             "{speaker_notes}\n\n\n"
@@ -679,14 +679,14 @@ async def create_template_from_preset(
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_templates
-          (client_id, event_id, name, type, text, photo_url, button_text, button_url,
+          (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, created_at
         """,
-        client_id, event_id, tpl["name"], tpl["type"],
+        client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
         tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
         tpl["schedule_mode"], tpl["offset_minutes"],
         tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
@@ -2179,7 +2179,8 @@ async def preview_schedule(
         SELECT bs.*, bt.text as tmpl_text, bt.photo_url as tmpl_photo,
                bt.video_url as tmpl_video, bt.media_type as tmpl_media_type,
                bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url,
-               bt.type as tmpl_type, bt.speaker_photo_mode as tmpl_speaker_photo_mode
+               bt.type as tmpl_type, bt.speaker_photo_mode as tmpl_speaker_photo_mode,
+               bt.subject as tmpl_subject
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         WHERE bs.id=$1 AND bs.event_id=$2
@@ -2227,10 +2228,12 @@ async def preview_schedule(
         video_url=schedule["tmpl_video"],
         media_type=schedule["tmpl_media_type"],
         speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
+        subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
     )
 
     return {
         "text": content["text"],
+        "subject": content.get("subject"),
         "photo": content["photo"],
         "video": content.get("video"),
         "media_type": content.get("media_type"),

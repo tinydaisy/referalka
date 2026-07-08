@@ -280,7 +280,8 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     text = text.replace("{speaker_bio}", bio_v)
     text = text.replace("{speaker_positioning}", positioning_v)
     text = text.replace("{speaker_card_link}", card_link_v)
-    text = text.replace("{speaker_notes}", notes_v)
+    # {speaker_notes} (темы/вопросы эксперта) — жирным.
+    text = text.replace("{speaker_notes}", f"<b>{notes_v}</b>" if notes_v else "")
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_topic}", topic)
@@ -314,9 +315,10 @@ def build_speaker_material(kb_title, kb_url):
     u = (kb_url or "").strip()
     if not u:
         return ""
+    # Вводная фраза + название — жирным (<b>), ссылка обычным текстом.
     if t:
-        return f'Уже сейчас вам доступен полезный материал: "{t}"\n{u}'
-    return f"Уже сейчас вам доступен полезный материал:\n{u}"
+        return f'<b>Уже сейчас вам доступен полезный материал: "{t}"</b>\n{u}'
+    return f"<b>Уже сейчас вам доступен полезный материал:</b>\n{u}"
 
 
 def apply_speaker_material(text, material):
@@ -551,7 +553,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
                                  template_id=None, snapshot=None,
                                  video_url=None, media_type=None,
-                                 speaker_photo_mode: str = "poster") -> dict:
+                                 speaker_photo_mode: str = "poster",
+                                 subject: str | None = None) -> dict:
     """
     Единственная функция сборки текста, фото/видео и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
@@ -619,6 +622,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     text = tmpl_text or ""
     photo = photo_url
     btn_url = btn_url or ""
+    # Имя спикера — заполняется в speaker-ветках; нужно для подстановки в subject.
+    resolved_speaker_name = ""
 
     if tpl_type in DAY_TYPES:
         # Определяем номер дня по fire_at (МСК-дата дня в conf_days.day_date).
@@ -875,6 +880,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 session_id
             )
             if sp:
+                resolved_speaker_name = sp["speaker_name"] or ""
                 topics = await conn.fetch(
                     "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order",
                     session_id
@@ -1264,6 +1270,18 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
+    # Subject (заголовок) — подставляем в него {speaker_name}/{brand_name}, чтобы
+    # тема рассылки со спикером не ушла с сырым плейсхолдером. brand_name берём из
+    # тех же глобалей события.
+    resolved_subject = subject or None
+    if resolved_subject:
+        if "{speaker_name}" in resolved_subject:
+            resolved_subject = resolved_subject.replace("{speaker_name}", resolved_speaker_name)
+        if "{brand_name}" in resolved_subject:
+            g = await _get_event_globals(conn, event_id)
+            resolved_subject = resolved_subject.replace("{brand_name}", g["brand_name"])
+        resolved_subject = resolved_subject.strip() or None
+
     # Для шаблонов media_type='video' → отдаём видео (фото игнорируем).
     tpl_mtype = (media_type or "").strip().lower() or None
     if tpl_mtype == "video" and video_url:
@@ -1274,6 +1292,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             "media_type": "video",
             "button_text": btn_text,
             "button_url": btn_url or None,
+            "subject": resolved_subject,
         }
 
     return {
@@ -1283,6 +1302,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "media_type": "photo" if photo else None,
         "button_text": btn_text,
         "button_url": btn_url or None,
+        "subject": resolved_subject,
     }
 
 

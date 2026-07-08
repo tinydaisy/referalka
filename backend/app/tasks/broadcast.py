@@ -246,6 +246,7 @@ async def _send_broadcast(schedule_id: int):
             video_url=tmpl_video_val,
             media_type=tmpl_media_type_val,
             speaker_photo_mode=(tmpl["speaker_photo_mode"] if tmpl else "poster") or "poster",
+            subject=tmpl_subject_val,
         )
 
         text = content["text"]
@@ -275,9 +276,10 @@ async def _send_broadcast(schedule_id: int):
             _vid_fid_holder["fid"] = fid
             _vid_fid_holder["saved"] = True  # пометим, реальный UPDATE сделаем после рассылки
 
-        # Заголовок шаблона (subject) — для TG/VK/MAX добавляем первой жирной строкой,
-        # для email — становится темой письма (передаётся в _send_broadcast_email_part).
-        subject_val = (tmpl_subject_val or "").strip() if tmpl_subject_val else ""
+        # Заголовок (subject) — для TG/VK/MAX первой жирной строкой, для email — тема.
+        # content["subject"] уже с подставленными {speaker_name}/{brand_name} (для
+        # speaker-типов). Приоритет: резолвнутый из content → иначе сырой tmpl_subject_val.
+        subject_val = (content.get("subject") or tmpl_subject_val or "").strip()
         text_for_email = text or ""        # чистый body без subject-префикса
         if subject_val:
             # Telegram parse_mode=HTML понимает <b>; VK strip-ит и оставляет текст;
