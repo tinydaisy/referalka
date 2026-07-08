@@ -110,6 +110,17 @@ DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "da
              "day_before_09_12_unreg", "day_before_09_12_reg",
              "event_live")
 SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day")
+
+# Плейсхолдеры, которые можно заполнить ТОЛЬКО когда выбран конкретный спикер
+# (спикерские рассылки). В произвольной рассылке (custom) и не-спикерских типах
+# их заполнить нечем — вырезаем, чтобы не ушли получателю сырыми.
+_SPEAKER_ONLY_PLACEHOLDERS = (
+    "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
+    "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
+    "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
+    "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
+    "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
+)
 CONF_TYPES = ("pre_conf",)
 
 
@@ -162,13 +173,42 @@ def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
     return "\n".join(lines)
 
 
+def _build_speaker_slot_strings(slot_start, slot_end, slot_date):
+    """Из слота выступления спикера (start_time/end_time — строки "HH:MM",
+    day_date — date) собирает 3 значения для плейсхолдеров:
+      speaker_time     → "14:30–15:00 МСК" (или "14:30 МСК" если нет конца)
+      speaker_date     → "6 июля"
+      speaker_datetime → "6 июля, 14:30–15:00 МСК"
+    Нет данных → пустые строки (плейсхолдер потом убирается со своей строкой)."""
+    t_start = _fmt_time(slot_start)
+    t_end = _fmt_time(slot_end)
+    if t_start and t_end:
+        time_str = f"{t_start}–{t_end} МСК"
+    elif t_start:
+        time_str = f"{t_start} МСК"
+    else:
+        time_str = ""
+    date_str = ""
+    if slot_date:
+        try:
+            date_str = f"{slot_date.day} {RU_MONTHS[slot_date.month - 1]}"
+        except Exception:
+            date_str = ""
+    if date_str and time_str:
+        dt_str = f"{date_str}, {time_str}"
+    else:
+        dt_str = date_str or time_str
+    return time_str, date_str, dt_str
+
+
 # ─── Формирование текста: speaker_intro ─────────────────────────────────────
 
 def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
                                 achievements, role, speaker_topic, gift_title, gift_raffle, registration_url,
                                 bio=None, positioning=None, card_link=None,
                                 vk_url=None, max_url=None, website_url=None,
-                                speaker_notes=None):
+                                speaker_notes=None,
+                                speaker_time=None, speaker_date=None, speaker_datetime=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -220,7 +260,20 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_notes\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not personal_mention:
         text = re.sub(r"^[^\n]*\{speaker_tg_username\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    # Слот выступления: пусто → убираем строку с плейсхолдером.
+    time_v = (speaker_time or "").strip()
+    date_v = (speaker_date or "").strip()
+    dt_v = (speaker_datetime or "").strip()
+    if not time_v:
+        text = re.sub(r"^[^\n]*\{speaker_time\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not date_v:
+        text = re.sub(r"^[^\n]*\{speaker_date\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not dt_v:
+        text = re.sub(r"^[^\n]*\{speaker_datetime\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
+    text = text.replace("{speaker_time}", time_v)
+    text = text.replace("{speaker_date}", date_v)
+    text = text.replace("{speaker_datetime}", dt_v)
     text = text.replace("{speaker_tg_username}", personal_mention)
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
@@ -545,6 +598,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             raw_buttons = [{**b, "url": (b.get("url") or "").replace(token, val)} for b in raw_buttons]
         raw_text = raw_text.replace("{brand_name}", g["brand_name"])
         raw_buttons = [{**b, "url": (b.get("url") or "").replace("{brand_name}", g["brand_name"])} for b in raw_buttons]
+        # Спикерские плейсхолдеры в произвольной рассылке заполнить нечем (спикер не
+        # выбирается) — вырезаем их строки, чтобы не ушли получателю сырыми.
+        for ph in _SPEAKER_ONLY_PLACEHOLDERS:
+            token = "{" + ph + "}"
+            if token in raw_text:
+                raw_text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
+                raw_text = raw_text.replace(token, "")
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
         return {
             "text": raw_text,
@@ -788,6 +848,18 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
                        e.landing_url AS registration_url,
+                       -- Слот выступления спикера в программе (первая его сессия по времени).
+                       -- Для {speaker_time}/{speaker_date}/{speaker_datetime}.
+                       (SELECT cs.start_time FROM conf_sessions cs
+                          WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                          ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_start,
+                       (SELECT cs.end_time FROM conf_sessions cs
+                          WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                          ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_end,
+                       (SELECT cd.day_date FROM conf_sessions cs
+                          LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
+                          WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                          ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_date,
                        cl.default_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                           WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
@@ -821,6 +893,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                         photo = sp["speaker_poster"] or sp["speaker_photo"]
                 card_link = speaker_card_link(sp["event_slug"], sp["ec_id"],
                                               sp["default_link_mode"], sp["bot_handle"])
+                sp_time, sp_date, sp_dt = _build_speaker_slot_strings(
+                    sp["slot_start"], sp["slot_end"], sp["slot_date"])
                 text = build_speaker_intro_message(
                     text, sp["speaker_name"], sp["personal_tg_username"],
                     sp["tg_channel_url"], sp["instagram_url"],
@@ -830,6 +904,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
                     vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
                     speaker_notes=sp["speaker_notes"],
+                    speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
                 )
                 text = apply_speaker_material(
                     text,
@@ -1168,7 +1243,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     # значимое на ней, иначе просто вырезаем сам плейсхолдер.
     _KNOWN_PLACEHOLDERS = [
         "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
-        "speaker_tg_username",
+        "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
         "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",

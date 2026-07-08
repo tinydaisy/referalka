@@ -30,7 +30,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -38,7 +38,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'expert_day',
     title: 'Экспертный день (вопросы эксперту)',
     hint: 'Анонс сессии вопросов-ответов с экспертом. Раскладывается по каждому выбранному коллабу (жюри/спикер/организатор), как знакомство со спикером. Ссылка на чат события подставляется автоматически.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_notes}', '{speaker_tg_username}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{brand_name}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_notes}', '{speaker_tg_username}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{brand_name}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -46,7 +46,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
+    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_role}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -138,6 +138,9 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
   { name: '{speaker_instagram}', desc: 'Нельзяграм спикера' },
   { name: '{speaker_topic}', desc: 'Тема выступления' },
+  { name: '{speaker_time}', desc: 'Время выступления спикера («14:30–15:00 МСК»). Не задано — строка убирается' },
+  { name: '{speaker_date}', desc: 'Дата выступления спикера («6 июля»). Не задана — строка убирается' },
+  { name: '{speaker_datetime}', desc: 'Дата и время выступления («6 июля, 14:30–15:00 МСК»). Не задано — строка убирается' },
   { name: '{speaker_achievements}', desc: 'Регалии спикера (строки через · )' },
   { name: '{speaker_bio}', desc: 'Биография / «о себе» спикера' },
   { name: '{speaker_positioning}', desc: 'Позиционирование спикера (должность/титул)' },
@@ -723,6 +726,30 @@ export default function TemplatesPage() {
           : out.replace(/^[^\n]*\{speaker_notes\}[^\n]*\n?/gm, '')
       }
 
+      // {speaker_time}/{speaker_date}/{speaker_datetime} — слот выступления спикера
+      // (первая его сессия в программе). Не задано — строка убирается.
+      const MONTHS_SLOT = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
+      const slot = [...confSessions]
+        .filter((s: any) => s.speaker_id === speaker.id)
+        .sort((a: any, b: any) => (a.day - b.day) || String(a.start_time || '').localeCompare(String(b.start_time || '')))[0]
+      const slotStart = slot ? String(slot.start_time || '').slice(0, 5) : ''
+      const slotEnd = slot ? String(slot.end_time || '').slice(0, 5) : ''
+      const slotDayObj = slot ? confDaysData.find((x: any) => x.day_number === slot.day) : null
+      const slotTime = slotStart ? (slotEnd ? `${slotStart}–${slotEnd} МСК` : `${slotStart} МСК`) : ''
+      let slotDate = ''
+      if (slotDayObj?.day_date) {
+        const dd = new Date(slotDayObj.day_date + 'T12:00:00')
+        slotDate = `${dd.getDate()} ${MONTHS_SLOT[dd.getMonth()]}`
+      }
+      const slotDatetime = (slotDate && slotTime) ? `${slotDate}, ${slotTime}` : (slotDate || slotTime)
+      const slotMap: Record<string, string> = { speaker_time: slotTime, speaker_date: slotDate, speaker_datetime: slotDatetime }
+      for (const [k, v] of Object.entries(slotMap)) {
+        const re = new RegExp('\\{' + k + '\\}', 'g')
+        if (out.match(re)) {
+          out = v ? out.replace(re, v) : out.replace(new RegExp('^[^\\n]*\\{' + k + '\\}[^\\n]*\\n?', 'gm'), '')
+        }
+      }
+
       // Глобальные плейсхолдеры: {brand_name} + {event_chat_tg|vk|max}.
       // Пусто → убираем строку; едино для всех спикерских шаблонов (в т.ч. expert_day).
       const chatMap: Record<string, string> = {
@@ -865,6 +892,9 @@ export default function TemplatesPage() {
       .replace(/\{speaker_personal_tg\}/g, '')
       .replace(/\{speaker_tg_username\}/g, '')
       .replace(/\{speaker_socials\}/g, '')
+      .replace(/^[^\n]*\{speaker_time\}[^\n]*\n?/gm, '')
+      .replace(/^[^\n]*\{speaker_date\}[^\n]*\n?/gm, '')
+      .replace(/^[^\n]*\{speaker_datetime\}[^\n]*\n?/gm, '')
       .replace(/\{speaker_positioning\}/g, '')
       .replace(/\{speaker_notes\}/g, '')
       .replace(/\{event_chat_tg\}/g, '')
