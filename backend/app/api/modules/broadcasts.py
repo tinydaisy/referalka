@@ -2295,6 +2295,127 @@ async def preview_schedule(
 # ТЕСТОВАЯ РАССЫЛКА
 # ─────────────────────────────────────────
 
+async def _load_test_targets(db, client_id: int):
+    """Тестовые ID клиента + токены платформ. Кидает 400, если тестовых нет."""
+    client_row = await db.fetchrow(
+        "SELECT test_telegram_ids, test_vk_ids, test_max_ids, timezone FROM clients WHERE id=$1",
+        client_id
+    )
+    from app.services.channels import get_client_telegram_token
+    from app.config import settings as _settings
+    bot_token = await get_client_telegram_token(client_id, db)
+    test_tg_ids = client_row["test_telegram_ids"] or []
+    test_vk_ids = client_row["test_vk_ids"] or []
+    test_max_ids = client_row["test_max_ids"] or []
+    if not (test_tg_ids or test_vk_ids or test_max_ids):
+        raise HTTPException(status_code=400,
+            detail="Тестовые ID не заданы. Откройте Настройки → Технические → «Тестовые рассылки».")
+    if test_tg_ids and not bot_token:
+        raise HTTPException(status_code=400,
+            detail="Тестовые Telegram ID заданы, но токен бота не задан в настройках (Каналы).")
+    client_max_token = await db.fetchval(
+        """SELECT ch.bot_token FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id=$1 AND cc.is_active=TRUE AND ch.platform_slug='max'
+              AND ch.is_system=FALSE AND ch.bot_token IS NOT NULL AND ch.bot_token <> '' LIMIT 1""",
+        client_id)
+    max_token = client_max_token or _settings.max_system_bot_token
+    tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
+    return bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz
+
+
+async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token):
+    """Шлёт готовый content (text/photo/video/buttons) во все тестовые ID всех платформ."""
+    text = content.get("text") or ""
+    photo = content.get("photo")
+    video = content.get("video")
+    m_type = content.get("media_type")
+    buttons = content.get("buttons") or []
+    btn_text = content.get("button_text") or (buttons[0]["text"] if buttons else None)
+    btn_url = content.get("button_url") or (buttons[0]["url"] if buttons else None)
+    out: list[dict] = []
+    async with httpx.AsyncClient(timeout=20) as http:
+        if test_tg_ids and bot_token:
+            for chat_id in [str(t) for t in test_tg_ids]:
+                ok, err = await send_telegram_message(
+                    http, bot_token, chat_id, text, photo, btn_text, btn_url,
+                    buttons=buttons or None,
+                    video_url=video if m_type == "video" else None)
+                out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
+    if test_vk_ids:
+        from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
+        vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": btn_url}]]) if (btn_text and btn_url) else None
+        vk_text = f"{photo}\n\n{text}".strip() if photo else text
+        if m_type == "video" and video:
+            vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
+        for vid in [str(t) for t in test_vk_ids]:
+            try:
+                res = await vk_send(int(vid), vk_text, keyboard=vk_keyboard)
+                out.append({"platform": "vk", "chat_id": vid, "ok": bool(res), "error": None if res else "VK send returned None"})
+            except Exception as e:
+                out.append({"platform": "vk", "chat_id": vid, "ok": False, "error": str(e)})
+    if test_max_ids and max_token:
+        from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
+        max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": btn_url}]]) if (btn_text and btn_url) else None
+        max_text = f"{photo}\n\n{text}".strip() if photo else text
+        if m_type == "video" and video:
+            max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
+        for mid in [str(t) for t in test_max_ids]:
+            try:
+                res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons)
+                out.append({"platform": "max", "chat_id": mid, "ok": bool(res), "error": None if res else "MAX send returned None"})
+            except Exception as e:
+                out.append({"platform": "max", "chat_id": mid, "ok": False, "error": str(e)})
+    return out
+
+
+class TestNowRequest(BaseModel):
+    text: str
+    photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    media_type: Optional[str] = None
+    buttons: List[ButtonItem] = []
+    speaker_ec_id: Optional[int] = None
+    subject: Optional[str] = None
+
+
+@router.post("/schedules/test-now", summary="Отправить тестовую рассылку немедленно (произвольный контент)")
+async def test_send_now(
+    event_id: int,
+    data: TestNowRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Собирает сообщение как произвольную рассылку (с учётом выбранного спикера и
+    его плейсхолдеров/{stream_url}) и шлёт СРАЗУ на тестовые ID клиента — без
+    создания задачи в очереди."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    if not (data.text or "").strip():
+        raise HTTPException(status_code=400, detail="Пустой текст")
+    if data.speaker_ec_id:
+        ok = await db.fetchval("SELECT 1 FROM event_collaborators WHERE id=$1 AND event_id=$2",
+                               data.speaker_ec_id, event_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Выбранный спикер не найден в этом событии")
+
+    bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz = await _load_test_targets(db, client_id)
+    snap_photo, snap_video, snap_mtype = _resolve_snapshot_media(data.photo_url, data.video_url, data.media_type)
+    snap = {
+        "text": data.text,
+        "photo": snap_photo,
+        "video": snap_video,
+        "media_type": snap_mtype,
+        "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()],
+    }
+    content = await build_message_content(
+        conn=db, tpl_type="custom", tmpl_text=data.text, photo_url=snap_photo,
+        btn_text=None, btn_url="", event_id=event_id, session_id=data.speaker_ec_id,
+        fire_at=None, tz=tz, snapshot=snap, video_url=snap_video, media_type=snap_mtype)
+    results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token)
+    sent = sum(1 for r in results if r.get("ok"))
+    return {"ok": True, "sent": sent, "total": len(results), "results": results}
+
+
 @router.post("/templates/{template_id}/test", summary="Тестовая рассылка шаблона")
 async def test_template(
     event_id: int,

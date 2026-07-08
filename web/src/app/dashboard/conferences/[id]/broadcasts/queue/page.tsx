@@ -1653,6 +1653,33 @@ function CustomBroadcastModal(props: {
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
   const hasButtonErrors = buttonErrors.some(errs => errs.length > 0)
+  const [testing, setTesting] = useState(false)
+
+  async function sendTestNow() {
+    if (!text.trim()) { props.onError('Пустой текст'); return }
+    if (htmlErrors.length > 0) { props.onError('Исправьте HTML-ошибки в тексте'); return }
+    if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
+    setTesting(true)
+    try {
+      const r = await api.conference.schedules.testNow(props.eventId, {
+        text,
+        photo_url: photoUrl || null,
+        media_type: photoUrl ? 'photo' : null,
+        buttons: buttons.filter(b => b.text && b.url),
+        speaker_ec_id: speakerEcId,
+      })
+      const failed = (r.results || []).filter((x: any) => !x.ok)
+      if (failed.length > 0) {
+        props.onError(`Тест: доставлено ${r.sent}/${r.total}. Ошибки: ${failed.map((f: any) => `${f.platform}:${f.error}`).join('; ')}`)
+      } else {
+        props.onError(`✅ Тест отправлен (${r.sent} шт) на ваши тестовые ID`)
+      }
+    } catch (e: any) {
+      props.onError(e.message || 'Ошибка тестовой отправки')
+    } finally {
+      setTesting(false)
+    }
+  }
 
   async function save() {
     if (!fireAt) { props.onError('Укажите дату и время'); return }
@@ -1870,7 +1897,12 @@ function CustomBroadcastModal(props: {
         {props.isCollab && !ed?.id && (
           <OwnerConfirmCheckbox checked={reqConfirm} onChange={setReqConfirm} />
         )}
-        <div className="flex gap-2 mt-5">
+        <button onClick={sendTestNow} disabled={testing || htmlErrors.length > 0 || hasButtonErrors}
+          className="w-full mt-4 py-2 rounded-xl text-sm font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60">
+          {testing ? 'Отправляю тест...' : '🧪 Отправить тестовую рассылку немедленно'}
+        </button>
+        <p className="text-[11px] text-gray-400 mt-1 text-center">Уйдёт сразу на ваши тестовые Telegram/VK/MAX ID (Настройки → Технические).</p>
+        <div className="flex gap-2 mt-3">
           <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
             style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
