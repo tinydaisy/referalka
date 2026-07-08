@@ -1070,9 +1070,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]),
                 )
                 reg_url = sp["registration_url"] or ""
+                # Плейсхолдеры в URL КНОПКИ (не только в тексте): карточка спикера,
+                # регистрация, ник спикера. {stream_url}/{vip_url}/{event_chat_*}
+                # раскрываются глобально ниже (_apply_event_globals / vip).
+                _pmention = ("@" + (sp["personal_tg_username"] or "").lstrip("@")) if sp["personal_tg_username"] else ""
                 btn_url = (btn_url
                            .replace("{landing_url}", reg_url)
-                           .replace("{registration_url}", reg_url))
+                           .replace("{registration_url}", reg_url)
+                           .replace("{speaker_card_link}", card_link or "")
+                           .replace("{speaker_tg_username}", _pmention))
 
     elif tpl_type in ("5min_before", "gift"):
         session_data = {}
@@ -1388,6 +1394,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Если ссылка пустая — убираем строку с висящим плейсхолдером.
         if not vip_url:
             text = re.sub(r"^.*\{vip_url\}.*$\n?", "", text, flags=re.MULTILINE)
+
+    # ── {stream_url}/{landing_url} в КНОПКЕ (для не-custom типов) — ссылка на
+    # эфир / регистрацию. В тексте они уже подставлены в своих ветках; здесь
+    # добираем кнопку, чтобы «ссылка на эфир» в кнопке тоже раскрывалась.
+    if btn_url and ("{stream_url}" in btn_url or "{landing_url}" in btn_url or "{registration_url}" in btn_url):
+        _ev = await conn.fetchrow("SELECT stream_url, landing_url FROM events WHERE id=$1", event_id)
+        btn_url = (btn_url
+                   .replace("{stream_url}", (_ev["stream_url"] if _ev else None) or "")
+                   .replace("{landing_url}", (_ev["landing_url"] if _ev else None) or "")
+                   .replace("{registration_url}", (_ev["landing_url"] if _ev else None) or ""))
 
     # ── Глобальные плейсхолдеры для ВСЕХ типов событийных рассылок ────────────
     # {brand_name} — бренд клиента (clients.brand_name, fallback clients.name).
