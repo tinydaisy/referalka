@@ -100,7 +100,9 @@
 
 **⚠️ `expert_day` в списке очереди/кабинете спикера — session_id = `event_collaborators.id`** (как speaker_intro), НЕ `conf_sessions.id`. В `list_schedules` join спикера для `type IN ('speaker_intro','expert_day')` идёт через `event_collaborators` напрямую (иначе не резолвится `speaker_name` и пустой сниппет). Авто-фанаут `expert_day` и ручные вставки должны писать `snapshot_text` (= текст шаблона) — иначе в списке нет превью-сниппета.
 
-**Шаблон `expert_day`** ([DEFAULT_TEMPLATES](backend/app/api/modules/broadcasts.py)): кнопка **«ЗАДАТЬ ВОПРОС В ЧАТЕ»** с `button_url='{event_chat_tg}'` (раскрывается в `client_broadcast_chats.chat_url` чата события через `_apply_event_globals`). Никнейм эксперта в тексте = `{speaker_tg_username}` (личный @ник для тега), НЕ `{speaker_tg}` (это TG-канал).
+**Шаблон `expert_day`** ([DEFAULT_TEMPLATES](backend/app/api/modules/broadcasts.py)): кнопка **«ЗАДАТЬ ВОПРОС В ЧАТЕ»** с `button_url='{event_chat_tg}'` (раскрывается в `client_broadcast_chats.chat_url` чата события через `_apply_event_globals`). Никнейм эксперта в тексте = `{speaker_tg_username}` (личный @ник для тега), НЕ `{speaker_tg}` (это TG-канал). 🚨-строка «[Экспертный день] Завтра {speaker_name} ответит…» вынесена в **`subject`** (жирная первая строка в TG). `{speaker_notes}` (темы эксперта) и `{speaker_material}` (вводная+название) рендерятся **жирным** (`<b>`).
+
+**⚠️ Subject с плейсхолдерами `{speaker_name}`/`{brand_name}` резолвится в `build_message_content`** (2026-07-08): функция получила параметр `subject=` и возвращает `content["subject"]` с подставленным именем спикера (для speaker-типов) и брендом; task/preview используют его. Без этого subject уходил бы с сырым `{speaker_name}`. `from-preset` копирует `subject` из DEFAULT_TEMPLATES.
 
 ### WhatsApp как канал доставки через мост (миграция 198 от 2026-07-07, в разработке)
 
