@@ -119,7 +119,7 @@ _SPEAKER_ONLY_PLACEHOLDERS = (
     "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
     "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
     "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
-    "speaker_notes", "speaker_ask_topics",
+    "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
     "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
 )
 CONF_TYPES = ("pre_conf",)
@@ -276,6 +276,24 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_date\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not dt_v:
         text = re.sub(r"^[^\n]*\{speaker_datetime\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    # {speaker_slot_topic} — комбинированный: слот (жирным) + тема через «: ».
+    #   слот + тема → «<b>дата/время</b>: тема»
+    #   только тема → «тема» (без слота и двоеточия)
+    #   только слот → «<b>дата/время</b>»
+    #   ничего → строка убирается целиком.
+    topic_v = (topic or "").strip()
+    if dt_v and topic_v:
+        slot_topic = f"<b>{dt_v}</b>: {topic_v}"
+    elif topic_v:
+        slot_topic = topic_v
+    elif dt_v:
+        slot_topic = f"<b>{dt_v}</b>"
+    else:
+        slot_topic = ""
+    if slot_topic:
+        text = text.replace("{speaker_slot_topic}", slot_topic)
+    else:
+        text = re.sub(r"^[^\n]*\{speaker_slot_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
     text = text.replace("{speaker_time}", time_v)
     text = text.replace("{speaker_date}", date_v)
@@ -1387,7 +1405,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
         "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
-        "speaker_notes", "speaker_ask_topics",
+        "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",
