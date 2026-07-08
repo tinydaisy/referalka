@@ -37,7 +37,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/addons", tags=["Модули-аддоны"])
 
 # Порядок тарифов для проверки «Профи и выше».
-TARIFF_RANK = {"trial": 0, "start": 1, "pro": 2, "vip": 3, "admin": 99}
+# Триал = демо Профи: по фичам идентичен pro, поэтому и модули-аддоны с него
+# должны покупаться как с Профи. Даём триалу ранг pro (не 0), иначе _meets_min_tariff
+# режет покупку модулей у триальных клиентов. См. правило «триал ВСЕГДА = Профи».
+TARIFF_RANK = {"trial": 2, "start": 1, "pro": 2, "vip": 3, "admin": 99}
 
 
 async def _client_tariff_slug(db, client_id: int) -> Optional[str]:
@@ -70,7 +73,9 @@ async def list_addons(
     feats = await db.fetch(
         """SELECT id, slug, name, description, tagline, bullet_points,
                   price_monthly, price_6mo, promo_old_monthly, promo_old_6mo,
-                  min_tariff_slug, coming_soon, leadpay_bundle_pro_product_id
+                  min_tariff_slug, coming_soon, leadpay_bundle_pro_product_id,
+                  prodamus_payment_url, prodamus_payment_url_6mo,
+                  leadpay_product_id, leadpay_product_id_6mo
              FROM features
             WHERE is_addon = TRUE
             ORDER BY coming_soon ASC, price_monthly NULLS LAST, sort"""
@@ -117,7 +122,16 @@ async def list_addons(
             (not f["coming_soon"]) and not d["available"] and f["leadpay_bundle_pro_product_id"]
         )
         d["bundle_price"] = (int(f["price_monthly"] or 0) + pro_price) if d["bundle_available"] else None
-        d.pop("leadpay_bundle_pro_product_id", None)
+        # Можно ли реально оплатить помесячно / за 6 мес — есть ли Prodamus-ссылка ИЛИ карточка LeadPay.
+        # Фронт по этим флагам показывает/прячет кнопки, чтобы не открывать нерабочую оплату.
+        d["monthly_payable"] = bool(f["prodamus_payment_url"] or f["leadpay_product_id"])
+        d["sixmo_payable"] = bool(f["prodamus_payment_url_6mo"] or f["leadpay_product_id_6mo"])
+        # Предпочтительный провайдер помесячной оплаты (Prodamus если есть ссылка, иначе LeadPay).
+        d["monthly_provider"] = "prodamus" if f["prodamus_payment_url"] else ("leadpay" if f["leadpay_product_id"] else None)
+        d["sixmo_provider"] = "prodamus" if f["prodamus_payment_url_6mo"] else ("leadpay" if f["leadpay_product_id_6mo"] else None)
+        for k in ("leadpay_bundle_pro_product_id", "prodamus_payment_url", "prodamus_payment_url_6mo",
+                  "leadpay_product_id", "leadpay_product_id_6mo"):
+            d.pop(k, None)
         out.append(d)
     return {"addons": out, "client_tariff": client_slug}
 

@@ -1158,11 +1158,12 @@ function ModulesBlock() {
   }
   useEffect(load, [])
 
-  async function buy(slug: string, months: number, bundle = false) {
+  async function buy(slug: string, months: number, bundle = false, provider: 'prodamus' | 'leadpay' = 'prodamus') {
     setError(''); setLoadingSlug(slug + ':' + (bundle ? 'bundle' : months))
     try {
-      // Комплект «Профи + модуль» идёт через LeadPay (карточка-комплект).
-      const r = await api.addons.createOrder(slug, months, bundle ? 'leadpay' : 'prodamus', bundle)
+      // Комплект «Профи + модуль» — всегда LeadPay-карточка. Обычная покупка модуля —
+      // провайдер приходит из бэка (Prodamus если есть ссылка, иначе LeadPay-карточка).
+      const r = await api.addons.createOrder(slug, months, bundle ? 'leadpay' : provider, bundle)
       if (r.payment_url) window.location.href = r.payment_url
     } catch (e: any) {
       setError(e?.message || 'Не удалось создать заказ')
@@ -1233,15 +1234,20 @@ function ModulesBlock() {
                 )
               ) : (
                 <div className="mt-4 flex gap-2">
-                  <button onClick={() => buy(a.slug, 1)} disabled={!!loadingSlug}
-                    className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#25455D] text-white hover:opacity-90 disabled:opacity-50">
-                    {loadingSlug === a.slug + ':1' ? '…' : 'На месяц'}
-                  </button>
-                  {a.price_6mo && (
-                    <button onClick={() => buy(a.slug, 6)} disabled={!!loadingSlug}
+                  {a.monthly_payable && (
+                    <button onClick={() => buy(a.slug, 1, false, a.monthly_provider || 'prodamus')} disabled={!!loadingSlug}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#25455D] text-white hover:opacity-90 disabled:opacity-50">
+                      {loadingSlug === a.slug + ':1' ? '…' : 'На месяц'}
+                    </button>
+                  )}
+                  {a.price_6mo && a.sixmo_payable && (
+                    <button onClick={() => buy(a.slug, 6, false, a.sixmo_provider || 'prodamus')} disabled={!!loadingSlug}
                       className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50">
                       {loadingSlug === a.slug + ':6' ? '…' : 'На 6 мес −20%'}
                     </button>
+                  )}
+                  {!a.monthly_payable && !a.sixmo_payable && (
+                    <p className="text-xs text-amber-600">Оплата этого модуля скоро появится</p>
                   )}
                 </div>
               )}
