@@ -709,16 +709,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         raw_text = raw_text.replace("{brand_name}", g["brand_name"])
         raw_buttons = [{**b, "url": (b.get("url") or "").replace("{brand_name}", g["brand_name"])} for b in raw_buttons]
         # Если у произвольной рассылки выбран спикер (session_id = event_collaborators.id) —
-        # раскрываем спикерские плейсхолдеры и подставляем его фото (как в speaker_intro).
-        custom_photo = snap_photo
+        # раскрываем спикерские плейсхолдеры (имя/позиционирование/регалии/соцсети/
+        # материал/{stream_url} и т.д.). ⚠️ ФОТО В ПРОИЗВОЛЬНОМ сообщении берётся ТОЛЬКО
+        # то, что клиент загрузил сам (snap_photo) — фото спикера НЕ подставляется
+        # автоматически, иначе сообщение «без фото» получило бы аватар спикера.
         if session_id:
             _sp_text, _sp_photo, _sp_btns = await _resolve_speaker_placeholders(
                 conn, session_id, raw_text, raw_buttons, speaker_photo_mode,
-                photo_already=custom_photo)
+                photo_already=snap_photo)
             raw_text = _sp_text
             raw_buttons = _sp_btns
-            if not custom_photo:
-                custom_photo = _sp_photo
         # Оставшиеся (незаполненные) спикерские плейсхолдеры вырезаем, чтобы не ушли
         # получателю сырыми — как при отсутствии выбранного спикера.
         for ph in _SPEAKER_ONLY_PLACEHOLDERS:
@@ -727,10 +727,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 raw_text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
                 raw_text = raw_text.replace(token, "")
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
-        if session_id and custom_photo and snap_mtype != "video":
-            snap_photo = custom_photo
-            if not snap_mtype:
-                snap_mtype = "photo"
         return {
             "text": raw_text,
             "photo": (snap_photo or photo_url) if snap_mtype != "video" else None,
