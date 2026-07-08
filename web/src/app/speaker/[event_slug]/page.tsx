@@ -131,7 +131,7 @@ type SpeakerMaterials = {
   placeholders: { link: string; event: string; date: string; brand: string }
 }
 
-type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults' | 'invited' | 'slot'
+type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults' | 'invited' | 'slot' | 'broadcasts'
 
 export default function SpeakerCabinetPage() {
   const params = useParams<{ event_slug: string }>()
@@ -737,6 +737,7 @@ export default function SpeakerCabinetPage() {
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
+            { key: 'broadcasts' as CabinetTab, label: 'Рассылки со мной' },
             ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'slot' as CabinetTab, label: 'Мой слот' }] : []),
             { key: 'invited'   as CabinetTab, label: 'Приглашённые' },
             ...((me.role === 'jury' || me.role === 'organizer') ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
@@ -776,6 +777,7 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
         {activeTab === 'invited' && token && <InvitedTab token={token} />}
         {activeTab === 'slot' && token && <SlotTab token={token} myName={me.name || ''} />}
+        {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} />}
 
         {activeTab === 'profile' && <>
         <Section title="Профиль">
@@ -1894,6 +1896,149 @@ function InvitedTab({ token }: { token: string }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────── Вкладка РАССЫЛКИ СО МНОЙ ───────────────────────
+function MyBroadcastsTab({ token }: { token: string }) {
+  const [loading, setLoading] = useState(true)
+  const [items, setItems] = useState<any[]>([])
+  const [preview, setPreview] = useState<any | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`${API}/api/v1/public/speaker-cabinet/me/my-broadcasts`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => setItems(d.broadcasts || []))
+      .finally(() => setLoading(false))
+  }, [token])
+
+  const statusChip = (s: string) => {
+    const done = s === 'done'
+    return (
+      <span style={{
+        fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999,
+        color: done ? '#0a7d3d' : '#8a5a00',
+        background: done ? '#e3f6ea' : '#fff2dd',
+        whiteSpace: 'nowrap',
+      }}>
+        {done ? 'Отправлено' : 'В очереди'}
+      </span>
+    )
+  }
+
+  if (loading) return <div style={{ padding: 20, color: '#7a8c9c' }}>Загрузка…</div>
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '4px 0 6px' }}>
+        Рассылки со мной
+      </h2>
+      <p style={{ fontSize: 13, color: '#7a8c9c', margin: '0 0 14px' }}>
+        Здесь — рассылки этого события, в которых вы фигурируете (знакомство, анонс
+        выступления, подарок, экспертный день). Нажмите на глазик, чтобы посмотреть, как выглядит сообщение.
+      </p>
+
+      {items.length === 0 ? (
+        <div style={{ padding: 20, color: '#7a8c9c', textAlign: 'center' }}>
+          Пока нет рассылок с вами.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {items.map(b => (
+            <div key={b.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: '#fff', border: '1px solid #e1e8ee', borderRadius: 12,
+              padding: '12px 14px',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {b.name}
+                </div>
+                {b.fire_at_msk && (
+                  <div style={{ fontSize: 12, color: '#7a8c9c', marginTop: 2 }}>
+                    {b.fire_at_msk} МСК
+                  </div>
+                )}
+              </div>
+              {statusChip(b.status)}
+              <button
+                type="button"
+                onClick={() => setPreview(b)}
+                title="Посмотреть сообщение"
+                style={{
+                  width: 38, height: 38, borderRadius: 10, border: '1px solid #d4dee5',
+                  background: '#f6f9fb', cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={DARK} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {preview && (
+        <div
+          onClick={() => setPreview(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16, zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%',
+              maxHeight: '85vh', overflowY: 'auto', padding: 18,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{preview.name}</div>
+              <button type="button" onClick={() => setPreview(null)}
+                style={{ border: 'none', background: 'transparent', fontSize: 22, color: '#7a8c9c', cursor: 'pointer', lineHeight: 1 }}>
+                ×
+              </button>
+            </div>
+            <div style={{ marginBottom: 10 }}>{statusChip(preview.status)}</div>
+            {preview.media_type === 'video' && preview.video ? (
+              <video src={preview.video} controls style={{ width: '100%', borderRadius: 12, marginBottom: 12, maxHeight: 260 }} />
+            ) : preview.photo ? (
+              <img src={preview.photo} alt="" style={{ width: '100%', borderRadius: 12, marginBottom: 12, objectFit: 'contain', maxHeight: 320 }} />
+            ) : null}
+            <div
+              style={{ fontSize: 14, color: '#1a2b38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}
+              dangerouslySetInnerHTML={{ __html: preview.text || '' }}
+            />
+            {preview.button_text && (
+              <div style={{
+                marginTop: 14, textAlign: 'center', padding: '10px 12px',
+                borderRadius: 12, border: '1px solid #d4dee5', color: '#2563eb',
+                fontSize: 14, fontWeight: 600,
+              }}>
+                {preview.button_text}
+              </div>
+            )}
+            {Array.isArray(preview.buttons) && preview.buttons.map((btn: any, i: number) => btn?.text && (
+              <div key={i} style={{
+                marginTop: 8, textAlign: 'center', padding: '10px 12px',
+                borderRadius: 12, border: '1px solid #d4dee5', color: '#2563eb',
+                fontSize: 14, fontWeight: 600,
+              }}>
+                {btn.text}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

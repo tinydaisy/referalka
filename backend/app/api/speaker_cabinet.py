@@ -992,6 +992,87 @@ async def get_me_materials(
     }
 
 
+@router.get("/me/my-broadcasts", summary="Рассылки, где фигурирует этот спикер (в этом событии)")
+async def get_me_broadcasts(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Список рассылок «со мной» — те, что привязаны к этому спикеру (session_id =
+    его event_collaborators.id) в этом событии: speaker_intro, 5min_before, gift,
+    expert_day. Черновики (status='draft') не показываем — только «в очереди»
+    (pending) и «отправлено» (done). У каждой — превью (текст+фото+кнопка)."""
+    from zoneinfo import ZoneInfo
+    from app.services.message_builder import build_message_content
+
+    se_id = int(session["se_id"])
+    me = await db.fetchrow(
+        "SELECT event_id FROM event_collaborators WHERE id=$1", se_id
+    )
+    if not me:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+    event_id = me["event_id"]
+
+    rows = await db.fetch(
+        """
+        SELECT bs.id, bs.type, bs.status, bs.fire_at, bs.template_id, bs.session_id,
+               bs.snapshot_text, bs.snapshot_photo, bs.snapshot_video, bs.snapshot_media_type,
+               bs.snapshot_btn_text, bs.snapshot_btn_url, bs.snapshot_buttons,
+               bt.name AS tmpl_name, bt.text AS tmpl_text, bt.photo_url AS tmpl_photo,
+               bt.video_url AS tmpl_video, bt.media_type AS tmpl_media_type,
+               bt.button_text AS tmpl_btn_text, bt.button_url AS tmpl_btn_url,
+               bt.speaker_photo_mode AS tmpl_speaker_photo_mode
+          FROM broadcast_schedules bs
+          LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
+         WHERE bs.event_id = $1 AND bs.session_id = $2
+           AND bs.status IN ('pending', 'done')
+         ORDER BY bs.fire_at NULLS LAST, bs.id
+        """,
+        event_id, se_id,
+    )
+
+    tz = ZoneInfo("Europe/Moscow")
+    out = []
+    for r in rows:
+        try:
+            content = await build_message_content(
+                conn=db,
+                tpl_type=r["type"],
+                tmpl_text=r["tmpl_text"] or "",
+                photo_url=r["tmpl_photo"],
+                btn_text=r["tmpl_btn_text"],
+                btn_url=r["tmpl_btn_url"] or "",
+                event_id=event_id,
+                session_id=r["session_id"],
+                fire_at=r["fire_at"],
+                tz=tz,
+                template_id=r["template_id"],
+                video_url=r["tmpl_video"],
+                media_type=r["tmpl_media_type"],
+                speaker_photo_mode=r["tmpl_speaker_photo_mode"] or "poster",
+            )
+        except Exception:
+            content = {"text": r["tmpl_text"] or "", "photo": r["tmpl_photo"],
+                       "video": None, "media_type": r["tmpl_media_type"],
+                       "button_text": r["tmpl_btn_text"], "button_url": r["tmpl_btn_url"],
+                       "buttons": []}
+        fire_msk = r["fire_at"].astimezone(tz).strftime("%d.%m.%Y %H:%M") if r["fire_at"] else None
+        out.append({
+            "id": r["id"],
+            "type": r["type"],
+            "name": r["tmpl_name"] or r["type"],
+            "status": r["status"],  # 'pending' | 'done'
+            "fire_at_msk": fire_msk,
+            "text": content.get("text") or "",
+            "photo": content.get("photo") if content.get("media_type") != "video" else None,
+            "video": content.get("video") if content.get("media_type") == "video" else None,
+            "media_type": content.get("media_type"),
+            "button_text": content.get("button_text"),
+            "button_url": content.get("button_url"),
+            "buttons": content.get("buttons") or [],
+        })
+    return {"broadcasts": out}
+
+
 @router.get("/me/invited", summary="Приглашённые спикером люди + его реф-статистика")
 async def get_me_invited(
     session: dict = Depends(_auth_session),

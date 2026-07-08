@@ -142,7 +142,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_bio}', desc: 'Биография / «о себе» спикера' },
   { name: '{speaker_positioning}', desc: 'Позиционирование спикера (должность/титул)' },
   { name: '{speaker_card_link}', desc: 'Ссылка на карточку спикера (веб или Mini App — по настройке события)' },
-  { name: '{speaker_material}', desc: 'Материал спикера в базу знаний (название + ссылка под ним). Пусто — строка убирается' },
+  { name: '{speaker_material}', desc: 'Материал спикера в базу знаний. Раскрывается сам: «Уже сейчас вам доступен полезный материал: "Название"» + ссылка. Нет ссылки — строка убирается' },
   { name: '{speaker_notes}', desc: 'Заметки спикера (в «Экспертном дне» — тематика вопросов, которую спикер пишет сам в кабинете). Пусто — строка убирается' },
   { name: '{event_chat_tg}', desc: 'Ссылка на Telegram-чат события. Пусто — строка убирается' },
   { name: '{event_chat_vk}', desc: 'Ссылка на VK-чат события. Пусто — строка убирается' },
@@ -696,11 +696,18 @@ export default function TemplatesPage() {
           .replace(/\{stream_url\}/g, getStreamUrl(day))
       }
 
-      // {speaker_material} — материал спикера в базу знаний (название + ссылка).
-      // Пусто → убираем строку с плейсхолдером; едино для всех спикерских шаблонов.
+      // {speaker_material} — материал спикера в базу знаний.
+      // Материал есть ТОЛЬКО при заполненной ссылке (пробелы = пусто). Нет ссылки →
+      // материала нет, строку убираем (даже если название задано). Формат:
+      //   Уже сейчас вам доступен полезный материал: "Название"
+      //   Ссылка
       const kbT = (speaker.knowledge_base_title || '').trim()
       const kbU = (speaker.knowledge_base_url || '').trim()
-      const material = (kbT && kbU) ? `${kbT}\n${kbU}` : (kbT || kbU)
+      const material = !kbU
+        ? ''
+        : (kbT
+            ? `Уже сейчас вам доступен полезный материал: "${kbT}"\n${kbU}`
+            : `Уже сейчас вам доступен полезный материал:\n${kbU}`)
       if (out.includes('{speaker_material}')) {
         out = material
           ? out.replace(/\{speaker_material\}/g, material)
