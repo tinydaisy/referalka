@@ -17,6 +17,7 @@ URL: POST /api/v1/max/webhook/{secret}
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from typing import Any
 
@@ -133,8 +134,7 @@ async def handle_max_update(secret: str, request: Request):
     # TEMP DEBUG: полный dump апдейта — чтобы выцепить chat_id каналов MAX.
     # Убрать после разовой задачи получения ID каналов.
     try:
-        import json as _json_dbg
-        logger.warning("MAX RAW UPDATE: %s", _json_dbg.dumps(update, ensure_ascii=False)[:2000])
+        logger.info("MAX RAW UPDATE: %s", json.dumps(update, ensure_ascii=False)[:2000])
     except Exception:
         pass
 
@@ -1163,23 +1163,20 @@ async def _process_start(
                 logger.exception(f"MAX spkinv handler failed: {e}")
             return
 
-    # Воронка лид-магнита: `?start=fnl_<run_id>` (через pluson.ru/m/{slug}?to=max
-    # → 302 → max.ru/{handle}?start=fnl_<run_id>). Запускаем воронку через MAX-бот
-    # клиента — шлём Текст 1 + кнопку «ГОТОВО».
-    if payload and payload.startswith("fnl_"):
-        rest = payload.removeprefix("fnl_").strip()
-        if rest.isdigit():
-            try:
-                from app.services.funnel_service import run_started_max
-                pool_f = await get_pool()
-                if pool_f:
-                    async with pool_f.acquire() as conn_f:
-                        await run_started_max(
-                            int(rest), str(user_id), username or None,
-                            first_name, last_name, conn_f, bot_token,
-                        )
-            except Exception as e:  # noqa: BLE001
-                logger.exception(f"MAX fnl_ start handler failed: {e}")
+    # Воронка лид-магнита: прямой формат `?start=m_<slug>` (лид-магнит) или
+    # `?start=p_<slug>` (пакет), опционально `_pid<ref>_src<utm>`. Это тот же
+    # формат, что у TG-бота (max.ru/{handle}?start=m_<slug>) — MAX присылает его
+    # в payload bot_started/message. Создаём funnel_run(platform='max') и шлём
+    # Текст 1 + кнопку «ГОТОВО» через run_started_max.
+    # (Старый формат `fnl_<run_id>` через landing pluson.ru/m/... тоже поддержан.)
+    if payload and (payload.startswith("m_") or payload.startswith("p_") or payload.startswith("fnl_")):
+        try:
+            await _start_max_lead_magnet_funnel(
+                payload, str(user_id), username or None,
+                first_name, last_name, bot_token,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"MAX lead-magnet funnel handler failed: {e}")
         return
 
     # Парсим payload: ref_pg{slug}_pid{partner_id}_src{utm}_tab{tab}_reg
@@ -1626,6 +1623,83 @@ async def _handle_max_live(
     rows.append([{"text": "Программа", "url": f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"}])
     rows.append([{"text": "Меню", "callback_data": f"evmenu_{event_id}"}])
     await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
+
+
+async def _start_max_lead_magnet_funnel(
+    payload: str, max_user_id: str, username: str | None,
+    first_name: str | None, last_name: str | None, bot_token: str,
+) -> bool:
+    """MAX-аналог bot/handlers/start._start_lead_magnet_funnel.
+
+    Поддерживает три формата payload:
+      • `m_<slug>[_pid<ref>_src<utm>]` — лид-магнит по slug
+      • `p_<slug>[_pid<ref>_src<utm>]` — пакет по slug
+      • `fnl_<run_id>` — уже созданный забег (старый landing-формат)
+    Создаёт funnel_run(platform='max') (для m_/p_) и вызывает run_started_max
+    (Текст 1 + кнопка «ГОТОВО»). Возвращает True если воронка запущена."""
+    from app.services.funnel_service import run_started_max
+    pool = await get_pool()
+    if not pool:
+        return False
+
+    # Старый формат fnl_<run_id> — забег уже есть.
+    if payload.startswith("fnl_"):
+        rest = payload.removeprefix("fnl_").strip()
+        if not rest.isdigit():
+            return False
+        async with pool.acquire() as conn:
+            await run_started_max(int(rest), max_user_id, username,
+                                  first_name, last_name, conn, bot_token)
+        return True
+
+    kind = "m" if payload.startswith("m_") else "p"
+    rest = payload[2:]
+    parts = rest.split("_") if rest else []
+    slug = parts[0] if parts else ""
+    pid: str | None = None
+    utm_source: str | None = None
+    for chunk in parts[1:]:
+        if chunk.startswith("pid"):
+            pid = chunk[3:] or None
+        elif chunk.startswith("src"):
+            utm_source = chunk[3:] or None
+    if not slug:
+        return False
+
+    async with pool.acquire() as conn:
+        if kind == "m":
+            row = await conn.fetchrow(
+                "SELECT id, client_id FROM lead_magnets WHERE slug = $1", slug)
+            client_id = row["client_id"] if row else None
+            lm_id = row["id"] if row else None
+            pkg_id = None
+        else:
+            row = await conn.fetchrow(
+                "SELECT id, client_id FROM lead_magnet_packages WHERE slug = $1", slug)
+            client_id = row["client_id"] if row else None
+            lm_id = None
+            pkg_id = row["id"] if row else None
+        if not client_id:
+            logger.info(f"MAX lead-magnet: slug {slug!r} ({kind}) not found")
+            return False
+        referrer_id = None
+        if pid:
+            referrer_id = await conn.fetchval(
+                "SELECT id FROM contacts WHERE client_id = $1 AND ref_code = $2",
+                client_id, pid)
+        utm_json = {"utm_source": utm_source} if utm_source else {}
+        run_id = await conn.fetchval(
+            """INSERT INTO funnel_runs
+                  (client_id, type, lead_magnet_id, package_id,
+                   contact_id, referrer_contact_id, utm, stage, landed_at,
+                   platform_slug)
+               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW(), 'max')
+               RETURNING id""",
+            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm_json),
+        )
+        await run_started_max(run_id, max_user_id, username,
+                              first_name, last_name, conn, bot_token)
+    return True
 
 
 async def _gather_max_founder_channels(conn, client_id: int | None) -> list[dict]:

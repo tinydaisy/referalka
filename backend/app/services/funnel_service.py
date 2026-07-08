@@ -1138,6 +1138,28 @@ async def _max_token_for_client(client_id: int, db) -> Optional[str]:
     return await get_client_max_token(client_id, db)
 
 
+async def _max_media_for_text(text: str, media_url: Optional[str],
+                              media_type: Optional[str], token: str
+                              ) -> Tuple[str, Optional[list]]:
+    """Готовит медиа для MAX-сообщения воронки. Возвращает (text, attachments).
+    Фото → загружаем как attachment (MAX-плеер). Видео → ссылкой в текст (MAX-видео
+    тяжёлое, upload видео нестабилен) — гарантируем доставку. Ошибка загрузки фото
+    → фолбэк на ссылку в тексте."""
+    if not media_url:
+        return text, None
+    if media_type == "video":
+        return (text + f"\n\n🎬 Видео: {media_url}"), None
+    # фото
+    try:
+        from app.api.max_webhook import _max_image_attachment_from_url
+        att = await _max_image_attachment_from_url(media_url, token)
+        if att:
+            return text, [att]
+    except Exception as e:  # noqa: BLE001
+        log.warning("_max_media_for_text: photo attach failed: %s", e)
+    return (text + f"\n\n🖼 {media_url}"), None
+
+
 async def _check_max_founder_subscription(client_id: int, max_user_id: str,
                                           token: str, db) -> list[dict]:
     """MAX-аналог check_telegram_channels_subscription: возвращает список
@@ -1363,12 +1385,16 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
         "text": button_label,
         "callback_data": f"fnl_check_{run_id}"
     }]])
+    # Медиа Текста 1: фото → attachment; видео → ссылкой в текст (MAX-видео тяжёлое).
+    text_1, media_att = await _max_media_for_text(
+        text_1, template.get("text_1_media_url"), template.get("text_1_media_type"), token)
     # last_message_id не пишем: это BIGINT для TG-mid (редактирование inline-кнопки),
     # а MAX mid — строковый. MAX-воронке редактирование кнопки не требуется.
     try:
         await max_send(
             int(max_user_id), text_1,
             token=token, buttons=buttons, recipient_kind="user",
+            attachments=media_att,
         )
     except Exception as e:
         log.warning("run_started_max: send text_1 failed: %s", e)
@@ -1469,9 +1495,12 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             template = dict(template)
         materials = await _materials_for_run(dict(run), db)
         text_2 = _format_text(template["text_2"], max_ctx, materials)
+        text_2, media_att2 = await _max_media_for_text(
+            text_2, template.get("text_2_media_url"), template.get("text_2_media_type"), max_token)
         from app.services.max_api import send_message as max_send
         try:
-            await max_send(int(tg_id), text_2, token=max_token, recipient_kind="user")
+            await max_send(int(tg_id), text_2, token=max_token,
+                           recipient_kind="user", attachments=media_att2)
         except Exception as e:
             log.warning("MAX send text_2 failed for run %s: %s", run_id, e)
         if is_first_delivery:
