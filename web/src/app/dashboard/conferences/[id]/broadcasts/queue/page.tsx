@@ -1685,19 +1685,41 @@ function CustomBroadcastModal(props: {
     if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
     setTesting(true)
     try {
-      const r = await api.conference.schedules.testNow(props.eventId, {
+      // Тест шлётся по СОХРАНЁННОЙ рассылке (её снапшоту) — так плейсхолдеры
+      // (в т.ч. программа дня {day_date}/{day_program_with_links}) раскрываются
+      // ровно как при реальной отправке. Поэтому сначала сохраняем ЧЕРНОВИКОМ
+      // (enqueue:false → status='draft', в очередь НЕ ставим), затем тест по id.
+      const payload = {
+        fire_at: fireAt || nowMoscowMinus1MinLocal(),
         text,
         photo_url: photoUrl || null,
-        media_type: photoUrl ? 'photo' : null,
         buttons: buttons.filter(b => b.text && b.url),
+        is_test: isTest,
+        audience_include: audIn,
+        audience_exclude: audEx,
+        send_to_event_chats: sendToChats,
+        send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
+        send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
+        target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
-      })
+        enqueue: false,
+      }
+      let schedId = ed?.id
+      if (schedId) {
+        await api.conference.schedules.editCustom(props.eventId, schedId, payload)
+      } else {
+        const created = await api.conference.schedules.addCustom(props.eventId, payload)
+        schedId = created?.id
+      }
+      if (!schedId) { props.onError('Не удалось сохранить черновик для теста'); return }
+      const r = await api.conference.schedules.testScheduleNow(props.eventId, schedId)
       const failed = (r.results || []).filter((x: any) => !x.ok)
       if (failed.length > 0) {
         props.onError(`Тест: доставлено ${r.sent}/${r.total}. Ошибки: ${failed.map((f: any) => `${f.platform}:${f.error}`).join('; ')}`)
       } else {
-        props.onError(`✅ Тест отправлен (${r.sent} шт) на ваши тестовые ID`)
+        props.onError(`✅ Тест отправлен (${r.sent} шт) на ваши тестовые ID. Рассылка сохранена черновиком.`)
       }
+      props.onSaved()
     } catch (e: any) {
       props.onError(e.message || 'Ошибка тестовой отправки')
     } finally {

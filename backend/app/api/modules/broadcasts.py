@@ -2373,54 +2373,6 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
     return out
 
 
-class TestNowRequest(BaseModel):
-    text: str
-    photo_url: Optional[str] = None
-    video_url: Optional[str] = None
-    media_type: Optional[str] = None
-    buttons: List[ButtonItem] = []
-    speaker_ec_id: Optional[int] = None
-    subject: Optional[str] = None
-
-
-@router.post("/schedules/test-now", summary="Отправить тестовую рассылку немедленно (произвольный контент)")
-async def test_send_now(
-    event_id: int,
-    data: TestNowRequest,
-    client=Depends(get_current_client),
-    db: asyncpg.Connection = Depends(get_db)
-):
-    """Собирает сообщение как произвольную рассылку (с учётом выбранного спикера и
-    его плейсхолдеров/{stream_url}) и шлёт СРАЗУ на тестовые ID клиента — без
-    создания задачи в очереди."""
-    client_id = int(client["sub"])
-    await _check_event(db, event_id, client_id)
-    if not (data.text or "").strip():
-        raise HTTPException(status_code=400, detail="Пустой текст")
-    if data.speaker_ec_id:
-        ok = await db.fetchval("SELECT 1 FROM event_collaborators WHERE id=$1 AND event_id=$2",
-                               data.speaker_ec_id, event_id)
-        if not ok:
-            raise HTTPException(status_code=400, detail="Выбранный спикер не найден в этом событии")
-
-    bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz = await _load_test_targets(db, client_id)
-    snap_photo, snap_video, snap_mtype = _resolve_snapshot_media(data.photo_url, data.video_url, data.media_type)
-    snap = {
-        "text": data.text,
-        "photo": snap_photo,
-        "video": snap_video,
-        "media_type": snap_mtype,
-        "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()],
-    }
-    content = await build_message_content(
-        conn=db, tpl_type="custom", tmpl_text=data.text, photo_url=snap_photo,
-        btn_text=None, btn_url="", event_id=event_id, session_id=data.speaker_ec_id,
-        fire_at=None, tz=tz, snapshot=snap, video_url=snap_video, media_type=snap_mtype)
-    results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token)
-    sent = sum(1 for r in results if r.get("ok"))
-    return {"ok": True, "sent": sent, "total": len(results), "results": results}
-
-
 @router.post("/schedules/{schedule_id}/test-now", summary="Тест существующей задачи немедленно")
 async def test_existing_schedule_now(
     event_id: int,
