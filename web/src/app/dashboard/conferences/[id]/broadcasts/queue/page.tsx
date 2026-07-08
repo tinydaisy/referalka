@@ -388,10 +388,29 @@ export default function QueuePage() {
     setIsTestValue(schedule.is_test || false)
     setEditAudienceInclude(schedule.audience_include || 'all_event')
     setEditAudienceExclude(schedule.audience_exclude || 'none')
-    setEditChannelIds(Array.isArray(schedule.target_channel_ids) ? schedule.target_channel_ids : null)
-    setEditEventChats(!!schedule.send_to_event_chats)
-    setEditClientChats(!!schedule.send_to_client_chats)
-    setEditPrivateChats(!!schedule.send_to_private_chats)
+    // Эффективные каналы/флаги: своё значение задачи, иначе унаследованное от шаблона.
+    const effCh = Array.isArray(schedule.eff_target_channel_ids) ? schedule.eff_target_channel_ids
+      : (Array.isArray(schedule.target_channel_ids) ? schedule.target_channel_ids : null)
+    setEditChannelIds(effCh)
+    setEditEventChats(!!(schedule.eff_send_to_event_chats ?? schedule.send_to_event_chats))
+    setEditClientChats(!!(schedule.eff_send_to_client_chats ?? schedule.send_to_client_chats))
+    setEditPrivateChats(!!(schedule.eff_send_to_private_chats ?? schedule.send_to_private_chats))
+  }
+
+  const [testingFireAt, setTestingFireAt] = useState(false)
+  async function testFireAtNow() {
+    if (!fireAtModal) return
+    setTestingFireAt(true)
+    try {
+      const r = await api.conference.schedules.testScheduleNow(eventId, fireAtModal.id)
+      const failed = (r.results || []).filter((x: any) => !x.ok)
+      if (failed.length > 0) showMsg(`Тест: доставлено ${r.sent}/${r.total}. Ошибки: ${failed.map((f: any) => `${f.platform}:${f.error}`).join('; ')}`, 'err')
+      else showMsg(`✅ Тест отправлен (${r.sent} шт) на ваши тестовые ID`)
+    } catch (e: any) {
+      showMsg(e.message || 'Ошибка тестовой отправки', 'err')
+    } finally {
+      setTestingFireAt(false)
+    }
   }
 
   async function saveFireAt() {
@@ -1114,7 +1133,12 @@ export default function QueuePage() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-2 mt-5">
+            <button onClick={testFireAtNow} disabled={testingFireAt}
+              className="w-full mt-4 py-2 rounded-xl text-sm font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60">
+              {testingFireAt ? 'Отправляю тест...' : '🧪 Отправить тестовую рассылку немедленно'}
+            </button>
+            <p className="text-[11px] text-gray-400 mt-1 text-center">Уйдёт сразу на ваши тестовые Telegram/VK/MAX ID — ровно как реальное сообщение.</p>
+            <div className="flex gap-2 mt-3">
               <button onClick={saveFireAt}
                 className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
                 style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>

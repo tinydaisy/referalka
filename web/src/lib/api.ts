@@ -379,6 +379,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/test-now`, {
           method: 'POST', body: JSON.stringify(data),
         }),
+      testScheduleNow: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/test-now`, { method: 'POST' }),
       editCustom: (eventId: number, id: number, data: any) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/custom`, {
           method: 'PUT', body: JSON.stringify(data),

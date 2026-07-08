@@ -834,7 +834,12 @@ async def list_schedules(
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_subject, bs.snapshot_photo, bs.snapshot_video,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
-               bs.send_to_client_chats, bs.send_to_private_chats, bs.target_channel_ids
+               bs.send_to_client_chats, bs.send_to_private_chats, bs.target_channel_ids,
+               -- Эффективные каналы/флаги: schedule → иначе значения шаблона (как при отправке).
+               COALESCE(bs.target_channel_ids, bt.target_channel_ids) AS eff_target_channel_ids,
+               (bs.send_to_event_chats OR COALESCE(bt.send_to_event_chats, FALSE)) AS eff_send_to_event_chats,
+               (bs.send_to_client_chats OR COALESCE(bt.send_to_client_chats, FALSE)) AS eff_send_to_client_chats,
+               (bs.send_to_private_chats OR COALESCE(bt.send_to_private_chats, FALSE)) AS eff_send_to_private_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         -- speaker_intro/expert_day: session_id = event_collaborators.id (спикер),
@@ -2411,6 +2416,77 @@ async def test_send_now(
         conn=db, tpl_type="custom", tmpl_text=data.text, photo_url=snap_photo,
         btn_text=None, btn_url="", event_id=event_id, session_id=data.speaker_ec_id,
         fire_at=None, tz=tz, snapshot=snap, video_url=snap_video, media_type=snap_mtype)
+    results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token)
+    sent = sum(1 for r in results if r.get("ok"))
+    return {"ok": True, "sent": sent, "total": len(results), "results": results}
+
+
+@router.post("/schedules/{schedule_id}/test-now", summary="Тест существующей задачи немедленно")
+async def test_existing_schedule_now(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Собирает сообщение существующей задачи В ТОЧНОСТИ как оно уйдёт (тот же
+    build_message_content, что и превью: свежий шаблон + спикер + плейсхолдеры) и
+    шлёт СРАЗУ на тестовые ID клиента. Работает для любого типа рассылки."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    schedule = await db.fetchrow(
+        """
+        SELECT bs.*, bt.text as tmpl_text, bt.photo_url as tmpl_photo,
+               bt.video_url as tmpl_video, bt.media_type as tmpl_media_type,
+               bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url,
+               bt.type as tmpl_type, bt.speaker_photo_mode as tmpl_speaker_photo_mode,
+               bt.subject as tmpl_subject
+        FROM broadcast_schedules bs
+        LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
+        WHERE bs.id=$1 AND bs.event_id=$2
+        """,
+        schedule_id, event_id
+    )
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    tpl_type = schedule["tmpl_type"] or schedule["type"]
+    bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz = await _load_test_targets(db, client_id)
+
+    snap = None
+    if tpl_type == "custom":
+        import json as _json_b
+        sb = schedule.get("snapshot_buttons")
+        if isinstance(sb, str):
+            try:
+                sb = _json_b.loads(sb)
+            except Exception:
+                sb = []
+        snap = {
+            "text": schedule.get("snapshot_text") or "",
+            "photo": schedule.get("snapshot_photo"),
+            "video": schedule.get("snapshot_video"),
+            "media_type": schedule.get("snapshot_media_type"),
+            "buttons": sb or [],
+        }
+    content = await build_message_content(
+        conn=db, tpl_type=tpl_type,
+        tmpl_text=schedule["tmpl_text"] or "",
+        photo_url=schedule["tmpl_photo"],
+        btn_text=schedule["tmpl_btn_text"],
+        btn_url=schedule["tmpl_btn_url"] or "",
+        event_id=event_id, session_id=schedule.get("session_id"),
+        fire_at=schedule["fire_at"], tz=tz,
+        template_id=schedule.get("template_id"), snapshot=snap,
+        video_url=schedule["tmpl_video"], media_type=schedule["tmpl_media_type"],
+        speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
+        subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
+    )
+    # subject → жирной первой строкой (как в реальной отправке).
+    subj = (content.get("subject") or "").strip()
+    if subj:
+        content = dict(content)
+        content["text"] = f"<b>{subj}</b>\n\n{content.get('text') or ''}"
     results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token)
     sent = sum(1 for r in results if r.get("ok"))
     return {"ok": True, "sent": sent, "total": len(results), "results": results}
