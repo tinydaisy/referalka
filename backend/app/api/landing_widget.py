@@ -45,17 +45,7 @@ def _set_cors(response: Response) -> None:
         response.headers[k] = v
 
 
-# Sort коллабораторов для лендинга — БЕЗ приоритета is_commercial.
-# Жёсткий порядок групп (2026-07-04): организатор → жюри → партнёры → спикеры.
-# Внутри группы — referrals DESC, priority ASC, id ASC.
-_GROUP_RANK_FLAT = """CASE
-    WHEN cse.role = 'organizer'                      THEN 1
-    WHEN cse.role = 'jury'                           THEN 2
-    WHEN cse.role IN ('general_partner', 'partner')  THEN 3
-    WHEN cse.role IN ('headliner', 'speaker')        THEN 4
-    ELSE 5
-  END"""
-
+# Число приведённых людей коллаба (для сортировки по рефералам).
 _REFERRALS_COUNT = """COALESCE((
     SELECT COUNT(*) FROM event_participants ep
      WHERE ep.event_id = cse.event_id
@@ -66,13 +56,6 @@ _REFERRALS_COUNT = """COALESCE((
           WHERE co_sort.id = cse.speaker_id
        )
   ), 0)"""
-
-_ORDER_BY = (
-    f"{_GROUP_RANK_FLAT} ASC, "
-    f"{_REFERRALS_COUNT} DESC, "
-    f"COALESCE(cse.priority, 60) ASC, "
-    f"cse.id ASC"
-)
 
 
 def _parse_jsonb(value) -> list:
@@ -168,10 +151,41 @@ async def widget_tariffs(
     }
 
 
+def _media_total(media_assets: list) -> int:
+    """Сумма подписчиков по всем медийным активам ([{platform, subscribers}])."""
+    total = 0
+    for a in (media_assets or []):
+        if isinstance(a, dict):
+            try:
+                total += int(a.get("subscribers") or 0)
+            except (ValueError, TypeError):
+                pass
+    return total
+
+
+def _sort_group(rows: list, mode: str) -> list:
+    """Сортировка группы коллабораторов.
+    mode='media'      → по медийным активам (сумма подписчиков) DESC.
+    mode='referrals'  (default) → по числу приведённых людей DESC.
+    Тай-брейкеры одинаковые: priority ASC → id ASC (стабильно)."""
+    if mode == "media":
+        key = lambda d: (-_media_total(d.get("media_assets")),
+                         d.get("priority") if d.get("priority") is not None else 60,
+                         d.get("id") or 0)
+    else:  # referrals (default)
+        key = lambda d: (-int(d.get("referrals") or 0),
+                         d.get("priority") if d.get("priority") is not None else 60,
+                         d.get("id") or 0)
+    return sorted(rows, key=key)
+
+
 @router.get("/events/{slug}/collaborators", summary="Все коллабораторы события (для лендинга)")
 async def widget_collaborators(
     slug: str,
     response: Response,
+    sort_jury: str = "referrals",
+    sort_speakers: str = "referrals",
+    sort_partners: str = "referrals",
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Плоский список коллабораторов события, сгруппированный по 4 ролям.
@@ -181,8 +195,14 @@ async def widget_collaborators(
 
     Группы: organizers / jury / speakers (headliner+speaker) /
     partners (general_partner+partner).
-    Сортировка внутри группы — БЕЗ приоритета is_commercial:
-    role > referrals DESC > priority ASC > id ASC.
+
+    ⚙️ GET-параметры сортировки внутри группы (каждый — 'referrals' или 'media'):
+      • sort_jury      — как сортировать жюри (default 'referrals')
+      • sort_speakers  — как сортировать спикеров (default 'referrals')
+      • sort_partners  — как сортировать партнёров (default 'referrals')
+    'referrals' = по числу приведённых людей (DESC), 'media' = по сумме
+    подписчиков в медийных активах (DESC). Organizers всегда по referrals.
+    Тай-брейкеры: priority ASC → id ASC.
     """
     _set_cors(response)
     event = await _resolve_event(db, slug)
@@ -205,12 +225,12 @@ async def widget_collaborators(
                    c.tg_channel_url, c.vk_url, c.max_url,
                    c.instagram_url, c.website_url,
                    c.media_assets,
-                   ct.ref_code
+                   ct.ref_code,
+                   {_REFERRALS_COUNT} AS referrals
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
               LEFT JOIN contacts ct ON ct.id = c.contact_id
-             WHERE cse.event_id = $1
-             ORDER BY {_ORDER_BY}""",
+             WHERE cse.event_id = $1""",
         event_id,
     )
 
@@ -224,6 +244,8 @@ async def widget_collaborators(
         d = dict(r)
         d["achievements"] = d.get("achievements") or []
         d["media_assets"] = _parse_jsonb(d.get("media_assets"))
+        d["referrals"] = int(d.get("referrals") or 0)
+        d["media_total"] = _media_total(d["media_assets"])
         bucket = _group_for(d.get("role"))
         if bucket in groups:
             groups[bucket].append(d)
@@ -231,10 +253,11 @@ async def widget_collaborators(
     return {
         "event_slug": event["slug"],
         "event_id": event_id,
-        "organizers": groups["organizers"],
-        "jury": groups["jury"],
-        "speakers": groups["speakers"],
-        "partners": groups["partners"],
+        "sort": {"jury": sort_jury, "speakers": sort_speakers, "partners": sort_partners},
+        "organizers": _sort_group(groups["organizers"], "referrals"),
+        "jury": _sort_group(groups["jury"], sort_jury),
+        "speakers": _sort_group(groups["speakers"], sort_speakers),
+        "partners": _sort_group(groups["partners"], sort_partners),
     }
 
 
