@@ -171,6 +171,7 @@ export default function ConferenceSpeakerPage() {
     show_topic_field: true,
     show_gift_after_speech_field: true,
     show_knowledge_base_field: false,
+    show_notes_field: false,
     show_partner_registration_link: true,
     notes: '',
     is_commercial: false,
@@ -275,6 +276,7 @@ export default function ConferenceSpeakerPage() {
           show_topic_field: sp.show_topic_field !== false,
           show_gift_after_speech_field: sp.show_gift_after_speech_field !== false,
           show_knowledge_base_field: !!sp.show_knowledge_base_field,
+          show_notes_field: !!sp.show_notes_field,
           show_partner_registration_link: sp.show_partner_registration_link !== false,
           notes: sp.notes || '',
           is_commercial: sp.is_commercial || false,
@@ -456,6 +458,7 @@ export default function ConferenceSpeakerPage() {
         show_topic_field: eventForm.show_topic_field,
         show_gift_after_speech_field: eventForm.show_gift_after_speech_field,
         show_knowledge_base_field: eventForm.show_knowledge_base_field,
+        show_notes_field: eventForm.show_notes_field,
         show_partner_registration_link: eventForm.show_partner_registration_link,
         notes: eventForm.notes,
         is_commercial: eventForm.is_commercial,
@@ -716,6 +719,12 @@ export default function ConferenceSpeakerPage() {
               onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
             <span>Материал в базу знаний — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_notes_field}
+              onChange={e => setEventForm(f => ({ ...f, show_notes_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Заметки — спикер может заполнить сам</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_partner_registration_link}

@@ -603,6 +603,8 @@ class SpeakerEventUpdate(BaseModel):
     show_topic_field: Optional[bool] = None
     show_gift_after_speech_field: Optional[bool] = None
     show_knowledge_base_field: Optional[bool] = None
+    # Показывать ли спикеру поле «Заметки» в его кабинете (миграция 201).
+    show_notes_field: Optional[bool] = None
     # Показывать ли спикеру в его кабинете блок «Регистрация партнёром»
     # клиента (миграция 123). Default TRUE; при саморегистрации через
     # бот выставляется FALSE — самозаписавшимся партнёрку не агитируем
@@ -747,7 +749,7 @@ async def list_event_speakers(
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
-                  cse.show_knowledge_base_field,
+                  cse.show_knowledge_base_field, cse.show_notes_field,
                   cse.show_partner_registration_link,
                   cse.poster_id,
                   cse.announcement_poster_ids,
@@ -2310,6 +2312,7 @@ class SpeakerSelfUpdate(BaseModel):
     show_topic_field: Optional[bool] = None
     show_gift_after_speech_field: Optional[bool] = None
     show_knowledge_base_field: Optional[bool] = None
+    show_notes_field: Optional[bool] = None
 
 
 @router.get("/speakers/by-code/{ref_code}", summary="Профиль спикера по ref_code (без авторизации)")
@@ -2421,7 +2424,7 @@ async def update_speaker_by_ref_code(
               "gift_raffle_title", "gift_raffle_url",
               "knowledge_base_title", "knowledge_base_url",
               "show_topic_field", "show_gift_after_speech_field",
-              "show_knowledge_base_field"):
+              "show_knowledge_base_field", "show_notes_field"):
         v = getattr(data, f, None)
         if v is not None:
             event_updates[f] = v
@@ -2564,7 +2567,7 @@ async def update_speaker_as_editor(
               "keyword_code",
               "knowledge_base_title", "knowledge_base_url",
               "show_topic_field", "show_gift_after_speech_field",
-              "show_knowledge_base_field"]:
+              "show_knowledge_base_field", "show_notes_field"]:
         v = getattr(data, k, None)
         if v is not None:
             event_updates[k] = v

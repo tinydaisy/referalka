@@ -163,8 +163,9 @@ async def get_me(
                   c.linked_client_id,
                   (SELECT lc.email FROM clients lc WHERE lc.id = c.linked_client_id) AS linked_client_email,
                   cse.knowledge_base_title, cse.knowledge_base_url,
+                  cse.notes,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
-                  cse.show_knowledge_base_field,
+                  cse.show_knowledge_base_field, cse.show_notes_field,
                   cse.bot_in_channel,
                   c.id AS collaborator_id, c.name, c.title, c.achievements,
                   c.photo_url,
@@ -324,6 +325,9 @@ class CabinetUpdate(BaseModel):
     gift_raffle_url: Optional[str] = None
     knowledge_base_title: Optional[str] = None
     knowledge_base_url: Optional[str] = None
+    # Заметки спикера (event_collaborators.notes) — если организатор включил
+    # тоггл show_notes_field, спикер может редактировать своё поле «Заметки».
+    notes: Optional[str] = None
     # Подарок-лид-магнит из ПЛЮСОН-аккаунта спикера (миграция 167).
     # Передаётся {gift_lead_magnet_id} ИЛИ {gift_package_id}; чтобы снять —
     # передать gift_lead_magnet_id=0 (обнуляет обе привязки). Legacy-одиночный.
@@ -475,7 +479,7 @@ async def patch_me(
     ev_upd = {}
     for f in ("gift_after_speech_title", "gift_after_speech_url",
               "gift_raffle_title", "gift_raffle_url",
-              "knowledge_base_title", "knowledge_base_url"):
+              "knowledge_base_title", "knowledge_base_url", "notes"):
         if f in sent_fields:
             ev_upd[f] = getattr(data, f, None)  # может быть и None → SET NULL
     if ev_upd:

@@ -77,9 +77,11 @@ type SpeakerMe = {
   gift_raffle_url: string | null
   knowledge_base_title: string | null
   knowledge_base_url: string | null
+  notes: string | null
   show_topic_field: boolean
   show_gift_after_speech_field: boolean
   show_knowledge_base_field: boolean
+  show_notes_field: boolean
   raffle_enabled: boolean | null
   // subscribers — число в тысячах (float, например 19.9 = 19.9к)
   media_assets: { platform: string; subscribers: number }[] | null
@@ -334,6 +336,9 @@ export default function SpeakerCabinetPage() {
       if (me.show_knowledge_base_field) {
         payload.knowledge_base_title = me.knowledge_base_title
         payload.knowledge_base_url = me.knowledge_base_url
+      }
+      if (me.show_notes_field) {
+        payload.notes = me.notes
       }
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me`, {
         method: 'PATCH',
@@ -1114,6 +1119,20 @@ export default function SpeakerCabinetPage() {
             <input style={inputCss} value={me.knowledge_base_title || ''} onChange={(e) => update({ knowledge_base_title: e.target.value })} placeholder="Например: Презентация выступления" />
             <label style={labelCss}>Ссылка</label>
             <input style={inputCss} value={me.knowledge_base_url || ''} onChange={(e) => update({ knowledge_base_url: e.target.value })} placeholder="https://…" />
+          </Section>
+        )}
+
+        {me.show_notes_field && (
+          <Section title="Заметки">
+            <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
+              Здесь можно оставить заметки для организатора — их видит только он в вашей карточке.
+            </div>
+            <textarea
+              style={{ ...inputCss, minHeight: 90, resize: 'vertical', fontFamily: 'inherit' }}
+              value={me.notes || ''}
+              onChange={(e) => update({ notes: e.target.value })}
+              placeholder="Например: удобное время созвона, пожелания по гонорару, реквизиты…"
+            />
           </Section>
         )}
 

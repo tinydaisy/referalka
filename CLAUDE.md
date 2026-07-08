@@ -921,6 +921,7 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 - `collaborators.vk_url`, `collaborators.max_url` — публичные каналы спикера (по аналогии с `tg_channel_url`, `instagram_url`).
 - `event_collaborators.knowledge_base_title`, `knowledge_base_url` — один материал в базу знаний на событие.
 - `event_collaborators.show_topic_field` BOOL DEFAULT TRUE, `show_gift_after_speech_field` BOOL DEFAULT TRUE, `show_knowledge_base_field` BOOL DEFAULT FALSE.
+- **`event_collaborators.show_notes_field` BOOL DEFAULT FALSE (миграция 201 от 2026-07-08).** Тоггл «Заметки — спикер может заполнить сам» в блоке «Что спикер видит в своей форме» ([speakers/[speakerId]/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/speakers/%5BspeakerId%5D/page.tsx)). Включён → в кабинете спикера [/speaker/<slug>](web/src/app/speaker/%5Bevent_slug%5D/page.tsx) появляется секция «Заметки» (textarea), сохраняется в `event_collaborators.notes` через `PATCH /public/speaker-cabinet/me { notes }` ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py), `notes` в `CabinetUpdate` + `ev_upd` по `model_fields_set`). Организатор видит эти заметки в поле «Заметки» карточки спикера в дашборде (та же колонка `notes`). Default FALSE (opt-in, как knowledge_base).
 
 **⚠️ ЖЁСТКИЕ ПРАВИЛА — не плодить дубли:**
 
