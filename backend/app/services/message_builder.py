@@ -389,17 +389,34 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         if t0:
             glist = [(t0, u0)]
 
-    def _gifts_block():
-        # «Название\nссылка» по каждому подарку, разделитель — пустая строка
+    def _gifts_block(numbered=False):
+        # По каждому подарку «Название\nссылка», разделитель между подарками —
+        # 2 переноса строки (пустая строка). numbered=True → «1. Название\nссылка».
         parts = []
-        for t, u in glist:
-            parts.append(f"{t}\n{u}" if u else t)
+        for i, (t, u) in enumerate(glist, 1):
+            head = f"{i}. {t}" if numbered else t
+            parts.append(f"{head}\n{u}" if u else head)
         return "\n\n".join(parts)
 
     title = glist[0][0] if glist else ""
     url = glist[0][1] if glist else ""
 
     tmpl = (tmpl_text or "").strip()
+    # Единый плейсхолдер {gifts} — нумерованный список всех подарков:
+    # «1. Название\nссылка\n\n2. Название\nссылка …». Пусто → строка убирается.
+    if tmpl and "{gifts}" in tmpl:
+        text = tmpl
+        if glist:
+            text = text.replace("{gifts}", _gifts_block(numbered=True))
+        else:
+            text = re.sub(r"^[^\n]*\{gifts\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not tg_mention:
+            text = re.sub(r"^[^\n]*\{personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        text = (text
+                .replace("{speaker_name}", speaker_name or "")
+                .replace("{personal_tg}", tg_mention))
+        return text.strip()
+
     if tmpl and any(p in tmpl for p in ("{speaker_name}", "{gift_title}", "{gift_url}", "{personal_tg}")):
         text = tmpl
         multi = len(glist) > 1
