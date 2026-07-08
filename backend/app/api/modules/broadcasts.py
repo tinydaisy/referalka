@@ -1625,6 +1625,11 @@ class AddCustomRequest(BaseModel):
     send_to_private_chats: bool = False
     # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
     request_owner_confirm: bool = False
+    # Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
+    # спикерские плейсхолдеры и подставляется его фото. None = обычное сообщение.
+    speaker_ec_id: Optional[int] = None
+    # Поставить сразу в очередь (pending) или оставить черновиком (draft).
+    enqueue: bool = True
 
 
 def _resolve_snapshot_media(photo_url: Optional[str], video_url: Optional[str],
@@ -1717,6 +1722,16 @@ async def add_custom_schedule(
 
     buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
 
+    # Проверяем, что выбранный спикер принадлежит этому событию.
+    speaker_ec_id = data.speaker_ec_id
+    if speaker_ec_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM event_collaborators WHERE id=$1 AND event_id=$2",
+            speaker_ec_id, event_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Выбранный спикер не найден в этом событии")
+
+    status_val = "pending" if data.enqueue else "draft"
     import json as _json
     snap_photo, snap_video, snap_mtype = _resolve_snapshot_media(data.photo_url, data.video_url, data.media_type)
     row = await db.fetchrow(
@@ -1727,12 +1742,13 @@ async def add_custom_schedule(
            snapshot_text, snapshot_photo, snapshot_buttons,
            snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats,
            send_to_private_chats, client_id)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
-        data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id
+        data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id,
+        speaker_ec_id, status_val
     )
     result = dict(row)
     # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).
@@ -1781,6 +1797,14 @@ async def edit_custom_schedule(
     if cur["status"] == "pending":
         _assert_fire_at_not_past(dt_utc)
 
+    speaker_ec_id = data.speaker_ec_id
+    if speaker_ec_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM event_collaborators WHERE id=$1 AND event_id=$2",
+            speaker_ec_id, event_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Выбранный спикер не найден в этом событии")
+
     import json as _json
     buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
     snap_photo, snap_video, snap_mtype = _resolve_snapshot_media(data.photo_url, data.video_url, data.media_type)
@@ -1791,14 +1815,15 @@ async def edit_custom_schedule(
             audience_include = $3, audience_exclude = $4,
             snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
             snapshot_video = $8, snapshot_media_type = $9,
-            send_to_event_chats = $12, send_to_client_chats = $13, send_to_private_chats = $14
+            send_to_event_chats = $12, send_to_client_chats = $13, send_to_private_chats = $14,
+            session_id = $15
         WHERE id = $10 AND event_id = $11 AND type = 'custom'
         RETURNING id, type, fire_at, status, is_test
         """,
         dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         schedule_id, event_id, data.send_to_event_chats, data.send_to_client_chats,
-        data.send_to_private_chats,
+        data.send_to_private_chats, speaker_ec_id,
     )
     return dict(row)
 

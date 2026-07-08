@@ -33,6 +33,15 @@ function audienceLabel(inc: string, exc: string): string {
   return excLabel ? `${incLabel} ${excLabel}` : incLabel
 }
 
+const ROLE_RU: Record<string, string> = {
+  organizer: 'Организатор',
+  jury: 'Жюри',
+  headliner: 'Хедлайнер',
+  speaker: 'Спикер',
+  general_partner: 'Генеральный партнёр',
+  partner: 'Партнёр',
+}
+
 const STATUS_COLOR: Record<string, string> = {
   draft:     'bg-gray-50 border-gray-100',
   pending:   'bg-amber-50 border-amber-200',
@@ -1621,6 +1630,16 @@ function CustomBroadcastModal(props: {
   const [saving, setSaving] = useState(false)
   // Коллаб-событие (только при создании) — запрос подтверждения соорганизаторам.
   const [reqConfirm, setReqConfirm] = useState(false)
+  // Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
+  // спикерские плейсхолдеры и подставляется фото. null = обычное сообщение.
+  const [speakerEcId, setSpeakerEcId] = useState<number | null>(ed?.session_id ?? null)
+  const [collabs, setCollabs] = useState<any[]>([])
+  const [enqueue, setEnqueue] = useState(true)
+  useEffect(() => {
+    api.events.listCollaborators(props.eventId)
+      .then((r: any) => setCollabs(Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])))
+      .catch(() => setCollabs([]))
+  }, [props.eventId])
 
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
@@ -1645,6 +1664,8 @@ function CustomBroadcastModal(props: {
         send_to_event_chats: sendToChats,
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
+        speaker_ec_id: speakerEcId,
+        enqueue: enqueue,
         ...(props.isCollab && !ed?.id && reqConfirm ? { request_owner_confirm: true } : {}),
       }
       if (ed?.id) {
@@ -1673,6 +1694,28 @@ function CustomBroadcastModal(props: {
             <input type="datetime-local" value={fireAt} onChange={e => setFireAt(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
+
+          {/* Выбор спикера/организатора/жюри — тогда работают спикерские плейсхолдеры + фото */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Спикер (для плейсхолдеров и фото) — необязательно</label>
+            <select
+              value={speakerEcId ?? ''}
+              onChange={e => setSpeakerEcId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+              <option value="">Без спикера (обычное сообщение)</option>
+              {collabs.map((c: any) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.role ? ` — ${ROLE_RU[c.role] || c.role}` : ''}
+                </option>
+              ))}
+            </select>
+            {speakerEcId && (
+              <p className="text-[11px] text-gray-500 mt-1">
+                Работают плейсхолдеры {'{speaker_name}'}, {'{speaker_positioning}'}, {'{speaker_achievements}'}, {'{speaker_socials}'}, {'{speaker_material}'}, {'{stream_url}'} и др. Фото возьмётся из карточки спикера, если своё не загружено.
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Фото (опционально)</label>
             <FileUploader
@@ -1766,6 +1809,12 @@ function CustomBroadcastModal(props: {
               </select>
             </div>
           </div>
+          {!ed?.id && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={!enqueue} onChange={e => setEnqueue(!e.target.checked)} className="rounded" />
+              <span className="text-sm text-gray-600">Сохранить черновиком (не ставить сразу в очередь)</span>
+            </label>
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым Telegram ID)</span>
@@ -1813,7 +1862,7 @@ function CustomBroadcastModal(props: {
           <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
             style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : hasButtonErrors ? 'Исправьте кнопки' : 'Поставить в очередь'}
+            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : hasButtonErrors ? 'Исправьте кнопки' : (ed?.id ? 'Сохранить' : (enqueue ? 'Поставить в очередь' : 'Сохранить черновик'))}
           </button>
           <button onClick={props.onClose}
             className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">

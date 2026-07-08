@@ -119,6 +119,7 @@ _SPEAKER_ONLY_PLACEHOLDERS = (
     "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
     "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
     "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
+    "speaker_notes", "speaker_ask_topics",
     "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
 )
 CONF_TYPES = ("pre_conf",)
@@ -560,6 +561,101 @@ async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
     return text, btn_url
 
 
+async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_photo_mode="poster",
+                                        photo_already=None):
+    """Раскрывает спикерские плейсхолдеры для ПРОИЗВОЛЬНОЙ рассылки, где клиент
+    выбрал спикера/организатора/жюри (ec_id = event_collaborators.id). Возвращает
+    (text, photo, buttons). Плейсхолдеры/фото — те же, что в speaker_intro/expert_day;
+    дополнительно раскрывает {stream_url}/{landing_url}/{registration_url} в тексте и
+    в кнопках (для «ссылки на эфир»)."""
+    sp = await conn.fetchrow(
+        """
+        SELECT c.name as speaker_name,
+               (SELECT url FROM collaborator_posters cp
+                  WHERE cp.id = cse.poster_id OR
+                        (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                  ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
+                  LIMIT 1) as speaker_poster,
+               c.photo_url AS speaker_photo,
+               pu_tg.username AS personal_tg_username,
+               c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
+               c.title AS positioning, c.hub_about AS bio, c.achievements,
+               cse.id AS ec_id, cse.role, cse.gift_after_speech_title,
+               cse.gift_raffle_title, cse.notes AS speaker_notes,
+               c.ask_topics AS speaker_ask_topics,
+               cse.knowledge_base_title, cse.knowledge_base_url,
+               e.slug AS event_slug, e.landing_url AS registration_url, e.stream_url,
+               (SELECT cs.start_time FROM conf_sessions cs
+                  WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                  ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_start,
+               (SELECT cs.end_time FROM conf_sessions cs
+                  WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                  ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_end,
+               (SELECT cd.day_date FROM conf_sessions cs
+                  LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
+                  WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                  ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_date,
+               cl.default_link_mode,
+               (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+                  WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
+                    AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
+        FROM event_collaborators cse
+        JOIN collaborators c ON c.id = cse.speaker_id
+        JOIN events e ON e.id = cse.event_id
+        JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+        LEFT JOIN platform_users pu_tg
+          ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
+        WHERE cse.id=$1
+        """,
+        ec_id
+    )
+    if not sp:
+        return text, photo_already, buttons
+
+    topics = await conn.fetch(
+        "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order", ec_id)
+    topic = "\n".join((t["topic"] or "").strip() for t in topics if (t["topic"] or "").strip())
+    card_link = speaker_card_link(sp["event_slug"], sp["ec_id"], sp["default_link_mode"], sp["bot_handle"])
+    sp_time, sp_date, sp_dt = _build_speaker_slot_strings(sp["slot_start"], sp["slot_end"], sp["slot_date"])
+
+    text = build_speaker_intro_message(
+        text, sp["speaker_name"], sp["personal_tg_username"],
+        sp["tg_channel_url"], sp["instagram_url"], sp["achievements"], sp["role"],
+        topic, sp["gift_after_speech_title"], sp["gift_raffle_title"], sp["registration_url"],
+        bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
+        vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
+        speaker_notes=sp["speaker_notes"], speaker_ask_topics=sp["speaker_ask_topics"],
+        speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
+    )
+    text = apply_speaker_material(
+        text, build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]))
+
+    # {stream_url}/{landing_url}/{registration_url} — «ссылка на эфир» / регистрация.
+    stream_v = (sp["stream_url"] or "").strip()
+    reg_v = (sp["registration_url"] or "").strip()
+    repl = {"{stream_url}": stream_v, "{landing_url}": reg_v, "{registration_url}": reg_v}
+    for token, val in repl.items():
+        if token in text:
+            if val:
+                text = text.replace(token, val)
+            else:
+                text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", text, flags=re.MULTILINE)
+    buttons = [{**b, "url": _apply_repl(b.get("url") or "", repl)} for b in (buttons or [])]
+
+    # Фото: режим 'photo' → сначала фото коллаба, иначе афиша.
+    photo = photo_already
+    if not photo:
+        photo = (sp["speaker_photo"] or sp["speaker_poster"]) if speaker_photo_mode == "photo" \
+            else (sp["speaker_poster"] or sp["speaker_photo"])
+    return text, photo, buttons
+
+
+def _apply_repl(s: str, repl: dict) -> str:
+    for k, v in repl.items():
+        s = s.replace(k, v)
+    return s
+
+
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
                                  template_id=None, snapshot=None,
@@ -612,14 +708,29 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             raw_buttons = [{**b, "url": (b.get("url") or "").replace(token, val)} for b in raw_buttons]
         raw_text = raw_text.replace("{brand_name}", g["brand_name"])
         raw_buttons = [{**b, "url": (b.get("url") or "").replace("{brand_name}", g["brand_name"])} for b in raw_buttons]
-        # Спикерские плейсхолдеры в произвольной рассылке заполнить нечем (спикер не
-        # выбирается) — вырезаем их строки, чтобы не ушли получателю сырыми.
+        # Если у произвольной рассылки выбран спикер (session_id = event_collaborators.id) —
+        # раскрываем спикерские плейсхолдеры и подставляем его фото (как в speaker_intro).
+        custom_photo = snap_photo
+        if session_id:
+            _sp_text, _sp_photo, _sp_btns = await _resolve_speaker_placeholders(
+                conn, session_id, raw_text, raw_buttons, speaker_photo_mode,
+                photo_already=custom_photo)
+            raw_text = _sp_text
+            raw_buttons = _sp_btns
+            if not custom_photo:
+                custom_photo = _sp_photo
+        # Оставшиеся (незаполненные) спикерские плейсхолдеры вырезаем, чтобы не ушли
+        # получателю сырыми — как при отсутствии выбранного спикера.
         for ph in _SPEAKER_ONLY_PLACEHOLDERS:
             token = "{" + ph + "}"
             if token in raw_text:
                 raw_text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
                 raw_text = raw_text.replace(token, "")
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
+        if session_id and custom_photo and snap_mtype != "video":
+            snap_photo = custom_photo
+            if not snap_mtype:
+                snap_mtype = "photo"
         return {
             "text": raw_text,
             "photo": (snap_photo or photo_url) if snap_mtype != "video" else None,
