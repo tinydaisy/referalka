@@ -307,11 +307,30 @@ export default function QueuePage() {
     }
   }
 
-  async function cancelAll() {
-    if (!confirm('Снять все ожидающие рассылки с очереди? Они станут черновиками — их можно будет запустить снова.')) return
-    await api.conference.schedules.cancelAll(eventId)
-    await load()
-    showMsg('Все ожидающие рассылки сняты с очереди (стали черновиками)')
+  const [cancellingSel, setCancellingSel] = useState(false)
+  async function cancelSelected() {
+    const ids = [...selectedIds]
+    const sel = schedules.filter(s => ids.includes(s.id))
+    // Снимать можно только те, что реально в очереди / отправляются.
+    const cancelable = sel.filter(s => s.status === 'pending' || s.status === 'running')
+    if (cancelable.length === 0) {
+      alert('Среди выбранных нет рассылок в очереди. Снять можно только «Ожидает отправки» / «Отправляется сейчас».')
+      return
+    }
+    if (!confirm(`Снять с очереди ${cancelable.length} рассылок? Они станут черновиками — их можно будет запустить снова.`)) return
+    setCancellingSel(true)
+    try {
+      for (const s of cancelable) {
+        await api.conference.schedules.cancel(eventId, s.id)
+      }
+      await load()
+      setSelectedIds(new Set())
+      showMsg(`Снято с очереди: ${cancelable.length} (стали черновиками)`)
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    } finally {
+      setCancellingSel(false)
+    }
   }
 
   async function cancelOne(scheduleId: number) {
@@ -629,17 +648,15 @@ export default function QueuePage() {
 
       {/* ── Кнопки управления ── */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        {pendingCount > 0 && (
-          <button onClick={cancelAll}
-            className="flex items-center gap-2 px-3 py-2 border border-red-200 rounded-xl text-sm text-red-500 hover:bg-red-50">
-            <XCircle size={14} /> Отменить все
-          </button>
-        )}
         {selectedIds.size > 0 && (
           <>
             <button onClick={runSelected} disabled={runningSelected}
               className="flex items-center gap-2 px-3 py-2 border border-green-300 rounded-xl text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
               <Play size={14} /> {runningSelected ? 'Запускаем...' : `Запустить выбранные (${selectedIds.size})`}
+            </button>
+            <button onClick={cancelSelected} disabled={cancellingSel}
+              className="flex items-center gap-2 px-3 py-2 border border-amber-300 rounded-xl text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+              <XCircle size={14} /> {cancellingSel ? 'Снимаем...' : `Отменить выбранные (${selectedIds.size})`}
             </button>
             <button onClick={deleteSelected} disabled={deleting}
               className="flex items-center gap-2 px-3 py-2 border border-red-300 rounded-xl text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50">
