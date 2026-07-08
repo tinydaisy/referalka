@@ -134,7 +134,7 @@ async def handle_max_update(secret: str, request: Request):
     # Убрать после разовой задачи получения ID каналов.
     try:
         import json as _json_dbg
-        logger.info("MAX RAW UPDATE: %s", _json_dbg.dumps(update, ensure_ascii=False)[:2000])
+        logger.warning("MAX RAW UPDATE: %s", _json_dbg.dumps(update, ensure_ascii=False)[:2000])
     except Exception:
         pass
 
@@ -986,6 +986,7 @@ async def _process_start(
     client_id_override: int | None,
 ) -> None:
     """Общий код для /start и bot_started. Регистрирует контакт и шлёт welcome."""
+    logger.warning(f"MAX _process_start DEBUG: payload={payload!r} user={user_id} client_override={client_id_override}")
     name = sender.get("name", "") or ""
     first_name = name.split()[0] if name else "друг"
     last_name = " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
