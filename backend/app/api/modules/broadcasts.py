@@ -239,21 +239,22 @@ DEFAULT_TEMPLATES = [
             "<b>Как принять участие:</b>\n"
             "1️⃣ Напишите сейчас свой вопрос в чат: {event_chat_tg}\n"
             "2️⃣ Обязательно отметьте никнейм эксперта: {speaker_tg_username}\n"
-            "3️⃣ Завтра с 10:00 до 11:00 по МСК {speaker_name} лично ответит в чате на ваши вопросы\n"
+            "3️⃣ Завтра с 10:00 до 12:00 по МСК {speaker_name} лично ответит в чате на ваши вопросы\n"
             "4️⃣ Будьте в это время в чате — чтобы задать уточняющие вопросы в моменте\n\n"
             "——\n"
             "<b>{speaker_name}:</b>\n"
             "{speaker_achievements}\n\n"
             "<b>Соц сети:</b>\n"
             "{speaker_socials}\n\n"
+            "{speaker_material}\n\n"
             "——\n"
-            "<b>‼️ Экспертный день пройдёт в чате Телеграм!\n"
+            "<b>‼️ Внимание! Экспертный день пройдёт в чате Телеграм!\n"
             "Пишите свои вопросы 👇</b>\n"
             "{event_chat_tg}"
         ),
         "photo_url": None,
-        "button_text": None,
-        "button_url": None,
+        "button_text": "ЗАДАТЬ ВОПРОС В ЧАТЕ",
+        "button_url": "{event_chat_tg}",
         "schedule_mode": "custom_datetime",
         "offset_minutes": 0,
         "audience_include": "all_client",
@@ -826,7 +827,7 @@ async def list_schedules(
                cs.title as session_title,
                cs.start_time, cs.end_time,
                CASE
-                 WHEN bs.type = 'speaker_intro' THEN ci.name
+                 WHEN bs.type IN ('speaker_intro', 'expert_day') THEN ci.name
                  ELSE c.name
                END as speaker_name,
                bs.session_id,
@@ -837,10 +838,12 @@ async def list_schedules(
                bs.send_to_client_chats, bs.send_to_private_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
-        LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
+        -- speaker_intro/expert_day: session_id = event_collaborators.id (спикер),
+        -- у остальных session_id = conf_sessions.id (сессия программы).
+        LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type NOT IN ('speaker_intro', 'expert_day')
         LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
         LEFT JOIN collaborators c ON c.id = cse.speaker_id
-        LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type = 'speaker_intro'
+        LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type IN ('speaker_intro', 'expert_day')
         LEFT JOIN collaborators ci ON ci.id = cse_intro.speaker_id
         WHERE bs.event_id = $1
           -- Коллаб-событие: каждый организатор видит рассылки ПО СВОЕЙ базе —
@@ -2033,24 +2036,27 @@ async def force_reset_schedule(
     return {"ok": True, "message": "Рассылка сброшена в pending — Celery подхватит её на следующей минуте"}
 
 
-@router.post("/schedules/{schedule_id}/cancel", summary="Отменить рассылку")
+@router.post("/schedules/{schedule_id}/cancel", summary="Снять рассылку с очереди → черновик")
 async def cancel_schedule(
     event_id: int,
     schedule_id: int,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    """«Отменить» = снять из очереди и вернуть в ЧЕРНОВИК (не 'cancelled'), чтобы
+    рассылку можно было запустить снова. Celery берёт только 'pending' —
+    'draft' он не трогает, поэтому запись безопасно замирает как черновик."""
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
     await db.execute(
-        """UPDATE broadcast_schedules SET status='cancelled', finished_at=COALESCE(finished_at, NOW())
-           WHERE id=$1 AND event_id=$2 AND status IN ('pending','draft','running')""",
+        """UPDATE broadcast_schedules SET status='draft', finished_at=NULL, started_at=NULL, error_log=NULL
+           WHERE id=$1 AND event_id=$2 AND status IN ('pending','draft','running','cancelled')""",
         schedule_id, event_id
     )
     return {"ok": True}
 
 
-@router.post("/schedules/cancel-all", summary="Отменить все pending/draft рассылки")
+@router.post("/schedules/cancel-all", summary="Снять все pending рассылки с очереди → черновики")
 async def cancel_all_schedules(
     event_id: int,
     client=Depends(get_current_client),
@@ -2059,10 +2065,12 @@ async def cancel_all_schedules(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
     count = await db.fetchval(
-        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status IN ('pending','draft')", event_id
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status IN ('pending','running')", event_id
     )
     await db.execute(
-        "UPDATE broadcast_schedules SET status='cancelled' WHERE event_id=$1 AND status IN ('pending','draft')", event_id
+        """UPDATE broadcast_schedules SET status='draft', finished_at=NULL, started_at=NULL, error_log=NULL
+             WHERE event_id=$1 AND status IN ('pending','running')""",
+        event_id
     )
     return {"ok": True, "cancelled": count}
 

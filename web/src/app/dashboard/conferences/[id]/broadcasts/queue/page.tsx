@@ -308,15 +308,15 @@ export default function QueuePage() {
   }
 
   async function cancelAll() {
-    if (!confirm('Отменить все ожидающие рассылки?')) return
+    if (!confirm('Снять все ожидающие рассылки с очереди? Они станут черновиками — их можно будет запустить снова.')) return
     await api.conference.schedules.cancelAll(eventId)
     await load()
-    showMsg('Все ожидающие рассылки отменены')
+    showMsg('Все ожидающие рассылки сняты с очереди (стали черновиками)')
   }
 
   async function cancelOne(scheduleId: number) {
     await api.conference.schedules.cancel(eventId, scheduleId)
-    setSchedules(prev => prev.map(x => x.id === scheduleId ? { ...x, status: 'cancelled' } : x))
+    setSchedules(prev => prev.map(x => x.id === scheduleId ? { ...x, status: 'draft' } : x))
   }
 
   async function openPreview(schedule: any) {

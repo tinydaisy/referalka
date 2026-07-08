@@ -1002,15 +1002,35 @@ async def get_me_broadcasts(
     expert_day. Черновики (status='draft') не показываем — только «в очереди»
     (pending) и «отправлено» (done). У каждой — превью (текст+фото+кнопка)."""
     from zoneinfo import ZoneInfo
-    from app.services.message_builder import build_message_content
+    from app.services.message_builder import build_message_content, speaker_card_link
 
     se_id = int(session["se_id"])
     me = await db.fetchrow(
-        "SELECT event_id FROM event_collaborators WHERE id=$1", se_id
+        """SELECT cse.event_id, e.slug AS event_slug, e.landing_url,
+                  cl.default_link_mode,
+                  (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+                     WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
+                       AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
+             FROM event_collaborators cse
+             JOIN events e ON e.id = cse.event_id
+             JOIN clients cl ON cl.id = (
+                 SELECT eo.client_id FROM event_owners eo
+                  WHERE eo.event_id = e.id AND eo.status='accepted'
+                  ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+            WHERE cse.id=$1""",
+        se_id
     )
     if not me:
         raise HTTPException(status_code=404, detail="Спикер не найден")
     event_id = me["event_id"]
+
+    # Ссылка на карточку спикера в кабинете участника (Mini App или веб —
+    # по глобальной настройке клиента default_link_mode).
+    card_link = speaker_card_link(me["event_slug"], se_id,
+                                  me["default_link_mode"], me["bot_handle"])
+    # Ссылка на лендинг события: сторонний лендинг клиента, если задан,
+    # иначе — публичная веб-страница события.
+    landing_link = (me["landing_url"] or "").strip() or f"https://pluson.ru/event/{me['event_slug']}"
 
     rows = await db.fetch(
         """
@@ -1070,7 +1090,11 @@ async def get_me_broadcasts(
             "button_url": content.get("button_url"),
             "buttons": content.get("buttons") or [],
         })
-    return {"broadcasts": out}
+    return {
+        "broadcasts": out,
+        "card_link": card_link or None,
+        "landing_link": landing_link or None,
+    }
 
 
 @router.get("/me/invited", summary="Приглашённые спикером люди + его реф-статистика")

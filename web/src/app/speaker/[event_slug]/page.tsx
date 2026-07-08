@@ -729,15 +729,17 @@ export default function SpeakerCabinetPage() {
           </div>
         </div>
 
-        {/* Вкладки кабинета */}
+        {/* Вкладки кабинета — горизонтальный скролл, все в одну строку */}
         <div style={{
           display: 'flex', gap: 4, marginBottom: 14,
           borderBottom: '1px solid #d4dee5',
+          overflowX: 'auto', flexWrap: 'nowrap',
+          WebkitOverflowScrolling: 'touch',
         }}>
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
-            { key: 'broadcasts' as CabinetTab, label: 'Рассылки со мной' },
+            { key: 'broadcasts' as CabinetTab, label: 'Рекламные интеграции' },
             ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'slot' as CabinetTab, label: 'Мой слот' }] : []),
             { key: 'invited'   as CabinetTab, label: 'Приглашённые' },
             ...((me.role === 'jury' || me.role === 'organizer') ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
@@ -757,6 +759,8 @@ export default function SpeakerCabinetPage() {
                 fontSize: 14,
                 cursor: 'pointer',
                 marginBottom: -1,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}
             >
               {t.label}
@@ -1902,10 +1906,12 @@ function InvitedTab({ token }: { token: string }) {
   )
 }
 
-// ─────────────────────── Вкладка РАССЫЛКИ СО МНОЙ ───────────────────────
+// ─────────────────────── Вкладка РЕКЛАМНЫЕ ИНТЕГРАЦИИ ───────────────────────
 function MyBroadcastsTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<any[]>([])
+  const [cardLink, setCardLink] = useState<string | null>(null)
+  const [landingLink, setLandingLink] = useState<string | null>(null)
   const [preview, setPreview] = useState<any | null>(null)
 
   useEffect(() => {
@@ -1914,7 +1920,11 @@ function MyBroadcastsTab({ token }: { token: string }) {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
-      .then(d => setItems(d.broadcasts || []))
+      .then(d => {
+        setItems(d.broadcasts || [])
+        setCardLink(d.card_link || null)
+        setLandingLink(d.landing_link || null)
+      })
       .finally(() => setLoading(false))
   }, [token])
 
@@ -1934,15 +1944,47 @@ function MyBroadcastsTab({ token }: { token: string }) {
 
   if (loading) return <div style={{ padding: 20, color: '#7a8c9c' }}>Загрузка…</div>
 
+  const LinkBlock = ({ title, url, hint }: { title: string; url: string; hint?: string }) => (
+    <div style={{
+      background: '#fff', border: '1px solid #e1e8ee', borderRadius: 12,
+      padding: '12px 14px', marginBottom: 10,
+    }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 4 }}>{title}</div>
+      {hint && <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 6 }}>{hint}</div>}
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        style={{ fontSize: 13, color: '#2563eb', wordBreak: 'break-all', textDecoration: 'underline' }}>
+        {url}
+      </a>
+    </div>
+  )
+
   return (
     <div>
       <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '4px 0 6px' }}>
-        Рассылки со мной
+        Рекламные интеграции
       </h2>
       <p style={{ fontSize: 13, color: '#7a8c9c', margin: '0 0 14px' }}>
-        Здесь — рассылки этого события, в которых вы фигурируете (знакомство, анонс
-        выступления, подарок, экспертный день). Нажмите на глазик, чтобы посмотреть, как выглядит сообщение.
+        Всё для продвижения события с вами: ваша карточка в кабинете участника, лендинг события и рассылки, в которых вы фигурируете.
       </p>
+
+      {cardLink && (
+        <LinkBlock
+          title="Ваша карточка в кабинете участника"
+          hint="Ссылка на просмотр вашей карточки участниками события."
+          url={cardLink}
+        />
+      )}
+      {landingLink && (
+        <LinkBlock
+          title="ВЫ НА ЛЕНДИНГЕ"
+          hint="Лендинг события — покажите его своей аудитории."
+          url={landingLink}
+        />
+      )}
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: DARK, margin: '18px 0 8px' }}>
+        Рассылки с вами
+      </h3>
 
       {items.length === 0 ? (
         <div style={{ padding: 20, color: '#7a8c9c', textAlign: 'center' }}>
