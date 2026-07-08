@@ -794,7 +794,7 @@ export default function SpeakerCabinetPage() {
             Он сможет войти в этот кабинет по ссылке от организатора и получит ваш код доступа.
           </div>
 
-          <label style={labelCss}>Должность / роль</label>
+          <label style={labelCss}>Кто вы? Ваше позиционирование (кратко как роль/должность)</label>
           <input style={inputCss} value={me.title || ''} onChange={(e) => update({ title: e.target.value })} placeholder="Кто вы и чем занимаетесь" />
 
           <label style={labelCss}>Email</label>
@@ -827,6 +827,20 @@ export default function SpeakerCabinetPage() {
             Маркеры (•, *, —) можно не ставить — мы их сами уберём при сохранении.
           </div>
         </Section>
+
+        {me.show_notes_field && (
+          <Section title="Заметки">
+            <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
+              Здесь можно оставить заметки для организатора — их видит только он в вашей карточке.
+            </div>
+            <textarea
+              style={{ ...inputCss, minHeight: 90, resize: 'vertical', fontFamily: 'inherit' }}
+              value={me.notes || ''}
+              onChange={(e) => update({ notes: e.target.value })}
+              placeholder="Например: удобное время созвона, пожелания по гонорару, реквизиты…"
+            />
+          </Section>
+        )}
 
         <Section title="Соцсети и каналы">
           <div style={{ fontSize: 12, color: '#7a8c9c', marginTop: -2, marginBottom: 6, lineHeight: 1.5 }}>
@@ -1138,20 +1152,6 @@ export default function SpeakerCabinetPage() {
             <input style={inputCss} value={me.knowledge_base_title || ''} onChange={(e) => update({ knowledge_base_title: e.target.value })} placeholder="Например: Презентация выступления" />
             <label style={labelCss}>Ссылка</label>
             <input style={inputCss} value={me.knowledge_base_url || ''} onChange={(e) => update({ knowledge_base_url: e.target.value })} placeholder="https://…" />
-          </Section>
-        )}
-
-        {me.show_notes_field && (
-          <Section title="Заметки">
-            <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
-              Здесь можно оставить заметки для организатора — их видит только он в вашей карточке.
-            </div>
-            <textarea
-              style={{ ...inputCss, minHeight: 90, resize: 'vertical', fontFamily: 'inherit' }}
-              value={me.notes || ''}
-              onChange={(e) => update({ notes: e.target.value })}
-              placeholder="Например: удобное время созвона, пожелания по гонорару, реквизиты…"
-            />
           </Section>
         )}
 
