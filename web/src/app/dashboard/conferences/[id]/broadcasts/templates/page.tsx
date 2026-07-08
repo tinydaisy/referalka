@@ -30,7 +30,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -38,7 +38,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'expert_day',
     title: 'Экспертный день (вопросы эксперту)',
     hint: 'Анонс сессии вопросов-ответов с экспертом. Раскладывается по каждому выбранному коллабу (жюри/спикер/организатор), как знакомство со спикером. Ссылка на чат события подставляется автоматически.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_notes}', '{speaker_socials}', '{speaker_personal_tg}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_notes}', '{speaker_tg_username}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{brand_name}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -46,7 +46,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
+    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_role}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -133,8 +133,8 @@ const TYPE_DEFS: TypeDef[] = TYPE_DEFS_RAW.map(d => ({
 const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_name}', desc: 'Имя спикера' },
   { name: '{speaker_role}', desc: 'Роль спикера (Спикер / Хедлайнер / Жюри и т.п.)' },
-  { name: '{speaker_personal_tg}', desc: 'Все соцсети спикера списком (Telegram, VK, MAX, Instagram, сайт)' },
-  { name: '{speaker_socials}', desc: 'Все соцсети спикера списком (то же, что {speaker_personal_tg})' },
+  { name: '{speaker_tg_username}', desc: 'Личный ник спикера в Telegram (@username, кликабельный). Пусто — строка убирается' },
+  { name: '{speaker_socials}', desc: 'Все соцсети спикера списком (личный Telegram, TG-канал, VK, MAX, Instagram, сайт)' },
   { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
   { name: '{speaker_instagram}', desc: 'Нельзяграм спикера' },
   { name: '{speaker_topic}', desc: 'Тема выступления' },
@@ -153,6 +153,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{gift_url}', desc: 'Ссылка на подарок' },
   { name: '{stream_url}', desc: 'Ссылка на эфир (вебинарная комната дня)' },
   { name: '{landing_url}', desc: 'Ссылка на лендинг регистрации' },
+  { name: '{brand_name}', desc: 'Бренд клиента (из настроек; работает в любом типе рассылки)' },
   { name: '{conf_title}', desc: 'Название конференции' },
   { name: '{day_number}', desc: 'Номер дня (1, 2, 3…)' },
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
@@ -608,11 +609,28 @@ export default function TemplatesPage() {
         if (!giftRaffle) out = out.replace(/^[^\n]*\{gift_raffle_title\}[^\n]*\n?/gm, '')
         if (!tgChannel) out = out.replace(/^[^\n]*\{speaker_tg\}[^\n]*\n?/gm, '')
         if (!insta) out = out.replace(/^[^\n]*\{speaker_instagram\}[^\n]*\n?/gm, '')
-        if (!tgUrl) out = out.replace(/^[^\n]*\{speaker_personal_tg\}[^\n]*\n?/gm, '')
+        // {speaker_socials} — все соцсети спикера списком (личный TG, TG-канал, VK,
+        // MAX, Instagram, сайт). Старый синоним оставлен для совместимости.
+        const socialsLines: string[] = []
+        if (tgUrl) socialsLines.push(tgUrl)
+        if (tgChannel) socialsLines.push(tgChannel)
+        const vkU = (speaker.vk_url || '').trim(); if (vkU) socialsLines.push(vkU)
+        const maxU = (speaker.max_url || '').trim(); if (maxU) socialsLines.push(maxU)
+        if (insta) socialsLines.push(insta)
+        const siteU = (speaker.website_url || '').trim(); if (siteU) socialsLines.push(siteU)
+        const socialsBlock = socialsLines.join('\n')
+        if (!socialsBlock) {
+          out = out.replace(/^[^\n]*\{speaker_personal_tg\}[^\n]*\n?/gm, '')
+          out = out.replace(/^[^\n]*\{speaker_socials\}[^\n]*\n?/gm, '')
+        }
+        // {speaker_tg_username} — только личный @ник спикера в Telegram.
+        if (!tgUrl) out = out.replace(/^[^\n]*\{speaker_tg_username\}[^\n]*\n?/gm, '')
 
         // Потом подставляем значения
         out = out
-          .replace(/\{speaker_personal_tg\}/g, tgUrl)
+          .replace(/\{speaker_tg_username\}/g, tgUrl)
+          .replace(/\{speaker_personal_tg\}/g, socialsBlock)
+          .replace(/\{speaker_socials\}/g, socialsBlock)
           .replace(/\{speaker_name\}/g, speaker.name || '')
           .replace(/\{speaker_role\}/g, roleLabel)
           .replace(/\{speaker_topic\}/g, topic)
@@ -695,6 +713,22 @@ export default function TemplatesPage() {
           ? out.replace(/\{speaker_notes\}/g, notes)
           : out.replace(/^[^\n]*\{speaker_notes\}[^\n]*\n?/gm, '')
       }
+
+      // Глобальные плейсхолдеры: {brand_name} + {event_chat_tg|vk|max}.
+      // Пусто → убираем строку; едино для всех спикерских шаблонов (в т.ч. expert_day).
+      const chatMap: Record<string, string> = {
+        event_chat_tg: (confData?.chat_url_tg || '').trim(),
+        event_chat_vk: (confData?.chat_url_vk || '').trim(),
+        event_chat_max: (confData?.chat_url_max || '').trim(),
+      }
+      for (const [k, v] of Object.entries(chatMap)) {
+        const re = new RegExp('\\{' + k + '\\}', 'g')
+        if (out.match(re)) {
+          out = v ? out.replace(re, v) : out.replace(new RegExp('^[^\\n]*\\{' + k + '\\}[^\\n]*\\n?', 'gm'), '')
+        }
+      }
+      out = out.replace(/\{brand_name\}/g, confData?.event_brand_name || eventData?.brand_name || '[бренд]')
+
       out = out.replace(/\n{3,}/g, '\n\n').trim()
     }
 
@@ -820,6 +854,14 @@ export default function TemplatesPage() {
       .replace(/\{speaker_name\}/g, '[Имя спикера]')
       .replace(/\{speaker_tg\}/g, '')
       .replace(/\{speaker_personal_tg\}/g, '')
+      .replace(/\{speaker_tg_username\}/g, '')
+      .replace(/\{speaker_socials\}/g, '')
+      .replace(/\{speaker_positioning\}/g, '')
+      .replace(/\{speaker_notes\}/g, '')
+      .replace(/\{event_chat_tg\}/g, '')
+      .replace(/\{event_chat_vk\}/g, '')
+      .replace(/\{event_chat_max\}/g, '')
+      .replace(/\{brand_name\}/g, confData?.event_brand_name || eventData?.brand_name || '[бренд]')
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
       .replace(/\{first_name\}/g, '[Имя]')
@@ -1543,7 +1585,7 @@ export default function TemplatesPage() {
             </div>
 
             {/* Выбор дня — только для дневных шаблонов */}
-            {confDays.length > 1 && !['pre_conf', 'speaker_intro', '5min_before', 'gift'].includes(previewModal.def.type) && (
+            {confDays.length > 1 && !['pre_conf', 'speaker_intro', 'expert_day', '5min_before', 'gift'].includes(previewModal.def.type) && (
               <div className="mb-3">
                 <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                 <div className="flex gap-2">
@@ -1658,7 +1700,7 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {['pre_conf', 'gift', 'speaker_intro', '5min_before', '2h_before_unreg', '2h_before_reg', 'day_live', 'day_end', '30min_before', 'event_live'].includes(testModal.def.type) ? (
+            {['pre_conf', 'gift', 'speaker_intro', 'expert_day', '5min_before', '2h_before_unreg', '2h_before_reg', 'day_live', 'day_end', '30min_before', 'event_live'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
                   {testModal.def.type === 'pre_conf' && 'Отправит анонс знакомства со спикерами с горизонтальной афишей, описанием конференции и ссылкой на регистрацию на тестовые Telegram ID из настроек.'}

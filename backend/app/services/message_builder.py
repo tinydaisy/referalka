@@ -144,7 +144,7 @@ def speaker_card_link(event_slug, ec_id, link_mode=None, bot_handle=None):
 def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
                           instagram_url=None, website_url=None, personal_tg=None):
     """Все соцсети спикера единым блоком (по строке на непустую). Для {speaker_socials}
-    и как расширение {speaker_personal_tg} (раньше был только личный TG)."""
+    (устаревший синоним {speaker_personal_tg} ещё подставляется для старых шаблонов)."""
     lines = []
     p = (personal_tg or "").strip().lstrip("@")
     if p:
@@ -168,8 +168,7 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
                                 achievements, role, speaker_topic, gift_title, gift_raffle, registration_url,
                                 bio=None, positioning=None, card_link=None,
                                 vk_url=None, max_url=None, website_url=None,
-                                speaker_notes=None,
-                                event_chat_tg=None, event_chat_vk=None, event_chat_max=None):
+                                speaker_notes=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -184,17 +183,13 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     # Личный ник спикера (@username) — для упоминания/связи. Из platform_users.
     personal_raw = (personal_tg or "").strip().lstrip("@")
     personal_mention = f"@{personal_raw}" if personal_raw else ""
-    # Все соцсети спикера (для {speaker_socials} и расширенного {speaker_personal_tg}).
+    # Все соцсети спикера (для {speaker_socials}; {speaker_personal_tg} — старый синоним).
     socials_block = build_speaker_socials(tg_channel_url, vk_url, max_url,
                                           instagram_url, website_url, personal_tg)
     bio_v = (bio or "").strip()
     positioning_v = (positioning or "").strip()
     card_link_v = (card_link or "").strip()
     notes_v = (speaker_notes or "").strip()
-    # Чаты события (ссылки из базы чатов клиента, привязанные к событию).
-    chat_tg_v = (event_chat_tg or "").strip()
-    chat_vk_v = (event_chat_vk or "").strip()
-    chat_max_v = (event_chat_max or "").strip()
 
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -210,7 +205,8 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not insta:
         text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    # {speaker_personal_tg} теперь = ВСЕ соцсети спикера (не только личный TG).
+    # {speaker_socials} = все соцсети спикера. {speaker_personal_tg} — устаревший
+    # синоним, всё ещё подставляется для старых шаблонов клиентов.
     if not socials_block:
         text = re.sub(r"^[^\n]*\{speaker_personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
         text = re.sub(r"^[^\n]*\{speaker_socials\}[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -222,16 +218,10 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_card_link\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not notes_v:
         text = re.sub(r"^[^\n]*\{speaker_notes\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not chat_tg_v:
-        text = re.sub(r"^[^\n]*\{event_chat_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not chat_vk_v:
-        text = re.sub(r"^[^\n]*\{event_chat_vk\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not chat_max_v:
-        text = re.sub(r"^[^\n]*\{event_chat_max\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not personal_mention:
+        text = re.sub(r"^[^\n]*\{speaker_tg_username\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
-    text = text.replace("{event_chat_tg}", chat_tg_v)
-    text = text.replace("{event_chat_vk}", chat_vk_v)
-    text = text.replace("{event_chat_max}", chat_max_v)
+    text = text.replace("{speaker_tg_username}", personal_mention)
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
     text = text.replace("{speaker_bio}", bio_v)
@@ -372,6 +362,10 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
     text = text.replace("{speaker_topic}", speaker_topic or "")
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_achievements}", ach_text)
+    personal_mention = f"@{(personal_tg or '').strip().lstrip('@')}" if (personal_tg or '').strip() else ""
+    if not personal_mention:
+        text = re.sub(r"^[^\n]*\{speaker_tg_username\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{speaker_tg_username}", personal_mention)
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
     text = text.replace("{speaker_bio}", (bio or "").strip())
@@ -442,6 +436,58 @@ async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
     )
 
 
+async def _get_event_globals(conn, event_id: int) -> dict:
+    """Бренд клиента-владельца события + ссылки на чаты события (TG/VK/MAX).
+    Значения для глобальных плейсхолдеров {brand_name} / {event_chat_*}.
+    Не кешируем — данные всегда свежие на момент отправки (бренд/чат могли
+    поменять между рассылками); один лёгкий SELECT на рассылку не критичен."""
+    row = await conn.fetchrow(
+        """
+        SELECT COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS brand_name,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref)  AS event_chat_tg,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref)  AS event_chat_vk,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_max
+          FROM events e
+          LEFT JOIN clients cl ON cl.id = (
+              SELECT eo.client_id FROM event_owners eo
+               WHERE eo.event_id = e.id AND eo.status = 'accepted'
+               ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+         WHERE e.id = $1
+        """,
+        event_id
+    )
+    data = {
+        "brand_name":     (row["brand_name"] if row else "") or "",
+        "event_chat_tg":  (row["event_chat_tg"] if row else "") or "",
+        "event_chat_vk":  (row["event_chat_vk"] if row else "") or "",
+        "event_chat_max": (row["event_chat_max"] if row else "") or "",
+    }
+    return data
+
+
+async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
+    """Подставляет глобальные плейсхолдеры {brand_name} / {event_chat_tg|vk|max}
+    в текст (и в кнопку — для ссылок на чат). Пустое значение → строку с
+    плейсхолдером удаляем целиком, чтобы получателю не ушёл сырой {…}."""
+    g = await _get_event_globals(conn, event_id)
+    text = text or ""
+    for key in ("event_chat_tg", "event_chat_vk", "event_chat_max"):
+        token = "{" + key + "}"
+        val = g[key]
+        if token in text:
+            if val:
+                text = text.replace(token, val)
+            else:
+                text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if btn_url and token in btn_url:
+            btn_url = btn_url.replace(token, val)
+    # {brand_name} — почти всегда непустой (fallback на name). Просто подставляем.
+    text = text.replace("{brand_name}", g["brand_name"])
+    if btn_url:
+        btn_url = btn_url.replace("{brand_name}", g["brand_name"])
+    return text, btn_url
+
+
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
                                  template_id=None, snapshot=None,
@@ -479,6 +525,20 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             if not vip_url:
                 raw_text = re.sub(r"^.*\{vip_url\}.*$\n?", "", raw_text, flags=re.MULTILINE)
             raw_buttons = [{**b, "url": (b.get("url") or "").replace("{vip_url}", vip_url)} for b in raw_buttons]
+        # Глобальные плейсхолдеры {brand_name} / {event_chat_*} — и в произвольном
+        # сообщении тоже (одна логика на все типы событийных рассылок).
+        g = await _get_event_globals(conn, event_id)
+        raw_text = raw_text or ""
+        for key in ("event_chat_tg", "event_chat_vk", "event_chat_max"):
+            token = "{" + key + "}"
+            val = g[key]
+            if token in raw_text:
+                raw_text = raw_text.replace(token, val) if val else \
+                    re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
+            raw_buttons = [{**b, "url": (b.get("url") or "").replace(token, val)} for b in raw_buttons]
+        raw_text = raw_text.replace("{brand_name}", g["brand_name"])
+        raw_buttons = [{**b, "url": (b.get("url") or "").replace("{brand_name}", g["brand_name"])} for b in raw_buttons]
+        raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
         return {
             "text": raw_text,
             "photo": (snap_photo or photo_url) if snap_mtype != "video" else None,
@@ -721,9 +781,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
                        e.landing_url AS registration_url,
-                       (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_chat_tg,
-                       (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_chat_vk,
-                       (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_max,
                        cl.default_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                           WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
@@ -762,9 +819,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
                     vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
                     speaker_notes=sp["speaker_notes"],
-                    event_chat_tg=sp["event_chat_tg"],
-                    event_chat_vk=sp["event_chat_vk"],
-                    event_chat_max=sp["event_chat_max"],
                 )
                 text = apply_speaker_material(
                     text,
@@ -1084,12 +1138,20 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if not vip_url:
             text = re.sub(r"^.*\{vip_url\}.*$\n?", "", text, flags=re.MULTILINE)
 
+    # ── Глобальные плейсхолдеры для ВСЕХ типов событийных рассылок ────────────
+    # {brand_name} — бренд клиента (clients.brand_name, fallback clients.name).
+    # {event_chat_tg/vk/max} — ссылки на чаты события (client_broadcast_chats).
+    # Работают в любом шаблоне, куда клиент их вставил (включая custom — там
+    # подстановка ниже, в отдельной ветке). Пусто → строка с плейсхолдером убирается.
+    text, btn_url = await _apply_event_globals(conn, event_id, text, btn_url)
+
     # Финальная зачистка: любой известный плейсхолдер, не подставленный этим
     # типом шаблона (клиент вставил его вручную в неподходящий тип), НЕ должен
     # уйти получателю сырым. Убираем строку целиком, если плейсхолдер — единственное
     # значимое на ней, иначе просто вырезаем сам плейсхолдер.
     _KNOWN_PLACEHOLDERS = [
         "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
+        "speaker_tg_username",
         "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
@@ -1097,6 +1159,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",
         "day_datetime", "day_program", "day_program_with_links", "next_day_mention",
         "raffle_url", "day_speakers_gifts", "vip_url",
+        "brand_name", "event_chat_tg", "event_chat_vk", "event_chat_max",
         # ⚠️ НЕ включаем {first_name} и {game_link} — они персонализируются
         # per-получатель в broadcast.py уже ПОСЛЕ build_message_content.
     ]

@@ -228,23 +228,24 @@ DEFAULT_TEMPLATES = [
         "name": "Экспертный день (вопросы эксперту)",
         "type": "expert_day",
         "text": (
-            "<b>[Экспертный день] Завтра {speaker_name} ответит на ваши вопросы!</b>\n\n"
-            "Завтра в iViSiON на связи — {speaker_name}\n"
-            "{speaker_positioning}\n\n"
-            "<b>С какими вопросами можно обращаться:</b>\n"
-            "{speaker_notes}\n\n"
-            "<b>‼️ Экспертный день пройдёт в чате Телеграм!</b>\n\n"
+            "🚨<b>[Экспертный день] Завтра {speaker_name} ответит на ваши вопросы!</b>\n\n"
+            "Завтра в {brand_name} на связи — {speaker_name}: {speaker_positioning}\n\n"
+            "<b>С какими темами и вопросами можно обращаться:</b>\n"
+            "{speaker_notes}\n\n\n"
             "<b>Как принять участие:</b>\n"
-            "1️⃣ Напишите сейчас свой вопрос в чат Телеграм iViSiON:\n"
-            "{event_chat_tg}\n"
-            "2️⃣ Обязательно отметьте никнейм эксперта:\n"
-            "{speaker_socials}\n"
-            "3️⃣ Завтра с 10:00 до 12:00 по МСК {speaker_name} лично ответит на ваши вопросы\n"
-            "4️⃣ Будьте онлайн — чтобы задать уточняющие вопросы в моменте\n\n"
+            "1️⃣ Напишите сейчас свой вопрос в чат: {event_chat_tg}\n"
+            "2️⃣ Обязательно отметьте никнейм эксперта: {speaker_tg_username}\n"
+            "3️⃣ Завтра с 10:00 до 12:00 по МСК {speaker_name} лично ответит в чате на ваши вопросы\n"
+            "4️⃣ Будьте в это время в чате — чтобы задать уточняющие вопросы в моменте\n\n"
             "——\n"
             "<b>{speaker_name}:</b>\n"
             "{speaker_achievements}\n\n"
-            "Пишите свои вопросы в чат 👇"
+            "<b>Соц сети:</b>\n"
+            "{speaker_socials}\n\n"
+            "——\n"
+            "<b>‼️ Экспертный день пройдёт в чате Телеграм!\n"
+            "Пишите свои вопросы 👇</b>\n"
+            "{event_chat_tg}"
         ),
         "photo_url": None,
         "button_text": None,
@@ -2353,6 +2354,45 @@ async def test_template(
         return out
 
     SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before")
+
+    if tpl["type"] == "expert_day":
+        # «Экспертный день» шлём по каждому коллабу с учётом фильтра ролей
+        # (intro_roles) — так же, как реальный fanout, а не по сессиям дня.
+        intro_roles = tpl.get("intro_roles")
+        if intro_roles is not None and len(intro_roles) == 0:
+            sessions = []
+        elif intro_roles:
+            sessions = await db.fetch(
+                """SELECT cse.id AS session_id, c.name AS speaker_name
+                   FROM event_collaborators cse
+                   JOIN collaborators c ON c.id = cse.speaker_id
+                   WHERE cse.event_id=$1 AND cse.is_visible=true AND cse.role = ANY($2::text[])
+                   ORDER BY """ + collaborator_sort.order_by_sql("cse"),
+                event_id, intro_roles
+            )
+        else:
+            sessions = await db.fetch(
+                """SELECT cse.id AS session_id, c.name AS speaker_name
+                   FROM event_collaborators cse
+                   JOIN collaborators c ON c.id = cse.speaker_id
+                   WHERE cse.event_id=$1 AND cse.is_visible=true
+                   ORDER BY """ + collaborator_sort.order_by_sql("cse"),
+                event_id
+            )
+        results = []
+        async with httpx.AsyncClient(timeout=15) as http:
+            for s in sessions:
+                content = await build_message_content(
+                    conn=db, tpl_type=tpl["type"],
+                    tmpl_text=tpl["text"], photo_url=tpl["photo_url"],
+                    btn_text=tpl["button_text"], btn_url=tpl["button_url"] or "",
+                    event_id=event_id, session_id=s["session_id"],
+                    fire_at=None, tz=tz,
+                    video_url=tpl["video_url"], media_type=tpl["media_type"],
+                )
+                speaker_results = await _send_one_content(http, content)
+                results.append({"speaker": s["speaker_name"], "results": speaker_results})
+        return {"ok": True, "sent": len(sessions), "details": results}
 
     if tpl["type"] in SPEAKER_TYPES:
         # Для спикерских шаблонов — отправляем по одному разу на каждого спикера дня
