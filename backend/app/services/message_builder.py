@@ -109,7 +109,7 @@ ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр
 DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "day_end",
              "day_before_09_12_unreg", "day_before_09_12_reg",
              "event_live")
-SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before")
+SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day")
 CONF_TYPES = ("pre_conf",)
 
 
@@ -168,7 +168,8 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
                                 achievements, role, speaker_topic, gift_title, gift_raffle, registration_url,
                                 bio=None, positioning=None, card_link=None,
                                 vk_url=None, max_url=None, website_url=None,
-                                speaker_notes=None):
+                                speaker_notes=None,
+                                event_chat_tg=None, event_chat_vk=None, event_chat_max=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -190,6 +191,10 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     positioning_v = (positioning or "").strip()
     card_link_v = (card_link or "").strip()
     notes_v = (speaker_notes or "").strip()
+    # Чаты события (ссылки из базы чатов клиента, привязанные к событию).
+    chat_tg_v = (event_chat_tg or "").strip()
+    chat_vk_v = (event_chat_vk or "").strip()
+    chat_max_v = (event_chat_max or "").strip()
 
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -217,7 +222,16 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_card_link\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not notes_v:
         text = re.sub(r"^[^\n]*\{speaker_notes\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not chat_tg_v:
+        text = re.sub(r"^[^\n]*\{event_chat_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not chat_vk_v:
+        text = re.sub(r"^[^\n]*\{event_chat_vk\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not chat_max_v:
+        text = re.sub(r"^[^\n]*\{event_chat_max\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
+    text = text.replace("{event_chat_tg}", chat_tg_v)
+    text = text.replace("{event_chat_vk}", chat_vk_v)
+    text = text.replace("{event_chat_max}", chat_max_v)
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
     text = text.replace("{speaker_bio}", bio_v)
@@ -684,7 +698,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                    .replace("{registration_url}", reg_url)
                    .replace("{raffle_url}", raffle_url))
 
-    elif tpl_type == "speaker_intro":
+    elif tpl_type in ("speaker_intro", "expert_day"):
+        # expert_day («Экспертный день») собирается так же, как speaker_intro:
+        # один и тот же набор спикерских плейсхолдеров + ссылки на чаты события.
         if session_id:
             sp = await conn.fetchrow(
                 """
@@ -705,6 +721,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
                        e.landing_url AS registration_url,
+                       (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_chat_tg,
+                       (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_chat_vk,
+                       (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_max,
                        cl.default_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                           WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
@@ -742,7 +761,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     sp["gift_raffle_title"], sp["registration_url"],
                     bio=sp["bio"], positioning=sp["positioning"], card_link=card_link,
                     vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
-                    speaker_notes=sp["speaker_notes"]
+                    speaker_notes=sp["speaker_notes"],
+                    event_chat_tg=sp["event_chat_tg"],
+                    event_chat_vk=sp["event_chat_vk"],
+                    event_chat_max=sp["event_chat_max"],
                 )
                 text = apply_speaker_material(
                     text,

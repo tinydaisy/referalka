@@ -35,6 +35,14 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     showPhoto: true,
   },
   {
+    type: 'expert_day',
+    title: 'Экспертный день (вопросы эксперту)',
+    hint: 'Анонс сессии вопросов-ответов с экспертом. Раскладывается по каждому выбранному коллабу (жюри/спикер/организатор), как знакомство со спикером. Ссылка на чат события подставляется автоматически.',
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_notes}', '{speaker_socials}', '{speaker_personal_tg}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{landing_url}'],
+    hasSpeaker: true,
+    showPhoto: true,
+  },
+  {
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
@@ -135,7 +143,10 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_positioning}', desc: 'Позиционирование спикера (должность/титул)' },
   { name: '{speaker_card_link}', desc: 'Ссылка на карточку спикера (веб или Mini App — по настройке события)' },
   { name: '{speaker_material}', desc: 'Материал спикера в базу знаний (название + ссылка под ним). Пусто — строка убирается' },
-  { name: '{speaker_notes}', desc: 'Заметки спикера (внутренняя шпаргалка ведущего под этого спикера). Пусто — строка убирается' },
+  { name: '{speaker_notes}', desc: 'Заметки спикера (в «Экспертном дне» — тематика вопросов, которую спикер пишет сам в кабинете). Пусто — строка убирается' },
+  { name: '{event_chat_tg}', desc: 'Ссылка на Telegram-чат события. Пусто — строка убирается' },
+  { name: '{event_chat_vk}', desc: 'Ссылка на VK-чат события. Пусто — строка убирается' },
+  { name: '{event_chat_max}', desc: 'Ссылка на MAX-чат события. Пусто — строка убирается' },
   { name: '{gift_after_speech_title}', desc: 'Подарок на эфире' },
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
@@ -573,7 +584,7 @@ export default function TemplatesPage() {
       const tgUrl = rawTg ? '@' + rawTg.replace(/^@+/, '') : ''
       const giftRaffle = (speaker.gift_raffle_title || '').trim()
 
-      if (tplType === 'speaker_intro') {
+      if (tplType === 'speaker_intro' || tplType === 'expert_day') {
         const ROLE_MAP: Record<string, string> = { speaker: 'Спикер', headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор', jury: 'Жюри' }
         const roleLabel = ROLE_MAP[speaker.role] || 'Спикер'
         const tgChannel = (speaker.tg_channel_url || '').trim()
@@ -1123,10 +1134,12 @@ export default function TemplatesPage() {
                 </div>
               )}
 
-              {/* Настройки расписания для Знакомства со спикером */}
-              {editModal?.type === 'speaker_intro' && (
+              {/* Настройки расписания для Знакомства со спикером и Экспертного дня */}
+              {(editModal?.type === 'speaker_intro' || editModal?.type === 'expert_day') && (
                 <div className="border border-blue-100 rounded-xl p-3 bg-blue-50 space-y-3">
-                  <p className="text-xs font-medium text-blue-700">⏰ Расписание знакомств со спикерами</p>
+                  <p className="text-xs font-medium text-blue-700">
+                    {editModal?.type === 'expert_day' ? '⏰ Расписание Экспертного дня' : '⏰ Расписание знакомств со спикерами'}
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Время старта (МСК)</label>
@@ -1168,7 +1181,7 @@ export default function TemplatesPage() {
                   {/* Выбор ролей: для кого формировать знакомство.
                       null/undefined = все роли (по умолчанию). */}
                   <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Знакомить с (роли)</label>
+                    <label className="text-xs text-gray-500 mb-1 block">{editModal?.type === 'expert_day' ? 'Кого анонсировать (роли)' : 'Знакомить с (роли)'}</label>
                     <div className="flex flex-wrap gap-2">
                       {INTRO_ROLE_OPTIONS.map(r => {
                         const cur: string[] | null = (form as any).intro_roles ?? null

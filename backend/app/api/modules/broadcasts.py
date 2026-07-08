@@ -222,6 +222,40 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": True,
     },
     {
+        # «Экспертный день» — анонс сессии вопросов-ответов с коллабом события.
+        # Раскладывается по каждому выбранному коллабу (жюри/спикер/организатор),
+        # ровно как speaker_intro, но со своим текстом и очередью.
+        "name": "Экспертный день (вопросы эксперту)",
+        "type": "expert_day",
+        "text": (
+            "<b>[Экспертный день] Завтра {speaker_name} ответит на ваши вопросы!</b>\n\n"
+            "Завтра в iViSiON на связи — {speaker_name}\n"
+            "{speaker_positioning}\n\n"
+            "<b>С какими вопросами можно обращаться:</b>\n"
+            "{speaker_notes}\n\n"
+            "<b>‼️ Экспертный день пройдёт в чате Телеграм!</b>\n\n"
+            "<b>Как принять участие:</b>\n"
+            "1️⃣ Напишите сейчас свой вопрос в чат Телеграм iViSiON:\n"
+            "{event_chat_tg}\n"
+            "2️⃣ Обязательно отметьте никнейм эксперта:\n"
+            "{speaker_socials}\n"
+            "3️⃣ Завтра с 10:00 до 12:00 по МСК {speaker_name} лично ответит на ваши вопросы\n"
+            "4️⃣ Будьте онлайн — чтобы задать уточняющие вопросы в моменте\n\n"
+            "——\n"
+            "<b>{speaker_name}:</b>\n"
+            "{speaker_achievements}\n\n"
+            "Пишите свои вопросы в чат 👇"
+        ),
+        "photo_url": None,
+        "button_text": None,
+        "button_url": None,
+        "schedule_mode": "custom_datetime",
+        "offset_minutes": 0,
+        "audience_include": "all_client",
+        "audience_exclude": "none",
+        "allow_custom_datetime": True,
+    },
+    {
         "name": "За 2 часа (не зарегистрирован)",
         "type": "2h_before_unreg",
         # Текст для конференций/турниров — с программой дня ({day_program}).
@@ -428,6 +462,10 @@ async def list_templates(
         # (speaker_intro) И «за 5 минут до выступления» (5min_before) — как конференция.
         TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before"}
         for tpl in DEFAULT_TEMPLATES:
+            # expert_day не сидим автоматически — это разовый анонс «Экспертного дня»,
+            # клиент добавляет его сам через «Добавить готовый шаблон» (пресеты).
+            if tpl["type"] == "expert_day":
+                continue
             # event_live — только мероприятиям; 5min_before — конференциям и турнирам.
             if tpl["type"] == "event_live" and (is_conf or is_turnir):
                 continue
@@ -542,12 +580,15 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
     }
     # Турнир: знакомство (speaker_intro) + «за 5 мин до выступления» (5min_before).
     TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before"}
-    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf)
-    # и «подарок спикера после выступления» (gift).
+    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf),
+    # «подарок спикера после выступления» (gift) и «Экспертный день» (expert_day).
     if for_presets:
-        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "gift"}
+        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "gift", "expert_day"}
     out = []
     for tpl in DEFAULT_TEMPLATES:
+        # expert_day — только как пресет (не в авто-сиде), и для конф, и для турнира.
+        if tpl["type"] == "expert_day" and not for_presets:
+            continue
         if tpl["type"] == "event_live" and (is_conf or is_turnir):
             continue
         if tpl["type"] == "5min_before" and not (is_conf or is_turnir):
@@ -567,7 +608,7 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
 
 # Типы, которых у события может быть несколько (произвольные продающие/анонсные).
 # Их не «прячем» из пресетов, даже если один такой уже создан.
-MULTI_INSTANCE_PRESET_TYPES = {"vip_offer", "custom"}
+MULTI_INSTANCE_PRESET_TYPES = {"vip_offer", "custom", "expert_day"}
 
 
 @router.get("/templates/presets", summary="Готовые шаблоны для добавления")
@@ -923,11 +964,13 @@ async def generate_schedules(
     if only_ids is not None:
         templates = [t for t in templates if t["id"] in only_ids]
 
-    # Для предустановленных типов — один шаблон на тип. Кастомные собираем отдельным списком.
-    tmpl_map = {t["type"]: t for t in templates if t["type"] != "custom"}
+    # Для предустановленных типов — один шаблон на тип. Кастомные и expert_day
+    # (их может быть несколько на событие) собираем отдельными списками.
+    tmpl_map = {t["type"]: t for t in templates if t["type"] not in ("custom", "expert_day")}
     custom_tmpls = [t for t in templates if t["type"] == "custom"]
+    expert_day_tmpls = [t for t in templates if t["type"] == "expert_day"]
 
-    if not tmpl_map and not custom_tmpls:
+    if not tmpl_map and not custom_tmpls and not expert_day_tmpls:
         raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок" if only_ids is None else "Не выбрано ни одного шаблона")
 
     # Валидация: для события с программой по дням нужна программа (дни + сессии),
@@ -1054,16 +1097,18 @@ async def generate_schedules(
             else:
                 skipped += 1
 
-    # ── speaker_intro: одна запись на каждого спикера — начиная через 5 мин после pre_conf ──
-    # pre_conf в 10:43 → первый speaker_intro в 10:48, далее каждые 15 минут
-    if "speaker_intro" in tmpl_map:
-        tmpl = tmpl_map["speaker_intro"]
-
+    # ── Общий fanout «одна запись на каждого выбранного коллаба» ──
+    # Используется и для speaker_intro (знакомство), и для expert_day (Экспертный
+    # день). Раскладывает шаблон по каждому коллабу события с учётом фильтра ролей
+    # (intro_roles), начиная через 5 мин после pre_conf (10:48), далее с интервалом.
+    async def _fanout_collaborator_intro(tmpl, per_template_dedup=False):
+        nonlocal created, skipped
+        b_type = tmpl["type"]
         interval_min = tmpl["intro_interval_min"] or 15
         days_before = tmpl["intro_days_before"] or 1
 
         # Фильтр по ролям: NULL = все роли; непустой список = только эти роли;
-        # пустой список [] = ни одной роли (знакомство не формируем).
+        # пустой список [] = ни одной роли (рассылку не формируем).
         intro_roles = tmpl.get("intro_roles")
         if intro_roles is not None and len(intro_roles) == 0:
             speakers_list = []
@@ -1087,16 +1132,25 @@ async def generate_schedules(
             tz_msk = ZoneInfo("Europe/Moscow")
             conf_date = first_day["day_date"]
             start_date = conf_date - timedelta(days=days_before)
-            # Первый speaker_intro = 10:48 (10:43 + 5 мин после pre_conf)
+            # Первый = 10:48 (10:43 + 5 мин после pre_conf), далее +interval.
             base_dt = datetime(start_date.year, start_date.month, start_date.day, 10, 48, 0, tzinfo=tz_msk)
 
             for i, sp in enumerate(speakers_list):
                 fire_at = base_dt + timedelta(minutes=interval_min * i)
-                exists = await db.fetchval(
-                    """SELECT 1 FROM broadcast_schedules
-                       WHERE event_id=$1 AND type='speaker_intro' AND session_id=$2""",
-                    event_id, sp["id"]
-                )
+                # expert_day может быть несколько шаблонов на событие — дедупим ещё
+                # и по template_id, чтобы разные «Экспертные дни» не схлопывались.
+                if per_template_dedup:
+                    exists = await db.fetchval(
+                        """SELECT 1 FROM broadcast_schedules
+                           WHERE event_id=$1 AND type=$2 AND session_id=$3 AND template_id=$4""",
+                        event_id, b_type, sp["id"], tmpl["id"]
+                    )
+                else:
+                    exists = await db.fetchval(
+                        """SELECT 1 FROM broadcast_schedules
+                           WHERE event_id=$1 AND type=$2 AND session_id=$3""",
+                        event_id, b_type, sp["id"]
+                    )
                 if exists:
                     skipped += 1
                     continue
@@ -1105,33 +1159,48 @@ async def generate_schedules(
                     INSERT INTO broadcast_schedules
                       (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
                        snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                    VALUES ($1, $2, $3, 'speaker_intro', $4, 'draft', $5, $6, $7, $8, $9, $10)
+                    VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11)
                     """,
-                    event_id, sp["id"], tmpl["id"], fire_at,
+                    event_id, sp["id"], tmpl["id"], b_type, fire_at,
                     tmpl["audience_include"], tmpl["audience_exclude"],
                     tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
                 )
                 created += 1
         else:
-            # Нет дней или спикеров — создаём одну запись без времени
-            exists = await db.fetchval(
-                "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='speaker_intro' AND session_id IS NULL",
-                event_id
-            )
+            # Нет дней или коллабов — создаём одну запись без времени.
+            if per_template_dedup:
+                exists = await db.fetchval(
+                    "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type=$2 AND session_id IS NULL AND template_id=$3",
+                    event_id, b_type, tmpl["id"]
+                )
+            else:
+                exists = await db.fetchval(
+                    "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type=$2 AND session_id IS NULL",
+                    event_id, b_type
+                )
             if not exists:
                 await db.execute(
                     """
                     INSERT INTO broadcast_schedules
                       (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
                        snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                    VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'draft', $3, $4, $5, $6, $7, $8)
+                    VALUES ($1, NULL, $2, $3, NULL, 'draft', $4, $5, $6, $7, $8, $9)
                     """,
-                    event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"],
+                    event_id, tmpl["id"], b_type, tmpl["audience_include"], tmpl["audience_exclude"],
                     tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
                 )
                 created += 1
             else:
                 skipped += 1
+
+    # ── speaker_intro: одна запись на каждого спикера — начиная через 5 мин после pre_conf ──
+    if "speaker_intro" in tmpl_map:
+        await _fanout_collaborator_intro(tmpl_map["speaker_intro"])
+
+    # ── expert_day: «Экспертный день» — одна запись на каждого выбранного коллаба.
+    # Шаблонов может быть несколько (разные эксперты/дни) — дедупим по template_id.
+    for _ed_tmpl in expert_day_tmpls:
+        await _fanout_collaborator_intro(_ed_tmpl, per_template_dedup=True)
 
     # ── Группируем сессии по дням ──
     days: dict = {}

@@ -435,28 +435,50 @@ export default function SpeakerCabinetPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, marginBottom: 8 }}>Кабинет спикера</h1>
           {eventTitle && <div style={{ fontSize: 15, color: '#5c7589', marginBottom: 20 }}>«{eventTitle}»</div>}
 
-          <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Найдите свою фамилию</label>
-          <SpeakerPicker list={list || []} chosenId={chosenId} setChosenId={setChosenId} />
+          {/* Настоящая <form> с полями username+password — чтобы браузер
+              предлагал сохранить логин как пароль и потом автозаполнял его.
+              Фамилия выбирается кастомным пикером, но для менеджера паролей
+              нужен реальный <input autoComplete="username">: держим скрытый,
+              синхронизированный с выбранной фамилией. При автозаполнении из
+              менеджера паролей он получает значение → резолвим в chosenId. */}
+          <form onSubmit={(e) => { e.preventDefault(); onAuth() }}>
+            <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Найдите свою фамилию</label>
+            <SpeakerPicker
+              list={list || []}
+              chosenId={chosenId}
+              setChosenId={setChosenId}
+              onUsernameAutofill={(name) => {
+                const found = (list || []).find(
+                  sp => sp.full_name.toLowerCase().replace(/ё/g, 'е').trim()
+                        === name.toLowerCase().replace(/ё/g, 'е').trim()
+                )
+                if (found) setChosenId(found.speaker_event_id)
+              }}
+            />
 
-          <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Код доступа (из сообщения от организатора)</label>
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="abcd1234"
-            style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid #d4dee5', fontSize: 15, marginBottom: 16, fontFamily: 'monospace', letterSpacing: 2 }}
-          />
+            <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Код доступа (из сообщения от организатора)</label>
+            <input
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="abcd1234"
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid #d4dee5', fontSize: 15, marginBottom: 16, fontFamily: 'monospace', letterSpacing: 2, boxSizing: 'border-box' }}
+            />
 
-          {error && <div style={{ background: '#ffe9e0', color: '#a83e1c', padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+            {error && <div style={{ background: '#ffe9e0', color: '#a83e1c', padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-          <button
-            onClick={onAuth}
-            style={{ width: '100%', padding: '14px', background: PEACH, color: DARK, fontWeight: 700, fontSize: 15, border: 'none', borderRadius: 10, cursor: 'pointer' }}
-          >
-            Войти
-          </button>
+            <button
+              type="submit"
+              style={{ width: '100%', padding: '14px', background: PEACH, color: DARK, fontWeight: 700, fontSize: 15, border: 'none', borderRadius: 10, cursor: 'pointer' }}
+            >
+              Войти
+            </button>
+          </form>
 
           <p style={{ marginTop: 16, fontSize: 12, color: '#7a8c9c', lineHeight: 1.5 }}>
-            Сессия живёт 24 часа. Можно передать ссылку и код ассистенту — он заполнит за вас.
+            Сессия живёт 24 часа. Браузер предложит сохранить фамилию и код — тогда в следующий раз подставит их сам. Можно передать ссылку и код ассистенту — он заполнит за вас.
           </p>
         </div>
       </div>
@@ -1340,10 +1362,11 @@ export default function SpeakerCabinetPage() {
   )
 }
 
-function SpeakerPicker({ list, chosenId, setChosenId }: {
+function SpeakerPicker({ list, chosenId, setChosenId, onUsernameAutofill }: {
   list: SpeakerListItem[]
   chosenId: number | null
   setChosenId: (n: number | null) => void
+  onUsernameAutofill?: (name: string) => void
 }) {
   const [query, setQuery] = useState<string>('')
   const [open, setOpen] = useState<boolean>(false)
@@ -1354,6 +1377,19 @@ function SpeakerPicker({ list, chosenId, setChosenId }: {
     : list
   return (
     <div style={{ position: 'relative', marginBottom: 14 }}>
+      {/* Реальное username-поле для менеджера паролей. Визуально скрыто, но
+          в DOM и в форме — Chrome/Safari берут отсюда «логин» при сохранении
+          и сюда подставляют его при автозаполнении. onChange ловит autofill. */}
+      <input
+        type="text"
+        name="username"
+        autoComplete="username"
+        tabIndex={-1}
+        aria-hidden="true"
+        value={chosen ? chosen.full_name : ''}
+        onChange={(e) => onUsernameAutofill?.(e.target.value)}
+        style={{ position: 'absolute', opacity: 0, height: 0, width: 0, padding: 0, border: 'none', pointerEvents: 'none' }}
+      />
       <input
         type="text"
         value={chosen && !open ? chosen.full_name : query}
@@ -1365,6 +1401,7 @@ function SpeakerPicker({ list, chosenId, setChosenId }: {
         onFocus={() => { setOpen(true); if (chosen) setQuery(''); }}
         onBlur={() => setTimeout(() => setOpen(false), 180)}
         placeholder="Начните вводить фамилию…"
+        autoComplete="off"
         style={{
           width: '100%', padding: '12px 14px', borderRadius: 10,
           border: '1px solid #d4dee5', fontSize: 15, background: '#fff', boxSizing: 'border-box',
