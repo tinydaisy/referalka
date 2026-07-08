@@ -825,9 +825,16 @@ export default function QueuePage() {
                       <p className="text-sm font-semibold text-gray-900 mb-0.5 truncate">{s.snapshot_subject}</p>
                     )}
                     {(() => {
-                      const preview = (s.snapshot_text || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+                      // Сниппет для списка: подставляем имя спикера, убираем HTML-теги и
+                      // оставшиеся сырые {плейсхолдеры}, чтобы строка была читаемой.
+                      // ⚠️ Это только превью-строка. Реально уходит текст из превью (глазик):
+                      // для speaker_intro/expert_day движок берёт свежий шаблон, не snapshot.
+                      let raw = (s.snapshot_text || '')
+                      if (s.speaker_name) raw = raw.replace(/\{speaker_name\}/g, s.speaker_name)
+                      raw = raw.replace(/<[^>]+>/g, '').replace(/\{[a-z_]+\}/gi, '').replace(/\s+/g, ' ').trim()
+                      const preview = raw.slice(0, 80)
                       return preview ? (
-                        <p className="text-sm text-gray-700 mb-1 truncate">{preview}{(s.snapshot_text || '').length > 80 ? '…' : ''}</p>
+                        <p className="text-sm text-gray-700 mb-1 truncate">{preview}{raw.length > 80 ? '…' : ''}</p>
                       ) : null
                     })()}
 
