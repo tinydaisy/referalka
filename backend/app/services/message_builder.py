@@ -837,7 +837,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # {day_datetime}/{day_title} — раскрываем и в произвольной рассылке (завтрашний
         # день считается от даты отправки fire_at, МСК).
         if any(p in raw_text for p in ("{day_date}", "{day_program", "{day_datetime}", "{day_title}")):
-            ref_date = (fire_at.astimezone(tz).date() if fire_at else None)
+            # ref_date — дата отправки; для теста из формы (fire_at=None) берём сегодня.
+            if fire_at:
+                ref_date = fire_at.astimezone(tz).date()
+            else:
+                ref_date = datetime.now(tz).date()
             if ref_date is not None:
                 day_repl = await _resolve_day_placeholders(conn, event_id, ref_date)
                 # {day_program_with_links} — ДО {day_program} (подстрока).
