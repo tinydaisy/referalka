@@ -178,6 +178,24 @@ async def create_channel(
 
     if data.platform_slug == "telegram" and data.bot_token:
         await _assert_can_use_custom_bot(db, client_id)
+        # Валидируем токен через getMe и БЕРЁМ handle из реального @username бота,
+        # игнорируя то, что ввёл пользователь. Иначе можно вписать чужой @канал
+        # вместо бота (как было у клиента 53: @trenerNB на токен @Berlibanv_bot).
+        me = await _tg_call(data.bot_token, "getMe")
+        bot_username = me.get("username") or ""
+        if not bot_username:
+            raise HTTPException(status_code=400, detail="Токен принадлежит не боту — проверьте его.")
+        data.handle = f"@{bot_username}"
+        if not (data.display_name or "").strip():
+            data.display_name = f"Бот {me.get('first_name') or bot_username}"
+        # Один и тот же бот нельзя подключить дважды у одного клиента.
+        dup = await db.fetchval(
+            """SELECT 1 FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+                WHERE cc.client_id=$1 AND ch.platform_slug='telegram' AND ch.handle=$2""",
+            client_id, data.handle,
+        )
+        if dup:
+            raise HTTPException(status_code=409, detail=f"Бот {data.handle} уже подключён.")
 
     async with db.transaction():
         # Если новый канал делаем главным — снимаем флаг у текущего главного у этого клиента на платформе
@@ -248,6 +266,17 @@ async def update_channel(
                 status_code=403,
                 detail="Системный канал — название и handle менять нельзя."
             )
+
+    # Для TG-бота: если меняют токен — валидируем через getMe и берём handle
+    # из реального @username бота (нельзя вписать чужой @канал вместо бота).
+    if (not current["is_system"] and current["platform_slug"] == "telegram"
+            and data.bot_token is not None and data.bot_token):
+        await _assert_can_use_custom_bot(db, client_id)
+        me = await _tg_call(data.bot_token, "getMe")
+        bot_username = me.get("username") or ""
+        if not bot_username:
+            raise HTTPException(status_code=400, detail="Токен принадлежит не боту — проверьте его.")
+        data.handle = f"@{bot_username}"  # handle всегда из токена, ввод игнорируем
 
     # Поля channels (display_name, handle, bot_token)
     ch_updates: list[str] = []
