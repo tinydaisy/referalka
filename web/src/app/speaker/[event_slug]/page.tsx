@@ -2141,13 +2141,9 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   const allStages: any[] = data.stages || []
   const mySlot = sessions.find(s => s.is_mine) || null
 
-  // Спикеру показываем только дни, где ему есть что занять: есть свободный слот
-  // ИЛИ его собственный слот. Дни без свободных мест (орг-встречи, где всё занято)
-  // в кабинете спикера не нужны.
-  const dayNumsWithSlots: number[] = Array.from(new Set(
-    sessions.filter(s => s.is_free || s.is_mine).map(s => s.day)
-  ))
-  const daysWithSlots = days.filter(d => dayNumsWithSlots.includes(d.day_number))
+  // Показываем ВСЕ дни этапов спикера — это его программа, он должен видеть
+  // весь тур целиком, даже дни без свободных слотов (все места заняты, орг-встречи).
+  const daysWithSlots = days
 
   // этапы-вкладки = этапы из бэка, у которых есть дни со слотами.
   // Дни без этапа (stage_id=null) собираем в псевдо-этап «Без этапа».
@@ -2369,7 +2365,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
       {/* Дни аккордеоном друг под другом: дата · название → стрелка → слоты внутри */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {stageDays.length === 0 && (
-          <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом этапе пока нет дней со слотами.</div>
+          <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом этапе пока нет дней.</div>
         )}
         {stageDays.map(d => {
           const opened = isDayOpen(d.day_number)
