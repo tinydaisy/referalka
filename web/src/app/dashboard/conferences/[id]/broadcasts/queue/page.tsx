@@ -11,6 +11,7 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import { useMe } from '@/hooks/useMe'
+import { utcIsoToTzLocalInput, tzLocalInputToEpochMs } from '@/lib/timezone'
 
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все уч. конфы',
@@ -378,10 +379,8 @@ export default function QueuePage() {
     setFireAtModal(schedule)
     // Предзаполняем существующим временем задачи
     if (schedule.fire_at_iso) {
-      const d = new Date(schedule.fire_at_iso)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-      setFireAtValue(local)
+      // Московское стенное время, независимо от tz браузера клиента.
+      setFireAtValue(utcIsoToTzLocalInput(schedule.fire_at_iso))
     } else {
       setFireAtValue('')
     }
@@ -419,7 +418,8 @@ export default function QueuePage() {
       setFireAtError('Укажите дату и время')
       return
     }
-    if (new Date(fireAtValue) <= new Date()) {
+    // Трактуем ввод как МСК (как бэк), а не как tz браузера.
+    if (tzLocalInputToEpochMs(fireAtValue) <= Date.now()) {
       setFireAtError('Время уже прошло — выберите будущее время')
       return
     }
@@ -461,14 +461,15 @@ export default function QueuePage() {
       return
     }
     // ⚠️ Дата в прошлом при «Запланировать» — рассылка ушла бы сразу. Люфт 2 мин.
-    if (!isNow && manualForm.fire_at && new Date(manualForm.fire_at).getTime() < Date.now() - 2 * 60 * 1000) {
+    if (!isNow && manualForm.fire_at && tzLocalInputToEpochMs(manualForm.fire_at) < Date.now() - 2 * 60 * 1000) {
       showMsg('Дата отправки уже прошла — укажите будущее время (иначе рассылка ушла бы сразу)', 'err')
       return
     }
     const fireAtToSend = isNow ? nowMoscowMinus1MinLocal() : manualForm.fire_at
     const tpl = templates.find(t => String(t.id) === manualForm.template_id)
     const tplType = tpl?.type || ''
-    const isSpeakerType = ['speaker_intro', 'gift', '5min_before'].includes(tplType)
+    // expert_day, как и speaker_intro, привязан к event_collaborators.id
+    const isSpeakerType = ['speaker_intro', 'expert_day', 'gift', '5min_before'].includes(tplType)
     const isDayType = tplType.startsWith('day_')
     if (isSpeakerType && !manualForm.session_id) {
       showMsg('Выберите спикера', 'err')
@@ -1232,12 +1233,12 @@ export default function QueuePage() {
                 </select>
               </div>
 
-              {/* Выбор спикера — для speaker_intro, gift, 5min_before */}
+              {/* Выбор спикера — для speaker_intro, expert_day, gift, 5min_before */}
               {(() => {
                 const tpl = templates.find(t => String(t.id) === manualForm.template_id)
                 const tplType = tpl?.type || ''
-                if (tplType === 'speaker_intro') {
-                  // speaker_intro использует conf_speaker_events.id
+                if (tplType === 'speaker_intro' || tplType === 'expert_day') {
+                  // speaker_intro и expert_day используют event_collaborators.id
                   return (
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Спикер</label>
@@ -1633,17 +1634,9 @@ function CustomBroadcastModal(props: {
   isCollab?: boolean
 }) {
   const ed = props.editSchedule
-  // datetime-local ждёт "YYYY-MM-DDTHH:mm" по локали клиента (МСК).
-  const initFireAt = (() => {
-    if (!ed?.fire_at) return ''
-    try {
-      const d = new Date(ed.fire_at)
-      // Берём МСК-представление
-      const msk = new Date(d.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
-      const p = (n: number) => String(n).padStart(2, '0')
-      return `${msk.getFullYear()}-${p(msk.getMonth() + 1)}-${p(msk.getDate())}T${p(msk.getHours())}:${p(msk.getMinutes())}`
-    } catch { return '' }
-  })()
+  // datetime-local показывает московское стенное время (как трактует бэк),
+  // независимо от tz браузера клиента.
+  const initFireAt = ed?.fire_at_iso ? utcIsoToTzLocalInput(ed.fire_at_iso) : ''
   const [fireAt, setFireAt] = useState(initFireAt)
   const [text, setText] = useState(ed?.snapshot_text || '')
   const [photoUrl, setPhotoUrl] = useState(ed?.snapshot_photo || '')

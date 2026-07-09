@@ -294,6 +294,30 @@ export default function SpeakerCabinetPage() {
 
   const onSave = async () => {
     if (!me || !token) return
+    // Соцсети — ТОЛЬКО ссылкой, не никнеймом. Ник (@name / name) не открывается
+    // из карточки спикера и ломает проверку подписки. Предупреждаем и не сохраняем.
+    const socialFields: [string, string | null | undefined][] = [
+      ['Telegram-канал', me.tg_channel_url],
+      ['ВКонтакте', me.vk_url],
+      ['MAX', me.max_url],
+      ['Нельзяграм', me.instagram_url],
+      ['Сайт', me.website_url],
+    ]
+    const badSocials = socialFields
+      .filter(([, v]) => {
+        const s = (v || '').trim()
+        if (!s) return false
+        return !/^https?:\/\//i.test(s)
+      })
+      .map(([label]) => label)
+    if (badSocials.length) {
+      setError(
+        `Соцсети нужно указывать полной ссылкой, а не никнеймом. ` +
+        `Исправьте: ${badSocials.join(', ')}. ` +
+        `Например: https://t.me/username, https://vk.com/username, https://instagram.com/username`
+      )
+      return
+    }
     setSaving(true); setError(null)
     try {
       // Регалии: парсим текстарею в массив. Сносим маркеры списков (•, *, –, и т.п.)
@@ -871,6 +895,9 @@ export default function SpeakerCabinetPage() {
           <div style={{ fontSize: 12, color: '#7a8c9c', marginTop: -2, marginBottom: 6, lineHeight: 1.5 }}>
             Эти ссылки отображаются в Mini App события в вашей карточке — участники увидят их и смогут перейти прямо на ваш канал / сообщество / сайт.
           </div>
+          <div style={{ fontSize: 12, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', marginBottom: 10, lineHeight: 1.5 }}>
+            Указывайте <b>полную ссылку</b> (начинается с https://), а не никнейм. По нику переход не работает.
+          </div>
           <label style={labelCss}>Telegram-канал (ссылка)</label>
           <input style={inputCss} value={me.tg_channel_url || ''} onChange={(e) => update({ tg_channel_url: e.target.value })} placeholder="https://t.me/…" />
           <label style={labelCss}>VK-сообщество (ссылка)</label>
@@ -878,7 +905,7 @@ export default function SpeakerCabinetPage() {
           <label style={labelCss}>MAX-канал (ссылка)</label>
           <input style={inputCss} value={me.max_url || ''} onChange={(e) => update({ max_url: e.target.value })} placeholder="https://max.ru/…" />
           <label style={labelCss}>Instagram (Нельзяграм)</label>
-          <input style={inputCss} value={me.instagram_url || ''} onChange={(e) => update({ instagram_url: e.target.value })} placeholder="https://instagram.com/… или @username" />
+          <input style={inputCss} value={me.instagram_url || ''} onChange={(e) => update({ instagram_url: e.target.value })} placeholder="https://instagram.com/…" />
           <label style={labelCss}>Сайт</label>
           <input style={inputCss} value={me.website_url || ''} onChange={(e) => update({ website_url: e.target.value })} placeholder="https://…" />
         </Section>
