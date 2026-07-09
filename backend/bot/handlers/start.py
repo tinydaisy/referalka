@@ -1325,6 +1325,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                           profile_photo_url, owner_photo_url,
                           default_link_mode, start_greeting_text,
                           start_btn_events_label, start_btn_owner_label,
+                          start_buttons,
                           start_mode, start_event_id,
                           start_lead_magnet_id, start_package_id
                      FROM clients WHERE id = $1""",
@@ -1419,15 +1420,23 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                 return InlineKeyboardButton(text=label, url=web_url)
             return InlineKeyboardButton(text=label, web_app=WebAppInfo(url=f"{base}{miniapp_path}"))
 
-        events_label = (client["start_btn_events_label"] or "").strip() or "📅 Все события"
-        owner_label  = (client["start_btn_owner_label"] or "").strip() or "🌐 Об основателе"
-
-        rows: list[list[InlineKeyboardButton]] = [
-            [_btn(events_label, miniapp_path="/",
-                  web_url=f"https://pluson.ru/o/{client_id}")],
-            [_btn(owner_label, miniapp_path="/?_tab=ecosystem",
-                  web_url=f"https://pluson.ru/o/{client_id}?tab=ecosystem")],
-        ]
+        # Кнопки приветствия — из clients.start_buttons (до 5, типы events/owner/custom),
+        # с фолбэком на 2 дефолтные кнопки из старых полей.
+        from app.services.start_greeting import _resolve_buttons
+        btns = _resolve_buttons(
+            client_id,
+            client["start_buttons"],
+            client["start_btn_events_label"],
+            client["start_btn_owner_label"],
+        )
+        rows: list[list[InlineKeyboardButton]] = []
+        for b in btns:
+            if b["kind"] == "events":
+                rows.append([_btn(b["label"], miniapp_path="/", web_url=b["url"])])
+            elif b["kind"] == "owner":
+                rows.append([_btn(b["label"], miniapp_path="/?_tab=ecosystem", web_url=b["url"])])
+            else:  # custom — всегда обычная url-кнопка (произвольная ссылка)
+                rows.append([InlineKeyboardButton(text=b["label"], url=b["url"])])
         keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
 
         # Фото клиента — приоритет фото основателя, fallback на фото бренда

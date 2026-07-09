@@ -24,6 +24,11 @@ const BRAND = '#25455D'
 const GRADIENT = 'linear-gradient(45deg, #25455D, #0a1520)'
 
 interface Achievement { label: string; value: string }
+// Кнопка «Общего приветствия». Тип определяет, куда ведёт:
+//   events — «Все события» (ссылка ставится автоматом, меняется только текст)
+//   owner  — «Об основателе» (ссылка автоматом, меняется текст)
+//   custom — произвольная (текст + своя ссылка)
+interface StartButton { type: 'events' | 'owner' | 'custom'; label: string; url?: string }
 interface Profile {
   id: number
   name: string                              // техническое (из регистрации, readonly)
@@ -46,6 +51,8 @@ interface Profile {
   start_greeting_text?: string | null
   start_btn_events_label?: string | null
   start_btn_owner_label?: string | null
+  // Кнопки приветствия (до 5): [{type:'events'|'owner'|'custom', label, url?}]
+  start_buttons?: StartButton[] | null
   start_mode?: 'greeting' | 'event' | 'lead_magnet' | null
   start_event_id?: number | null
   start_lead_magnet_id?: number | null
@@ -136,6 +143,14 @@ export default function MiniAppSettingsPage() {
         start_greeting_text:    p.start_greeting_text    || '',
         start_btn_events_label: p.start_btn_events_label || '',
         start_btn_owner_label:  p.start_btn_owner_label  || '',
+        // Кнопки приветствия: если клиент их ещё не настраивал — стартуем с 2 дефолтных
+        // (как выглядело раньше), чтобы форма не была пустой.
+        start_buttons: (Array.isArray(p.start_buttons) && p.start_buttons.length)
+          ? p.start_buttons
+          : [
+              { type: 'events', label: p.start_btn_events_label || '📅 Все события' },
+              { type: 'owner',  label: p.start_btn_owner_label  || '🌐 Об основателе' },
+            ],
         // Названия вкладок — предзаполняем дефолтами, чтобы клиент видел реальные
         // названия и мог их просто отредактировать (пустое поле путало).
         tab_label_program:   p.tab_label_program   || DEFAULT_TAB_LABELS.tab_label_program,
@@ -199,6 +214,46 @@ export default function MiniAppSettingsPage() {
     next[idx] = { ...next[idx], [key]: value }
     update(field, next)
   }
+  // ── Кнопки приветствия ──────────────────────────────────────────
+  const DEFAULT_BTN_LABEL: Record<StartButton['type'], string> = {
+    events: '📅 Все события', owner: '🌐 Об основателе', custom: '',
+  }
+  function updateStartBtn(idx: number, patch: Partial<StartButton>) {
+    if (!profile) return
+    const next = [...(profile.start_buttons || [])]
+    next[idx] = { ...next[idx], ...patch }
+    update('start_buttons', next)
+  }
+  function changeStartBtnType(idx: number, type: StartButton['type']) {
+    if (!profile) return
+    const next = [...(profile.start_buttons || [])]
+    const cur = next[idx]
+    // При смене типа на готовый — подставляем дефолтную подпись, если поле пустое.
+    next[idx] = {
+      type,
+      label: (cur.label || '').trim() || DEFAULT_BTN_LABEL[type],
+      url: type === 'custom' ? (cur.url || '') : undefined,
+    }
+    update('start_buttons', next)
+  }
+  function addStartBtn() {
+    if (!profile) return
+    const cur = profile.start_buttons || []
+    if (cur.length >= 5) return
+    update('start_buttons', [...cur, { type: 'custom', label: '', url: '' }])
+  }
+  function removeStartBtn(idx: number) {
+    if (!profile) return
+    update('start_buttons', (profile.start_buttons || []).filter((_, i) => i !== idx))
+  }
+  function moveStartBtn(idx: number, dir: -1 | 1) {
+    if (!profile) return
+    const next = [...(profile.start_buttons || [])]
+    const j = idx + dir
+    if (j < 0 || j >= next.length) return
+    ;[next[idx], next[j]] = [next[j], next[idx]]
+    update('start_buttons', next)
+  }
   function addAch(field: 'achievements' | 'owner_achievements') {
     if (!profile) return
     update(field, [...profile[field], { label: '', value: '' }])
@@ -237,6 +292,13 @@ export default function MiniAppSettingsPage() {
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
+        // Кнопки приветствия: выкидываем пустые (без текста; custom без ссылки), максимум 5.
+        start_buttons: (profile.start_buttons || [])
+          .filter(b => (b.label || '').trim() && (b.type !== 'custom' || (b.url || '').trim()))
+          .slice(0, 5)
+          .map(b => b.type === 'custom'
+            ? { type: 'custom', label: b.label.trim(), url: (b.url || '').trim() }
+            : { type: b.type, label: b.label.trim() }),
         start_mode:             profile.start_mode || 'greeting',
         start_event_id:         profile.start_mode === 'event' ? (profile.start_event_id || null) : null,
         start_lead_magnet_id:   profile.start_mode === 'lead_magnet' ? (profile.start_lead_magnet_id || null) : null,
@@ -583,7 +645,7 @@ export default function MiniAppSettingsPage() {
           >
             <div className="space-y-2 mb-4">
               {([
-                { v: 'greeting', t: 'Общее приветствие', d: 'Текст-приветствие + 2 кнопки (все события / об основателе).' },
+                { v: 'greeting', t: 'Общее приветствие', d: 'Текст-приветствие + свои кнопки (все события, об основателе или произвольные ссылки).' },
                 { v: 'event',    t: 'Конкретное событие', d: 'Сразу открывается выбранное событие — его вход/регистрация/меню.' },
                 { v: 'lead_magnet', t: 'Лид-магнит', d: 'Сразу запускается воронка выбранного лид-магнита (Telegram, ВКонтакте).' },
               ] as const).map(opt => {
@@ -667,27 +729,65 @@ export default function MiniAppSettingsPage() {
                     Поддерживается HTML: <code className="font-mono">{'<b>жирный</b>'}</code>.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1">Кнопка «Все события»</label>
-                    <input
-                      value={profile.start_btn_events_label || ''}
-                      onChange={e => update('start_btn_events_label', e.target.value)}
-                      placeholder="📅 Все события"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Ведёт на список всех ваших событий.</p>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">Кнопки под приветствием</label>
+                  <div className="space-y-3">
+                    {(profile.start_buttons || []).map((btn, idx) => (
+                      <div key={idx} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-medium text-gray-500 w-5 text-center">{idx + 1}</span>
+                          <select
+                            value={btn.type}
+                            onChange={e => changeStartBtnType(idx, e.target.value as StartButton['type'])}
+                            className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-amber-400 bg-white"
+                          >
+                            <option value="events">Все события</option>
+                            <option value="owner">Об основателе</option>
+                            <option value="custom">Произвольная ссылка</option>
+                          </select>
+                          <div className="ml-auto flex items-center gap-1">
+                            <button type="button" onClick={() => moveStartBtn(idx, -1)} disabled={idx === 0}
+                              className="w-7 h-7 rounded border border-gray-300 bg-white text-gray-500 disabled:opacity-30 hover:bg-gray-100">↑</button>
+                            <button type="button" onClick={() => moveStartBtn(idx, 1)} disabled={idx === (profile.start_buttons || []).length - 1}
+                              className="w-7 h-7 rounded border border-gray-300 bg-white text-gray-500 disabled:opacity-30 hover:bg-gray-100">↓</button>
+                            <button type="button" onClick={() => removeStartBtn(idx)}
+                              className="w-7 h-7 rounded border border-red-200 bg-white text-red-500 hover:bg-red-50">✕</button>
+                          </div>
+                        </div>
+                        <input
+                          value={btn.label || ''}
+                          onChange={e => updateStartBtn(idx, { label: e.target.value })}
+                          placeholder={btn.type === 'events' ? '📅 Все события' : btn.type === 'owner' ? '🌐 Об основателе' : 'Текст кнопки'}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                        />
+                        {btn.type === 'custom' ? (
+                          <input
+                            value={btn.url || ''}
+                            onChange={e => updateStartBtn(idx, { url: e.target.value })}
+                            placeholder="https://ваша-ссылка.ру"
+                            className="w-full mt-2 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                          />
+                        ) : (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {btn.type === 'events'
+                              ? 'Ссылка ставится автоматически — ведёт на список всех ваших событий.'
+                              : 'Ссылка ставится автоматически — ведёт в раздел «О проекте» (об основателе).'}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1">Кнопка «Об основателе»</label>
-                    <input
-                      value={profile.start_btn_owner_label || ''}
-                      onChange={e => update('start_btn_owner_label', e.target.value)}
-                      placeholder="🌐 Об основателе"
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Ведёт в раздел «О проекте» (об основателе).</p>
-                  </div>
+                  {(profile.start_buttons || []).length < 5 ? (
+                    <button
+                      type="button"
+                      onClick={addStartBtn}
+                      className="mt-3 text-sm px-3 py-2 rounded-lg border border-dashed border-gray-300 text-gray-600 hover:border-amber-400 hover:text-amber-600 w-full"
+                    >
+                      + Добавить кнопку
+                    </button>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-2">Максимум 5 кнопок.</p>
+                  )}
                 </div>
               </div>
             )}

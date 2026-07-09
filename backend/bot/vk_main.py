@@ -347,10 +347,11 @@ async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
              "owner_url": f"https://pluson.ru/o/{ctx.client_id}?tab=ecosystem"}
 
     txt = greeting_text_plain(g.get("text") or "")
-    kb = tg_inline_to_vk_keyboard([
-        [{"text": g["events_label"], "url": g["events_url"]}],
-        [{"text": g["owner_label"], "url": g["owner_url"]}],
-    ])
+    btns = g.get("buttons") or [
+        {"label": g["events_label"], "url": g["events_url"]},
+        {"label": g["owner_label"], "url": g["owner_url"]},
+    ]
+    kb = tg_inline_to_vk_keyboard([[{"text": b["label"], "url": b["url"]}] for b in btns])
     await vk_send_message(user_id, txt, keyboard=kb, token=ctx.token)
 
 

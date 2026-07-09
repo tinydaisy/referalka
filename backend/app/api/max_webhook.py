@@ -1408,10 +1408,11 @@ async def _process_start(
             # это НЕ воронка по ссылке fnl_ (та обработана выше). Здесь просто
             # показываем обычное приветствие с кнопками.
             _txt = greeting_text_plain(g.get("text") or "")
-            _btn = tg_inline_to_max_keyboard([
-                [{"text": g["events_label"], "url": g["events_url"]}],
-                [{"text": g["owner_label"], "url": g["owner_url"]}],
-            ])
+            _gbtns = g.get("buttons") or [
+                {"label": g["events_label"], "url": g["events_url"]},
+                {"label": g["owner_label"], "url": g["owner_url"]},
+            ]
+            _btn = tg_inline_to_max_keyboard([[{"text": b["label"], "url": b["url"]}] for b in _gbtns])
             _att = None
             if g.get("photo_url"):
                 try:

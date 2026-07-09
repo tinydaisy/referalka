@@ -33,22 +33,27 @@ async def resolve_start_greeting(
       - kind='event'    → открыть событие: {'event_slug': str}
       - kind='greeting' → показать приветствие:
             {'text': str (HTML),
-             'events_label': str, 'events_url': str,
-             'owner_label': str,  'owner_url': str,
-             'photo_url': str|None}
+             'buttons': [{'kind': 'events'|'owner'|'custom',
+                          'label': str, 'url': str}],
+             'photo_url': str|None,
+             # legacy-поля для обратной совместимости старых вызовов:
+             'events_label', 'events_url', 'owner_label', 'owner_url'}
     """
     client = await conn.fetchrow(
         """SELECT id, name, brand_name,
                   profile_photo_url, owner_photo_url,
                   start_greeting_text,
                   start_btn_events_label, start_btn_owner_label,
+                  start_buttons,
                   start_mode, start_event_id,
                   start_lead_magnet_id, start_package_id
              FROM clients WHERE id = $1""",
         client_id,
     )
     if not client:
-        return {"kind": "greeting", "text": "", "events_label": "📅 Все события",
+        return {"kind": "greeting", "text": "",
+                "buttons": _default_buttons(client_id, None, None),
+                "events_label": "📅 Все события",
                 "events_url": f"https://pluson.ru/o/{client_id}",
                 "owner_label": "🌐 Об основателе",
                 "owner_url": f"https://pluson.ru/o/{client_id}?tab=ecosystem",
@@ -108,15 +113,86 @@ async def resolve_start_greeting(
     owner_label = (client["start_btn_owner_label"] or "").strip() or "🌐 Об основателе"
     photo_url = client["owner_photo_url"] or client["profile_photo_url"]
 
+    buttons = _resolve_buttons(
+        client_id,
+        client["start_buttons"],
+        client["start_btn_events_label"],
+        client["start_btn_owner_label"],
+    )
+
     return {
         "kind": "greeting",
         "text": text,
+        "buttons": buttons,
+        # legacy-поля — оставлены для старых вызовов, которые ещё их читают
         "events_label": events_label,
         "events_url": f"https://pluson.ru/o/{client_id}",
         "owner_label": owner_label,
         "owner_url": f"https://pluson.ru/o/{client_id}?tab=ecosystem",
         "photo_url": photo_url,
     }
+
+
+def _events_url(client_id: int) -> str:
+    return f"https://pluson.ru/o/{client_id}"
+
+
+def _owner_url(client_id: int) -> str:
+    return f"https://pluson.ru/o/{client_id}?tab=ecosystem"
+
+
+def _default_buttons(client_id: int, events_label, owner_label) -> list[dict]:
+    """Две дефолтные кнопки (события + об основателе) — обратная совместимость."""
+    ev = (events_label or "").strip() or "📅 Все события"
+    ow = (owner_label or "").strip() or "🌐 Об основателе"
+    return [
+        {"kind": "events", "label": ev, "url": _events_url(client_id)},
+        {"kind": "owner", "label": ow, "url": _owner_url(client_id)},
+    ]
+
+
+def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label) -> list[dict]:
+    """Разбирает clients.start_buttons (JSONB) в список готовых кнопок.
+
+    Каждая кнопка: {'kind': 'events'|'owner'|'custom', 'label': str, 'url': str}.
+    Для events/owner URL проставляется автоматически (клиент задаёт только текст),
+    для custom берётся заданный клиентом URL.
+
+    Пусто/невалидно → две дефолтные кнопки из старых полей (совместимость).
+    Ограничение — до 5 кнопок.
+    """
+    import json as _json
+    raw = start_buttons
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except Exception:
+            raw = None
+    if not isinstance(raw, list) or not raw:
+        return _default_buttons(client_id, events_label, owner_label)
+
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kind = (item.get("type") or item.get("kind") or "custom").strip()
+        label = (item.get("label") or "").strip()
+        if kind == "events":
+            out.append({"kind": "events",
+                        "label": label or "📅 Все события",
+                        "url": _events_url(client_id)})
+        elif kind == "owner":
+            out.append({"kind": "owner",
+                        "label": label or "🌐 Об основателе",
+                        "url": _owner_url(client_id)})
+        else:  # custom
+            url = (item.get("url") or "").strip()
+            if label and url:
+                out.append({"kind": "custom", "label": label, "url": url})
+        if len(out) >= 5:
+            break
+
+    return out or _default_buttons(client_id, events_label, owner_label)
 
 
 def greeting_text_plain(html_text: str) -> str:

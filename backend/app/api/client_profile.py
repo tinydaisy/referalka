@@ -876,6 +876,8 @@ class ProfileUpdate(BaseModel):
     start_greeting_text:    Optional[str] = None
     start_btn_events_label: Optional[str] = None
     start_btn_owner_label:  Optional[str] = None
+    # Кнопки приветствия (до 5): [{type:'events'|'owner'|'custom', label, url}]
+    start_buttons:          Optional[list] = None
     # Что открывать при /start: 'greeting' | 'event' | 'lead_magnet'
     start_mode:     Optional[str] = None
     start_event_id: Optional[int] = None
@@ -902,6 +904,7 @@ async def get_my_profile(
                   bio, social_links,
                   default_link_mode, start_greeting_text,
                   start_btn_events_label, start_btn_owner_label,
+                  start_buttons,
                   start_mode, start_event_id,
                   start_lead_magnet_id, start_package_id,
                   events_tab_visibility,
@@ -915,6 +918,7 @@ async def get_my_profile(
     d["achievements"]       = _parse_jsonb(d.get("achievements"), [])
     d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
     d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
+    d["start_buttons"]      = _parse_jsonb(d.get("start_buttons"), [])
     return d
 
 
@@ -967,6 +971,28 @@ async def update_my_profile(
     if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
+
+    # Кнопки приветствия. Нормализуем: до 5 штук, каждая — тип events/owner/custom.
+    # Пустой массив → NULL (резолвер вернётся к 2 дефолтным кнопкам).
+    if "start_buttons" in fs:
+        _clean: list[dict] = []
+        for _b in (data.start_buttons or []):
+            if not isinstance(_b, dict):
+                continue
+            _t = (str(_b.get("type") or "custom")).strip()
+            if _t not in ("events", "owner", "custom"):
+                _t = "custom"
+            _lbl = (str(_b.get("label") or "")).strip()
+            _url = (str(_b.get("url") or "")).strip()
+            if _t == "custom":
+                if _lbl and _url:
+                    _clean.append({"type": "custom", "label": _lbl, "url": _url})
+            else:  # events / owner — url проставит резолвер, храним только текст
+                if _lbl:
+                    _clean.append({"type": _t, "label": _lbl})
+            if len(_clean) >= 5:
+                break
+        add("start_buttons", _clean or None, jsonb=True)
 
     if data.start_mode is not None:
         if data.start_mode not in ("greeting", "event", "lead_magnet"):
