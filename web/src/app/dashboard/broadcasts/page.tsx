@@ -9,6 +9,7 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
+import { utcIsoToTzLocalInput, tzLocalInputToEpochMs } from '@/lib/timezone'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -468,9 +469,9 @@ export default function GeneralBroadcastsPage() {
                         )}
                         {(s.status === 'draft' || s.status === 'pending') && (
                           <button onClick={() => {
-                            const d = s.fire_at_iso ? new Date(s.fire_at_iso) : new Date()
-                            const pad = (n: number) => String(n).padStart(2, '0')
-                            const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                            // Показываем московское стенное время, а не tz браузера
+                            // (иначе у клиента с зарубежной tz время «съезжает»).
+                            const local = utcIsoToTzLocalInput(s.fire_at_iso)
                             // snapshot_buttons приходит из бэка как JSONB-массив объектов
                             let btns: { text: string; url: string }[] = []
                             try {
@@ -837,7 +838,9 @@ function CustomBroadcastModal(props: {
     // ⚠️ Защита от ошибочной мгновенной отправки: дата в прошлом (частый случай —
     // скопировали старую рассылку). Люфт 2 мин от текущего времени.
     if (sendMode === 'schedule' && fireAt) {
-      const picked = new Date(fireAt).getTime()
+      // Трактуем ввод как МСК (как бэк), а не как tz браузера — иначе у клиента
+      // с зарубежной tz валидация ложно срабатывает «дата уже прошла».
+      const picked = tzLocalInputToEpochMs(fireAt)
       if (picked < Date.now() - 2 * 60 * 1000) {
         errs.push('Дата отправки уже прошла — укажите будущее время (иначе рассылка ушла бы сразу)')
       }
