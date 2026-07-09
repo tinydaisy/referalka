@@ -101,10 +101,15 @@ export default function ChannelsPage() {
   }
 
   const isVip = (me?.features || []).includes('channels')
+  // Системный сервисный аккаунт ПЛЮСОНа (client 3): для него системный @pluson_bot
+  // (и системные VK/MAX) — это фактически ЕГО собственные боты. Поэтому апсейл
+  // «подключите свой бот» и красный баннер ему не показываем.
+  const isSystemService = !!me?.is_system_service
   // Есть ли у клиента хоть один СВОЙ (не системный) бот/сообщество — TG/VK/MAX.
   // Без него сервис не работает: воронки, события, рассылки, чаты идут только
   // через бот клиента (системный @pluson_bot для клиентов больше не используется).
-  const hasOwnBot = channels.some(c => !c.is_system)
+  // Для системного сервисного аккаунта системные каналы считаются «своими».
+  const hasOwnBot = channels.some(c => !c.is_system) || (isSystemService && channels.some(c => c.is_system))
 
   return (
     <div className="p-6 max-w-5xl">
@@ -144,6 +149,7 @@ export default function ChannelsPage() {
           <VipView
             channels={channels}
             platforms={platforms}
+            isSystemService={isSystemService}
             onEdit={ch => setEditing(ch)}
             onCreate={() => setCreating(true)}
             onDelete={ch => setDeletingChannel(ch)}
@@ -323,9 +329,10 @@ function PlatformGroup({ title, count, children, defaultOpen = true }: {
 }
 
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport }: {
+function VipView({ channels, platforms, isSystemService, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport }: {
   channels: Channel[]
   platforms: Platform[]
+  isSystemService?: boolean
   onEdit: (ch: Channel) => void
   onCreate: () => void
   onDelete: (ch: Channel) => void
@@ -334,9 +341,14 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
   onOpenMaxWizard: () => void
   onImport: (ch: Channel) => void
 }) {
-  const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active && !c.is_system)
-  const mainVkChannel = channels.find(c => c.platform_slug === 'vk' && c.is_active && !c.is_system)
-  const mainMaxChannel = channels.find(c => c.platform_slug === 'max' && c.is_active && !c.is_system)
+  // Для системного сервисного аккаунта системные каналы = его собственные, поэтому
+  // любой его канал (даже не помеченный is_active в client_channels, как MAX)
+  // считается «главным» на площадке — карточка канала вместо апсейла «подключите бот».
+  const isMainOnPlatform = (c: Channel) =>
+    isSystemService ? true : (c.is_active && !c.is_system)
+  const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && isMainOnPlatform(c))
+  const mainVkChannel = channels.find(c => c.platform_slug === 'vk' && isMainOnPlatform(c))
+  const mainMaxChannel = channels.find(c => c.platform_slug === 'max' && isMainOnPlatform(c))
 
   const card = (ch: Channel) => (
     <ChannelCard

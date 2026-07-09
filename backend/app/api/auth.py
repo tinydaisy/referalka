@@ -383,7 +383,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client_id = int(payload["sub"])
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
-                c.created_at, c.timezone, c.email_verified,
+                c.created_at, c.timezone, c.email_verified, c.is_system_service,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
