@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CreditCard, CheckCircle2, X, ArrowRight, Wallet } from 'lucide-react'
+import { CreditCard, CheckCircle2, X, ArrowRight, Wallet, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function SubscriptionPage() {
@@ -15,6 +15,7 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(false)
   const [bonusLoading, setBonusLoading] = useState(false)
   const [error, setError] = useState('')
+  const [featuresOpen, setFeaturesOpen] = useState(false)  // «Что входит в тариф» — свёрнут по умолчанию
 
   useEffect(() => {
     api.auth.me().then((d: any) => setMe(d)).catch(() => {})
@@ -130,6 +131,39 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* Что входит в текущий тариф — свёрнутый список над тарифами */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <button
+          onClick={() => setFeaturesOpen(o => !o)}
+          className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50 transition-colors"
+        >
+          <h3 className="font-semibold text-gray-800">Что входит в ваш тариф</h3>
+          <ChevronDown size={18} className={`text-gray-400 transition-transform ${featuresOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {featuresOpen && (
+          <div className="px-6 pb-6 space-y-2 text-sm border-t border-gray-50 pt-4">
+            <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1">База — всегда включено</div>
+            {['Контакты', 'Мероприятия', 'Рассылки'].map(x => (
+              <div key={x} className="flex items-center gap-2 text-gray-700">
+                <CheckCircle2 size={16} className="text-green-500 shrink-0" /> {x}
+              </div>
+            ))}
+            <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1 mt-3">Опции тарифа</div>
+            {Object.entries(featureLabels).map(([slug, label]) => {
+              const enabled = features.includes(slug)
+              return (
+                <div key={slug} className={`flex items-center gap-2 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>
+                  {enabled
+                    ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+                    : <X size={16} className="text-gray-300 shrink-0" />}
+                  {label}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Выбор тарифа */}
       {tariffs.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -215,31 +249,6 @@ export default function SubscriptionPage() {
           </div>
         </div>
       )}
-
-      {/* Что входит в текущий тариф */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h3 className="font-semibold text-gray-800 mb-4">Что входит в ваш тариф</h3>
-        <div className="space-y-2 text-sm">
-          <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1">База — всегда включено</div>
-          {['Контакты', 'Мероприятия', 'Рассылки'].map(x => (
-            <div key={x} className="flex items-center gap-2 text-gray-700">
-              <CheckCircle2 size={16} className="text-green-500 shrink-0" /> {x}
-            </div>
-          ))}
-          <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1 mt-3">Опции тарифа</div>
-          {Object.entries(featureLabels).map(([slug, label]) => {
-            const enabled = features.includes(slug)
-            return (
-              <div key={slug} className={`flex items-center gap-2 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>
-                {enabled
-                  ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-                  : <X size={16} className="text-gray-300 shrink-0" />}
-                {label}
-              </div>
-            )
-          })}
-        </div>
-      </div>
 
       {/* Модули-аддоны поверх тарифа */}
       <ModulesBlock />
@@ -358,9 +367,9 @@ function ModulesBlock() {
                 <div className="mt-4 flex gap-2">
                   {a.monthly_payable && (
                     <button onClick={() => buy(a.slug, 1, false, a.monthly_provider || 'prodamus')} disabled={!!loadingSlug}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#25455D] text-white hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50 flex items-center justify-center gap-1.5">
                       {loadingSlug === a.slug + ':1'
-                        ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Соединяем…</>
+                        ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
                         : 'На месяц'}
                     </button>
                   )}
