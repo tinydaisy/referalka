@@ -235,16 +235,18 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
     #   • {materials_list_description_links} — ссылка отдельной строкой (без эмодзи).
     # Если у пакета есть описание — оно идёт СВЕРХУ, затем два переноса, затем список.
     # У лид-магнита без описания строка описания опускается.
+    # Формат пункта: жирное название на своей строке → НЕжирное описание на
+    # следующей строке → (для *_links) ссылка отдельной строкой без эмодзи.
     def _one(i: int, m: dict, with_link: bool) -> str:
-        head = f"{i + 1}. <b>{m['name']}</b>"
+        lines = [f"{i + 1}. <b>{m['name']}</b>"]
         desc = (m.get("description") or "").strip()
         if desc:
-            head += f" — {desc}"
+            lines.append(desc)
         if with_link:
             url = (m.get("url") or "").strip()
             if url:
-                head += f"\n{url}"
-        return head
+                lines.append(url)
+        return "\n".join(lines)
 
     def _list_desc(with_link: bool) -> str:
         body = "\n\n".join(_one(i, m, with_link) for i, m in enumerate(materials))
