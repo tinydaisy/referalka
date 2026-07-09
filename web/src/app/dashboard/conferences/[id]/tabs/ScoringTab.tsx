@@ -873,6 +873,13 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
             </div>
             {isOpen && (
               <div className="px-4 pb-3 pt-1 bg-white">
+                {/* Ссылка-материал, которую видит жюри (video_url || video_folder_url) */}
+                <div className="mb-2 pb-2 border-b border-gray-100 text-sm">
+                  <span className="text-gray-500">Материал для жюри: </span>
+                  {s.material
+                    ? <a href={s.material} target="_blank" rel="noreferrer" className="text-[#25455D] underline break-all">{s.material}</a>
+                    : <span className="text-gray-400">не задан (у оцениваемого нет ни видео-файла, ни ссылки на папку с видео)</span>}
+                </div>
                 {(s.jurors || []).length === 0 && (
                   <div className="text-sm text-gray-400 py-2">Этому оцениваемому не назначено жюри.</div>
                 )}

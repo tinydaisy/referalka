@@ -1271,6 +1271,7 @@ async def jury_review(event_id: int, stage_id: Optional[int] = None,
 
         out_subjects.append({
             "key": key, "name": subj["name"], "is_speaker": subj["is_speaker"],
+            "material": subj.get("material"),  # ссылка-материал, которую видит жюри (video_url || video_folder_url)
             "total": len(assigned), "green": green, "red": red,
             "jurors": jurors_out,
         })
