@@ -90,6 +90,14 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Настройка системного клиента 3 + ПЛЮСОН-реф-код из /start во всех ботах + {materials_list_description} (миграция 206 от 2026-07-09, ПРОД 9f3b6f7)
+
+**1. Системный клиент 3 («ПЛЮСОН Сервис») настроен как основатель/бренд ПЛЮСОНа** (данными, не кодом). Бренд = `iViSiON: ПЛЮСОН`, позиционирование «привлекай клиентов без вложений в рекламу», лого/фото бренда = `brand_logo_url` клиента 1; вся founder-инфа (`owner_photo_url`/`owner_positioning`/`owner_achievements`/`achievements`/`bio`) скопирована с клиента 1. Канал уведомлений TG = `-1004291706338`. Каналы основателя в `social_links`: TG «ПЛЮСОН СЕРВИС» (`https://t.me/pluson_business`, chat_id `-1004391957680`), VK = системное сообщество `vk.com/ivision_pluson` (group 238697730), MAX = системный `max.ru/id890306512862_1_bot`. Продукт в «Доступно»: «ПЛЮСОН: 14 дней бесплатно» → `pluson.ru/register`. Голый `/start` у @pluson_bot: `start_mode='greeting'` + одна кнопка «🎁 ПЛЮСОН: 14 дней бесплатно» (`start_buttons`, custom → `pluson.ru/register`).
+
+**2. ПЛЮСОН-реф-код из `/start ref<код>` пишется контакту в ЛЮБОМ боте (миграция 206: `contacts.plusson_referrer_code`).** Хендлер `ref<8симв>` в [start.py](backend/bot/handlers/start.py) теперь: (а) резолвит код через `resolve_plusson_referrer` (понимает и `clients.referral_code`, и код-контакт спикера с `linked_client_id`); (б) `_persist_plusson_referrer_code` пишет СЫРОЙ код в контакт человека в базе клиента ЭТОГО бота (bot_id → channels → client_id: системный→client 3, VIP→client_channels), только если поле пустое (первый рефовод выигрывает). `/register` ([auth.py](backend/app/api/auth.py)): если в URL нет `pid`, берёт код фолбэком — ищет контакт по email/телефону/TG-нику с непустым `plusson_referrer_code` → `resolve_plusson_referrer`. Так привязка к рефоводу переживает то, что человек не нажал кнопку регистрации сразу.
+
+**3. Плейсхолдер `{materials_list_description}` в шаблоне воронки лид-магнитов.** [funnel_service.py](backend/app/services/funnel_service.py) `_format_text`: `{materials_list}` теперь ЖИРНЫЕ названия (`<b>`); новый `{materials_list_description}` — «N. <b>Название</b> — описание\n🖐 ссылка», пункты через два переноса; описание пакета (`lead_magnet_packages.description`, через `_package_description_for_run`) идёт СВЕРХУ списка. Описание берётся из `lead_magnets.description` (колонка была; в форму лид-магнита дашборда добавлено поле «Описание»). Проброс `pkg_description` во все 8 вызовов `_format_text` (text_1/2/3 × TG/VK/MAX). VK срезает `<b>` (как обычно).
+
 ### Кастомные кнопки «Общего приветствия» VIP-бота (миграция 205 от 2026-07-09, ПРОД)
 
 **Зачем.** Раньше приветствие на голый `/start` VIP-бота клиента имело РОВНО 2 кнопки (события / об основателе), тексты в `clients.start_btn_events_label`/`start_btn_owner_label`. Теперь клиент сам собирает список кнопок (**до 5**), у каждой один из 3 типов:
