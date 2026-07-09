@@ -145,6 +145,12 @@ export default function SubscriptionPage() {
           )}
 
           {error && <div className="mb-3 text-sm text-red-600">{error}</div>}
+          {loading && (
+            <div className="mb-3 flex items-center gap-3 rounded-xl border border-[#FFCFA4] bg-amber-50/60 px-4 py-3">
+              <span className="w-5 h-5 border-2 border-[#25455D] border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="text-sm text-gray-700">Соединяем вас с платёжной системой — подождите ~20 секунд…</span>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {tariffs.map(t => {
@@ -188,9 +194,11 @@ export default function SubscriptionPage() {
                   <button
                     onClick={() => pay(t.slug, t)}
                     disabled={busy}
-                    className="btn-gold w-full mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="btn-gold w-full mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
-                    {busy && loading ? 'Создаём заказ…' : `Оплатить ${Number(t.price).toLocaleString('ru-RU')} ₽`}
+                    {busy && loading
+                      ? <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
+                      : `Оплатить ${Number(t.price).toLocaleString('ru-RU')} ₽`}
                   </button>
                   {canBonus && (
                     <button
@@ -292,6 +300,12 @@ function ModulesBlock() {
         Подключаются поверх тарифа. Оплата помесячно.
       </p>
       {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
+      {loadingSlug && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-[#FFCFA4] bg-amber-50/60 px-4 py-3">
+          <span className="w-5 h-5 border-2 border-[#25455D] border-t-transparent rounded-full animate-spin shrink-0" />
+          <span className="text-sm text-gray-700">Соединяем вас с платёжной системой — подождите ~20 секунд…</span>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {addons.map(a => {
           const owned = a.owned || a.included_in_tariff
@@ -330,8 +344,10 @@ function ModulesBlock() {
                 a.bundle_available ? (
                   <div className="mt-4">
                     <button onClick={() => buy(a.slug, 1, true)} disabled={!!loadingSlug}
-                      className="w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50">
-                      {loadingSlug === a.slug + ':bundle' ? '…' : `Оформить с Профи — ${a.bundle_price?.toLocaleString('ru-RU')} ₽`}
+                      className="w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {loadingSlug === a.slug + ':bundle'
+                        ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
+                        : `Оформить с Профи — ${a.bundle_price?.toLocaleString('ru-RU')} ₽`}
                     </button>
                     <p className="mt-1.5 text-[11px] text-gray-400 text-center">Тариф Профи + модуль на 30 дней одной оплатой</p>
                   </div>
@@ -342,14 +358,18 @@ function ModulesBlock() {
                 <div className="mt-4 flex gap-2">
                   {a.monthly_payable && (
                     <button onClick={() => buy(a.slug, 1, false, a.monthly_provider || 'prodamus')} disabled={!!loadingSlug}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#25455D] text-white hover:opacity-90 disabled:opacity-50">
-                      {loadingSlug === a.slug + ':1' ? '…' : 'На месяц'}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#25455D] text-white hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {loadingSlug === a.slug + ':1'
+                        ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Соединяем…</>
+                        : 'На месяц'}
                     </button>
                   )}
                   {a.price_6mo && a.sixmo_payable && (
                     <button onClick={() => buy(a.slug, 6, false, a.sixmo_provider || 'prodamus')} disabled={!!loadingSlug}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50">
-                      {loadingSlug === a.slug + ':6' ? '…' : 'На 6 мес −20%'}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {loadingSlug === a.slug + ':6'
+                        ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
+                        : 'На 6 мес −20%'}
                     </button>
                   )}
                   {!a.monthly_payable && !a.sixmo_payable && (
