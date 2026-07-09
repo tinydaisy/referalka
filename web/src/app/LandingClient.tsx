@@ -277,7 +277,7 @@ function TariffCard({ t, registerHref, featureLabels, trialBonus }: { t: Tariff;
       )}
       <h3 className="font-bold text-xl text-gray-900">{t.name}</h3>
       {isTrial && (
-        <p className="mt-1 text-sm text-gray-500">Полный доступ ко всему на {trialDays} дней — попробовать бесплатно</p>
+        <p className="mt-1 text-sm text-gray-500">Попробуй тариф «Профи» бесплатно — {trialDays} дней</p>
       )}
       {isTrial && trialBonus && (
         <p className="mt-1 text-xs font-semibold text-emerald-600">🎁 Акция: {trialDays} дней вместо {t.default_duration_days}</p>
