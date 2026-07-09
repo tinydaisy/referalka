@@ -26,6 +26,7 @@ class LegalDataUpdate(BaseModel):
     legal_form: Optional[str] = None             # individual | ip | ooo | other
     legal_name: Optional[str] = None
     legal_inn: Optional[str] = None
+    legal_inn_label: Optional[str] = None        # название поля ИНН (РФ) / УНП (РБ) / др.
     legal_ogrn: Optional[str] = None
     legal_address: Optional[str] = None
     legal_operator_email: Optional[str] = None
@@ -44,7 +45,7 @@ async def get_legal_and_policy(
 ):
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        """SELECT legal_form, legal_name, legal_inn, legal_ogrn,
+        """SELECT legal_form, legal_name, legal_inn, legal_inn_label, legal_ogrn,
                   legal_address, legal_operator_email, legal_operator_phone,
                   privacy_policy_text, privacy_policy_version,
                   privacy_policy_published_at
@@ -72,14 +73,8 @@ async def update_legal_and_policy(
 ):
     client_id = int(client["sub"])
 
-    # Простейшая валидация ИНН (10 или 12 цифр, опционально)
-    if data.legal_inn is not None:
-        inn = (data.legal_inn or "").strip()
-        if inn and (not inn.isdigit() or len(inn) not in (10, 12)):
-            raise HTTPException(
-                status_code=400,
-                detail="ИНН должен содержать 10 цифр (для юр.лица) или 12 (для ИП/физлица)",
-            )
+    # Валидацию формата ИНН не делаем: в РФ это 10/12 цифр, в РБ (УНП) — 9 знаков
+    # с буквой, в других странах свой формат. Принимаем любое непустое значение.
 
     if data.legal_form is not None and data.legal_form not in (
         "individual", "ip", "ooo", "other", ""
@@ -91,7 +86,7 @@ async def update_legal_and_policy(
 
     sets = []
     args: list = []
-    for field in ["legal_form", "legal_name", "legal_inn", "legal_ogrn",
+    for field in ["legal_form", "legal_name", "legal_inn", "legal_inn_label", "legal_ogrn",
                   "legal_address", "legal_operator_email", "legal_operator_phone",
                   "privacy_policy_text"]:
         val = getattr(data, field)
@@ -180,7 +175,7 @@ async def get_public_privacy(client_id: int, db=Depends(get_db)):
         """SELECT name, brand_name,
                   privacy_policy_text, privacy_policy_version,
                   privacy_policy_published_at,
-                  legal_form, legal_name, legal_inn, legal_ogrn,
+                  legal_form, legal_name, legal_inn, legal_inn_label, legal_ogrn,
                   legal_address, legal_operator_email, legal_operator_phone
              FROM clients WHERE id = $1""",
         client_id,

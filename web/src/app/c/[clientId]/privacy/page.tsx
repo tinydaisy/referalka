@@ -14,7 +14,7 @@ import { notFound } from 'next/navigation'
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const FORM_LABELS: Record<string, string> = {
-  individual: 'Физическое лицо',
+  individual: 'Самозанятый',
   ip: 'Индивидуальный предприниматель',
   ooo: 'Юридическое лицо',
   other: 'Другая форма',
@@ -90,7 +90,7 @@ export default async function PrivacyPage({
             )}
             {data.legal_inn && (
               <>
-                <dt className="text-gray-500">ИНН</dt>
+                <dt className="text-gray-500">{data.legal_inn_label?.trim() || 'ИНН'}</dt>
                 <dd className="sm:col-span-2 text-gray-800">{data.legal_inn}</dd>
               </>
             )}

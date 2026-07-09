@@ -13,6 +13,7 @@
  * 4. Под кнопкой — текущая версия и дата публикации + ссылка на публичную страничку.
  */
 import { useEffect, useState } from 'react'
+import { Pencil } from 'lucide-react'
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type LegalForm = '' | 'individual' | 'ip' | 'ooo' | 'other'
@@ -21,6 +22,7 @@ type LegalData = {
   legal_form: LegalForm
   legal_name: string
   legal_inn: string
+  legal_inn_label: string
   legal_ogrn: string
   legal_address: string
   legal_operator_email: string
@@ -34,7 +36,7 @@ type LegalData = {
 
 const FORM_LABELS: Record<LegalForm, string> = {
   '':           '— выбрать —',
-  individual:   'Физическое лицо',
+  individual:   'Самозанятый',
   ip:           'Индивидуальный предприниматель',
   ooo:          'Юридическое лицо (ООО / АО / другое)',
   other:        'Другая форма',
@@ -88,6 +90,7 @@ export default function LegalTab() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [clientId, setClientId] = useState<number | null>(null)
+  const [editingInnLabel, setEditingInnLabel] = useState(false)
 
   const auth = (): Record<string, string> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('plusson_token') : null
@@ -136,6 +139,7 @@ export default function LegalTab() {
           legal_form: data.legal_form || null,
           legal_name: data.legal_name || null,
           legal_inn: data.legal_inn || null,
+          legal_inn_label: data.legal_inn_label || null,
           legal_ogrn: data.legal_ogrn || null,
           legal_address: data.legal_address || null,
           legal_operator_email: data.legal_operator_email || null,
@@ -167,6 +171,7 @@ export default function LegalTab() {
           legal_form: data.legal_form || null,
           legal_name: data.legal_name || null,
           legal_inn: data.legal_inn || null,
+          legal_inn_label: data.legal_inn_label || null,
           legal_ogrn: data.legal_ogrn || null,
           legal_address: data.legal_address || null,
           legal_operator_email: data.legal_operator_email || null,
@@ -229,9 +234,35 @@ export default function LegalTab() {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">ИНН *</label>
+            <div className="flex items-center gap-1.5 mb-1">
+              {editingInnLabel ? (
+                <input
+                  type="text"
+                  autoFocus
+                  value={data.legal_inn_label || ''}
+                  onChange={set('legal_inn_label')}
+                  onBlur={() => setEditingInnLabel(false)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') setEditingInnLabel(false) }}
+                  placeholder="ИНН"
+                  className="px-2 py-1 border border-brand/40 rounded-lg text-sm font-medium w-32 focus:outline-none focus:ring-2 focus:ring-brand/30" />
+              ) : (
+                <label className="text-sm font-medium text-gray-700">
+                  {(data.legal_inn_label || '').trim() || 'ИНН'} *
+                </label>
+              )}
+              <span className="text-[11px] text-gray-400">
+                из другой страны? переименуйте
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingInnLabel(v => !v)}
+                title="Переименовать поле (напр. УНП для Беларуси)"
+                className="text-gray-400 hover:text-brand transition-colors">
+                <Pencil size={13} />
+              </button>
+            </div>
             <input type="text" value={data.legal_inn || ''} onChange={set('legal_inn')}
-              placeholder="10 или 12 цифр"
+              placeholder="цифры или буквы (напр. УНП РБ)"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
           </div>
           <div>
@@ -261,7 +292,7 @@ export default function LegalTab() {
         </div>
         {data.missing_legal_fields.length > 0 && (
           <div className="mt-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            ⚠️ Не заполнены обязательные поля: {data.missing_legal_fields.map(f => FIELD_LABELS[f] || f).join(', ')}
+            ⚠️ Не заполнены обязательные поля: {data.missing_legal_fields.map(f => f === 'legal_inn' ? ((data.legal_inn_label || '').trim() || 'ИНН') : (FIELD_LABELS[f] || f)).join(', ')}
           </div>
         )}
       </div>
