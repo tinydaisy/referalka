@@ -90,6 +90,19 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Кастомные кнопки «Общего приветствия» VIP-бота (миграция 205 от 2026-07-09, ПРОД)
+
+**Зачем.** Раньше приветствие на голый `/start` VIP-бота клиента имело РОВНО 2 кнопки (события / об основателе), тексты в `clients.start_btn_events_label`/`start_btn_owner_label`. Теперь клиент сам собирает список кнопок (**до 5**), у каждой один из 3 типов:
+- `events` — «Все события» (`pluson.ru/o/{id}` / Mini App `/`), ссылка автоматом, меняется только текст;
+- `owner` — «Об основателе» (`?tab=ecosystem`), ссылка автоматом, меняется текст;
+- `custom` — произвольная: свой текст + любая ссылка.
+
+**БД (миграция 205):** `clients.start_buttons JSONB` — массив `[{type:'events'|'owner'|'custom', label, url?}]` (url только у custom; у events/owner проставляет резолвер). NULL/пустой → резолвер собирает 2 дефолтные кнопки из старых `start_btn_*_label` (обратная совместимость). ⚠️ DDL на проде — только `sudo -u postgres` (роль plusson не владелец).
+
+**Бэкенд:** резолвер `_resolve_buttons`/`resolve_start_greeting` ([start_greeting.py](backend/app/services/start_greeting.py)) отдаёт `buttons[]` с `kind`. Все 3 площадки рендерят массив: TG ([start.py](backend/bot/handlers/start.py) `_handle_vip_direct_start` — events/owner → Mini App `web_app`, custom → обычная url-кнопка), VK ([vk_main.py](backend/bot/vk_main.py) `_vk_direct_start_welcome`), MAX ([max_webhook.py](backend/app/api/max_webhook.py)). API — `start_buttons` в `ProfileUpdate` + GET/PATCH ([client_profile.py](backend/app/api/client_profile.py)), PATCH нормализует (до 5, custom без url/label выкидывается). Legacy-поля `events_label`/`owner_label`/`events_url`/`owner_url` в резолвере оставлены для старых вызовов.
+
+**Фронт:** `/dashboard/mini-app` → вкладка «Бот и ссылки» → режим «Общее приветствие» → редактор списка кнопок ([mini-app/page.tsx](web/src/app/dashboard/mini-app/page.tsx)): селектор типа, поле текста, поле URL (только custom), ↑↓/✕, «+ Добавить кнопку» (до 5). Тип StartButton.
+
 ### Подвкладка «Оценки жюри» в разделе Турнир + защита фиксации в кабинете жюри (2026-07-09, ПРОД)
 
 **Обзор оценок для организатора.** Новая подвкладка «Оценки жюри» (`jury_review`) в разделе «Турнир» ([page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/page.tsx), после «Распределение»). Список оцениваемых (по аудитории этапа — для `speakers` только спикеры с галочкой этапа `event_collaborator_stages`), у каждого **3 цифры**: 🟢 зелёная = сколько жюри проставили ВСЕ критерии (завершили), 🔴 красная = назначенные, но НЕ завершившие, серая = всего назначено. **Сортировка: первыми субъекты с red>0** (есть непроставленные), внутри — по убыванию red. Разворот субъекта → список назначенных жюри (подпись = `Имя @ник (асс. @ассистент)`, ник из `platform_users`, ассистент из `collaborators.assistant_tg_username`), разворот жюри → оценки по критериям + обратная связь. Только чтение.
