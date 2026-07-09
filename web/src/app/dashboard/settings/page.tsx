@@ -188,11 +188,11 @@ export default function SettingsPage() {
   const notifyBotHandle = (botHandles?.telegram || '').replace(/^@/, '')
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Настройки</h1>
 
       {/* Табы */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
+      <div className="flex flex-wrap gap-1 mb-6 border-b border-gray-200">
         {TABS.map(({ id, label, icon: Icon }) => {
           const active = tab === id
           return (

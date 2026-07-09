@@ -13,8 +13,15 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+def verify_password(plain: str, hashed: Optional[str]) -> bool:
+    # Аккаунт без пароля (password_hash = NULL) → просто «неверный пароль»,
+    # а не 500. Раньше hashed=None ронял login с AttributeError.
+    if not plain or not hashed:
+        return False
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except (ValueError, TypeError):
+        return False
 
 
 def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
