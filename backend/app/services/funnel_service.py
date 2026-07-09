@@ -228,27 +228,35 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
     materials_with_links = "\n\n".join(
         f"{i + 1}. {m['name']} — {m['url']}" for i, m in enumerate(materials)
     )
-    # {materials_list_description} — расширенный список: жирное название, под ним
-    # нежирное описание (через « — »), эмодзи-рука и ссылка. Пункты разделены
-    # двумя переносами. Если у пакета есть описание — оно идёт СВЕРХУ, затем два
-    # переноса, затем список. У лид-магнита без описания строка описания опускается.
-    def _one(i: int, m: dict) -> str:
+    # {materials_list_description} и {materials_list_description_links} — расширенный
+    # список: жирное название, под ним НЕжирное описание (через « — »). Пункты
+    # разделены двумя переносами. Разница — только в ссылке:
+    #   • {materials_list_description}       — БЕЗ ссылок;
+    #   • {materials_list_description_links} — ссылка отдельной строкой (без эмодзи).
+    # Если у пакета есть описание — оно идёт СВЕРХУ, затем два переноса, затем список.
+    # У лид-магнита без описания строка описания опускается.
+    def _one(i: int, m: dict, with_link: bool) -> str:
         head = f"{i + 1}. <b>{m['name']}</b>"
         desc = (m.get("description") or "").strip()
         if desc:
             head += f" — {desc}"
-        url = (m.get("url") or "").strip()
-        if url:
-            head += f"\n🖐 {url}"
+        if with_link:
+            url = (m.get("url") or "").strip()
+            if url:
+                head += f"\n{url}"
         return head
-    materials_body = "\n\n".join(_one(i, m) for i, m in enumerate(materials))
-    pkg_desc = (pkg_description or "").strip()
-    materials_list_description = (
-        f"{pkg_desc}\n\n{materials_body}" if pkg_desc else materials_body
-    )
+
+    def _list_desc(with_link: bool) -> str:
+        body = "\n\n".join(_one(i, m, with_link) for i, m in enumerate(materials))
+        pkg = (pkg_description or "").strip()
+        return f"{pkg}\n\n{body}" if pkg else body
+
+    materials_list_description = _list_desc(with_link=False)
+    materials_list_description_links = _list_desc(with_link=True)
     placeholders = {
         "materials_list": materials_list,
         "materials_list_description": materials_list_description,
+        "materials_list_description_links": materials_list_description_links,
         "materials_with_links": materials_with_links,
         "client_brand_name": ctx.get("brand_name", ""),
         "client_owner_name": ctx.get("owner_name", ""),

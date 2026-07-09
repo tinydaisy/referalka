@@ -36,7 +36,8 @@ template_router = APIRouter(prefix="/funnel-templates", tags=["Воронки"])
 # Дефолтные тексты воронки лид-магнита.
 # Плейсхолдеры (подставляются на бэке перед отправкой):
 #   {materials_list}     — список названий «1. <b>...</b>» жирным, без ссылок (text_1)
-#   {materials_list_description} — «1. <b>Название</b> — описание \n 🖐 <ссылка>»;
+#   {materials_list_description}       — «1. <b>Название</b> — описание» (без ссылок)
+#   {materials_list_description_links} — то же + ссылка отдельной строкой (без эмодзи)
 #                          описание пакета (если есть) идёт СВЕРХУ списка
 #   {materials_with_links} — список «1. Название — <ссылка>» (text_2)
 #   {client_brand_name}  — название бренда (или имя клиента)

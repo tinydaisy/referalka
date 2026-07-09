@@ -10,6 +10,7 @@ export interface Me {
   email?: string
   features?: string[]
   role?: MeRole
+  is_system_service?: boolean
   [k: string]: any
 }
 
