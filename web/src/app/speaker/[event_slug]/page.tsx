@@ -2460,6 +2460,9 @@ function JudgingTab({ token }: { token: string }) {
   // Ссылки на textarea обратной связи по каждому участнику — чтобы при фиксации
   // читать актуальный введённый текст (а не только сохранённый onBlur).
   const fbRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
+  // Ссылки на инпуты оценок (ключ `criterionId|subjectKey`) — чтобы при фиксации
+  // читать актуально введённое значение, даже если onBlur ещё не сработал.
+  const scoreRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const load = useCallback(() => {
     setLoading(true)
@@ -2508,8 +2511,27 @@ function JudgingTab({ token }: { token: string }) {
     const v = data?.my_avg_by_key?.[key]
     return v == null ? '—' : String(v)
   }
-  // Фиксация оценки ОДНОГО участника. Требуем развёрнутую обратную связь (≥10 слов).
+  // Фиксация оценки ОДНОГО участника. Требуем: ВСЕ критерии проставлены +
+  // развёрнутая обратная связь (≥10 слов).
   const lockSubject = async (key: string, name: string) => {
+    // Проверка: все критерии этапа должны быть заполнены (нельзя частично).
+    // Актуальное значение берём из поля (может быть ещё не сохранено onBlur),
+    // фолбэк — на сохранённое.
+    const crits = data?.criteria || []
+    const curVal = (cid: number) => {
+      const raw = scoreRefs.current[`${cid}|${key}`]?.value
+      return (raw != null ? raw : scoreVal(cid, key)).trim()
+    }
+    const missing = crits.filter((c: any) => curVal(c.id) === '')
+    if (missing.length > 0) {
+      alert(`Нельзя сохранить оценку — не проставлены все критерии.\n\nОсталось заполнить: ${missing.map((c: any) => c.title).join(', ')}`)
+      return
+    }
+    // Досохраняем оценки, которые ещё не ушли на сервер (onBlur не сработал).
+    for (const c of crits) {
+      const el = scoreRefs.current[`${c.id}|${key}`]
+      if (el && el.value !== '') await saveScore(c.id, key, el.value, Number(c.scale_max))
+    }
     // Актуальный текст берём из поля (может быть ещё не сохранён onBlur).
     const fb = ((fbRefs.current[key]?.value ?? fbVal(key)) || '').trim()
     const words = fb ? fb.split(/\s+/).filter(Boolean).length : 0
@@ -2597,6 +2619,7 @@ function JudgingTab({ token }: { token: string }) {
                       )}
                     </div>
                     <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
+                      ref={(el) => { scoreRefs.current[`${c.id}|${s.key}`] = el }}
                       onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
                       style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: '#fff' }} />
                     <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>

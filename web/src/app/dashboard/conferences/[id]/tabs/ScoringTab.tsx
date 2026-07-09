@@ -20,6 +20,7 @@ function utcToMoscowLocal(iso: string | null | undefined): string {
 export function CriteriaTab({ eventId }: { eventId: number }) { return <CriteriaSub eventId={eventId} /> }
 export function AssignmentsTab({ eventId }: { eventId: number }) { return <AssignmentsSub eventId={eventId} /> }
 export function LeaderboardTab({ eventId }: { eventId: number }) { return <LeaderboardSub eventId={eventId} /> }
+export function JuryReviewTab({ eventId }: { eventId: number }) { return <JuryReviewSub eventId={eventId} /> }
 export function ReportsTab({ eventId }: { eventId: number }) { return <ReportsSub eventId={eventId} /> }
 
 // ─────────────────────── Критерии (конструктор) ───────────────────────
@@ -795,6 +796,129 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────── Оценки жюри (обзор) ───────────────────────
+// Список оцениваемых, у каждого 3 цифры (🟢 оценило · 🔴 не оценили · всего жюри).
+// Разворот → назначенные жюри с оценками по критериям и обратной связью.
+// Первыми — те, у кого есть непроставленные оценки (red>0). Только чтение.
+function JuryReviewSub({ eventId }: { eventId: number }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
+  const [stageId, setStageId] = useState<number | null>(null)
+  const [stagesInit, setStagesInit] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)      // раскрытый субъект
+  const [openJuror, setOpenJuror] = useState<string | null>(null) // раскрытое жюри (ключ subj|jec)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await api.tournament.juryReview(eventId, stageId)
+      setData(r)
+      if (!stagesInit) {
+        setStagesInit(true)
+        if ((r.stages || []).length > 0 && stageId == null) setStageId(r.stages[0].id)
+      }
+    } finally { setLoading(false) }
+  }, [eventId, stageId, stagesInit])
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div className="flex justify-center py-10"><Spinner className="text-brand text-2xl" /></div>
+  if (!data) return null
+
+  const subjects = data.subjects || []
+
+  return (
+    <div>
+      {/* Селектор этапа */}
+      {(data.stages || []).length > 0 && (
+        <div className="mb-4">
+          <select value={stageId ?? ''} onChange={e => { setStageId(e.target.value ? Number(e.target.value) : null); setOpen(null); setOpenJuror(null) }}
+            className="px-3 py-2 rounded-lg text-sm font-bold text-[#FFCFA4] cursor-pointer border-none"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+            {data.stages.map((s: any) => <option key={s.id} value={s.id} className="text-[#1a2a3a] bg-white font-normal">{s.title}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Легенда */}
+      <div className="flex items-center gap-4 mb-3 text-xs text-gray-500 flex-wrap">
+        <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 font-bold">N</span> оценило (все критерии)</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 font-bold">N</span> ещё не оценили</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-600 font-bold">N</span> всего жюри</span>
+      </div>
+
+      {subjects.length === 0 && (
+        <div className="p-4 rounded-lg bg-gray-50 text-sm text-gray-400">На этом этапе нет оцениваемых.</div>
+      )}
+
+      {subjects.map((s: any) => {
+        const isOpen = open === s.key
+        const hasProblem = s.red > 0
+        return (
+          <div key={s.key} className="border rounded-xl mb-2.5 overflow-hidden"
+            style={{ borderColor: hasProblem ? '#fecaca' : '#e5e7eb' }}>
+            <div className="flex items-center gap-3 cursor-pointer px-4 py-3 hover:bg-gray-50"
+              onClick={() => { setOpen(isOpen ? null : s.key); setOpenJuror(null) }}>
+              <b className="text-[#25455D] flex-1 min-w-0 truncate">{s.name}</b>
+              {/* 3 цифры */}
+              <span className="inline-flex items-center gap-1.5 flex-shrink-0">
+                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-green-100 text-green-700 text-sm font-bold" title="оценили полностью">{s.green}</span>
+                <span className={`inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full text-sm font-bold ${s.red > 0 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'}`} title="ещё не оценили">{s.red}</span>
+                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-gray-100 text-gray-600 text-sm font-bold" title="всего назначено жюри">{s.total}</span>
+              </span>
+              <ChevronDown size={18} className={`flex-shrink-0 text-gray-400 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+            </div>
+            {isOpen && (
+              <div className="px-4 pb-3 pt-1 bg-white">
+                {(s.jurors || []).length === 0 && (
+                  <div className="text-sm text-gray-400 py-2">Этому оцениваемому не назначено жюри.</div>
+                )}
+                {(s.jurors || []).map((j: any) => {
+                  const jkey = `${s.key}|${j.juror_ec_id}`
+                  const jOpen = openJuror === jkey
+                  return (
+                    <div key={jkey} className="border-b last:border-b-0 border-gray-100">
+                      <div className="flex items-center gap-2 py-2 cursor-pointer" onClick={() => setOpenJuror(jOpen ? null : jkey)}>
+                        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${j.complete ? 'bg-green-500' : (j.filled > 0 ? 'bg-amber-400' : 'bg-red-400')}`} />
+                        <span className="text-sm font-medium text-[#25455D] flex-1 min-w-0 break-words">{j.label}</span>
+                        {!j.assigned && <span className="text-[11px] text-amber-600 flex-shrink-0">оценил вне назначения</span>}
+                        <span className="text-xs text-gray-400 flex-shrink-0">{j.complete ? 'оценено' : (j.filled > 0 ? `${j.filled}/${j.n_crit}` : 'нет оценки')}</span>
+                        <ChevronDown size={15} className={`flex-shrink-0 text-gray-300 transition-transform ${jOpen ? '' : '-rotate-90'}`} />
+                      </div>
+                      {jOpen && (
+                        <div className="pb-3 pl-4">
+                          {/* Оценки по критериям */}
+                          <div className="space-y-1 mb-2">
+                            {(j.scores || []).map((sc: any) => (
+                              <div key={sc.criterion_id} className="flex items-center gap-2 text-sm">
+                                <span className="text-gray-600 flex-1 min-w-0 truncate">{sc.title}</span>
+                                <span className={`font-bold ${sc.value == null ? 'text-red-400' : 'text-[#25455D]'}`}>
+                                  {sc.value == null ? '—' : sc.value}
+                                </span>
+                                <span className="text-gray-300 text-xs">/ {sc.scale_max}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Обратная связь */}
+                          <div className="mt-2">
+                            <div className="text-xs font-semibold text-[#25455D] mb-1">Обратная связь</div>
+                            {j.feedback
+                              ? <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-2.5">{j.feedback}</div>
+                              : <div className="text-sm text-gray-400 italic">— пусто —</div>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

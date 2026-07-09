@@ -15,7 +15,7 @@ import ParticipantsTab from './tabs/ParticipantsTab'
 import RaffleTab  from './tabs/RaffleTab'
 import PostersTab from './tabs/PostersTab'
 import AnnouncementTrackerTab from './tabs/AnnouncementTrackerTab'
-import { CriteriaTab, AssignmentsTab, LeaderboardTab, ReportsTab, TaskControlTab } from './tabs/ScoringTab'
+import { CriteriaTab, AssignmentsTab, LeaderboardTab, JuryReviewTab, ReportsTab, TaskControlTab } from './tabs/ScoringTab'
 import ReportTab from './tabs/ReportTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
@@ -28,8 +28,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -111,6 +111,7 @@ export default function ConferencePage() {
       tabs: [
         { id: 'criteria' as Tab, label: 'Критерии' },
         { id: 'assignments' as Tab, label: 'Распределение' },
+        { id: 'jury_review' as Tab, label: 'Оценки жюри' },
         { id: 'leaderboard' as Tab, label: 'Турнирная таблица' },
         { id: 'reports' as Tab, label: 'Отчёты' },
         { id: 'taskcontrol' as Tab, label: 'Контроль заданий' },
@@ -231,6 +232,7 @@ export default function ConferencePage() {
       {tab === 'criteria'     && <CriteriaTab eventId={eventId} />}
       {tab === 'assignments'  && <AssignmentsTab eventId={eventId} />}
       {tab === 'leaderboard'  && <LeaderboardTab eventId={eventId} />}
+      {tab === 'jury_review'  && <JuryReviewTab eventId={eventId} />}
       {tab === 'reports'      && <ReportsTab eventId={eventId} />}
       {tab === 'taskcontrol'  && <TaskControlTab eventId={eventId} />}
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}

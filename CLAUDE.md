@@ -90,6 +90,14 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Подвкладка «Оценки жюри» в разделе Турнир + защита фиксации в кабинете жюри (2026-07-09, ПРОД)
+
+**Обзор оценок для организатора.** Новая подвкладка «Оценки жюри» (`jury_review`) в разделе «Турнир» ([page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/page.tsx), после «Распределение»). Список оцениваемых (по аудитории этапа — для `speakers` только спикеры с галочкой этапа `event_collaborator_stages`), у каждого **3 цифры**: 🟢 зелёная = сколько жюри проставили ВСЕ критерии (завершили), 🔴 красная = назначенные, но НЕ завершившие, серая = всего назначено. **Сортировка: первыми субъекты с red>0** (есть непроставленные), внутри — по убыванию red. Разворот субъекта → список назначенных жюри (подпись = `Имя @ник (асс. @ассистент)`, ник из `platform_users`, ассистент из `collaborators.assistant_tg_username`), разворот жюри → оценки по критериям + обратная связь. Только чтение.
+
+**Эндпоинт** `GET /events/{id}/tournament/jury-review?stage_id=` ([tournament.py](backend/app/api/tournament.py)) — переиспользует `_subjects`/`_jurors`/`_stage_audience_flags`. «Оценило» = проставлены ВСЕ критерии жюри этапа (частично = red). Жюри, оценившее вне назначения, показывается пометкой «оценил вне назначения». Компонент `JuryReviewSub`/`JuryReviewTab` в [ScoringTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ScoringTab.tsx), api `tournament.juryReview`.
+
+**⚠️ Защита фиксации в кабинете жюри** ([speaker/[event_slug]/page.tsx](web/src/app/speaker/%5Bevent_slug%5D/page.tsx) `lockSubject`): нельзя зафиксировать оценку участника, пока не проставлены **ВСЕ** критерии этапа (alert со списком незаполненных). Значения читаются из `scoreRefs` (актуальный ввод, даже если onBlur не сработал) + досохраняются перед фиксацией. Обратная связь остаётся обязательной (≥10 слов). Оценки жюри (`tournament_scores`) сохраняются per-критерий на onBlur; фиксация (`lock`) — отдельный маркер «готово».
+
 ### Поле «С какими вопросами можно обращаться?» у коллаба + плейсхолдер {speaker_ask_topics} (миграция 203 от 2026-07-08, ПРОД)
 
 **Новое ГЛОБАЛЬНОЕ поле коллаба** (не per-event): `collaborators.ask_topics TEXT` + `collaborators.show_ask_topics_field BOOL` — список тем/вопросов эксперта, отдельно от per-event заметок (`event_collaborators.notes`). **Бэкфилл миграции 203:** у кого был `event_collaborators.show_notes_field=TRUE` → текст `notes` перенесён в `collaborators.ask_topics`, `show_ask_topics_field=TRUE`; заметки в БД остались, но `show_notes_field` снят везде.

@@ -830,6 +830,8 @@ export const api = {
       request(`/api/v1/events/${eventId}/tournament/assignments/auto`, { method: 'POST', body: JSON.stringify(data) }),
     leaderboard: (eventId: number, stageId?: number | null) =>
       request(`/api/v1/events/${eventId}/tournament/leaderboard${stageId ? `?stage_id=${stageId}` : ''}`),
+    juryReview: (eventId: number, stageId?: number | null) =>
+      request(`/api/v1/events/${eventId}/tournament/jury-review${stageId ? `?stage_id=${stageId}` : ''}`),
     manualScore: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/tournament/manual-score`, { method: 'POST', body: JSON.stringify(data) }),
     feedback: (eventId: number) => request(`/api/v1/events/${eventId}/tournament/feedback`),

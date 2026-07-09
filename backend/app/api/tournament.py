@@ -1117,6 +1117,187 @@ async def leaderboard(event_id: int, stage_id: Optional[int] = None, client=Depe
     return await _compute(event_id, stage_id, db)
 
 
+@router.get("/jury-review", summary="Оценки жюри по каждому оцениваемому (обзор для организатора)")
+async def jury_review(event_id: int, stage_id: Optional[int] = None,
+                      client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Список оцениваемых (по аудитории этапа) и по каждому — назначенные жюри
+    с их оценками по критериям и обратной связью. Счётчики:
+      green — жюри, проставившие ВСЕ критерии этапа этому субъекту (завершили);
+      red   — назначенные жюри, ещё НЕ завершившие (пусто или частично);
+      total — сколько жюри назначено субъекту.
+    Сортировка: сначала субъекты с red>0 (есть непроставленные), потом остальные."""
+    await _check_access(event_id, int(client["sub"]), db)
+    show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, stage_id, db)
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                               include_unregistered=include_unreg, stage_id=stage_id)
+    jurors = await _jurors(event_id, db, stage_id=stage_id)
+
+    # ── Критерии жюри этого этапа (из пакетов scorer='jury' этапа + общих) ──
+    if stage_id is None:
+        pkgs = await db.fetch(
+            "SELECT id FROM tournament_packages WHERE event_id=$1 AND is_active", event_id)
+    else:
+        pkgs = await db.fetch(
+            "SELECT id FROM tournament_packages WHERE event_id=$1 AND is_active AND (stage_id=$2 OR stage_id IS NULL)",
+            event_id, stage_id)
+    pkg_ids = [p["id"] for p in pkgs]
+    crits = []
+    if pkg_ids:
+        crits = [dict(c) for c in await db.fetch(
+            "SELECT id, title, scale_max, sort_order FROM tournament_criteria "
+            "WHERE package_id = ANY($1::bigint[]) AND is_active AND scorer='jury' ORDER BY sort_order, id",
+            pkg_ids)]
+    crit_ids = [c["id"] for c in crits]
+    n_crit = len(crits)
+
+    # ── Ники жюри: имя + @ник (platform_users) + (асс. @ассистент) ──
+    def _juror_label(name: str, nick: Optional[str], assistant: Optional[str]) -> str:
+        parts = [name or "Без имени"]
+        if nick:
+            parts.append("@" + nick.lstrip("@"))
+        label = " ".join(parts)
+        if assistant:
+            label += f" (асс. @{assistant.lstrip('@')})"
+        return label
+
+    juror_meta: dict[int, dict] = {}
+    if jurors:
+        jids = [j["juror_ec_id"] for j in jurors]
+        meta_rows = await db.fetch(
+            """SELECT cse.id AS juror_ec_id, ct.name,
+                      (SELECT pu.username FROM platform_users pu
+                         WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
+                         ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2 WHEN 'max' THEN 3 ELSE 4 END
+                         LIMIT 1) AS nick,
+                      c.assistant_tg_username AS assistant
+                 FROM event_collaborators cse
+                 JOIN collaborators c ON c.id = cse.speaker_id
+                 LEFT JOIN contacts ct ON ct.id = c.contact_id
+                WHERE cse.id = ANY($1::int[])""", jids)
+        for r in meta_rows:
+            juror_meta[r["juror_ec_id"]] = {
+                "name": r["name"], "nick": r["nick"], "assistant": r["assistant"],
+                "label": _juror_label(r["name"], r["nick"], r["assistant"]),
+            }
+
+    # ── Назначения (по этапу) ──
+    if stage_id is None:
+        assign_rows = await db.fetch(
+            "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id IS NULL", event_id)
+    else:
+        assign_rows = await db.fetch(
+            "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id=$2", event_id, stage_id)
+    assigned_jurors_by_key: dict[str, list[int]] = {}
+    for r in assign_rows:
+        assigned_jurors_by_key.setdefault(_skey(r["subject_kind"], r["subject_id"]), []).append(r["juror_ec_id"])
+
+    # ── Сырые баллы жюри (только по критериям этапа) ──
+    #    scores[key][juror_ec_id][criterion_id] = value
+    scores: dict[str, dict[int, dict[int, float]]] = {}
+    if crit_ids:
+        srows = await db.fetch(
+            "SELECT criterion_id, subject_kind, subject_id, juror_ec_id, value_number "
+            "FROM tournament_scores WHERE event_id=$1 AND scorer='jury' AND criterion_id = ANY($2::bigint[])",
+            event_id, crit_ids)
+        for s in srows:
+            key = _skey(s["subject_kind"], s["subject_id"])
+            scores.setdefault(key, {}).setdefault(s["juror_ec_id"], {})[s["criterion_id"]] = float(s["value_number"])
+
+    # ── Обратная связь жюри (по этапу) ──
+    #    fb[key][juror_ec_id] = body
+    fb: dict[str, dict[int, str]] = {}
+    if stage_id is None:
+        frows = await db.fetch(
+            "SELECT subject_kind, subject_id, juror_ec_id, body FROM tournament_feedback WHERE event_id=$1 AND stage_id IS NULL", event_id)
+    else:
+        frows = await db.fetch(
+            "SELECT subject_kind, subject_id, juror_ec_id, body FROM tournament_feedback WHERE event_id=$1 AND stage_id=$2", event_id, stage_id)
+    for r in frows:
+        fb.setdefault(_skey(r["subject_kind"], r["subject_id"]), {})[r["juror_ec_id"]] = r["body"]
+
+    # ── Собираем субъектов ──
+    out_subjects = []
+    for subj in subjects:
+        key = subj["key"]
+        assigned = assigned_jurors_by_key.get(key, [])
+        # жюри, которые реально оценивали (могут быть и вне назначения) — покажем как «оценил, но не назначен»
+        scored_jurors = set(scores.get(key, {}).keys())
+        # порядок: назначенные (в порядке _jurors) + внеплановые оценившие
+        juror_order = [j["juror_ec_id"] for j in jurors if j["juror_ec_id"] in assigned]
+        extra = [jec for jec in scored_jurors if jec not in assigned]
+        # extra — в порядке _jurors, потом остальные
+        extra_ordered = [j["juror_ec_id"] for j in jurors if j["juror_ec_id"] in extra] + \
+                        [jec for jec in extra if jec not in {j["juror_ec_id"] for j in jurors}]
+
+        green = 0
+        red = 0
+        jurors_out = []
+        for jec in juror_order:
+            jsc = scores.get(key, {}).get(jec, {})
+            filled = sum(1 for c in crits if c["id"] in jsc)
+            complete = n_crit > 0 and filled == n_crit
+            if complete:
+                green += 1
+            else:
+                red += 1
+            jurors_out.append({
+                "juror_ec_id": jec,
+                "label": juror_meta.get(jec, {}).get("label", "Жюри"),
+                "name": juror_meta.get(jec, {}).get("name"),
+                "assigned": True,
+                "complete": complete,
+                "filled": filled,
+                "n_crit": n_crit,
+                "scores": [{"criterion_id": c["id"], "title": c["title"], "scale_max": float(c["scale_max"]),
+                            "value": jsc.get(c["id"])} for c in crits],
+                "feedback": fb.get(key, {}).get(jec),
+            })
+        for jec in extra_ordered:
+            jsc = scores.get(key, {}).get(jec, {})
+            filled = sum(1 for c in crits if c["id"] in jsc)
+            complete = n_crit > 0 and filled == n_crit
+            jurors_out.append({
+                "juror_ec_id": jec,
+                "label": juror_meta.get(jec, {}).get("label", "Жюри"),
+                "name": juror_meta.get(jec, {}).get("name"),
+                "assigned": False,   # оценил, хотя не был назначен
+                "complete": complete,
+                "filled": filled,
+                "n_crit": n_crit,
+                "scores": [{"criterion_id": c["id"], "title": c["title"], "scale_max": float(c["scale_max"]),
+                            "value": jsc.get(c["id"])} for c in crits],
+                "feedback": fb.get(key, {}).get(jec),
+            })
+
+        out_subjects.append({
+            "key": key, "name": subj["name"], "is_speaker": subj["is_speaker"],
+            "total": len(assigned), "green": green, "red": red,
+            "jurors": jurors_out,
+        })
+
+    # сортировка: сначала те, у кого есть непроставленные (red>0) — по убыванию red;
+    # внутри — по имени.
+    out_subjects.sort(key=lambda s: (0 if s["red"] > 0 else 1, -s["red"], s["name"] or ""))
+
+    # этапы для селектора — те же, что в get_assignments
+    stages = await db.fetch(
+        """SELECT s.id, s.title FROM conf_stages s
+            WHERE s.event_id=$1
+              AND (
+                (s.listen_audiences IS NOT NULL AND array_length(s.listen_audiences, 1) > 0)
+                OR EXISTS (SELECT 1 FROM event_collaborator_stages ecs
+                             JOIN event_collaborators ec ON ec.id = ecs.ec_id
+                            WHERE ecs.stage_id = s.id AND ec.event_id = $1)
+              )
+            ORDER BY s.sort_order, s.id""", event_id)
+
+    return {
+        "subjects": out_subjects,
+        "criteria": [{"id": c["id"], "title": c["title"], "scale_max": float(c["scale_max"])} for c in crits],
+        "stages": [dict(s) for s in stages],
+    }
+
+
 # ── Ручной/народный ввод балла организатором (в ячейку таблицы) ──
 
 class ManualScoreIn(BaseModel):
