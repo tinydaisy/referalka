@@ -1362,10 +1362,11 @@ async def speaker_program(
             e_id,
         )
     visible_stage_ids = {s["id"] for s in stages}
-    # дни только видимых этапов (дни без этапа показываем всегда)
+    # дни только видимых этапов (дни без этапа показываем всегда).
+    # Галочка show_for_speakers у дня (миграция 204): FALSE → день скрыт от спикера.
     all_days = await db.fetch(
-        "SELECT id, day_number, day_date, stage_id, title "
-        "FROM conf_days WHERE event_id = $1 ORDER BY day_number",
+        "SELECT id, day_number, day_date, stage_id, title, show_for_speakers "
+        "FROM conf_days WHERE event_id = $1 AND show_for_speakers = TRUE ORDER BY day_number",
         e_id,
     )
     days = [d for d in all_days if d["stage_id"] is None or d["stage_id"] in visible_stage_ids]

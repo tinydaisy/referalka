@@ -31,6 +31,7 @@ type Day = {
   stream_url: string | null
   stage_id: number | null
   title: string | null
+  show_for_speakers?: boolean
 }
 type Sess = {
   id: number
@@ -141,6 +142,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         day_number: d.day_number,
         day_date: d.day_date || '', open_time: d.open_time || '', close_time: d.close_time || '',
         stream_url: d.stream_url || '', stage_id: d.stage_id ?? null, title: d.title || '',
+        show_for_speakers: d.show_for_speakers ?? true,
       }))
       setStages(loadedStages)
       setDays(loadedDays)
@@ -317,6 +319,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       stream_url: d.stream_url || null,
       stage_id: d.stage_id ?? null,
       title: d.title || null,
+      show_for_speakers: d.show_for_speakers ?? true,
     }))
   }
 
@@ -930,6 +933,18 @@ function DayAccordion({
                 </select>
               </div>
             </div>
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={day.show_for_speakers ?? true}
+                onChange={e => { onPatchLocal({ show_for_speakers: e.target.checked }); onCommit({ show_for_speakers: e.target.checked }) }}
+                className="mt-0.5 accent-[#25455D]"
+              />
+              <span className="text-xs text-gray-600 leading-snug">
+                Показывать этот день спикерам в их кабинете
+                <span className="block text-gray-400">Выключите для орг-встреч и других дней, которые спикерам видеть не нужно.</span>
+              </span>
+            </label>
           </div>
 
           <div className="px-4 py-2.5">

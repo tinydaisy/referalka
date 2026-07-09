@@ -84,7 +84,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       setSpeakers(spRes.speakers || [])
       const forms: Record<number, any> = {}
       loadedDays.forEach((d: any) => {
-        forms[d.day_number] = { day_date: d.day_date || '', stream_url: d.stream_url || '' }
+        forms[d.day_number] = { day_date: d.day_date || '', stream_url: d.stream_url || '', show_for_speakers: d.show_for_speakers ?? true }
       })
       setDayForms(forms)
     } finally {
@@ -110,6 +110,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
         await api.conference.days.upsert(eventId, dayNum, {
           day_date: f.day_date || null,
           stream_url: f.stream_url || null,
+          show_for_speakers: f.show_for_speakers ?? true,
         })
       }
       setDirtyDays(new Set())
@@ -232,6 +233,22 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                   setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
                 }}
                 className="input" />
+              <label className="flex items-start gap-2 cursor-pointer select-none mt-3">
+                <input
+                  type="checkbox"
+                  checked={df.show_for_speakers ?? true}
+                  onChange={e => {
+                    const v = e.target.checked
+                    setDayForms(prev => ({ ...prev, [dayNum]: { ...(prev[dayNum] || {}), show_for_speakers: v } }))
+                    setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
+                  }}
+                  className="mt-0.5 accent-[#25455D]"
+                />
+                <span className="text-xs text-gray-600 leading-snug">
+                  Показывать этот день спикерам в их кабинете
+                  <span className="block text-gray-400">Выключите для орг-встреч и других дней, которые спикерам видеть не нужно.</span>
+                </span>
+              </label>
             </div>
 
             <div className="px-5 py-3">
