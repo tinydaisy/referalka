@@ -188,6 +188,50 @@ async def _upgrade_pseudo_identities(user) -> None:
         log.warning("upgrade_pseudo_identities failed: %s", e)
 
 
+async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: str) -> None:
+    """Закрепить ПЛЮСОН-реф-код за контактом человека в базе клиента ЭТОГО бота.
+
+    Работает в любом боте: bot_id → channels → client_id (системный → системный
+    клиент, VIP → client_channels). Контакт человека уже создан в _record_subscription,
+    поэтому просто находим его по tg_id + client_id и пишем contacts.plusson_referrer_code.
+
+    Первый рефовод выигрывает: перезаписываем только если поле пустое (миграция 206).
+    Любая ошибка глушится — это вспомогательная привязка, не должна ронять /start.
+    """
+    if not bot_id or not tg_id or not referral_code:
+        return
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        ch = await find_channel_by_bot_id(bot_id, conn)
+        if not ch:
+            return
+        if ch["is_system"]:
+            client_id = await conn.fetchval(
+                "SELECT id FROM clients WHERE is_system_service=TRUE AND is_active=TRUE LIMIT 1"
+            )
+        else:
+            client_id = await conn.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"],
+            )
+        if not client_id:
+            return
+        await conn.execute(
+            """UPDATE contacts c
+                  SET plusson_referrer_code = $1
+                 FROM platform_users p
+                WHERE p.contact_id = c.id
+                  AND p.client_id = $2
+                  AND p.platform_slug = 'telegram'
+                  AND p.platform_user_id = $3
+                  AND (c.plusson_referrer_code IS NULL OR c.plusson_referrer_code = '')""",
+            referral_code, client_id, str(tg_id),
+        )
+    except Exception as e:
+        log.warning("persist_plusson_referrer_code failed: %s", e)
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message, command: CommandObject):
     # В группах/беседах бот МОЛЧИТ — не отвечает на /start@bot и т.п.,
@@ -777,26 +821,47 @@ async def handle_start(message: Message, command: CommandObject):
     # Партнёрский ref-код клиента ПЛЮСОНа: /start ref{8симв} (миграция 125).
     # Формат строго `ref` + 8 символов алфавита `23456789abcdefghjkmnpqrstuvwxyz`.
     # Обрабатываем ДО общего ref_-обработчика событий, иначе уйдёт в Mini App.
+    #
+    # Работает в ЛЮБОМ боте (и @pluson_bot, и VIP-бот клиента) — обработчик один на
+    # всю polling-службу. Раньше матчился только по clients.referral_code и ничего
+    # не сохранял; теперь:
+    #   1) резолвим код через resolve_plusson_referrer — понимает и клиентский код,
+    #      и код-контакт спикера с привязанным ПЛЮСОНом (миграция 206);
+    #   2) закрепляем СЫРОЙ код за контактом этого человека в базе клиента бота
+    #      (contacts.plusson_referrer_code), чтобы привязка не терялась, даже если
+    #      кнопку нажмут не сразу. При регистрации /register возьмёт код отсюда,
+    #      если в URL нет pid.
     import re as _re
     m = _re.fullmatch(r"ref([23456789abcdefghjkmnpqrstuvwxyz]{8})", args)
     if m:
         referral_code = m.group(1)
         try:
             from app.database import get_pool as _get_pool
+            from app.services.plusson_referral import resolve_plusson_referrer
             pool = await _get_pool()
             async with pool.acquire() as conn:
-                referrer = await conn.fetchrow(
-                    "SELECT id, name FROM clients WHERE referral_code = $1",
-                    referral_code,
-                )
-            if referrer:
+                referrer_client_id = await resolve_plusson_referrer(conn, referral_code)
+                referrer_name = None
+                if referrer_client_id:
+                    referrer_name = await conn.fetchval(
+                        "SELECT name FROM clients WHERE id = $1", referrer_client_id
+                    )
+                    # Закрепляем реф-код за контактом человека в базе клиента ЭТОГО
+                    # бота. Первый рефовод выигрывает — не перезатираем непустое.
+                    await _persist_plusson_referrer_code(
+                        conn,
+                        bot_id=(message.bot.id if message.bot else None),
+                        tg_id=user.id if user else None,
+                        referral_code=referral_code,
+                    )
+            if referrer_client_id:
                 register_url = f"https://pluson.ru/register?pid={referral_code}"
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="📝 Зарегистрироваться", url=register_url)
                 ]])
                 await message.answer(
                     f"Привет, {user.first_name or ''}! 👋\n\n"
-                    f"Вас пригласил(а) <b>{referrer['name']}</b> в <b>iViSiON: ПЛЮСОН</b> — "
+                    f"Вас пригласил(а) <b>{referrer_name or 'партнёр'}</b> в <b>iViSiON: ПЛЮСОН</b> — "
                     f"платформу для организаторов и экспертов.\n\n"
                     f"Создайте аккаунт и попробуйте всё сами 👇",
                     reply_markup=kb,

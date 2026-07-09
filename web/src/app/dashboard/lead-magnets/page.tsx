@@ -336,6 +336,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
 }) {
   const [name, setName] = useState(initial?.name || '')
   const [url, setUrl] = useState(initial?.url || '')
+  const [description, setDescription] = useState(initial?.description || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -345,7 +346,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
     if (!name.trim() || !url.trim()) { setErr('Название и ссылка обязательны'); return }
     setSaving(true)
     try {
-      const payload = { name: name.trim(), description: null, url: url.trim() }
+      const payload = { name: name.trim(), description: description.trim() || null, url: url.trim() }
       if (initial) await api.leadMagnets.update(initial.id, payload)
       else await api.leadMagnets.create(payload)
       onSaved()
@@ -364,6 +365,12 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
           <input type="url" value={url} onChange={e => setUrl(e.target.value)}
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="https://example.com/file.pdf" />
+        </Field>
+        <Field label="Описание">
+          <textarea value={description} onChange={e => setDescription(e.target.value)}
+                 rows={2}
+                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 placeholder="Короткое описание — покажется в воронке под названием подарка (плейсхолдер {materials_list_description})" />
         </Field>
         {err && <div className="text-sm text-red-600">{err}</div>}
         <FormActions saving={saving} onClose={onClose} />
@@ -673,7 +680,8 @@ function TemplateEditor() {
         шаблоны пока нельзя. Доступные плейсхолдеры:
         <dl className="mt-2 space-y-1.5 text-xs">
           {[
-            ['{materials_list}', 'нумерованный список названий подарков (без ссылок)'],
+            ['{materials_list}', 'нумерованный список названий подарков жирным (без ссылок)'],
+            ['{materials_list_description}', 'список подарков: жирное название — описание — ссылка. Если у пакета есть описание, оно идёт сверху списка'],
             ['{materials_with_links}', 'список подарков с готовыми ссылками на файлы'],
             ['{client_brand_name}', 'название вашего бренда'],
             ['{client_owner_name}', 'имя основателя'],

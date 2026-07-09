@@ -176,19 +176,19 @@ def _apply_link_params(url: str, params: dict) -> str:
 
 
 async def _materials_for_run(run: dict, db) -> list[dict]:
-    """Возвращает список материалов воронки: [{name, url}, ...].
+    """Возвращает список материалов воронки: [{name, url, description}, ...].
     Для одиночного лид-магнита — список из одного. Для пакета — все вложенные.
 
     В url каждого материала раскрываются плейсхолдеры {plsn_ref}/{ext_ref}
     (реф-коды рефовода) — см. _referrer_link_params."""
     if run["lead_magnet_id"]:
         rows = await db.fetch(
-            "SELECT name, url FROM lead_magnets WHERE id = $1",
+            "SELECT name, url, description FROM lead_magnets WHERE id = $1",
             run["lead_magnet_id"]
         )
     else:
         rows = await db.fetch(
-            """SELECT lm.name, lm.url
+            """SELECT lm.name, lm.url, lm.description
                  FROM lead_magnet_package_items pi
                  JOIN lead_magnets lm ON lm.id = pi.lead_magnet_id
                 WHERE pi.package_id = $1
@@ -208,15 +208,47 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
     return materials
 
 
-def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
+async def _package_description_for_run(run: dict, db) -> str:
+    """Описание пакета (lead_magnet_packages.description) — для {materials_list_description}.
+    Одиночный лид-магнит пакетом не является → пустая строка."""
+    if run.get("package_id"):
+        return (await db.fetchval(
+            "SELECT description FROM lead_magnet_packages WHERE id = $1",
+            run["package_id"],
+        )) or ""
+    return ""
+
+
+def _format_text(template: str, ctx: dict, materials: list[dict],
+                 pkg_description: str = "") -> str:
+    # {materials_list} — нумерованный список названий, названия ЖИРНЫЕ (<b>).
     materials_list = "\n\n".join(
-        f"{i + 1}. {m['name']}" for i, m in enumerate(materials)
+        f"{i + 1}. <b>{m['name']}</b>" for i, m in enumerate(materials)
     )
     materials_with_links = "\n\n".join(
         f"{i + 1}. {m['name']} — {m['url']}" for i, m in enumerate(materials)
     )
+    # {materials_list_description} — расширенный список: жирное название, под ним
+    # нежирное описание (через « — »), эмодзи-рука и ссылка. Пункты разделены
+    # двумя переносами. Если у пакета есть описание — оно идёт СВЕРХУ, затем два
+    # переноса, затем список. У лид-магнита без описания строка описания опускается.
+    def _one(i: int, m: dict) -> str:
+        head = f"{i + 1}. <b>{m['name']}</b>"
+        desc = (m.get("description") or "").strip()
+        if desc:
+            head += f" — {desc}"
+        url = (m.get("url") or "").strip()
+        if url:
+            head += f"\n🖐 {url}"
+        return head
+    materials_body = "\n\n".join(_one(i, m) for i, m in enumerate(materials))
+    pkg_desc = (pkg_description or "").strip()
+    materials_list_description = (
+        f"{pkg_desc}\n\n{materials_body}" if pkg_desc else materials_body
+    )
     placeholders = {
         "materials_list": materials_list,
+        "materials_list_description": materials_list_description,
         "materials_with_links": materials_with_links,
         "client_brand_name": ctx.get("brand_name", ""),
         "client_owner_name": ctx.get("owner_name", ""),
@@ -889,7 +921,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
 
     ctx = await _get_brand_context(client_id, db)
     materials = await _materials_for_run(dict(run), db)
-    text_1 = _format_text(template["text_1"], ctx, materials)
+    pkg_desc = await _package_description_for_run(dict(run), db)
+    text_1 = _format_text(template["text_1"], ctx, materials, pkg_desc)
 
     button_label = template["button_label"] or "ГОТОВО"
     reply_markup = {
@@ -1103,7 +1136,8 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
 
     ctx = await _get_brand_context(client_id, db, platform="vk")
     materials = await _materials_for_run(dict(run), db)
-    text_1 = _format_text(template["text_1"], ctx, materials)
+    pkg_desc = await _package_description_for_run(dict(run), db)
+    text_1 = _format_text(template["text_1"], ctx, materials, pkg_desc)
 
     from app.services.vk_api import send_message_with_media as vk_send_with_media, tg_inline_to_vk_keyboard
     button_label = template["button_label"] or "ГОТОВО"
@@ -1387,11 +1421,12 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
 
     ctx = await _get_brand_context(client_id, db, platform="max")
     materials = await _materials_for_run(dict(run), db)
+    pkg_desc = await _package_description_for_run(dict(run), db)
     # MAX парсит inline-HTML (<b>/<i>/<a>) только при parse_mode='html'; блочные
     # теги (<p>/<br>/<ul>) он не понимает — чистим через html_to_telegram (как в
     # рассылках). Иначе теги приходят сырым текстом.
     from app.services.message_builder import html_to_telegram
-    text_1 = html_to_telegram(_format_text(template["text_1"], ctx, materials))
+    text_1 = html_to_telegram(_format_text(template["text_1"], ctx, materials, pkg_desc))
 
     from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
     button_label = template["button_label"] or "ГОТОВО"
@@ -1461,8 +1496,9 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             template = await _get_or_create_template(client_id, "lead_magnet", db)
             template = dict(template)
         materials = await _materials_for_run(dict(run), db)
+        pkg_desc = await _package_description_for_run(dict(run), db)
         vk_ctx = await _get_brand_context(client_id, db, platform="vk")
-        text_2 = _format_text(template["text_2"], vk_ctx, materials)
+        text_2 = _format_text(template["text_2"], vk_ctx, materials, pkg_desc)
         # Видео в VK НЕ отправляется — только фото (решение 2026-07-08).
         vk_m2_url, vk_m2_type = _vk_funnel_media(
             template.get("text_2_media_url"), template.get("text_2_media_type"))
@@ -1512,8 +1548,9 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             template = await _get_or_create_template(client_id, "lead_magnet", db)
             template = dict(template)
         materials = await _materials_for_run(dict(run), db)
+        pkg_desc = await _package_description_for_run(dict(run), db)
         from app.services.message_builder import html_to_telegram
-        text_2 = html_to_telegram(_format_text(template["text_2"], max_ctx, materials))
+        text_2 = html_to_telegram(_format_text(template["text_2"], max_ctx, materials, pkg_desc))
         text_2, media_att2 = await _max_media_for_text(
             text_2, template.get("text_2_media_url"), template.get("text_2_media_type"), max_token)
         from app.services.max_api import send_message as max_send
@@ -1563,7 +1600,8 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         template = dict(template)
 
     materials = await _materials_for_run(dict(run), db)
-    text_2 = _format_text(template["text_2"], ctx, materials)
+    pkg_desc = await _package_description_for_run(dict(run), db)
+    text_2 = _format_text(template["text_2"], ctx, materials, pkg_desc)
     _, fresh_fid = await _send_text_with_media(
         token, tg_id, text_2,
         template.get("text_2_media_url"),
@@ -1606,12 +1644,13 @@ async def send_text_3(run_id: int, db) -> None:
         return
     ctx = await _get_brand_context(client_id, db)
     materials = await _materials_for_run(dict(run), db)
+    pkg_desc = await _package_description_for_run(dict(run), db)
 
     if run["stage"] == "delivered":
-        text = _format_text(template["text_3_delivered"], ctx, materials)
+        text = _format_text(template["text_3_delivered"], ctx, materials, pkg_desc)
         kind = "delivered"
     else:
-        text = _format_text(template["text_3_stuck"], ctx, materials)
+        text = _format_text(template["text_3_stuck"], ctx, materials, pkg_desc)
         kind = "stuck"
 
     token = await _bot_token_for_client(client_id, db)

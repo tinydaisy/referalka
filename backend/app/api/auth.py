@@ -65,6 +65,33 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
     # понимает оба и возвращает нужного клиента. Невалидный код → None (без связи).
     referred_by_client_id = await resolve_plusson_referrer(db, data.pid)
 
+    # Фолбэк (миграция 206): если в URL не было pid, но человек ранее заходил в
+    # ЛЮБОЙ VIP-бот по ссылке /start ref<код> — код закреплён за его контактом
+    # (contacts.plusson_referrer_code). Находим контакт по email/телефону/TG-нику
+    # и резолвим сохранённый код. Так привязка к рефоводу переживает то, что
+    # человек не нажал кнопку регистрации сразу из бота.
+    if not referred_by_client_id:
+        _uname = (data.telegram_username or "").lstrip("@").strip().lower()
+        _phone_digits = "".join(ch for ch in (data.phone or "") if ch.isdigit())
+        saved_code = await db.fetchval(
+            """SELECT c.plusson_referrer_code
+                 FROM contacts c
+                 LEFT JOIN platform_users p
+                        ON p.contact_id = c.id AND p.platform_slug = 'telegram'
+                WHERE c.plusson_referrer_code IS NOT NULL
+                  AND c.plusson_referrer_code <> ''
+                  AND (
+                        ($1 <> '' AND LOWER(c.email) = $1)
+                     OR ($2 <> '' AND regexp_replace(COALESCE(c.phone,''), '\\D', '', 'g') = $2)
+                     OR ($3 <> '' AND LOWER(p.username) = $3)
+                      )
+                ORDER BY c.first_referred_at NULLS LAST, c.id
+                LIMIT 1""",
+            data.email, _phone_digits, _uname,
+        )
+        if saved_code:
+            referred_by_client_id = await resolve_plusson_referrer(db, saved_code)
+
     # Генерим реф-код для нового клиента
     import random
     alphabet = '23456789abcdefghjkmnpqrstuvwxyz'
