@@ -1899,6 +1899,12 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         return {"is_tournament": False}
     mykey = _skey("ec", se_id)
 
+    # Ссылка-материал, которую по этому спикеру получают жюри (= «Папка с видео»).
+    my_material = await db.fetchval(
+        """SELECT c.video_folder_url FROM event_collaborators cse
+             JOIN collaborators c ON c.id = cse.speaker_id
+            WHERE cse.id=$1""", se_id)
+
     # только этапы, к которым привязан ЭТОТ спикер (event_collaborator_stages).
     # Порядок — последний тур сверху (DESC): свежий этап показываем первым.
     stages = await db.fetch(
@@ -2001,4 +2007,5 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
             "assigned_jurors": jurors_full,
         })
 
-    return {"is_tournament": True, "event_id": event_id, "has_results": any_results, "stages": stages_out}
+    return {"is_tournament": True, "event_id": event_id, "has_results": any_results,
+            "my_material": my_material, "stages": stages_out}

@@ -2681,6 +2681,17 @@ function MyResultsTab({ token }: { token: string }) {
     <div>
       <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 14 }}>Ваши оценки по всем этапам — полная прозрачность, с комментариями жюри.</div>
 
+      {/* Ссылка-материал, которую по этому спикеру получают жюри (= «Папка с видео») */}
+      {data.my_material && (
+        <div style={{ border: `2px solid ${PEACH}`, borderRadius: 12, padding: 14, marginBottom: 16, background: 'linear-gradient(135deg, #fff3e6, #ffe8d1)' }}>
+          <div style={{ fontWeight: 800, color: DARK, marginBottom: 6, fontSize: 14 }}>Вот такую ссылку получают жюри — нажмите и проверьте себя!</div>
+          <a href={data.my_material} target="_blank" rel="noreferrer"
+            style={{ color: DARK, fontWeight: 600, fontSize: 14, wordBreak: 'break-all', textDecoration: 'underline' }}>
+            {data.my_material}
+          </a>
+        </div>
+      )}
+
       {(data.stages || []).map((st: any) => {
         const stKey = `stage:${st.stage_id}`
         const stCollapsed = collapsed[stKey]

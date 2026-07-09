@@ -1100,18 +1100,6 @@ export default function ConferenceSpeakerPage() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
           </div>
-          {/* Ссылка-материал, которую получают жюри (= «Папка с видео») */}
-          {profile.video_folder_url ? (
-            <div className="rounded-xl border border-[#FFCFA4] bg-[#fff8f1] p-3.5 text-sm">
-              <div className="font-semibold text-[#25455D] mb-1">Вот такую ссылку получают жюри — нажмите и проверьте себя!</div>
-              <a href={profile.video_folder_url} target="_blank" rel="noreferrer"
-                className="text-[#25455D] underline break-all">{profile.video_folder_url}</a>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-400">
-              Заполните «Папку с видео» выше — именно эту ссылку получат жюри для оценки.
-            </div>
-          )}
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
