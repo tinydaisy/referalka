@@ -438,7 +438,7 @@
 
 **Бэкенд** [backend/app/api/tournament.py](backend/app/api/tournament.py): `router` (клиент, `/api/v1/events/{id}/tournament/*`) + `jury_router` (кабинет жюри, `/api/v1/public/tournament-jury/*`, JWT кабинета спикера). Auto-seed `_seed_defaults_if_empty` при первом GET `/criteria` — пакет «Оценка жюри» (вес 3, 6 критериев экспертизы) + «Вовлечение» (вес 1, 2 авто).
 
-**Фронт:** дашборд — вкладка «Оценки» ТОЛЬКО при `isTournament` ([ScoringTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ScoringTab.tsx), 4 подвкладки: Критерии/Распределение/Турнирная таблица/Отчёты). Кабинет [/speaker/[event_slug]](web/src/app/speaker/%5Bevent_slug%5D/page.tsx): «Оценка участников» (только `role='jury'`) + «Мои результаты» (для оцениваемых). Материалы для жюри = `collaborators.video_url`/`video_folder_url` участника. api-группа `api.tournament.*`.
+**Фронт:** дашборд — вкладка «Оценки» ТОЛЬКО при `isTournament` ([ScoringTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ScoringTab.tsx), 4 подвкладки: Критерии/Распределение/Турнирная таблица/Отчёты). Кабинет [/speaker/[event_slug]](web/src/app/speaker/%5Bevent_slug%5D/page.tsx): «Оценка участников» (только `role='jury'`) + «Мои результаты» (для оцениваемых). Материалы для жюри = **ТОЛЬКО `collaborators.video_folder_url`** («Папка с видео» участника). ⚠️ `video_url` (загруженный видео-ФАЙЛ, «Индивидуальное видео» на карточке коллаба) в материалы жюри НЕ идёт — жюри оценивает по папке с видео, а не по маркетинговому файлу. В обзоре организатора «Оценки жюри» под каждым оцениваемым показывается та же ссылка (`subject.material`), чтобы проверить. api-группа `api.tournament.*`.
 
 ### Кнопка «Проверить чаты» на странице участников — членство в TG-чате (миграция 130 от 2026-06-10)
 

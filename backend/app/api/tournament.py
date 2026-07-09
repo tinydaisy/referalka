@@ -202,7 +202,7 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
         out.append({"kind": "ec", "sid": d["sid"], "key": _skey("ec", d["sid"]),
                     "name": d["name"] or "Без имени", "username": d.get("username"),
                     "ref_code": d["ref_code"], "contact_id": d["contact_id"],
-                    "material": d["video_url"] or d["video_folder_url"], "is_speaker": True})
+                    "material": d["video_folder_url"], "is_speaker": True})
     return out
 
 

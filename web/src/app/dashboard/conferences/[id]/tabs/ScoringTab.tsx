@@ -878,7 +878,7 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
                   <span className="text-gray-500">Материал для жюри: </span>
                   {s.material
                     ? <a href={s.material} target="_blank" rel="noreferrer" className="text-[#25455D] underline break-all">{s.material}</a>
-                    : <span className="text-gray-400">не задан (у оцениваемого нет ни видео-файла, ни ссылки на папку с видео)</span>}
+                    : <span className="text-gray-400">не задан (у оцениваемого не заполнена «Папка с видео»)</span>}
                 </div>
                 {(s.jurors || []).length === 0 && (
                   <div className="text-sm text-gray-400 py-2">Этому оцениваемому не назначено жюри.</div>
