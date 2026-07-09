@@ -225,8 +225,9 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
     materials_list = "\n\n".join(
         f"{i + 1}. <b>{m['name']}</b>" for i, m in enumerate(materials)
     )
+    # {materials_with_links} — название ЖИРНОЕ (<b>) + ссылка через « — ».
     materials_with_links = "\n\n".join(
-        f"{i + 1}. {m['name']} — {m['url']}" for i, m in enumerate(materials)
+        f"{i + 1}. <b>{m['name']}</b> — {m['url']}" for i, m in enumerate(materials)
     )
     # {materials_list_description} и {materials_list_description_links} — расширенный
     # список: жирное название, под ним НЕжирное описание (через « — »). Пункты
