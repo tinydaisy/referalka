@@ -39,6 +39,14 @@ export function utcIsoToTzLocalInput(iso: string | null | undefined, timezone?: 
   return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`
 }
 
+// Дефолт поля даты у НОВОЙ рассылки: текущее время в таймзоне рассылок (МСК) + plusMinutes.
+// Пустой <input type="datetime-local"> открывает календарь на «сегодня» по таймзоне
+// КОМПЬЮТЕРА (у клиента во Вьетнаме это уже завтра), а подсветку «сегодня» средствами
+// React переопределить нельзя — поэтому просто предзаполняем поле московским временем.
+export function nowTzLocalInput(plusMinutes = 0, timezone?: string): string {
+  return utcIsoToTzLocalInput(new Date(Date.now() + plusMinutes * 60_000).toISOString(), timezone)
+}
+
 // Строку "YYYY-MM-DDTHH:MM" из <input type="datetime-local"> трактует как СТЕННОЕ время
 // в таймзоне рассылок (МСК) и возвращает соответствующий реальный момент (мс epoch).
 // Так же, как бэк (_parse_fire_at вешает на naive-строку tz клиента). Используется для

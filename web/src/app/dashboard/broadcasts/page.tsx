@@ -9,7 +9,7 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
-import { utcIsoToTzLocalInput, tzLocalInputToEpochMs } from '@/lib/timezone'
+import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -774,7 +774,9 @@ function CustomBroadcastModal(props: {
     send_to_private_chats?: boolean
   }
 }) {
-  const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
+  // Новая рассылка — предзаполняем московским «сейчас + 10 мин», чтобы календарь
+  // открывался на московской дате, а не на «сегодня» по таймзоне компьютера.
+  const [fireAt, setFireAt] = useState(props.initial?.fire_at || nowTzLocalInput(10))
   // Режим отправки: 'schedule' — по дате/времени (календарь), 'now' — немедленно.
   const [sendMode, setSendMode] = useState<'schedule' | 'now'>('schedule')
   const [subject, setSubject] = useState(props.initial?.subject || '')

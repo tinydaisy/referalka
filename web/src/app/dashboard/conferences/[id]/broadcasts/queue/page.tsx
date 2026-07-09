@@ -11,7 +11,7 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import { useMe } from '@/hooks/useMe'
-import { utcIsoToTzLocalInput, tzLocalInputToEpochMs } from '@/lib/timezone'
+import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
 
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все уч. конфы',
@@ -170,7 +170,9 @@ export default function QueuePage() {
   const [logLoading, setLogLoading] = useState(false)
   const [manualForm, setManualForm] = useState({
     template_id: '',
-    fire_at: '',
+    // Московское «сейчас + 10 мин» — иначе календарь откроется на «сегодня»
+    // по таймзоне компьютера (у клиента за границей это уже завтра).
+    fire_at: nowTzLocalInput(10),
     is_test: false,
     audience_include: 'all_event',
     audience_exclude: 'none',
@@ -706,7 +708,11 @@ export default function QueuePage() {
             </button>
           </>
         )}
-        <button onClick={() => setManualModal(true)}
+        <button onClick={() => {
+            // Актуализируем дату на момент ОТКРЫТИЯ (страница могла висеть часами).
+            setManualForm(f => ({ ...f, fire_at: nowTzLocalInput(10) }))
+            setManualModal(true)
+          }}
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
           <PlusCircle size={14} /> По шаблону
         </button>
@@ -1635,8 +1641,9 @@ function CustomBroadcastModal(props: {
 }) {
   const ed = props.editSchedule
   // datetime-local показывает московское стенное время (как трактует бэк),
-  // независимо от tz браузера клиента.
-  const initFireAt = ed?.fire_at_iso ? utcIsoToTzLocalInput(ed.fire_at_iso) : ''
+  // независимо от tz браузера клиента. Новая рассылка — «сейчас + 10 мин» по МСК,
+  // иначе календарь откроется на «сегодня» по таймзоне компьютера.
+  const initFireAt = ed?.fire_at_iso ? utcIsoToTzLocalInput(ed.fire_at_iso) : nowTzLocalInput(10)
   const [fireAt, setFireAt] = useState(initFireAt)
   const [text, setText] = useState(ed?.snapshot_text || '')
   const [photoUrl, setPhotoUrl] = useState(ed?.snapshot_photo || '')
