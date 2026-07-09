@@ -35,6 +35,7 @@ interface Channel {
 interface Me {
   id: number
   features?: string[]
+  is_system_service?: boolean
 }
 
 function PlatformBadge({ slug, color }: { slug: string; color?: string | null }) {
