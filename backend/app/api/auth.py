@@ -5,8 +5,11 @@ from app.auth import hash_password, verify_password, create_token
 from app.database import get_db
 from app.services.plusson_referral import resolve_plusson_referrer
 import asyncpg
+import logging
 import secrets
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 
 # Сколько дополнительных дней триала получает клиент, пришедший по реф-коду
@@ -648,8 +651,9 @@ async def password_reset_request(
     в password_reset_tokens (хеш токена), шлёт письмо со ссылкой
     https://pluson.ru/password-reset/confirm?token=...
 
-    Всегда возвращает 200 OK — даже если email не зарегистрирован
-    (чтобы не давать enumeration «у вас есть аккаунт / нет»).
+    Отвечает `found` — есть ли аккаунт с таким email — чтобы страница
+    сразу сказала «такой email не зарегистрирован», а человек не ждал
+    письма, которого не будет.
     """
     import hashlib
     import secrets
@@ -657,8 +661,7 @@ async def password_reset_request(
 
     email_norm = (data.email or "").strip().lower()
     if not email_norm or "@" not in email_norm:
-        # Не раскрываем подробностей — отвечаем как успешный запрос
-        return {"ok": True}
+        return {"ok": True, "found": False, "sent": False}
 
     ip = (request.client.host if request and request.client else "") or ""
 
@@ -674,6 +677,10 @@ async def password_reset_request(
             email_norm,
         )
 
+    if not (client_row or admin_row):
+        return {"ok": True, "found": False, "sent": False}
+
+    sent = False
     if client_row or admin_row:
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -756,11 +763,11 @@ async def password_reset_request(
                     ),
                     unsubscribe_token=fake_unsub,
                 )
+                sent = True
         except Exception:
-            # SMTP-проблема не должна выдавать пользователю что email существует.
-            pass
+            logger.exception("password_reset: не удалось отправить письмо на %s", to_email)
 
-    return {"ok": True}
+    return {"ok": True, "found": True, "sent": sent}
 
 
 # ─── Подтверждение email клиента ────────────────────────────────────────
