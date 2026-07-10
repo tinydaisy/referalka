@@ -1039,7 +1039,14 @@ async def get_me_broadcasts(
                bt.speaker_photo_mode AS tmpl_speaker_photo_mode
           FROM broadcast_schedules bs
           LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
-         WHERE bs.event_id = $1 AND bs.session_id = $2
+         WHERE bs.event_id = $1
+           AND (
+                 -- speaker_intro / expert_day привязаны к КАРТОЧКЕ спикера
+                 bs.session_id = $2
+                 -- 5min_before / gift привязаны к его СЛОТУ в программе
+                 OR bs.session_id IN (SELECT id FROM conf_sessions
+                                       WHERE event_id = $1 AND speaker_id = $2)
+               )
            AND bs.status IN ('pending', 'done')
          ORDER BY bs.fire_at NULLS LAST, bs.id
         """,
