@@ -46,6 +46,13 @@ def _set_cors(response: Response) -> None:
 
 
 # Число приведённых людей коллаба (для сортировки по рефералам).
+# ⚠️ Считаем ТОЧНО так же, как турнирный критерий «Привёл по реф-ссылке» и
+# выдача подарков — по event_referral_settings.gift_count_mode:
+#   registered (default) → только is_registered = TRUE (число регистраций),
+#   clicked_link         → только с переходом (link_clicked_at IS NOT NULL),
+#   visited              → все перешедшие.
+# Раньше здесь считались ВСЕ перешедшие безусловно — из-за этого порядок
+# спикеров на сайте расходился с турнирной таблицей.
 _REFERRALS_COUNT = """COALESCE((
     SELECT COUNT(*) FROM event_participants ep
      WHERE ep.event_id = cse.event_id
@@ -55,6 +62,13 @@ _REFERRALS_COUNT = """COALESCE((
            JOIN contacts ct ON ct.id = co_sort.contact_id
           WHERE co_sort.id = cse.speaker_id
        )
+       AND CASE
+             (SELECT COALESCE(gift_count_mode, 'registered')
+                FROM event_referral_settings WHERE event_id = cse.event_id)
+           WHEN 'visited'      THEN TRUE
+           WHEN 'clicked_link' THEN ep.link_clicked_at IS NOT NULL
+           ELSE ep.is_registered = TRUE
+           END
   ), 0)"""
 
 
