@@ -48,6 +48,17 @@ type Sess = {
 // Спец-id «вкладки» для дней без этапа.
 const ORPHAN_TAB = 0
 
+// Дата дня (conf_days.day_date) — это чистая КАЛЕНДАРНАЯ дата "YYYY-MM-DD",
+// не привязанная к часовому поясу. Форматируем разбором строки, БЕЗ new Date()/timeZone,
+// иначе полночь трактуется в поясе браузера и при выводе в МСК уезжает на сутки назад.
+const DAY_MONTHS_SHORT = ['янв.', 'фев.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.']
+function formatDayDateLabel(d?: string | null): string {
+  if (!d) return ''
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return d
+  return `${parseInt(m[3], 10)} ${DAY_MONTHS_SHORT[parseInt(m[2], 10) - 1]}`
+}
+
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
@@ -882,9 +893,7 @@ function DayAccordion({
   onTiming: () => void
   onShift: () => void
 }) {
-  const dateLabel = day.day_date
-    ? new Date(day.day_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: 'Europe/Moscow' })
-    : ''
+  const dateLabel = formatDayDateLabel(day.day_date)
   // Подпись по умолчанию — порядковый номер дня ВНУТРИ этапа (а не глобальный day_number).
   const defaultLabel = `День ${indexInStage}`
   return (
