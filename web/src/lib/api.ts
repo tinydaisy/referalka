@@ -898,8 +898,10 @@ export const api = {
   assistant: {
     get:           () => request('/api/v1/clients/me/assistant'),
     getPassword:   () => request('/api/v1/clients/me/assistant/password'),
-    create:        (email: string) =>
-      request('/api/v1/clients/me/assistant', { method: 'POST', body: JSON.stringify({ email }) }),
+    create:        (email: string, access_level: 'full' | 'limited' = 'limited') =>
+      request('/api/v1/clients/me/assistant', { method: 'POST', body: JSON.stringify({ email, access_level }) }),
+    setAccessLevel: (access_level: 'full' | 'limited') =>
+      request('/api/v1/clients/me/assistant', { method: 'PATCH', body: JSON.stringify({ access_level }) }),
     resetPassword: () =>
       request('/api/v1/clients/me/assistant/reset-password', { method: 'POST' }),
     delete:        () =>

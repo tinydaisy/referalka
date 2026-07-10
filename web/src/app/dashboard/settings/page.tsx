@@ -47,6 +47,10 @@ export default function SettingsPage() {
   const [vkAppId, setVkAppId] = useState<number | null>(null)
   const [tariff, setTariff] = useState<any>(null)
   const [clientFeatures, setClientFeatures] = useState<string[]>([])
+  // Роль текущего токена: ограниченный ассистент не видит email/пароль владельца
+  // и вкладку «Ассистент»; полный ассистент видит всё, кроме вкладки «Ассистент».
+  const [role, setRole] = useState<'owner' | 'assistant'>('owner')
+  const [assistantLevel, setAssistantLevel] = useState<'full' | 'limited' | null>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -80,6 +84,8 @@ export default function SettingsPage() {
         partner_dashboard_url: c.partner_dashboard_url || '',
       })
       setPartnerVisibleRoles(Array.isArray(c.partner_visible_roles) ? c.partner_visible_roles : [])
+      setRole(c.role === 'assistant' ? 'assistant' : 'owner')
+      setAssistantLevel(c.assistant_access_level || null)
       setTariff(c.subscription || null)
       setClientFeatures(Array.isArray(c.features) ? c.features : [])
       setClientId(c.id || null)
@@ -168,19 +174,42 @@ export default function SettingsPage() {
   // partner_registration (vip + admin). У Профи / Стандарт / Триал — скрыт.
   const hasPartnerRegistration = clientFeatures.includes('partner_registration')
 
+  const isAnyAssistant = role === 'assistant'
+  const isRestrictedAssistant = isAnyAssistant && assistantLevel !== 'full'
+
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'profile',      label: 'Профиль',      icon: UserIcon  },
     { id: 'tech',         label: 'Техническое',  icon: Wrench    },
     ...(hasPartnerRegistration ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
-    { id: 'assistant',    label: 'Ассистент',    icon: UserPlus  },
+    // Управлять ассистентом может только владелец — даже полный ассистент не может
+    // сменить себе пароль или отключить себя.
+    ...(isAnyAssistant ? [] : [{ id: 'assistant' as Tab, label: 'Ассистент', icon: UserPlus }]),
     // «Подписка» вынесена в отдельную страницу /dashboard/subscription (меню пользователя).
     { id: 'legal',        label: 'Юр. данные',   icon: ShieldCheck},
   ]
 
   // Защита от прямого перехода ?tab=integration у не-vip: переключаем на профиль.
-  const effectiveTab: Tab = (tab === 'integration' && !hasPartnerRegistration) ? 'profile' : tab
+  let effectiveTab: Tab = (tab === 'integration' && !hasPartnerRegistration) ? 'profile' : tab
+  if (isAnyAssistant && effectiveTab === 'assistant') effectiveTab = 'profile'
+
+  // Ограниченный ассистент в «Настройки» не заходит вообще: тут email и пароль
+  // владельца кабинета. Прямой переход по URL — показываем заглушку.
+  if (isRestrictedAssistant) {
+    return (
+      <div className="max-w-5xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">Настройки</h1>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+          <p className="text-gray-700 font-medium">Раздел доступен только владельцу кабинета</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Здесь хранятся email и пароль владельца. Если вам нужны эти настройки —
+            попросите владельца выдать вам полный доступ.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   // Бот, который реально пишет в канал уведомлений — ТОЛЬКО свой (VIP) бот клиента.
   // Системный @pluson_bot уведомления организатору больше не шлёт (2026-07-08):

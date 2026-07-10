@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.dialog_archive import archive_direct_message
+from app.services.assistant_access import assistant_is_restricted
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -286,7 +287,7 @@ async def reply_to_contact(
     db=Depends(get_db),
 ):
     """Отправить сообщение человеку через бот клиента и записать его в ленту."""
-    if client.get("role") == "assistant":
+    if await assistant_is_restricted(client):
         raise HTTPException(403, "Ассистент не может отвечать в диалогах.")
     client_id = int(client["sub"])
     platform = body.platform.strip().lower()
@@ -342,7 +343,7 @@ async def edit_message(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    if client.get("role") == "assistant":
+    if await assistant_is_restricted(client):
         raise HTTPException(403, "Ассистент не может править диалоги.")
     client_id = int(client["sub"])
     msg = await db.fetchrow(
@@ -386,7 +387,7 @@ async def delete_message(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    if client.get("role") == "assistant":
+    if await assistant_is_restricted(client):
         raise HTTPException(403, "Ассистент не может удалять в диалогах.")
     client_id = int(client["sub"])
     msg = await db.fetchrow(

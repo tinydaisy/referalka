@@ -25,6 +25,11 @@ from app.database import get_db
 router = APIRouter(prefix="/clients/me/assistant", tags=["Ассистент клиента"])
 
 
+def _normalize_level(value: Optional[str]) -> str:
+    """'full' | 'limited'. Всё непонятное — 'limited' (безопасный default)."""
+    return "full" if (value or "").strip().lower() == "full" else "limited"
+
+
 def _generate_password(length: int = 12) -> str:
     """12 символов, латиница + цифры. Исключены визуально похожие 0/O/o/1/l/I."""
     alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz"
@@ -52,6 +57,7 @@ async def _send_assistant_password_email(
     to_email: str,
     password: str,
     is_reset: bool,
+    access_level: str = "limited",
 ) -> None:
     """
     Шлёт ассистенту письмо с паролем через системный email-канал ПЛЮСОНа.
@@ -87,6 +93,13 @@ async def _send_assistant_password_email(
         )
 
         verb = "обновил" if is_reset else "подключил"
+        rights = (
+            "У вас полный доступ к кабинету — как у самого владельца. "
+            "Недоступен только раздел управления ассистентом."
+            if access_level == "full"
+            else "Вы сможете работать с контактами, событиями, рассылками и реф-программой клиента, "
+                 "но не сможете удалять данные и заходить в раздел «Настройки» и «Каналы»."
+        )
         intro = (
             f"Здравствуйте!\n\n"
             f"Клиент «{client_brand_name}» {verb} вам доступ ассистента в свой кабинет "
@@ -94,8 +107,7 @@ async def _send_assistant_password_email(
             f"Адрес кабинета: {login_url}\n"
             f"Логин: {to_email}\n"
             f"Пароль: {password}\n\n"
-            f"Вы сможете работать с контактами, событиями, рассылками и реф-программой клиента, "
-            f"но не сможете удалять данные и заходить в раздел «Настройки» и «Каналы».\n\n"
+            f"{rights}\n\n"
             f"Если вы не ожидали этого письма — игнорируйте его, доступ останется неактивным "
             f"до первого входа.\n\n"
             f"— Команда ПЛЮСОН"
@@ -130,7 +142,7 @@ async def get_assistant(
 ):
     client_id = await _require_owner(credentials, db)
     row = await db.fetchrow(
-        """SELECT id, email, last_login_at, created_at, updated_at
+        """SELECT id, email, access_level, last_login_at, created_at, updated_at
              FROM client_assistants WHERE client_id = $1""",
         client_id,
     )
@@ -140,6 +152,7 @@ async def get_assistant(
         "assistant": {
             "id": row["id"],
             "email": row["email"],
+            "access_level": row["access_level"],
             "last_login_at": row["last_login_at"].isoformat() if row["last_login_at"] else None,
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
             "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
@@ -172,6 +185,7 @@ async def get_assistant_password(
 
 class CreateAssistantRequest(BaseModel):
     email: EmailStr
+    access_level: Optional[str] = "limited"   # 'full' | 'limited'
 
 
 @router.post("", summary="Подключить ассистента (генерит пароль и шлёт письмо)")
@@ -220,12 +234,13 @@ async def create_assistant(
 
     password = _generate_password()
     pw_hash = hash_password(password)
+    level = _normalize_level(data.access_level)
 
     row = await db.fetchrow(
-        """INSERT INTO client_assistants (client_id, email, password_hash, password_plain)
-           VALUES ($1, $2, $3, $4)
-           RETURNING id, email, created_at, updated_at""",
-        client_id, email_norm, pw_hash, password,
+        """INSERT INTO client_assistants (client_id, email, password_hash, password_plain, access_level)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, email, access_level, created_at, updated_at""",
+        client_id, email_norm, pw_hash, password, level,
     )
 
     client_row = await db.fetchrow(
@@ -241,17 +256,49 @@ async def create_assistant(
         to_email=email_norm,
         password=password,
         is_reset=False,
+        access_level=level,
     )
 
     return {
         "assistant": {
             "id": row["id"],
             "email": row["email"],
+            "access_level": row["access_level"],
             "password": password,
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
             "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
         }
     }
+
+
+# ═════════════════════════════════════════════════════════════
+# PATCH — сменить уровень доступа (full ⇄ limited)
+# ═════════════════════════════════════════════════════════════
+
+class UpdateAssistantRequest(BaseModel):
+    access_level: str   # 'full' | 'limited'
+
+
+@router.patch("", summary="Сменить уровень доступа ассистента")
+async def update_assistant(
+    data: UpdateAssistantRequest,
+    db: asyncpg.Connection = Depends(get_db),
+    credentials=Depends(security),
+):
+    client_id = await _require_owner(credentials, db)
+    level = _normalize_level(data.access_level)
+
+    row = await db.fetchrow(
+        """UPDATE client_assistants
+              SET access_level = $1, updated_at = NOW()
+            WHERE client_id = $2
+        RETURNING id, email, access_level""",
+        level, client_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Ассистент не подключён")
+    # Права применяются сразу — middleware читает access_level из БД на каждый запрос.
+    return {"assistant": {"id": row["id"], "email": row["email"], "access_level": row["access_level"]}}
 
 
 # ═════════════════════════════════════════════════════════════
@@ -266,7 +313,7 @@ async def reset_assistant_password(
     client_id = await _require_owner(credentials, db)
 
     row = await db.fetchrow(
-        "SELECT id, email FROM client_assistants WHERE client_id = $1",
+        "SELECT id, email, access_level FROM client_assistants WHERE client_id = $1",
         client_id,
     )
     if not row:
@@ -295,6 +342,7 @@ async def reset_assistant_password(
         to_email=row["email"],
         password=password,
         is_reset=True,
+        access_level=row["access_level"],
     )
 
     return {"password": password}

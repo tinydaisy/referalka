@@ -12,7 +12,7 @@ export default function Sidebar() {
   const [supportOpen, setSupportOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})  // свёрнутые секции по label
-  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string; tariff_slug?: string; is_system_service?: boolean } | null>(null)
+  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string; assistant_access_level?: string | null; tariff_slug?: string; is_system_service?: boolean } | null>(null)
   const { t } = useLang()
 
   useEffect(() => {
@@ -21,6 +21,7 @@ export default function Sidebar() {
       email: data?.email,
       features: data?.features || [],
       role: data?.role || 'owner',
+      assistant_access_level: data?.assistant_access_level ?? null,
       tariff_slug: data?.subscription?.tariff_slug,
       is_system_service: !!data?.is_system_service,
     })).catch(() => {})
@@ -30,7 +31,10 @@ export default function Sidebar() {
   const hasConference = features.includes('conference')
   const hasContests = features.includes('contests')
   const hasCollabHub = features.includes('collab_hub')
-  const isAssistant = me?.role === 'assistant'
+  const isAnyAssistant = me?.role === 'assistant'
+  const isFullAssistant = isAnyAssistant && me?.assistant_access_level === 'full'
+  // Режем UI только ограниченному ассистенту — полный работает как владелец (миграция 208).
+  const isAssistant = isAnyAssistant && !isFullAssistant
   // МедиаЛифт — служебный раздел сервисного аккаунта («ПЛЮСОН Сервис»).
   // Одно-единственное событие, не список: пункт ведёт сразу внутрь него.
   const isSystemService = !!me?.is_system_service
@@ -221,9 +225,9 @@ export default function Sidebar() {
               <div className="min-w-0 flex-1 text-left">
                 <div className="text-sm font-medium text-white truncate">
                   {me?.name || me?.email || 'Мой кабинет'}
-                  {isAssistant && (
+                  {isAnyAssistant && (
                     <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#FFCFA4]">
-                      · ассистент
+                      {isFullAssistant ? '· ассистент (полный доступ)' : '· ассистент'}
                     </span>
                   )}
                 </div>

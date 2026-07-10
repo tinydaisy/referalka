@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 
 export type MeRole = 'owner' | 'assistant'
+export type AssistantAccessLevel = 'full' | 'limited'
 
 export interface Me {
   id?: number
@@ -10,14 +11,20 @@ export interface Me {
   email?: string
   features?: string[]
   role?: MeRole
+  /** Только у role='assistant': 'full' — права как у владельца, 'limited' — урезанные. */
+  assistant_access_level?: AssistantAccessLevel | null
   is_system_service?: boolean
   [k: string]: any
 }
 
 /**
  * Загружает /auth/me один раз и кеширует в памяти модуля на время сессии страницы.
- * Используется компонентами для определения роли (owner|assistant) и скрытия
- * кнопок удаления / разделов, недоступных ассистенту (миграция 106).
+ *
+ * ⚠️ `isAssistant` означает «ассистент с ОГРАНИЧЕННЫМИ правами» (миграция 208) —
+ * именно по нему компоненты скрывают кнопки удаления и закрытые разделы.
+ * Ассистент с полным доступом (`access_level='full'`) видит кабинет как владелец,
+ * поэтому для него `isAssistant=false`, `isOwner=true`.
+ * Признак «это вообще ассистент» — `isAnyAssistant` (нужен только для бейджа в сайдбаре).
  */
 let _cache: Me | null = null
 let _pending: Promise<Me> | null = null
@@ -48,7 +55,10 @@ export function useMe() {
     if (_cache) return
     fetchMe().then(setMe)
   }, [])
-  const isAssistant = me?.role === 'assistant'
-  const isOwner = !me || me.role !== 'assistant'
-  return { me, isAssistant, isOwner }
+  const isAnyAssistant = me?.role === 'assistant'
+  const isFullAssistant = isAnyAssistant && me?.assistant_access_level === 'full'
+  // «Ограниченный» ассистент — тот, кому режем UI. Полный ведёт себя как владелец.
+  const isAssistant = isAnyAssistant && !isFullAssistant
+  const isOwner = !isAssistant
+  return { me, isAssistant, isOwner, isAnyAssistant, isFullAssistant }
 }

@@ -3,18 +3,28 @@ import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Copy, Check, RotateCcw, Trash2, Mail, UserPlus, Info } from 'lucide-react'
 import { api } from '@/lib/api'
 
+type AccessLevel = 'full' | 'limited'
+
 interface AssistantInfo {
   id: number
   email: string
+  access_level: AccessLevel
   last_login_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+const LEVEL_HINT: Record<AccessLevel, string> = {
+  full: 'Может всё то же, что и вы: настройки, каналы, лид-магниты, удаление данных, оплата. Не сможет только управлять самим ассистентом — этот раздел остаётся за вами.',
+  limited: 'Может править контакты, события, рассылки, реф-программу и продукты Mini App. Не сможет удалять данные, заходить в «Каналы» и «Настройки» (там ваш email и пароль), править лид-магниты и оплачивать.',
 }
 
 export default function AssistantTab() {
   const [assistant, setAssistant] = useState<AssistantInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [emailInput, setEmailInput] = useState('')
+  const [levelInput, setLevelInput] = useState<AccessLevel>('limited')
+  const [savingLevel, setSavingLevel] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
 
@@ -54,7 +64,7 @@ export default function AssistantTab() {
     }
     setCreating(true)
     try {
-      const r = await api.assistant.create(v)
+      const r = await api.assistant.create(v, levelInput)
       setFreshPassword(r.assistant.password)
       setEmailInput('')
       await load()
@@ -62,6 +72,24 @@ export default function AssistantTab() {
       setError(e?.message || 'Не удалось создать ассистента')
     } finally {
       setCreating(false)
+    }
+  }
+
+  async function handleChangeLevel(level: AccessLevel) {
+    if (!assistant || assistant.access_level === level) return
+    if (level === 'full' && !confirm(
+      'Выдать полный доступ? Ассистент сможет всё то же, что и вы: менять настройки, ' +
+      'ваш email и пароль, подключать боты, удалять данные и оплачивать подписку.'
+    )) return
+    setError('')
+    setSavingLevel(true)
+    try {
+      const r = await api.assistant.setAccessLevel(level)
+      setAssistant(a => (a ? { ...a, access_level: r.assistant.access_level } : a))
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось изменить уровень доступа')
+    } finally {
+      setSavingLevel(false)
     }
   }
 
@@ -140,10 +168,9 @@ export default function AssistantTab() {
           <div className="flex-1">
             <h3 className="font-semibold text-gray-800 text-lg">Ассистент кабинета</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Подключите одного помощника, который сможет работать в вашем кабинете
-              с урезанными правами: править контакты, события, рассылки, реф-программу,
-              визитку бренда. <b>Не сможет</b> удалять данные, заходить в разделы «Каналы» и
-              «Настройки», править лид-магниты, а в будущем — и денежные разделы.
+              Подключите одного помощника, который будет работать в вашем кабинете.
+              Права выбираете вы: <b>полный доступ</b> — как у вас, или{' '}
+              <b>ограниченный</b> — без удаления данных, «Каналов» и «Настроек».
             </p>
           </div>
         </div>
@@ -174,6 +201,11 @@ export default function AssistantTab() {
                 {creating ? 'Подключаем…' : 'Подключить'}
               </button>
             </div>
+            <div className="pt-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Права доступа</label>
+              <LevelPicker value={levelInput} onChange={setLevelInput} />
+            </div>
+
             <p className="text-xs text-gray-500 flex items-start gap-1.5">
               <Info size={13} className="shrink-0 mt-0.5" />
               Мы сгенерируем пароль и отправим письмо ассистенту с инструкциями.
@@ -222,6 +254,18 @@ export default function AssistantTab() {
               </div>
             </div>
 
+            <div className="pt-1">
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                Права доступа
+              </label>
+              <LevelPicker
+                value={assistant.access_level}
+                onChange={handleChangeLevel}
+                disabled={savingLevel}
+              />
+              {savingLevel && <div className="text-xs text-gray-500 mt-2">Сохраняем…</div>}
+            </div>
+
             {freshPassword && (
               <div className="bg-[#FFCFA4]/20 border border-[#FFCFA4] rounded-xl px-4 py-3 text-sm text-[#25455D]">
                 <b>Новый пароль сгенерирован.</b> Письмо отправлено ассистенту на{' '}
@@ -266,6 +310,52 @@ export default function AssistantTab() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+
+function LevelPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: AccessLevel
+  onChange: (v: AccessLevel) => void
+  disabled?: boolean
+}) {
+  const options: { id: AccessLevel; title: string }[] = [
+    { id: 'limited', title: 'Ограниченный доступ' },
+    { id: 'full',    title: 'Полный доступ' },
+  ]
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {options.map(o => {
+        const active = value === o.id
+        return (
+          <button
+            key={o.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(o.id)}
+            className={`text-left rounded-xl border px-4 py-3 transition-colors disabled:opacity-60 ${
+              active
+                ? 'border-[#25455D] bg-[#25455D]/5 ring-1 ring-[#25455D]/20'
+                : 'border-gray-200 bg-white hover:bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-4 h-4 rounded-full border-2 shrink-0 ${
+                  active ? 'border-[#25455D] bg-[#25455D]' : 'border-gray-300'
+                }`}
+              />
+              <span className="text-sm font-medium text-gray-800">{o.title}</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5 leading-snug">{LEVEL_HINT[o.id]}</p>
+          </button>
+        )
+      })}
     </div>
   )
 }

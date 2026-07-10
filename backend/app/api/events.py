@@ -8,6 +8,7 @@ from app.services.event_access import is_collab_event
 import asyncpg
 import re
 import secrets
+from app.services.assistant_access import assistant_is_restricted
 
 router = APIRouter(prefix="/events", tags=["События"])
 
@@ -1041,7 +1042,7 @@ async def update_event_participant(
 
     # --- Смена реферера — только владелец кабинета ---
     if "referrer_ref_code" in fields or "referrer_contact_id" in fields:
-        if client.get("role") == "assistant":
+        if await assistant_is_restricted(client):
             raise HTTPException(
                 status_code=403,
                 detail="Сменить реферера может только владелец кабинета."

@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app.auth import get_current_client as get_current_user, get_current_admin
+from app.services.assistant_access import assistant_is_restricted
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ async def create_order(
     provider='leadpay'  — создаём ссылку через LeadPay getLink (product_id из tariffs).
     Цена и duration берутся из tariffs в момент создания заказа.
     """
-    if user.get("role") == "assistant":
+    if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Оплата подписки доступна только владельцу кабинета")
 
     provider = (data.provider or "prodamus").strip().lower()

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app.auth import get_current_client, get_current_admin
+from app.services.assistant_access import assistant_is_restricted
 from app.services.bonuses import (
     get_balance,
     hold_for_withdrawal,
@@ -39,7 +40,7 @@ async def get_my_referral_dashboard(
     user=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    if user.get("role") == "assistant":
+    if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Реф-программа доступна только владельцу кабинета")
 
     client_id = int(user["sub"])
@@ -138,7 +139,7 @@ async def create_withdrawal_request(
     user=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    if user.get("role") == "assistant":
+    if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Вывод доступен только владельцу кабинета")
 
     client_id = int(user["sub"])
@@ -202,7 +203,7 @@ async def pay_with_bonus(
     продлеваем подписку без Prodamus. Частичная оплата (бонус+карта) НЕ
     поддерживается (требует динамической цены в Prodamus, которой нет).
     """
-    if user.get("role") == "assistant":
+    if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Оплата подписки доступна только владельцу кабинета")
 
     client_id = int(user["sub"])

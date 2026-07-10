@@ -1,7 +1,15 @@
 """
 Middleware: ограничивает действия пользователя с role='assistant'.
 
-Семантика прав ассистента (фиксировано 2026-05-24):
+⚠️ Два уровня доступа (миграция 208, `client_assistants.access_level`):
+  · 'full'    — ассистент = владелец кабинета по правам. Middleware пропускает
+                ВСЁ, кроме раздела управления ассистентом (/clients/me/assistant/*),
+                чтобы ассистент не сменил себе пароль и не удалил себя.
+  · 'limited' — исторический набор прав, описанный ниже (default).
+Уровень читается из БД на каждый запрос ассистента — переключение тумблера
+владельцем применяется сразу, без перелогина.
+
+Семантика прав ОГРАНИЧЕННОГО ассистента (фиксировано 2026-05-24):
   ✅ Контакты, коллабораторы, события, участники — читать + править (PATCH/POST/DELETE
      внутри контента: пороги реф-программы, материалы шеринга, шаблоны рассылок,
      шаги nurture, сессии конференции, призы розыгрыша, продукты Mini App, …)
@@ -102,6 +110,19 @@ async def assistant_permission_guard_middleware(request: Request, call_next):
 
     # OPTIONS — пропустим для CORS preflight всегда.
     if method == "OPTIONS":
+        return await call_next(request)
+
+    # Ассистент с ПОЛНЫМ доступом — прав как у владельца. Единственное исключение:
+    # раздел управления ассистентом (иначе он сменит себе пароль / удалит себя).
+    from app.services.assistant_access import get_assistant_access_level
+
+    level = await get_assistant_access_level(payload.get("assistant_id"))
+    if level == "full":
+        if path.startswith("/api/v1/clients/me/assistant") or path.startswith("/api/v1/admin"):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Этот раздел доступен только владельцу кабинета."},
+            )
         return await call_next(request)
 
     # 1) Полный запрет по префиксу (любой метод).

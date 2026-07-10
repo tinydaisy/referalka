@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app.auth import get_current_client as get_current_user
+from app.services.assistant_access import assistant_is_restricted
 from app.api.subscriptions import (
     _verify_prodamus_signature,
     PRODAMUS_VERIFY_SIGNATURE,
@@ -149,7 +150,7 @@ async def create_addon_order(
     user=Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    if user.get("role") == "assistant":
+    if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Покупка модулей доступна только владельцу кабинета")
 
     provider = (data.provider or "prodamus").strip().lower()

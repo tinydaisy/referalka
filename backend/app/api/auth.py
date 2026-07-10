@@ -429,11 +429,18 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     # Роль текущего токена: 'owner' для самого клиента, 'assistant' для ассистента
     # (миграция 105). Используется фронтом для скрытия пунктов меню и DELETE-кнопок.
     out["role"] = "assistant" if payload.get("role") == "assistant" else "owner"
+    out["assistant_access_level"] = None
     if out["role"] == "assistant":
         # Подменяем email/имя на email самого ассистента, чтобы в шапке
         # отображался он, а не владелец кабинета.
         out["email"] = payload.get("email") or out.get("email")
         out["assistant_id"] = payload.get("assistant_id")
+        # 'full' — права как у владельца (кроме управления самим ассистентом),
+        # 'limited' — урезанный набор. Фронт по этому полю решает, что скрывать.
+        from app.services.assistant_access import is_full_assistant_row
+        out["assistant_access_level"] = (
+            "full" if await is_full_assistant_row(db, payload.get("assistant_id")) else "limited"
+        )
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.
     # Без него ссылка вела бы на системный 54592404, а не на клиентский.
@@ -751,8 +758,9 @@ async def verify_email_resend(
     if not credentials:
         raise HTTPException(status_code=401, detail="Требуется авторизация")
     payload = decode_token(credentials.credentials)
-    # Ассистент не управляет email владельца
-    if payload.get("role") == "assistant":
+    # Ассистент с ограниченными правами не управляет email владельца
+    from app.services.assistant_access import assistant_is_restricted
+    if await assistant_is_restricted(payload):
         raise HTTPException(status_code=403, detail="Недоступно для ассистента")
     client_id = int(payload["sub"])
 

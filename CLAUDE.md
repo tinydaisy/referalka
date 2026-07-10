@@ -1106,7 +1106,21 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 При копировании события (`POST /events/{id}/copy`) `start_at`/`end_at` копии = `NULL`, статус = `draft`.
 
-### Ассистент клиента — один помощник на клиента (миграция 106 от 2026-05-24)
+### Ассистент клиента — один помощник на клиента (миграция 106 от 2026-05-24; уровни доступа — миграция 208 от 2026-07-10)
+
+**Два уровня доступа** — `client_assistants.access_level` ∈ `full | limited` (default `limited`):
+- **`full`** — права **как у владельца кабинета** во всех разделах (Настройки, Каналы, лид-магниты, удаление, оплата подписки/модулей, вывод бонусов, диалоги). Закрыто ровно одно: **управление самим ассистентом** (`/api/v1/clients/me/assistant/*`) и админка — иначе ассистент сменит себе пароль или удалит себя, и владелец потеряет контроль.
+- **`limited`** — исторический набор прав (матрица ниже). Ограниченный ассистент **не видит страницу `/dashboard/settings` вообще** (там email и пароль владельца) — при прямом переходе по URL заглушка «доступно только владельцу».
+
+Уровень читается **из БД на каждый запрос** ассистента ([assistant_access.py](backend/app/services/assistant_access.py): `get_assistant_access_level`, `assistant_is_restricted`), а не из JWT — владелец переключает тумблер, права применяются сразу, без перелогина.
+
+- Middleware [assistant_permission_guard.py](backend/app/middleware/assistant_permission_guard.py): при `full` пропускает всё, кроме `/clients/me/assistant` и `/admin`; при `limited` — прежние правила.
+- Точечные 403 в эндпоинтах (`referrals.py`, `addons.py`, `subscriptions.py`, `dialogs.py`, смена реферера в `events.py`, `auth.py` verify-email/resend) переведены с `role == "assistant"` на `await assistant_is_restricted(user)` — полный ассистент их проходит.
+- `GET /auth/me` отдаёт `assistant_access_level` (`full|limited|null`). Фронт: `useMe()` → **`isAssistant` = ассистент с ОГРАНИЧЕННЫМИ правами** (по нему режется UI), плюс `isAnyAssistant` / `isFullAssistant` (только для бейджа в сайдбаре). Полный ассистент видит кабинет как владелец.
+- API: `POST /clients/me/assistant { email, access_level }`, **`PATCH /clients/me/assistant { access_level }`** (смена уровня); уровень отдаётся в `GET`. Письмо ассистенту описывает права по уровню.
+- UI: `/dashboard/settings` → вкладка «Ассистент» ([AssistantTab.tsx](web/src/components/settings/AssistantTab.tsx)) — выбор «Ограниченный / Полный доступ» при создании и переключатель у подключённого (confirm при выдаче полного). Вкладка «Ассистент» **скрыта у любого ассистента**.
+
+⚠️ Матрица прав ниже описывает **ограниченный** уровень.
 
 Клиент может подключить **одного** ассистента с урезанным доступом в свой кабинет. Ассистент входит на общий `/login` через свой email+пароль, в JWT получает `role='assistant'` и `sub=client_id` владельца — работает в том же кабинете, но middleware блокирует опасные действия.
 
