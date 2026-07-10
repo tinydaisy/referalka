@@ -185,7 +185,7 @@ export default function SettingsPage() {
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     // Управлять ассистентом может только владелец — даже полный ассистент не может
     // сменить себе пароль или отключить себя.
-    ...(isAnyAssistant ? [] : [{ id: 'assistant' as Tab, label: 'Ассистент', icon: UserPlus }]),
+    ...(isAnyAssistant ? [] : [{ id: 'assistant' as Tab, label: 'Помощники', icon: UserPlus }]),
     // «Подписка» вынесена в отдельную страницу /dashboard/subscription (меню пользователя).
     { id: 'legal',        label: 'Юр. данные',   icon: ShieldCheck},
   ]

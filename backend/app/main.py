@@ -104,7 +104,7 @@ app.include_router(event_nurture_reg.router,              prefix="/api/v1")  # /
 app.include_router(email_unsubscribe.router)                                   # /api/v1/email/unsubscribe (миграции 097-098)
 app.include_router(legal.router)                                               # юр-данные клиента + публичная страничка политики (миграция 099)
 app.include_router(email_tracking.router)                                      # /api/v1/email/pixel/{token}.gif, /api/v1/email/click (миграция 098)
-app.include_router(assistants.router,   prefix="/api/v1")                      # /api/v1/clients/me/assistant — управление ассистентом (миграция 106)
+app.include_router(assistants.router,   prefix="/api/v1")                      # /api/v1/clients/me/assistants — помощники кабинета (миграции 106, 209)
 app.include_router(speaker_cabinet.router)                                     # /api/v1/public/speaker-cabinet — мини-кабинет спикера (миграция 108)
 app.include_router(landing_widget.router)                                      # /api/v1/public/landing-widget — JSON для сторонних лендингов (миграция 111)
 app.include_router(event_page_html.router)                                     # GET /event/{slug} — простая серверная HTML-страница события (витрина + реф-кабинет)

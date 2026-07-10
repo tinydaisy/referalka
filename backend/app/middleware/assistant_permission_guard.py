@@ -132,9 +132,11 @@ async def assistant_permission_guard_middleware(request: Request, call_next):
     # Ассистент с ПОЛНЫМ доступом — прав как у владельца, кроме личного владельца:
     # раздел управления ассистентом (иначе сменит себе пароль / удалит себя),
     # админка, а также email и пароль владельца (вход в кабинет — не рабочий инструмент).
-    from app.services.assistant_access import get_assistant_access_level
+    from app.services.assistant_access import get_grant_access_level
 
-    level = await get_assistant_access_level(payload.get("assistant_id"))
+    # Уровень живёт в пропуске: помощник может вести несколько кабинетов
+    # и в каждом иметь свои права (миграция 209).
+    level = await get_grant_access_level(payload.get("grant_id"))
     # Личное владельца закрыто ЛЮБОМУ ассистенту (проверяем до разбора уровня).
     if any(path.startswith(p) for p in OWNER_ONLY_ALWAYS_PREFIXES):
         return JSONResponse(

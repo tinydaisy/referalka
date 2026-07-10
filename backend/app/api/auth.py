@@ -34,6 +34,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Помощник кабинета может вести несколько кабинетов (миграция 209).
+    # Первый вход без client_id: если пропусков больше одного — сервер отдаёт
+    # список кабинетов, фронт спрашивает «куда войти» и повторяет запрос с client_id.
+    client_id: int | None = None
 
 
 class AdminLoginRequest(BaseModel):
@@ -304,36 +308,64 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
             }
         }
 
-    # Пробуем залогинить как ассистента клиента (миграция 105).
-    # JWT для ассистента: sub = client_id владельца, role = 'assistant'.
+    # Пробуем залогинить как помощника кабинета (миграции 105, 208, 209).
+    # Один человек — один пароль и сколько угодно кабинетов. JWT привязан к ОДНОМУ
+    # кабинету: sub = client_id, grant_id = номер пропуска (в нём уровень доступа).
     asst = await db.fetchrow(
-        """SELECT a.id, a.client_id, a.email, a.password_hash,
-                  c.name AS client_name, c.email AS owner_email, c.is_active AS client_active
-             FROM client_assistants a
-             JOIN clients c ON c.id = a.client_id
-            WHERE LOWER(a.email) = LOWER($1)""",
+        "SELECT id, email, password_hash FROM assistants WHERE LOWER(email) = LOWER($1)",
         data.email
     )
     if asst and verify_password(data.password, asst["password_hash"]):
-        if not asst["client_active"]:
-            raise HTTPException(status_code=403, detail="Кабинет клиента заблокирован. Напишите в поддержку.")
-        await db.execute(
-            "UPDATE client_assistants SET last_login_at = NOW() WHERE id = $1",
-            asst["id"]
+        grants = await db.fetch(
+            """SELECT g.id AS grant_id, g.client_id, g.access_level,
+                      c.name AS owner_name, c.brand_name, c.is_active
+                 FROM assistant_grants g
+                 JOIN clients c ON c.id = g.client_id
+                WHERE g.assistant_id = $1
+                ORDER BY COALESCE(c.brand_name, c.name), c.id""",
+            asst["id"],
         )
+        live = [g for g in grants if g["is_active"]]
+        if not live:
+            raise HTTPException(
+                status_code=403,
+                detail="Доступ отозван. Попросите владельца кабинета подключить вас заново.",
+            )
+
+        # Кабинет ещё не выбран, а их несколько — отдаём список, вход не выдаём.
+        if data.client_id is None and len(live) > 1:
+            return {
+                "choose_client": True,
+                "clients": [
+                    {
+                        "id": g["client_id"],
+                        "brand_name": g["brand_name"] or g["owner_name"],
+                        "owner_name": g["owner_name"],
+                        "access_level": g["access_level"],
+                    }
+                    for g in live
+                ],
+            }
+
+        chosen = next((g for g in live if g["client_id"] == data.client_id), None) if data.client_id else live[0]
+        if not chosen:
+            raise HTTPException(status_code=403, detail="У вас нет доступа в этот кабинет.")
+
+        await db.execute("UPDATE assistants SET last_login_at = NOW() WHERE id = $1", asst["id"])
         token = create_token({
-            "sub":          str(asst["client_id"]),
+            "sub":          str(chosen["client_id"]),
             "email":        asst["email"],
             "role":         "assistant",
             "assistant_id": asst["id"],
+            "grant_id":     chosen["grant_id"],
         })
         return {
             "access_token": token,
             "token_type": "bearer",
             "client": {
-                "id":    asst["client_id"],
-                "name":  asst["client_name"],
-                "email": asst["owner_email"],
+                "id":    chosen["client_id"],
+                "name":  chosen["brand_name"] or chosen["owner_name"],
+                "email": data.email,
                 "role":  "assistant",
             }
         }
@@ -435,11 +467,12 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
         # отображался он, а не владелец кабинета.
         out["email"] = payload.get("email") or out.get("email")
         out["assistant_id"] = payload.get("assistant_id")
-        # 'full' — права как у владельца (кроме управления самим ассистентом),
-        # 'limited' — урезанный набор. Фронт по этому полю решает, что скрывать.
-        from app.services.assistant_access import is_full_assistant_row
+        # 'full' — права как у владельца (кроме управления помощниками, админки,
+        # пароля и email владельца), 'limited' — урезанный набор. Уровень берём из
+        # пропуска: в разных кабинетах у помощника могут быть разные права.
+        from app.services.assistant_access import is_full_grant_row
         out["assistant_access_level"] = (
-            "full" if await is_full_assistant_row(db, payload.get("assistant_id")) else "limited"
+            "full" if await is_full_grant_row(db, payload.get("grant_id")) else "limited"
         )
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.

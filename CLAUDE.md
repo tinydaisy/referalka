@@ -1106,19 +1106,29 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 При копировании события (`POST /events/{id}/copy`) `start_at`/`end_at` копии = `NULL`, статус = `draft`.
 
-### Ассистент клиента — один помощник на клиента (миграция 106 от 2026-05-24; уровни доступа — миграция 208 от 2026-07-10)
+### Помощники кабинета — «многие ко многим» (миграции 106, 208, **209 от 2026-07-10**)
 
-**Два уровня доступа** — `client_assistants.access_level` ∈ `full | limited` (default `limited`):
-- **`full`** — права **как у владельца кабинета** во всех разделах (Настройки, Каналы, лид-магниты, удаление, оплата подписки/модулей, вывод бонусов, диалоги). Закрыто ровно одно: **управление самим ассистентом** (`/api/v1/clients/me/assistant/*`) и админка — иначе ассистент сменит себе пароль или удалит себя, и владелец потеряет контроль.
-- **`limited`** — исторический набор прав (матрица ниже). Ограниченный ассистент **не видит страницу `/dashboard/settings` вообще** (там email и пароль владельца) — при прямом переходе по URL заглушка «доступно только владельцу».
+**Таблица `client_assistants` УДАЛЕНА миграцией 209.** Вместо неё две:
+- **`assistants`** — ЧЕЛОВЕК: `email` UNIQUE + `password_hash` (ОДИН пароль на все кабинеты) + `name`, `last_login_at`. Колонки `password_plain` больше нет — владелец пароль не видит.
+- **`assistant_grants`** — ПРОПУСК: `assistant_id` + `client_id` + `access_level` (`full|limited`), `UNIQUE(assistant_id, client_id)`.
 
-Уровень читается **из БД на каждый запрос** ассистента ([assistant_access.py](backend/app/services/assistant_access.py): `get_assistant_access_level`, `assistant_is_restricted`), а не из JWT — владелец переключает тумблер, права применяются сразу, без перелогина.
+⇒ У клиента **сколько угодно** помощников; помощник ведёт **сколько угодно** кабинетов, в каждом со своим уровнем. `clients` НЕ трогается.
 
-- Middleware [assistant_permission_guard.py](backend/app/middleware/assistant_permission_guard.py): при `full` пропускает всё, кроме `/clients/me/assistant` и `/admin`; при `limited` — прежние правила.
-- Точечные 403 в эндпоинтах (`referrals.py`, `addons.py`, `subscriptions.py`, `dialogs.py`, смена реферера в `events.py`, `auth.py` verify-email/resend) переведены с `role == "assistant"` на `await assistant_is_restricted(user)` — полный ассистент их проходит.
-- `GET /auth/me` отдаёт `assistant_access_level` (`full|limited|null`). Фронт: `useMe()` → **`isAssistant` = ассистент с ОГРАНИЧЕННЫМИ правами** (по нему режется UI), плюс `isAnyAssistant` / `isFullAssistant` (только для бейджа в сайдбаре). Полный ассистент видит кабинет как владелец.
-- API: `POST /clients/me/assistant { email, access_level }`, **`PATCH /clients/me/assistant { access_level }`** (смена уровня); уровень отдаётся в `GET`. Письмо ассистенту описывает права по уровню.
-- UI: `/dashboard/settings` → вкладка «Ассистент» ([AssistantTab.tsx](web/src/components/settings/AssistantTab.tsx)) — выбор «Ограниченный / Полный доступ» при создании и переключатель у подключённого (confirm при выдаче полного). Вкладка «Ассистент» **скрыта у любого ассистента**.
+**Почта, зарегистрированная клиентом ПЛЮСОНа, помощником быть НЕ может** (409) — иначе вход не решил бы, чей пароль проверять. Для чужих кабинетов заводится отдельный адрес. (Слияние ролей под одну почту = отдельная сущность `accounts` с выносом `email`/`password_hash` из `clients` — большая переделка, отложена.)
+
+**Два уровня доступа** (`assistant_grants.access_level`, default `limited`):
+- **`full`** — права как у владельца во всех разделах. Закрыто: `/clients/me/assistants/*` (иначе отзовёт себе доступ), `/admin`, а также **пароль и email владельца** (`/auth/change-password`, `/auth/verify-email/resend`) — константы `OWNER_ONLY_ALWAYS_*` в middleware, режут ЛЮБОГО помощника. `PATCH /auth/me` (рабочие настройки) полному помощнику доступен.
+- **`limited`** — исторический набор прав (матрица ниже). Страницу `/dashboard/settings` не видит вовсе — заглушка «доступно только владельцу».
+
+**Уровень живёт в ПРОПУСКЕ, не в человеке.** JWT: `sub`=client_id выбранного кабинета, `assistant_id`, **`grant_id`**. [assistant_access.py](backend/app/services/assistant_access.py): `get_grant_access_level(grant_id)` / `is_full_grant_row` / `assistant_is_restricted(user)` — читают из БД на каждый запрос (тумблер применяется без перелогина).
+
+**Вход** ([auth.py](backend/app/api/auth.py) `login`): `LoginRequest.client_id` опционален. Нашли человека в `assistants`, сверили пароль → если живых пропусков >1 и `client_id` не задан, отдаём `{choose_client: true, clients:[{id, brand_name, owner_name, access_level}]}` **без токена**; фронт показывает экран «Куда войти?» и повторяет запрос с `client_id`. Один пропуск → входит сразу. Отозвали все пропуска → 403.
+
+- Точечные 403 (`referrals.py`, `addons.py`, `subscriptions.py`, `dialogs.py`, смена реферера в `events.py`) — через `await assistant_is_restricted(user)`; `verify-email/resend` режет любого помощника.
+- `GET /auth/me` отдаёт `assistant_access_level` по `grant_id`. Фронт: `useMe()` → `isAssistant` = помощник с ОГРАНИЧЕННЫМИ правами, плюс `isAnyAssistant` / `isFullAssistant`.
+- **API** (`/api/v1/clients/me/assistants`, [assistants.py](backend/app/api/assistants.py)): `GET` список; `POST {email, access_level}`; `PATCH /{grant_id} {access_level}`; `POST /{grant_id}/reset-password` (новый пароль **письмом помощнику**, владельцу не возвращается, 502 если письмо не ушло); `DELETE /{grant_id}` (отзыв пропуска; человек без единого пропуска удаляется из `assistants`).
+- **Письма** — три вида: `new` (новый человек → пароль), `granted` (учётка уже есть → только «вам открыли кабинет X»), `reset` (новый пароль). Ответ `POST` отдаёт `is_new_account` + `email_sent`.
+- **UI**: `/dashboard/settings` → вкладка **«Помощники»** ([AssistantTab.tsx](web/src/components/settings/AssistantTab.tsx)) — форма подключения + список карточек, у каждой переключатель прав, «Напомнить пароль», «Отозвать доступ», значок «N кабинета» если человек ведёт несколько. Вкладка скрыта у любого помощника. Экран выбора кабинета — в [(auth)/login/page.tsx](web/src/app/%28auth%29/login/page.tsx).
 
 ⚠️ Матрица прав ниже описывает **ограниченный** уровень.
 

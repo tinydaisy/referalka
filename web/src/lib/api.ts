@@ -935,17 +935,19 @@ export const api = {
     deleteWinner: (eventId: number, winnerId: number) =>
       request(`/api/v1/events/${eventId}/raffle/winners/${winnerId}`, { method: 'DELETE' }),
   },
+  // Помощники кабинета (миграция 209): у клиента их несколько, у помощника —
+  // несколько кабинетов. grant_id — номер пропуска в ЭТОТ кабинет.
+  // Пароль владельцу не отдаётся: новому уходит письмом, «Напомнить» шлёт письмо помощнику.
   assistant: {
-    get:           () => request('/api/v1/clients/me/assistant'),
-    getPassword:   () => request('/api/v1/clients/me/assistant/password'),
+    list:          () => request('/api/v1/clients/me/assistants'),
     create:        (email: string, access_level: 'full' | 'limited' = 'limited') =>
-      request('/api/v1/clients/me/assistant', { method: 'POST', body: JSON.stringify({ email, access_level }) }),
-    setAccessLevel: (access_level: 'full' | 'limited') =>
-      request('/api/v1/clients/me/assistant', { method: 'PATCH', body: JSON.stringify({ access_level }) }),
-    resetPassword: () =>
-      request('/api/v1/clients/me/assistant/reset-password', { method: 'POST' }),
-    delete:        () =>
-      request('/api/v1/clients/me/assistant', { method: 'DELETE' }),
+      request('/api/v1/clients/me/assistants', { method: 'POST', body: JSON.stringify({ email, access_level }) }),
+    setAccessLevel: (grantId: number, access_level: 'full' | 'limited') =>
+      request(`/api/v1/clients/me/assistants/${grantId}`, { method: 'PATCH', body: JSON.stringify({ access_level }) }),
+    resetPassword: (grantId: number) =>
+      request(`/api/v1/clients/me/assistants/${grantId}/reset-password`, { method: 'POST' }),
+    delete:        (grantId: number) =>
+      request(`/api/v1/clients/me/assistants/${grantId}`, { method: 'DELETE' }),
   },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
