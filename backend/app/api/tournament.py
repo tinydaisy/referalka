@@ -1294,6 +1294,14 @@ async def jury_review(event_id: int, stage_id: Optional[int] = None,
 
     return {
         "subjects": out_subjects,
+        # Все жюри этапа — чтобы вкладка «По жюри» показывала и тех, кому ничего
+        # не назначено и кто ничего не оценивал (иначе они бы просто исчезли).
+        "jurors": [
+            {"juror_ec_id": j["juror_ec_id"],
+             "label": juror_meta.get(j["juror_ec_id"], {}).get("label", "Жюри"),
+             "name": juror_meta.get(j["juror_ec_id"], {}).get("name")}
+            for j in jurors
+        ],
         "criteria": [{"id": c["id"], "title": c["title"], "scale_max": float(c["scale_max"])} for c in crits],
         "stages": [dict(s) for s in stages],
     }

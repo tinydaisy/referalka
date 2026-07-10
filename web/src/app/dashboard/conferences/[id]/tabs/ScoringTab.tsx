@@ -809,6 +809,7 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
   const [data, setData] = useState<any>(null)
   const [stageId, setStageId] = useState<number | null>(null)
   const [stagesInit, setStagesInit] = useState(false)
+  const [mode, setMode] = useState<'subjects' | 'jurors'>('subjects') // По участникам / По жюри
   const [open, setOpen] = useState<string | null>(null)      // раскрытый субъект
   const [openJuror, setOpenJuror] = useState<string | null>(null) // раскрытое жюри (ключ subj|jec)
 
@@ -830,12 +831,14 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
 
   const subjects = data.subjects || []
 
+  const resetOpen = () => { setOpen(null); setOpenJuror(null) }
+
   return (
     <div>
       {/* Селектор этапа */}
       {(data.stages || []).length > 0 && (
         <div className="mb-4">
-          <select value={stageId ?? ''} onChange={e => { setStageId(e.target.value ? Number(e.target.value) : null); setOpen(null); setOpenJuror(null) }}
+          <select value={stageId ?? ''} onChange={e => { setStageId(e.target.value ? Number(e.target.value) : null); resetOpen() }}
             className="px-3 py-2 rounded-lg text-sm font-bold text-[#FFCFA4] cursor-pointer border-none"
             style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
             {data.stages.map((s: any) => <option key={s.id} value={s.id} className="text-[#1a2a3a] bg-white font-normal">{s.title}</option>)}
@@ -843,6 +846,32 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
         </div>
       )}
 
+      {/* Переключатель: По участникам / По жюри (одни и те же данные, разная группировка) */}
+      <div className="flex gap-2 mb-4">
+        {([['subjects', 'По участникам'], ['jurors', 'По жюри']] as const).map(([m, label]) => (
+          <button key={m} onClick={() => { setMode(m); resetOpen() }}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+              mode === m ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'jurors'
+        ? <JuryByJurorList subjects={subjects} allJurors={data.jurors || []} open={open} setOpen={setOpen} openJuror={openJuror} setOpenJuror={setOpenJuror} />
+        : <JuryBySubjectList subjects={subjects} open={open} setOpen={setOpen} openJuror={openJuror} setOpenJuror={setOpenJuror} />}
+    </div>
+  )
+}
+
+/* ─── «По участникам»: субъект → назначенные жюри → их оценки ─── */
+function JuryBySubjectList({ subjects, open, setOpen, openJuror, setOpenJuror }: {
+  subjects: any[]
+  open: string | null; setOpen: (v: string | null) => void
+  openJuror: string | null; setOpenJuror: (v: string | null) => void
+}) {
+  return (
+    <div>
       {/* Легенда */}
       <div className="flex items-center gap-4 mb-3 text-xs text-gray-500 flex-wrap">
         <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 font-bold">N</span> оценило (все критерии)</span>
@@ -914,6 +943,139 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
                             <div className="text-xs font-semibold text-[#25455D] mb-1">Обратная связь</div>
                             {j.feedback
                               ? <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-2.5">{j.feedback}</div>
+                              : <div className="text-sm text-gray-400 italic">— пусто —</div>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ─── «По жюри»: жюри → кого оценивает → его оценки ───
+   Инвертируем ту же структуру subjects[].jurors[] — отдельный запрос не нужен. */
+function JuryByJurorList({ subjects, allJurors, open, setOpen, openJuror, setOpenJuror }: {
+  subjects: any[]
+  allJurors: any[]
+  open: string | null; setOpen: (v: string | null) => void        // раскрытое жюри (juror_ec_id)
+  openJuror: string | null; setOpenJuror: (v: string | null) => void // раскрытый субъект внутри (jec|key)
+}) {
+  // juror_ec_id → { label, subjects: [{ key, name, complete, filled, n_crit, scores, feedback, assigned }] }
+  const byJuror = new Map<number, any>()
+  // Засеваем ВСЕМИ жюри этапа — тогда те, кому ничего не назначено, видны с нулями.
+  for (const j of allJurors) {
+    byJuror.set(j.juror_ec_id, { juror_ec_id: j.juror_ec_id, label: j.label, name: j.name, subjects: [] })
+  }
+  for (const s of subjects) {
+    for (const j of (s.jurors || [])) {
+      if (!byJuror.has(j.juror_ec_id)) {
+        byJuror.set(j.juror_ec_id, { juror_ec_id: j.juror_ec_id, label: j.label, name: j.name, subjects: [] })
+      }
+      byJuror.get(j.juror_ec_id).subjects.push({
+        key: s.key, name: s.name, material: s.material,
+        complete: j.complete, filled: j.filled, n_crit: j.n_crit,
+        scores: j.scores, feedback: j.feedback, assigned: j.assigned,
+      })
+    }
+  }
+  const jurors = [...byJuror.values()].map(j => {
+    // Счётчики считаем по НАЗНАЧЕННЫМ субъектам: оценил полностью / ещё нет.
+    const assigned = j.subjects.filter((x: any) => x.assigned)
+    const green = assigned.filter((x: any) => x.complete).length
+    const red = assigned.length - green
+    // Сначала неоценённые, потом оценённые; внутри — по имени.
+    const sorted = [...j.subjects].sort((a, b) =>
+      (a.complete === b.complete ? 0 : a.complete ? 1 : -1) || (a.name || '').localeCompare(b.name || '', 'ru'))
+    return { ...j, subjects: sorted, green, red, total: assigned.length }
+  })
+  // Сначала жюри с долгами (red>0), по убыванию red; внутри — по имени.
+  jurors.sort((a, b) => {
+    const aDebt = a.red > 0 ? 0 : 1
+    const bDebt = b.red > 0 ? 0 : 1
+    if (aDebt !== bDebt) return aDebt - bDebt
+    if (a.red !== b.red) return b.red - a.red
+    return (a.name || '').localeCompare(b.name || '', 'ru')
+  })
+
+  return (
+    <div>
+      {/* Легенда */}
+      <div className="flex items-center gap-4 mb-3 text-xs text-gray-500 flex-wrap">
+        <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 font-bold">N</span> оценил (все критерии)</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-600 font-bold">N</span> ещё не оценил</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-600 font-bold">N</span> всего назначено</span>
+      </div>
+
+      {jurors.length === 0 && (
+        <div className="p-4 rounded-lg bg-gray-50 text-sm text-gray-400">На этом этапе нет жюри с назначениями.</div>
+      )}
+
+      {jurors.map((j: any) => {
+        const jkey = String(j.juror_ec_id)
+        const isOpen = open === jkey
+        const hasProblem = j.red > 0
+        return (
+          <div key={jkey} className="border rounded-xl mb-2.5 overflow-hidden"
+            style={{ borderColor: hasProblem ? '#fecaca' : '#e5e7eb' }}>
+            <div className="flex items-center gap-3 cursor-pointer px-4 py-3 hover:bg-gray-50"
+              onClick={() => { setOpen(isOpen ? null : jkey); setOpenJuror(null) }}>
+              <b className="text-[#25455D] flex-1 min-w-0 break-words">{j.label}</b>
+              <span className="inline-flex items-center gap-1.5 flex-shrink-0">
+                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-green-100 text-green-700 text-sm font-bold" title="оценил полностью">{j.green}</span>
+                <span className={`inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full text-sm font-bold ${j.red > 0 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'}`} title="ещё не оценил">{j.red}</span>
+                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-gray-100 text-gray-600 text-sm font-bold" title="всего назначено оцениваемых">{j.total}</span>
+              </span>
+              <ChevronDown size={18} className={`flex-shrink-0 text-gray-400 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+            </div>
+            {isOpen && (
+              <div className="px-4 pb-3 pt-1 bg-white">
+                {j.subjects.length === 0 && (
+                  <div className="text-sm text-gray-400 py-2">Этому жюри никого не назначено.</div>
+                )}
+                {j.subjects.map((s: any) => {
+                  const skey = `${jkey}|${s.key}`
+                  const sOpen = openJuror === skey
+                  return (
+                    <div key={skey} className="border-b last:border-b-0 border-gray-100">
+                      <div className="flex items-center gap-2 py-2 cursor-pointer" onClick={() => setOpenJuror(sOpen ? null : skey)}>
+                        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${s.complete ? 'bg-green-500' : (s.filled > 0 ? 'bg-amber-400' : 'bg-red-400')}`} />
+                        <span className="text-sm font-medium text-[#25455D] flex-1 min-w-0 break-words">{s.name}</span>
+                        {!s.assigned && <span className="text-[11px] text-amber-600 flex-shrink-0">оценил вне назначения</span>}
+                        <span className="text-xs text-gray-400 flex-shrink-0">{s.complete ? 'оценено' : (s.filled > 0 ? `${s.filled}/${s.n_crit}` : 'нет оценки')}</span>
+                        <ChevronDown size={15} className={`flex-shrink-0 text-gray-300 transition-transform ${sOpen ? '' : '-rotate-90'}`} />
+                      </div>
+                      {sOpen && (
+                        <div className="pb-3 pl-4">
+                          <div className="mb-2 pb-2 border-b border-gray-100 text-sm">
+                            <span className="text-gray-500">Материал для жюри: </span>
+                            {s.material
+                              ? <a href={s.material} target="_blank" rel="noreferrer" className="text-[#25455D] underline break-all">{s.material}</a>
+                              : <span className="text-gray-400">не задан (у оцениваемого не заполнена «Папка с видео»)</span>}
+                          </div>
+                          {/* Оценки по критериям */}
+                          <div className="space-y-1 mb-2">
+                            {(s.scores || []).map((sc: any) => (
+                              <div key={sc.criterion_id} className="flex items-center gap-2 text-sm">
+                                <span className="text-gray-600 flex-1 min-w-0 truncate">{sc.title}</span>
+                                <span className={`font-bold ${sc.value == null ? 'text-red-400' : 'text-[#25455D]'}`}>
+                                  {sc.value == null ? '—' : sc.value}
+                                </span>
+                                <span className="text-gray-300 text-xs">/ {sc.scale_max}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Обратная связь */}
+                          <div className="mt-2">
+                            <div className="text-xs font-semibold text-[#25455D] mb-1">Обратная связь</div>
+                            {s.feedback
+                              ? <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-2.5">{s.feedback}</div>
                               : <div className="text-sm text-gray-400 italic">— пусто —</div>}
                           </div>
                         </div>
