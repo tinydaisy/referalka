@@ -23,6 +23,9 @@ export default function OverviewTab({
   // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
   const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
   const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
+  // МедиаЛифт: сколько каналов из ветки обязательно подписать (1..7).
+  const isMedialift = event.module_slug === 'medialift'
+  const [mlRequiredSubs, setMlRequiredSubs] = useState<number>(event.medialift_required_subscriptions ?? 3)
   const [chats, setChats] = useState<EventChatsValue>({
     tgChatRef:  event.tg_chat_ref  ?? null,
     vkChatRef:  event.vk_chat_ref  ?? null,
@@ -68,6 +71,8 @@ export default function OverviewTab({
       const initStream = event.stream_url || event.address || ''
       if (su !== initStream)                                    payload.stream_url = su || null
       if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
+      if (isMedialift && mlRequiredSubs !== (event.medialift_required_subscriptions ?? 3))
+        payload.medialift_required_subscriptions = mlRequiredSubs
       // Чаты события — ref на записи client_broadcast_chats + primary
       if (chats.tgChatRef  !== (event.tg_chat_ref  ?? null))    payload.tg_chat_ref  = chats.tgChatRef
       if (chats.vkChatRef  !== (event.vk_chat_ref  ?? null))    payload.vk_chat_ref  = chats.vkChatRef
@@ -172,6 +177,14 @@ export default function OverviewTab({
               </span>
             </span>
           </label>
+
+          {isMedialift && (
+            <Field label="Сколько каналов обязательно подписать" hint="МедиаЛифт: участнику показывается до 7 человек из его ветки, и он обязан подписаться минимум на это число, чтобы войти в систему.">
+              <input type="number" min={1} max={7} value={mlRequiredSubs}
+                onChange={e => setMlRequiredSubs(Math.max(1, Math.min(7, Number(e.target.value) || 1)))}
+                className="input w-24" />
+            </Field>
+          )}
 
           <EventChatsField value={chats} onChange={setChats} />
 

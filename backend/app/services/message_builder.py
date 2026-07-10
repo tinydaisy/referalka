@@ -1208,14 +1208,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.title AS positioning, c.hub_about AS bio, c.achievements,
                        cse.role, cse.id AS ec_id, e.slug AS event_slug,
                        cse.notes AS speaker_notes,
-                       -- Тема как в программе: выбранная topic_id, иначе первая
-                       -- тема спикера (fallback). Иначе рассылка «за 5 минут» /
-                       -- «подарок» у спикера без явной привязки уходила без темы.
-                       COALESCE(
-                         NULLIF(cst.topic, ''),
-                         (SELECT NULLIF(t.topic, '') FROM conf_speaker_topics t
-                            WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1)
-                       ) as speaker_topic,
+                       cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
                        cse.knowledge_base_title, cse.knowledge_base_url,

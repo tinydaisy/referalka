@@ -40,6 +40,7 @@ type Sess = {
   start_time: string | null
   end_time: string | null
   title: string
+  topic_id?: number | null
   speaker_id?: number | null
   speaker_name?: string | null
   sort_order: number
@@ -361,12 +362,16 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     const sp = speakers.find((x: any) => String(x.id) === String(s.speaker_id ?? ''))
     const topics: { id: number; topic: string }[] = sp?.topics && sp.topics.length > 0 ? sp.topics : []
     setSpeakerTopics(topics)
-    // если у слота есть тема, совпадающая с темой спикера — выставляем topic_id (для селекта при 2+ темах)
-    const matched = topics.find(t => t.topic === s.title)
+    // Тему берём по РЕАЛЬНОЙ привязке слота (s.topic_id), а не угадываем по
+    // совпадению текста. Иначе при заглушке title («Тема будет уточнена
+    // позже») селект вставал пустым и сохранение затирало привязку в NULL.
+    const boundId = s.topic_id != null && topics.some(t => t.id === s.topic_id)
+      ? String(s.topic_id)
+      : (topics.length === 1 ? String(topics[0].id) : '')
     setCustomTitle(false)
     setSessionForm({
       title: s.title || '',
-      topic_id: matched ? String(matched.id) : (topics.length === 1 ? String(topics[0].id) : ''),
+      topic_id: boundId,
       speaker_id: s.speaker_id != null ? String(s.speaker_id) : '',
       start_time: s.start_time || '',
       end_time: s.end_time || '',

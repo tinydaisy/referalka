@@ -46,8 +46,8 @@ _state: dict[int, dict] = {}
 
 # ─────────────────────────── выборка ветки ───────────────────────────
 
-async def _chain_cards(db, event_id: int, contact_id: Optional[int]) -> list[dict]:
-    """До 7 карточек из ветки над зашедшим. Меньше 3 — добираем свежими (вариант C)."""
+async def _chain_cards(db, event_id: int, contact_id: Optional[int], min_sub: int = MIN_SUBSCRIBE) -> list[dict]:
+    """До 7 карточек из ветки над зашедшим. Меньше min_sub — добираем свежими (вариант C)."""
     chain_ids: list[int] = []
     if contact_id:
         rows = await db.fetch(
@@ -78,9 +78,9 @@ async def _chain_cards(db, event_id: int, contact_id: Optional[int]) -> list[dic
         by_c = {r["contact_id"]: dict(r) for r in rows}
         cards = [by_c[c] for c in chain_ids if c in by_c]
 
-    if len(cards) < MIN_SUBSCRIBE:
+    if len(cards) < min_sub:
         shown = [c["contact_id"] for c in cards] + ([contact_id] if contact_id else [])
-        need = MIN_SUBSCRIBE - len(cards)
+        need = min_sub - len(cards)
         extra = await db.fetch(
             _CARD_SQL + " AND NOT (ct.id = ANY($2::int[]))"
             " AND c.tg_channel_url IS NOT NULL AND c.tg_channel_url <> ''"
@@ -124,10 +124,10 @@ def _card_kb(c: dict, chosen: bool) -> InlineKeyboardMarkup:
     ]])
 
 
-def _footer_kb(n: int) -> InlineKeyboardMarkup:
+def _footer_kb(n: int, need: int = MIN_SUBSCRIBE) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text=f"Я подписался — войти ({n}/{MIN_SUBSCRIBE})",
+            text=f"Я подписался — войти ({n}/{need})",
             callback_data="ml_enter")
     ]])
 
@@ -135,7 +135,10 @@ def _footer_kb(n: int) -> InlineKeyboardMarkup:
 async def start_medialift_flow(message: Message, event_id: int, contact_id: Optional[int], db) -> None:
     """Шаг 1: показываем карточки ветки + счётчик."""
     tg_id = message.from_user.id
-    cards = await _chain_cards(db, event_id, contact_id)
+    # Сколько подписок обязательно — свойство события (миграция 211), дефолт 3.
+    min_sub = await db.fetchval(
+        "SELECT medialift_required_subscriptions FROM events WHERE id = $1", event_id) or MIN_SUBSCRIBE
+    cards = await _chain_cards(db, event_id, contact_id, min_sub)
     _state[tg_id] = {"event_id": event_id, "selected": set(), "await_channel": False,
                      "cards": {c["collaborator_id"]: c for c in cards}}
 
@@ -144,12 +147,11 @@ async def start_medialift_flow(message: Message, event_id: int, contact_id: Opti
         _state[tg_id]["await_channel"] = True
         await message.answer(
             "🚀 <b>МедиаЛифт</b>\n\nВы одним из первых! Пока никого нет в цепочке.\n\n"
-            "<b>Добавьте свой канал</b> — и вас увидят все, кто зайдёт после вас.\n"
-            "Пришлите ссылку на ваш Telegram-канал сообщением.",
+            + _ADD_CHANNEL_INSTRUCTION,
             parse_mode="HTML")
         return
 
-    need = min(MIN_SUBSCRIBE, len(cards))
+    need = min(min_sub, len(cards))
     await message.answer(
         f"🚀 <b>МедиаЛифт</b> — система автоподписки\n\n"
         f"Подпишитесь минимум на <b>{need}</b> из списка ниже, отметьте их и нажмите «Войти».\n"
@@ -161,9 +163,19 @@ async def start_medialift_flow(message: Message, event_id: int, contact_id: Opti
                              reply_markup=_card_kb(c, False),
                              disable_web_page_preview=True)
 
-    m = await message.answer(f"Выбрано: 0 из {need}", reply_markup=_footer_kb(0))
+    m = await message.answer(f"Выбрано: 0 из {need}", reply_markup=_footer_kb(0, need))
     _state[tg_id]["footer_id"] = m.message_id
     _state[tg_id]["need"] = need
+
+
+_ADD_CHANNEL_INSTRUCTION = (
+    "<b>Добавьте свой канал</b> — и вас увидят все, кто зайдёт под вами.\n\n"
+    "⚠️ <b>Сначала добавьте этого бота администратором</b> вашего канала "
+    "(иначе система не сможет проверять подписки на ваш канал).\n\n"
+    "Затем пришлите канал одним из способов:\n"
+    "• ссылкой: <code>https://t.me/ваш_канал</code>\n"
+    "• или <b>перешлите сюда любой пост из канала</b> — так подхватим и закрытый канал."
+)
 
 
 async def prompt_add_channel(message: Message, event_id: int, db) -> None:
@@ -210,8 +222,7 @@ async def prompt_add_channel(message: Message, event_id: int, db) -> None:
 
     _state[tg_id] = {"event_id": event_id, "selected": set(), "await_channel": True, "cards": {}}
     await message.answer(
-        "Вы в системе ✅\n\n<b>Добавьте свой канал</b> — и вас увидят все, кто зайдёт под вами.\n"
-        "Пришлите ссылку на ваш Telegram-канал.", parse_mode="HTML")
+        "Вы в системе ✅\n\n" + _ADD_CHANNEL_INSTRUCTION, parse_mode="HTML")
 
 
 # ─────────────────────────── выбор карточек ───────────────────────────
@@ -238,7 +249,7 @@ async def on_pick(cb: CallbackQuery):
     try:
         await cb.bot.edit_message_text(
             chat_id=cb.message.chat.id, message_id=st["footer_id"],
-            text=f"Выбрано: {len(sel)} из {need}", reply_markup=_footer_kb(len(sel)))
+            text=f"Выбрано: {len(sel)} из {need}", reply_markup=_footer_kb(len(sel), need))
     except Exception:  # noqa: BLE001
         pass
     await cb.answer()
@@ -316,22 +327,86 @@ async def on_enter(cb: CallbackQuery, bot: Bot):
 
     st["await_channel"] = True
     await cb.message.answer(
-        "✅ <b>Готово! Вы в системе.</b>\n\n"
-        "Теперь <b>добавьте свой канал</b> — и вас увидят все, кто зайдёт под вами.\n\n"
-        "Пришлите ссылку на ваш Telegram-канал (например <code>https://t.me/ваш_канал</code>).",
+        "✅ <b>Готово! Вы в системе.</b>\n\n" + _ADD_CHANNEL_INSTRUCTION,
         parse_mode="HTML")
 
 
 # ─────────────────────────── добавление своего канала ───────────────────────────
 
-@router.message(F.text.regexp(r"(?i)(t\.me/|telegram\.me/|^@)"))
-async def on_channel_link(message: Message, bot: Bot):
+async def _bot_admin_of_channel(bot: Bot, chan_id: str) -> tuple[bool, Optional[str]]:
+    """Бот админ канала? Возвращает (ok, title). getChat/getChatMember работают
+    только если бот в канале админом → это и есть проверка."""
+    try:
+        async with httpx.AsyncClient() as http:
+            me = await http.get(f"https://api.telegram.org/bot{bot.token}/getMe", timeout=5.0)
+            bot_id = (me.json().get("result") or {}).get("id")
+            cm = await http.get(f"https://api.telegram.org/bot{bot.token}/getChatMember",
+                                params={"chat_id": chan_id, "user_id": bot_id}, timeout=5.0)
+            d = cm.json()
+            if d.get("ok") and (d["result"].get("status") in ("administrator", "creator")):
+                ch = await http.get(f"https://api.telegram.org/bot{bot.token}/getChat",
+                                    params={"chat_id": chan_id}, timeout=5.0)
+                cd = ch.json()
+                title = cd["result"].get("title") if cd.get("ok") else None
+                return True, title
+    except Exception:  # noqa: BLE001
+        pass
+    return False, None
+
+
+async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[str], url: str, title_hint: Optional[str]) -> None:
+    """Общий обработчик добавления канала — из ссылки или пересланного поста."""
     tg_id = message.from_user.id
     st = _state.get(tg_id)
     if not st or not st.get("await_channel"):
-        return  # не наш шаг — пусть обрабатывают другие хендлеры
+        return
 
-    url = (message.text or "").strip()
+    # Резолвим ID канала, если пришла только ссылка на публичный @канал.
+    if not chan_id and url:
+        m = url.replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
+        if m.startswith("+"):
+            await message.answer(
+                "Это закрытый канал по инвайт-ссылке — по ней ID не получить.\n"
+                "<b>Перешлите сюда любой пост из канала</b> — так подхватим ID.",
+                parse_mode="HTML")
+            return
+        try:
+            async with httpx.AsyncClient() as http:
+                r = await http.get(f"https://api.telegram.org/bot{bot.token}/getChat",
+                                    params={"chat_id": f"@{m}"}, timeout=6.0)
+            d = r.json()
+            if d.get("ok"):
+                chan_id = str(d["result"]["id"])
+                title_hint = d["result"].get("title")
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not chan_id:
+        await message.answer(
+            "Не удалось определить канал. Проверьте, что бот <b>админ</b> канала, и "
+            "пришлите ссылку ещё раз — или перешлите пост из канала.", parse_mode="HTML")
+        return
+
+    # ⚠️ Проверяем, что бот РЕАЛЬНО админ канала — иначе не сможем проверять
+    # подписки следующих участников на этот канал.
+    is_admin, title = await _bot_admin_of_channel(bot, chan_id)
+    title = title or title_hint
+    if not is_admin:
+        me = ""
+        try:
+            async with httpx.AsyncClient() as http:
+                g = await http.get(f"https://api.telegram.org/bot{bot.token}/getMe", timeout=5.0)
+            me = (g.json().get("result") or {}).get("username", "")
+        except Exception:  # noqa: BLE001
+            pass
+        bot_ref = f"@{me}" if me else "этого бота"
+        await message.answer(
+            f"❗️ <b>{bot_ref} ещё не админ вашего канала.</b>\n\n"
+            "Добавьте бота администратором канала (достаточно базовых прав) и пришлите "
+            "канал ещё раз. Без этого система не сможет проверять подписки на ваш канал.",
+            parse_mode="HTML")
+        return
+
     pool = await get_pool()
     async with pool.acquire() as db:
         ev_id = st["event_id"]
@@ -351,27 +426,12 @@ async def on_channel_link(message: Message, bot: Bot):
             db, event_id=ev_id, client_id=client_id,
             contact_id=row["id"], contact_name=row["name"] or "Участник")
 
-        # Название канала — на лету через getChat (не храним), + резолв id
-        title, chan_id = None, None
-        m = url.replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
-        if m and not m.startswith("+"):
-            try:
-                async with httpx.AsyncClient() as http:
-                    r = await http.get(f"https://api.telegram.org/bot{bot.token}/getChat",
-                                        params={"chat_id": f"@{m}"}, timeout=6.0)
-                d = r.json()
-                if d.get("ok"):
-                    chan_id = str(d["result"]["id"])
-                    title = d["result"].get("title")
-            except Exception:  # noqa: BLE001
-                pass
-
+        chan_url = url or (f"https://t.me/{title}" if title else "")
         await db.execute(
-            """UPDATE collaborators SET tg_channel_url=$1,
-                   tg_channel_id=COALESCE($2, tg_channel_id), updated_at=NOW()
-                WHERE id=$3""", url, chan_id, coll_id)
+            """UPDATE collaborators SET tg_channel_url=$1, tg_channel_id=$2, updated_at=NOW()
+                WHERE id=$3""", chan_url, chan_id, coll_id)
 
-        # Автосвязка с ПЛЮСОН-аккаунтом по числовому tg_id
+        # Автосвязка с ПЛЮСОН-аккаунтом по числовому tg_id (если он уже клиент).
         linked = await db.fetchval(
             """SELECT pu.client_id FROM platform_users pu JOIN clients cl ON cl.id=pu.client_id
                 WHERE pu.platform_slug='telegram' AND pu.platform_user_id=$1::text
@@ -384,15 +444,37 @@ async def on_channel_link(message: Message, bot: Bot):
 
     st["await_channel"] = False
     ok_title = f' «{title}»' if title else ""
+    reg_url = f"https://pluson.ru/register?ml_tg_id={tg_id}"
     await message.answer(
         f"✅ <b>Канал добавлен{ok_title}!</b>\n\n"
         "Теперь вы в цепочке — вас увидят все, кто зайдёт под вами.\n\n"
-        "💡 <b>Свой материал работает в разы эффективнее канала.</b>\n"
+        "💡 <b>Свой материал работает эффективнее канала.</b>\n"
         "Заведите лид-магнит — люди получат ценность и попадут в вашу базу.",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Триал 14 дней в ПЛЮСОНе",
-                                  url="https://pluson.ru/register")],
-            [InlineKeyboardButton(text="🤝 Закрытый Хаб — Коллабораторная",
+            [InlineKeyboardButton(text="🎁 ПЛЮСОН с лид-магнитом (14 дней бесплатно)", url=reg_url)],
+            [InlineKeyboardButton(text="🤝 Коллабораторная — закрытый Хаб",
                                   url="https://pluson.ru/dashboard/collab-hub")],
         ]))
+
+
+@router.message(F.forward_from_chat)
+async def on_channel_forward(message: Message, bot: Bot):
+    """Пересланный пост из канала → берём ID канала напрямую (работает и для закрытых)."""
+    st = _state.get(message.from_user.id)
+    if not st or not st.get("await_channel"):
+        return
+    ch = message.forward_from_chat
+    if not ch or ch.type != "channel":
+        await message.answer("Это не пост из канала. Перешлите пост именно из вашего КАНАЛА.")
+        return
+    url = f"https://t.me/{ch.username}" if ch.username else ""
+    await _handle_add_channel(message, bot, chan_id=str(ch.id), url=url, title_hint=ch.title)
+
+
+@router.message(F.text.regexp(r"(?i)(t\.me/|telegram\.me/|^@)"))
+async def on_channel_link(message: Message, bot: Bot):
+    st = _state.get(message.from_user.id)
+    if not st or not st.get("await_channel"):
+        return  # не наш шаг — пусть обрабатывают другие хендлеры
+    await _handle_add_channel(message, bot, chan_id=None, url=(message.text or "").strip(), title_hint=None)

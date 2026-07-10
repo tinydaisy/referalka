@@ -123,6 +123,8 @@ class UpdateEventRequest(BaseModel):
     chat_greeting_enabled: Optional[bool] = None
     chat_greeting_keyword: Optional[str] = None
     chat_greeting_exact: Optional[bool] = None  # точное совпадение / любое вхождение
+    # МедиаЛифт: сколько каналов из ветки обязательно подписать перед входом (1..7).
+    medialift_required_subscriptions: Optional[int] = None
     # Чекбокс «Регистрировать без ввода контактных данных» — работает на встроенном
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).

@@ -13,12 +13,16 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [referrerPid, setReferrerPid] = useState<string | null>(null)
+  // МедиаЛифт: id платформы из воронки → авто-связка карточки коллаба с новым аккаунтом.
+  const [mlIds, setMlIds] = useState<{ tg?: string; vk?: string; max?: string }>({})
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const fromUrl = new URLSearchParams(window.location.search).get('pid')
+    const q = new URLSearchParams(window.location.search)
+    const fromUrl = q.get('pid')
     if (fromUrl) localStorage.setItem('pluson_referrer_pid', fromUrl)
     setReferrerPid(fromUrl || localStorage.getItem('pluson_referrer_pid'))
+    setMlIds({ tg: q.get('ml_tg_id') || undefined, vk: q.get('ml_vk_id') || undefined, max: q.get('ml_max_id') || undefined })
   }, [])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -38,6 +42,7 @@ export default function RegisterPage() {
         telegram_username: form.telegram_username || undefined,
         password: form.password, partner_code: form.partner_code || undefined,
         pid: referrerPid || undefined,  // реф-код пригласившего (миграция 125)
+        ml_tg_id: mlIds.tg, ml_vk_id: mlIds.vk, ml_max_id: mlIds.max,  // МедиаЛифт autolink
       })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.removeItem('pluson_referrer_pid')  // pid использован

@@ -16,11 +16,14 @@ event_participants.referrer_ref_code (строка) → contacts.ref_code → с
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.database import get_db
+from app.auth import get_current_client
 import asyncpg
 import httpx
 from typing import Optional
 
 router = APIRouter(prefix="/api/v1/public/medialift", tags=["МедиаЛифт"])
+# Клиентский роутер (кабинет ПЛЮСОНа): моя карточка в МедиаЛифте + выбор лид-магнита.
+client_router = APIRouter(prefix="/api/v1/clients/me/medialift", tags=["МедиаЛифт (кабинет)"])
 
 # Сколько человек из ветки показываем максимум и сколько подписок минимум обязательно.
 CHAIN_DEPTH = 7          # до 7 человек вверх по реф-цепочке
@@ -150,25 +153,27 @@ async def get_chain(
     """Отдаёт до 7 карточек участников из ветки над зашедшим + сколько подписок
     обязательно (3). Если в ветке < 3 — добираем свежими (вариант C)."""
     ev = await db.fetchrow(
-        "SELECT id, module_slug FROM events WHERE slug = $1", slug)
+        "SELECT id, module_slug, medialift_required_subscriptions FROM events WHERE slug = $1", slug)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     if ev["module_slug"] != "medialift":
         raise HTTPException(status_code=400, detail="Это не событие МедиаЛифт")
     event_id = ev["id"]
+    # Сколько подписок обязательно — свойство события (миграция 211), дефолт 3.
+    min_sub = ev["medialift_required_subscriptions"] or MIN_SUBSCRIBE
 
     chain_ids = await _resolve_chain_contact_ids(db, event_id, contact_id)
     cards = await _fetch_cards(db, event_id, chain_ids, CHAIN_DEPTH)
 
-    # Добор C: пока карточек < MIN_SUBSCRIBE — добираем свежими до 3.
-    if len(cards) < MIN_SUBSCRIBE:
+    # Добор C: пока карточек < min_sub — добираем свежими.
+    if len(cards) < min_sub:
         shown = [c["contact_id"] for c in cards]
         if contact_id:
             shown.append(contact_id)
-        need = MIN_SUBSCRIBE - len(cards)
+        need = min_sub - len(cards)
         cards += await _fill_recent(db, event_id, shown, need)
 
-    required = min(MIN_SUBSCRIBE, len(cards))
+    required = min(min_sub, len(cards))
     return {
         "event_id": event_id,
         "required_subscriptions": required,
@@ -379,3 +384,72 @@ async def add_channel(
         "linked_client_id": linked,    # если авто-связка сработала
         "access_code": access_code,    # для входа в кабинет правки карточки
     }
+
+
+# ─────────── Кабинет клиента: моя карточка в МедиаЛифте + выбор лид-магнита ───────────
+
+class MyCardGiftIn(BaseModel):
+    lead_magnet_id: Optional[int] = None  # 0/None — снять подарок
+
+
+@client_router.get("/my-card", summary="Моя карточка в МедиаЛифте (если связана) + мои лид-магниты")
+async def my_medialift_card(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Клиент ПЛЮСОНа видит свою карточку-коллаба в событии МедиаЛифт (если она
+    связана с его аккаунтом через collaborators.linked_client_id) и может выбрать
+    свой лид-магнит, который покажется в карточке как подарок за подписку.
+
+    Связь появляется автоматически при регистрации из воронки (ml_tg_id) либо
+    вручную по числовому tg_id. Нет карточки → linked=False (блок не показываем)."""
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT c.id AS collaborator_id, ec.id AS ec_id, ec.event_id,
+                  c.name, c.tg_channel_url, ec.gift_lead_magnet_id
+             FROM collaborators c
+             JOIN event_collaborators ec ON ec.speaker_id = c.id
+             JOIN events e ON e.id = ec.event_id AND e.module_slug = 'medialift'
+            WHERE c.linked_client_id = $1
+            LIMIT 1""", client_id)
+    if not row:
+        return {"linked": False, "card": None, "lead_magnets": []}
+
+    lms = await db.fetch(
+        "SELECT id, name FROM lead_magnets WHERE client_id = $1 ORDER BY id DESC", client_id)
+    return {
+        "linked": True,
+        "card": {
+            "collaborator_id": row["collaborator_id"],
+            "name": row["name"],
+            "tg_channel_url": row["tg_channel_url"],
+            "gift_lead_magnet_id": row["gift_lead_magnet_id"],
+        },
+        "lead_magnets": [dict(r) for r in lms],
+    }
+
+
+@client_router.patch("/my-card/gift", summary="Выбрать лид-магнит для своей карточки МедиаЛифта")
+async def set_my_card_gift(
+    data: MyCardGiftIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    ec = await db.fetchrow(
+        """SELECT ec.id FROM event_collaborators ec
+             JOIN collaborators c ON c.id = ec.speaker_id
+             JOIN events e ON e.id = ec.event_id AND e.module_slug = 'medialift'
+            WHERE c.linked_client_id = $1 LIMIT 1""", client_id)
+    if not ec:
+        raise HTTPException(status_code=404, detail="Ваша карточка в МедиаЛифте не найдена")
+
+    lm_id = data.lead_magnet_id or None
+    if lm_id:
+        owned = await db.fetchval(
+            "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2", lm_id, client_id)
+        if not owned:
+            raise HTTPException(status_code=400, detail="Это не ваш лид-магнит")
+    await db.execute(
+        "UPDATE event_collaborators SET gift_lead_magnet_id = $1 WHERE id = $2", lm_id, ec["id"])
+    return {"ok": True, "gift_lead_magnet_id": lm_id}

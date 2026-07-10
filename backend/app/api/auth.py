@@ -32,6 +32,12 @@ class RegisterRequest(BaseModel):
     password: str
     partner_code: str | None = None
     pid: str | None = None  # реф-код пригласившего клиента (миграция 125)
+    # Идентичность на площадке (если регистрация пришла из МедиаЛифта прямо из
+    # бота): передаётся гет-параметром, чтобы СРАЗУ связать карточку коллаба
+    # этого человека в событии medialift с новым клиентским аккаунтом.
+    ml_tg_id: str | None = None
+    ml_vk_id: str | None = None
+    ml_max_id: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -208,6 +214,30 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         # можно добавлять организатором/спикером в любые события без дублей.
         from app.services.self_collaborator import ensure_self_collaborator
         await ensure_self_collaborator(db, client["id"])
+
+        # МедиаЛифт: если человек регистрируется ПРЯМО из воронки (id платформы
+        # пришёл гет-параметром) — сразу связываем его карточку-коллаба в событии
+        # medialift с этим новым аккаунтом (collaborators.linked_client_id).
+        # Связка идёт ПО КАРТОЧКЕ коллаба (не по платформе): участник МедиаЛифта =
+        # коллаб, у него уже есть карточка, привязанная к его platform_users.
+        ml_pairs = [("telegram", data.ml_tg_id), ("vk", data.ml_vk_id), ("max", data.ml_max_id)]
+        for _plat, _pid in ml_pairs:
+            if not _pid:
+                continue
+            try:
+                await db.execute(
+                    """UPDATE collaborators c
+                          SET linked_client_id = $1
+                         FROM event_collaborators ec
+                         JOIN events e ON e.id = ec.event_id AND e.module_slug = 'medialift'
+                         JOIN platform_users pu ON pu.contact_id = c.contact_id
+                                               AND pu.platform_slug = $2
+                                               AND pu.platform_user_id = $3::text
+                        WHERE ec.speaker_id = c.id
+                          AND c.linked_client_id IS NULL""",
+                    client["id"], _plat, str(_pid))
+            except Exception:
+                pass  # связка не критична для регистрации
 
     token = create_token({"sub": str(client["id"]), "email": client["email"], "role": "client"})
 

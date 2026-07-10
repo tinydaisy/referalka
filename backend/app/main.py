@@ -77,6 +77,7 @@ app.include_router(participants_export.router, prefix="/api/v1")  # /api/v1/inte
 app.include_router(contacts_export.router, prefix="/api/v1")  # /api/v1/integrations/contacts — вся база контактов клиента для мейлера/CRM
 app.include_router(subscription_check.router)  # /api/v1/public/...
 app.include_router(medialift.router)  # /api/v1/public/medialift/... — МедиаЛифт (тип события medialift)
+app.include_router(medialift.client_router)  # /api/v1/clients/me/medialift/my-card — карточка клиента в МедиаЛифте
 app.include_router(contacts.router,     prefix="/api/v1")
 app.include_router(analytics.router,    prefix="/api/v1")  # /api/v1/analytics/utm — сводка по UTM
 app.include_router(lead_magnets.router, prefix="/api/v1")

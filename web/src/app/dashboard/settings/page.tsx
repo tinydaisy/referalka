@@ -903,12 +903,25 @@ function IntegrationTab() {
   const [showRegenConfirm, setShowRegenConfirm] = useState(false)
   const [error, setError] = useState('')
 
+  // МедиаЛифт: карточка клиента в системе автоподписки (если связана) + лид-магнит.
+  const [mlCard, setMlCard] = useState<any>(null)
+  const [mlSaving, setMlSaving] = useState(false)
+
   useEffect(() => {
     api.auth.me()
       .then((c: any) => setMe(c))
       .catch((e: any) => setError(e.message))
       .finally(() => setLoading(false))
+    api.miniApp.medialift.myCard().then((r: any) => setMlCard(r)).catch(() => setMlCard(null))
   }, [])
+
+  async function saveMlGift(lmId: number | null) {
+    setMlSaving(true)
+    try {
+      await api.miniApp.medialift.setCardGift(lmId)
+      setMlCard((c: any) => c ? { ...c, card: { ...c.card, gift_lead_magnet_id: lmId } } : c)
+    } catch (e: any) { setError(e.message) } finally { setMlSaving(false) }
+  }
 
   function copy(value: string, which: 'token' | 'id') {
     navigator.clipboard.writeText(value)
@@ -938,6 +951,45 @@ function IntegrationTab() {
 
   return (
     <div className="space-y-6">
+      {/* МедиаЛифт — карточка клиента в системе автоподписки */}
+      {mlCard && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h3 className="font-semibold text-gray-800 mb-1">МедиаЛифт — ваша карточка</h3>
+          {mlCard.linked ? (
+            <>
+              <p className="text-sm text-gray-500 mb-4">
+                Ваша карточка в системе автоподписки связана с этим аккаунтом
+                {mlCard.card?.name ? <> ({mlCard.card.name})</> : null}. Выберите лид-магнит —
+                он будет показываться в карточке как подарок за подписку.
+              </p>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Лид-магнит в карточке</label>
+              <select
+                value={mlCard.card?.gift_lead_magnet_id || 0}
+                disabled={mlSaving}
+                onChange={e => saveMlGift(Number(e.target.value) || null)}
+                className="input max-w-md"
+              >
+                <option value={0}>— без подарка —</option>
+                {(mlCard.lead_magnets || []).map((lm: any) => (
+                  <option key={lm.id} value={lm.id}>{lm.name}</option>
+                ))}
+              </select>
+              {(mlCard.lead_magnets || []).length === 0 && (
+                <p className="text-xs text-amber-700 mt-2">
+                  У вас пока нет лид-магнитов. Создайте их в разделе «Лид-магниты».
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Ваша карточка в МедиаЛифте не связана с этим аккаунтом. Если вы добавляли
+              свой канал в системе автоподписки через <b>@pluson_bot</b> — свяжите аккаунт
+              командой <code>/pluson_connect</code> в боте, и здесь появится выбор лид-магнита.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Зачем нужна эта вкладка */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start gap-3 mb-4">

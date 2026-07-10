@@ -313,3 +313,53 @@ async def verify_gate(
         "no_channels": not channels,
         "ready": ready,
     }
+
+
+@router.get("/founder-channels-status", summary="Бот-админ во ВСЕХ каналах основателя (для гейта лид-магнитов)")
+async def founder_channels_status(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Готов ли клиент выдавать лид-магниты: бот подключён и он админ в КАЖДОМ
+    Telegram-канале основателя (social_links.telegram_channels).
+
+    Воронка выдачи проверяет подписку на эти каналы через getChatMember — а он
+    работает, только если бот админ канала. Если бот не админ, лид-магнит просто
+    не отдаётся (частая причина «почему материал не приходит»). Фронт по `ready`
+    гейтит ссылки: не готов → показывает их размыто и объясняет что настроить.
+
+    Возвращает {has_bot, no_channels, channels:[{name,url,bot_in_channel,error}], ready}.
+    ready=TRUE — есть бот И есть каналы И бот админ во всех.
+    """
+    import asyncio
+    client_id = int(client["sub"])
+
+    token = await _bot_token_for_client(client_id, db)
+    if not token:
+        return {"has_bot": False, "no_channels": False, "channels": [], "ready": False}
+
+    me = await _tg_call(token, "getMe", {})
+    bot_id = (me.get("result") or {}).get("id") if me.get("ok") else None
+    if not bot_id:
+        return {"has_bot": False, "no_channels": False, "channels": [], "ready": False}
+
+    social = await db.fetchval("SELECT social_links FROM clients WHERE id = $1", client_id)
+    channels = get_founder_tg_channels(await _parse_jsonb(social))
+    if not channels:
+        return {"has_bot": True, "no_channels": True, "channels": [], "ready": False}
+
+    async def _check(ch: dict) -> dict:
+        target = (ch.get("chat_id") or "").strip() or telegram_api_id(ch.get("url") or "")
+        if not target:
+            return {**ch, "bot_in_channel": False, "error": "invite_only_no_chat_id"}
+        resp = await _tg_call(token, "getChatMember", {"chat_id": target, "user_id": bot_id})
+        if resp.get("ok"):
+            ok = resp["result"].get("status", "") in ("administrator", "creator", "member")
+            return {**ch, "bot_in_channel": ok, "error": None if ok else "not_admin"}
+        desc = (resp.get("description") or "").lower()
+        return {**ch, "bot_in_channel": False,
+                "error": "chat_not_found" if "chat not found" in desc else "bot_not_in_channel"}
+
+    results = list(await asyncio.gather(*[_check(ch) for ch in channels]))
+    ready = all(c["bot_in_channel"] for c in results)
+    return {"has_bot": True, "no_channels": False, "channels": results, "ready": ready}

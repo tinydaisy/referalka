@@ -62,6 +62,9 @@ export default function LeadMagnetsPage() {
   // Канал(ы) основателя для воронки — массив (миграция 114).
   // null = ещё не загружено или загружено и пусто; [] = загружено и пусто; [..] = есть.
   const [tgChannels, setTgChannels] = useState<{ url: string; name?: string }[] | null>(null)
+  // Готовность выдачи: бот админ во ВСЕХ каналах основателя. Пока не готов —
+  // ссылки на воронку показываем размыто (воронка не сможет проверить подписку).
+  const [channelsReady, setChannelsReady] = useState<{ ready: boolean; has_bot: boolean; channels: any[] } | null>(null)
   // Сводные счётчики по всем лид-магнитам + всем пакетам (есть contact_id / получили)
   const [totals, setTotals] = useState<{ reached: number; received: number } | null>(null)
 
@@ -72,6 +75,9 @@ export default function LeadMagnetsPage() {
         setTgChannels(Array.isArray(list) ? list : [])
       })
       .catch(() => setTgChannels([]))
+    api.miniApp.chatGates.founderChannelsStatus()
+      .then((s: any) => setChannelsReady({ ready: !!s?.ready, has_bot: !!s?.has_bot, channels: s?.channels || [] }))
+      .catch(() => setChannelsReady(null))
   }, [])
 
   useEffect(() => {
@@ -293,7 +299,7 @@ function MagnetsList() {
                 </a>
                 <div><CopyIdButton slug={lm.slug} /></div>
                 <div className="mt-2">
-                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} />
+                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} blocked={!!channelsReady && channelsReady.has_bot && !channelsReady.ready} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
@@ -469,7 +475,7 @@ function PackagesList() {
                 )}
                 <div><CopyIdButton slug={pkg.slug} /></div>
                 <div className="mt-2">
-                  <PlatformShareLinks kind="p" slug={pkg.slug} links={pkg.platform_links} name={pkg.name} />
+                  <PlatformShareLinks kind="p" slug={pkg.slug} links={pkg.platform_links} name={pkg.name} blocked={!!channelsReady && channelsReady.has_bot && !channelsReady.ready} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
@@ -993,11 +999,12 @@ function CopyIdButton({ slug }: { slug: string }) {
   )
 }
 
-function PlatformShareLinks({ kind, slug, links, name }: {
+function PlatformShareLinks({ kind, slug, links, name, blocked }: {
   kind: 'm' | 'p'
   slug: string
   links?: PlatformLinks
   name?: string
+  blocked?: boolean
 }) {
   // Ссылки строятся ТОЛЬКО из platform_links, которые отдал бэк — по площадкам,
   // где у клиента подключён СВОЙ бот/сообщество. Системный @pluson_bot больше не
@@ -1012,6 +1019,30 @@ function PlatformShareLinks({ kind, slug, links, name }: {
       <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
         Нет подключённого бота. Подключите свой бот в разделе{' '}
         <a href="/dashboard/channels" className="underline font-medium">Каналы</a>, чтобы получить ссылку.
+      </div>
+    )
+  }
+  // Бот не админ в каналах основателя → воронка не сможет проверить подписку и
+  // лид-магнит не отдастся. Пока не настроено — ссылки размыты и заблокированы,
+  // сверху объяснение (чтобы клиент не гадал «почему материал не приходит»).
+  if (blocked) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-2.5">
+        <div className="flex items-start gap-2 text-xs text-red-800 mb-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <div>
+            <b>Бот не в админах канала.</b> Пока не добавите бота администратором в
+            канал(ы) основателя, воронка не проверит подписку — материал не выдаётся.
+            <a href="/dashboard/mini-app?tab=owner" className="underline font-medium ml-1">Настроить каналы →</a>
+          </div>
+        </div>
+        <div className="relative">
+          <div className="flex flex-col gap-1 blur-sm select-none pointer-events-none">
+            {available.map(p => (
+              <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} name={name} />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }

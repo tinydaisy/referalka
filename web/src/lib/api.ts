@@ -738,10 +738,20 @@ export const api = {
     },
     chatGates: {
       list:   () => request('/api/v1/clients/me/chat-gates'),
+      // Готов ли клиент выдавать лид-магниты: бот админ во всех каналах основателя.
+      founderChannelsStatus: () => request('/api/v1/clients/me/chat-gates/founder-channels-status'),
       create: (data: any) => request('/api/v1/clients/me/chat-gates', { method: 'POST', body: JSON.stringify(data) }),
       update: (id: number, data: any) => request(`/api/v1/clients/me/chat-gates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (id: number) => request(`/api/v1/clients/me/chat-gates/${id}`, { method: 'DELETE' }),
       verify: (id: number) => request(`/api/v1/clients/me/chat-gates/${id}/verify`, { method: 'POST' }),
+    },
+    // МедиаЛифт: моя карточка в системе автоподписки + выбор лид-магнита-подарка.
+    medialift: {
+      myCard: () => request('/api/v1/clients/me/medialift/my-card'),
+      setCardGift: (leadMagnetId: number | null) =>
+        request('/api/v1/clients/me/medialift/my-card/gift', {
+          method: 'PATCH', body: JSON.stringify({ lead_magnet_id: leadMagnetId }),
+        }),
     },
     offerings: {
       list:   () => request('/api/v1/client-offerings'),

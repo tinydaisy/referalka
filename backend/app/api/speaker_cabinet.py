@@ -1658,13 +1658,13 @@ async def claim_slot(
             se_id,
         )
         my_topic_ids = [r["id"] for r in topic_rows]
-        filled = [r for r in topic_rows if r["topic"]]
+        # Спикер явно выбрал тему — берём её. Иначе привязываем к ПЕРВОЙ теме
+        # (у спикера она есть всегда — заглушку создаём). Слот никогда не
+        # остаётся без topic_id; при 2+ темах спикер сменит тему в кабинете,
+        # а рассылки/программа всегда покажут привязанную (не пустую).
         if data.topic_id and data.topic_id in my_topic_ids:
             topic_id = data.topic_id
-        elif len(filled) > 1:
-            topic_id = None  # несколько тем — спикер выберет вручную
         else:
-            # одна тема или ещё ни одной — привязываем к теме №1 (заглушке)
             topic_id = await ensure_speaker_topic_placeholder(db, se_id)
         title_default = "Тема будет уточнена позже"
 
