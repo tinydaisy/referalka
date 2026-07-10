@@ -735,7 +735,9 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
               <label className="label">Спикер</label>
               <select value={sessionForm.speaker_id} onChange={e => onSpeakerChange(e.target.value)} className="input bg-white" autoFocus>
                 <option value="">— без спикера —</option>
-                {speakers.map((sp: any) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                {[...speakers].sort((a: any, b: any) =>
+                  (a.name || '').localeCompare(b.name || '', 'ru')
+                ).map((sp: any) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
             </div>
             {/* Тема: поле вписывается ТОЛЬКО когда спикер не выбран.
@@ -977,11 +979,15 @@ function DayAccordion({
               <p className="text-xs text-gray-400 text-center py-2">Нет слотов</p>
             ) : (
               <div className="space-y-1 mb-2">
-                {sessions.map(s => (
-                  <div key={s.id} className="flex items-start gap-3 group py-1">
+                {sessions.map(s => {
+                  // Незанятый слот (нет спикера) — подсвечиваем красным.
+                  const free = s.speaker_id == null
+                  return (
+                  <div key={s.id}
+                    className={`flex items-start gap-3 group py-1 rounded-lg ${free ? 'bg-red-50 border border-red-200 px-2' : ''}`}>
                     <button
                       onClick={() => onEditSession(s)}
-                      className="flex items-start gap-3 flex-1 text-left rounded-lg -mx-1 px-1 hover:bg-gray-50 transition-colors"
+                      className={`flex items-start gap-3 flex-1 text-left rounded-lg -mx-1 px-1 transition-colors ${free ? 'hover:bg-red-100/50' : 'hover:bg-gray-50'}`}
                       title="Редактировать слот"
                     >
                       <span className="text-[11px] text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
@@ -997,7 +1003,8 @@ function DayAccordion({
                       <Trash2 size={12} />
                     </button>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             <div className="flex items-center gap-4">

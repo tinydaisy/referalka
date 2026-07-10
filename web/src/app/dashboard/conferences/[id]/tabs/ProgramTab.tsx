@@ -260,7 +260,8 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
               ) : (
                 <div className="space-y-1.5 mb-3">
                   {daySessions.map((s: any) => (
-                    <div key={s.id} className="flex items-start gap-3 group py-1.5">
+                    <div key={s.id}
+                      className={`flex items-start gap-3 group py-1.5 rounded-lg ${s.speaker_id == null ? 'bg-red-50 border border-red-200 px-2' : ''}`}>
                       <span className="text-xs text-gray-400 w-40 shrink-0 pt-0.5 font-mono whitespace-nowrap">
                         {s.start_time || ''}
                         {s.end_time ? ` — ${s.end_time}` : ''}
@@ -340,7 +341,9 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 onChange={e => onSpeakerChange(e.target.value)}
                 className="input bg-white" autoFocus>
                 <option value="">{tp.sessionModal.noSpeaker}</option>
-                {speakers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                {[...speakers].sort((a, b) =>
+                  (a.name || '').localeCompare(b.name || '', 'ru')
+                ).map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
             </div>
             {/* Тема вписывается ТОЛЬКО без спикера. Со спикером тема живёт в его карточке (live). */}
