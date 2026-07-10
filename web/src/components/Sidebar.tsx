@@ -12,7 +12,7 @@ export default function Sidebar() {
   const [supportOpen, setSupportOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})  // свёрнутые секции по label
-  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string; tariff_slug?: string } | null>(null)
+  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string; tariff_slug?: string; is_system_service?: boolean } | null>(null)
   const { t } = useLang()
 
   useEffect(() => {
@@ -22,6 +22,7 @@ export default function Sidebar() {
       features: data?.features || [],
       role: data?.role || 'owner',
       tariff_slug: data?.subscription?.tariff_slug,
+      is_system_service: !!data?.is_system_service,
     })).catch(() => {})
   }, [])
 
@@ -30,6 +31,9 @@ export default function Sidebar() {
   const hasContests = features.includes('contests')
   const hasCollabHub = features.includes('collab_hub')
   const isAssistant = me?.role === 'assistant'
+  // МедиаЛифт — служебный раздел сервисного аккаунта («ПЛЮСОН Сервис»).
+  // Одно-единственное событие, не список: пункт ведёт сразу внутрь него.
+  const isSystemService = !!me?.is_system_service
   // «Партнёры» (collaborations) — по фиче event_organizers (vip + admin).
   const hasEventOrganizers = features.includes('event_organizers')
 
@@ -57,6 +61,9 @@ export default function Sidebar() {
         ...(hasConference ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
+        // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),
+        // поэтому ведём сразу внутрь его карточки.
+        ...(isSystemService ? [{ href: '/dashboard/medialift', label: 'МедиаЛифт', icon: Radio }] : []),
       ],
     },
     {

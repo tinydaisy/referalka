@@ -57,6 +57,7 @@ export default function EventsPage() {
       const res = await api.events.list()
       const filtered = (res.events || []).filter(
         (e: EventItem) => e.module_slug !== 'conference' && e.module_slug !== 'contest' && e.module_slug !== 'turnir'
+          && e.module_slug !== 'medialift'  // МедиаЛифт — свой раздел (одно служебное событие)
           && !(e as any).is_collab   // коллабы показываются только в разделе «Коллабы»
       )
       // Догружаем start_at для каждого через GET (list не возвращает) — батчем по необходимости
