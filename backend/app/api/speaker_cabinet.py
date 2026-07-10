@@ -1100,6 +1100,193 @@ async def get_me_broadcasts(
     }
 
 
+async def _speaker_test_targets(db, se_id: int):
+    """Куда уйдёт тест: аккаунты САМОГО спикера на площадках + боты события,
+    которыми будем слать. Возвращает (targets_for_ui, send_plan).
+
+    targets_for_ui — список для предупреждения человеку: платформа, его ник,
+    имя бота события. send_plan — то же + токены/ids для реальной отправки.
+    """
+    # Контакт спикера + владелец события (его боты).
+    info = await db.fetchrow(
+        """SELECT co.contact_id,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = ec.event_id AND eo.status='accepted'
+                    ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
+             FROM event_collaborators ec
+             JOIN collaborators co ON co.id = ec.speaker_id
+            WHERE ec.id = $1""",
+        se_id,
+    )
+    if not info or not info["contact_id"]:
+        return [], []
+    contact_id, client_id = info["contact_id"], info["client_id"]
+
+    # Личные идентичности спикера на площадках.
+    idents = await db.fetch(
+        """SELECT platform_slug, platform_user_id, username
+             FROM platform_users
+            WHERE contact_id = $1 AND platform_slug IN ('telegram','vk','max')""",
+        contact_id,
+    )
+    id_by_platform = {r["platform_slug"]: r for r in idents}
+
+    # Боты события (клиента) на каждой площадке + их публичные имена.
+    from app.services.channels import (
+        get_client_telegram_token, get_client_max_token, get_client_vk_token,
+    )
+    ui, plan = [], []
+
+    async def _bot_handle(platform):
+        return await db.fetchval(
+            """SELECT COALESCE(ch.handle, ch.display_name)
+                 FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1 AND cc.is_active
+                  AND ch.platform_slug = $2 AND ch.is_system = FALSE
+                LIMIT 1""",
+            client_id, platform,
+        )
+
+    # Telegram
+    tg = id_by_platform.get("telegram")
+    tg_token = await get_client_telegram_token(client_id, db)
+    if tg and str(tg["platform_user_id"]).lstrip("@").isdigit() and tg_token:
+        handle = await _bot_handle("telegram")
+        nick = ("@" + tg["username"]) if tg["username"] else f"id {tg['platform_user_id']}"
+        ui.append({"platform": "telegram", "nick": nick, "bot": ("@" + handle) if handle else "бот события"})
+        plan.append({"platform": "telegram", "chat_id": str(tg["platform_user_id"]), "token": tg_token})
+
+    # VK
+    vk = id_by_platform.get("vk")
+    vk_token = await get_client_vk_token(client_id, db)
+    if vk and str(vk["platform_user_id"]).isdigit() and vk_token:
+        handle = await _bot_handle("vk")
+        nick = ("@" + vk["username"]) if vk["username"] else f"id {vk['platform_user_id']}"
+        ui.append({"platform": "vk", "nick": nick, "bot": handle or "сообщество события"})
+        plan.append({"platform": "vk", "chat_id": str(vk["platform_user_id"]), "token": vk_token})
+
+    # MAX
+    mx = id_by_platform.get("max")
+    max_token = await get_client_max_token(client_id, db)
+    if mx and str(mx["platform_user_id"]).isdigit() and max_token:
+        handle = await _bot_handle("max")
+        nick = ("@" + mx["username"]) if mx["username"] else f"id {mx['platform_user_id']}"
+        ui.append({"platform": "max", "nick": nick, "bot": handle or "бот события"})
+        plan.append({"platform": "max", "chat_id": str(mx["platform_user_id"]), "token": max_token})
+
+    return ui, plan
+
+
+@router.get("/me/my-broadcasts/{schedule_id}/test-targets",
+            summary="Куда уйдёт тест рассылки (аккаунты самого спикера)")
+async def get_broadcast_test_targets(
+    schedule_id: int,
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    se_id = int(session["se_id"])
+    ui, _ = await _speaker_test_targets(db, se_id)
+    return {"targets": ui}
+
+
+@router.post("/me/my-broadcasts/{schedule_id}/test",
+             summary="Отправить тест рассылки самому спикеру в его аккаунты")
+async def send_broadcast_test(
+    schedule_id: int,
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Собирает сообщение рассылки ТОЧНО как оно уйдёт (тот же build_message_content,
+    что и превью) и шлёт его САМОМУ спикеру — в его личные TG/VK/MAX через боты
+    события. Никому больше не уходит."""
+    import httpx
+    from zoneinfo import ZoneInfo
+    from app.services.message_builder import build_message_content, send_telegram_message
+
+    se_id = int(session["se_id"])
+
+    # Рассылка должна быть «с этим спикером» (та же логика, что в my-broadcasts).
+    row = await db.fetchrow(
+        """SELECT bs.id, bs.type, bs.event_id, bs.session_id, bs.template_id, bs.fire_at,
+                  bt.text AS tmpl_text, bt.photo_url AS tmpl_photo, bt.video_url AS tmpl_video,
+                  bt.media_type AS tmpl_media_type, bt.button_text AS tmpl_btn_text,
+                  bt.button_url AS tmpl_btn_url, bt.speaker_photo_mode AS tmpl_speaker_photo_mode
+             FROM broadcast_schedules bs
+             LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
+            WHERE bs.id = $1
+              AND (bs.session_id = $2
+                   OR bs.session_id IN (SELECT id FROM conf_sessions
+                                         WHERE event_id = bs.event_id AND speaker_id = $2))""",
+        schedule_id, se_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Рассылка не найдена")
+
+    ui, plan = await _speaker_test_targets(db, se_id)
+    if not plan:
+        raise HTTPException(
+            status_code=400,
+            detail="Не нашли ваш аккаунт ни на одной площадке события. Напишите боту события — тогда тест сможет прийти.",
+        )
+
+    tz = ZoneInfo("Europe/Moscow")
+    try:
+        content = await build_message_content(
+            conn=db, tpl_type=row["type"], tmpl_text=row["tmpl_text"] or "",
+            photo_url=row["tmpl_photo"], btn_text=row["tmpl_btn_text"],
+            btn_url=row["tmpl_btn_url"] or "", event_id=row["event_id"],
+            session_id=row["session_id"], fire_at=row["fire_at"], tz=tz,
+            template_id=row["template_id"], video_url=row["tmpl_video"],
+            media_type=row["tmpl_media_type"],
+            speaker_photo_mode=row["tmpl_speaker_photo_mode"] or "poster",
+        )
+    except Exception:
+        content = {"text": row["tmpl_text"] or "", "photo": row["tmpl_photo"], "video": None,
+                   "media_type": row["tmpl_media_type"], "button_text": row["tmpl_btn_text"],
+                   "button_url": row["tmpl_btn_url"], "buttons": []}
+
+    text = content.get("text") or ""
+    photo = content.get("photo")
+    video = content.get("video")
+    m_type = content.get("media_type")
+    buttons = content.get("buttons") or []
+    btn_text = content.get("button_text") or (buttons[0]["text"] if buttons else None)
+    btn_url = content.get("button_url") or (buttons[0]["url"] if buttons else None)
+
+    sent = 0
+    async with httpx.AsyncClient(timeout=20) as http:
+        for t in plan:
+            try:
+                if t["platform"] == "telegram":
+                    ok, _err = await send_telegram_message(
+                        http, t["token"], t["chat_id"], text, photo, btn_text, btn_url,
+                        buttons=buttons or None,
+                        video_url=video if m_type == "video" else None)
+                    if ok:
+                        sent += 1
+                elif t["platform"] == "vk":
+                    from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
+                    kb = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": btn_url}]]) if (btn_text and btn_url) else None
+                    vk_text = f"{photo}\n\n{text}".strip() if photo else text
+                    if m_type == "video" and video:
+                        vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
+                    if await vk_send(int(t["chat_id"]), vk_text, keyboard=kb, token=t["token"]):
+                        sent += 1
+                elif t["platform"] == "max":
+                    from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
+                    mb = tg_inline_to_max_keyboard([[{"text": btn_text, "url": btn_url}]]) if (btn_text and btn_url) else None
+                    max_text = f"{photo}\n\n{text}".strip() if photo else text
+                    if m_type == "video" and video:
+                        max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
+                    if await max_send(int(t["chat_id"]), max_text, token=t["token"],
+                                      buttons=mb, recipient_kind="user"):
+                        sent += 1
+            except Exception:
+                pass
+
+    return {"ok": sent > 0, "sent": sent, "targets": ui}
+
+
 @router.get("/me/invited", summary="Приглашённые спикером люди + его реф-статистика")
 async def get_me_invited(
     session: dict = Depends(_auth_session),

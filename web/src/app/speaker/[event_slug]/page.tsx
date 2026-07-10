@@ -1959,6 +1959,11 @@ function MyBroadcastsTab({ token }: { token: string }) {
   const [cardLink, setCardLink] = useState<string | null>(null)
   const [landingLink, setLandingLink] = useState<string | null>(null)
   const [preview, setPreview] = useState<any | null>(null)
+  // Тест-отправка: подтверждение (что и куда придёт) → отправка.
+  const [testConfirm, setTestConfirm] = useState<any | null>(null)
+  const [testTargets, setTestTargets] = useState<any[] | null>(null)
+  const [testBusy, setTestBusy] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -1973,6 +1978,43 @@ function MyBroadcastsTab({ token }: { token: string }) {
       })
       .finally(() => setLoading(false))
   }, [token])
+
+  const PLAT_LABEL: Record<string, string> = { telegram: 'Telegram', vk: 'VK', max: 'MAX' }
+
+  async function openTest(b: any) {
+    setTestConfirm(b); setTestTargets(null); setTestResult(null)
+    try {
+      const r = await fetch(
+        `${API}/api/v1/public/speaker-cabinet/me/my-broadcasts/${b.id}/test-targets`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const d = await r.json()
+      setTestTargets(d.targets || [])
+    } catch {
+      setTestTargets([])
+    }
+  }
+
+  async function runTest() {
+    if (!testConfirm) return
+    setTestBusy(true); setTestResult(null)
+    try {
+      const r = await fetch(
+        `${API}/api/v1/public/speaker-cabinet/me/my-broadcasts/${testConfirm.id}/test`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+      )
+      const d = await r.json()
+      if (r.ok && d.ok) {
+        setTestResult(`Отправили вам в ${d.sent} ${d.sent === 1 ? 'аккаунт' : 'аккаунта(ов)'}. Проверьте свои боты.`)
+      } else {
+        setTestResult(d.detail || 'Не удалось отправить. Возможно, вы ещё не писали боту события.')
+      }
+    } catch {
+      setTestResult('Ошибка отправки. Попробуйте ещё раз.')
+    } finally {
+      setTestBusy(false)
+    }
+  }
 
   const statusChip = (s: string) => {
     const done = s === 'done'
@@ -2057,6 +2099,18 @@ function MyBroadcastsTab({ token }: { token: string }) {
               {statusChip(b.status)}
               <button
                 type="button"
+                onClick={() => openTest(b)}
+                title="Отправить тест себе"
+                style={{
+                  padding: '8px 12px', borderRadius: 10, border: '1px solid #d4dee5',
+                  background: '#f6f9fb', cursor: 'pointer', flexShrink: 0,
+                  fontSize: 13, fontWeight: 600, color: DARK, whiteSpace: 'nowrap',
+                }}
+              >
+                Протестировать
+              </button>
+              <button
+                type="button"
                 onClick={() => setPreview(b)}
                 title="Посмотреть сообщение"
                 style={{
@@ -2072,6 +2126,74 @@ function MyBroadcastsTab({ token }: { token: string }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {testConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16,
+        }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 22, maxWidth: 460, width: '100%' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>
+              Отправить тест себе
+            </div>
+            <div style={{ fontSize: 14, color: '#4a5a68', lineHeight: 1.5, marginBottom: 6 }}>
+              Рассылка «{testConfirm.name}» будет отправлена <b>только вам</b> — в ваши
+              же аккаунты через боты события. Больше никто её не получит.
+            </div>
+
+            {testTargets === null ? (
+              <div style={{ fontSize: 13, color: '#7a8c9c', padding: '10px 0' }}>Проверяем ваши аккаунты…</div>
+            ) : testTargets.length === 0 ? (
+              <div style={{
+                fontSize: 13, color: '#8a5a00', background: '#fff2dd',
+                border: '1px solid #ffe0ad', borderRadius: 10, padding: '10px 12px', margin: '10px 0',
+              }}>
+                Мы не нашли ваш аккаунт ни на одной площадке события. Чтобы тест дошёл —
+                сначала напишите боту события хотя бы «привет», и попробуйте снова.
+              </div>
+            ) : (
+              <div style={{
+                background: '#f6f9fb', border: '1px solid #e1e8ee', borderRadius: 10,
+                padding: '10px 12px', margin: '10px 0',
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 6 }}>
+                  Придёт вам сюда:
+                </div>
+                {testTargets.map((t, i) => (
+                  <div key={i} style={{ fontSize: 13, color: '#4a5a68', marginBottom: 3 }}>
+                    • <b>{PLAT_LABEL[t.platform] || t.platform}</b> ({t.nick}) — через {t.bot}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {testResult && (
+              <div style={{ fontSize: 13, color: DARK, background: '#e3f6ea',
+                border: '1px solid #b7e6c8', borderRadius: 10, padding: '10px 12px', margin: '6px 0' }}>
+                {testResult}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 14, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setTestConfirm(null)}
+                style={{ padding: '9px 16px', borderRadius: 10, border: '1px solid #d4dee5',
+                  background: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#4a5a68' }}>
+                {testResult ? 'Закрыть' : 'Отмена'}
+              </button>
+              {!testResult && (
+                <button type="button" onClick={runTest}
+                  disabled={testBusy || !testTargets || testTargets.length === 0}
+                  style={{ padding: '9px 16px', borderRadius: 10, border: 'none',
+                    background: (testBusy || !testTargets || testTargets.length === 0) ? '#c9d4dc' : DARK,
+                    color: '#fff', cursor: (testBusy || !testTargets || testTargets.length === 0) ? 'default' : 'pointer',
+                    fontSize: 14, fontWeight: 700 }}>
+                  {testBusy ? 'Отправляем…' : 'Отправить мне'}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
