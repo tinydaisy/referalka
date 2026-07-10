@@ -18,7 +18,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramUnauthorizedError
-from bot.handlers import start, funnel, chat_member, chat_gate, chat_listener
+from bot.handlers import start, funnel, chat_member, chat_gate, chat_listener, medialift_flow
 from app.config import settings
 from app.database import get_pool
 
@@ -149,6 +149,9 @@ async def main() -> None:
     # /start <param> может попадать в start handler если он зарегистрирован раньше,
     # а нам нужно сначала проверить подписку и при необходимости удалить.
     dp.include_router(chat_gate.router)
+    # МедиаЛифт — воронка автоподписки в боте (callback'и ml_* + ссылка на канал).
+    # ПЕРЕД start.router: иначе его текстовый хендлер перехватит ссылку канала.
+    dp.include_router(medialift_flow.router)
     dp.include_router(start.router)
     # Слушалка чатов событий — ПОСЛЕДНЯЯ. Ловит групповые сообщения чатов
     # событий и складывает в архив (для подсчёта заданий). Отдельно от логики

@@ -66,6 +66,10 @@ interface Profile {
   social_links: Record<string, any>
   // Бот и ссылки
   default_link_mode?: 'miniapp' | 'bot' | null
+  // Режим на каждую площадку (миграция 200). null → наследует default_link_mode.
+  link_mode_telegram?: 'miniapp' | 'bot' | null
+  link_mode_vk?: 'miniapp' | 'bot' | null
+  link_mode_max?: 'miniapp' | 'bot' | null
   start_greeting_text?: string | null
   start_btn_events_label?: string | null
   start_btn_owner_label?: string | null
@@ -126,6 +130,10 @@ export default function MiniAppSettingsPage() {
   const { isAssistant, me } = useMe()
   const hasConference = !!me?.features?.includes('conference')
   const [profile, setProfile] = useState<Profile | null>(null)
+  // Вкладка площадки в блоке «Как открываются ваши ссылки» (Telegram/VK/MAX).
+  const [linkTab, setLinkTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
+  // Подключено ли Mini App у TG-бота: null — ещё не проверяли / Telegram не ответил.
+  const [tgMiniApp, setTgMiniApp] = useState<{ has_mini_app: boolean | null; reason: string } | null>(null)
   const [offerings, setOfferings] = useState<Offering[]>([])
   const [loadingOff, setLoadingOff] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -147,6 +155,14 @@ export default function MiniAppSettingsPage() {
   useEffect(() => {
     if (isAssistant) setTab('products')
   }, [isAssistant])
+
+  // Проверяем у Telegram-бота наличие Mini App: если его нет, режим «Mini App»
+  // выбрать нельзя (ссылки `?startapp=` были бы мёртвыми).
+  useEffect(() => {
+    api.miniApp.profile.miniAppStatus()
+      .then((s: any) => setTgMiniApp({ has_mini_app: s?.has_mini_app ?? null, reason: s?.reason || '' }))
+      .catch(() => setTgMiniApp(null))
+  }, [])
 
   useEffect(() => {
     api.miniApp.profile.get().then((p: any) => {
@@ -308,6 +324,10 @@ export default function MiniAppSettingsPage() {
         social_links:       profile.social_links,
         // бот и ссылки
         default_link_mode:      profile.default_link_mode || 'miniapp',
+        // Режимы по площадкам: пусто → бэк запишет NULL (наследовать общий).
+        link_mode_telegram:     profile.link_mode_telegram || '',
+        link_mode_vk:           profile.link_mode_vk || '',
+        link_mode_max:          profile.link_mode_max || '',
         events_tab_visibility:  profile.events_tab_visibility || 'always',
         // Названия вкладок Mini App — пусто → дефолт (бэк применяет model_fields_set)
         tab_label_program:      profile.tab_label_program   || '',
@@ -613,18 +633,61 @@ export default function MiniAppSettingsPage() {
           <Section
             step={1}
             title="Как открываются ваши ссылки"
-            hint="Общая настройка для всего кабинета. Определяет, куда ведут публичные ссылки событий и кнопки приветствия в боте."
+            hint="Настраивается отдельно для каждой площадки: Mini App может быть подключён в Telegram и отсутствовать во ВКонтакте."
           >
+            {/* Вкладки площадок — как в «Каналах уведомлений». */}
+            <div className="flex border-b border-gray-200 mb-4">
+              {([
+                { k: 'telegram', label: 'Telegram', field: 'link_mode_telegram' },
+                { k: 'vk',       label: 'ВКонтакте', field: 'link_mode_vk' },
+                { k: 'max',      label: 'MAX',       field: 'link_mode_max' },
+              ] as const).map(t => (
+                <button
+                  key={t.k}
+                  type="button"
+                  onClick={() => setLinkTab(t.k)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    linkTab === t.k
+                      ? 'border-[#25455D] text-[#25455D]'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {t.label}
+                  {(profile as any)[t.field] && (
+                    <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 align-middle" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Предупреждение: в Telegram нельзя выбрать Mini App, если он не привязан. */}
+            {linkTab === 'telegram' && tgMiniApp?.has_mini_app === false && (
+              <div className="mb-3 rounded-xl border border-red-200 bg-red-500/10 p-3 text-sm text-red-800">
+                {tgMiniApp.reason}
+              </div>
+            )}
+
             <div className="space-y-2">
               {([
-                { v: 'miniapp', t: 'Mini App', d: 'Ссылки открывают приложение внутри Telegram/VK (Mini App). + веб-лендинг.' },
+                { v: 'miniapp', t: 'Mini App',   d: 'Ссылки открывают приложение внутри Telegram/VK (Mini App).' },
                 { v: 'bot',     t: 'Веб-версия', d: 'Ссылки открывают веб-страницы на pluson.ru (без Mini App).' },
               ] as const).map(opt => {
-                const active = (profile.default_link_mode || 'miniapp') === opt.v
+                const field = linkTab === 'telegram' ? 'link_mode_telegram'
+                            : linkTab === 'vk'       ? 'link_mode_vk'
+                            : 'link_mode_max'
+                // Пусто → наследуем общий режим кабинета.
+                const current = ((profile as any)[field] || profile.default_link_mode || 'miniapp')
+                const active = current === opt.v
+                // Mini App в Telegram недоступен, если приложение не привязано к боту.
+                const blocked = linkTab === 'telegram' && opt.v === 'miniapp' && tgMiniApp?.has_mini_app === false
                 return (
-                  <button key={opt.v} type="button"
-                          onClick={() => update('default_link_mode', opt.v)}
-                          className={`w-full text-left rounded-xl border p-3 transition ${active ? 'border-amber-300 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <button key={opt.v} type="button" disabled={blocked}
+                          onClick={() => update(field as any, opt.v)}
+                          title={blocked ? tgMiniApp?.reason : undefined}
+                          className={`w-full text-left rounded-xl border p-3 transition ${
+                            blocked ? 'border-gray-200 opacity-50 cursor-not-allowed'
+                            : active ? 'border-amber-300 bg-amber-50'
+                            : 'border-gray-200 hover:border-gray-300'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${active ? 'border-amber-400 bg-amber-400' : 'border-gray-300'}`} />
                       <span className="font-semibold text-gray-900 text-sm">{opt.t}</span>

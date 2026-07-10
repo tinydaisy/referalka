@@ -10,6 +10,7 @@ import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
+import EmailFunnelStats, { type EmailStats } from '@/components/EmailFunnelStats'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -81,7 +82,7 @@ export default function GeneralBroadcastsPage() {
   const [tzLabel, setTzLabel] = useState('МСК (UTC+3)')
   const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null)
   const [previewModal, setPreviewModal] = useState<any>(null)
-  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[] } | null>(null)
+  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[]; emailStats?: EmailStats | null } | null>(null)
   const [customModal, setCustomModal] = useState(false)
   const [bulkModal, setBulkModal] = useState(false)
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
@@ -191,7 +192,7 @@ export default function GeneralBroadcastsPage() {
   async function openLog(s: any) {
     try {
       const r = await api.broadcasts.log(s.id)
-      setLogModal({ schedule: s, rows: r.log || [] })
+      setLogModal({ schedule: s, rows: r.log || [], emailStats: r.email_stats || null })
     } catch (e: any) { showMsg('Не удалось загрузить лог', 'err') }
   }
   async function deleteOne(s: any) {
@@ -569,14 +570,9 @@ export default function GeneralBroadcastsPage() {
       {logModal && (() => {
         const sentCount = logModal.rows.filter((r: any) => r.status === 'sent').length
         const readCount = logModal.rows.filter((r: any) => r.status === 'sent' && r.read_at).length
-        // Email-аналитика: открытий и кликов хотя бы 1 (по unique получателям)
-        const emailOpenedCount = logModal.rows.filter((r: any) =>
-          (r.channel_platform === 'email') && Number(r.email_opens) > 0
-        ).length
-        const emailClickedCount = logModal.rows.filter((r: any) =>
-          (r.channel_platform === 'email') && Number(r.email_clicks) > 0
-        ).length
-        const hasEmailRows = logModal.rows.some((r: any) => r.channel_platform === 'email')
+        // Email-воронка: 4 цифры по уникальным адресам, считает бэкенд.
+        const es = logModal.emailStats
+        const hasEmailRows = !!es && es.sent > 0
         // Для клиента «не доставлено» = всё, что не 'sent' (включая bounced —
         // письмо отвергнуто почтой получателя). Причину показываем по-русски.
         const failed = logModal.rows.filter((r: any) => r.status !== 'sent')
@@ -616,13 +612,7 @@ export default function GeneralBroadcastsPage() {
                     {readCount > 0 && <> · <span className="text-blue-600" title="Прочтения отслеживаются только в VK (Telegram Bot API не даёт read receipts)">прочитано {readCount}</span></>}
                     {failed.length > 0 && <> · <span className="text-red-500" title="Письмо/сообщение не дошло до получателя (см. причины ниже)">не доставлено {failed.length}</span></>}
                   </p>
-                  {hasEmailRows && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Email: <span className="text-blue-600" title="Открытий учитывается через 1×1 пиксель в письме; Apple Mail Privacy завышает на 30-50%">👁 открыли {emailOpenedCount}</span>
-                      {' · '}
-                      <span className="text-purple-600" title="Клики по ссылкам в письме (отслеживается через rewrite ссылок)">🖱 кликнули {emailClickedCount}</span>
-                    </p>
-                  )}
+                  {hasEmailRows && <EmailFunnelStats stats={es} />}
                 </div>
                 <button onClick={() => setLogModal(null)}><X size={18} /></button>
               </div>

@@ -723,6 +723,8 @@ export const api = {
     profile: {
       get:    () => request('/api/v1/clients/me/profile'),
       update: (data: any) => request('/api/v1/clients/me/profile', { method: 'PATCH', body: JSON.stringify(data) }),
+      // Подключено ли Mini App у TG-бота клиента (getMe.has_main_web_app / кнопка меню).
+      miniAppStatus: () => request('/api/v1/clients/me/profile/mini-app-status'),
       resolveTelegramChatId: (params?: { username?: string; url?: string }) =>
         request('/api/v1/clients/me/profile/resolve-telegram-chat-id', {
           method: 'POST',

@@ -1024,7 +1024,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
-            """SELECT id, title, landing_url, status,
+            """SELECT id, title, landing_url, status, module_slug,
                       (SELECT eo.client_id FROM event_owners eo
                          WHERE eo.event_id = e.id AND eo.status = 'accepted'
                          ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -1075,6 +1075,17 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
                 platform_slug="telegram", platform_user_id=str(user.id),
                 known_contact_id=known_contact_id, partner_id=pid,
             )
+
+        # ── МедиаЛифт: своя многоуровневая воронка ПРЯМО В БОТЕ ──────────────
+        # Не зависит от Mini App (у @pluson_bot он может быть не подключён):
+        # карточки ветки → подписка на 3 → регистрация → «добавь свой канал».
+        if ev["module_slug"] == "medialift":
+            from bot.handlers.medialift_flow import start_medialift_flow, prompt_add_channel
+            if is_registered:
+                await prompt_add_channel(message, ev["id"], db)
+            else:
+                await start_medialift_flow(message, ev["id"], contact_id, db)
+            return True
 
         # ── Зарегистрированный участник → меню кабинета ───────────────────────
         if is_registered:

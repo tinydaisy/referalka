@@ -872,6 +872,11 @@ class ProfileUpdate(BaseModel):
     social_links:       Optional[dict] = None       # соцсети основателя
     # Общая настройка открытия ссылок: 'miniapp' | 'bot'
     default_link_mode:  Optional[str]  = None
+    # Режим на КАЖДУЮ площадку (миграция 200). Пусто → наследуем общий.
+    # Mini App может быть подключён в Telegram и отсутствовать во ВКонтакте.
+    link_mode_telegram: Optional[str]  = None
+    link_mode_vk:       Optional[str]  = None
+    link_mode_max:      Optional[str]  = None
     # Приветствие /start у бота клиента
     start_greeting_text:    Optional[str] = None
     start_btn_events_label: Optional[str] = None
@@ -902,7 +907,9 @@ async def get_my_profile(
                   brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links,
-                  default_link_mode, start_greeting_text,
+                  default_link_mode,
+                  link_mode_telegram, link_mode_vk, link_mode_max,
+                  start_greeting_text,
                   start_btn_events_label, start_btn_owner_label,
                   start_buttons,
                   start_mode, start_event_id,
@@ -953,10 +960,37 @@ async def update_my_profile(
 
     if "bio"          in fs: add("bio",          data.bio or None)
 
+    async def _guard_tg_miniapp() -> None:
+        """Нельзя включить Mini App в Telegram, если приложение к боту не привязано:
+        ссылка `?startapp=` тогда ничего не открывает, а бот в этом режиме молчит."""
+        from app.services.share_links import telegram_mini_app_status
+        st = await telegram_mini_app_status(db, client_id)
+        if st["has_mini_app"] is False:
+            raise HTTPException(status_code=400, detail=st["reason"])
+
     if data.default_link_mode is not None:
         if data.default_link_mode not in ("miniapp", "bot"):
             raise HTTPException(status_code=400, detail="default_link_mode должен быть 'miniapp' или 'bot'")
+        # Общий режим применяется и к Telegram — значит проверяем Mini App, но
+        # только если для TG не задан свой режим (он бы перекрыл общий).
+        if data.default_link_mode == "miniapp" and (data.link_mode_telegram or "") != "bot":
+            await _guard_tg_miniapp()
         add("default_link_mode", data.default_link_mode)
+
+    # Режимы по площадкам. Пустая строка → NULL (наследовать общий).
+    for field, col, platform in (
+        (data.link_mode_telegram, "link_mode_telegram", "telegram"),
+        (data.link_mode_vk,       "link_mode_vk",       "vk"),
+        (data.link_mode_max,      "link_mode_max",      "max"),
+    ):
+        if col not in fs:
+            continue
+        val = (field or "").strip() or None
+        if val is not None and val not in ("miniapp", "bot"):
+            raise HTTPException(status_code=400, detail=f"{col} должен быть 'miniapp', 'bot' или пустым")
+        if platform == "telegram" and val == "miniapp":
+            await _guard_tg_miniapp()
+        add(col, val)
     if data.events_tab_visibility is not None:
         if data.events_tab_visibility not in ("always", "active", "any"):
             raise HTTPException(status_code=400, detail="events_tab_visibility должен быть 'always', 'active' или 'any'")
@@ -1331,3 +1365,19 @@ async def delete_offering(
     if res == "DELETE 0":
         raise HTTPException(status_code=404, detail="Продукт не найден")
     return {"ok": True}
+
+
+@profile_router.get("/profile/mini-app-status",
+                    summary="Подключено ли Mini App у Telegram-бота клиента")
+async def mini_app_status(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Фронт использует, чтобы показать предупреждение до сохранения режима ссылок.
+
+    has_mini_app: true — можно включать режим «Mini App»;
+                  false — только «Веб-версия» (иначе ссылки мертвы);
+                  null — проверить не удалось (Telegram не ответил), не блокируем.
+    """
+    from app.services.share_links import telegram_mini_app_status
+    return await telegram_mini_app_status(db, int(client["sub"]))

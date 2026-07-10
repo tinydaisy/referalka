@@ -539,7 +539,12 @@ async def log(
         """,
         schedule_id
     )
-    return {"log": [dict(r) for r in rows]}
+
+    from app.services.email_funnel_stats import email_funnel_stats
+    return {
+        "log": [dict(r) for r in rows],
+        "email_stats": await email_funnel_stats(db, schedule_id),
+    }
 
 
 @router.post("/schedules/{schedule_id}/cancel")

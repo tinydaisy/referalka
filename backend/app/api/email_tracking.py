@@ -68,21 +68,29 @@ _PIXEL_BYTES = base64.b64decode(
 
 
 def _is_email_proxy_or_bot(ua: str, ip: str) -> bool:
-    """Распознаём почтовые прокси/сканеры, которые сами загружают пиксель,
-    ещё до того как письмо открыл пользователь.
+    """Загрузку пикселя сделал почтовый прокси, а не браузер человека?
 
-    Без этого фильтра Gmail (через GoogleImageProxy, диапазон 66.249.x.x)
-    и Apple Mail Privacy Protection (всегда подгружают картинки) дают
-    «фейковые открытия» — счётчик ползёт, хотя человек письмо не видел.
+    ⚠️ Раньше такие загрузки НЕ записывались вовсе. Это ломало метрику:
+    Gmail показывает картинки ТОЛЬКО через GoogleImageProxy (другого
+    механизма у него нет), поэтому все открытия Gmail — а это половина
+    базы — терялись, и open rate выглядел как 0.5%.
+
+    Теперь пишем всё, но помечаем прокси флагом `is_proxy`. «Открыли N» =
+    все загрузки (так считают GetCourse/Mailchimp), а прокси-предзагрузки
+    при необходимости отделяются по флагу.
     """
     if not ua and not ip:
         return False
     ua_low = (ua or "").lower()
-    # Прямые маркеры в UA
+    # Прямые маркеры в UA. ⚠️ Яндекс реально представляется как
+    # `YandexImageResizer` — раньше в списке был только `yandeximages`,
+    # из-за чего Яндекс считался «живым», а Gmail — нет. Перекос.
     if any(t in ua_low for t in (
         "googleimageproxy",
         "yahoomailproxy",
         "outlook-imageproxy",
+        "imageproxy",          # RamblerMail/6.0 (incompatible; ImageProxy/6.0)
+        "imageresizer",        # YandexImageResizer/2.0
         "yandexbot",
         "yandeximages",
         "bingpreview",
@@ -103,27 +111,27 @@ def _is_email_proxy_or_bot(ua: str, ip: str) -> bool:
 @router.get("/api/v1/email/pixel/{token}.gif")
 async def email_open_pixel(token: str, request: Request, db=Depends(get_db)):
     """Tracking pixel — открытие письма. Всегда отдаёт 1x1 gif (даже если токен битый).
-    Прокси-загрузки от Gmail/Yandex/Outlook/Apple НЕ записываются в open_log,
-    чтобы не накручивать счётчик «открытий»."""
+
+    Пишем КАЖДУЮ загрузку пикселя, помечая прокси-предзагрузки (Gmail,
+    Apple Mail Privacy, Яндекс, Rambler) флагом `is_proxy`. Раньше их
+    выбрасывали — и теряли все открытия Gmail, у которого нет способа
+    показать картинку иначе как через свой прокси.
+    """
     payload = _decode(token, _KIND_OPEN)
     if payload:
         try:
             ip = (request.client.host if request and request.client else "")[:64]
             ua = (request.headers.get("user-agent") or "")[:500]
-            if _is_email_proxy_or_bot(ua, ip):
-                # Картинку отдадим (иначе картинка не закешируется и реальный
-                # open пользователя тоже не залогируется), но в БД НЕ пишем.
-                logger.info(f"email open SKIP (proxy/bot): ua={ua[:80]} ip={ip}")
-            else:
-                blid = int(payload.get("blid", 0))
-                co = int(payload.get("co", 0))
-                client_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", co)
-                await db.execute(
-                    """INSERT INTO email_open_log
-                           (broadcast_log_id, contact_id, client_id, ip_address, user_agent)
-                        VALUES ($1, $2, $3, $4, $5)""",
-                    blid or None, co or None, client_id, ip, ua,
-                )
+            is_proxy = _is_email_proxy_or_bot(ua, ip)
+            blid = int(payload.get("blid", 0))
+            co = int(payload.get("co", 0))
+            client_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", co)
+            await db.execute(
+                """INSERT INTO email_open_log
+                       (broadcast_log_id, contact_id, client_id, ip_address, user_agent, is_proxy)
+                    VALUES ($1, $2, $3, $4, $5, $6)""",
+                blid or None, co or None, client_id, ip, ua, is_proxy,
+            )
         except Exception as e:
             logger.warning(f"email_open log failed: {e}")
     return Response(

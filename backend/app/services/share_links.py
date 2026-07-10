@@ -17,21 +17,38 @@ from __future__ import annotations
 from typing import Optional
 
 
-async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | None) -> str:
+_PLATFORM_MODE_COL = {
+    "telegram": "link_mode_telegram",
+    "vk":       "link_mode_vk",
+    "max":      "link_mode_max",
+}
+
+
+async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | None,
+                                  platform: str | None = None) -> str:
     """Итоговый режим открытия публичных ссылок события.
 
-    Приоритет: явный режим события (events.link_mode) → общий клиентский
-    (clients.default_link_mode) → 'miniapp'. Радио в UI событий сейчас скрыто,
-    поэтому event_link_mode почти всегда NULL и берётся клиентский флаг.
+    Приоритет:
+      1. явный режим события (events.link_mode);
+      2. режим клиента ДЛЯ ЭТОЙ ПЛОЩАДКИ (clients.link_mode_{telegram|vk|max});
+      3. общий режим клиента (clients.default_link_mode);
+      4. 'miniapp'.
+
+    ⚠️ Mini App может быть подключён в Telegram и не подключён во ВКонтакте —
+    поэтому режим задаётся на каждую площадку отдельно (миграция 200). Без
+    `platform` поведение прежнее (общий флаг) — обратная совместимость.
     """
     if event_link_mode in ('miniapp', 'bot'):
         return event_link_mode
     if client_id:
-        row = await db.fetchval(
-            "SELECT default_link_mode FROM clients WHERE id = $1", client_id
-        )
-        if row in ('miniapp', 'bot'):
-            return row
+        col = _PLATFORM_MODE_COL.get(platform or "")
+        cols = f"{col}, default_link_mode" if col else "default_link_mode"
+        row = await db.fetchrow(f"SELECT {cols} FROM clients WHERE id = $1", client_id)
+        if row:
+            if col and row[col] in ('miniapp', 'bot'):
+                return row[col]
+            if row["default_link_mode"] in ('miniapp', 'bot'):
+                return row["default_link_mode"]
     return 'miniapp'
 
 
@@ -66,8 +83,12 @@ def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id:
     # в ЛС). link_mode='miniapp' (дефолт) → открывается Mini App через startapp.
     if link_mode == 'bot':
         return f"https://t.me/{handle}?start={payload}"
-    # У VIP-бота Main Mini App без short-name — `t.me/{handle}?startapp=…`
-    return f"https://t.me/{handle}?startapp={payload}"
+    # Mini App: у VIP-бота клиента это Main Mini App (без short-name) —
+    # `t.me/{handle}?startapp=…`. У общего @pluson_bot приложение привязано
+    # отдельным short-name (`/newapp`), поэтому его надо дописывать в путь,
+    # иначе ссылка НЕ открывает Mini App (и бот в режиме miniapp молчит).
+    app_part = f"/{PLUSON_TG_APP}" if handle.lstrip('@') == PLUSON_TG_HANDLE else ""
+    return f"https://t.me/{handle}{app_part}?startapp={payload}"
 
 
 def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None, link_mode: str = 'miniapp') -> str:
@@ -212,13 +233,26 @@ async def build_share_links(
     """
     handles = await get_client_bot_handles(db, client_id)
     vk_app_id = await get_client_vk_app_id(db, client_id)
+
+    # Режим открытия — СВОЙ на каждую площадку (миграция 200): Mini App может быть
+    # подключён в TG и отсутствовать в VK. Колонка площадки перекрывает общий режим;
+    # если она пуста — остаётся `link_mode`, который передал вызывающий код.
+    per = await db.fetchrow(
+        "SELECT link_mode_telegram, link_mode_vk, link_mode_max FROM clients WHERE id = $1",
+        client_id,
+    ) if client_id else None
+
+    def _mode(col: str) -> str:
+        v = per[col] if per else None
+        return v if v in ('miniapp', 'bot') else link_mode
+
     result: dict[str, str] = {}
     if handles.get("telegram"):
-        result["telegram"] = telegram_link(event_slug, bot_handle=handles["telegram"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
+        result["telegram"] = telegram_link(event_slug, bot_handle=handles["telegram"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_telegram"))
     if handles.get("vk") and vk_app_id:
-        result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
+        result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_vk"))
     if handles.get("max"):
-        result["max"] = max_link(event_slug, bot_handle=handles["max"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
+        result["max"] = max_link(event_slug, bot_handle=handles["max"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_max"))
     return result
 
 
@@ -418,3 +452,61 @@ async def build_event_chat_bot_links(
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
 
     return result
+
+
+# ─────────────────── Проверка: подключён ли у бота Mini App ───────────────────
+
+async def telegram_mini_app_status(db, client_id: int) -> dict:
+    """Есть ли у активного TG-бота клиента подключённое Mini App.
+
+    Telegram отдаёт это двумя способами:
+      • `getMe` → `has_main_web_app` — привязан Main Mini App (`?startapp=`);
+      • `getChatMenuButton` → `type='web_app'` — кнопка меню открывает приложение.
+
+    Общий @pluson_bot — особый случай: приложение привязано отдельным short-name
+    (`/newapp`), поэтому `has_main_web_app` может быть FALSE, а ссылка
+    `t.me/pluson_bot/pluson?startapp=…` при этом работает.
+
+    Возвращает {has_bot, has_mini_app, bot_handle, reason}.
+    Сетевая ошибка → has_mini_app=None (не знаем — не блокируем клиента).
+    """
+    import httpx
+
+    row = await db.fetchrow(
+        """SELECT ch.handle, ch.bot_token
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'telegram'
+              AND cc.is_active = TRUE AND ch.bot_token IS NOT NULL
+            LIMIT 1""",
+        client_id,
+    )
+    if not row or not row["bot_token"]:
+        return {"has_bot": False, "has_mini_app": False, "bot_handle": None,
+                "reason": "У вас не подключён Telegram-бот."}
+
+    handle = (row["handle"] or "").lstrip("@")
+    if handle == PLUSON_TG_HANDLE:
+        # Mini App общего бота живёт под short-name — считаем, что он есть.
+        return {"has_bot": True, "has_mini_app": True, "bot_handle": handle, "reason": ""}
+
+    try:
+        async with httpx.AsyncClient(timeout=6) as http:
+            me = (await http.get(f"https://api.telegram.org/bot{row['bot_token']}/getMe")).json()
+            mb = (await http.get(f"https://api.telegram.org/bot{row['bot_token']}/getChatMenuButton")).json()
+    except Exception:  # noqa: BLE001
+        return {"has_bot": True, "has_mini_app": None, "bot_handle": handle,
+                "reason": "Не удалось проверить — Telegram не ответил."}
+
+    has_main = bool((me.get("result") or {}).get("has_main_web_app"))
+    menu_is_app = ((mb.get("result") or {}).get("type") == "web_app")
+    ok = has_main or menu_is_app
+    return {
+        "has_bot": True,
+        "has_mini_app": ok,
+        "bot_handle": handle,
+        "reason": "" if ok else (
+            f"У бота @{handle} не подключено Mini App. Откройте @BotFather → /newapp "
+            "и привяжите приложение — либо выберите режим «Веб-версия»."
+        ),
+    }

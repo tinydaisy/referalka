@@ -12,6 +12,7 @@ import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import { useMe } from '@/hooks/useMe'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
+import EmailFunnelStats, { type EmailStats } from '@/components/EmailFunnelStats'
 
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все уч. конфы',
@@ -166,7 +167,7 @@ export default function QueuePage() {
   const [editEventChats, setEditEventChats] = useState(false)
   const [editClientChats, setEditClientChats] = useState(false)
   const [editPrivateChats, setEditPrivateChats] = useState(false)
-  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[] } | null>(null)
+  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[]; emailStats?: EmailStats | null } | null>(null)
   const [logLoading, setLogLoading] = useState(false)
   const [manualForm, setManualForm] = useState({
     template_id: '',
@@ -432,7 +433,7 @@ export default function QueuePage() {
     setLogLoading(true)
     try {
       const res = await api.conference.schedules.log(eventId, schedule.id)
-      setLogModal({ schedule, rows: res.log || [] })
+      setLogModal({ schedule, rows: res.log || [], emailStats: res.email_stats || null })
     } catch { showMsg('Не удалось загрузить лог', 'err') }
     finally { setLogLoading(false) }
   }
@@ -1668,6 +1669,7 @@ export default function QueuePage() {
                   Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
                   {failed.length > 0 && <> · <span className="text-red-500">не доставлено {failed.length}</span></>}
                 </p>
+                <EmailFunnelStats stats={logModal.emailStats} />
               </div>
               <button onClick={() => setLogModal(null)}><X size={18} /></button>
             </div>
