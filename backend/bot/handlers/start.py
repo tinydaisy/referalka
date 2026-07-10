@@ -2025,7 +2025,12 @@ async def handle_user_message(message: Message):
             notif_text = "\n".join(parts)
             try:
                 from app.services.channels import notify_organizer_all_channels
-                await notify_organizer_all_channels(client_id, notif_text, db)
+                # ⚠️ Соединение `db` выше уже вернулось в пул (блок `async with`
+                # закрылся) — берём своё, иначе asyncpg бросает
+                # «connection has been released back to the pool».
+                pool = await get_pool()
+                async with pool.acquire() as ndb:
+                    await notify_organizer_all_channels(client_id, notif_text, ndb)
             except Exception as e:
                 log.warning("user_message notify failed: %s", e)
 

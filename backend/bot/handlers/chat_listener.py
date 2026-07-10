@@ -70,14 +70,39 @@ async def _reply_submission_tg(message: Message, info: dict) -> None:
 
 
 async def _client_id_for_bot(bot_id: int, db) -> int | None:
-    """client_id владельца бота (NULL для системного @pluson_bot)."""
+    """client_id владельца бота. Работает для ЛЮБОГО бота, включая @pluson_bot
+    (он принадлежит сервисному клиенту — см. clients.is_system_service)."""
     ch = await find_channel_by_bot_id(bot_id, db)
-    if not ch or ch.get("is_system"):
+    if not ch:
         return None
     return await db.fetchval(
         "SELECT client_id FROM client_channels WHERE channel_id = $1 AND is_active = TRUE LIMIT 1",
         ch["id"],
     )
+
+
+async def _bot_owns_chat(bot: Bot, chat_id: str) -> bool:
+    """Принадлежит ли чат тому же клиенту, что и бот.
+
+    Чат события привязан через client_broadcast_chats (tg_chat_ref) к клиенту.
+    Бот обслуживает приветствия/задания только в чатах СВОЕГО клиента — иначе
+    в чужом чате отвечал бы посторонний бот.
+    """
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            bot_client = await _client_id_for_bot(bot.id, db)
+            if not bot_client:
+                return False
+            # Чат зарегистрирован в базе чатов этого клиента?
+            return bool(await db.fetchval(
+                """SELECT 1 FROM client_broadcast_chats
+                    WHERE platform = 'telegram' AND chat_id = $1 AND client_id = $2
+                    LIMIT 1""",
+                chat_id, bot_client,
+            ))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _attachment_info(message: Message) -> tuple[bool, str | None]:
@@ -209,14 +234,12 @@ async def on_group_message(message: Message, bot: Bot):
             pass
         return
 
-    # ── СИСТЕМНЫЙ @pluson_bot НЕ обрабатывает чаты СОБЫТИЙ ──
-    # ⚠️ @pluson_bot физически сидит в чатах МНОГИХ клиентов (его добавляли для
-    # гейта подписки). Приветствия и начисление баллов по заданиям он слать НЕ
-    # должен — иначе в чужом чате отвечает «ПЛЮСОН». Проверки «чей это чат» здесь
-    # нет, поэтому отсекаем его по токену. (Если понадобится обслуживать чаты
-    # СВОЕГО клиента — сначала добавить резолв владельца чата, потом снять отсечку.)
-    from app.config import settings
-    if settings.telegram_bot_token and bot.token == settings.telegram_bot_token:
+    # ── Бот обслуживает чаты ТОЛЬКО своего клиента ──
+    # Правило единое для всех ботов (включая @pluson_bot, который принадлежит
+    # сервисному клиенту): чат события должен принадлежать тому же клиенту, что и
+    # бот. Иначе в чужом чате бот слал бы приветствия и начислял баллы по заданиям.
+    # (Раньше здесь была отсечка @pluson_bot по токену — заменена на честный резолв.)
+    if not await _bot_owns_chat(bot, str(message.chat.id)):
         return
 
     has_att, att_kind = _attachment_info(message)
