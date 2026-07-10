@@ -26,9 +26,10 @@ log = logging.getLogger(__name__)
 async def _record_subscription(message: Message) -> None:
     """Регистрирует подписку пользователя на этот конкретный TG-канал.
 
-    Архитектура G — определяем client_id:
-      - Системный канал (@pluson_bot, is_system=TRUE) → системный клиент «ПЛЮСОН Сервис».
-      - VIP-канал клиента → client_id из client_channels.
+    Архитектура G — определяем client_id единообразно для ЛЮБОГО бота:
+    канал → client_channels → его клиент. @pluson_bot больше не «общий»:
+    он принадлежит сервисному клиенту (clients.is_system_service=TRUE),
+    поэтому особых веток по channels.is_system в боте нет.
 
     Если потом пользователь сделает /start с реф/событием — запись в контексте того
     клиента создастся отдельно (через ref-handler / event_start). Это не баг, а фича:
@@ -201,16 +202,11 @@ async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: 
         ch = await find_channel_by_bot_id(bot_id, conn)
         if not ch:
             return
-        if ch["is_system"]:
-            client_id = await conn.fetchval(
-                "SELECT id FROM clients WHERE is_system_service=TRUE AND is_active=TRUE LIMIT 1"
-            )
-        else:
-            client_id = await conn.fetchval(
-                """SELECT client_id FROM client_channels
-                    WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
-                ch["id"],
-            )
+        client_id = await conn.fetchval(
+            """SELECT client_id FROM client_channels
+                WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+            ch["id"],
+        )
         if not client_id:
             return
         await conn.execute(
@@ -783,13 +779,11 @@ async def handle_start(message: Message, command: CommandObject):
                                    VALUES ($1, $2, TRUE)""",
                                 event["id"], contact_id,
                             )
-                        # Mini App открывается прямо в контексте этого события.
-                        # Для VIP-бота клиента — /c/{client_id}/tg/event/{slug},
-                        # для общего @pluson_bot — /tg/event/{slug}.
-                        # Бот VIP — это бот, у которого `is_system=FALSE` среди
-                        # активных каналов клиента.
+                        # Mini App открывается прямо в контексте этого события:
+                        # у клиента со своим TG-ботом — /c/{client_id}/tg/event/{slug}.
+                        # (@pluson_bot тоже «свой» — он принадлежит сервисному клиенту.)
                         is_vip_bot = await db.fetchval(
-                            """SELECT COALESCE(BOOL_OR(NOT ch.is_system), FALSE)
+                            """SELECT COALESCE(BOOL_OR(TRUE), FALSE)
                                  FROM channels ch
                                  JOIN client_channels cc ON cc.channel_id = ch.id
                                 WHERE cc.client_id = $1
@@ -1503,38 +1497,39 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         # Фото клиента — приоритет фото основателя, fallback на фото бренда
         photo_url = client["owner_photo_url"] or client["profile_photo_url"]
 
+        async def _send_text_safe() -> None:
+            """Приветствие клиента важнее кнопок. Если Telegram отверг клавиатуру
+            (кривой URL кастомной кнопки → «Wrong HTTP URL») — отправляем тот же
+            текст без кнопок. Ни при каких условиях не показываем системный
+            фолбэк «Я бот ПЛЮСОН» в боте клиента."""
+            try:
+                await message.answer(text, parse_mode="HTML", reply_markup=keyboard,
+                                     disable_web_page_preview=True)
+            except Exception as e:  # noqa: BLE001
+                log.warning("vip_start keyboard rejected (%s) — sending without buttons", e)
+                await message.answer(text, parse_mode="HTML",
+                                     disable_web_page_preview=True)
+
         TG_CAPTION_LIMIT = 1024
-        if photo_url:
-            if len(text) <= TG_CAPTION_LIMIT:
-                try:
-                    await message.answer_photo(
-                        photo=photo_url,
-                        caption=text,
-                        parse_mode="HTML",
-                        reply_markup=keyboard,
-                    )
-                    return True
-                except Exception as e:
-                    log.warning("vip_start answer_photo failed: %s — fallback to text", e)
-            else:
-                # Текст не влезает в caption — фото отдельно, потом текст с кнопкой
-                try:
-                    await message.answer_photo(photo=photo_url)
-                except Exception as e:
-                    log.warning("vip_start answer_photo (separate) failed: %s", e)
-                await message.answer(
-                    text, parse_mode="HTML",
+        if photo_url and len(text) <= TG_CAPTION_LIMIT:
+            try:
+                await message.answer_photo(
+                    photo=photo_url,
+                    caption=text,
+                    parse_mode="HTML",
                     reply_markup=keyboard,
-                    disable_web_page_preview=True,
                 )
                 return True
+            except Exception as e:
+                log.warning("vip_start answer_photo failed: %s — fallback to text", e)
+        elif photo_url:
+            # Текст не влезает в caption — фото отдельно, потом текст с кнопками
+            try:
+                await message.answer_photo(photo=photo_url)
+            except Exception as e:
+                log.warning("vip_start answer_photo (separate) failed: %s", e)
 
-        # Без фото
-        await message.answer(
-            text, parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+        await _send_text_safe()
         return True
     except Exception as e:
         log.exception("_handle_vip_direct_start failed: %s", e)
@@ -1667,14 +1662,10 @@ async def handle_vip_link_command(message: Message):
             from app.services.channels import find_channel_by_bot_id
             ch = await find_channel_by_bot_id(bot_id, db)
             if ch:
-                if ch["is_system"]:
-                    client_id = await db.fetchval(
-                        "SELECT id FROM clients WHERE is_system_service=TRUE AND is_active=TRUE LIMIT 1")
-                else:
-                    client_id = await db.fetchval(
-                        """SELECT client_id FROM client_channels
-                            WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
-                        ch["id"])
+                client_id = await db.fetchval(
+                    """SELECT client_id FROM client_channels
+                        WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                    ch["id"])
         # Событие должно принадлежать этому клиенту (для системного @pluson_bot —
         # любому, т.к. он обслуживает всех; для VIP-бота — только своему).
         if client_id is not None:
@@ -1682,9 +1673,9 @@ async def handle_vip_link_command(message: Message):
                 """SELECT 1 FROM event_owners
                     WHERE event_id = $1 AND client_id = $2 AND status = 'accepted' LIMIT 1""",
                 event_id, client_id)
-            # Для системного бота владение не ограничиваем (он общий).
-            is_system = bool(ch and ch["is_system"]) if bot_id else False
-            if not owns and not is_system:
+            # Каждый бот обслуживает события СВОЕГО клиента (включая @pluson_bot,
+            # который принадлежит сервисному клиенту).
+            if not owns:
                 await message.answer("Неизвестное событие — возможно, вы ошиблись с идентификатором события.")
                 return
         # contact_id по tg_id.
@@ -1762,7 +1753,7 @@ async def handle_support(message: Message):
             async with pool.acquire() as db:
                 from app.services.channels import find_channel_by_bot_id
                 ch = await find_channel_by_bot_id(bot_id, db)
-                if ch and not ch["is_system"]:
+                if ch:
                     cid = await db.fetchval(
                         """SELECT client_id FROM client_channels
                             WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
@@ -1871,16 +1862,11 @@ async def handle_merge(message: Message, command: CommandObject):
         if not ch:
             await message.answer("😕 Не удалось определить организатора.")
             return
-        if ch["is_system"]:
-            client_id = await db.fetchval(
-                "SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1"
-            )
-        else:
-            client_id = await db.fetchval(
-                """SELECT client_id FROM client_channels
-                    WHERE channel_id = $1 AND is_active = TRUE LIMIT 1""",
-                ch["id"],
-            )
+        client_id = await db.fetchval(
+            """SELECT client_id FROM client_channels
+                WHERE channel_id = $1 AND is_active = TRUE LIMIT 1""",
+            ch["id"],
+        )
         if not client_id:
             await message.answer("😕 Не удалось определить организатора.")
             return

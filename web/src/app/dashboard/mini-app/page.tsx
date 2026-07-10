@@ -29,6 +29,24 @@ interface Achievement { label: string; value: string }
 //   owner  — «Об основателе» (ссылка автоматом, меняется текст)
 //   custom — произвольная (текст + своя ссылка)
 interface StartButton { type: 'events' | 'owner' | 'custom'; label: string; url?: string }
+
+/**
+ * Ссылку кастомной кнопки бэкенд чинит сам (`https//` → `https://`, `t.me/x` и
+ * `@nick` → полный адрес). «Плохая» — только та, из которой домен не вытащить:
+ * Telegram отвергает ВСЁ сообщение при кривом URL inline-кнопки («Wrong HTTP URL»),
+ * и человек вместо приветствия увидит системный текст.
+ * Пустое поле плохим не считаем — его отфильтрует сохранение.
+ */
+function isBadButtonUrl(url?: string): boolean {
+  let s = (url || '').trim()
+  if (!s) return false
+  if (/^(tg:\/\/|mailto:|tel:)/i.test(s)) return false           // спецсхемы допустимы
+  s = s.replace(/^(https?)(?::?\/{1,2}|:)(?=[^/])/i, '$1://')    // https// , https:/ , http:
+  if (s.startsWith('@')) s = `https://t.me/${s.slice(1)}`
+  if (!/^https?:\/\//i.test(s)) s = `https://${s.replace(/^\/+/, '')}`
+  const host = s.replace(/^https?:\/\//i, '').split(/[/?#]/)[0]
+  return !host || host.includes(' ') || !host.includes('.')
+}
 interface Profile {
   id: number
   name: string                              // техническое (из регистрации, readonly)
@@ -265,6 +283,13 @@ export default function MiniAppSettingsPage() {
 
   async function saveProfile() {
     if (!profile) return
+    // Кривая ссылка кнопки сломала бы всё приветствие в боте — не даём сохранить.
+    const badBtn = (profile.start_buttons || []).find(b => b.type === 'custom' && isBadButtonUrl(b.url))
+    if (badBtn) {
+      alert(`Кнопка «${badBtn.label || 'без названия'}»: ссылка «${badBtn.url}» некорректна.\n\n`
+            + 'Укажите полный адрес, например https://t.me/ваш_ник')
+      return
+    }
     setSaving(true)
     try {
       const cleanAch = (a: Achievement[]) => a.filter(x => x.label.trim() && x.value.trim())
@@ -761,12 +786,24 @@ export default function MiniAppSettingsPage() {
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
                         />
                         {btn.type === 'custom' ? (
-                          <input
-                            value={btn.url || ''}
-                            onChange={e => updateStartBtn(idx, { url: e.target.value })}
-                            placeholder="https://ваша-ссылка.ру"
-                            className="w-full mt-2 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
-                          />
+                          <>
+                            <input
+                              value={btn.url || ''}
+                              onChange={e => updateStartBtn(idx, { url: e.target.value })}
+                              placeholder="https://ваша-ссылка.ру"
+                              className={`w-full mt-2 px-3 py-2 text-sm border rounded-lg focus:outline-none ${
+                                isBadButtonUrl(btn.url)
+                                  ? 'border-red-400 bg-red-50 focus:border-red-500'
+                                  : 'border-gray-300 focus:border-amber-400'
+                              }`}
+                            />
+                            {isBadButtonUrl(btn.url) && (
+                              <p className="text-xs text-red-600 mt-1">
+                                Неверная ссылка. Нужен полный адрес — например <b>https://t.me/ваш_ник</b>.
+                                С такой ссылкой Telegram не покажет приветствие вовсе.
+                              </p>
+                            )}
+                          </>
                         ) : (
                           <p className="text-xs text-gray-400 mt-1">
                             {btn.type === 'events'

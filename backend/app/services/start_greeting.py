@@ -133,6 +133,53 @@ async def resolve_start_greeting(
     }
 
 
+def normalize_button_url(raw: str) -> str:
+    """Чинит частые опечатки в URL кастомной кнопки. Пусто → '' (кнопку выкинуть).
+
+    Telegram отвергает ВСЁ сообщение целиком, если хоть одна inline-кнопка имеет
+    кривой URL («Wrong HTTP URL») — тогда клиент вместо своего приветствия видит
+    системный фолбэк. Поэтому чиним и валидируем здесь, в одной точке для TG/VK/MAX.
+
+    Правила:
+      · `https//t.me/x`, `https:/t.me/x`, `http//x` → `https://t.me/x`
+      · `t.me/x`, `pluson.ru/x`, `@nick` → `https://…`
+      · кириллица и пробелы в пути/квери — процент-кодирование (TG требует ASCII)
+      · tg://, mailto:, tel: — пропускаем как есть
+    """
+    import re
+    from urllib.parse import quote, urlsplit, urlunsplit
+
+    s = (raw or "").strip()
+    if not s:
+        return ""
+
+    if s.startswith(("tg://", "mailto:", "tel:")):
+        return s
+
+    # https//host, https:/host, http//host  →  scheme://host
+    s = re.sub(r"^(https?)(?::?/{1,2}|:)(?=[^/])", r"\1://", s, flags=re.I)
+    # @nickname → t.me/nickname
+    if s.startswith("@"):
+        s = f"https://t.me/{s[1:]}"
+    if not re.match(r"^https?://", s, flags=re.I):
+        s = f"https://{s.lstrip('/')}"
+
+    try:
+        parts = urlsplit(s)
+    except ValueError:
+        return ""
+    # Хост должен быть похож на домен: без пробелов, с точкой (или localhost).
+    host = parts.netloc
+    if not host or " " in host or ("." not in host and host != "localhost"):
+        return ""
+
+    # Telegram принимает только ASCII-URL: кириллицу в пути/квери кодируем.
+    path = quote(parts.path, safe="/%:@!$&'()*+,;=~-._")
+    query = quote(parts.query, safe="=&%:@!$'()*+,;/?~-._")
+    fragment = quote(parts.fragment, safe="%:@!$&'()*+,;=/?~-._")
+    return urlunsplit((parts.scheme.lower(), parts.netloc, path, query, fragment))
+
+
 def _events_url(client_id: int) -> str:
     return f"https://pluson.ru/o/{client_id}"
 
@@ -186,7 +233,9 @@ def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label) -
                         "label": label or "🌐 Об основателе",
                         "url": _owner_url(client_id)})
         else:  # custom
-            url = (item.get("url") or "").strip()
+            # Кривой URL (напр. `https//t.me/…` без двоеточия) не должен ронять
+            # ВСЁ приветствие: чиним что можем, безнадёжную кнопку — пропускаем.
+            url = normalize_button_url(item.get("url") or "")
             if label and url:
                 out.append({"kind": "custom", "label": label, "url": url})
         if len(out) >= 5:

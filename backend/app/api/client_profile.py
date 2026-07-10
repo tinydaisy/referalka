@@ -974,7 +974,11 @@ async def update_my_profile(
 
     # Кнопки приветствия. Нормализуем: до 5 штук, каждая — тип events/owner/custom.
     # Пустой массив → NULL (резолвер вернётся к 2 дефолтным кнопкам).
+    # ⚠️ URL кастомной кнопки чиним и валидируем ЗДЕСЬ: Telegram отвергает всё
+    # сообщение целиком, если хоть одна inline-кнопка имеет кривой URL — клиент
+    # вместо своего приветствия увидит системный фолбэк.
     if "start_buttons" in fs:
+        from app.services.start_greeting import normalize_button_url
         _clean: list[dict] = []
         for _b in (data.start_buttons or []):
             if not isinstance(_b, dict):
@@ -986,7 +990,14 @@ async def update_my_profile(
             _url = (str(_b.get("url") or "")).strip()
             if _t == "custom":
                 if _lbl and _url:
-                    _clean.append({"type": "custom", "label": _lbl, "url": _url})
+                    _fixed = normalize_button_url(_url)
+                    if not _fixed:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Кнопка «{_lbl}»: ссылка «{_url}» некорректна. "
+                                   f"Укажите полный адрес, например https://t.me/ваш_ник",
+                        )
+                    _clean.append({"type": "custom", "label": _lbl, "url": _fixed})
             else:  # events / owner — url проставит резолвер, храним только текст
                 if _lbl:
                     _clean.append({"type": _t, "label": _lbl})
