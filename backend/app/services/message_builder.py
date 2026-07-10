@@ -724,8 +724,8 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
     sessions = await conn.fetch(
         """
         SELECT cs.start_time, cs.end_time,
-               COALESCE(cst.topic,
-                        (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id
+               COALESCE(NULLIF(cst.topic,''),
+                        (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id
                            ORDER BY t.sort_order, t.id LIMIT 1),
                         cs.title) AS session_title,
                c.name AS speaker_name, cse.role, cse.id AS ec_id
@@ -958,7 +958,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         day_sessions = await conn.fetch(
             """
             SELECT cs.start_time, cs.end_time,
-                   COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
+                   COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
                    c.name as speaker_name, cse.role, cse.id AS ec_id
             FROM conf_sessions cs
             LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
@@ -1421,7 +1421,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             day_sessions = await conn.fetch(
                 """
                 SELECT cs.start_time, cs.end_time,
-                       COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
+                       COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
                        c.name as speaker_name, cse.role, cse.id AS ec_id
                 FROM conf_sessions cs
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id

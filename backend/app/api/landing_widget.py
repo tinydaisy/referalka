@@ -303,7 +303,7 @@ async def widget_program(
     )
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time,
-                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
+                  COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   s.gift_description, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   cse.role AS speaker_role,

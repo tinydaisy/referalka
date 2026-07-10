@@ -135,7 +135,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
     )
     sessions = await db.fetch(
-        """SELECT s.*, COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
+        """SELECT s.*, COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   sp.name AS speaker_name, cse.role AS speaker_role,
                   sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
@@ -650,15 +650,79 @@ async def _load_topics(cse_ids: list, db) -> dict:
     return result
 
 
-async def _save_topics(cse_id: int, topics: list, db) -> None:
-    """Полностью заменяет темы спикера в событии."""
-    await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", cse_id)
-    for i, topic in enumerate(topics):
-        if topic.strip():
+async def ensure_speaker_topic_placeholder(db, cse_id: int) -> int:
+    """Гарантирует, что у спикера есть хотя бы ОДНА запись-тема, и возвращает
+    её id. Если тем нет — создаёт заглушку с пустым текстом.
+
+    Смысл: слот в программе привязывается к теме по её ПОСТОЯННОМУ id
+    (conf_sessions.topic_id). Пока у спикера всегда есть тема-запись, слот
+    можно привязать к ней сразу при занятии — даже если текст ещё не задан.
+    Спикер впишет текст позже (UPDATE по тому же id), привязка слота не слетит.
+    """
+    tid = await db.fetchval(
+        "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id LIMIT 1",
+        cse_id,
+    )
+    if tid is None:
+        tid = await db.fetchval(
+            "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, '', 0) RETURNING id",
+            cse_id,
+        )
+    return tid
+
+
+async def _rewrite_speaker_topics(db, cse_id: int, topics: list) -> None:
+    """Единая точка правки тем спикера — из дашборда и из кабинета спикера.
+
+    ⚠️ Правим темы ПО ID, а не «удалить всё → создать заново». Слот привязан к
+    теме по её id (conf_sessions.topic_id); пересоздание меняет id и рвёт
+    привязку — в т.ч. если слот указывал на 2-ю/3-ю тему, выбранную вручную.
+    Поэтому переиспользуем существующие записи по порядку: первым N обновляем
+    текст (id сохраняются), лишние в хвосте удаляем, недостающие добавляем.
+    Тема №1 существует всегда — если тем не осталось, держим её пустой
+    (заглушка для привязки слота).
+    """
+    clean = [t.strip() for t in (topics or []) if (t or "").strip()]
+
+    rows = await db.fetch(
+        "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
+        cse_id,
+    )
+    ids = [r["id"] for r in rows]
+    if not ids:
+        ids = [await db.fetchval(
+            "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, '', 0) RETURNING id",
+            cse_id,
+        )]
+
+    # Что записываем: реальные темы, а если их нет — одну пустую (заглушку).
+    texts = clean if clean else [""]
+
+    for i, text in enumerate(texts):
+        if i < len(ids):
+            await db.execute(
+                "UPDATE conf_speaker_topics SET topic = $1, sort_order = $2 WHERE id = $3",
+                text, i, ids[i],
+            )
+        else:
             await db.execute(
                 "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
-                cse_id, topic.strip(), i
+                cse_id, text, i,
             )
+    if len(ids) > len(texts):
+        await db.execute(
+            "DELETE FROM conf_speaker_topics WHERE id = ANY($1::int[])", ids[len(texts):],
+        )
+
+    await db.execute(
+        "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
+        (clean[0] if clean else ""), cse_id,
+    )
+
+
+async def _save_topics(cse_id: int, topics: list, db) -> None:
+    """Полностью заменяет темы спикера в событии (обёртка над общим хелпером)."""
+    await _rewrite_speaker_topics(db, cse_id, topics)
 
 
 async def apply_default_speaker_stages(ec_id: int, event_id: int, db) -> None:
@@ -1512,7 +1576,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
     )
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time,
-                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title, s.gift_description,
+                  COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title, s.gift_description,
                   s.track_label, s.track_color, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   col.name AS speaker_name, col.title AS speaker_title,
@@ -1684,7 +1748,7 @@ async def list_sessions(
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
         """SELECT s.*,
-                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
+                  COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   col.name as speaker_name, col.title as speaker_title,
                   col.photo_url,
                   pu_tg.username AS personal_tg_username,
@@ -1709,7 +1773,7 @@ async def list_sessions(
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time,
-                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
+                  COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color, s.track_id,
                   s.speaker_id AS speaker_event_id,
                   col.name as speaker_name, col.title as speaker_title,
@@ -2530,21 +2594,9 @@ async def update_speaker_by_ref_code(
             speaker_event_id, *event_updates.values()
         )
 
-    # Темы выступления
+    # Темы выступления — единый хелпер (правит по id, привязка слота держится).
     if data.topics is not None:
-        await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", speaker_event_id)
-        topics = [t.strip() for t in data.topics if t.strip()]
-        if topics:
-            first_topic = topics[0]
-            await db.execute(
-                "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
-                first_topic, speaker_event_id
-            )
-            for i, topic in enumerate(topics):
-                await db.execute(
-                    "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
-                    speaker_event_id, topic, i
-                )
+        await _rewrite_speaker_topics(db, speaker_event_id, data.topics)
 
     # Возвращаем обновлённые данные
     return await get_speaker_by_ref_code(event_id, ref_code, db)
@@ -2672,20 +2724,9 @@ async def update_speaker_as_editor(
             speaker_event_id, *event_updates.values()
         )
 
-    # Темы
+    # Темы — единый хелпер (правит по id, привязка слота держится).
     if data.topics is not None:
-        await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", speaker_event_id)
-        clean_topics = [t.strip() for t in data.topics if t.strip()]
-        if clean_topics:
-            await db.execute(
-                "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
-                clean_topics[0], speaker_event_id
-            )
-            for i, topic in enumerate(clean_topics):
-                await db.execute(
-                    "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
-                    speaker_event_id, topic, i
-                )
+        await _rewrite_speaker_topics(db, speaker_event_id, data.topics)
 
     # Возвращаем обновлённые данные
     row = await db.fetchrow(

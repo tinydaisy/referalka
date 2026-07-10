@@ -1484,7 +1484,7 @@ async def _shiftable_sessions(db, event_id: int, day_number: int):
         SELECT cs.id            AS session_id,
                cs.start_time,
                cs.end_time,
-               COALESCE(cst.topic, cs.title) AS session_title,
+               COALESCE(NULLIF(cst.topic,''), cs.title) AS session_title,
                c.name           AS speaker_name,
                COUNT(bs.id)     AS schedules_count,
                MIN(bs.fire_at)  AS first_fire_at

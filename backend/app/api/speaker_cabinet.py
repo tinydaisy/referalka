@@ -462,24 +462,11 @@ async def patch_me(
             personal_max_username = data.personal_max_username if not locks["max_locked"] else None
         await _upsert_personal_identities(db, client_id, contact_id, _Filtered())
 
-    # 4. Темы выступления — переписываем целиком из массива
+    # 4. Темы выступления — единый хелпер: тема №1 живёт по постоянному id
+    # (её текст правим, а не пересоздаём), поэтому привязка слота не слетает.
     if data.topics is not None:
-        clean = [t.strip() for t in data.topics if (t or "").strip()]
-        await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", se_id)
-        if clean:
-            for i, topic in enumerate(clean):
-                await db.execute(
-                    "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1,$2,$3)",
-                    se_id, topic, i
-                )
-            await db.execute(
-                "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
-                clean[0], se_id
-            )
-        else:
-            await db.execute(
-                "UPDATE event_collaborators SET speaker_topic = NULL WHERE id = $1", se_id
-            )
+        from app.api.modules.conference import _rewrite_speaker_topics
+        await _rewrite_speaker_topics(db, se_id, data.topics)
 
     # 5. Подарки и материал. Различаем «не передано» (не трогаем) и «передано null»
     # (обнуляем) через model_fields_set — иначе нельзя стереть ручной подарок при
@@ -1380,9 +1367,8 @@ async def speaker_program(
         SELECT s.id, s.day, s.start_time, s.end_time, s.sort_order,
                s.speaker_id AS occupant_ec_id, s.topic_id,
                col.name AS occupant_name,
-               COALESCE(
-                 cst.topic,
-                 (SELECT t.topic FROM conf_speaker_topics t
+               COALESCE(NULLIF(cst.topic,''),
+                 (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t
                     WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1),
                  s.title
                ) AS topic
@@ -1465,19 +1451,27 @@ async def claim_slot(
             raise HTTPException(status_code=409, detail="Этот слот уже занят другим спикером")
 
         # тема: спикер мог выбрать конкретную (topic_id) — проверяем что она его.
-        # Не выбрал, а тема одна — берём её. Несколько и не выбрал — NULL
-        # (в программе покажется первая тема live).
+        # Привязка темы при занятии слота:
+        #  • спикер явно выбрал одну из нескольких — берём её;
+        #  • тема РОВНО ОДНА (или её ещё нет — заглушку создаём) — привязываем к
+        #    теме №1 по постоянному id. Спикер впишет текст позже, привязка не
+        #    слетит (мы правим текст темы, а не пересоздаём её);
+        #  • тем НЕСКОЛЬКО и не выбрал — оставляем без привязки (topic_id NULL),
+        #    пусть выберет; в программе покажется «Тема будет уточнена позже».
+        from app.api.modules.conference import ensure_speaker_topic_placeholder
         topic_rows = await db.fetch(
-            "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
+            "SELECT id, NULLIF(topic,'') AS topic FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
             se_id,
         )
         my_topic_ids = [r["id"] for r in topic_rows]
+        filled = [r for r in topic_rows if r["topic"]]
         if data.topic_id and data.topic_id in my_topic_ids:
             topic_id = data.topic_id
-        elif len(my_topic_ids) == 1:
-            topic_id = my_topic_ids[0]
+        elif len(filled) > 1:
+            topic_id = None  # несколько тем — спикер выберет вручную
         else:
-            topic_id = None
+            # одна тема или ещё ни одной — привязываем к теме №1 (заглушке)
+            topic_id = await ensure_speaker_topic_placeholder(db, se_id)
         title_default = "Тема будет уточнена позже"
 
         # освобождаем мой прежний слот в этом событии (пересадка)

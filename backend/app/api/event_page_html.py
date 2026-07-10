@@ -112,10 +112,10 @@ async def _load_program(db, event_id):
         event_id,
     )
     sessions = await db.fetch(
-        # Тема слота — LIVE из карточки спикера по topic_id (COALESCE(cst.topic, s.title)),
+        # Тема слота — LIVE из карточки спикера по topic_id (COALESCE(NULLIF(cst.topic,''), s.title)),
         # как в Mini App / conference.py. Иначе веб показывал замороженный s.title без темы.
         """SELECT s.day, s.start_time, s.end_time,
-                  COALESCE(cst.topic, s.title) AS title,
+                  COALESCE(NULLIF(cst.topic,''), s.title) AS title,
                   cse.id AS sp_ec_id,
                   col.name AS sp_name, col.title AS sp_title,
                   col.photo_url AS sp_photo
