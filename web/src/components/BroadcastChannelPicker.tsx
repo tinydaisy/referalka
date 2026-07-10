@@ -14,6 +14,13 @@ type Channel = {
   platform_display_name?: string | null
 }
 
+/**
+ * Площадки, скрытые из выбора каналов рассылки (общей и событийной).
+ * Email — системный канал ПЛЮСОНа, WhatsApp — рассылки через мост не идут.
+ * Скрываем и никогда не отмечаем галочкой.
+ */
+const HIDDEN_PLATFORMS = new Set(['email', 'whatsapp'])
+
 const PLATFORM_TITLE: Record<string, string> = {
   telegram: 'Telegram',
   vk: 'VK',
@@ -51,10 +58,12 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
     let cancelled = false
     api.channels.list().then((res: any) => {
       if (cancelled) return
-      // Email убран из выбора каналов рассылки (с 2026-07-08): email системный
-      // и не отмечается по умолчанию. Отфильтровываем до onChange, чтобы email
-      // не рисовался секцией и не попадал в target_channel_ids.
-      const items: Channel[] = (res?.items || []).filter((c: Channel) => c.platform_slug !== 'email')
+      // Email (с 2026-07-08) и WhatsApp (с 2026-07-10) убраны из выбора каналов
+      // рассылки. Отфильтровываем ДО onChange, чтобы они не рисовались секцией
+      // и не попадали в target_channel_ids (иначе галочка встала бы сама).
+      const items: Channel[] = (res?.items || []).filter(
+        (c: Channel) => !HIDDEN_PLATFORMS.has(c.platform_slug)
+      )
       setChannels(items)
       // Первая инициализация: NULL → выбрать все каналы (поведение по умолчанию).
       if (value === null) {
