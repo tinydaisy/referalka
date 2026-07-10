@@ -64,6 +64,8 @@ export interface ContactFilters {
   eventIds?: number[]
   leadMagnetIds?: number[]
   packageIds?: number[]
+  /** Работает только вместе с leadMagnetIds/packageIds: все | забрали | не забрали. */
+  leadMagnetStage?: 'any' | 'delivered' | 'not_delivered'
   dateFrom?: string
   dateTo?: string
 }
@@ -89,6 +91,11 @@ function buildContactsParams(
   if (filters?.eventIds?.length) params.set('event_ids', filters.eventIds.join(','))
   if (filters?.leadMagnetIds?.length) params.set('lead_magnet_ids', filters.leadMagnetIds.join(','))
   if (filters?.packageIds?.length) params.set('package_ids', filters.packageIds.join(','))
+  // Стадия имеет смысл только при выбранном лид-магните/пакете
+  if (filters?.leadMagnetStage && filters.leadMagnetStage !== 'any'
+      && (filters.leadMagnetIds?.length || filters.packageIds?.length)) {
+    params.set('lead_magnet_stage', filters.leadMagnetStage)
+  }
   if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters?.dateTo) params.set('date_to', filters.dateTo)
   return params

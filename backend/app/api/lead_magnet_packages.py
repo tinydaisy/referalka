@@ -111,15 +111,21 @@ async def list_counts(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    # `known` / `delivered` / `not_delivered` считаются по ЖИВЫМ контактам клиента
+    # (contacts.is_active) — ровно та же выборка, что у фильтра /dashboard/clients,
+    # чтобы цифра на плитке совпадала с числом строк в списке контактов.
     rows = await db.fetch(
         """SELECT
               pkg.id,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('landed','started','subscribed','delivered')), 0) AS landed,
-              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.contact_id IS NOT NULL), 0) AS known,
-              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered') AND fr.contact_id IS NOT NULL), 0) AS started,
-              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.stage = 'delivered' AND fr.contact_id IS NOT NULL), 0) AS delivered
+              COALESCE(COUNT(DISTINCT c.id), 0) AS known,
+              COALESCE(COUNT(DISTINCT c.id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered')), 0) AS started,
+              COALESCE(COUNT(DISTINCT c.id) FILTER (WHERE fr.stage = 'delivered'), 0) AS delivered
              FROM lead_magnet_packages pkg
         LEFT JOIN funnel_runs fr ON fr.package_id = pkg.id
+        LEFT JOIN contacts c ON c.id = fr.contact_id
+                            AND c.is_active = TRUE
+                            AND c.client_id = pkg.client_id
             WHERE pkg.client_id = $1
          GROUP BY pkg.id""",
         int(client["sub"])
@@ -131,6 +137,8 @@ async def list_counts(
             "known": int(r["known"]),
             "started": int(r["started"]),
             "delivered": int(r["delivered"]),
+            # «не забрали» = зашли по ссылке, но ни один их run не дошёл до delivered
+            "not_delivered": int(r["known"]) - int(r["delivered"]),
         }
         for r in rows
     ]}

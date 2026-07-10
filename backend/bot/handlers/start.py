@@ -45,17 +45,13 @@ async def _record_subscription(message: Message) -> None:
             ch = await find_channel_by_bot_id(bot_id, db)
             if not ch:
                 return
-            # Определяем client_id для записи подписки
-            if ch["is_system"]:
-                client_id = await db.fetchval(
-                    "SELECT id FROM clients WHERE is_system_service=TRUE AND is_active=TRUE LIMIT 1"
-                )
-            else:
-                client_id = await db.fetchval(
-                    """SELECT client_id FROM client_channels
-                        WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
-                    ch["id"]
-                )
+            # Определяем client_id для записи подписки: любой бот (в т.ч.
+            # @pluson_bot сервисного клиента) резолвится через client_channels.
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"]
+            )
             if not client_id:
                 return
             await register_telegram_subscription(
@@ -1373,8 +1369,8 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         pool = await get_pool()
         async with pool.acquire() as db:
             ch = await find_channel_by_bot_id(bot_id, db)
-            if not ch or ch["is_system"]:
-                return False  # системный бот — общий fallback
+            if not ch:
+                return False
 
             client_id = await db.fetchval(
                 """SELECT client_id FROM client_channels
@@ -1591,9 +1587,8 @@ async def handle_pluson_connect_command(message: Message):
         pool = await get_pool()
         async with pool.acquire() as db:
             ch = await find_channel_by_bot_id(bot_id, db)
-            if not ch or ch["is_system"]:
-                # Только VIP-бот клиента: у системного @pluson_bot контекст клиента
-                # не определён — связка не делается.
+            if not ch:
+                # Бот не привязан ни к одному клиенту — связку сделать не к чему.
                 await message.answer("Эта команда доступна только в боте организатора.")
                 return
             client_id = await db.fetchval(
@@ -1962,25 +1957,11 @@ async def handle_user_message(message: Message):
             if not ch:
                 return
 
-            # === Ветка 1: системный @pluson_bot ===
-            if ch["is_system"]:
-                # Ничего не лукапим, никому не уведомляем — просто отвечаем.
-                reply = (
-                    "Спасибо за сообщение 💛\n\n"
-                    "Чтобы связаться с конкретным организатором — откройте приложение, "
-                    "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
-                    "«Экосистема» найдите его контакты для вопросов."
-                )
-                kb = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
-                        text="Открыть «Лидеры»",
-                        web_app=WebAppInfo(url="https://pluson.ru/tg/?_tab=leaders"),
-                    ),
-                ]])
-                await message.answer(reply, reply_markup=kb)
-                return
-
-            # === Ветка 2: VIP-бот клиента ===
+            # Единый путь для ЛЮБОГО бота (в т.ч. @pluson_bot сервисного клиента):
+            # бот → client_channels → его клиент. Сообщение сохраняется в базу
+            # этого клиента, ему же уходит уведомление. Раньше системный бот
+            # отвечал отпиской и ничего не сохранял — это отменено: @pluson_bot
+            # принадлежит сервисному клиенту (clients.is_system_service).
             client_id = await db.fetchval(
                 """SELECT client_id FROM client_channels
                     WHERE channel_id = $1
@@ -2113,7 +2094,7 @@ async def handle_user_media(message: Message):
         pool = await get_pool()
         async with pool.acquire() as db:
             ch = await find_channel_by_bot_id(bot_id, db)
-            if not ch or ch["is_system"]:
+            if not ch:
                 return
             client_id = await db.fetchval(
                 """SELECT client_id FROM client_channels

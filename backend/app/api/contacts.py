@@ -66,6 +66,7 @@ def _build_contacts_filter(
     event_ids: str | None = None,
     lead_magnet_ids: str | None = None,
     package_ids: str | None = None,
+    lead_magnet_stage: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> tuple[str, list]:
@@ -188,6 +189,14 @@ def _build_contacts_filter(
           )
         """
 
+    # Стадия по выбранному лид-магниту/пакету (только если он выбран):
+    #   'delivered'     — забрал материалы (есть run со stage='delivered')
+    #   'not_delivered' — заходил по ссылке, но материалы так и не получил
+    #   иначе (any/None) — все, кто вообще заходил
+    stage_mode = (lead_magnet_stage or "any").strip().lower()
+    if stage_mode not in ("delivered", "not_delivered"):
+        stage_mode = "any"
+
     lead_magnet_ids_int = _ints(lead_magnet_ids)
     if lead_magnet_ids_int:
         params.append(lead_magnet_ids_int)
@@ -198,6 +207,22 @@ def _build_contacts_filter(
              WHERE fr.contact_id = c.id AND fr.lead_magnet_id = ANY(${idx}::int[])
           )
         """
+        if stage_mode == "delivered":
+            where += f"""
+              AND EXISTS (
+                SELECT 1 FROM funnel_runs fr
+                 WHERE fr.contact_id = c.id AND fr.lead_magnet_id = ANY(${idx}::int[])
+                   AND fr.stage = 'delivered'
+              )
+            """
+        elif stage_mode == "not_delivered":
+            where += f"""
+              AND NOT EXISTS (
+                SELECT 1 FROM funnel_runs fr
+                 WHERE fr.contact_id = c.id AND fr.lead_magnet_id = ANY(${idx}::int[])
+                   AND fr.stage = 'delivered'
+              )
+            """
 
     package_ids_int = _ints(package_ids)
     if package_ids_int:
@@ -209,6 +234,22 @@ def _build_contacts_filter(
              WHERE fr.contact_id = c.id AND fr.package_id = ANY(${idx}::int[])
           )
         """
+        if stage_mode == "delivered":
+            where += f"""
+              AND EXISTS (
+                SELECT 1 FROM funnel_runs fr
+                 WHERE fr.contact_id = c.id AND fr.package_id = ANY(${idx}::int[])
+                   AND fr.stage = 'delivered'
+              )
+            """
+        elif stage_mode == "not_delivered":
+            where += f"""
+              AND NOT EXISTS (
+                SELECT 1 FROM funnel_runs fr
+                 WHERE fr.contact_id = c.id AND fr.package_id = ANY(${idx}::int[])
+                   AND fr.stage = 'delivered'
+              )
+            """
 
     if date_from:
         params.append(date_from)
@@ -249,6 +290,7 @@ async def get_contacts(
     event_ids: str | None = Query(default=None, description="CSV id событий — контакт был участником хотя бы одного из них"),
     lead_magnet_ids: str | None = Query(default=None, description="CSV id лид-магнитов — контакт зашёл по ссылке хотя бы одного из них"),
     package_ids: str | None = Query(default=None, description="CSV id пакетов — контакт зашёл по ссылке хотя бы одного из них"),
+    lead_magnet_stage: str | None = Query(default=None, description="any | delivered (забрал) | not_delivered (не забрал). Работает вместе с lead_magnet_ids/package_ids"),
     date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
     date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
     client=Depends(get_current_client),
@@ -274,6 +316,7 @@ async def get_contacts(
         event_ids=event_ids,
         lead_magnet_ids=lead_magnet_ids,
         package_ids=package_ids,
+        lead_magnet_stage=lead_magnet_stage,
         date_from=date_from,
         date_to=date_to,
     )
@@ -365,6 +408,7 @@ async def export_contacts_csv(
     event_ids: str | None = Query(default=None),
     lead_magnet_ids: str | None = Query(default=None),
     package_ids: str | None = Query(default=None),
+    lead_magnet_stage: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
     client=Depends(get_current_client),
@@ -389,6 +433,7 @@ async def export_contacts_csv(
         event_ids=event_ids,
         lead_magnet_ids=lead_magnet_ids,
         package_ids=package_ids,
+        lead_magnet_stage=lead_magnet_stage,
         date_from=date_from,
         date_to=date_to,
     )

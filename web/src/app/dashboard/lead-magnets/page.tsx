@@ -83,7 +83,8 @@ export default function LeadMagnetsPage() {
       if (cancelled) return
       const sum = (arr: any[], k: string) => arr.reduce((acc, r) => acc + (r?.[k] || 0), 0)
       setTotals({
-        reached:  sum(m.items || [], 'started')   + sum(p.items || [], 'started'),
+        // known — живые контакты, зашедшие по ссылке (та же логика, что у плиток)
+        reached:  sum(m.items || [], 'known')     + sum(p.items || [], 'known'),
         received: sum(m.items || [], 'delivered') + sum(p.items || [], 'delivered'),
       })
     })
@@ -185,25 +186,35 @@ export default function LeadMagnetsPage() {
 
 // ============== Лид-магниты ==============
 
-interface CountRow { id: number; landed: number; known: number; started: number; delivered: number }
+interface CountRow { id: number; landed: number; known: number; started: number; delivered: number; not_delivered: number }
 
-function LandedCounter({ reached, received, href }: { reached: number; received: number; href: string }) {
-  // reached — кто дошёл до бота (есть contact_id); received — кто получил материалы
-  // Формат: "перешли/получили" (например 32/10). Клик ведёт на список контактов,
-  // у которых есть запись по этому магниту.
+/**
+ * Плитка «все / забрали / не забрали» — каждая цифра кликабельна и ведёт в
+ * Контакты с соответствующим фильтром (`lead_magnet_stage`).
+ * Цифры считаются по живым контактам, поэтому совпадают с числом строк в списке.
+ */
+function LandedCounter({
+  reached, received, notReceived, href,
+}: { reached: number; received: number; notReceived: number; href: string }) {
   const empty = reached === 0
+  if (empty) {
+    return (
+      <span className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-400"
+            title="Никто ещё не дошёл до бота">
+        <Users size={12} /> 0/0/0
+      </span>
+    )
+  }
+  const cell = 'px-1 rounded hover:bg-white/50 transition-colors'
   return (
-    <a href={href}
-       title={empty ? 'Никто ещё не дошёл до бота' : `${reached} перешли, ${received} получили материалы`}
-       className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-         empty
-           ? 'bg-gray-100 text-gray-400 pointer-events-none'
-           : 'bg-[#FFCFA4] text-[#25455D] hover:opacity-80'
-       }`}
-       onClick={(e) => { if (empty) e.preventDefault() }}
-    >
-      <Users size={12} /> {reached}/{received}
-    </a>
+    <span className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-[#FFCFA4] text-[#25455D]">
+      <Users size={12} />
+      <a href={href} className={cell} title={`${reached} — зашли по ссылке (все)`}>{reached}</a>
+      <span className="text-[#25455D]/40">/</span>
+      <a href={`${href}&lead_magnet_stage=delivered`} className={cell} title={`${received} — забрали материалы`}>{received}</a>
+      <span className="text-[#25455D]/40">/</span>
+      <a href={`${href}&lead_magnet_stage=not_delivered`} className={cell} title={`${notReceived} — не забрали материалы`}>{notReceived}</a>
+    </span>
   )
 }
 
@@ -287,8 +298,9 @@ function MagnetsList() {
               </div>
               <div className="flex gap-1 items-center">
                 <LandedCounter
-                  reached={counts[lm.id]?.started || 0}
+                  reached={counts[lm.id]?.known || 0}
                   received={counts[lm.id]?.delivered || 0}
+                  notReceived={counts[lm.id]?.not_delivered || 0}
                   href={`/dashboard/clients?lead_magnet_ids=${lm.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(lm)} title="Аналитика"
@@ -462,8 +474,9 @@ function PackagesList() {
               </div>
               <div className="flex gap-1 items-center">
                 <LandedCounter
-                  reached={counts[pkg.id]?.started || 0}
+                  reached={counts[pkg.id]?.known || 0}
                   received={counts[pkg.id]?.delivered || 0}
+                  notReceived={counts[pkg.id]?.not_delivered || 0}
                   href={`/dashboard/clients?package_ids=${pkg.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(pkg)} title="Аналитика"

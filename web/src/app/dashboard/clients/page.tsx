@@ -161,6 +161,7 @@ const EMPTY_FILTERS: ContactFilters = {
   eventIds: [],
   leadMagnetIds: [],
   packageIds: [],
+  leadMagnetStage: 'any',
   dateFrom: '',
   dateTo: '',
 }
@@ -196,6 +197,8 @@ function parseFiltersFromUrl(): { filters: ContactFilters; search: string; showU
   if (sp.has('event_ids'))    f.eventIds = ints('event_ids')
   if (sp.has('lead_magnet_ids')) f.leadMagnetIds = ints('lead_magnet_ids')
   if (sp.has('package_ids'))  f.packageIds = ints('package_ids')
+  const lms = sp.get('lead_magnet_stage')
+  if (lms === 'delivered' || lms === 'not_delivered' || lms === 'any') f.leadMagnetStage = lms
   f.dateFrom = sp.get('date_from') || ''
   f.dateTo = sp.get('date_to') || ''
   return {
@@ -209,7 +212,7 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
   if (typeof window === 'undefined') return
   const sp = new URLSearchParams(window.location.search)
   ;['q','subscription','platforms','channel_ids','include_unattached','utm_sources','tags',
-    'event_ids','lead_magnet_ids','package_ids','date_from','date_to','show_unsubscribed']
+    'event_ids','lead_magnet_ids','package_ids','lead_magnet_stage','date_from','date_to','show_unsubscribed']
     .forEach(k => sp.delete(k))
   if (search) sp.set('q', search)
   if (showUnsubscribed) sp.set('show_unsubscribed', '1')
@@ -222,6 +225,10 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
   if (filters.eventIds?.length) sp.set('event_ids', filters.eventIds.join(','))
   if (filters.leadMagnetIds?.length) sp.set('lead_magnet_ids', filters.leadMagnetIds.join(','))
   if (filters.packageIds?.length) sp.set('package_ids', filters.packageIds.join(','))
+  if (filters.leadMagnetStage && filters.leadMagnetStage !== 'any'
+      && (filters.leadMagnetIds?.length || filters.packageIds?.length)) {
+    sp.set('lead_magnet_stage', filters.leadMagnetStage)
+  }
   if (filters.dateFrom) sp.set('date_from', filters.dateFrom)
   if (filters.dateTo) sp.set('date_to', filters.dateTo)
   const qs = sp.toString()
@@ -1138,6 +1145,36 @@ function FilterPanel({ initial, onApply, onClose }: {
                   placeholder="Любой пакет"
                   searchPlaceholder="Поиск пакета…"
                 />
+              )}
+
+              {/* Забрали материалы или нет — только когда выбран конкретный лид-магнит/пакет */}
+              {((draft.leadMagnetIds?.length || 0) > 0 || (draft.packageIds?.length || 0) > 0) && (
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Материалы
+                  </label>
+                  <div className="flex gap-1 p-1 bg-gray-100 rounded-xl">
+                    {([
+                      { id: 'any',           label: 'Все' },
+                      { id: 'not_delivered', label: 'Не забрали' },
+                      { id: 'delivered',     label: 'Забрали' },
+                    ] as const).map(o => {
+                      const active = (draft.leadMagnetStage || 'any') === o.id
+                      return (
+                        <button
+                          key={o.id}
+                          type="button"
+                          onClick={() => setDraft(d => ({ ...d, leadMagnetStage: o.id }))}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            active ? 'bg-white text-[#25455D] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               )}
 
               {/* UTM-источник */}
