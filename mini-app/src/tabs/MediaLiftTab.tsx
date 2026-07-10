@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  getMedialiftChain, medialiftCheckSubscribe, medialiftAddChannel, registerParticipant,
+  getMedialiftChain, medialiftCheckSubscribe, medialiftAddChannel, medialiftMyCabinet, registerParticipant,
 } from '../api'
 
 const DARK = '#25455D'
@@ -55,6 +55,8 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
   const [channelDesc, setChannelDesc] = useState('')
   const [channelAdded, setChannelAdded] = useState(false)
   const [addedTitle, setAddedTitle] = useState<string | null>(null)
+  // Кабинет после добавления канала: ссылка, материалы, статистика.
+  const [cabinet, setCabinet] = useState<any>(null)
 
   const slug = event?.slug
 
@@ -129,6 +131,10 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
       const r = await medialiftAddChannel(slug, tgUser?.id, url, channelDesc.trim() || undefined)
       setChannelAdded(true)
       setAddedTitle(r.channel_title || null)
+      // Грузим кабинет (ссылка, материалы, статистика) по contact_id из ответа.
+      if (r.contact_id) {
+        try { setCabinet(await medialiftMyCabinet(slug, r.contact_id)) } catch {}
+      }
     } catch (e: any) {
       setError(e.message || 'Не удалось добавить канал')
     } finally {
@@ -140,50 +146,96 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
 
   // ── Экран ПОСЛЕ добавления канала — апселл (2 платные ступени) ──
   if (channelAdded) {
+    const st = cabinet?.stats
+    const link = cabinet?.link || ''
+    const texts: string[] = cabinet?.share_texts || []
+    // Прикидка роста (та же логика, что на бэке): показы ветки → живые подписчики.
+    const reach = st?.branch_reach ?? 0
+    const estShows = Math.max(reach, st?.clicked ?? 0) * 4
+    const estLive = Math.round(estShows * 0.43 * 0.6)
+    const copy = (t: string) => { try { navigator.clipboard.writeText(t) } catch {} }
     return (
       <div style={{ padding: '20px 14px 90px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        <div style={{ textAlign: 'center', marginBottom: 18 }}>
           <div style={{ fontSize: 40 }}>✅</div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '8px 0 4px' }}>
             Канал добавлен{addedTitle ? `: «${addedTitle}»` : ''}!
           </h1>
           <p style={{ fontSize: 14, color: '#6b7c8e', margin: 0 }}>
-            Теперь вы в цепочке — вас увидят все, кто зайдёт под вами.
+            Тут ваша ссылка и материалы. Рассказывайте — и ваш канал будет предлагаться всем, кто зайдёт под вами.
           </p>
         </div>
-        <div style={{
-          background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff',
-          borderRadius: 14, padding: 16, marginBottom: 12,
-        }}>
-          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>
-            Свой материал работает в разы эффективнее канала
+
+        {/* Ваша ссылка */}
+        {link && (
+          <div style={{ background: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, boxShadow: '0 2px 8px rgba(37,69,93,.05)' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 8 }}>🔗 Ваша ссылка</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input readOnly value={link} style={{ flex: 1, padding: '9px 11px', fontSize: 12, border: '1px solid #cfd8e0', borderRadius: 9 }} />
+              <button onClick={() => copy(link)} style={{ background: DARK, color: '#fff', border: 'none', borderRadius: 9, padding: '0 14px', fontWeight: 700, fontSize: 13 }}>Копировать</button>
+            </div>
           </div>
-          <p style={{ fontSize: 13, opacity: 0.85, margin: '0 0 12px' }}>
-            Заведите свой лид-магнит — люди получат ценность и попадут в вашу базу.
-          </p>
+        )}
+
+        {/* Статистика */}
+        {st && (
+          <div style={{ background: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, boxShadow: '0 2px 8px rgba(37,69,93,.05)' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 10 }}>📊 Статистика</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {[
+                [st.clicked, 'перешли по вашей ссылке'],
+                [st.joined, 'подписались и вошли'],
+                [st.branch_reach, 'всего под вами в ветке'],
+                [st.total_system, 'всего в системе'],
+              ].map(([n, l], i) => (
+                <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: 12, textAlign: 'center' }}>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: DARK }}>{n as number}</div>
+                  <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2 }}>{l as string}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Готовые материалы */}
+        {texts.length > 0 && (
+          <div style={{ background: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, boxShadow: '0 2px 8px rgba(37,69,93,.05)' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>✍️ Готовые материалы</div>
+            <p style={{ fontSize: 12, color: '#6b7c8e', margin: '0 0 10px' }}>Скопируйте и разошлите — так растёт ваша аудитория.</p>
+            {texts.map((t, i) => (
+              <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, marginBottom: 8 }}>{t}</div>
+                <button onClick={() => copy(t)} style={{ background: '#eef2f6', color: DARK, border: 'none', borderRadius: 8, padding: '7px 13px', fontWeight: 600, fontSize: 13 }}>📋 Скопировать</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Свёрнутые прикидки роста */}
+        {st && (
+          <details style={{ background: '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 12 }}>
+            <summary style={{ fontWeight: 700, color: DARK, cursor: 'pointer' }}>📈 Как можно вырасти (прикидка)</summary>
+            <p style={{ fontSize: 13, color: '#6b7c8e', marginTop: 10 }}>
+              Каждый, кто зашёл по вашей ссылке, подписывается на вас и приводит своих. За 3–4 уровня ветки под вами
+              набирается порядка <b>{estShows}</b> показов вашего канала. При конверсии в подписку ~43% и с учётом
+              отписок это примерно <b>{estLive} живых подписчиков</b> — без вложений в рекламу.
+            </p>
+          </details>
+        )}
+
+        {/* Апселл */}
+        <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff', borderRadius: 14, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Свой материал эффективнее канала</div>
+          <p style={{ fontSize: 13, opacity: 0.85, margin: '0 0 12px' }}>Заведите лид-магнит — люди получат ценность и попадут в вашу базу.</p>
           <a href="https://pluson.ru/register" target="_blank" rel="noreferrer"
-            style={{
-              display: 'block', textAlign: 'center', background: PEACH, color: DARK,
-              fontWeight: 800, fontSize: 14, padding: '11px', borderRadius: 10, textDecoration: 'none',
-            }}>
-            Триал 14 дней в ПЛЮСОНе →
+            style={{ display: 'block', textAlign: 'center', background: PEACH, color: DARK, fontWeight: 800, fontSize: 14, padding: '11px', borderRadius: 10, textDecoration: 'none' }}>
+            🎁 ПЛЮСОН с лид-магнитом — 14 дней бесплатно
           </a>
         </div>
-        <div style={{ background: '#fff', border: '1px solid #e2e8ee', borderRadius: 14, padding: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 6 }}>
-            Закрытый Хаб коллабораций
-          </div>
-          <p style={{ fontSize: 13, color: '#6b7c8e', margin: '0 0 12px' }}>
-            Умный сват, турниры, аналитика партнёров.
-          </p>
-          <a href="https://pluson.ru/dashboard/collab-hub" target="_blank" rel="noreferrer"
-            style={{
-              display: 'block', textAlign: 'center', background: DARK, color: '#fff',
-              fontWeight: 800, fontSize: 14, padding: '11px', borderRadius: 10, textDecoration: 'none',
-            }}>
-            Коллабораторная →
-          </a>
-        </div>
+        <a href="https://pluson.ru/dashboard/collab-hub" target="_blank" rel="noreferrer"
+          style={{ display: 'block', textAlign: 'center', background: DARK, color: '#fff', fontWeight: 800, fontSize: 14, padding: '12px', borderRadius: 12, textDecoration: 'none' }}>
+          🤝 Коллабораторная — закрытый Хаб
+        </a>
       </div>
     )
   }

@@ -380,6 +380,7 @@ async def add_channel(
     return {
         "ok": True,
         "collaborator_id": collaborator_id,
+        "contact_id": contact_id,      # для открытия кабинета в Mini App
         "channel_title": title,        # авто-название (не храним, отдаём разово)
         "linked_client_id": linked,    # если авто-связка сработала
         "access_code": access_code,    # для входа в кабинет правки карточки

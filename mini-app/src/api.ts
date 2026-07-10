@@ -54,6 +54,9 @@ export const medialiftAddChannel = (slug: string, tgId: number, tgChannelUrl: st
   req(`/api/v1/public/medialift/${slug}/add-channel`, {
     method: 'POST', body: JSON.stringify({ tg_id: tgId, tg_channel_url: tgChannelUrl, description: description || null }),
   })
+// Кабинет участника: ссылка, готовые материалы, статистика.
+export const medialiftMyCabinet = (slug: string, contactId: number) =>
+  req(`/api/v1/public/medialift/${slug}/my-cabinet?contact_id=${contactId}`)
 
 // ── Регистрация и участники ──
 // Передаём platform в body: бэк пишет в platform_users с правильным platform_slug.
