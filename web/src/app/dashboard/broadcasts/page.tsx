@@ -571,8 +571,8 @@ export default function GeneralBroadcastsPage() {
         const sentCount = logModal.rows.filter((r: any) => r.status === 'sent').length
         const readCount = logModal.rows.filter((r: any) => r.status === 'sent' && r.read_at).length
         // Email-воронка: 4 цифры по уникальным адресам, считает бэкенд.
+        // Рисуется ПОД строкой email-канала в блоке «По каналам отправки».
         const es = logModal.emailStats
-        const hasEmailRows = !!es && es.sent > 0
         // Для клиента «не доставлено» = всё, что не 'sent' (включая bounced —
         // письмо отвергнуто почтой получателя). Причину показываем по-русски.
         const failed = logModal.rows.filter((r: any) => r.status !== 'sent')
@@ -612,7 +612,6 @@ export default function GeneralBroadcastsPage() {
                     {readCount > 0 && <> · <span className="text-blue-600" title="Прочтения отслеживаются только в VK (Telegram Bot API не даёт read receipts)">прочитано {readCount}</span></>}
                     {failed.length > 0 && <> · <span className="text-red-500" title="Письмо/сообщение не дошло до получателя (см. причины ниже)">не доставлено {failed.length}</span></>}
                   </p>
-                  {hasEmailRows && <EmailFunnelStats stats={es} />}
                 </div>
                 <button onClick={() => setLogModal(null)}><X size={18} /></button>
               </div>
@@ -620,19 +619,23 @@ export default function GeneralBroadcastsPage() {
                 <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-1">
                   <p className="text-xs font-semibold text-blue-700">По каналам отправки:</p>
                   {botEntries.map(e => (
-                    <div key={e.key} className="flex items-center justify-between text-xs text-blue-800 gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {e.platform && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${PLATFORM_PILL_CLASS[e.platform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                            {PLATFORM_LABEL[e.platform] || e.platform.toUpperCase()}
-                          </span>
-                        )}
-                        <span className="truncate">{e.handle}</span>
+                    <div key={e.key}>
+                      <div className="flex items-center justify-between text-xs text-blue-800 gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {e.platform && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${PLATFORM_PILL_CLASS[e.platform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                              {PLATFORM_LABEL[e.platform] || e.platform.toUpperCase()}
+                            </span>
+                          )}
+                          <span className="truncate">{e.handle}</span>
+                        </div>
+                        <span className="ml-2 shrink-0">
+                          <span className="font-bold text-green-700">{e.sent}</span>
+                          {e.failed > 0 && <span className="text-red-500"> ✕ {e.failed}</span>}
+                        </span>
                       </div>
-                      <span className="ml-2 shrink-0">
-                        <span className="font-bold text-green-700">{e.sent}</span>
-                        {e.failed > 0 && <span className="text-red-500"> ✕ {e.failed}</span>}
-                      </span>
+                      {/* Воронка показывается ПОД своим email-каналом, а не общим блоком сверху. */}
+                      {e.platform === 'email' && <EmailFunnelStats stats={es} />}
                     </div>
                   ))}
                 </div>

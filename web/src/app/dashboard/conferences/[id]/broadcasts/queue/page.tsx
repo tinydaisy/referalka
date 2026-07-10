@@ -1651,10 +1651,10 @@ export default function QueuePage() {
         const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1])
         // Разбивка по ботам (channel_handle).
         // Старые строки (до миграции 085) не имеют channel_id — попадают в «Без указания».
-        const botMap: Record<string, { sent: number; failed: number }> = {}
+        const botMap: Record<string, { sent: number; failed: number; platform: string }> = {}
         for (const r of logModal.rows) {
           const key = r.channel_handle || r.channel_name || 'Без указания'
-          if (!botMap[key]) botMap[key] = { sent: 0, failed: 0 }
+          if (!botMap[key]) botMap[key] = { sent: 0, failed: 0, platform: r.channel_platform || '' }
           if (r.status === 'sent') botMap[key].sent += 1
           else botMap[key].failed += 1
         }
@@ -1669,7 +1669,6 @@ export default function QueuePage() {
                   Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
                   {failed.length > 0 && <> · <span className="text-red-500">не доставлено {failed.length}</span></>}
                 </p>
-                <EmailFunnelStats stats={logModal.emailStats} />
               </div>
               <button onClick={() => setLogModal(null)}><X size={18} /></button>
             </div>
@@ -1678,12 +1677,16 @@ export default function QueuePage() {
               <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-1">
                 <p className="text-xs font-semibold text-blue-700">По ботам:</p>
                 {botEntries.map(([handle, st]) => (
-                  <div key={handle} className="flex items-center justify-between text-xs text-blue-800">
-                    <span className="truncate flex-1">{handle}</span>
-                    <span className="ml-2">
-                      <span className="font-bold text-green-700">{st.sent}</span>
-                      {st.failed > 0 && <span className="text-red-500"> ✕ {st.failed}</span>}
-                    </span>
+                  <div key={handle}>
+                    <div className="flex items-center justify-between text-xs text-blue-800">
+                      <span className="truncate flex-1">{handle}</span>
+                      <span className="ml-2">
+                        <span className="font-bold text-green-700">{st.sent}</span>
+                        {st.failed > 0 && <span className="text-red-500"> ✕ {st.failed}</span>}
+                      </span>
+                    </div>
+                    {/* Воронка — прямо под своим email-каналом. */}
+                    {st.platform === 'email' && <EmailFunnelStats stats={logModal.emailStats} />}
                   </div>
                 ))}
               </div>
