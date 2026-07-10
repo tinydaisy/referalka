@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Calendar, Trash2, ChevronLeft, ChevronRight, ChevronDown, Layers, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import ShiftTimingModal from '@/components/ShiftTimingModal'
 import { Spinner } from '@/components/Spinner'
 
 // AJAX-режим (2026-06-27): НИКАКОГО локального буфера и кнопки «Сохранить
@@ -84,6 +85,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const [savingSession, setSavingSession] = useState(false)
   // Тайминг дня — авто-генерация N пустых слотов
   const [timingModal, setTimingModal] = useState<{ day: number } | null>(null)
+  // Сдвиг тайминга дня — двигаем слоты (и их рассылки) начиная с выбранного.
+  const [shiftModal, setShiftModal] = useState<{ day: number } | null>(null)
   const [timingForm, setTimingForm] = useState({ start_time: '10:00', speaker_count: '10', talk_duration: '20', break_duration: '10' })
   const [savingTiming, setSavingTiming] = useState(false)
 
@@ -642,6 +645,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                     onEditSession={openSessionEdit}
                     onDeleteSession={deleteSession}
                     onTiming={() => setTimingModal({ day: day.day_number })}
+                    onShift={() => setShiftModal({ day: day.day_number })}
                   />
                 ))}
               </div>
@@ -690,6 +694,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   onEditSession={openSessionEdit}
                   onDeleteSession={deleteSession}
                   onTiming={() => setTimingModal({ day: day.day_number })}
+                    onShift={() => setShiftModal({ day: day.day_number })}
                 />
               ))}
             </div>
@@ -841,6 +846,16 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           </div>
         </Modal>
       )}
+
+      {shiftModal && (
+        <ShiftTimingModal
+          eventId={eventId}
+          day={shiftModal.day}
+          sessions={sessions.filter(s => s.day === shiftModal.day)}
+          onClose={() => setShiftModal(null)}
+          onDone={() => load()}
+        />
+      )}
     </div>
   )
 }
@@ -849,7 +864,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
 function DayAccordion({
   day, indexInStage, open, onToggle, sessions, stages, busy,
-  onPatchLocal, onCommit, onDelete, onAddSession, onEditSession, onDeleteSession, onTiming,
+  onPatchLocal, onCommit, onDelete, onAddSession, onEditSession, onDeleteSession, onTiming, onShift,
 }: {
   day: Day
   indexInStage: number
@@ -865,6 +880,7 @@ function DayAccordion({
   onEditSession: (s: Sess) => void
   onDeleteSession: (id: number) => void
   onTiming: () => void
+  onShift: () => void
 }) {
   const dateLabel = day.day_date
     ? new Date(day.day_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: 'Europe/Moscow' })
@@ -984,6 +1000,12 @@ function DayAccordion({
                 className="text-xs text-[#25455D] hover:opacity-80 flex items-center gap-1.5 transition-colors font-medium">
                 ⏱ Задать тайминг
               </button>
+              {sessions.some(s => s.start_time) && (
+                <button onClick={onShift}
+                  className="text-xs text-[#25455D] hover:opacity-80 flex items-center gap-1.5 transition-colors font-medium">
+                  ↔ Сдвинуть тайминг
+                </button>
+              )}
             </div>
           </div>
         </div>

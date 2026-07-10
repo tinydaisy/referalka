@@ -1913,6 +1913,95 @@ async def generate_day_timing(
     return {"sessions": created, "message": f"Добавлено {len(created)} слотов"}
 
 
+# ─── Сдвиг тайминга слотов внутри дня ─────────────────────────────────────────
+#
+# Программа поехала: с какого-то слота всё сдвигается на N минут. Двигаем время
+# выбранного слота и всех, кто идёт после него в ЭТОТ ЖЕ день (порядок — по
+# start_time). Другие дни не трогаем.
+#
+# Заодно двигаем уже поставленные в очередь спикерские рассылки этих слотов
+# («за 5 мин до выступления» + «подарок после эфира»), иначе программа уехала,
+# а рассылки остались на старом времени. Только draft/pending — отправленные
+# не трогаем.
+
+_SHIFT_BROADCAST_TYPES = ("5min_before", "gift")
+
+
+class ShiftSessionsRequest(BaseModel):
+    day: int
+    from_session_id: int
+    minutes: int
+
+
+@router.post("/sessions/shift-timing", summary="Сдвинуть слоты дня начиная с выбранного")
+async def shift_sessions_timing(
+    event_id: int,
+    data: ShiftSessionsRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    if data.minutes == 0:
+        raise HTTPException(status_code=400, detail="Сдвиг на 0 минут ничего не изменит")
+
+    rows = await db.fetch(
+        """SELECT id, start_time, end_time
+             FROM conf_sessions
+            WHERE event_id = $1 AND day = $2 AND start_time IS NOT NULL
+            ORDER BY start_time, sort_order, id""",
+        event_id, data.day,
+    )
+    if not rows:
+        raise HTTPException(status_code=400, detail="В этом дне нет слотов со временем — сдвигать нечего")
+
+    ids = [r["id"] for r in rows]
+    if data.from_session_id not in ids:
+        raise HTTPException(status_code=400, detail="Выбранный слот не найден в этом дне")
+
+    def _shift(hhmm, delta: int):
+        """Сдвиг "HH:MM" на delta минут. Через полночь не переносим — упираемся в границы суток."""
+        if not hhmm:
+            return None
+        h, m = map(int, str(hhmm)[:5].split(":"))
+        total = h * 60 + m + delta
+        total = max(0, min(total, 23 * 60 + 59))
+        return f"{total // 60:02d}:{total % 60:02d}"
+
+    start_idx = ids.index(data.from_session_id)
+    targets = rows[start_idx:]
+
+    async with db.transaction():
+        for r in targets:
+            await db.execute(
+                "UPDATE conf_sessions SET start_time = $1, end_time = $2 WHERE id = $3",
+                _shift(r["start_time"], data.minutes),
+                _shift(r["end_time"], data.minutes),
+                r["id"],
+            )
+
+        # Синхронно двигаем ещё не отправленные спикерские рассылки этих слотов.
+        shifted_broadcasts = await db.fetch(
+            """UPDATE broadcast_schedules
+                  SET fire_at = fire_at + ($4 || ' minutes')::interval
+                WHERE event_id = $1
+                  AND session_id = ANY($2::int[])
+                  AND type = ANY($3::text[])
+                  AND status IN ('draft', 'pending')
+                  AND fire_at IS NOT NULL
+             RETURNING id""",
+            event_id, [r["id"] for r in targets], list(_SHIFT_BROADCAST_TYPES), str(data.minutes),
+        )
+
+    await regenerate_landing_data(event_id, db)
+    return {
+        "ok": True,
+        "sessions_shifted": len(targets),
+        "broadcasts_shifted": len(shifted_broadcasts),
+        "minutes": data.minutes,
+    }
+
+
 # ─── Рассылки ─────────────────────────────────────────────────────────────────
 
 class BroadcastCreate(BaseModel):

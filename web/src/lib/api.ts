@@ -323,6 +323,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/conference/sessions/generate`, { method: 'POST', body: JSON.stringify(data) }),
       generateTiming: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/conference/sessions/generate-timing`, { method: 'POST', body: JSON.stringify(data) }),
+      shiftTiming: (eventId: number, data: { day: number; from_session_id: number; minutes: number }) =>
+        request(`/api/v1/events/${eventId}/conference/sessions/shift-timing`, { method: 'POST', body: JSON.stringify(data) }),
     },
     broadcasts: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/broadcasts`),

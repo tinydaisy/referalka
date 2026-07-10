@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Plus, Calendar, Trash2, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import ShiftTimingModal from '@/components/ShiftTimingModal'
 import { useLang } from '@/contexts/LangContext'
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -44,6 +45,8 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   const [timingModal, setTimingModal] = useState<{ day: number } | null>(null)
   const [timingForm, setTimingForm] = useState({ start_time: '10:00', speaker_count: '10', talk_duration: '20', break_duration: '10' })
   const [savingTiming, setSavingTiming] = useState(false)
+  // Сдвиг тайминга дня — двигаем слоты (и их рассылки) начиная с выбранного.
+  const [shiftModal, setShiftModal] = useState<{ day: number } | null>(null)
 
   async function saveTiming() {
     if (!timingModal) return
@@ -286,6 +289,15 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                   className="text-xs text-[#25455D] hover:opacity-80 flex items-center gap-1.5 transition-colors font-medium">
                   ⏱ Задать тайминг
                 </button>
+                {daySessions.some((s: any) => s.start_time) && (
+                  <>
+                    <span className="text-gray-300">·</span>
+                    <button onClick={() => setShiftModal({ day: dayNum })}
+                      className="text-xs text-[#25455D] hover:opacity-80 flex items-center gap-1.5 transition-colors font-medium">
+                      ↔ Сдвинуть тайминг
+                    </button>
+                  </>
+                )}
                 <span className="text-gray-300">·</span>
                 <button onClick={() => { setJsonDay(dayNum); setJsonModal(true) }}
                   className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1.5 transition-colors">
@@ -461,6 +473,16 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
             <button onClick={() => setTimingModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
         </Modal>
+      )}
+
+      {shiftModal && (
+        <ShiftTimingModal
+          eventId={eventId}
+          day={shiftModal.day}
+          sessions={sessions.filter((s: any) => s.day === shiftModal.day)}
+          onClose={() => setShiftModal(null)}
+          onDone={load}
+        />
       )}
     </div>
   )
