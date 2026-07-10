@@ -64,6 +64,9 @@ class ChatIn(BaseModel):
 
 class ChatPatch(BaseModel):
     title: Optional[str] = None
+    # Ссылка-приглашение в чат. Ключ есть в JSON (хоть null/"") → применяем,
+    # пустая строка очищает до NULL. Ключа нет → поле не трогаем.
+    chat_url: Optional[str] = None
     is_active: Optional[bool] = None
     use_for_broadcasts: Optional[bool] = None  # галочка «использовать для рассылок»
     is_private: Optional[bool] = None          # личный канал (миграция 196)
@@ -241,6 +244,10 @@ async def patch_chat(
     sets, args = [], []
     if data.title is not None:
         args.append(data.title.strip() or None); sets.append(f"title = ${len(args)}")
+    # Ссылка на чат: смотрим наличие ключа в JSON, а не `is not None` — иначе
+    # очистить ссылку (прислать "" / null) было бы нельзя.
+    if "chat_url" in data.model_fields_set:
+        args.append((data.chat_url or "").strip() or None); sets.append(f"chat_url = ${len(args)}")
     if data.is_active is not None:
         args.append(bool(data.is_active)); sets.append(f"is_active = ${len(args)}")
     if data.use_for_broadcasts is not None:

@@ -90,6 +90,29 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Сдвиг тайминга дня — двигает И слоты программы, И спикерские рассылки (2026-07-10, ПРОД 73d1798)
+
+**Зачем.** Программа поехала (спикер опоздал, затянулось выступление) — надо сдвинуть остаток дня. Слот (`conf_sessions.start_time/end_time`) и рассылка (`broadcast_schedules.fire_at`) — РАЗНЫЕ записи, не связанные автоматически. Сдвинуть одно без другого = рассинхрон («через 5 минут выступает X» уходит по старому времени).
+
+**⚠️ Обе точки входа делают ОДНО И ТО ЖЕ — двигают и слоты, и рассылки:**
+1. **Очередь рассылок** ([queue/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/queue/page.tsx)) — кнопка «Сдвиг тайминга» в тулбаре (видна если у события есть `conf_days`). Сначала выбор дня → подгрузка спикеров этого дня → выбор спикера → минуты.
+2. **Программа** — кнопка «↔ Сдвинуть тайминг» у КАЖДОГО дня, рядом с «⏱ Задать тайминг», в [ProgramTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ProgramTab.tsx) (конференция) и [TournamentProgramTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/TournamentProgramTab.tsx) (турнир, подкомпонент `DayAccordion`, проп `onShift`). Общая модалка — [ShiftTimingModal.tsx](web/src/components/ShiftTimingModal.tsx) (одна реализация на обе вкладки, с превью «было → станет»).
+
+**Что двигается:**
+- **Рассылки** — только `5min_before` и `gift` (константы `SHIFTABLE_TYPES` / `_SHIFT_BROADCAST_TYPES`), только `status IN ('draft','pending')` (отправленные не трогаем), у выбранного спикера и всех следующих за ним в этот день.
+- **Слоты программы** — ⚠️ **ВСЕ слоты дня со `start_time >= start_time выбранного`**, включая слоты БЕЗ рассылок (партнёрские вставки, «Тема уточняется»). Иначе программа разъедется внахлёст.
+- Минуты могут быть отрицательными (сдвинуть раньше). Через полночь НЕ переносим — упираемся в `23:59` (хелпер `_shift_hhmm`).
+- Всё в одной транзакции, затем `regenerate_landing_data` (ленивый импорт из `conference.py` — обратного импорта нет, цикла не будет).
+
+**«День» берётся из ПРОГРАММЫ (`conf_sessions.day`), а не из календарной даты `fire_at`** — подарок последнего выступления (`gift` = конец слота − offset) может уехать за полночь, но принадлежит своему дню. Другие дни не трогаются никогда.
+
+**Эндпоинты:**
+- `GET /events/{id}/broadcasts/schedules/shift-speakers?day=N` ([modules/broadcasts.py](backend/app/api/modules/broadcasts.py)) — спикеры дня с несданными `5min_before`/`gift`, по времени старта, с `schedules_count`. Пусто → фронт показывает «сдвигать нечего» и блокирует кнопку «Сдвинуть» (бэк дублирует проверку — 400).
+- `POST /events/{id}/broadcasts/schedules/shift-timing {day, from_session_id, minutes}` — сдвиг из очереди. Ответ: `{shifted, speakers_affected, sessions_shifted, minutes}`.
+- `POST /events/{id}/conference/sessions/shift-timing {day, from_session_id, minutes}` ([modules/conference.py](backend/app/api/modules/conference.py)) — сдвиг из программы. Ответ: `{sessions_shifted, broadcasts_shifted, minutes}`.
+
+⚠️ Роут `/schedules/shift-speakers` объявлен ДО `/schedules/{schedule_id}/…` — не переставлять, иначе перехватится как `schedule_id`.
+
 ### Настройка системного клиента 3 + ПЛЮСОН-реф-код из /start во всех ботах + {materials_list_description} (миграция 206 от 2026-07-09, ПРОД 9f3b6f7)
 
 **1. Системный клиент 3 («ПЛЮСОН Сервис») настроен как основатель/бренд ПЛЮСОНа** (данными, не кодом). Бренд = `iViSiON: ПЛЮСОН`, позиционирование «привлекай клиентов без вложений в рекламу», лого/фото бренда = `brand_logo_url` клиента 1; вся founder-инфа (`owner_photo_url`/`owner_positioning`/`owner_achievements`/`achievements`/`bio`) скопирована с клиента 1. Канал уведомлений TG = `-1004291706338`. Каналы основателя в `social_links`: TG «ПЛЮСОН СЕРВИС» (`https://t.me/pluson_business`, chat_id `-1004391957680`), VK = системное сообщество `vk.com/ivision_pluson` (group 238697730), MAX = системный `max.ru/id890306512862_1_bot`. Продукт в «Доступно»: «ПЛЮСОН: 14 дней бесплатно» → `pluson.ru/register`. Голый `/start` у @pluson_bot: `start_mode='greeting'` + одна кнопка «🎁 ПЛЮСОН: 14 дней бесплатно» (`start_buttons`, custom → `pluson.ru/register`).
