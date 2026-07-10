@@ -1570,24 +1570,62 @@ async def shift_timing(
     start_idx = ordered_ids.index(data.from_session_id)
     target_session_ids = ordered_ids[start_idx:]
 
-    updated = await db.fetch(
-        """
-        UPDATE broadcast_schedules
-           SET fire_at = fire_at + ($4 || ' minutes')::interval
-         WHERE event_id = $1
-           AND session_id = ANY($2::int[])
-           AND type = ANY($3::text[])
-           AND status IN ('draft', 'pending')
-           AND fire_at IS NOT NULL
-        RETURNING id
-        """,
-        event_id, target_session_ids, list(SHIFTABLE_TYPES), str(data.minutes),
-    )
+    # Время старта выбранного слота — от него двигаем и саму программу.
+    from_start_time = rows[start_idx]["start_time"]
+
+    # Слоты программы, которые двигаем вместе с рассылками: ВСЕ слоты этого дня,
+    # начинающиеся не раньше выбранного — включая те, у которых нет рассылок
+    # (партнёрские вставки, «тема уточняется»). Иначе программа разъедется.
+    program_rows = await db.fetch(
+        """SELECT id, start_time, end_time
+             FROM conf_sessions
+            WHERE event_id = $1 AND day = $2
+              AND start_time IS NOT NULL AND start_time >= $3
+            ORDER BY start_time, sort_order, id""",
+        event_id, data.day, from_start_time,
+    ) if from_start_time else []
+
+    def _shift_hhmm(hhmm, delta: int):
+        """Сдвиг "HH:MM" на delta минут. Через полночь не переносим — упираемся в границы суток."""
+        if not hhmm:
+            return None
+        h, m = map(int, str(hhmm)[:5].split(":"))
+        total = max(0, min(h * 60 + m + delta, 23 * 60 + 59))
+        return f"{total // 60:02d}:{total % 60:02d}"
+
+    async with db.transaction():
+        updated = await db.fetch(
+            """
+            UPDATE broadcast_schedules
+               SET fire_at = fire_at + ($4 || ' minutes')::interval
+             WHERE event_id = $1
+               AND session_id = ANY($2::int[])
+               AND type = ANY($3::text[])
+               AND status IN ('draft', 'pending')
+               AND fire_at IS NOT NULL
+            RETURNING id
+            """,
+            event_id, target_session_ids, list(SHIFTABLE_TYPES), str(data.minutes),
+        )
+
+        # Двигаем саму программу — иначе рассылки уедут, а расписание останется.
+        for pr in program_rows:
+            await db.execute(
+                "UPDATE conf_sessions SET start_time = $1, end_time = $2 WHERE id = $3",
+                _shift_hhmm(pr["start_time"], data.minutes),
+                _shift_hhmm(pr["end_time"], data.minutes),
+                pr["id"],
+            )
+
+    if program_rows:
+        from app.api.modules.conference import regenerate_landing_data
+        await regenerate_landing_data(event_id, db)
 
     return {
         "ok": True,
         "shifted": len(updated),
         "speakers_affected": len(target_session_ids),
+        "sessions_shifted": len(program_rows),
         "minutes": data.minutes,
     }
 

@@ -337,7 +337,10 @@ export default function QueuePage() {
       await load()
       setShiftModal(false)
       const sign = minutes > 0 ? 'позже' : 'раньше'
-      showMsg(`Сдвинуто ${res.shifted} рассылок у ${res.speakers_affected} спикеров на ${Math.abs(minutes)} мин ${sign}`)
+      showMsg(
+        `Сдвинуто ${res.shifted} рассылок и ${res.sessions_shifted ?? 0} слотов программы ` +
+        `на ${Math.abs(minutes)} мин ${sign}`
+      )
     } catch (e: any) {
       showMsg(e.message || 'Не удалось сдвинуть рассылки', 'err')
     } finally {
@@ -1235,8 +1238,8 @@ export default function QueuePage() {
             </div>
             <p className="text-xs text-gray-500 mb-4">
               Программа поехала — сдвиньте рассылки «За 5 минут до выступления» и «Подарок после эфира».
-              Сдвинутся рассылки выбранного спикера и всех, кто выступает после него в этот день.
-              Другие дни не меняются.
+              Сдвинутся рассылки выбранного спикера и всех, кто выступает после него в этот день,
+              и <b>вместе с ними — слоты программы этого дня</b>. Другие дни не меняются.
             </p>
 
             <div className="space-y-4">
