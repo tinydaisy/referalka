@@ -305,9 +305,21 @@
 - **⚠️ Видео в MAX и VK НЕ отправляется — только фото** (решение 2026-07-08). MAX: `_max_media_for_text` при `media_type='video'` шлёт только текст (фото → attachment). VK: `_vk_funnel_media` зануляет видео (фото остаётся). Видео уходит лишь в TG. Причина: нативной загрузки видео из URL в MAX нет, в VK видео-воронка не нужна. В UI редактора шаблона воронки ([lead-magnets/page.tsx](web/src/app/dashboard/lead-magnets/page.tsx)) под медиа Текста 1/2 — плашка «В MAX и VK видео не отправляется — только фото». Заодно исправлен старый баг vk-ветки `run_check_subscription`: `ctx` не был определён (Текст 2 в VK падал) — теперь `vk_ctx`.
 - Токен — только свой MAX-бот клиента (`get_client_max_token`); нет своего MAX-бота → воронка на MAX не работает (graceful), системный MAX не используется.
 
-### Email убран из выбора каналов в рассылках (2026-07-08)
+### Email и WhatsApp убраны из выбора каналов в рассылках (email 2026-07-08, WhatsApp 2026-07-10)
 
-В формах рассылок (произвольной и событийных/шаблонных) email больше НЕ показывается в выборе каналов и НЕ отмечается по умолчанию. Правка — одна точка: [BroadcastChannelPicker.tsx](web/src/components/BroadcastChannelPicker.tsx) фильтрует `platform_slug !== 'email'` сразу после загрузки (до `onChange`) — email не рисуется секцией и не попадает в `target_channel_ids`. Бэк ([tasks/broadcast.py](backend/app/tasks/broadcast.py)) уже пропускает канал, если `target_channel_set` задан и id канала не в нём — email на отправку не уйдёт.
+В формах рассылок (произвольной и событийных/шаблонных) email и WhatsApp НЕ показываются в выборе каналов и НЕ отмечаются по умолчанию. Правка — одна точка: константа `HIDDEN_PLATFORMS = new Set(['email','whatsapp'])` в [BroadcastChannelPicker.tsx](web/src/components/BroadcastChannelPicker.tsx), фильтр применяется сразу после загрузки (**до `onChange`**) — площадка не рисуется секцией и не попадает в `target_channel_ids` при инициализации «выбрать все». Бэк ([tasks/broadcast.py](backend/app/tasks/broadcast.py)) пропускает канал, если `target_channel_set` задан и id канала не в нём.
+
+⚠️ **WhatsApp в рассылках никогда и не шёл через `channels`/`target_channel_ids`** — единственная точка отправки (`_send_broadcast_to_client_chats`) читает WA только из `client_broadcast_chats` (по флагу `send_to_client_chats` + `use_for_broadcasts=TRUE`). По телефонам контактов WA не рассылается никогда — только в чаты/группы, куда добавлен аккаунт. Осевший `channel_id` WhatsApp вычищен из `broadcast_schedules.target_channel_ids` и `broadcast_templates.target_channel_ids` на проде (иначе галочка всплывала при открытии старого шаблона).
+
+### Воронка email-рассылки: отправлено → доставлено → открыли → кликнули (миграция 210 от 2026-07-10, ПРОД)
+
+**Проблема.** Метрика «открыли» показывала ~0.5% там, где реально десятки процентов. Причина: `_is_email_proxy_or_bot` в [email_tracking.py](backend/app/api/email_tracking.py) **выбрасывал** открытия от почтовых прокси, а **Gmail показывает картинки ТОЛЬКО через `GoogleImageProxy`** — другого механизма у него нет. Gmail ≈ 50% базы → все его открытия терялись (в `email_open_log` было **ноль** записей с `GoogleImageProxy` за всё время). Яндекс при этом засчитывался: в фильтре был `yandeximages`, а реальный UA — `YandexImageResizer`. Метрика была не строгой, а **перекошенной по почтовикам**.
+
+**Решение (миграция 210):** `email_open_log.is_proxy BOOLEAN DEFAULT FALSE`. Пишем **КАЖДУЮ** загрузку пикселя, помечая прокси флагом. «Открыли» = все загрузки (так считают GetCourse/Mailchimp), рядом `opened_human` (без прокси, в подсказке) и `clicked` — её прокси подделать не может, самая честная метрика. **Клики по-прежнему фильтруют прокси** (прокси не кликает — это сканер).
+
+**4 цифры по УНИКАЛЬНЫМ адресам** (`COUNT(DISTINCT platform_user_id)`): `sent` (скольким попытались) → `delivered` (`status='sent'`) → `opened` → `clicked`. Одна точка расчёта — [email_funnel_stats.py](backend/app/services/email_funnel_stats.py) `email_funnel_stats(db, schedule_id)`, зовётся из `log` обоих роутеров ([broadcasts_general.py](backend/app/api/broadcasts_general.py) + [modules/broadcasts.py](backend/app/api/modules/broadcasts.py)), отдаётся полем `email_stats`. Один компонент на обе страницы — [EmailFunnelStats.tsx](web/src/components/EmailFunnelStats.tsx).
+
+⚠️ **Прошлые открытия Gmail не восстановить** — их физически не записали. Корректные цифры только у рассылок после 2026-07-10.
 
 ### Раздел «Аналитика» — сводка по UTM (2026-07-08)
 
