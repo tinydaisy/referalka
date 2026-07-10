@@ -53,6 +53,20 @@ function getPublicBase() {
   return window.location.origin.replace(/^http:\/\/localhost:3000/, 'https://dev.pluson.ru')
 }
 
+// Готовность выдачи воронки: бот админ во ВСЕХ каналах основателя. Пока не
+// готов — ссылки на воронку показываем размыто. Хук, т.к. статус нужен и в
+// списке лид-магнитов, и в списке пакетов (это разные компоненты).
+type ChannelsReady = { ready: boolean; has_bot: boolean; channels: any[] } | null
+function useFounderChannelsReady(): ChannelsReady {
+  const [channelsReady, setChannelsReady] = useState<ChannelsReady>(null)
+  useEffect(() => {
+    api.miniApp.chatGates.founderChannelsStatus()
+      .then((s: any) => setChannelsReady({ ready: !!s?.ready, has_bot: !!s?.has_bot, channels: s?.channels || [] }))
+      .catch(() => setChannelsReady(null))
+  }, [])
+  return channelsReady
+}
+
 export default function LeadMagnetsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'magnets'
@@ -62,9 +76,6 @@ export default function LeadMagnetsPage() {
   // Канал(ы) основателя для воронки — массив (миграция 114).
   // null = ещё не загружено или загружено и пусто; [] = загружено и пусто; [..] = есть.
   const [tgChannels, setTgChannels] = useState<{ url: string; name?: string }[] | null>(null)
-  // Готовность выдачи: бот админ во ВСЕХ каналах основателя. Пока не готов —
-  // ссылки на воронку показываем размыто (воронка не сможет проверить подписку).
-  const [channelsReady, setChannelsReady] = useState<{ ready: boolean; has_bot: boolean; channels: any[] } | null>(null)
   // Сводные счётчики по всем лид-магнитам + всем пакетам (есть contact_id / получили)
   const [totals, setTotals] = useState<{ reached: number; received: number } | null>(null)
 
@@ -75,9 +86,6 @@ export default function LeadMagnetsPage() {
         setTgChannels(Array.isArray(list) ? list : [])
       })
       .catch(() => setTgChannels([]))
-    api.miniApp.chatGates.founderChannelsStatus()
-      .then((s: any) => setChannelsReady({ ready: !!s?.ready, has_bot: !!s?.has_bot, channels: s?.channels || [] }))
-      .catch(() => setChannelsReady(null))
   }, [])
 
   useEffect(() => {
@@ -233,6 +241,7 @@ function MagnetsList() {
   const [editing, setEditing] = useState<LeadMagnet | null>(null)
   const [creating, setCreating] = useState(false)
   const [analyticsOpen, setAnalyticsOpen] = useState<LeadMagnet | null>(null)
+  const channelsReady = useFounderChannelsReady()
 
   async function load() {
     setLoading(true)
@@ -401,6 +410,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
 
 function PackagesList() {
   const { isAssistant } = useMe()
+  const channelsReady = useFounderChannelsReady()
   const [items, setItems] = useState<Package[]>([])
   const [magnets, setMagnets] = useState<LeadMagnet[]>([])
   const [counts, setCounts] = useState<Record<number, CountRow>>({})

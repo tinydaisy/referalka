@@ -453,3 +453,83 @@ async def set_my_card_gift(
     await db.execute(
         "UPDATE event_collaborators SET gift_lead_magnet_id = $1 WHERE id = $2", lm_id, ec["id"])
     return {"ok": True, "gift_lead_magnet_id": lm_id}
+
+
+# ─────────── Кабинет участника МедиаЛифта: статистика + ссылка + материалы ───────────
+
+@router.get("/{slug}/my-cabinet", summary="Кабинет участника: ссылка, материалы, статистика")
+async def my_cabinet(
+    slug: str,
+    contact_id: int = Query(..., description="contact_id участника (из ссылки)"),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Личный кабинет участника МедиаЛифта: его реф-ссылка, готовые материалы,
+    статистика (кто перешёл/подписался, охват его ветки, всего в системе)."""
+    ev = await db.fetchrow(
+        """SELECT e.id, e.module_slug, e.title,
+                  eo.client_id AS owner_client_id
+             FROM events e
+             JOIN event_owners eo ON eo.event_id=e.id AND eo.status='accepted'
+            WHERE e.slug=$1 ORDER BY eo.id LIMIT 1""", slug)
+    if not ev or ev["module_slug"] != "medialift":
+        raise HTTPException(status_code=404, detail="Событие МедиаЛифт не найдено")
+    event_id = ev["id"]
+
+    me = await db.fetchrow(
+        "SELECT id, name, ref_code FROM contacts WHERE id=$1", contact_id)
+    if not me:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+    ref_code = me["ref_code"]
+
+    # 1) Кто пришёл по МОЕЙ ссылке (прямые приглашённые) — и сколько из них
+    #    реально зарегистрировались (= подписались и вошли).
+    direct = await db.fetchrow(
+        """SELECT COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE is_registered) AS registered
+             FROM event_participants
+            WHERE event_id=$1 AND referrer_ref_code=$2""",
+        event_id, ref_code)
+
+    # 2) Охват ВСЕЙ ветки под мной (рекурсия вниз по referrer_ref_code).
+    branch = await db.fetchval(
+        """
+        WITH RECURSIVE down AS (
+            SELECT ep.contact_id, c.ref_code
+              FROM event_participants ep
+              JOIN contacts c ON c.id = ep.contact_id
+             WHERE ep.event_id=$1 AND ep.referrer_ref_code=$2
+            UNION
+            SELECT ep.contact_id, c.ref_code
+              FROM down d
+              JOIN event_participants ep ON ep.event_id=$1 AND ep.referrer_ref_code=d.ref_code
+              JOIN contacts c ON c.id = ep.contact_id
+        )
+        SELECT COUNT(DISTINCT contact_id) FROM down
+        """, event_id, ref_code) or 0
+
+    # 3) Всего людей в системе МедиаЛифт.
+    total_system = await db.fetchval(
+        "SELECT COUNT(*) FROM event_participants WHERE event_id=$1", event_id) or 0
+
+    # Реф-ссылка участника (вход в воронку под ним) — через бот сервисного клиента.
+    from app.services.share_links import build_share_links
+    links = await build_share_links(
+        db, client_id=ev["owner_client_id"], event_slug=slug, partner_id=ref_code)
+
+    # Готовые материалы-тексты события (шеринг) — как в кабинете спикера.
+    texts = await db.fetch(
+        "SELECT content FROM event_referral_share_texts WHERE event_id=$1 ORDER BY sort, id", event_id)
+
+    return {
+        "event_title": ev["title"],
+        "name": me["name"],
+        "ref_code": ref_code,
+        "link": links.get("telegram") or "",
+        "share_texts": [r["content"] for r in texts],
+        "stats": {
+            "clicked": direct["total"],            # перешли по вашей ссылке
+            "joined": direct["registered"],        # из них подписались и вошли
+            "branch_reach": branch,                # всего под вами в ветке
+            "total_system": total_system,          # всего в системе МедиаЛифт
+        },
+    }

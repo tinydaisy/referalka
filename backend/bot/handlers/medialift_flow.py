@@ -195,27 +195,21 @@ async def prompt_add_channel(message: Message, event_id: int, db) -> None:
         client_id, str(tg_id), event_id)
 
     if row and (row["tg_channel_url"] or "").strip():
-        # Канал уже добавлен — показываем реф-ссылку и апселл.
-        ref = await db.fetchval(
-            """SELECT ct.ref_code FROM platform_users pu JOIN contacts ct ON ct.id=pu.contact_id
+        # Канал уже добавлен — ведём в кабинет (ссылка, материалы, статистика).
+        contact_row = await db.fetchval(
+            """SELECT ct.id FROM platform_users pu JOIN contacts ct ON ct.id=pu.contact_id
                 WHERE pu.client_id=$1 AND pu.platform_slug='telegram'
                   AND pu.platform_user_id=$2::text LIMIT 1""",
             client_id, str(tg_id))
         slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
-        bot_handle = await db.fetchval(
-            """SELECT ch.handle FROM channels ch JOIN client_channels cc ON cc.channel_id=ch.id
-                WHERE cc.client_id=$1 AND ch.platform_slug='telegram' AND cc.is_active LIMIT 1""",
-            client_id)
-        handle = (bot_handle or "").lstrip("@")
-        link = f"https://t.me/{handle}?start=ref_pg{slug}_pid{ref}" if handle and ref else ""
-        text = ["✅ <b>Вы уже в системе, канал добавлен.</b>", ""]
-        if link:
-            text += ["Ваша ссылка — зовите людей, они подпишутся на вас:",
-                     f"<code>{link}</code>", ""]
-        text.append("💡 Свой лид-магнит работает эффективнее канала.")
-        await message.answer("\n".join(text), parse_mode="HTML",
+        cab_url = f"https://pluson.ru/medialift/me?slug={slug}&c={contact_row}"
+        await message.answer(
+            "✅ <b>Вы уже в системе, канал добавлен.</b>\n\n"
+            "Откройте кабинет — там ваша ссылка, готовые материалы и статистика.",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🎁 Триал 14 дней в ПЛЮСОНе", url="https://pluson.ru/register")],
+                [InlineKeyboardButton(text="🔗 Мой кабинет и материалы", url=cab_url)],
+                [InlineKeyboardButton(text="🎁 ПЛЮСОН с лид-магнитом", url="https://pluson.ru/register")],
                 [InlineKeyboardButton(text="🤝 Коллабораторная", url="https://pluson.ru/dashboard/collab-hub")],
             ]))
         return
@@ -422,9 +416,10 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
             return
 
         from app.services.speaker_self_register import complete_speaker_self_register
-        coll_id, _code, _slug, _was = await complete_speaker_self_register(
+        coll_id, _code, ev_slug, _was = await complete_speaker_self_register(
             db, event_id=ev_id, client_id=client_id,
             contact_id=row["id"], contact_name=row["name"] or "Участник")
+        contact_id = row["id"]
 
         chan_url = url or (f"https://t.me/{title}" if title else "")
         await db.execute(
@@ -445,13 +440,16 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
     st["await_channel"] = False
     ok_title = f' «{title}»' if title else ""
     reg_url = f"https://pluson.ru/register?ml_tg_id={tg_id}"
+    # Кабинет участника — «страница рефералок»: его ссылка, материалы, статистика.
+    cab_url = f"https://pluson.ru/medialift/me?slug={ev_slug}&c={contact_id}"
     await message.answer(
         f"✅ <b>Канал добавлен{ok_title}!</b>\n\n"
         "Теперь вы в цепочке — вас увидят все, кто зайдёт под вами.\n\n"
-        "💡 <b>Свой материал работает эффективнее канала.</b>\n"
-        "Заведите лид-магнит — люди получат ценность и попадут в вашу базу.",
+        "🔗 Откройте свой кабинет — там ваша ссылка и готовые материалы. "
+        "Рассказывайте о системе, и ваш канал будет предлагаться всем, кто зайдёт под вами.",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔗 Мой кабинет и материалы", url=cab_url)],
             [InlineKeyboardButton(text="🎁 ПЛЮСОН с лид-магнитом (14 дней бесплатно)", url=reg_url)],
             [InlineKeyboardButton(text="🤝 Коллабораторная — закрытый Хаб",
                                   url="https://pluson.ru/dashboard/collab-hub")],
