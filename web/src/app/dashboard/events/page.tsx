@@ -65,6 +65,8 @@ export default function EventsPage() {
       setItems(filtered)
       setError(null)
     } catch (e: any) {
+      // Запрос оборвался при уходе со страницы — не сбой, ошибку не показываем.
+      if (e?.aborted) return
       setError(e.message || 'Не получилось загрузить')
     } finally {
       setLoading(false)

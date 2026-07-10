@@ -5,22 +5,49 @@ function getToken() {
   return localStorage.getItem('plusson_token')
 }
 
+/** Запрос отменён браузером (уход со страницы, AbortController), а не упал сервер. */
+function isAbortError(e: any): boolean {
+  return e?.name === 'AbortError' || e?.code === 20
+}
+
 async function request(path: string, options?: RequestInit) {
   const token = getToken()
+  const doFetch = () => fetch(`${API_URL}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...options,
+  })
+
   let res: Response
   try {
-    res = await fetch(`${API_URL}${path}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      ...options,
-    })
+    res = await doFetch()
   } catch (e: any) {
+    // Уход со страницы обрывает fetch — это не сбой сервера, молча пробрасываем
+    // с флагом, чтобы вызывающий код не рисовал красное «Сервер недоступен».
+    if (isAbortError(e)) {
+      const err = new Error('Запрос отменён')
+      ;(err as any).aborted = true
+      throw err
+    }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       throw new Error('Нет подключения к интернету. Проверьте сеть и попробуйте ещё раз.')
     }
-    throw new Error('Сервер недоступен. Попробуйте ещё раз через минуту или напишите в поддержку.')
+    // Одна тихая повторная попытка: мигание сети, спящий Wi-Fi, холодный старт
+    // воркера — типичные разовые сбои, из-за которых пользователь видел ошибку
+    // на первом же экране после логина, а после перехода туда-обратно всё работало.
+    try {
+      await new Promise(r => setTimeout(r, 600))
+      res = await doFetch()
+    } catch (e2: any) {
+      if (isAbortError(e2)) {
+        const err = new Error('Запрос отменён')
+        ;(err as any).aborted = true
+        throw err
+      }
+      throw new Error('Сервер недоступен. Попробуйте ещё раз через минуту или напишите в поддержку.')
+    }
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))

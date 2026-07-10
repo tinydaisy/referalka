@@ -275,12 +275,15 @@ export default function SettingsPage() {
               <input type="text" value={form.name} onChange={set('name')}
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" value={form.email} readOnly
-                className="w-full px-4 py-3 border border-gray-100 rounded-xl bg-gray-50 text-sm text-gray-500 cursor-not-allowed" />
-              <p className="text-xs text-gray-400 mt-1">Email изменить нельзя</p>
-            </div>
+            {/* Email и пароль — личные данные владельца, ассистенту (даже полному) не показываем */}
+            {!isAnyAssistant && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" value={form.email} readOnly
+                  className="w-full px-4 py-3 border border-gray-100 rounded-xl bg-gray-50 text-sm text-gray-500 cursor-not-allowed" />
+                <p className="text-xs text-gray-400 mt-1">Email изменить нельзя</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Телефон</label>
@@ -297,27 +300,29 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Security — change password (в Профиле) */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-              <Lock size={18} className="text-white" />
+        {/* Security — change password (в Профиле). Пароль владельца ассистенту недоступен. */}
+        {!isAnyAssistant && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+                <Lock size={18} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-800">Безопасность</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Пароль для входа в кабинет iViSiON: ПЛЮСОН.
+                </p>
+              </div>
             </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-800">Безопасность</h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Пароль для входа в кабинет iViSiON: ПЛЮСОН.
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowPasswordModal(true)}
+              className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Сменить пароль
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPasswordModal(true)}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
-          >
-            Сменить пароль
-          </button>
-        </div>
+        )}
 
         {/* Язык интерфейса (в Профиле) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

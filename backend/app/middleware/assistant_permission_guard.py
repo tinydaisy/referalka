@@ -2,9 +2,11 @@
 Middleware: ограничивает действия пользователя с role='assistant'.
 
 ⚠️ Два уровня доступа (миграция 208, `client_assistants.access_level`):
-  · 'full'    — ассистент = владелец кабинета по правам. Middleware пропускает
-                ВСЁ, кроме раздела управления ассистентом (/clients/me/assistant/*),
-                чтобы ассистент не сменил себе пароль и не удалил себя.
+  · 'full'    — ассистент = владелец кабинета по правам. Middleware пропускает ВСЁ,
+                кроме ЛИЧНОГО владельца (OWNER_ONLY_ALWAYS_*): раздел управления
+                ассистентом (иначе сменит себе пароль / удалит себя), админка,
+                смена пароля владельца и письмо на его email. Рабочие настройки
+                (PATCH /auth/me, каналы, лид-магниты, оплата) — доступны.
   · 'limited' — исторический набор прав, описанный ниже (default).
 Уровень читается из БД на каждый запрос ассистента — переключение тумблера
 владельцем применяется сразу, без перелогина.
@@ -73,12 +75,12 @@ OWNER_ONLY_ALWAYS_PREFIXES = (
     "/api/v1/clients/me/assistant",   # ассистент не управляет сам собой
     "/api/v1/admin",                  # админка платформы
 )
+# ⚠️ Сюда НЕ входят рабочие эндпоинты, которые полный ассистент использует:
+# PATCH /auth/me (имя, часовой пояс, каналы уведомлений, тестовые аккаунты — email
+# там не меняется) и перегенерация интеграционного токена.
 OWNER_ONLY_ALWAYS_WRITE_PATHS = (
-    "/api/v1/auth/me",                             # PATCH профиля (в т.ч. email)
-    "/api/v1/auth/change-password",               # смена пароля владельца
+    "/api/v1/auth/change-password",               # пароль владельца — вход в кабинет
     "/api/v1/auth/verify-email/resend",           # письмо на email владельца
-    "/api/v1/auth/me/regenerate-integration-token",
-    "/api/v1/auth/regenerate-integration-token",
 )
 FORBIDDEN_WRITE_PREFIXES = (
     "/api/v1/clients/me/legal",                    # юр-данные клиента (миграция 099)
@@ -127,17 +129,25 @@ async def assistant_permission_guard_middleware(request: Request, call_next):
     if method == "OPTIONS":
         return await call_next(request)
 
-    # Ассистент с ПОЛНЫМ доступом — прав как у владельца. Единственное исключение:
-    # раздел управления ассистентом (иначе он сменит себе пароль / удалит себя).
+    # Ассистент с ПОЛНЫМ доступом — прав как у владельца, кроме личного владельца:
+    # раздел управления ассистентом (иначе сменит себе пароль / удалит себя),
+    # админка, а также email и пароль владельца (вход в кабинет — не рабочий инструмент).
     from app.services.assistant_access import get_assistant_access_level
 
     level = await get_assistant_access_level(payload.get("assistant_id"))
+    # Личное владельца закрыто ЛЮБОМУ ассистенту (проверяем до разбора уровня).
+    if any(path.startswith(p) for p in OWNER_ONLY_ALWAYS_PREFIXES):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Этот раздел доступен только владельцу кабинета."},
+        )
+    if method in WRITE_METHODS and path in OWNER_ONLY_ALWAYS_WRITE_PATHS:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Email и пароль может менять только владелец кабинета."},
+        )
+
     if level == "full":
-        if path.startswith("/api/v1/clients/me/assistant") or path.startswith("/api/v1/admin"):
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Этот раздел доступен только владельцу кабинета."},
-            )
         return await call_next(request)
 
     # 1) Полный запрет по префиксу (любой метод).

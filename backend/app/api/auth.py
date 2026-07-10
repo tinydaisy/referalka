@@ -758,9 +758,8 @@ async def verify_email_resend(
     if not credentials:
         raise HTTPException(status_code=401, detail="Требуется авторизация")
     payload = decode_token(credentials.credentials)
-    # Ассистент с ограниченными правами не управляет email владельца
-    from app.services.assistant_access import assistant_is_restricted
-    if await assistant_is_restricted(payload):
+    # Email владельца — личное: не управляет НИ ОДИН ассистент, даже полный.
+    if payload.get("role") == "assistant":
         raise HTTPException(status_code=403, detail="Недоступно для ассистента")
     client_id = int(payload["sub"])
 
