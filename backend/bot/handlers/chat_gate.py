@@ -89,12 +89,9 @@ async def handle_group_message(message: Message, bot: Bot):
     """Каждое сообщение в группе/супергруппе — проверка подписки автора."""
     if not message.from_user or message.from_user.is_bot:
         return
-    # Системный @pluson_bot НЕ обслуживает гейты подписки клиентов — гейт работает
-    # только через собственный VIP-бот клиента. Системный остаётся лишь для самого
-    # ПЛЮСОНа (личка/техподдержка). Отсекаем по токену.
-    from app.config import settings
-    if settings.telegram_bot_token and bot.token == settings.telegram_bot_token:
-        raise SkipHandler()
+    # Гейт обслуживает КАЖДЫЙ бот — но только чаты своего клиента (проверка
+    # владения ниже, через client_channels). @pluson_bot принадлежит сервисному
+    # клиенту, поэтому спец-отсечки по его токену больше нет.
     chat_id_str = str(message.chat.id)
     user_id = message.from_user.id
     t_start = time.monotonic()
@@ -115,24 +112,22 @@ async def handle_group_message(message: Message, bot: Bot):
             # следующим роутерам → чаты событий не архивировались.
             raise SkipHandler()
 
-        # 2) Защита: бот, обрабатывающий сообщение, должен принадлежать клиенту
-        # (либо системному). Если в Dispatcher крутится бот другого клиента —
-        # его обработчик не должен трогать чат, привязанный к Маргарите.
+        # 2) Защита: бот, обрабатывающий сообщение, должен принадлежать клиенту-
+        # владельцу гейта. Если в Dispatcher крутится бот другого клиента —
+        # его обработчик не должен трогать чужой чат. Правило единое для всех
+        # ботов, включая @pluson_bot (он принадлежит сервисному клиенту).
         bot_channel = await find_channel_by_bot_id(bot.id, db)
         if bot_channel:
-            # Не системный → должен совпадать с client_id гейта
-            if not bot_channel["is_system"]:
-                # Доступен ли этот канал клиенту-владельцу гейта?
-                client_owns = await db.fetchval(
-                    """SELECT 1 FROM client_channels
-                        WHERE client_id = $1 AND channel_id = $2 LIMIT 1""",
-                    gate["client_id"], bot_channel["id"],
-                )
-                if not client_owns:
-                    # Этот канал гейта не принадлежит клиенту бота — гейт не наш,
-                    # но сообщение всё равно пробрасываем дальше (chat_listener).
-                    raise SkipHandler()
-        # (системный @pluson_bot сюда не доходит — отсечён по токену в начале хендлера)
+            # Доступен ли этот канал клиенту-владельцу гейта?
+            client_owns = await db.fetchval(
+                """SELECT 1 FROM client_channels
+                    WHERE client_id = $1 AND channel_id = $2 LIMIT 1""",
+                gate["client_id"], bot_channel["id"],
+            )
+            if not client_owns:
+                # Этот канал гейта не принадлежит клиенту бота — гейт не наш,
+                # но сообщение всё равно пробрасываем дальше (chat_listener).
+                raise SkipHandler()
 
         # 3) Полная проверка подписки на все TG-каналы основателя — КАЖДЫЙ раз свежо.
         # Кеш «не подписан» убран: он держал отрицательное решение 60 сек, из-за чего
