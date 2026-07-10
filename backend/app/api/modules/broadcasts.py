@@ -1463,6 +1463,135 @@ async def generate_schedules(
     return {"ok": True, "created": created, "skipped": skipped}
 
 
+# ─────────────────────────────────────────
+# Сдвиг тайминга спикерских рассылок внутри одного дня программы
+#
+# Типы, которые сдвигаются: «за 5 минут до выступления» (5min_before) и
+# «подарок после эфира» (gift). Оба привязаны к conf_sessions.id (сессия
+# программы), поэтому «день» берём из программы (conf_sessions.day →
+# conf_days.day_date), а НЕ из календарной даты fire_at: подарок последнего
+# выступления может уехать за полночь, но принадлежит своему дню.
+#
+# Сдвигаются только рассылки, которые ещё не ушли: draft / pending.
+# ─────────────────────────────────────────
+SHIFTABLE_TYPES = ("5min_before", "gift")
+
+
+async def _shiftable_sessions(db, event_id: int, day_number: int):
+    """Спикеры дня, у которых есть несданные 5min_before/gift, по времени старта."""
+    return await db.fetch(
+        """
+        SELECT cs.id            AS session_id,
+               cs.start_time,
+               cs.end_time,
+               COALESCE(cst.topic, cs.title) AS session_title,
+               c.name           AS speaker_name,
+               COUNT(bs.id)     AS schedules_count,
+               MIN(bs.fire_at)  AS first_fire_at
+        FROM conf_sessions cs
+        JOIN broadcast_schedules bs
+             ON bs.session_id = cs.id
+            AND bs.event_id = cs.event_id
+            AND bs.type = ANY($3::text[])
+            AND bs.status IN ('draft', 'pending')
+        LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
+        LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
+        LEFT JOIN collaborators c ON c.id = cse.speaker_id
+        WHERE cs.event_id = $1 AND cs.day = $2 AND cs.speaker_id IS NOT NULL
+        GROUP BY cs.id, cs.start_time, cs.end_time, cst.topic, cs.title, c.name
+        ORDER BY cs.start_time NULLS LAST, cs.id
+        """,
+        event_id, day_number, list(SHIFTABLE_TYPES),
+    )
+
+
+@router.get("/schedules/shift-speakers", summary="Спикеры дня, чьи рассылки можно сдвинуть")
+async def list_shift_speakers(
+    event_id: int,
+    day: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    rows = await _shiftable_sessions(db, event_id, day)
+
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
+
+    speakers = []
+    for r in rows:
+        d = dict(r)
+        # Время программы — строки "HH:MM" (см. правило «Время программы — строки HH:MM»).
+        d["start_time"] = str(r["start_time"])[:5] if r["start_time"] else None
+        d["end_time"] = str(r["end_time"])[:5] if r["end_time"] else None
+        d["schedules_count"] = int(r["schedules_count"])
+        d["first_fire_at_local"] = (
+            r["first_fire_at"].astimezone(tz).strftime("%d.%m.%Y %H:%M") if r["first_fire_at"] else None
+        )
+        d.pop("first_fire_at", None)
+        speakers.append(d)
+
+    return {"speakers": speakers, "day": day}
+
+
+class ShiftTimingRequest(BaseModel):
+    day: int                # номер дня программы (conf_days.day_number)
+    from_session_id: int    # с какого спикера начинать сдвиг (включительно)
+    minutes: int            # на сколько минут сдвинуть (может быть отрицательным)
+
+
+@router.post("/schedules/shift-timing", summary="Сдвинуть спикерские рассылки дня")
+async def shift_timing(
+    event_id: int,
+    data: ShiftTimingRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    if data.minutes == 0:
+        raise HTTPException(status_code=400, detail="Сдвиг на 0 минут ничего не изменит")
+
+    rows = await _shiftable_sessions(db, event_id, data.day)
+    if not rows:
+        raise HTTPException(
+            status_code=400,
+            detail="В этот день нет рассылок «за 5 минут до выступления» или «подарок после эфира» — сдвигать нечего"
+        )
+
+    ordered_ids = [r["session_id"] for r in rows]
+    if data.from_session_id not in ordered_ids:
+        raise HTTPException(status_code=400, detail="У выбранного спикера нет рассылок этого дня")
+
+    # Все спикеры начиная с выбранного и до конца дня (порядок — по времени старта).
+    start_idx = ordered_ids.index(data.from_session_id)
+    target_session_ids = ordered_ids[start_idx:]
+
+    updated = await db.fetch(
+        """
+        UPDATE broadcast_schedules
+           SET fire_at = fire_at + ($4 || ' minutes')::interval
+         WHERE event_id = $1
+           AND session_id = ANY($2::int[])
+           AND type = ANY($3::text[])
+           AND status IN ('draft', 'pending')
+           AND fire_at IS NOT NULL
+        RETURNING id
+        """,
+        event_id, target_session_ids, list(SHIFTABLE_TYPES), str(data.minutes),
+    )
+
+    return {
+        "ok": True,
+        "shifted": len(updated),
+        "speakers_affected": len(target_session_ids),
+        "minutes": data.minutes,
+    }
+
+
 class SetFireAtRequest(BaseModel):
     fire_at: str
     is_test: bool = False

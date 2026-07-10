@@ -65,6 +65,21 @@ FORBIDDEN_WRITE_PATHS = (
     "/api/v1/auth/me/regenerate-integration-token",
     "/api/v1/auth/regenerate-integration-token",
 )
+
+# Личные учётные данные владельца — закрыты ЛЮБОМУ ассистенту, включая полного.
+# Пароль и email — это вход в кабинет, а не рабочий инструмент; ассистент с полным
+# доступом не должен уметь сменить их и отрезать владельца от собственного кабинета.
+OWNER_ONLY_ALWAYS_PREFIXES = (
+    "/api/v1/clients/me/assistant",   # ассистент не управляет сам собой
+    "/api/v1/admin",                  # админка платформы
+)
+OWNER_ONLY_ALWAYS_WRITE_PATHS = (
+    "/api/v1/auth/me",                             # PATCH профиля (в т.ч. email)
+    "/api/v1/auth/change-password",               # смена пароля владельца
+    "/api/v1/auth/verify-email/resend",           # письмо на email владельца
+    "/api/v1/auth/me/regenerate-integration-token",
+    "/api/v1/auth/regenerate-integration-token",
+)
 FORBIDDEN_WRITE_PREFIXES = (
     "/api/v1/clients/me/legal",                    # юр-данные клиента (миграция 099)
 )

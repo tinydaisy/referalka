@@ -196,6 +196,15 @@ export default function QueuePage() {
   const [deleting, setDeleting] = useState(false)
   const [runningSelected, setRunningSelected] = useState(false)
 
+  // ── Сдвиг тайминга спикерских рассылок («за 5 мин до выступления» + «подарок после эфира») ──
+  const [shiftModal, setShiftModal] = useState(false)
+  const [shiftDay, setShiftDay] = useState('')            // day_number выбранного дня
+  const [shiftSpeakers, setShiftSpeakers] = useState<any[]>([])
+  const [shiftSpeakersLoading, setShiftSpeakersLoading] = useState(false)
+  const [shiftFromSession, setShiftFromSession] = useState('')
+  const [shiftMinutes, setShiftMinutes] = useState('')
+  const [shiftSaving, setShiftSaving] = useState(false)
+
   const load = useCallback(async () => {
     const [tmpl, sched, spk, sess, days, ev] = await Promise.all([
       api.conference.templates.list(eventId),
@@ -286,6 +295,54 @@ export default function QueuePage() {
   function showMsg(text: string, type: 'ok' | 'err' = 'ok') {
     setMsg({ text, type })
     setTimeout(() => setMsg(null), 5000)
+  }
+
+  // ── Сдвиг тайминга ──
+  function openShiftModal() {
+    setShiftDay('')
+    setShiftSpeakers([])
+    setShiftFromSession('')
+    setShiftMinutes('')
+    setShiftModal(true)
+  }
+
+  // Сначала выбирается день — потом подгружаются спикеры, у которых в этот день
+  // есть неотправленные рассылки «за 5 мин до выступления» / «подарок после эфира».
+  async function loadShiftSpeakers(day: string) {
+    setShiftDay(day)
+    setShiftFromSession('')
+    setShiftSpeakers([])
+    if (!day) return
+    setShiftSpeakersLoading(true)
+    try {
+      const res = await api.conference.schedules.shiftSpeakers(eventId, Number(day))
+      setShiftSpeakers(res.speakers || [])
+    } catch (e: any) {
+      showMsg(e.message || 'Не удалось загрузить спикеров', 'err')
+    } finally {
+      setShiftSpeakersLoading(false)
+    }
+  }
+
+  async function runShiftTiming() {
+    const minutes = parseInt(shiftMinutes, 10)
+    if (!shiftDay || !shiftFromSession || !Number.isFinite(minutes) || minutes === 0) return
+    setShiftSaving(true)
+    try {
+      const res = await api.conference.schedules.shiftTiming(eventId, {
+        day: Number(shiftDay),
+        from_session_id: Number(shiftFromSession),
+        minutes,
+      })
+      await load()
+      setShiftModal(false)
+      const sign = minutes > 0 ? 'позже' : 'раньше'
+      showMsg(`Сдвинуто ${res.shifted} рассылок у ${res.speakers_affected} спикеров на ${Math.abs(minutes)} мин ${sign}`)
+    } catch (e: any) {
+      showMsg(e.message || 'Не удалось сдвинуть рассылки', 'err')
+    } finally {
+      setShiftSaving(false)
+    }
   }
 
   // Открыть модалку выбора шаблонов (по умолчанию отмечены все).
@@ -724,6 +781,12 @@ export default function QueuePage() {
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
           <Upload size={14} /> Пакетом
         </button>
+        {confDays.length > 0 && (
+          <button onClick={openShiftModal}
+            className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+            <Clock size={14} /> Сдвиг тайминга
+          </button>
+        )}
         <button onClick={openGenModal} disabled={loading}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
           style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
@@ -1161,6 +1224,126 @@ export default function QueuePage() {
       )}
 
       {/* ── Модалка: выбор шаблонов для формирования из программы ── */}
+      {/* ── Сдвиг тайминга спикерских рассылок ── */}
+      {shiftModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+               onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-semibold text-gray-800">Сдвиг тайминга</h3>
+              <button onClick={() => setShiftModal(false)}><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Программа поехала — сдвиньте рассылки «За 5 минут до выступления» и «Подарок после эфира».
+              Сдвинутся рассылки выбранного спикера и всех, кто выступает после него в этот день.
+              Другие дни не меняются.
+            </p>
+
+            <div className="space-y-4">
+              {/* Шаг 1 — день */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">День программы</label>
+                <select
+                  value={shiftDay}
+                  onChange={e => loadShiftSpeakers(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                  <option value="">— выберите день —</option>
+                  {confDays.map(d => {
+                    const RU_M: Record<string, string> = {'01':'янв','02':'фев','03':'мар','04':'апр','05':'май','06':'июн','07':'июл','08':'авг','09':'сен','10':'окт','11':'ноя','12':'дек'}
+                    let dateLabel = ''
+                    if (d.day_date) {
+                      const s = d.day_date.toString().slice(0, 10).split('-')
+                      if (s.length === 3) dateLabel = ` — ${parseInt(s[2])} ${RU_M[s[1]] || s[1]}`
+                    }
+                    return (
+                      <option key={d.day_number} value={d.day_number}>
+                        День {d.day_number}{dateLabel}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+
+              {/* Шаг 2 — спикер (только те, у кого есть такие рассылки в этот день) */}
+              {shiftDay && (
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Начать сдвиг со спикера</label>
+                  {shiftSpeakersLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                      <Loader2 size={14} className="animate-spin" /> Загружаю спикеров...
+                    </div>
+                  ) : shiftSpeakers.length === 0 ? (
+                    <div className="px-3 py-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                      В этот день нет рассылок «За 5 минут до выступления» и «Подарок после эфира» — сдвигать нечего.
+                      Выберите другой день.
+                    </div>
+                  ) : (
+                    <select
+                      value={shiftFromSession}
+                      onChange={e => setShiftFromSession(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                      <option value="">— выберите спикера —</option>
+                      {shiftSpeakers.map(s => (
+                        <option key={s.session_id} value={s.session_id}>
+                          {s.start_time ? `${s.start_time} — ` : ''}{s.speaker_name || s.session_title || `Слот #${s.session_id}`}
+                          {` (${s.schedules_count} рас.)`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* Шаг 3 — минуты */}
+              {shiftSpeakers.length > 0 && (
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Сдвиг в минутах</label>
+                  <input
+                    type="number"
+                    value={shiftMinutes}
+                    onChange={e => setShiftMinutes(e.target.value)}
+                    placeholder="например 15"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Положительное число — позже, отрицательное (например −10) — раньше.
+                  </p>
+                </div>
+              )}
+
+              {/* Что именно сдвинется */}
+              {shiftFromSession && shiftSpeakers.length > 0 && (() => {
+                const idx = shiftSpeakers.findIndex(s => String(s.session_id) === String(shiftFromSession))
+                const affected = idx >= 0 ? shiftSpeakers.slice(idx) : []
+                const total = affected.reduce((acc, s) => acc + (s.schedules_count || 0), 0)
+                return (
+                  <div className="px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-600">
+                    Сдвинется {total} рассылок у {affected.length} спикеров:{' '}
+                    {affected.map(s => s.speaker_name || `#${s.session_id}`).join(', ')}
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button onClick={() => setShiftModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+                Отмена
+              </button>
+              <button
+                onClick={runShiftTiming}
+                disabled={
+                  shiftSaving || !shiftDay || shiftSpeakers.length === 0 || !shiftFromSession ||
+                  !Number.isFinite(parseInt(shiftMinutes, 10)) || parseInt(shiftMinutes, 10) === 0
+                }
+                className="flex-1 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                {shiftSaving ? 'Сдвигаю...' : 'Сдвинуть'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {genModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">

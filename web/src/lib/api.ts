@@ -374,6 +374,12 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/fire-at`, {
           method: 'PUT', body: JSON.stringify(data),
         }),
+      shiftSpeakers: (eventId: number, day: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/shift-speakers?day=${day}`),
+      shiftTiming: (eventId: number, data: { day: number; from_session_id: number; minutes: number }) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/shift-timing`, {
+          method: 'POST', body: JSON.stringify(data),
+        }),
       addManual: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/add-manual`, {
           method: 'POST', body: JSON.stringify(data),
