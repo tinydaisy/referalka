@@ -701,21 +701,27 @@ async def password_reset_request(
         email_norm,
     )
     admin_row = None
+    assistant_row = None
     if not client_row:
         admin_row = await db.fetchrow(
             "SELECT id, email FROM admins WHERE LOWER(email) = $1",
             email_norm,
         )
-
     if not (client_row or admin_row):
+        assistant_row = await db.fetchrow(
+            "SELECT id, email FROM assistants WHERE LOWER(email) = $1",
+            email_norm,
+        )
+
+    if not (client_row or admin_row or assistant_row):
         return {"ok": True, "found": False, "sent": False}
 
     sent = False
-    if client_row or admin_row:
+    if client_row or admin_row or assistant_row:
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         expires_at = datetime.utcnow() + timedelta(hours=1)
-        to_email = (client_row or admin_row)["email"]
+        to_email = (client_row or admin_row or assistant_row)["email"]
 
         if client_row:
             await db.execute(
@@ -724,12 +730,19 @@ async def password_reset_request(
                     VALUES ($1, $2, $3, $4)""",
                 client_row["id"], token_hash, expires_at, ip[:64],
             )
-        else:
+        elif admin_row:
             await db.execute(
                 """INSERT INTO password_reset_tokens
                        (admin_id, token_hash, expires_at, ip_address)
                     VALUES ($1, $2, $3, $4)""",
                 admin_row["id"], token_hash, expires_at, ip[:64],
+            )
+        else:
+            await db.execute(
+                """INSERT INTO password_reset_tokens
+                       (assistant_id, token_hash, expires_at, ip_address)
+                    VALUES ($1, $2, $3, $4)""",
+                assistant_row["id"], token_hash, expires_at, ip[:64],
             )
 
         # Шлём письмо со ссылкой через системный email-канал ПЛЮСОНа.
@@ -740,7 +753,7 @@ async def password_reset_request(
 
             # Системный email-канал ПЛЮСОНа (is_system=TRUE). Для клиента берём
             # через client_channels (чтобы был client_channel_id для unsub-токена);
-            # для админа — сам системный канал напрямую (client_channel_id нет).
+            # для админа и помощника — сам системный канал напрямую (client_channel_id нет).
             if client_row:
                 ch = await db.fetchrow(
                     """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
@@ -856,7 +869,7 @@ async def password_reset_confirm(
 
     token_hash = hashlib.sha256(data.token.encode()).hexdigest()
     row = await db.fetchrow(
-        """SELECT id, client_id, admin_id FROM password_reset_tokens
+        """SELECT id, client_id, admin_id, assistant_id FROM password_reset_tokens
             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
             LIMIT 1""",
         token_hash,
@@ -870,6 +883,11 @@ async def password_reset_confirm(
             await db.execute(
                 "UPDATE admins SET password_hash = $1 WHERE id = $2",
                 new_hash, row["admin_id"],
+            )
+        elif row["assistant_id"] is not None:
+            await db.execute(
+                "UPDATE assistants SET password_hash = $1 WHERE id = $2",
+                new_hash, row["assistant_id"],
             )
         else:
             await db.execute(
