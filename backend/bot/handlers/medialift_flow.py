@@ -348,12 +348,42 @@ async def _bot_admin_of_channel(bot: Bot, chan_id: str) -> tuple[bool, Optional[
     return False, None
 
 
+async def _resolve_await_channel_event(tg_id: int) -> Optional[int]:
+    """Определяет по БД, что человек СЕЙЧАС на шаге «добавь канал»: он участник
+    события МедиаЛифт (зарегистрирован) и канала у его карточки ещё нет.
+
+    ⚠️ Не полагаемся на память процесса (_state теряется при рестарте бота или
+    со временем). Если человек прислал ссылку/форвард в любой момент — этого
+    достаточно, чтобы добавить канал. Возвращает event_id или None."""
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        return await db.fetchval(
+            """SELECT e.id
+                 FROM events e
+                 JOIN event_participants ep ON ep.event_id=e.id AND ep.is_registered
+                 JOIN platform_users pu ON pu.contact_id=ep.contact_id
+                                       AND pu.platform_slug='telegram'
+                                       AND pu.platform_user_id=$1::text
+                 -- у его карточки коллаба в этом событии канала ещё НЕТ
+                 LEFT JOIN collaborators c ON c.contact_id=ep.contact_id
+                 LEFT JOIN event_collaborators ec ON ec.speaker_id=c.id AND ec.event_id=e.id
+                WHERE e.module_slug='medialift'
+                  AND (c.id IS NULL OR c.tg_channel_url IS NULL OR c.tg_channel_url='')
+                ORDER BY e.id LIMIT 1""",
+            str(tg_id))
+
+
 async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[str], url: str, title_hint: Optional[str]) -> None:
     """Общий обработчик добавления канала — из ссылки или пересланного поста."""
     tg_id = message.from_user.id
     st = _state.get(tg_id)
+    # Шаг «добавь канал»: из памяти ИЛИ восстановленный по БД (переживает рестарт).
     if not st or not st.get("await_channel"):
-        return
+        ev_id = await _resolve_await_channel_event(tg_id)
+        if not ev_id:
+            return
+        st = _state.setdefault(tg_id, {})
+        st.update({"event_id": ev_id, "await_channel": True, "selected": st.get("selected", set()), "cards": st.get("cards", {})})
 
     # Резолвим ID канала, если пришла только ссылка на публичный @канал.
     if not chan_id and url:
@@ -456,11 +486,18 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
         ]))
 
 
+async def _is_await_channel(tg_id: int) -> bool:
+    """Человек на шаге «добавь канал» — по памяти ИЛИ по БД (переживает рестарт)."""
+    st = _state.get(tg_id)
+    if st and st.get("await_channel"):
+        return True
+    return bool(await _resolve_await_channel_event(tg_id))
+
+
 @router.message(F.forward_from_chat)
 async def on_channel_forward(message: Message, bot: Bot):
     """Пересланный пост из канала → берём ID канала напрямую (работает и для закрытых)."""
-    st = _state.get(message.from_user.id)
-    if not st or not st.get("await_channel"):
+    if not await _is_await_channel(message.from_user.id):
         return
     ch = message.forward_from_chat
     if not ch or ch.type != "channel":
@@ -472,7 +509,6 @@ async def on_channel_forward(message: Message, bot: Bot):
 
 @router.message(F.text.regexp(r"(?i)(t\.me/|telegram\.me/|^@)"))
 async def on_channel_link(message: Message, bot: Bot):
-    st = _state.get(message.from_user.id)
-    if not st or not st.get("await_channel"):
+    if not await _is_await_channel(message.from_user.id):
         return  # не наш шаг — пусть обрабатывают другие хендлеры
     await _handle_add_channel(message, bot, chan_id=None, url=(message.text or "").strip(), title_hint=None)
