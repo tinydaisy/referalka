@@ -125,6 +125,18 @@ body {
 .input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(37,69,93,0.08); }
 .input::placeholder { color: #9ca3af; }
 
+/* Заголовок секции в карточках настроек («ОПИСАНИЕ», «ПОДПИСКА НА КАНАЛЫ…»).
+   Раньше объявлялся локально через <style jsx> в каждом файле — из-за скоупинга
+   общие компоненты (LandingSettingsBlock) стиль не получали и заголовок был обычным.
+   Теперь одна точка истины; локальные дубли в файлах ничего не ломают. */
+.block-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #25455D;
+}
+
 /* Status badges */
 .badge-draft   { background: #f1f5f9; color: #64748b; }
 .badge-active  { background: #dcfce7; color: #16a34a; }
