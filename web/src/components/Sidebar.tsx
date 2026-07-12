@@ -41,8 +41,29 @@ export default function Sidebar() {
   // «Партнёры» (collaborations) — по фиче event_organizers (vip + admin).
   const hasEventOrganizers = features.includes('event_organizers')
 
+  // Коллаб-событие открывается по тому же пути /dashboard/events/{id}, что и обычное
+  // мероприятие. Чтобы в меню подсвечивались «Коллабы», а не «Мероприятия», узнаём
+  // is_collab по id из пути (лёгкий запрос, кешируется по id).
+  const eventIdInPath = (() => {
+    const m = /^\/dashboard\/events\/(\d+)/.exec(pathname || '')
+    return m ? Number(m[1]) : null
+  })()
+  const [collabEventIds, setCollabEventIds] = useState<Record<number, boolean>>({})
+  useEffect(() => {
+    if (!eventIdInPath || collabEventIds[eventIdInPath] !== undefined) return
+    api.events.get(eventIdInPath)
+      .then((r: any) => setCollabEventIds(prev => ({ ...prev, [eventIdInPath]: !!r?.event?.is_collab })))
+      .catch(() => setCollabEventIds(prev => ({ ...prev, [eventIdInPath]: false })))
+  }, [eventIdInPath])
+  const inCollabEvent = eventIdInPath ? collabEventIds[eventIdInPath] === true : false
+
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
+    // Открыта коллаба → «Мероприятия» не активны, активны «Коллабы».
+    if (inCollabEvent) {
+      if (href === '/dashboard/events') return false
+      if (href === '/dashboard/collab-hub/events') return true
+    }
     if (exact) return pathname === href
     return pathname === href || pathname.startsWith(href + '/')
   }

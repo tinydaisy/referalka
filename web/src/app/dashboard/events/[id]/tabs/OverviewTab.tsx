@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
-import ExternalLandingBlock from '@/components/ExternalLandingBlock'
+import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
 
@@ -129,14 +129,8 @@ export default function OverviewTab({
                    className="input" placeholder="iVision-7" />
           </Field>
 
-          <Field
-            label="Описание для лендинга"
-            hint={'Продающий текст. Показывается на лендинге события (веб-странице и в Mini App до регистрации). Можно использовать HTML: <b>жирный</b>, <i>курсив</i>, <a href="...">ссылка</a>, <br>, <ul><li>списки</li></ul>, <h3>подзаголовок</h3>.'}
-          >
-            <textarea value={description} onChange={e => setDescription(e.target.value)}
-                      rows={3} className="input"
-                      placeholder="О чём это мероприятие — пара предложений. Поддерживается HTML." />
-          </Field>
+          {/* «Описание для лендинга» переехало в блок «Настройки страницы регистрации» ниже
+              (там оно логически и живёт — это текст внутреннего лендинга). */}
 
           <Field
             label="Описание после регистрации"
@@ -262,45 +256,19 @@ export default function OverviewTab({
         )}
       </div>
 
-      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
-        <h2 className="block-title">Настройки страницы регистрации</h2>
-
-        <ExternalLandingBlock
-          slug={event?.slug}
-          value={landingUrl}
-          onChange={setLandingUrl}
-        />
-
-        <Field
-          label="Текст кнопки на лендинге"
-          hint="Главная кнопка на встроенном лендинге от ПЛЮСОНа. Пусто — будет «Хочу участвовать»."
-        >
-          <input value={landingCtaLabel} onChange={e => setLandingCtaLabel(e.target.value)}
-                 className="input" maxLength={40} placeholder="Хочу участвовать" />
-        </Field>
-
-        <label
-          className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-            skipContactForm
-              ? 'border-[#25455D] bg-[#25455D]/5'
-              : 'border-gray-200 hover:border-gray-300'
-          }`}>
-          <input type="checkbox" checked={skipContactForm}
-            onChange={(e) => setSkipContactForm(e.target.checked)}
-            className="mt-0.5 accent-[#25455D]" />
-          <div>
-            <p className="text-sm font-medium text-gray-900">
-              Регистрировать без ввода контактных данных
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
-              Используется на встроенном лендинге от ПЛЮСОНа (когда поле «URL вашего
-              лендинга» выше пустое). Клик «Хочу участвовать» сразу создаёт участника
-              по Telegram-аккаунту — без формы с именем, email и телефоном.
-            </p>
-          </div>
-        </label>
-      </div>
+      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем
+             внутренний/сторонний лендинг. У КОЛЛАБЫ стороннего нет. */}
+      <LandingSettingsBlock
+        description={description}
+        onDescription={setDescription}
+        landingUrl={landingUrl}
+        onLandingUrl={setLandingUrl}
+        ctaLabel={landingCtaLabel}
+        onCtaLabel={setLandingCtaLabel}
+        skipContactForm={skipContactForm}
+        onSkipContactForm={setSkipContactForm}
+        allowExternal={!event.is_collab}
+      />
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже.
           Баннер «Каналы не подключены» теперь ВНУТРИ PublicLinks (по реальному

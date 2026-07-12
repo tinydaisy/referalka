@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
-import ExternalLandingBlock from '@/components/ExternalLandingBlock'
+import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
 
@@ -194,18 +194,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <input type="text" value={form.title} onChange={set('title')}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Описание для лендинга
-          </label>
-          <textarea value={form.description} onChange={set('description') as any} rows={3}
-            placeholder="Продающий текст для лендинга и Mini App до регистрации"
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
-          <p className="text-xs text-gray-400 mt-1">
-            Показывается на лендинге события и в Mini App до регистрации.
-            Можно использовать HTML: {'<b>, <i>, <a href="...">, <br>, <ul><li>, <h3>'}.
-          </p>
-        </div>
+        {/* «Описание для лендинга» переехало в блок «Настройки страницы регистрации» ниже. */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Описание после регистрации
@@ -358,50 +347,19 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         ))}
       </div>
 
-      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
-        <h2 className="block-title">Настройки страницы регистрации</h2>
-
-        <ExternalLandingBlock
-          slug={event?.slug}
-          value={form.landing_url}
-          onChange={(v) => setForm(f => ({ ...f, landing_url: v }))}
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Текст кнопки на лендинге
-            <span className="text-gray-400 font-normal ml-1">— опционально</span>
-          </label>
-          <input type="text" value={form.landing_cta_label} onChange={set('landing_cta_label')}
-            maxLength={40} placeholder="Хочу участвовать"
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-          <p className="text-xs text-gray-400 mt-1">
-            Главная кнопка на встроенном лендинге от ПЛЮСОНа. Пусто — будет «Хочу участвовать».
-          </p>
-        </div>
-
-        <label
-          className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-            form.skip_contact_form
-              ? 'border-brand bg-brand/5'
-              : 'border-gray-200 hover:border-gray-300'
-          }`}>
-          <input type="checkbox" checked={form.skip_contact_form}
-            onChange={(e) => setForm(f => ({ ...f, skip_contact_form: e.target.checked }))}
-            className="mt-0.5 accent-brand" />
-          <div>
-            <p className="text-sm font-medium text-gray-900">
-              Регистрировать без ввода контактных данных
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
-              Используется на встроенном лендинге от ПЛЮСОНа (когда поле «URL вашего
-              лендинга» выше пустое). Клик «Хочу участвовать» сразу создаёт участника
-              по Telegram-аккаунту — без формы с именем, email и телефоном.
-            </p>
-          </div>
-        </label>
-      </div>
+      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем
+             внутренний/сторонний лендинг (общий компонент с мероприятиями). */}
+      <LandingSettingsBlock
+        description={form.description}
+        onDescription={(v) => setForm(f => ({ ...f, description: v }))}
+        landingUrl={form.landing_url}
+        onLandingUrl={(v) => setForm(f => ({ ...f, landing_url: v }))}
+        ctaLabel={form.landing_cta_label}
+        onCtaLabel={(v) => setForm(f => ({ ...f, landing_cta_label: v }))}
+        skipContactForm={form.skip_contact_form}
+        onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
+        allowExternal={!event?.is_collab}
+      />
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
       <PublicLinks
