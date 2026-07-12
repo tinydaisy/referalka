@@ -441,6 +441,64 @@ async def connect_telegram_bot(
     }
 
 
+# ─── POST /{channel_id}/restart-polling ───────────────────────────────
+
+
+@router.post("/{channel_id}/restart-polling", summary="Перезапустить бота (забрать управление у сторонних сервисов)")
+async def restart_bot_polling(
+    channel_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Чинит «бот молчит»: снимает webhook и перезапускает polling.
+
+    Зачем. Сторонние конструкторы ботов (LeadConverter, Salebot, BotHelp…)
+    при подключении бота прописывают СЕБЯ в Telegram как webhook. Telegram
+    отдаёт апдейты только одному получателю, поэтому наш polling глохнет
+    (`Conflict: can't use getUpdates while webhook is active`) — бот перестаёт
+    отвечать в ПЛЮСОНе, хотя в кабинете всё настроено верно.
+
+    Кнопка возвращает бота нам: deleteWebhook → reload polling. Отдаёт, был ли
+    чужой webhook (`had_webhook` + `webhook_url`), чтобы UI показал причину.
+    """
+    client_id = int(client["sub"])
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.platform_slug, ch.is_system, ch.bot_token, ch.handle
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2""",
+        channel_id, client_id,
+    )
+    if not ch:
+        raise HTTPException(status_code=404, detail="Канал не найден")
+    if ch["platform_slug"] != "telegram":
+        raise HTTPException(status_code=400, detail="Перезапуск доступен только для Telegram-ботов")
+    if ch["is_system"]:
+        raise HTTPException(status_code=403, detail="Системный бот — управляется администратором ПЛЮСОНа")
+    token = ch["bot_token"] or ""
+    if not token:
+        raise HTTPException(status_code=400, detail="У бота не задан токен")
+
+    # Кто держал бота до нас (для показа клиенту)
+    had_webhook, webhook_url = False, ""
+    try:
+        info = await _tg_call(token, "getWebhookInfo")
+        webhook_url = (info or {}).get("url") or ""
+        had_webhook = bool(webhook_url)
+    except Exception:
+        pass
+
+    await _ensure_polling_ready(token)   # deleteWebhook
+    await reload_bot_polling()
+
+    return {
+        "ok": True,
+        "had_webhook": had_webhook,
+        "webhook_url": webhook_url,
+        "bot_handle": ch["handle"] or "",
+    }
+
+
 # ─── POST /connect-vk-community ───────────────────────────────────────
 
 class ConnectVkCommunityRequest(BaseModel):

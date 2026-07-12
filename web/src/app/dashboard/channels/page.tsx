@@ -4,6 +4,7 @@ import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
   Upload, Download, FileText, HelpCircle, Sparkles, Loader2, ChevronDown, Smartphone,
+  RefreshCw,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
@@ -465,6 +466,41 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
 }) {
   const isTelegram = ch.platform_slug === 'telegram'
   const isSystem = !!ch.is_system
+  const [restarting, setRestarting] = useState(false)
+
+  // Бот молчит, хотя токен верный? Значит его перехватил сторонний конструктор
+  // (LeadConverter, Salebot, BotHelp…): он прописал себя webhook'ом, а Telegram
+  // отдаёт сообщения только одному получателю. Снимаем webhook — бот снова наш.
+  const restart = async () => {
+    if (restarting) return
+    if (!confirm(
+      'Перезапустить бота?\n\n' +
+      'Заберём управление ботом в ПЛЮСОН: если его перехватил другой сервис ' +
+      '(LeadConverter, Salebot, BotHelp и т.п.) — бот перестанет работать там ' +
+      'и снова начнёт отвечать здесь.'
+    )) return
+    setRestarting(true)
+    try {
+      const r: any = await api.channels.restartPolling(ch.id)
+      if (r?.had_webhook) {
+        let host = ''
+        try { host = new URL(r.webhook_url).hostname } catch { host = r.webhook_url }
+        alert(
+          `Готово — бот снова работает в ПЛЮСОНе.\n\n` +
+          `Его перехватывал сторонний сервис: ${host}\n\n` +
+          `Важно: если бот всё ещё подключён в том сервисе, он может перехватить его снова. ` +
+          `Отключите бота там, чтобы этого не повторилось.`
+        )
+      } else {
+        alert('Готово — бот перезапущен. Сторонних сервисов на нём не было.')
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось перезапустить бота')
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   return (
     <div className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-4 ${
       isSystem ? 'border-amber-100 bg-gradient-to-r from-amber-50/40 to-white' : 'border-gray-100'
@@ -532,6 +568,14 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
           ><HelpCircle size={16} /></button>
         ) : (
           <>
+            {isTelegram && (
+              <button
+                onClick={restart}
+                disabled={restarting}
+                className="p-2 hover:bg-blue-50 rounded-lg text-gray-500 hover:text-blue-600 disabled:opacity-50"
+                title="Бот не отвечает? Перезапустить и забрать управление в ПЛЮСОН"
+              >{restarting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}</button>
+            )}
             {isTelegram && (
               <button
                 onClick={onImport}

@@ -565,6 +565,9 @@ export const api = {
       request(`/api/v1/channels/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/channels/${id}`, { method: 'DELETE' }),
+    // Забрать бота у стороннего сервиса: deleteWebhook + перезапуск polling
+    restartPolling: (id: number) =>
+      request(`/api/v1/channels/${id}/restart-polling`, { method: 'POST' }),
     connectTelegramBot: (bot_token: string) =>
       request('/api/v1/channels/connect-telegram-bot', {
         method: 'POST',
