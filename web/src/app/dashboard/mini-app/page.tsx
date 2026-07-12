@@ -555,12 +555,12 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={3}
-            title="Биография"
+            title="Регалии"
             hint="Подробный текст для страницы «Об основателе». Если пусто — раздела на странице нет."
           >
             <textarea value={profile.bio || ''}
                       onChange={e => update('bio', e.target.value)}
-                      placeholder="Несколько абзацев о вас: опыт, проекты, история…"
+                      placeholder="Ваши регалии: достижения, титулы, опыт, проекты…"
                       className="input min-h-[160px] max-w-2xl block" />
           </Section>
 

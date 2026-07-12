@@ -361,8 +361,23 @@ async def update_tariff(
         if not row:
             raise HTTPException(status_code=404, detail="Тариф не найден")
 
-    # Пересинхронизация фич если передан feature_slugs
+    # Пересинхронизация фич если передан feature_slugs.
+    # ⚠️ ЗАЩИТА ОТ МОЛЧАЛИВОГО СНОСА (2026-07-12). Ниже идёт полный DELETE+INSERT,
+    # поэтому сохранение формы с ПУСТЫМ списком вырезает все фичи тарифа разом —
+    # у всех клиентов на нём пропадают разделы. Именно так с «Профи» слетели
+    # contests и export_contacts. Пустой список при непустом текущем наборе —
+    # почти всегда следствие того, что форма не догрузила фичи, а не намерение.
     if data.feature_slugs is not None:
+        if not data.feature_slugs:
+            has_now = await db.fetchval(
+                "SELECT COUNT(*) FROM tariff_features WHERE tariff_id = $1", tariff_id
+            )
+            if has_now:
+                raise HTTPException(
+                    status_code=400,
+                    detail=("Пустой список фич сотрёт все опции тарифа у всех клиентов. "
+                            "Если это правда нужно — снимите фичи по одной."),
+                )
         await db.execute("DELETE FROM tariff_features WHERE tariff_id = $1", tariff_id)
         if data.feature_slugs:
             await db.execute(

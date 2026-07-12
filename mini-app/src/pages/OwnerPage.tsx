@@ -150,7 +150,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
         </div>
       )}
 
-      {/* Биография */}
+      {/* Регалии (clients.bio) — выводятся текстом, без заголовка. */}
       {profile.bio && (
         <div style={{ marginBottom: 16 }}>
           <div style={{
