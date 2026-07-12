@@ -67,16 +67,37 @@ async def create_request(data: CollabRequestIn, client=Depends(get_current_clien
     return {"ok": True, "request_id": rid}
 
 
+# Организаторы коллабы (для запроса на присоединение третьим человеком):
+# кто уже в коллабе — список карточек, фронт рисует «уже в коллабе: Иванов, Петров»
+# + кнопка «О коллабе» (название события, описание, карточки организаторов).
+_COLLAB_INFO_SUBQ = """
+    (SELECT json_agg(json_build_object(
+              'client_id', o.client_id,
+              'name', c2.name,
+              'brand_name', c2.brand_name,
+              'photo_url', COALESCE(c2.owner_photo_url, c2.profile_photo_url))
+            ORDER BY (o.role='owner') DESC, o.id)
+       FROM event_owners o JOIN clients c2 ON c2.id=o.client_id
+      WHERE o.event_id = r.event_id AND o.status='accepted') AS collab_organizers
+"""
+
+
 @router.get("/requests")
 async def list_requests(direction: str = "incoming", client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    """direction=incoming (входящие мне) | outgoing (мои отправленные, в т.ч. серые)."""
+    """direction=incoming (входящие мне) | outgoing (мои отправленные, в т.ч. серые).
+
+    Если запрос на присоединение к УЖЕ СУЩЕСТВУЮЩЕЙ коллабе — отдаём название события,
+    описание и список организаторов, которые уже в ней (collab_organizers).
+    """
     me = int(client["sub"])
     if direction == "outgoing":
         rows = await db.fetch(
-            """SELECT r.id, r.to_client_id AS other_client_id, COALESCE(tc.brand_name,tc.name) AS other_name,
+            f"""SELECT r.id, r.to_client_id AS other_client_id, COALESCE(tc.brand_name,tc.name) AS other_name,
                       COALESCE(tc.owner_photo_url,tc.profile_photo_url) AS other_photo,
                       tc.is_published_in_hub AS other_published,
-                      tc.telegram_username AS other_tg, r.event_id, e.title AS event_title,
+                      tc.telegram_username AS other_tg, r.event_id,
+                      e.title AS event_title, e.description AS event_description,
+                      {_COLLAB_INFO_SUBQ},
                       r.status, r.message, r.created_at, r.responded_at, r.decline_reason
                  FROM hub_collab_requests r
                  LEFT JOIN clients tc ON tc.id=r.to_client_id
@@ -84,16 +105,26 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
                 WHERE r.from_client_id=$1 ORDER BY r.created_at DESC""", me)
     else:
         rows = await db.fetch(
-            """SELECT r.id, r.from_client_id AS other_client_id, COALESCE(fc.brand_name,fc.name) AS other_name,
+            f"""SELECT r.id, r.from_client_id AS other_client_id, COALESCE(fc.brand_name,fc.name) AS other_name,
                       COALESCE(fc.owner_photo_url,fc.profile_photo_url) AS other_photo,
                       fc.is_published_in_hub AS other_published,
-                      fc.telegram_username AS other_tg, r.event_id, e.title AS event_title,
+                      fc.telegram_username AS other_tg, r.event_id,
+                      e.title AS event_title, e.description AS event_description,
+                      {_COLLAB_INFO_SUBQ},
                       r.status, r.message, r.created_at, r.responded_at, r.decline_reason
                  FROM hub_collab_requests r
                  LEFT JOIN clients fc ON fc.id=r.from_client_id
                  LEFT JOIN events e ON e.id=r.event_id
                 WHERE r.to_client_id=$1 ORDER BY r.created_at DESC""", me)
-    return {"requests": [dict(r) for r in rows], "direction": direction}
+    import json as _json
+    out = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d.get("collab_organizers"), str):
+            try: d["collab_organizers"] = _json.loads(d["collab_organizers"])
+            except Exception: d["collab_organizers"] = []
+        out.append(d)
+    return {"requests": out, "direction": direction}
 
 
 def _surname(name):
@@ -281,7 +312,8 @@ async def matchmaker(client=Depends(get_current_client), db: asyncpg.Connection 
     mine = await db.fetchrow("SELECT hub_niche, hub_city FROM clients WHERE id=$1", me)
     niche = mine["hub_niche"] if mine else None
     rows = await db.fetch(
-        """SELECT cl.id AS client_id, COALESCE(cl.brand_name,cl.name) AS name,
+        """SELECT cl.id AS client_id, cl.name AS name, cl.name AS owner_name, cl.brand_name,
+                  cl.hub_about, cl.bio, cl.owner_positioning, cl.positioning,
                   COALESCE(cl.owner_photo_url,cl.profile_photo_url) AS photo_url,
                   cl.hub_category, cl.hub_niche, cl.hub_city, cl.media_assets,
                   (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,
@@ -294,6 +326,8 @@ async def matchmaker(client=Depends(get_current_client), db: asyncpg.Connection 
     for r in rows:
         d = dict(r)
         d['media_tier'] = _media_tier_from(d.pop('media_assets', None))
+        # positioning: приоритет у позиционирования основателя (как в _client_card)
+        d['positioning'] = d.pop('owner_positioning', None) or d.pop('positioning', None)
         out.append(d)
     return {"my_niche": niche, "suggestions": out}
 

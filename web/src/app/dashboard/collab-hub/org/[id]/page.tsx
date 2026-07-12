@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Users, Star, Send, MapPin, ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock } from '../../_components/shared'
+import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock, useNicheTitles } from '../../_components/shared'
 
 export default function OrgProfilePage() {
   const params = useParams()
@@ -15,6 +15,8 @@ export default function OrgProfilePage() {
   const [myRating, setMyRating] = useState(0)
   const [myText, setMyText] = useState('')
   const [reviewSaved, setReviewSaved] = useState(false)
+  // ⚠️ Хук ВЫШЕ early-return (React #310) — ниши для подписи в шапке профиля.
+  const nicheTitles = useNicheTitles()
 
   const load = async () => {
     try { const r: any = await api.collabHub.profile(id); setData(r); if (r.my_review) { setMyRating(r.my_review.rating); setMyText(r.my_review.text || '') } }
@@ -47,15 +49,27 @@ export default function OrgProfilePage() {
             ? <img src={c.photo_url} alt="" onClick={() => setLightbox(true)} className="w-28 h-28 rounded-2xl object-cover cursor-zoom-in hover:opacity-90" />
             : <div className="w-28 h-28 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-10 h-10" /></div>}
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold" style={{ color: DARK }}>{c.name}</h1>
+            {/* Имя ОСНОВАТЕЛЯ; название проекта — отдельной строкой */}
+            <h1 className="text-2xl font-bold" style={{ color: DARK }}>{c.owner_name || c.name}</h1>
+            {c.brand_name && c.brand_name !== (c.owner_name || c.name) &&
+              <p className="text-gray-600 mt-0.5">Проект: <span className="font-medium">{c.brand_name}</span></p>}
             {c.positioning && <p className="text-gray-500 mt-1">{c.positioning}</p>}
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="flex flex-wrap gap-2 mt-2 items-center">
               {c.hub_category && <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[c.hub_category] || c.hub_category}</span>}
+              {c.hub_niche && <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{nicheTitles[c.hub_niche] || c.hub_niche}</span>}
               <MediaTierBadge tier={c.media_tier} />
               {c.hub_city && <span className="text-xs text-gray-500 inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{c.hub_city}</span>}
             </div>
           </div>
         </div>
+
+        {/* «Что предлагает партнёрам» — НАД регалиями, персиковым */}
+        {c.hub_about && (
+          <div className="mt-5 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+            <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
+            <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_about}</p>
+          </div>
+        )}
 
         {/* Регалии — каждая с новой строки (режем по \n, не по маркеру). */}
         {c.bio && <BioBlock bio={c.bio} open className="mt-5" />}

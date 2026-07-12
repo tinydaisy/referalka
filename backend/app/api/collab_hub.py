@@ -63,13 +63,18 @@ def _parse_json(v, default):
 
 
 def _client_card(row) -> dict:
-    """Собирает карточку организатора из строки clients."""
+    """Собирает карточку организатора из строки clients.
+
+    ⚠️ name (заголовок карточки) = ИМЯ ОСНОВАТЕЛЯ (clients.name) — человек, а не бренд.
+    Название проекта отдаём отдельно (brand_name) — фронт рисует строкой «Проект: …».
+    Раньше name = brand_name || name, из-за чего имя основателя терялось.
+    """
     d = dict(row)
     ma = _parse_json(d.get('media_assets'), [])
-    name = d.get('brand_name') or d.get('name')
     return {
         'client_id': d.get('id'),
-        'name': name,
+        'name': d.get('name') or d.get('brand_name'),
+        'owner_name': d.get('name'),
         'brand_name': d.get('brand_name'),
         'photo_url': d.get('owner_photo_url') or d.get('profile_photo_url'),
         'bio': d.get('bio'),
@@ -161,7 +166,9 @@ async def catalog(
     if city:
         args.append(f"%{city}%"); where.append(f"cl.hub_city ILIKE ${len(args)}")
     if q:
-        args.append(f"%{q}%"); where.append(f"(COALESCE(cl.brand_name,cl.name) ILIKE ${len(args)} OR cl.hub_about ILIKE ${len(args)})")
+        # Ищем и по имени основателя, и по названию проекта (бренду), и по «что предлагает».
+        args.append(f"%{q}%")
+        where.append(f"(cl.name ILIKE ${len(args)} OR cl.brand_name ILIKE ${len(args)} OR cl.hub_about ILIKE ${len(args)})")
     sql = f"""
         SELECT {_CLIENT_COLS},
                (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,

@@ -65,16 +65,44 @@ export function BioBlock({ bio, open, className = '' }: { bio: string; open: boo
   )
 }
 
+/** Справочник ниш slug→title. Грузится один раз на модуль — карточке не нужно
+ *  прокидывать ниши пропсами через каждый список (каталог, сват, запросы). */
+let _nichesCache: Record<string, string> | null = null
+let _nichesPromise: Promise<Record<string, string>> | null = null
+export function useNicheTitles(): Record<string, string> {
+  const [map, setMap] = useState<Record<string, string>>(_nichesCache || {})
+  useEffect(() => {
+    if (_nichesCache) { setMap(_nichesCache); return }
+    if (!_nichesPromise) {
+      _nichesPromise = api.collabHub.niches()
+        .then((r: any) => {
+          _nichesCache = Object.fromEntries((r.niches || []).map((n: any) => [n.slug, n.title]))
+          return _nichesCache!
+        })
+        .catch(() => ({}))
+    }
+    _nichesPromise.then(setMap)
+  }, [])
+  return map
+}
+
 export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => void }) {
   const isMe = item.is_me
   const hadCollabs = (item.collabs_count || 0) > 0
   const contribution = hadCollabs && item.avg_contribution != null ? `${item.avg_contribution}%` : '—'
   const achievements: any[] = Array.isArray(item.achievements) ? item.achievements : []
   const [bioOpen, setBioOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
   const [lightbox, setLightbox] = useState(false)
+  const niches = useNicheTitles()
   const bio = item.bio || ''
   // «Подробнее» — когда регалий больше, чем показываем свёрнутыми (2 строки).
   const bioLong = bioLines(bio).length > 2
+  // Заголовок карточки — ИМЯ ОСНОВАТЕЛЯ; название проекта — отдельной строкой.
+  const ownerName = item.owner_name || item.name
+  const project = item.brand_name && item.brand_name !== ownerName ? item.brand_name : null
+  const about = item.hub_about || ''
+  const aboutLong = about.length > 90
   return (
     <div className={`rounded-2xl p-4 transition flex flex-col ${isMe ? 'border-2' : 'border bg-white hover:shadow-md'}`}
          style={isMe ? { borderColor: PEACH, background: '#FFF8F1' } : {}}>
@@ -87,16 +115,31 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
         <div className="flex-1 min-w-0">
-          <div className="font-semibold" style={{ color: DARK }}>{item.name}</div>
+          {/* Имя ОСНОВАТЕЛЯ — заголовок; название проекта — отдельной строкой. */}
+          <div className="font-semibold" style={{ color: DARK }}>{ownerName}</div>
+          {project && <div className="text-xs text-gray-600">Проект: <span className="font-medium">{project}</span></div>}
           {/* позиционирование — полностью, без обрезки */}
-          {item.positioning && <div className="text-xs text-gray-500">{item.positioning}</div>}
+          {item.positioning && <div className="text-xs text-gray-500 mt-0.5">{item.positioning}</div>}
           <div className="flex flex-wrap gap-1 mt-1">
             {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
+            {/* Ниша — раньше не показывалась в карточке вообще */}
+            {item.hub_niche && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[item.hub_niche] || item.hub_niche}</span>}
             <MediaTierBadge tier={item.media_tier} />
           </div>
         </div>
       </div>
-      {item.hub_about && <p className="text-sm text-gray-600 mt-3">{item.hub_about}</p>}
+      {/* «Что предлагаете партнёрам» — НАД регалиями, персиковым, разворачиваемо */}
+      {about && (
+        <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+          <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
+          <p className={`text-sm whitespace-pre-wrap ${aboutOpen ? '' : 'line-clamp-2'}`} style={{ color: '#C77B3B' }}>{about}</p>
+          {aboutLong && (
+            <button onClick={() => setAboutOpen(!aboutOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+              {aboutOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
+            </button>
+          )}
+        </div>
+      )}
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»). */}
       {bio && (
         <div className="mt-2">
@@ -242,6 +285,7 @@ export function RequestsView() {
   useEffect(() => { load() }, [dir])
   const [busy, setBusy] = useState<number | null>(null)   // только для accept (долгое создание коллабы)
   const [declineId, setDeclineId] = useState<number | null>(null)  // открыта модалка причины отклонения
+  const [aboutCollab, setAboutCollab] = useState<any | null>(null) // модалка «О коллабе»
   const accept = async (id: number) => {
     setBusy(id)
     try { await api.collabHub.respondRequest(id, true); await load() }
@@ -278,7 +322,15 @@ export function RequestsView() {
                 <span className="font-medium" style={{ color: DARK }}>{r.other_name}</span>
                 <span className="text-xs text-gray-400">{fmtDate(r.created_at)}</span>
               </div>
-              {r.event_title && <div className="text-xs text-gray-500">Коллаба: {r.event_title}</div>}
+              {/* Присоединение к УЖЕ СУЩЕСТВУЮЩЕЙ коллабе — название события + кто уже внутри */}
+              {r.event_title && (
+                <div className="text-xs text-gray-600 mt-0.5">
+                  Коллаба: <span className="font-medium" style={{ color: DARK }}>{r.event_title}</span>
+                  {Array.isArray(r.collab_organizers) && r.collab_organizers.length > 0 && (
+                    <span className="text-gray-500"> · уже в коллабе: {r.collab_organizers.map((o: any) => o.name).join(', ')}</span>
+                  )}
+                </div>
+              )}
               {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
               {/* Причина отклонения — видна обеим сторонам */}
               {r.status === 'declined' && (
@@ -291,6 +343,12 @@ export function RequestsView() {
                 {chip(r.status)}
                 {r.status === 'accepted' && r.event_id && <a href={`/dashboard/events/${r.event_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1" style={{ color: '#C77B3B', borderColor: PEACH }}>Перейти в коллабу →</a>}
                 <a href={`/dashboard/collab-hub/org/${r.other_client_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:bg-gray-50"><ExternalLink className="w-3 h-3" />Профиль</a>
+                {/* Запрос на присоединение к существующей коллабе — подробности о ней */}
+                {r.event_id && r.event_title && (
+                  <button onClick={() => setAboutCollab(r)} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:bg-gray-50" style={{ borderColor: PEACH, color: '#C77B3B' }}>
+                    <Calendar className="w-3 h-3" />О коллабе
+                  </button>
+                )}
                 {r.other_tg && <a href={`https://t.me/${(r.other_tg||'').replace('@','')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600"><Send className="w-3 h-3" />Написать в Telegram</a>}
               </div>
             </div>
@@ -298,8 +356,10 @@ export function RequestsView() {
               {dir === 'incoming' && r.status === 'pending' && (busy === r.id
                 ? <span className="text-xs text-gray-500 px-2">Создаём коллабу…</span>
                 : <>
-                  <button onClick={() => accept(r.id)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
-                  <button onClick={() => setDeclineId(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
+                  <button onClick={() => accept(r.id)} className="text-sm px-3.5 py-1.5 rounded-xl text-white font-medium inline-flex items-center gap-1.5 whitespace-nowrap" style={{ background: '#16a34a' }}>
+                    <Check className="w-4 h-4" />Принять приглашение
+                  </button>
+                  <button onClick={() => setDeclineId(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500" title="Отклонить"><X className="w-4 h-4" /></button>
                 </>)}
               {dir === 'incoming' && r.status === 'declined' && <button onClick={() => accept(r.id)} className="text-xs px-3 py-1.5 rounded-xl border" style={{ color: '#16a34a', borderColor: '#16a34a' }}>Передумать — принять</button>}
               {dir === 'incoming' && r.status === 'accepted' && <button onClick={() => reconsider(r.id)} className="text-xs px-3 py-1.5 rounded-xl border text-gray-500" title="Выйти и вернуть в «ждёт ответа»">Передумать</button>}
@@ -308,6 +368,53 @@ export function RequestsView() {
           </div>
         ))}</div>}
       {declineId !== null && <DeclineModal onClose={() => setDeclineId(null)} onSubmit={(reason) => doDecline(declineId, reason)} />}
+      {aboutCollab && <AboutCollabModal req={aboutCollab} onClose={() => setAboutCollab(null)} />}
+    </div>
+  )
+}
+
+/** «О коллабе» — название события, описание и карточки организаторов, которые уже внутри. */
+function AboutCollabModal({ req, onClose }: { req: any; onClose: () => void }) {
+  const orgs: any[] = Array.isArray(req.collab_organizers) ? req.collab_organizers : []
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-start mb-3 gap-3">
+          <div>
+            <h3 className="font-bold text-lg" style={{ color: DARK }}>{req.event_title}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Совместное событие</p>
+          </div>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        {req.event_description
+          ? <p className="text-sm text-gray-600 whitespace-pre-wrap mb-4">{req.event_description}</p>
+          : <p className="text-sm text-gray-400 mb-4">Описание пока не заполнено.</p>}
+        <div className="text-sm font-medium text-gray-500 mb-2">
+          Кто уже в коллабе {orgs.length > 0 && <span className="text-gray-400">({orgs.length})</span>}
+        </div>
+        {orgs.length === 0 ? (
+          <p className="text-sm text-gray-400">Организаторы не найдены.</p>
+        ) : (
+          <div className="space-y-2">
+            {orgs.map(o => (
+              <div key={o.client_id} className="flex items-center gap-3 border rounded-xl p-2.5">
+                {o.photo_url
+                  ? <img src={o.photo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                  : <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-4 h-4" /></div>}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate" style={{ color: DARK }}>{o.name}</div>
+                  {o.brand_name && o.brand_name !== o.name && <div className="text-xs text-gray-500 truncate">Проект: {o.brand_name}</div>}
+                </div>
+                <a href={`/dashboard/collab-hub/org/${o.client_id}`} target="_blank" rel="noreferrer"
+                   className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:bg-gray-50 shrink-0">
+                  <ExternalLink className="w-3 h-3" />Профиль
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+        <button onClick={onClose} className="mt-5 w-full py-2.5 rounded-xl text-white font-medium" style={{ background: DARK }}>Закрыть</button>
+      </div>
     </div>
   )
 }
@@ -419,11 +526,25 @@ export function MyCardView() {
             {card.photo_url ? <img src={card.photo_url} alt="" className="w-20 h-20 rounded-2xl object-cover" />
               : <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-8 h-8" /></div>}
             <div className="min-w-0">
-              <div className="font-bold text-lg" style={{ color: DARK }}>{card.name || '—'}</div>
-              {card.positioning && <div className="text-sm text-gray-500">{card.positioning}</div>}
-              <div className="mt-1"><MediaTierBadge tier={card.media_tier} /></div>
+              {/* Имя ОСНОВАТЕЛЯ; название проекта — отдельной строкой */}
+              <div className="font-bold text-lg" style={{ color: DARK }}>{card.owner_name || card.name || '—'}</div>
+              {card.brand_name && card.brand_name !== (card.owner_name || card.name) &&
+                <div className="text-sm text-gray-600">Проект: <span className="font-medium">{card.brand_name}</span></div>}
+              {card.positioning && <div className="text-sm text-gray-500 mt-0.5">{card.positioning}</div>}
+              <div className="flex flex-wrap gap-1 mt-1 items-center">
+                {form.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[form.hub_category] || form.hub_category}</span>}
+                {form.hub_niche && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches.find(n => n.slug === form.hub_niche)?.title || form.hub_niche}</span>}
+                <MediaTierBadge tier={card.media_tier} />
+              </div>
             </div>
           </div>
+          {/* «Что предлагаете партнёрам» — НАД регалиями, персиковым (живое превью из формы) */}
+          {form.hub_about && (
+            <div className="mt-4 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+              <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
+              <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{form.hub_about}</p>
+            </div>
+          )}
           {/* Регалии — каждая с новой строки (как введены в профиле Основателя). */}
           {card.bio && <BioBlock bio={card.bio} open className="mt-4" />}
           {achievements.length > 0 && (
