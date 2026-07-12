@@ -29,6 +29,10 @@ interface Props {
   noLanding?: boolean        // флаг `_nolend` в startapp — не показывать сторонний лендинг, регать через внутренний
   initialTab?: string        // флаг `_tabXXX` в startapp — открыть на конкретной вкладке (game, raffle, ...)
   speakerEcId?: number        // `_spk{ec_id}` — открыть вкладку «Спикеры» и подсветить карточку
+  // Клиент, ЧЕЙ БОТ открыл это Mini App (из `/c/{N}/tg/` или `_cid{N}`).
+  // ⚠️ В КОЛЛАБЕ он ≠ владельцу события: у каждого организатора свой бот. Именно
+  // его бренд и его политику показываем в согласиях 152-ФЗ.
+  botClientId?: number | null
   onBack: () => void
   onOpenEvent?: (slug: string) => void  // открыть другое событие (для блока «А дальше» в Итогах)
 }
@@ -86,7 +90,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, speakerEcId, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, speakerEcId, botClientId, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -670,6 +674,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
           partnerId={partnerId}
           utmSource={utmSource}
           contactId={contactId}
+          botClientId={botClientId}
           onClose={() => setShowReg(false)}
           onDone={handleRegistered}
         />

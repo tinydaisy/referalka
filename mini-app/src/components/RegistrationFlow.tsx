@@ -7,11 +7,13 @@ interface Props {
   partnerId?: string
   utmSource?: string
   contactId?: number
+  // Клиент, ЧЕЙ БОТ открыл Mini App. В коллабе ≠ владельцу события.
+  botClientId?: number | null
   onClose: () => void
   onDone: (participant: any) => void
 }
 
-export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, contactId, onClose, onDone }: Props) {
+export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, contactId, botClientId, onClose, onDone }: Props) {
   const [step, setStep] = useState<1 | 2>(1)
   const [name,  setName]  = useState(tgUser?.first_name ? `${tgUser.first_name}${tgUser.last_name ? ' ' + tgUser.last_name : ''}` : '')
   const [email, setEmail] = useState('')
@@ -24,14 +26,18 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
   function isValidEmail(s: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) }
   function isValidPhone(s: string) { return s.replace(/\D/g, '').length >= 10 }
 
-  // Организаторы, которым участник отдаёт данные. В коллаб-событии их несколько
-  // (event.collab_owners с бэка), в обычном — один (владелец события).
-  const organizers: { client_id: number; name: string; has_policy?: boolean }[] =
-    (event?.collab_owners?.length ? event.collab_owners : (
-      event?.client_id
-        ? [{ client_id: event.client_id, name: event.client_brand_name || event.client_name || 'организатора' }]
-        : []
-    ))
+  // ⚠️ ЧЕЙ БОТ — ТОГО И БРЕНД, ТОГО И ПОЛИТИКА.
+  // Человек пришёл через бота конкретного организатора (botClientId из `/c/{N}/tg/`),
+  // в его базу и попадают данные — значит показываем ЕГО бренд и ссылку на ЕГО политику.
+  // В обычном событии организатор один (владелец), и botClientId совпадает с ним.
+  const owners: { client_id: number; name: string }[] = event?.collab_owners || []
+  const fromBot = botClientId ? owners.find(o => o.client_id === botClientId) : undefined
+  const organizer: { client_id: number; name: string } | undefined =
+    fromBot
+    || (botClientId ? { client_id: botClientId, name: event?.client_brand_name || event?.client_name || 'организатора' } : undefined)
+    || (event?.client_id
+        ? { client_id: event.client_id, name: event.client_brand_name || event.client_name || 'организатора' }
+        : undefined)
 
   function next() {
     if (!name.trim())  { setError('Укажите имя'); return }
@@ -135,50 +141,23 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
                 <input type="checkbox" checked={consentPd} onChange={e => setConsentPd(e.target.checked)}
                        style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
                 <span>
-                  {/* ⚠️ В коллаб-событии организаторов НЕСКОЛЬКО и они равноправны: данные
-                      участника попадают в базу КАЖДОГО. Значит и политика должна вести на
-                      политику КАЖДОГО организатора, а не только владельца события. */}
-                  {organizers.length > 1 ? (
-                    <>
-                      Я согласен на обработку моих персональных данных организаторами события. С
-                      {' '}Политиками обработки персональных данных{' '}
-                      {organizers.map((org, i) => (
-                        <span key={org.client_id}>
-                          {i > 0 && (i === organizers.length - 1 ? ' и ' : ', ')}
-                          {/* Политика не опубликована → просто имя, без ссылки в пустоту. */}
-                          {org.has_policy === false ? org.name : (
-                            <a href={`https://pluson.ru/c/${org.client_id}/privacy`} target="_blank" rel="noreferrer"
-                               style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
-                              {org.name}
-                            </a>
-                          )}
-                        </span>
-                      ))}
-                      {' '}ознакомлен.
-                    </>
-                  ) : (
-                    <>
-                      Я согласен на обработку моих персональных данных. С{' '}
-                      {organizers[0] ? (
-                        <a href={`https://pluson.ru/c/${organizers[0].client_id}/privacy`} target="_blank" rel="noreferrer"
-                           style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
-                          Политикой обработки персональных данных
-                        </a>
-                      ) : 'Политикой обработки персональных данных'} ознакомлен.
-                    </>
-                  )}
+                  {/* Политика — ТОГО организатора, чей бот (в его базу идут данные). */}
+                  Я согласен на обработку моих персональных данных. С{' '}
+                  {organizer ? (
+                    <a href={`https://pluson.ru/c/${organizer.client_id}/privacy`} target="_blank" rel="noreferrer"
+                       style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
+                      Политикой обработки персональных данных
+                    </a>
+                  ) : 'Политикой обработки персональных данных'} ознакомлен.
                 </span>
               </label>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)' }}>
                 <input type="checkbox" checked={consentMkt} onChange={e => setConsentMkt(e.target.checked)}
                        style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
                 <span>
-                  {/* Рассылки в коллабе шлёт КАЖДЫЙ организатор по своей базе (свой бот) —
-                      значит и согласие даётся всем перечисленным, а не одному владельцу. */}
+                  {/* Рассылки шлёт тот, чей бот: его база — его рассылки. */}
                   Я согласен на получение информационных и маркетинговых рассылок от{' '}
-                  {organizers.length
-                    ? organizers.map(o => o.name).join(organizers.length > 2 ? ', ' : ' и ')
-                    : 'организатора'}.
+                  {organizer?.name || 'организатора'}.
                   Вы в любой момент можете отказаться от получения писем.
                 </span>
               </label>

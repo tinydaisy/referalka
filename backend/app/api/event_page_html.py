@@ -2252,26 +2252,10 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         poster_html = (f'<div class="poster" style="background:center/cover '
                        f'url(\'{esc(poster_url)}\')"></div>')
 
-    # Ссылка на политику (как в RegistrationFlow).
-    # ⚠️ В коллаб-событии организаторов НЕСКОЛЬКО — данные участника попадают в базу
-    # КАЖДОГО, поэтому перечисляем политику каждого, а не только владельца события.
-    _owners = event.get("collab_owners") or []
-    # Кому даётся согласие на рассылки: в коллабе их шлёт КАЖДЫЙ организатор по
-    # своей базе через своего бота, значит перечисляем всех. `brand` не трогаем —
-    # он же используется в шапке страницы.
+    # Ссылка на политику. ⚠️ Чей бот — того и политика: в коллабе client_id уже
+    # подменён на организатора, через которого пришёл человек (см. event_register_page).
     mkt_to = brand
-    if len(_owners) > 1:
-        _links = [
-            (f'<a href="https://pluson.ru/c/{int(o["client_id"])}/privacy" '
-             f'target="_blank" rel="noopener">{esc(o["name"])}</a>')
-            if o.get("has_policy") else esc(o["name"])
-            for o in _owners
-        ]
-        pd_link = "Политиками обработки персональных данных " + (
-            ", ".join(_links[:-1]) + " и " + _links[-1])
-        mkt_to = (", ".join(esc(o["name"]) for o in _owners[:-1])
-                  + " и " + esc(_owners[-1]["name"]))
-    elif client_id:
+    if client_id:
         pd_link = (f'<a href="https://pluson.ru/c/{int(client_id)}/privacy" '
                    f'target="_blank" rel="noopener">Политикой обработки '
                    f'персональных данных</a>')
@@ -2557,27 +2541,23 @@ async def event_register_page(slug: str, c: str = "",
             # ?c=… указывает на несуществующий/чужой контакт — как будто его нет.
             prefill = None
 
+    # ⚠️ КОЛЛАБ: чей бот — того и бренд, того и политика. Организаторов несколько, но
+    # человек пришёл через ОДНОГО (по его реф-ссылке) и в ЕГО базу попадут данные.
+    # Определяем его по контакту (тот же резолвер, что в рассылках) и подменяем
+    # клиента-оператора ДО загрузки бренда. Вне коллабы — владелец события.
+    ev = dict(ev)
+    if ev.get("is_collab") and contact_id:
+        try:
+            from app.services.collab_referrer import resolve_source_organizer
+            src_cid = await resolve_source_organizer(db, ev["id"], contact_id)
+            if src_cid:
+                ev["client_id"] = src_cid
+        except Exception:
+            pass
+
     # ВЕТКА 3: contact_id нет (или невалиден) → форма с email-проверкой.
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
     poster_url = await _load_event_poster(db, ev["id"])
-
-    # ⚠️ В коллаб-событии организаторов НЕСКОЛЬКО и они равноправны: данные участника
-    # попадают в базу КАЖДОГО. Значит и «Политика обработки персональных данных», и
-    # согласие на рассылки должны перечислять ВСЕХ, а не только владельца (ev.client_id).
-    ev = dict(ev)
-    ev["collab_owners"] = [
-        dict(o) for o in await db.fetch(
-            """SELECT c.id AS client_id,
-                      COALESCE(NULLIF(c.brand_name, ''), c.name) AS name,
-                      (c.privacy_policy_published_at IS NOT NULL
-                       AND COALESCE(c.privacy_policy_text, '') <> '') AS has_policy
-                 FROM event_owners eo
-                 JOIN clients c ON c.id = eo.client_id
-                WHERE eo.event_id = $1 AND eo.status = 'accepted'
-                ORDER BY (eo.role = 'owner') DESC, eo.id""",
-            ev["id"],
-        )
-    ] if ev.get("is_collab") else []
 
     html_str = render_register_page(ev, client, poster_url, prefill=prefill)
     return HTMLResponse(

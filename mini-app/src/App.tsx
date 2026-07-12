@@ -700,6 +700,7 @@ export default function App() {
           noLanding={noLanding}
           initialTab={initialTab}
           speakerEcId={speakerEcId}
+          botClientId={clientId}
           onBack={backToHub}
           onOpenEvent={openEvent}
         />
