@@ -965,7 +965,7 @@ async def update_my_profile(
         """Нельзя включить Mini App в Telegram, если приложение к боту не привязано:
         ссылка `?startapp=` тогда ничего не открывает, а бот в этом режиме молчит."""
         from app.services.share_links import telegram_mini_app_status
-        st = await telegram_mini_app_status(db, client_id)
+        st = await telegram_mini_app_status(db, int(client["sub"]))
         if st["has_mini_app"] is False:
             raise HTTPException(status_code=400, detail=st["reason"])
 
