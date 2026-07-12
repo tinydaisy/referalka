@@ -553,18 +553,43 @@ async def my_collabs(client=Depends(get_current_client), db: asyncpg.Connection 
 # ═══════════════════════════════════════════════════════════════
 @router.post("/events/{event_id}/leave")
 async def leave_collab(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    """Отозвать согласие / выйти из коллабы. Owner (создатель) выйти не может — он распускает коллабу удалением события."""
+    """Выйти из коллабы. Организаторы РАВНОПРАВНЫ — выйти может любой, включая создателя.
+
+    ⚠️ `role='owner'` — не «главный», а технический маркер: по всему коду клиент события
+    резолвится как `ORDER BY (role='owner') DESC` (лендинг, статистика, fallback'ы).
+    Поэтому при выходе владельца роль ПЕРЕДАЁТСЯ следующему организатору — событие не
+    должно остаться без owner'а. Последний организатор выйти не может: событие осталось
+    бы вообще без владельца (его нужно удалять, а не покидать).
+    """
     me = int(client["sub"])
-    row = await db.fetchrow("SELECT role FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, me)
+    row = await db.fetchrow(
+        "SELECT role FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'",
+        event_id, me)
     if not row:
         raise HTTPException(404, "Вы не участник этой коллабы")
-    if row["role"] == 'owner':
-        raise HTTPException(403, "Вы создатель коллабы — чтобы распустить, удалите событие. Выйти может только присоединившийся.")
-    await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2", event_id, me)
-    # если остался 1 владелец — событие перестаёт быть коллабой
-    cnt = await db.fetchval("SELECT count(*) FROM event_owners WHERE event_id=$1 AND status='accepted'", event_id)
-    if (cnt or 0) <= 1:
-        await db.execute("UPDATE events SET is_collab=FALSE WHERE id=$1", event_id)
+
+    others = await db.fetch(
+        """SELECT client_id FROM event_owners
+            WHERE event_id=$1 AND client_id<>$2 AND status='accepted'
+            ORDER BY id""",
+        event_id, me)
+    if not others:
+        raise HTTPException(
+            403,
+            "Вы единственный организатор — покинуть событие нельзя, иначе оно останется "
+            "без владельца. Удалите событие, если оно больше не нужно.",
+        )
+
+    async with db.transaction():
+        await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2", event_id, me)
+        # Владелец ушёл → передаём маркер owner следующему организатору.
+        if row["role"] == 'owner':
+            await db.execute(
+                "UPDATE event_owners SET role='owner' WHERE event_id=$1 AND client_id=$2",
+                event_id, others[0]["client_id"])
+        # Остался один организатор — событие перестаёт быть коллабой.
+        if len(others) <= 1:
+            await db.execute("UPDATE events SET is_collab=FALSE WHERE id=$1", event_id)
     return {"ok": True}
 
 
