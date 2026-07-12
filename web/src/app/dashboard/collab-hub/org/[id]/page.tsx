@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Users, Star, Send, MapPin, ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox } from '../../_components/shared'
+import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock } from '../../_components/shared'
 
 export default function OrgProfilePage() {
   const params = useParams()
@@ -57,13 +57,8 @@ export default function OrgProfilePage() {
           </div>
         </div>
 
-        {c.bio && (c.bio.includes('•')
-          ? <ul className="text-gray-600 mt-5 space-y-1.5 list-none">
-              {c.bio.split('•').map((s: string) => s.trim()).filter(Boolean).map((line: string, i: number) => (
-                <li key={i} className="flex gap-2"><span style={{ color: PEACH }}>•</span><span>{line}</span></li>
-              ))}
-            </ul>
-          : <p className="text-gray-600 mt-5 whitespace-pre-wrap">{c.bio}</p>)}
+        {/* Регалии — каждая с новой строки (режем по \n, не по маркеру). */}
+        {c.bio && <BioBlock bio={c.bio} open className="mt-5" />}
 
         {achievements.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-5">

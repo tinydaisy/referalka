@@ -37,6 +37,34 @@ export function MediaTierBadge({ tier }: { tier?: string }) {
   return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"><Users className="w-3 h-3" /> {TIERS[tier] || tier}</span>
 }
 
+/** Био/регалии основателя = СПИСОК СТРОК. В профиле каждая регалия введена с новой
+ *  строки (часто с ведущим «•»). Режем строго по переносам строк, ведущий маркер
+ *  срезаем — «•» ВНУТРИ строки («7 конференций • 50+ лидеров») остаётся текстом.
+ *  Раньше резали по «•» и игнорировали \n → всё слипалось в кучу. */
+export function bioLines(bio: string): string[] {
+  return (bio || '')
+    .split(/\r?\n/)
+    .map(s => s.replace(/^\s*[•·‣\-–—*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+/** Био списком: свёрнуто — первые 2 строки, развёрнуто — все. */
+export function BioBlock({ bio, open, className = '' }: { bio: string; open: boolean; className?: string }) {
+  const lines = bioLines(bio)
+  if (lines.length === 0) return null
+  const shown = open ? lines : lines.slice(0, 2)
+  return (
+    <ul className={`text-sm text-gray-500 space-y-1 list-none ${className}`}>
+      {shown.map((line, i) => (
+        <li key={i} className="flex gap-1.5">
+          <span style={{ color: PEACH }} className="shrink-0">•</span>
+          <span className={open ? '' : 'line-clamp-2'}>{line}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => void }) {
   const isMe = item.is_me
   const hadCollabs = (item.collabs_count || 0) > 0
@@ -45,7 +73,8 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
   const [bioOpen, setBioOpen] = useState(false)
   const [lightbox, setLightbox] = useState(false)
   const bio = item.bio || ''
-  const bioLong = bio.length > 120
+  // «Подробнее» — когда регалий больше, чем показываем свёрнутыми (2 строки).
+  const bioLong = bioLines(bio).length > 2
   return (
     <div className={`rounded-2xl p-4 transition flex flex-col ${isMe ? 'border-2' : 'border bg-white hover:shadow-md'}`}
          style={isMe ? { borderColor: PEACH, background: '#FFF8F1' } : {}}>
@@ -68,20 +97,10 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         </div>
       </div>
       {item.hub_about && <p className="text-sm text-gray-600 mt-3">{item.hub_about}</p>}
-      {/* Био — разворачиваемое. Если внутри есть «•» — рендерим списком с маркерами по строке. */}
+      {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»). */}
       {bio && (
         <div className="mt-2">
-          {bio.includes('•') ? (
-            bioOpen ? (
-              <ul className="text-sm text-gray-500 space-y-1 list-none">
-                {bio.split('•').map((s: string) => s.trim()).filter(Boolean).map((line: string, i: number) => (
-                  <li key={i} className="flex gap-1.5"><span style={{ color: PEACH }}>•</span><span>{line}</span></li>
-                ))}
-              </ul>
-            ) : <p className="text-sm text-gray-500 line-clamp-2">{bio.replace(/•/g, '·')}</p>
-          ) : (
-            <p className={`text-sm text-gray-500 ${bioOpen ? '' : 'line-clamp-2'}`}>{bio}</p>
-          )}
+          <BioBlock bio={bio} open={bioOpen} />
           {bioLong && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
             {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
           </button>}
@@ -405,7 +424,8 @@ export function MyCardView() {
               <div className="mt-1"><MediaTierBadge tier={card.media_tier} /></div>
             </div>
           </div>
-          {card.bio && <p className="text-sm text-gray-600 mt-4 line-clamp-3">{card.bio}</p>}
+          {/* Регалии — каждая с новой строки (как введены в профиле Основателя). */}
+          {card.bio && <BioBlock bio={card.bio} open className="mt-4" />}
           {achievements.length > 0 && (
             <div className="grid grid-cols-3 gap-2 mt-4">
               {achievements.slice(0, 3).map((a: any, i: number) => (
