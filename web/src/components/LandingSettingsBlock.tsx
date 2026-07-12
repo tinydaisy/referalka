@@ -1,15 +1,17 @@
 'use client'
+import { useState, useEffect } from 'react'
 import { Globe, Layout } from 'lucide-react'
 
 /**
  * Единая секция «Настройки страницы регистрации».
- * Один переключатель: ВНУТРЕННИЙ лендинг (от ПЛЮСОНа) или СТОРОННИЙ (Tilda/GetCourse/…).
+ * Переключатель: ВНУТРЕННИЙ лендинг (от ПЛЮСОНа) или СТОРОННИЙ (Tilda/GetCourse/…).
  *
  *  • Внутренний  → «Описание для лендинга» + «Текст кнопки» + «Регистрировать без контактных данных»
  *  • Сторонний   → только URL внешнего лендинга
  *
- * Режим определяется наличием landing_url (заполнен → сторонний). Переключение
- * на «внутренний» очищает URL — иначе Mini App продолжит открывать чужую страницу.
+ * Режим — локальный state (обе плитки КЛИКАБЕЛЬНЫ). Инициализируется по landing_url:
+ * заполнен → сторонний. Выбор «внутренний» очищает URL (иначе Mini App продолжит
+ * открывать чужую страницу). Поле URL видно ТОЛЬКО в режиме «сторонний».
  *
  * ⚠️ У КОЛЛАБ-события стороннего лендинга нет (allowExternal=false) — только внутренний.
  *
@@ -33,7 +35,22 @@ export default function LandingSettingsBlock({
   /** false — только внутренний лендинг (коллаб-событие) */
   allowExternal?: boolean
 }) {
-  const isExternal = allowExternal && !!landingUrl.trim()
+  // Режим держим в state — иначе, стерев URL, нельзя было бы остаться в «стороннем»
+  // и напечатать новый адрес (поле исчезало бы на первом же символе).
+  const [mode, setMode] = useState<'internal' | 'external'>(
+    allowExternal && landingUrl.trim() ? 'external' : 'internal'
+  )
+  // Событие подгрузилось позже — синхронизируем режим один раз, когда пришёл URL.
+  useEffect(() => {
+    if (allowExternal && landingUrl.trim()) setMode('external')
+  }, [allowExternal, landingUrl])
+
+  const chooseInternal = () => {
+    setMode('internal')
+    if (landingUrl) onLandingUrl('')   // внутренний лендинг = стороннего URL нет
+  }
+
+  const isExternal = allowExternal && mode === 'external'
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
@@ -43,7 +60,7 @@ export default function LandingSettingsBlock({
         <div className="grid sm:grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => onLandingUrl('')}
+            onClick={chooseInternal}
             className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
               !isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
             }`}>
@@ -54,16 +71,18 @@ export default function LandingSettingsBlock({
             </div>
           </button>
 
-          <div
-            className={`flex items-start gap-3 p-3.5 rounded-xl border-2 transition-all ${
-              isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200'
+          <button
+            type="button"
+            onClick={() => setMode('external')}
+            className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
+              isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
             }`}>
             <Globe size={18} className={isExternal ? 'text-[#25455D] mt-0.5' : 'text-gray-400 mt-0.5'} />
             <div>
               <p className="text-sm font-medium text-gray-900">Сторонний лендинг</p>
               <p className="text-xs text-gray-400 mt-0.5">Ваша страница на Tilda, GetCourse, Taplink и т.п.</p>
             </div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -80,25 +99,12 @@ export default function LandingSettingsBlock({
           />
           <p className="text-xs text-gray-500 mt-2 leading-relaxed">
             Mini App будет открывать вашу страницу вместо встроенной. Чтобы вернуться к странице
-            от ПЛЮСОНа — очистите поле или выберите «Внутренний лендинг».
+            от ПЛЮСОНа — выберите «Внутренний лендинг» (адрес очистится).
           </p>
         </div>
       ) : (
         /* ── ВНУТРЕННИЙ: описание + текст кнопки + регистрация без контактов ── */
         <div className="space-y-5">
-          {allowExternal && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">URL вашего лендинга</label>
-              <input
-                type="url"
-                value={landingUrl}
-                onChange={e => onLandingUrl(e.target.value)}
-                placeholder="https://yoursite.com/event — заполните, чтобы включить сторонний"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание для лендинга</label>
             <textarea
