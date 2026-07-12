@@ -25,10 +25,13 @@ function formatDateLong(dt?: string) {
 export default function LandingTab({ event, onRegister }: Props) {
   const heroPoster = event?.posters?.find((p: any) => p.orientation === 'horizontal')?.url || event?.poster_url
   // У конкурсов своя верстка: дата = окончание голосования, красный баннер
-  // «Голосование всего до …», кнопка «КАК ГОЛОСОВАТЬ?», и она дублируется
-  // сверху и снизу описания. Старые типы (base/conference/...) рендерятся как раньше.
+  // «Голосование всего до …», кнопка дублируется сверху и снизу описания.
+  // Старые типы (base/conference/...) рендерятся как раньше.
   const isContest = event?.module_slug === 'contest'
-  const ctaLabel = isContest ? 'КАК ГОЛОСОВАТЬ?' : 'Хочу участвовать'
+  // Текст кнопки клиент задаёт в дашборде (events.landing_cta_label, миграция 212).
+  // Пусто → прежние дефолты по типу события.
+  const ctaLabel = (event?.landing_cta_label || '').trim()
+    || (isContest ? 'КАК ГОЛОСОВАТЬ?' : 'Хочу участвовать')
 
   const cta = (
     <button

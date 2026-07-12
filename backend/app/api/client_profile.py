@@ -733,6 +733,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    e.chat_member_count_label, e.chat_button_label, e.accent_button,
                    e.require_subscription,
                    e.stream_url, e.hide_stream_button, e.skip_contact_form,
+                   e.landing_cta_label,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,
                    c.brand_logo_url AS client_brand_logo,

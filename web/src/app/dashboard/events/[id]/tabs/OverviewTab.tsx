@@ -41,6 +41,8 @@ export default function OverviewTab({
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
   const [requireAllOwners, setRequireAllOwners] = useState<boolean>(!!event.require_subscribe_all_owners)
   const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
+  // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт из Mini App.
+  const [landingCtaLabel, setLandingCtaLabel] = useState(event.landing_cta_label || '')
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -96,6 +98,8 @@ export default function OverviewTab({
       if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
       if (requireAllOwners !== !!event.require_subscribe_all_owners) payload.require_subscribe_all_owners = requireAllOwners
       if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
+      const lcl = landingCtaLabel.trim()
+      if (lcl !== (event.landing_cta_label || ''))             payload.landing_cta_label = lcl || null
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -267,6 +271,14 @@ export default function OverviewTab({
           value={landingUrl}
           onChange={setLandingUrl}
         />
+
+        <Field
+          label="Текст кнопки на лендинге"
+          hint="Главная кнопка на встроенном лендинге от ПЛЮСОНа. Пусто — будет «Хочу участвовать»."
+        >
+          <input value={landingCtaLabel} onChange={e => setLandingCtaLabel(e.target.value)}
+                 className="input" maxLength={40} placeholder="Хочу участвовать" />
+        </Field>
 
         <label
           className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${

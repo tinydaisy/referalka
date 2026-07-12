@@ -20,6 +20,11 @@ export default function ContestOverviewTab({
   const [votingUrl, setVotingUrl] = useState(event.stream_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
+  // Текст кнопки на встроенном лендинге (миграция 212). Пусто → «КАК ГОЛОСОВАТЬ?».
+  const [landingCtaLabel, setLandingCtaLabel] = useState(event.landing_cta_label || '')
+  // Регистрация без формы: TRUE (дефолт у конкурсов) → клик по кнопке сразу
+  // заводит участника по Telegram-аккаунту. FALSE → показывается форма контактов.
+  const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -49,6 +54,9 @@ export default function ContestOverviewTab({
       const endIso = endAt ? new Date(endAt).toISOString() : null
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
+      const lcl = landingCtaLabel.trim()
+      if (lcl !== (event.landing_cta_label || ''))              payload.landing_cta_label = lcl || null
+      if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -121,7 +129,41 @@ export default function ContestOverviewTab({
         </div>
       </div>
 
-      {/* 3) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
+      {/* 3) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+        <h2 className="block-title">Настройки страницы регистрации</h2>
+
+        <Field
+          label="Текст кнопки на лендинге"
+          hint="Главная кнопка на лендинге конкурса. Пусто — будет «КАК ГОЛОСОВАТЬ?»."
+        >
+          <input value={landingCtaLabel} onChange={e => setLandingCtaLabel(e.target.value)}
+                 className="input" maxLength={40} placeholder="КАК ГОЛОСОВАТЬ?" />
+        </Field>
+
+        <label
+          className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+            skipContactForm
+              ? 'border-[#25455D] bg-[#25455D]/5'
+              : 'border-gray-200 hover:border-gray-300'
+          }`}>
+          <input type="checkbox" checked={skipContactForm}
+            onChange={(e) => setSkipContactForm(e.target.checked)}
+            className="mt-0.5 accent-[#25455D]" />
+          <div>
+            <p className="text-sm font-medium text-gray-900">
+              Регистрировать без ввода контактных данных
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+              Включено — клик по кнопке на лендинге сразу пускает человека в кабинет:
+              участник создаётся по Telegram-аккаунту, без формы с именем, email и телефоном.
+              Выключено — сначала показывается форма контактов.
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {/* 4) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
       <PublicLinks
         slug={event?.slug}
         eventId={eventId}

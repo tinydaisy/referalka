@@ -53,6 +53,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     skip_contact_form: !!event?.skip_contact_form,
+    // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт Mini App.
+    landing_cta_label: event?.landing_cta_label || '',
     // Что показывать на «Итогах» при завершении события (миграция 195).
     end_action: (conf?.end_action as 'next_event' | 'gift') || 'next_event',
     end_gift: conf?.end_gift_package_id
@@ -93,6 +95,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       skip_contact_form: !!event?.skip_contact_form,
+      landing_cta_label: event?.landing_cta_label || '',
       end_action: (conf?.end_action as 'next_event' | 'gift') || 'next_event',
       end_gift: conf?.end_gift_package_id
         ? `p:${conf.end_gift_package_id}`
@@ -104,7 +107,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       maxChatRef: conf?.max_chat_ref ?? null,
       primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
     })
-  }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register])
+  }, [conf, event?.landing_url, event?.skip_contact_form, event?.landing_cta_label, event?.description, event?.description_post_register])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -120,6 +123,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.title !== (event?.title || ''))                  eventPatch.title = form.title
       if (form.landing_url !== (event?.landing_url || ''))      eventPatch.landing_url = form.landing_url || null
       if (form.skip_contact_form !== !!event?.skip_contact_form) eventPatch.skip_contact_form = form.skip_contact_form
+      if (form.landing_cta_label !== (event?.landing_cta_label || ''))
+        eventPatch.landing_cta_label = form.landing_cta_label.trim() || null
       if (form.description !== (event?.description || ''))
         eventPatch.description = form.description || null
       if (form.description_post_register !== (event?.description_post_register || ''))
@@ -362,6 +367,19 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           value={form.landing_url}
           onChange={(v) => setForm(f => ({ ...f, landing_url: v }))}
         />
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Текст кнопки на лендинге
+            <span className="text-gray-400 font-normal ml-1">— опционально</span>
+          </label>
+          <input type="text" value={form.landing_cta_label} onChange={set('landing_cta_label')}
+            maxLength={40} placeholder="Хочу участвовать"
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          <p className="text-xs text-gray-400 mt-1">
+            Главная кнопка на встроенном лендинге от ПЛЮСОНа. Пусто — будет «Хочу участвовать».
+          </p>
+        </div>
 
         <label
           className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${

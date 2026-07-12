@@ -129,6 +129,9 @@ class UpdateEventRequest(BaseModel):
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
     skip_contact_form: Optional[bool] = None
+    # Текст кнопки на встроенном лендинге события (миграция 212). Пусто → дефолт:
+    # «КАК ГОЛОСОВАТЬ?» у конкурса, «Хочу участвовать» у остальных типов.
+    landing_cta_label: Optional[str] = None
     stream_url: Optional[str] = None
     # Скрыть кнопку стрима в Mini App (миграция 128). FALSE (default) = кнопка
     # показывается. TRUE = жёстко скрыта, даже если stream_url задан.
@@ -535,7 +538,7 @@ async def copy_event(
                   stream_url, vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
-                  skip_contact_form)
+                  skip_contact_form, landing_cta_label)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
@@ -544,7 +547,7 @@ async def copy_event(
                        $17,$18,$19,
                        $20,$21,
                        $22,$23,
-                       $24)
+                       $24,$25)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -562,6 +565,7 @@ async def copy_event(
             src.get('chat_button_label'),
             src.get('accent_button'),
             src.get('skip_contact_form') or False,
+            src.get('landing_cta_label'),
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)
