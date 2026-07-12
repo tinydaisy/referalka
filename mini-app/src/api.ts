@@ -175,8 +175,13 @@ export const getEventLanding = (slug: string) =>
 // Реф-ссылки события для всех активных платформ клиента (TG / VK / MAX).
 // Возвращает {links: {telegram?, vk?, max?}} — пользователь видит все доступные
 // и сам выбирает какую отправить другу (TG-юзеру → TG-ссылку, VK-юзеру → VK-ссылку).
-export const getEventShareLinks = (slug: string, refCode?: string) => {
-  const qs = refCode ? `?pid=${encodeURIComponent(refCode)}` : ''
+export const getEventShareLinks = (slug: string, refCode?: string, botClientId?: number | null) => {
+  const p = new URLSearchParams()
+  if (refCode) p.set('pid', refCode)
+  // ⚠️ КОЛЛАБ: `cid` — клиент, чей бот открыл Mini App. Реф-ссылка участника должна
+  // строиться через ЕГО бота, иначе приведённые люди уйдут в базу владельца события.
+  if (botClientId) p.set('cid', String(botClientId))
+  const qs = p.toString() ? `?${p.toString()}` : ''
   return req(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
     .catch(() => ({ links: {} }))
 }

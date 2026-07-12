@@ -3,7 +3,9 @@ import { getGifts, getShareTexts, getShareMaterials, sendShareTextToBot, getEven
 import ContactCardModal from '../components/ContactCardModal'
 import { getPlatformName } from '../platform'
 
-interface Props { event: any; participant: any; tgUser: any }
+// botClientId — клиент, ЧЕЙ БОТ открыл Mini App. В коллабе ≠ владельцу события:
+// реф-ссылка участника должна идти через бота ЕГО организатора.
+interface Props { event: any; participant: any; tgUser: any; botClientId?: number | null }
 
 const APP_URL = import.meta.env.VITE_APP_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
@@ -73,7 +75,7 @@ function formatEventDates(startAt?: string | null, endAt?: string | null): strin
   return `${a!.day} ${RU_MONTHS[a!.month]} ${a!.year} – ${b!.day} ${RU_MONTHS[b!.month]} ${b!.year}`
 }
 
-export default function GameTab({ event, participant, tgUser }: Props) {
+export default function GameTab({ event, participant, tgUser, botClientId }: Props) {
   const [gifts, setGifts] = useState<Gift[]>([])
   const [view, setView] = useState<'game' | 'gifts' | 'materials'>('game')
   const [topOpen, setTopOpen] = useState(false)
@@ -135,9 +137,9 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   // Бэк отдаёт только те платформы, что у клиента подключены или системные.
   useEffect(() => {
     if (slug && refCode && refCode !== 'demo') {
-      getEventShareLinks(slug, refCode).then((r: any) => setShareLinks(r?.links || {})).catch(() => setShareLinks({}))
+      getEventShareLinks(slug, refCode, botClientId).then((r: any) => setShareLinks(r?.links || {})).catch(() => setShareLinks({}))
     }
-  }, [slug, refCode])
+  }, [slug, refCode, botClientId])
 
   const sortedGifts = [...gifts].sort((a, b) => a.points_cost - b.points_cost)
   // Получено подарков считаем локально из загруженных порогов: даёт честное

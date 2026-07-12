@@ -14,6 +14,9 @@ interface Participant {
   referrer_ref_code: string | null
   referrer_contact_id: number | null
   referrer_name: string | null
+  // ⚠️ КОЛЛАБ: организатор, в чьей базе лежит контакт (contacts.client_id).
+  organizer_name?: string | null
+  organizer_client_id?: number | null
   referrer_username: string | null
   is_registered: boolean
   is_in_chat: boolean
@@ -342,6 +345,7 @@ function ContactCard({
   onDelete,
   onReferrerChanged,
   clickLabel,
+  isCollab,
 }: {
   p: Participant
   eventId: number
@@ -349,6 +353,7 @@ function ContactCard({
   onDelete: () => void
   onReferrerChanged: (ref: { name: string | null; username: string | null; ref_code: string | null } | null) => void
   clickLabel: string
+  isCollab?: boolean
 }) {
   const { isAssistant } = useMe()
   const [open, setOpen] = useState(false)
@@ -415,6 +420,17 @@ function ContactCard({
             </div>
           </div>
         </div>
+
+        {/* Колонка «Организатор» — только в коллабе. Организатор ≠ «кто привёл»:
+            реферала мог позвать обычный участник, но организатор — тот, в чью базу
+            попал контакт (contacts.client_id). */}
+        {isCollab && (
+          <div className="hidden sm:flex w-40 shrink-0 min-w-0 items-center">
+            <span className="text-xs text-gray-700 truncate" title={p.organizer_name || ''}>
+              {p.organizer_name || <span className="text-gray-300">—</span>}
+            </span>
+          </div>
+        )}
 
         {/* Колонка «Кто привёл» (имя реферера) */}
         <div className="hidden sm:flex flex-1 max-w-xs shrink-0 min-w-0 items-center">
@@ -599,10 +615,12 @@ function ContactCard({
   )
 }
 
-function ListHeader() {
+function ListHeader({ isCollab }: { isCollab?: boolean }) {
   return (
     <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
       <div className="flex-1 min-w-0">Имя</div>
+      {/* Организатор — только в коллабе: у каждого своя база, надо видеть чей участник. */}
+      {isCollab && <div className="w-40 shrink-0">Организатор</div>}
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Зарегистр.</div>
@@ -886,7 +904,7 @@ function AddFromContactModal({
   )
 }
 
-export default function EventParticipants({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
+export default function EventParticipants({ eventId, moduleSlug, isCollab }: { eventId: number; moduleSlug?: string; isCollab?: boolean }) {
   // Лейбл второй галочки — «Был в эфире» / «Проголосовал». У конкурсов
   // главная ссылка — голосование, у остальных типов — стрим/эфир.
   const clickLabel = moduleSlug === 'contest' ? 'Проголосовал' : 'Был в эфире'
@@ -1125,7 +1143,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
           </div>
         ) : (
           <>
-            <ListHeader />
+            <ListHeader isCollab={isCollab} />
             {filtered.map(p => (
               <ContactCard
                 key={p.id}
@@ -1142,6 +1160,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
                   } : x
                 ))}
                 clickLabel={clickLabel}
+                isCollab={isCollab}
               />
             ))}
           </>

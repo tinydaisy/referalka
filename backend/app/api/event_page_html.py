@@ -315,13 +315,25 @@ async def _load_ref_cabinet(db, event, contact_id):
             "is_me": r["ref_code"] == ref_code,
         })
     # Персональные реф-ссылки
+    # ⚠️ КОЛЛАБ: ссылка строится через бота ТОГО организатора, от которого пришёл этот
+    # человек — иначе приглашённые им попадут в базу владельца события, а не его
+    # организатора. Тот же резолвер, что в рассылках и в Mini App.
     links = {}
     try:
         from app.services.share_links import build_share_links, resolve_event_link_mode
+        _cid = event["client_id"]
+        if event.get("is_collab") and contact_id:
+            try:
+                from app.services.collab_referrer import resolve_source_organizer
+                _src = await resolve_source_organizer(db, event["id"], contact_id)
+                if _src:
+                    _cid = _src
+            except Exception:
+                pass
         _ev_lm = event["link_mode"] if "link_mode" in event else None
-        _lm = await resolve_event_link_mode(db, client_id=event["client_id"], event_link_mode=_ev_lm)
+        _lm = await resolve_event_link_mode(db, client_id=_cid, event_link_mode=_ev_lm)
         links = await build_share_links(
-            db, event_slug=event["slug"], client_id=event["client_id"],
+            db, event_slug=event["slug"], client_id=_cid,
             partner_id=ref_code,
             link_mode=_lm,
         )

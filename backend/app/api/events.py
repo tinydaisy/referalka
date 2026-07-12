@@ -333,23 +333,70 @@ async def get_event_by_slug(slug: str, db: asyncpg.Connection = Depends(get_db))
     return {"event": dict(event)}
 
 
+async def _collab_share_client_id(db, ev, *, pid: str | None, cid: int | None) -> int:
+    """Через ЧЬЕГО бота строить реф-ссылку участника.
+
+    ⚠️ Только для коллаб-события: организаторов несколько, у каждого свой бот и своя
+    база. Участник, которого привёл Вася, должен шерить ссылку ЧЕРЕЗ БОТА ВАСИ —
+    иначе приведённые им люди уйдут в базу владельца события, а не Васи.
+
+    Приоритет:
+      1. `cid` — клиент, чей бот открыл Mini App (`/c/{N}/tg/`). Самый надёжный
+         сигнал: человек физически находится в этом боте. Проверяем, что он
+         действительно организатор ЭТОГО события.
+      2. `pid` — реф-код самого участника: находим его контакт и через
+         resolve_source_organizer узнаём, кто его привёл.
+      3. Владелец события (вне коллабы — единственный вариант, поведение прежнее).
+    """
+    owner_cid = ev["client_id"]
+    if not ev.get("is_collab"):
+        return owner_cid
+
+    if cid:
+        ok = await db.fetchval(
+            """SELECT 1 FROM event_owners
+                WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
+            ev["id"], cid,
+        )
+        if ok:
+            return cid
+
+    if pid:
+        try:
+            from ..services.collab_referrer import resolve_source_organizer
+            contact_id = await db.fetchval(
+                "SELECT id FROM contacts WHERE ref_code = $1 LIMIT 1", pid)
+            if contact_id:
+                src = await resolve_source_organizer(db, ev["id"], contact_id)
+                if src:
+                    return src
+        except Exception:
+            pass
+
+    return owner_cid
+
+
 @router.get("/slug/{slug}/share-links", summary="Реф-ссылки события (публично, для Mini App)")
 async def get_event_share_links_by_slug(
     slug: str,
     pid: str | None = None,
     tab: str | None = None,
     mode: str | None = None,
+    cid: int | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     from ..services.share_links import build_share_links, resolve_event_link_mode
-    ev = await db.fetchrow("SELECT id, slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE slug = $1", slug)
+    ev = await db.fetchrow("SELECT id, slug, is_collab, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE slug = $1", slug)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
+    # ⚠️ КОЛЛАБ: реф-ссылку участника строим через бота ТОГО организатора, от которого
+    # человек пришёл (у каждого свой бот и своя база), а не владельца события.
+    owner_cid = await _collab_share_client_id(db, ev, pid=pid, cid=cid)
     # mode из query (для дашборда — оба набора) или общий клиентский режим
     # (event.link_mode пока всегда NULL — radio в UI скрыт).
-    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=ev["client_id"], event_link_mode=ev["link_mode"])
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid, event_link_mode=ev["link_mode"])
     links = await build_share_links(
-        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
+        db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
     return {"event_id": ev["id"], "slug": ev["slug"], "links": links, "link_mode": lm}
 
@@ -360,6 +407,7 @@ async def get_event_share_links(
     pid: str | None = None,
     tab: str | None = None,
     mode: str | None = None,
+    cid: int | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Возвращает словарь {platform → url} с реф-ссылками для шеринга.
@@ -370,12 +418,14 @@ async def get_event_share_links(
     актуальный режим события `events.link_mode`.
     """
     from ..services.share_links import build_share_links, resolve_event_link_mode
-    ev = await db.fetchrow("SELECT slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE id = $1", event_id)
+    ev = await db.fetchrow("SELECT id, slug, is_collab, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE id = $1", event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=ev["client_id"], event_link_mode=ev["link_mode"])
+    # ⚠️ КОЛЛАБ: ссылка строится через бота организатора, от которого пришёл человек.
+    owner_cid = await _collab_share_client_id(db, ev, pid=pid, cid=cid)
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid, event_link_mode=ev["link_mode"])
     links = await build_share_links(
-        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
+        db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
     return {"event_id": event_id, "slug": ev["slug"], "links": links, "link_mode": lm}
 
@@ -862,6 +912,12 @@ async def event_participants(
     rows = await db.fetch(
         f"""SELECT ep.id,
                   c.id AS contact_id,
+                  -- ⚠️ КОЛЛАБ: организатор участника = клиент, в ЧЬЕЙ БАЗЕ лежит контакт
+                  -- (contacts.client_id). Это НЕ «кто привёл» (реферал может прийти и от
+                  -- обычного человека) — это организатор, к которому человек относится.
+                  c.client_id AS organizer_client_id,
+                  (SELECT COALESCE(NULLIF(cl.brand_name, ''), cl.name)
+                     FROM clients cl WHERE cl.id = c.client_id) AS organizer_name,
                   c.ref_code, ep.referrer_ref_code,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
                   ep.link_clicked_at, ep.chat_check_at,

@@ -29,6 +29,22 @@ export default function CollabOrganizerCardPage() {
   const [tab, setTab] = useState<'talk' | 'links'>('talk')
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+
+  // Выйти из коллабы. Только своя карточка; создателя бэк не выпустит (403) —
+  // он распускает коллабу удалением события.
+  async function leave() {
+    if (!confirm('Покинуть событие? Вы перестанете быть организатором, ваши реф-ссылки в нём работать не будут.')) return
+    setLeaving(true)
+    try {
+      await api.collabHub.leaveCollab(eventId)
+      router.push('/dashboard/collab-hub/events')
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось выйти из события')
+    } finally {
+      setLeaving(false)
+    }
+  }
 
   // Форма (только для своей карточки)
   const [topics, setTopics] = useState<string[]>([''])
@@ -327,6 +343,24 @@ export default function CollabOrganizerCardPage() {
                 : 'У этого организатора не подключён свой бот — ссылка не строится.'}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Покинуть событие — ТОЛЬКО в своей карточке (в чужих её нет вообще). */}
+      {canEdit && (
+        <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-5">
+          <div className="text-sm font-semibold text-red-700">Покинуть событие</div>
+          <p className="mt-1 text-xs text-red-600">
+            Вы выйдете из числа организаторов. Ваша карточка, тема и подарки в этом событии
+            будут отвязаны, ваши реф-ссылки перестанут работать. Участники, которых вы уже
+            привели, останутся в вашей базе.
+          </p>
+          <button
+            onClick={leave}
+            disabled={leaving}
+            className="mt-3 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium disabled:opacity-50">
+            {leaving ? 'Выходим…' : 'Покинуть событие'}
+          </button>
         </div>
       )}
     </div>

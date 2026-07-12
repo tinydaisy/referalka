@@ -655,7 +655,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
             onHighlightConsumed={() => setPendingSpeakerHighlight(null)}
           />
         )}
-        {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
+        {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} botClientId={botClientId} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} onVipClick={redirectToVip} />}
         {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
