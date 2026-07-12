@@ -24,6 +24,15 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
   function isValidEmail(s: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) }
   function isValidPhone(s: string) { return s.replace(/\D/g, '').length >= 10 }
 
+  // Организаторы, которым участник отдаёт данные. В коллаб-событии их несколько
+  // (event.collab_owners с бэка), в обычном — один (владелец события).
+  const organizers: { client_id: number; name: string; has_policy?: boolean }[] =
+    (event?.collab_owners?.length ? event.collab_owners : (
+      event?.client_id
+        ? [{ client_id: event.client_id, name: event.client_brand_name || event.client_name || 'организатора' }]
+        : []
+    ))
+
   function next() {
     if (!name.trim())  { setError('Укажите имя'); return }
     if (!isValidEmail(email)) { setError('Email указан неверно'); return }
@@ -126,21 +135,50 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
                 <input type="checkbox" checked={consentPd} onChange={e => setConsentPd(e.target.checked)}
                        style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
                 <span>
-                  Я согласен на обработку моих персональных данных. С{' '}
-                  {event?.client_id ? (
-                    <a href={`https://pluson.ru/c/${event.client_id}/privacy`} target="_blank" rel="noreferrer"
-                       style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
-                      Политикой обработки персональных данных
-                    </a>
-                  ) : 'Политикой обработки персональных данных'} ознакомлен.
+                  {/* ⚠️ В коллаб-событии организаторов НЕСКОЛЬКО и они равноправны: данные
+                      участника попадают в базу КАЖДОГО. Значит и политика должна вести на
+                      политику КАЖДОГО организатора, а не только владельца события. */}
+                  {organizers.length > 1 ? (
+                    <>
+                      Я согласен на обработку моих персональных данных организаторами события. С
+                      {' '}Политиками обработки персональных данных{' '}
+                      {organizers.map((org, i) => (
+                        <span key={org.client_id}>
+                          {i > 0 && (i === organizers.length - 1 ? ' и ' : ', ')}
+                          {/* Политика не опубликована → просто имя, без ссылки в пустоту. */}
+                          {org.has_policy === false ? org.name : (
+                            <a href={`https://pluson.ru/c/${org.client_id}/privacy`} target="_blank" rel="noreferrer"
+                               style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
+                              {org.name}
+                            </a>
+                          )}
+                        </span>
+                      ))}
+                      {' '}ознакомлен.
+                    </>
+                  ) : (
+                    <>
+                      Я согласен на обработку моих персональных данных. С{' '}
+                      {organizers[0] ? (
+                        <a href={`https://pluson.ru/c/${organizers[0].client_id}/privacy`} target="_blank" rel="noreferrer"
+                           style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
+                          Политикой обработки персональных данных
+                        </a>
+                      ) : 'Политикой обработки персональных данных'} ознакомлен.
+                    </>
+                  )}
                 </span>
               </label>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)' }}>
                 <input type="checkbox" checked={consentMkt} onChange={e => setConsentMkt(e.target.checked)}
                        style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
                 <span>
+                  {/* Рассылки в коллабе шлёт КАЖДЫЙ организатор по своей базе (свой бот) —
+                      значит и согласие даётся всем перечисленным, а не одному владельцу. */}
                   Я согласен на получение информационных и маркетинговых рассылок от{' '}
-                  {event?.client_brand_name || event?.client_name || 'организатора'}.
+                  {organizers.length
+                    ? organizers.map(o => o.name).join(organizers.length > 2 ? ', ' : ' и ')
+                    : 'организатора'}.
                   Вы в любой момент можете отказаться от получения писем.
                 </span>
               </label>

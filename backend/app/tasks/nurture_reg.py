@@ -143,15 +143,25 @@ async def build_section_urls(
 
     Возвращает {vip_link, gifts_link, speakers_link, program_link}. Если раздела
     у события нет (нет реф-программы / нет спикеров) — соответствующий ключ = "".
-    Ссылки в формате `...startapp=ref_pg{slug}_tab{tab}` (TG/VK).
-    Если задан contact_id — в payload базовой ссылки добавляется `_ct{id}`
-    (сквозной маркер против дублей контактов при переходе между платформами).
+    Если задан contact_id — в payload добавляется `_ct{id}` (сквозной маркер
+    против дублей контактов при переходе между платформами).
+
+    ⚠️ Вкладку НЕЛЬЗЯ приклеивать строкой (`base + "_tab…"`): в веб/бот-режиме
+    базовая ссылка это `?start=ref_pg…`, и дописывание хвоста давало мусор.
+    Собираем ссылку целиком билдером — он сам знает режим клиента и площадки.
     """
-    # Базовый Mini App URL (TG-вариант — для кнопок/ссылок в TG-сообщениях).
-    base = await _build_app_url(db, platform="telegram", client_id=client_id, slug=slug, ref_code=ref_code, contact_id=contact_id)
-    # base уже содержит ?startapp=ref_pg{slug}{pid}. Добавляем _tab{tab}.
+    from app.services.share_links import (
+        get_client_bot_handles, resolve_event_link_mode, telegram_link,
+    )
+
+    event_link_mode = await db.fetchval("SELECT link_mode FROM events WHERE id = $1", event_id)
+    tg_mode = await resolve_event_link_mode(
+        db, client_id=client_id, event_link_mode=event_link_mode, platform="telegram")
+    tg_handle = (await get_client_bot_handles(db, client_id)).get("telegram")
+
     def with_tab(tab: str) -> str:
-        return f"{base}_tab{tab}"
+        return telegram_link(slug, bot_handle=tg_handle, partner_id=ref_code,
+                             tab=tab, contact_id=contact_id, link_mode=tg_mode)
 
     # Есть ли реф-программа (подарки)?
     has_gifts = await db.fetchval(
@@ -311,11 +321,13 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             if button_kind == "support" and support_btn_url:
                 url = support_btn_url
             else:
-                app_base = await _build_app_url(
+                # ⚠️ Вкладку передаём В БИЛДЕР (а не клеим строкой к готовому URL):
+                # в веб/бот-режиме ссылка это `?start=ref_pg…`, и хвост `_tabprogram`
+                # ломал бы её. Билдер сам знает режим клиента на этой площадке.
+                url = await _build_app_url(
                     db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code,
-                    contact_id=run_row["contact_id"],
+                    contact_id=run_row["contact_id"], tab="program",
                 )
-                url = f"{app_base}_tabprogram"
             if plat == "telegram":
                 # Только свой VIP-бот клиента. Системный @pluson_bot как fallback убран —
                 # нет своего бота → шаг на TG не отправляем (graceful, без падения).

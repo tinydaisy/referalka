@@ -92,10 +92,15 @@ export default function CollabOrganizerCardPage() {
   const posters: any[] = data.posters || []
   // Площадки ЭТОГО организатора — только те, по которым бэк реально вернул ссылку
   // (у кого подключён MAX — будет MAX, у кого только TG — только Telegram).
+  // Режим (Mini App / веб) у каждой площадки СВОЙ — берём из link_modes.
   const PLATFORM_TITLES: Record<string, string> = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX' }
   const platformList = Object.keys(data.links || {})
     .filter(k => (data.links as any)[k])
-    .map(k => PLATFORM_TITLES[k] || k)
+    .map(k => ({
+      key: k,
+      title: PLATFORM_TITLES[k] || k,
+      mode: (data.link_modes || {})[k] || data.link_mode,
+    }))
 
   return (
     <div className="p-4 md:p-8">
@@ -291,12 +296,20 @@ export default function CollabOrganizerCardPage() {
                 : <>Ссылки этого организатора — через <b>его бота</b>. Кого он приведёт, тот попадёт в его базу.</>}
             </p>
             {/* Через что идёт регистрация именно у ЭТОГО организатора — режим и площадки
-                берутся из ЕГО настроек («Mini App» → «Бот и ссылки») и ЕГО подключённых каналов. */}
-            <p className="text-xs" style={{ color: '#C77B3B' }}>
-              Регистрация {canEdit ? 'у вас' : `у ${o.name}`} идёт{' '}
-              <b>{data.link_mode === 'bot' ? 'через веб-страницу события' : 'через Mini App'}</b>
-              {platformList.length > 0 && <> · площадки: <b>{platformList.join(', ')}</b></>}
-            </p>
+                берутся из ЕГО настроек («Mini App» → «Бот и ссылки») и ЕГО подключённых каналов.
+                ⚠️ Режим у КАЖДОЙ площадки свой (Mini App может быть в Telegram и не быть во
+                ВКонтакте), поэтому пишем его напротив каждой, а не одной общей фразой. */}
+            {platformList.length > 0 && (
+              <p className="text-xs" style={{ color: '#C77B3B' }}>
+                Регистрация {canEdit ? 'у вас' : `у ${o.name}`} идёт:{' '}
+                {platformList.map((p, i) => (
+                  <span key={p.key}>
+                    {i > 0 && ' · '}
+                    <b>{p.title}</b> — {p.mode === 'bot' ? 'веб-страница события' : 'Mini App'}
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
 
           {Object.keys(data.links || {}).length > 0 ? (

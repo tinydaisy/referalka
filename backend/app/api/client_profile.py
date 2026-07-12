@@ -734,6 +734,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    e.require_subscription,
                    e.stream_url, e.hide_stream_button, e.skip_contact_form,
                    e.landing_cta_label,
+                   e.is_collab,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,
                    c.brand_logo_url AS client_brand_logo,
@@ -848,6 +849,29 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
         row["client_id"], row["id"], d.get("end_at") or d.get("start_at")
     )
     d["successor"] = dict(succ) if succ else None
+
+    # ── Организаторы коллаб-события (для согласий 152-ФЗ в форме регистрации) ──
+    # ⚠️ В коллабе организаторов НЕСКОЛЬКО и они равноправны: данные участника
+    # попадают в базу КАЖДОГО, значит и «Политика обработки персональных данных»
+    # должна вести на политику КАЖДОГО, а не только владельца события.
+    # (`client_id` события = владелец — для коллабы этого мало.)
+    d["collab_owners"] = []
+    if d.get("is_collab"):
+        # `has_policy` — политика реально опубликована. У кого её нет — ссылку не
+        # даём (вела бы на пустую страницу), но в согласии на рассылки он всё равно
+        # перечисляется: рассылать по своей базе он будет.
+        owners = await db.fetch(
+            """SELECT c.id AS client_id,
+                      COALESCE(NULLIF(c.brand_name, ''), c.name) AS name,
+                      (c.privacy_policy_published_at IS NOT NULL
+                       AND COALESCE(c.privacy_policy_text, '') <> '') AS has_policy
+                 FROM event_owners eo
+                 JOIN clients c ON c.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY (eo.role = 'owner') DESC, eo.id""",
+            row["id"],
+        )
+        d["collab_owners"] = [dict(o) for o in owners]
 
     return d
 

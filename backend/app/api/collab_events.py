@@ -422,11 +422,18 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
     # ⚠️ Режим регистрации — ЛИЧНЫЙ у каждого организатора (его настройка «Бот и ссылки»):
     # у одного Mini App, у другого веб. И площадки только ЕГО (у кого есть MAX — с MAX,
     # у кого только TG — только TG). Поэтому и режим, и ссылки считаем по ЕГО client_id.
-    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
-        db, client_id=client_id, event_link_mode=ev["link_mode"])
+    #
+    # ⚠️ Режим задаётся ОТДЕЛЬНО НА КАЖДУЮ ПЛОЩАДКУ (clients.link_mode_{telegram|vk|max},
+    # миграция 200): Mini App может быть в Telegram и не быть во ВКонтакте. Раньше тут
+    # резолвился ОДИН общий режим (без platform=) — читался только default_link_mode,
+    # и карточка писала «через Mini App», хотя у Telegram стояла «Веб-версия».
+    link_modes: dict[str, str] = {}
+    for _p in ("telegram", "vk", "max"):
+        link_modes[_p] = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
+            db, client_id=client_id, event_link_mode=ev["link_mode"], platform=_p)
     links = await build_share_links(
         db, client_id=client_id, event_slug=ev["slug"],
-        partner_id=row["ref_code"] if row else None, link_mode=lm)
+        partner_id=row["ref_code"] if row else None, link_mode=link_modes["telegram"])
 
     d = dict(row) if row else {}
     d["positioning"] = d.pop("owner_positioning", None) or d.pop("positioning", None)
@@ -440,7 +447,10 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
         "gift_lead_magnets": gift_list,
         "posters": [dict(p) for p in posters],
         "links": links,
-        "link_mode": lm,          # 'miniapp' | 'bot' — как регистрирует ЭТОТ организатор
+        # Режим по КАЖДОЙ площадке: {'telegram': 'bot', 'vk': 'miniapp', ...}.
+        "link_modes": link_modes,
+        # Legacy-поле (один режим на карточку) — оставлено для обратной совместимости.
+        "link_mode": link_modes["telegram"],
         "slug": ev["slug"],
     }
 

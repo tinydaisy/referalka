@@ -39,7 +39,7 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "description_post_register, vip_url, vip_button_label, "
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
-            "landing_url, start_at, end_at, link_mode, "
+            "landing_url, start_at, end_at, link_mode, is_collab, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
             "WHEN 'vk' THEN events.vk_chat_ref WHEN 'max' THEN events.max_chat_ref ELSE events.tg_chat_ref END) AS chat_url, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg, "
@@ -2252,8 +2252,26 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         poster_html = (f'<div class="poster" style="background:center/cover '
                        f'url(\'{esc(poster_url)}\')"></div>')
 
-    # Ссылка на политику клиента (как в RegistrationFlow)
-    if client_id:
+    # Ссылка на политику (как в RegistrationFlow).
+    # ⚠️ В коллаб-событии организаторов НЕСКОЛЬКО — данные участника попадают в базу
+    # КАЖДОГО, поэтому перечисляем политику каждого, а не только владельца события.
+    _owners = event.get("collab_owners") or []
+    # Кому даётся согласие на рассылки: в коллабе их шлёт КАЖДЫЙ организатор по
+    # своей базе через своего бота, значит перечисляем всех. `brand` не трогаем —
+    # он же используется в шапке страницы.
+    mkt_to = brand
+    if len(_owners) > 1:
+        _links = [
+            (f'<a href="https://pluson.ru/c/{int(o["client_id"])}/privacy" '
+             f'target="_blank" rel="noopener">{esc(o["name"])}</a>')
+            if o.get("has_policy") else esc(o["name"])
+            for o in _owners
+        ]
+        pd_link = "Политиками обработки персональных данных " + (
+            ", ".join(_links[:-1]) + " и " + _links[-1])
+        mkt_to = (", ".join(esc(o["name"]) for o in _owners[:-1])
+                  + " и " + esc(_owners[-1]["name"]))
+    elif client_id:
         pd_link = (f'<a href="https://pluson.ru/c/{int(client_id)}/privacy" '
                    f'target="_blank" rel="noopener">Политикой обработки '
                    f'персональных данных</a>')
@@ -2373,7 +2391,7 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
           <label class="consent">
             <input type="checkbox" id="c-mkt">
             <span>Я согласен на получение информационных и маркетинговых рассылок
-              от {brand}. Вы в любой момент можете отказаться от получения писем.</span>
+              от {mkt_to}. Вы в любой момент можете отказаться от получения писем.</span>
           </label>
         </div>
         <button class="btn" id="btn-create" type="button">Зарегистрироваться</button>
@@ -2542,6 +2560,24 @@ async def event_register_page(slug: str, c: str = "",
     # ВЕТКА 3: contact_id нет (или невалиден) → форма с email-проверкой.
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
     poster_url = await _load_event_poster(db, ev["id"])
+
+    # ⚠️ В коллаб-событии организаторов НЕСКОЛЬКО и они равноправны: данные участника
+    # попадают в базу КАЖДОГО. Значит и «Политика обработки персональных данных», и
+    # согласие на рассылки должны перечислять ВСЕХ, а не только владельца (ev.client_id).
+    ev = dict(ev)
+    ev["collab_owners"] = [
+        dict(o) for o in await db.fetch(
+            """SELECT c.id AS client_id,
+                      COALESCE(NULLIF(c.brand_name, ''), c.name) AS name,
+                      (c.privacy_policy_published_at IS NOT NULL
+                       AND COALESCE(c.privacy_policy_text, '') <> '') AS has_policy
+                 FROM event_owners eo
+                 JOIN clients c ON c.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY (eo.role = 'owner') DESC, eo.id""",
+            ev["id"],
+        )
+    ] if ev.get("is_collab") else []
 
     html_str = render_register_page(ev, client, poster_url, prefill=prefill)
     return HTMLResponse(

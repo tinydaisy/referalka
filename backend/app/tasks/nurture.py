@@ -108,64 +108,48 @@ async def _build_app_url(
     slug: str,
     ref_code: str | None,
     contact_id: int | None = None,
+    tab: str | None = None,
 ) -> str:
-    """Mini App URL для кнопки «Зарегистрироваться». Учитывает VIP-канал клиента
-    если он есть на этой платформе.
+    """URL кнопки «Зарегистрироваться» — С УЧЁТОМ РЕЖИМА ССЫЛОК КЛИЕНТА.
 
-    TG:
-      - VIP: `t.me/{его_бот_handle}/pluson?startapp=ref_pg{slug}_pid{ref}`
-      - системный: `t.me/pluson_bot/pluson?startapp=ref_pg{slug}_pid{ref}_cid{client_id}`
-        (cid нужен чтобы общий Mini App знал в каком контексте регистрировать)
-    VK:
-      - VIP: `vk.com/app{его_vk_app_id}#ref_pg{slug}_pid{ref}`
-      - системный: `vk.com/app{settings.vk_app_id}#ref_pg{slug}_pid{ref}`
+    ⚠️ Раньше тут всегда собирался Mini App (`?startapp=…`), из-за чего клиент с
+    настройкой «Веб-версия» («Бот и ссылки») всё равно получал кнопку в Mini App.
+    Режим задаётся ОТДЕЛЬНО НА КАЖДУЮ ПЛОЩАДКУ (clients.link_mode_{telegram|vk|max},
+    миграция 200) и может быть переопределён самим событием (events.link_mode),
+    поэтому строим ссылку общими билдерами share_links — там режим уже учтён:
+      • miniapp → t.me/{бот}?startapp=… / vk.com/app{id}#ref_pg… / max.ru/{h}?startapp=…
+      • bot     → t.me/{бот}?start=…    / vk.com/app{id}#evl_…   / max.ru/{h}?start=…
+    Нет своего бота/сообщества на площадке → пустая строка (шаг не отправится).
     """
-    pid_part = f"_pid{ref_code}" if ref_code else ""
-    # _ct{contact_id} — сквозной маркер контакта против дублей при переходе
-    # между платформами. Добавляется только если адресат известен.
-    ct_part = f"_ct{contact_id}" if contact_id else ""
+    from app.services.share_links import (
+        get_client_bot_handles, get_client_vk_app_id,
+        resolve_event_link_mode, telegram_link, vk_link, max_link,
+    )
 
-    if platform == "telegram":
-        vip_handle = None
-        if client_id:
-            vip_handle = await db.fetchval(
-                """SELECT REGEXP_REPLACE(ch.handle, '^@', '')
-                     FROM channels ch
-                     JOIN client_channels cc ON cc.channel_id = ch.id
-                    WHERE cc.client_id = $1
-                      AND ch.platform_slug = 'telegram'
-                      AND ch.is_system = FALSE
-                      AND cc.is_active = TRUE
-                      AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
-                    ORDER BY ch.id LIMIT 1""",
-                client_id,
-            )
-        if vip_handle:
-            return f"https://t.me/{vip_handle}/pluson?startapp=ref_pg{slug}{pid_part}{ct_part}"
-        # Нет своего TG-бота → системный @pluson_bot как fallback убран.
-        # Возвращаем пустую строку — вызывающий код всё равно не отправит TG-шаг
-        # без клиентского токена (token и handle берутся из одного VIP-канала).
+    if not client_id:
         return ""
 
-    if platform == "vk":
-        vip_app_id = None
-        if client_id:
-            vip_app_id = await db.fetchval(
-                """SELECT (ch.platform_meta->>'vk_app_id')::int
-                     FROM channels ch
-                     JOIN client_channels cc ON cc.channel_id = ch.id
-                    WHERE cc.client_id = $1
-                      AND ch.platform_slug = 'vk'
-                      AND ch.is_system = FALSE
-                      AND cc.is_active = TRUE
-                      AND ch.platform_meta->>'vk_app_id' IS NOT NULL
-                    ORDER BY ch.id LIMIT 1""",
-                client_id,
-            )
-        app_id = vip_app_id or settings.vk_app_id
-        return f"https://vk.com/app{app_id}#ref_pg{slug}{pid_part}{ct_part}"
+    # events.link_mode (если задан у события) важнее клиентского — resolve сам это учитывает.
+    event_link_mode = await db.fetchval(
+        "SELECT link_mode FROM events WHERE slug = $1", slug)
+    mode = await resolve_event_link_mode(
+        db, client_id=client_id, event_link_mode=event_link_mode, platform=platform)
 
-    # Прочие платформы — нет VIP-канала, системный fallback на pluson_bot убран.
+    if platform == "telegram":
+        handles = await get_client_bot_handles(db, client_id)
+        return telegram_link(slug, bot_handle=handles.get("telegram"),
+                             partner_id=ref_code, tab=tab, contact_id=contact_id, link_mode=mode)
+
+    if platform == "vk":
+        app_id = await get_client_vk_app_id(db, client_id)
+        return vk_link(slug, app_id=app_id,
+                       partner_id=ref_code, tab=tab, contact_id=contact_id, link_mode=mode)
+
+    if platform == "max":
+        handles = await get_client_bot_handles(db, client_id)
+        return max_link(slug, bot_handle=handles.get("max"),
+                        partner_id=ref_code, tab=tab, contact_id=contact_id, link_mode=mode)
+
     return ""
 
 

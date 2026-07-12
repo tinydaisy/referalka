@@ -1,8 +1,38 @@
+import { useEffect, useRef, useState } from 'react'
 import EventDescription from '../components/EventDescription'
 
 interface Props {
   event: any
   onRegister: () => void
+}
+
+// Вторая кнопка ПОД описанием нужна только когда описание длинное — иначе на экране
+// две одинаковые кнопки почти вплотную. Порог — 26 строк ТЕКСТА НА ЭКРАНЕ.
+// ⚠️ Считать переносы \n нельзя: строка переносится по ширине телефона, поэтому
+// меряем реальную высоту отрендеренного блока и делим на высоту строки.
+const LONG_DESC_LINES = 26
+const DESC_FONT_SIZE = 14
+const DESC_LINE_HEIGHT = 1.6           // как в стилях EventDescription ниже
+const LINE_PX = DESC_FONT_SIZE * DESC_LINE_HEIGHT   // ≈ 22.4px
+
+/** true — описание занимает больше LONG_DESC_LINES строк на экране. */
+function useIsLongDescription(deps: any) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [isLong, setIsLong] = useState(false)
+  useEffect(() => {
+    const measure = () => {
+      const el = ref.current
+      if (!el) { setIsLong(false); return }
+      setIsLong(el.offsetHeight / LINE_PX > LONG_DESC_LINES)
+    }
+    measure()
+    // Шрифты/картинки внутри описания могут догрузиться и изменить высоту — перемеряем.
+    const t = setTimeout(measure, 300)
+    // Пересчитываем при повороте/ресайзе — ширина меняет число строк.
+    window.addEventListener('resize', measure)
+    return () => { clearTimeout(t); window.removeEventListener('resize', measure) }
+  }, [deps])
+  return { ref, isLong }
 }
 
 function formatDateLong(dt?: string) {
@@ -43,6 +73,10 @@ export default function LandingTab({ event, onRegister }: Props) {
     </button>
   )
 
+  // Дубль кнопки под описанием — только если описание длинное (> 26 строк на экране).
+  // ⚠️ Хук ВЫШЕ early-return (ветка конкурса) — иначе React #310.
+  const { ref: descRef, isLong: descIsLong } = useIsLongDescription(event?.description)
+
   // ─── Контест: своя разметка ──────────────────────────────────────
   if (isContest) {
     const endLabel = formatDateLong(event?.end_at)
@@ -80,12 +114,14 @@ export default function LandingTab({ event, onRegister }: Props) {
 
           {event?.description && (
             <>
-              <EventDescription
-                text={event.description}
-                style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18 }}
-              />
-              {/* Дубль кнопки ПОД описанием — если описание заполнено. */}
-              <div style={{ marginTop: 18 }}>{cta}</div>
+              <div ref={descRef}>
+                <EventDescription
+                  text={event.description}
+                  style={{ color: 'var(--text)', fontSize: DESC_FONT_SIZE, lineHeight: DESC_LINE_HEIGHT, marginTop: 18 }}
+                />
+              </div>
+              {/* Дубль кнопки ПОД описанием — только если описание длинное (>26 строк). */}
+              {descIsLong && <div style={{ marginTop: 18 }}>{cta}</div>}
             </>
           )}
         </div>
@@ -121,12 +157,14 @@ export default function LandingTab({ event, onRegister }: Props) {
 
         {event?.description && (
           <>
-            <EventDescription
-              text={event.description}
-              style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18 }}
-            />
-            {/* Дубль кнопки ПОД описанием — если описание заполнено. */}
-            <div style={{ marginTop: 18 }}>{cta}</div>
+            <div ref={descRef}>
+              <EventDescription
+                text={event.description}
+                style={{ color: 'var(--text)', fontSize: DESC_FONT_SIZE, lineHeight: DESC_LINE_HEIGHT, marginTop: 18 }}
+              />
+            </div>
+            {/* Дубль кнопки ПОД описанием — только если описание длинное (>26 строк). */}
+            {descIsLong && <div style={{ marginTop: 18 }}>{cta}</div>}
           </>
         )}
       </div>
