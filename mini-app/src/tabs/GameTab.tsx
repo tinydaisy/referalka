@@ -137,9 +137,9 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
   // Бэк отдаёт только те платформы, что у клиента подключены или системные.
   useEffect(() => {
     if (slug && refCode && refCode !== 'demo') {
-      getEventShareLinks(slug, refCode, botClientId).then((r: any) => setShareLinks(r?.links || {})).catch(() => setShareLinks({}))
+      getEventShareLinks(slug, refCode).then((r: any) => setShareLinks(r?.links || {})).catch(() => setShareLinks({}))
     }
-  }, [slug, refCode, botClientId])
+  }, [slug, refCode])
 
   const sortedGifts = [...gifts].sort((a, b) => a.points_cost - b.points_cost)
   // Получено подарков считаем локально из загруженных порогов: даёт честное

@@ -16,16 +16,38 @@ logger = logging.getLogger(__name__)
 
 
 async def resolve_source_organizer(db, event_id: int, contact_id: int) -> int | None:
-    """client_id организатора коллаб-события, который привёл этого участника.
+    """client_id ИСХОДНОГО организатора этого участника в коллаб-событии.
 
-    None — если событие не коллаб, реферер не определён, или он не организатор.
+    ⚠️ Привязка ЖЁСТКАЯ и не зависит от того, в чей бот человек зашёл потом. Один и тот
+    же человек может открыть событие в боте любого организатора — реф-ссылки он ВЕЗДЕ
+    должен видеть свои, от СВОЕГО исходного организатора. Иначе, приглашая друзей из
+    чужого бота, он отдавал бы их в чужую базу.
+
+    Как определяем (в порядке надёжности):
+      1. `contacts.client_id` — в ЧЬЕЙ БАЗЕ лежит контакт. Это и есть исходный
+         организатор: контакт создаётся в базе того клиента, через чьего бота человек
+         впервые пришёл. Работает и когда человек «пришёл сам» (без реферера).
+      2. Реферер (`event_participants.referrer_ref_code`) — запасной вариант, если
+         контакт почему-то в базе не-организатора (напр. слияние контактов).
+
+    None — если событие не коллаб или организатор не определился.
     """
     try:
         is_collab = await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id)
         if not is_collab:
             return None
 
-        # Реф-код, по которому пришёл участник → чей это контакт
+        # 1) База контакта — в ней он и «живёт».
+        cid = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", contact_id)
+        if cid:
+            ok = await db.fetchval(
+                """SELECT 1 FROM event_owners
+                    WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
+                event_id, cid)
+            if ok:
+                return cid
+
+        # 2) Фолбэк: кто его привёл.
         cid = await db.fetchval(
             """SELECT rc.client_id
                  FROM event_participants ep
@@ -36,7 +58,6 @@ async def resolve_source_organizer(db, event_id: int, contact_id: int) -> int | 
         if not cid:
             return None
 
-        # Он точно организатор ЭТОГО события?
         ok = await db.fetchval(
             """SELECT 1 FROM event_owners
                 WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
