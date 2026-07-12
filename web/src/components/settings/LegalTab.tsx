@@ -50,9 +50,28 @@ const FIELD_LABELS: Record<string, string> = {
   legal_operator_email: 'Email оператора',
 }
 
-const POLICY_PLACEHOLDER = `Пример текста политики:
+/** Готовый текст политики с подставленными юр-данными клиента.
+ *  ⚠️ Раньше шаблон отдавался в `placeholder` — это серая ПОДСКАЗКА, а не текст:
+ *  поле оставалось пустым («Длина: 0 симв.»), и публикация была недоступна.
+ *  Теперь тем же текстом ЗАПОЛНЯЕМ поле — клиенту остаётся только проверить. */
+function buildPolicyTemplate(d: Partial<LegalData> | null): string {
+  const operator = [
+    FORM_LABELS[(d?.legal_form || '') as string] && d?.legal_name
+      ? `${d?.legal_name}`
+      : (d?.legal_name || 'Оператор'),
+    d?.legal_inn ? `${((d?.legal_inn_label || '').trim() || 'ИНН')}: ${d.legal_inn}` : '',
+    d?.legal_ogrn ? `ОГРН/ОГРНИП: ${d.legal_ogrn}` : '',
+    d?.legal_address ? `Адрес: ${d.legal_address}` : '',
+    d?.legal_operator_email ? `Email: ${d.legal_operator_email}` : '',
+  ].filter(Boolean).join(', ')
 
-1. Общие положения
+  return POLICY_BODY.replace(
+    'Оператор (см. реквизиты внизу страницы)',
+    operator ? `Оператор (${operator})` : 'Оператор (см. реквизиты внизу страницы)',
+  )
+}
+
+const POLICY_BODY = `1. Общие положения
 Настоящая Политика определяет порядок обработки персональных данных,
 которые Оператор (см. реквизиты внизу страницы) получает от субъектов
 персональных данных (далее — Пользователи) при использовании настоящего
@@ -115,7 +134,13 @@ export default function LegalTab() {
         headers: { ...auth() },
       })
       if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка загрузки')
-      setData(await r.json())
+      const d: LegalData = await r.json()
+      // Политики ещё нет → сразу кладём в поле готовый шаблон с юр-данными клиента.
+      // (Черновик не сохраняется сам — клиент проверяет текст и жмёт «Сохранить»/«Опубликовать».)
+      if (!(d.privacy_policy_text || '').trim()) {
+        d.privacy_policy_text = buildPolicyTemplate(d)
+      }
+      setData(d)
     } catch (e: any) {
       setError(e.message)
     }
@@ -208,6 +233,24 @@ export default function LegalTab() {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Политика не опубликована — участники видят согласие 152-ФЗ без ссылки на
+          вашу политику. Пока не нажата «Опубликовать», страница /c/{id}/privacy пуста. */}
+      {data && !data.privacy_policy_published_at && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">
+          <b>Политика не опубликована.</b> Пока вы не нажмёте «Опубликовать политику»,
+          ссылка на неё не показывается участникам при регистрации (152-ФЗ).
+          Текст ниже уже заполнен шаблоном — проверьте его и опубликуйте.
+        </div>
+      )}
+      {data && data.privacy_policy_published_at && (
+        <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-4 text-sm">
+          Политика опубликована · версия {data.privacy_policy_version}
+          {publicUrl && (
+            <> · <a href={publicUrl} target="_blank" rel="noreferrer" className="underline">{publicUrl}</a></>
+          )}
         </div>
       )}
 
@@ -307,10 +350,20 @@ export default function LegalTab() {
           )}
         </p>
         <textarea value={data.privacy_policy_text || ''} onChange={set('privacy_policy_text')}
-          rows={20} placeholder={POLICY_PLACEHOLDER}
+          rows={20}
           className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono" />
         <div className="mt-3 text-xs text-gray-500">
           Длина: {(data.privacy_policy_text || '').length} симв.
+          {' · '}
+          <button type="button"
+            onClick={() => {
+              if ((data.privacy_policy_text || '').trim() &&
+                  !confirm('Заменить текст политики шаблоном? Текущий текст будет потерян.')) return
+              setData({ ...data, privacy_policy_text: buildPolicyTemplate(data) })
+            }}
+            className="text-brand underline">
+            Вставить шаблон
+          </button>
           {data.privacy_policy_version > 0 && data.privacy_policy_published_at && (
             <> · Опубликовано: версия {data.privacy_policy_version} от {new Date(data.privacy_policy_published_at).toLocaleString('ru-RU')}</>
           )}

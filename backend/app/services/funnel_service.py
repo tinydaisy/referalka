@@ -54,7 +54,11 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
               bio,
               owner_positioning,
               owner_achievements,
-              social_links
+              social_links,
+              -- Служба заботы (Настройки → Профиль). ⚠️ Это НЕ канал основателя:
+              -- {owner_telegram} раньше подставлял первый TG-КАНАЛ из social_links,
+              -- хотя по смыслу (и по подписи в UI) это личный аккаунт поддержки.
+              work_tg_username, work_vk, work_max
              FROM clients WHERE id = $1""",
         client_id
     )
@@ -70,7 +74,6 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     sub_channel = ""
     sub_channel_api = ""
     sub_channel_chat_id = ""
-    owner_link = ""
 
     if platform == "vk":
         from app.services.social_links import normalize_vk_link, vk_screen_name_from_link
@@ -85,7 +88,6 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
                 sub_channel_chat_id = str(int(raw_group_id))
             except (TypeError, ValueError):
                 sub_channel_chat_id = ""
-        owner_link = sub_channel
     else:
         # Telegram (default) — массив каналов основателя (миграция 114).
         # Старые legacy-ключи (telegram/telegram_chat_id) подхватываются get_founder_tg_channels
@@ -99,7 +101,6 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
             first = tg_channels_full[0]
             sub_channel_api = telegram_api_id(first["url"])
             sub_channel_chat_id = first.get("chat_id") or ""
-        owner_link = tg_channels_full[0]["url"] if tg_channels_full else ""
         # Полный список каналов — для проверки подписки на ВСЕ в run_check_subscription
         # и для построения списка «не подписан на: ...» в handler/funnel.
         # См. функцию `check_telegram_channels_subscription` ниже.
@@ -126,6 +127,20 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     tg_channels: list[dict] = []
     if platform != "vk":
         tg_channels = get_founder_tg_channels(social)
+
+    # ── Служба заботы (Настройки → Профиль) ───────────────────────────────────
+    # ⚠️ {owner_telegram} — это ЛИЧНЫЙ аккаунт поддержки (work_tg_username), а НЕ
+    # TG-канал основателя. Раньше сюда подставлялся первый канал из social_links,
+    # что противоречило и смыслу, и подписи в UI («аккаунт службы поддержки»).
+    from app.services.support_message import _lines as _support_lines
+    support_rows = _support_lines(row["work_tg_username"], row["work_vk"], row["work_max"])
+    support_map = {label: url for label, url in support_rows}
+    owner_tg_support = support_map.get("Телеграм", "")
+    # {support_links} — все каналы поддержки (ВК / Телеграм / MAX), по строке на каждый.
+    # HTML для TG/MAX, VK всё равно срежет теги и оставит URL.
+    support_links = "\n".join(
+        f'{label}: <a href="{url}">{url}</a>' for label, url in support_rows)
+
     return {
         "brand_name": row["brand_name"] or "",
         "owner_name": row["owner_name"] or "",
@@ -135,7 +150,10 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
         "subscription_channel": sub_channel,                   # https-ссылка (или список через \n) для текста
         "subscription_channel_api": sub_channel_api,           # TG @username первого канала / VK screen_name
         "subscription_channel_chat_id": sub_channel_chat_id,   # числовой id первого канала (для VK group_id)
-        "owner_telegram": owner_link,
+        # Личный TG-аккаунт службы заботы (clients.work_tg_username). Пусто, если
+        # не заполнен. Фолбэка на канал основателя НЕТ — это разные вещи.
+        "owner_telegram": owner_tg_support,
+        "support_links": support_links,                        # все каналы поддержки, по строке
         "tg_channels": tg_channels,                            # массив для проверки подписки на ВСЕ
     }
 
@@ -267,7 +285,10 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
         "client_owner_positioning": ctx.get("owner_positioning", ""),
         "client_owner_achievements": ctx.get("owner_achievements", ""),
         "subscription_channel": ctx.get("subscription_channel", ""),
+        # Личный TG службы заботы (НЕ канал основателя).
         "owner_telegram": ctx.get("owner_telegram", ""),
+        # Все каналы службы заботы (ВК / Телеграм / MAX) — по строке на каждый.
+        "support_links": ctx.get("support_links", ""),
     }
     out = template
     for k, v in placeholders.items():

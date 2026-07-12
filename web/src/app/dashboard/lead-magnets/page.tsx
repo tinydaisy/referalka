@@ -756,7 +756,8 @@ function TemplateEditor() {
             ['{client_owner_bio}', 'биография основателя'],
             ['{client_owner_achievements}', 'ваши регалии и факты в цифрах'],
             ['{subscription_channel}', 'ссылка на канал, на который нужно подписаться за подарок'],
-            ['{owner_telegram}', 'ваш аккаунт службы поддержки в Telegram'],
+            ['{owner_telegram}', 'аккаунт службы заботы в Telegram (Настройки → Профиль)'],
+            ['{support_links}', 'все каналы службы заботы (ВКонтакте, Telegram, MAX) — по строке на каждый'],
           ].map(([ph, desc]) => (
             <div key={ph} className="flex flex-col sm:flex-row sm:gap-2">
               <code className="font-mono text-amber-900 whitespace-nowrap">{ph}</code>
