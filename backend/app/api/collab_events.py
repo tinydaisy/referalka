@@ -419,6 +419,9 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
         "SELECT id, url, label FROM collaborator_posters WHERE collaborator_id=$1 ORDER BY sort_order, id",
         collab_id) if collab_id else []
 
+    # ⚠️ Режим регистрации — ЛИЧНЫЙ у каждого организатора (его настройка «Бот и ссылки»):
+    # у одного Mini App, у другого веб. И площадки только ЕГО (у кого есть MAX — с MAX,
+    # у кого только TG — только TG). Поэтому и режим, и ссылки считаем по ЕГО client_id.
     lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
         db, client_id=client_id, event_link_mode=ev["link_mode"])
     links = await build_share_links(
@@ -437,6 +440,8 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
         "gift_lead_magnets": gift_list,
         "posters": [dict(p) for p in posters],
         "links": links,
+        "link_mode": lm,          # 'miniapp' | 'bot' — как регистрирует ЭТОТ организатор
+        "slug": ev["slug"],
     }
 
 

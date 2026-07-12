@@ -272,13 +272,18 @@ export default function OverviewTab({
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже.
           Баннер «Каналы не подключены» теперь ВНУТРИ PublicLinks (по реальному
-          наличию ссылок, без зависимости от кешированного me). */}
-      <PublicLinks
-        slug={event?.slug}
-        eventId={eventId}
-        onSlugSaved={onReload}
-        eventStatus={event?.status}
-      />
+          наличию ссылок, без зависимости от кешированного me).
+          ⚠️ У КОЛЛАБ-события общей публичной ссылки НЕТ: у каждого организатора
+          свой бот и своя ссылка — они живут в карточке организатора («Люди» →
+          «Организаторы» → вкладка «Ссылки»). Секцию скрываем целиком. */}
+      {!event.is_collab && (
+        <PublicLinks
+          slug={event?.slug}
+          eventId={eventId}
+          onSlugSaved={onReload}
+          eventStatus={event?.status}
+        />
+      )}
 
       {/* Save bar — в самом низу страницы */}
       {err && <div className="text-sm text-red-600">{err}</div>}

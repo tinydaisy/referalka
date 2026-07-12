@@ -90,6 +90,12 @@ export default function CollabOrganizerCardPage() {
   const o = data.organizer || {}
   const canEdit = !!data.can_edit
   const posters: any[] = data.posters || []
+  // Площадки ЭТОГО организатора — только те, по которым бэк реально вернул ссылку
+  // (у кого подключён MAX — будет MAX, у кого только TG — только Telegram).
+  const PLATFORM_TITLES: Record<string, string> = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX' }
+  const platformList = Object.keys(data.links || {})
+    .filter(k => (data.links as any)[k])
+    .map(k => PLATFORM_TITLES[k] || k)
 
   return (
     <div className="p-4 md:p-8">
@@ -278,11 +284,18 @@ export default function CollabOrganizerCardPage() {
       {/* ── ССЫЛКИ ── */}
       {tab === 'links' && (
         <div className="space-y-4">
-          <div className="rounded-2xl border p-4" style={{ borderColor: PEACH, background: '#FFF8F1' }}>
+          <div className="rounded-2xl border p-4 space-y-2" style={{ borderColor: PEACH, background: '#FFF8F1' }}>
             <p className="text-sm" style={{ color: '#C77B3B' }}>
               {canEdit
                 ? <>Это <b>ваши</b> ссылки — через <b>вашего бота</b>. Кого приведёте по ним, тот попадёт в вашу базу и засчитается вам во вклад.</>
                 : <>Ссылки этого организатора — через <b>его бота</b>. Кого он приведёт, тот попадёт в его базу.</>}
+            </p>
+            {/* Через что идёт регистрация именно у ЭТОГО организатора — режим и площадки
+                берутся из ЕГО настроек («Mini App» → «Бот и ссылки») и ЕГО подключённых каналов. */}
+            <p className="text-xs" style={{ color: '#C77B3B' }}>
+              Регистрация {canEdit ? 'у вас' : `у ${o.name}`} идёт{' '}
+              <b>{data.link_mode === 'bot' ? 'через веб-страницу события' : 'через Mini App'}</b>
+              {platformList.length > 0 && <> · площадки: <b>{platformList.join(', ')}</b></>}
             </p>
           </div>
 
