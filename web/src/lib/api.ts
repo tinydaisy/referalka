@@ -565,6 +565,8 @@ export const api = {
       request(`/api/v1/channels/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/channels/${id}`, { method: 'DELETE' }),
+    // Кто держит TG-ботов клиента: ПЛЮСОН или сторонний сервис (webhook)
+    telegramHealth: () => request('/api/v1/channels/telegram-health'),
     // Забрать бота у стороннего сервиса: deleteWebhook + перезапуск polling
     restartPolling: (id: number) =>
       request(`/api/v1/channels/${id}/restart-polling`, { method: 'POST' }),

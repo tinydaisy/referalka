@@ -78,6 +78,10 @@ export default function LeadMagnetsPage() {
   const [tgChannels, setTgChannels] = useState<{ url: string; name?: string }[] | null>(null)
   // Сводные счётчики по всем лид-магнитам + всем пакетам (есть contact_id / получили)
   const [totals, setTotals] = useState<{ reached: number; received: number } | null>(null)
+  // Главный бот воронки перехвачен сторонним сервисом (webhook) → воронки НЕ работают:
+  // Telegram отдаёт /start туда, а не нам. Проверяем только is_active-бота —
+  // именно через него идёт выдача лид-магнитов.
+  const [hijackedBot, setHijackedBot] = useState<{ handle: string; host: string } | null>(null)
 
   useEffect(() => {
     api.miniApp.profile.get()
@@ -86,6 +90,15 @@ export default function LeadMagnetsPage() {
         setTgChannels(Array.isArray(list) ? list : [])
       })
       .catch(() => setTgChannels([]))
+  }, [])
+
+  useEffect(() => {
+    api.channels.telegramHealth()
+      .then((r: any) => {
+        const bad = (r?.items || []).find((i: any) => i.hijacked && i.is_active)
+        setHijackedBot(bad ? { handle: bad.handle || '', host: bad.webhook_host || '' } : null)
+      })
+      .catch(() => setHijackedBot(null))
   }, [])
 
   useEffect(() => {
@@ -128,6 +141,30 @@ export default function LeadMagnetsPage() {
           </div>
         )}
       </div>
+
+      {hijackedBot && (
+        <div className="mb-6 rounded-xl border border-red-300 bg-red-50 p-4 flex items-start gap-3">
+          <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={20} />
+          <div className="flex-1 text-sm">
+            <div className="font-semibold text-red-900 mb-1">
+              Воронки не работают — вашего бота перехватил другой сервис
+            </div>
+            <div className="text-red-800">
+              Telegram сейчас отдаёт все сообщения бота{' '}
+              {hijackedBot.handle && <span className="font-mono font-semibold">{hijackedBot.handle}</span>}{' '}
+              сюда: <span className="font-mono font-semibold">{hijackedBot.host || 'сторонний сервис'}</span>.
+              Пока это так, люди жмут по ссылке лид-магнита, но бот им не отвечает — и счётчики стоят на нуле.
+              Так бывает, если бота подключали в другом конструкторе (LeadConverter, Salebot, BotHelp).
+            </div>
+            <a
+              href="/dashboard/channels"
+              className="inline-flex items-center gap-1 mt-2 text-sm font-semibold underline text-red-900 hover:text-red-700"
+            >
+              Забрать бота в ПЛЮСОН →
+            </a>
+          </div>
+        </div>
+      )}
 
       {tgChannels !== null && tgChannels.length === 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">

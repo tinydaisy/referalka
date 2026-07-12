@@ -39,6 +39,17 @@ interface Me {
   is_system_service?: boolean
 }
 
+// Диагностика TG-бота: держит ли его сторонний сервис (webhook) вместо ПЛЮСОНа
+interface BotHealth {
+  channel_id: number
+  handle: string
+  is_active: boolean
+  hijacked: boolean      // на боте стоит чужой webhook → у нас он молчит
+  webhook_url: string
+  webhook_host: string
+  checked: boolean       // удалось ли спросить Telegram
+}
+
 function PlatformBadge({ slug, color }: { slug: string; color?: string | null }) {
   const labels: Record<string, string> = { telegram: 'TG', vk: 'VK', max: 'MX' }
   return (
@@ -77,6 +88,8 @@ export default function ChannelsPage() {
   const [maxWizardOpen, setMaxWizardOpen] = useState(false)
   const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null)
   const [importingChannel, setImportingChannel] = useState<Channel | null>(null)
+  // Кто держит TG-ботов: мы или сторонний сервис (webhook). channel_id → health
+  const [health, setHealth] = useState<Record<number, BotHealth>>({})
 
   const load = async () => {
     setLoading(true)
@@ -96,7 +109,18 @@ export default function ChannelsPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  // Спрашиваем Telegram, не перехватил ли ботов сторонний сервис. Отдельно от
+  // load() — идёт в Telegram по сети, страницу ждать не заставляем.
+  const loadHealth = async () => {
+    try {
+      const r: any = await api.channels.telegramHealth()
+      const map: Record<number, BotHealth> = {}
+      for (const it of (r?.items || [])) map[it.channel_id] = it
+      setHealth(map)
+    } catch { /* Telegram недоступен — просто не показываем диагностику */ }
+  }
+
+  useEffect(() => { load(); loadHealth() }, [])
 
   if (loading) {
     return <div className="p-6 text-gray-400 text-sm">Загрузка...</div>
@@ -152,6 +176,7 @@ export default function ChannelsPage() {
             channels={channels}
             platforms={platforms}
             isSystemService={isSystemService}
+            health={health}
             onEdit={ch => setEditing(ch)}
             onCreate={() => setCreating(true)}
             onDelete={ch => setDeletingChannel(ch)}
@@ -159,6 +184,7 @@ export default function ChannelsPage() {
             onOpenVkWizard={() => setVkWizardOpen(true)}
             onOpenMaxWizard={() => setMaxWizardOpen(true)}
             onImport={ch => setImportingChannel(ch)}
+            onRestarted={loadHealth}
           />
         )
       )}
@@ -331,10 +357,11 @@ function PlatformGroup({ title, count, children, defaultOpen = true }: {
 }
 
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, isSystemService, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport }: {
+function VipView({ channels, platforms, isSystemService, health, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport, onRestarted }: {
   channels: Channel[]
   platforms: Platform[]
   isSystemService?: boolean
+  health: Record<number, BotHealth>
   onEdit: (ch: Channel) => void
   onCreate: () => void
   onDelete: (ch: Channel) => void
@@ -342,6 +369,7 @@ function VipView({ channels, platforms, isSystemService, onEdit, onCreate, onDel
   onOpenVkWizard: () => void
   onOpenMaxWizard: () => void
   onImport: (ch: Channel) => void
+  onRestarted: () => void
 }) {
   // Для системного сервисного аккаунта системные каналы = его собственные, поэтому
   // любой его канал (даже не помеченный is_active в client_channels, как MAX)
@@ -356,9 +384,11 @@ function VipView({ channels, platforms, isSystemService, onEdit, onCreate, onDel
     <ChannelCard
       key={ch.id}
       channel={ch}
+      health={health[ch.id]}
       onEdit={() => onEdit(ch)}
       onDelete={() => onDelete(ch)}
       onImport={() => onImport(ch)}
+      onRestarted={onRestarted}
     />
   )
 
@@ -458,15 +488,24 @@ function VipView({ channels, platforms, isSystemService, onEdit, onCreate, onDel
   )
 }
 
-function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
+function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestarted }: {
   channel: Channel
+  health?: BotHealth
   onEdit: () => void
   onDelete: () => void
   onImport: () => void
+  onRestarted?: () => void
 }) {
   const isTelegram = ch.platform_slug === 'telegram'
   const isSystem = !!ch.is_system
   const [restarting, setRestarting] = useState(false)
+
+  // Бота перехватил сторонний сервис (webhook). Красным подсвечиваем только
+  // ГЛАВНЫЙ бот воронки (is_active) — именно через него идут /start, воронки и
+  // регистрации. Доп. боты (только рассылки) от webhook не страдают: рассылки
+  // шлются через sendMessage, а он работает и при чужом webhook.
+  const hijacked = !!health?.hijacked
+  const critical = hijacked && ch.is_active
 
   // Бот молчит, хотя токен верный? Значит его перехватил сторонний конструктор
   // (LeadConverter, Salebot, BotHelp…): он прописал себя webhook'ом, а Telegram
@@ -494,6 +533,7 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
       } else {
         alert('Готово — бот перезапущен. Сторонних сервисов на нём не было.')
       }
+      onRestarted?.()
     } catch (e: any) {
       alert(e?.message || 'Не удалось перезапустить бота')
     } finally {
@@ -502,8 +542,11 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
   }
 
   return (
+    <div className="space-y-0">
     <div className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-4 ${
-      isSystem ? 'border-amber-100 bg-gradient-to-r from-amber-50/40 to-white' : 'border-gray-100'
+      critical ? 'border-red-300 bg-red-50/40'
+        : isSystem ? 'border-amber-100 bg-gradient-to-r from-amber-50/40 to-white'
+        : 'border-gray-100'
     }`}>
       <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
       <div className="min-w-0 flex-1">
@@ -532,6 +575,14 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
               title="Бот используется только как база для рассылок — события не слушает"
             >
               <Megaphone size={10} /> Только рассылки
+            </span>
+          )}
+          {critical && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-700"
+              title="Бота перехватил сторонний сервис — в ПЛЮСОНе он не отвечает"
+            >
+              <AlertTriangle size={10} /> Бот не отвечает
             </span>
           )}
         </div>
@@ -572,7 +623,11 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
               <button
                 onClick={restart}
                 disabled={restarting}
-                className="p-2 hover:bg-blue-50 rounded-lg text-gray-500 hover:text-blue-600 disabled:opacity-50"
+                className={`p-2 rounded-lg disabled:opacity-50 ${
+                  critical
+                    ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                    : 'hover:bg-blue-50 text-gray-500 hover:text-blue-600'
+                }`}
                 title="Бот не отвечает? Перезапустить и забрать управление в ПЛЮСОН"
               >{restarting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}</button>
             )}
@@ -596,6 +651,32 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
           </>
         )}
       </div>
+    </div>
+
+    {critical && (
+      <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-semibold">Бот не работает в ПЛЮСОНе — им управляет другой сервис</p>
+            <p className="text-red-700">
+              Через этот бот идёт воронка событий (/start, регистрации, лид-магниты), но
+              Telegram сейчас отдаёт все сообщения сюда:{' '}
+              <span className="font-mono font-semibold">{health?.webhook_host || 'сторонний сервис'}</span>.
+              Так бывает, если бота подключали в другом конструкторе (LeadConverter, Salebot, BotHelp).
+            </p>
+            <button
+              onClick={restart}
+              disabled={restarting}
+              className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {restarting ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              Забрать бота в ПЛЮСОН
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   )
 }

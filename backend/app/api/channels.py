@@ -15,6 +15,7 @@ API каналов доставки клиента (миграция 036, доп
 Системные каналы (@pluson_bot и т.п.) — read-only: bot_token не показывается, не редактируется,
 удалить нельзя, импорт CSV запрещён (см. is_system проверки в эндпоинтах).
 """
+import asyncio
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
@@ -136,6 +137,68 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
         client_id
     )
     return {"items": [dict(r) for r in rows]}
+
+
+# ─── GET /telegram-health ─────────────────────────────────────────────
+
+
+@router.get("/telegram-health", summary="Кто держит TG-ботов клиента: ПЛЮСОН или сторонний сервис")
+async def telegram_health(client=Depends(get_current_client), db=Depends(get_db)):
+    """Диагностика «бот молчит». Спрашивает у Telegram по каждому TG-боту клиента,
+    не прописан ли на нём чужой webhook.
+
+    Telegram отдаёт апдейты ЛИБО по webhook, ЛИБО нашему polling — не обоим.
+    Сторонние конструкторы (LeadConverter, Salebot, BotHelp…) при подключении
+    бота молча прописывают себя webhook'ом и перехватывают его. В кабинете при
+    этом всё выглядит верно, но бот не отвечает.
+
+    `hijacked=True` → бот НЕ на нашей стороне (UI красит красным, особенно если
+    это главный бот воронки). Опрашиваем параллельно, чтобы не тормозить страницу.
+    """
+    client_id = int(client["sub"])
+    rows = await db.fetch(
+        """SELECT ch.id, ch.handle, ch.bot_token, cc.is_active
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'telegram'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL""",
+        client_id,
+    )
+    if not rows:
+        return {"items": []}
+
+    async def _probe(row) -> dict:
+        item = {
+            "channel_id": row["id"],
+            "handle": row["handle"] or "",
+            "is_active": bool(row["is_active"]),
+            "hijacked": False,
+            "webhook_url": "",
+            "webhook_host": "",
+            "checked": False,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as cl:
+                r = await cl.get(
+                    f"https://api.telegram.org/bot{row['bot_token']}/getWebhookInfo"
+                )
+            d = r.json()
+            if d.get("ok"):
+                url = (d.get("result") or {}).get("url") or ""
+                item["checked"] = True
+                item["webhook_url"] = url
+                item["hijacked"] = bool(url)
+                if url:
+                    from urllib.parse import urlparse
+                    item["webhook_host"] = urlparse(url).hostname or url
+        except Exception:
+            pass  # Telegram недоступен — молчим, страница не должна падать
+        return item
+
+    items = await asyncio.gather(*[_probe(r) for r in rows])
+    return {"items": list(items)}
 
 
 @router.get("/{channel_id}")
