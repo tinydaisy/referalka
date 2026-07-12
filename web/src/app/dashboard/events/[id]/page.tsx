@@ -64,7 +64,8 @@ export default function EventPage() {
         { key: 'posters',  label: 'Афиши' },
         { key: 'referral', label: 'Реф-программа' },
         { key: 'nurture',  label: 'Воронка догрева' },
-        { key: 'welcome',  label: 'Приветствие' },
+        // «Приветствие» (welcome-email) — у КОЛЛАБ-события не показываем.
+        ...(!event.is_collab ? [{ key: 'welcome' as TabKey, label: 'Приветствие' }] : []),
       ],
     },
     {
@@ -167,7 +168,7 @@ export default function EventPage() {
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
-      {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
+      {activeTab === 'welcome' && !event.is_collab && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
       {activeTab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} />}

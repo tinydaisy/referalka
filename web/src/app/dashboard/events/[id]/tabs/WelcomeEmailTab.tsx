@@ -82,8 +82,8 @@ export default function WelcomeEmailTab({ event, eventId, onReload }: Props) {
     <div className="space-y-6 max-w-3xl">
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-gray-700 leading-relaxed">
         <b>Что это:</b> при первой регистрации на событие участнику автоматически
-        отправляется приветствие во все доступные каналы — email (если указан),
-        Telegram, VK, MAX. Один раз — повторов нет.
+        отправляется приветственное письмо <b>на email</b> — если email у него указан.
+        Один раз, повторов нет. В Telegram, VK и MAX это приветствие не уходит.
       </div>
 
       <label className="flex items-start gap-3 cursor-pointer">
