@@ -61,7 +61,7 @@ export default function LandingTab({ event, onRegister }: Props) {
   // Текст кнопки клиент задаёт в дашборде (events.landing_cta_label, миграция 212).
   // Пусто → прежние дефолты по типу события.
   const ctaLabel = (event?.landing_cta_label || '').trim()
-    || (isContest ? 'КАК ГОЛОСОВАТЬ?' : 'Хочу участвовать')
+    || (isContest ? 'КАК ГОЛОСОВАТЬ?' : 'Зарегистрироваться')
 
   const cta = (
     <button

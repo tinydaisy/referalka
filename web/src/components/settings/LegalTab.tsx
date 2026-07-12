@@ -56,9 +56,7 @@ const FIELD_LABELS: Record<string, string> = {
  *  Теперь тем же текстом ЗАПОЛНЯЕМ поле — клиенту остаётся только проверить. */
 function buildPolicyTemplate(d: Partial<LegalData> | null): string {
   const operator = [
-    FORM_LABELS[(d?.legal_form || '') as string] && d?.legal_name
-      ? `${d?.legal_name}`
-      : (d?.legal_name || 'Оператор'),
+    d?.legal_name || 'Оператор',
     d?.legal_inn ? `${((d?.legal_inn_label || '').trim() || 'ИНН')}: ${d.legal_inn}` : '',
     d?.legal_ogrn ? `ОГРН/ОГРНИП: ${d.legal_ogrn}` : '',
     d?.legal_address ? `Адрес: ${d.legal_address}` : '',
@@ -110,6 +108,20 @@ export default function LegalTab() {
   const [publishing, setPublishing] = useState(false)
   const [clientId, setClientId] = useState<number | null>(null)
   const [editingInnLabel, setEditingInnLabel] = useState(false)
+  // Нажимал ли клиент «Сохранить» — до этого пустые поля красным не подсвечиваем.
+  const [touched, setTouched] = useState(false)
+
+  // Обязательные для публикации политики (совпадает с проверкой на бэке).
+  const REQUIRED: (keyof LegalData)[] =
+    ['legal_form', 'legal_name', 'legal_inn', 'legal_address', 'legal_operator_email']
+  const isEmpty = (k: keyof LegalData) => !String((data as any)?.[k] ?? '').trim()
+  /** Класс поля: красная рамка, если оно обязательное, пустое и уже жали «Сохранить». */
+  const fieldCls = (k: keyof LegalData) =>
+    `w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 text-sm ${
+      touched && REQUIRED.includes(k) && isEmpty(k)
+        ? 'border-red-400 bg-red-50 focus:ring-red-200'
+        : 'border-gray-200 focus:ring-brand/30'
+    }`
 
   const auth = (): Record<string, string> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('plusson_token') : null
@@ -155,6 +167,9 @@ export default function LegalTab() {
 
   const save = async () => {
     if (!data) return
+    // Показываем КРАСНЫМ, каких полей не хватает — раньше клиент просто видел
+    // неактивную кнопку «Опубликовать» и должен был догадываться сам.
+    setTouched(true)
     setSaving(true); setError(null)
     try {
       const r = await fetch(`${API_BASE}/api/v1/clients/me/legal-and-policy`, {
@@ -264,7 +279,7 @@ export default function LegalTab() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Форма *</label>
             <select value={data.legal_form} onChange={set('legal_form')}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm">
+              className={fieldCls('legal_form')}>
               {(Object.keys(FORM_LABELS) as LegalForm[]).map(f => (
                 <option key={f} value={f}>{FORM_LABELS[f]}</option>
               ))}
@@ -273,8 +288,7 @@ export default function LegalTab() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">ФИО / Наименование *</label>
             <input type="text" value={data.legal_name || ''} onChange={set('legal_name')}
-              placeholder="ИП Иванов Иван Иванович"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              className={fieldCls('legal_name')} />
           </div>
           <div>
             <div className="flex items-center gap-1.5 mb-1">
@@ -293,9 +307,6 @@ export default function LegalTab() {
                   {(data.legal_inn_label || '').trim() || 'ИНН'} *
                 </label>
               )}
-              <span className="text-[11px] text-gray-400">
-                из другой страны? переименуйте
-              </span>
               <button
                 type="button"
                 onClick={() => setEditingInnLabel(v => !v)}
@@ -305,31 +316,26 @@ export default function LegalTab() {
               </button>
             </div>
             <input type="text" value={data.legal_inn || ''} onChange={set('legal_inn')}
-              placeholder="цифры или буквы (напр. УНП РБ)"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              className={fieldCls('legal_inn')} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">ОГРН / ОГРНИП</label>
             <input type="text" value={data.legal_ogrn || ''} onChange={set('legal_ogrn')}
-              placeholder="опционально"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">Адрес *</label>
             <input type="text" value={data.legal_address || ''} onChange={set('legal_address')}
-              placeholder="г. Москва, ул. ..."
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              className={fieldCls('legal_address')} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email оператора *</label>
             <input type="email" value={data.legal_operator_email || ''} onChange={set('legal_operator_email')}
-              placeholder="privacy@your-domain.ru"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              className={fieldCls('legal_operator_email')} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Телефон оператора</label>
             <input type="text" value={data.legal_operator_phone || ''} onChange={set('legal_operator_phone')}
-              placeholder="опционально"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
           </div>
         </div>

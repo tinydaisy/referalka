@@ -130,7 +130,7 @@ class UpdateEventRequest(BaseModel):
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
     skip_contact_form: Optional[bool] = None
     # Текст кнопки на встроенном лендинге события (миграция 212). Пусто → дефолт:
-    # «КАК ГОЛОСОВАТЬ?» у конкурса, «Хочу участвовать» у остальных типов.
+    # «КАК ГОЛОСОВАТЬ?» у конкурса, «Зарегистрироваться» у остальных типов.
     landing_cta_label: Optional[str] = None
     stream_url: Optional[str] = None
     # Скрыть кнопку стрима в Mini App (миграция 128). FALSE (default) = кнопка
