@@ -159,8 +159,11 @@ async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_lab
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
-        "reply_markup": {"inline_keyboard": [[{"text": button_label, "url": url}]]},
     }
+    # Нет URL (напр. у клиента не настроена поддержка на этой площадке) → шлём
+    # БЕЗ кнопки. Кнопка в никуда бесполезна, а Telegram её и не примет.
+    if url:
+        payload["reply_markup"] = {"inline_keyboard": [[{"text": button_label, "url": url}]]}
     async with httpx.AsyncClient(timeout=15) as cli:
         r = await cli.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
         if r.status_code != 200:
@@ -192,7 +195,8 @@ def _html_to_plain(html_text: str) -> str:
 async def _send_via_vk(token: str, user_id: int, text: str, button_label: str, url: str) -> None:
     from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
     plain = _html_to_plain(text)
-    keyboard = tg_inline_to_vk_keyboard([[{"text": button_label, "url": url}]])
+    # Нет URL (нет поддержки на этой площадке) → без кнопки.
+    keyboard = tg_inline_to_vk_keyboard([[{"text": button_label, "url": url}]]) if url else None
     await vk_send(user_id, plain, token=token, keyboard=keyboard)
 
 
@@ -216,9 +220,24 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     # (миграция 114). Legacy-ключ social_links->>'telegram' покрывается хелпером
     # get_founder_tg_channels.
     from app.services.social_links import get_founder_tg_channels
+
+    # ⚠️ КОЛЛАБ-СОБЫТИЕ: организаторов несколько, у каждого свой бот и своя база.
+    # Человек читает сообщение в боте ТОГО организатора, который его привёл, —
+    # значит и служба заботы, и бренд, и кнопка поддержки должны быть ЕГО, а не
+    # владельца события (run_row["client_id"] = владелец).
+    ctx_client_id = run_row["client_id"]
+    src_cid = None
+    try:
+        from app.services.collab_referrer import resolve_source_organizer
+        src_cid = await resolve_source_organizer(db, run_row["event_id"], run_row["contact_id"])
+        if src_cid:
+            ctx_client_id = src_cid
+    except Exception:
+        src_cid = None
+
     contact_row = await db.fetchrow(
         "SELECT work_tg_username, work_vk, work_max, social_links, brand_name, name FROM clients WHERE id = $1",
-        run_row["client_id"],
+        ctx_client_id,
     )
     founder_tg = ""
     if contact_row:
@@ -248,14 +267,14 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
 
     # {support_link_org} — коллаб-событие: служба заботы ТОГО организатора, от которого
     # пришёл участник (каждый организатор ведёт свою базу через своего бота).
+    # src_cid уже разрезолвлен выше — второй раз в БД не ходим.
     support_link_org = ""
-    try:
-        from app.services.collab_referrer import resolve_source_organizer, support_html_for_client
-        src_cid = await resolve_source_organizer(db, run_row["event_id"], run_row["contact_id"])
-        if src_cid:
+    if src_cid:
+        try:
+            from app.services.collab_referrer import support_html_for_client
             support_link_org = await support_html_for_client(db, src_cid)
-    except Exception:
-        support_link_org = ""
+        except Exception:
+            support_link_org = ""
 
     text = _format_text(
         step_row["text"],
@@ -268,12 +287,25 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     )
     button_label = step_row["button_label"] or "Зарегистрироваться"
     button_kind = step_row["button_kind"] if "button_kind" in step_row else "event"
-    # URL кнопки «Написать в поддержку» — t.me/{work_tg}?text=…
-    support_btn_url = ""
-    if button_kind == "support" and work_tg_username:
+    # URL кнопки «Написать в поддержку» — ДЛЯ КАЖДОЙ ПЛОЩАДКИ СВОЙ.
+    # ⚠️ Раньше всегда строился телеграмный `t.me/{work_tg}` — человек, читающий
+    # сообщение во ВКонтакте, получал кнопку в Telegram. Теперь: TG → work_tg_username,
+    # VK → work_vk, MAX → work_max. Нет поддержки на площадке → КНОПКИ НЕТ ВООБЩЕ
+    # (пустой URL Telegram/VK всё равно не примут, а кнопка в никуда бесполезна).
+    from app.services.support_message import _norm_tg, _norm_url
+    support_btn_by_platform: dict[str, str] = {}
+    if button_kind == "support" and contact_row:
         from urllib.parse import quote
-        handle = work_tg_username.lstrip("@").strip()
-        support_btn_url = f"https://t.me/{handle}?text={quote('Есть вопрос по регистрации')}"
+        _q = quote("Есть вопрос по регистрации")
+        _tg = _norm_tg(work_tg_username)
+        if _tg:
+            support_btn_by_platform["telegram"] = f"{_tg}?text={_q}"
+        _vk = _norm_url(contact_row["work_vk"])
+        if _vk:
+            support_btn_by_platform["vk"] = _vk
+        _mx = _norm_url(contact_row["work_max"])
+        if _mx:
+            support_btn_by_platform["max"] = _mx
 
     # Получатель: ищем идентичности контакта в TG и VK
     identities = await db.fetch(
@@ -285,15 +317,19 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
 
     ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", run_row["contact_id"])
     sent = False
-    client_id = run_row["client_id"]
+    # ⚠️ В КОЛЛАБЕ шлём через бота ТОГО организатора, который привёл человека
+    # (ctx_client_id), а не владельца события: у каждого свой бот и своя база,
+    # и человек подписан именно на бота своего организатора. Вне коллабы
+    # ctx_client_id == владелец, поведение не меняется.
+    client_id = ctx_client_id
 
     for ident in identities:
         plat = ident["platform_slug"]
         pid = ident["platform_user_id"]
         try:
-            # Кнопка «support» ведёт на t.me/{поддержка}?text=…; иначе — на событие.
-            if button_kind == "support" and support_btn_url:
-                url = support_btn_url
+            # Кнопка «support» → поддержка ЭТОЙ площадки; иначе — на событие.
+            if button_kind == "support":
+                url = support_btn_by_platform.get(plat, "")
             else:
                 url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code, contact_id=run_row["contact_id"])
             if plat == "telegram":

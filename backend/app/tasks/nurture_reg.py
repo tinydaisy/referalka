@@ -253,7 +253,18 @@ async def _send_via_vk(token: str, user_id: int, text: str,
 
 async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     event_title = run_row["event_title"] or "событие"
-    client_id = run_row["client_id"]
+
+    # ⚠️ КОЛЛАБ-СОБЫТИЕ: у каждого организатора свой бот и своя база. Человек читает
+    # сообщение в боте ТОГО организатора, который его привёл, — значит через него же
+    # и шлём, и его служба заботы попадает в текст/кнопку. Вне коллабы _src=None и
+    # client_id остаётся владельцем события (поведение не меняется).
+    _src = None
+    try:
+        from app.services.collab_referrer import resolve_source_organizer
+        _src = await resolve_source_organizer(db, run_row["event_id"], run_row["contact_id"])
+    except Exception:
+        _src = None
+    client_id = _src or run_row["client_id"]
 
     # Контакт поддержки клиента — все 3 канала (ВК/Телеграм/MAX), жирные подписи.
     _wrow = await db.fetchrow(
@@ -265,16 +276,14 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         work_max=_wrow["work_max"] if _wrow else None,
     )
 
-    # {support_link_org} — коллаб-событие: служба заботы ТОГО организатора, от которого
-    # пришёл участник (в коллабе у каждого своя база и свой бот).
+    # {support_link_org} — служба заботы того же организатора (client_id уже он).
     support_link_org = ""
-    try:
-        from app.services.collab_referrer import resolve_source_organizer, support_html_for_client
-        _src = await resolve_source_organizer(db, run_row["event_id"], run_row["contact_id"])
-        if _src:
+    if _src:
+        try:
+            from app.services.collab_referrer import support_html_for_client
             support_link_org = await support_html_for_client(db, _src)
-    except Exception:
-        support_link_org = ""
+        except Exception:
+            support_link_org = ""
 
     ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", run_row["contact_id"])
 
@@ -292,12 +301,25 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     )
     button_label = (step_row["button_label"] or "").strip()
     button_kind = step_row["button_kind"] if "button_kind" in step_row else "event"
-    work_tg = await db.fetchval("SELECT work_tg_username FROM clients WHERE id = $1", client_id)
-    support_btn_url = ""
-    if button_kind == "support" and work_tg:
+    # Кнопка «Написать в поддержку» — ДЛЯ КАЖДОЙ ПЛОЩАДКИ СВОЯ (TG → work_tg_username,
+    # VK → work_vk, MAX → work_max). Нет поддержки на площадке → кнопки нет вообще.
+    support_btn_by_platform: dict[str, str] = {}
+    if button_kind == "support":
         from urllib.parse import quote
-        h = work_tg.lstrip("@").strip()
-        support_btn_url = f"https://t.me/{h}?text={quote('Есть вопрос по регистрации')}"
+        from app.services.support_message import _norm_tg, _norm_url
+        _w = await db.fetchrow(
+            "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1", client_id)
+        if _w:
+            _q = quote("Есть вопрос по регистрации")
+            _tg = _norm_tg(_w["work_tg_username"])
+            if _tg:
+                support_btn_by_platform["telegram"] = f"{_tg}?text={_q}"
+            _vk = _norm_url(_w["work_vk"])
+            if _vk:
+                support_btn_by_platform["vk"] = _vk
+            _mx = _norm_url(_w["work_max"])
+            if _mx:
+                support_btn_by_platform["max"] = _mx
 
     sent = False
     for ident in identities:
@@ -318,8 +340,8 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             )
             # Кнопка: 'support' → t.me/{поддержка}?text=…; иначе — на программу события
             # (платформо-зависимый URL: для VK — vk.com/app…, для TG — t.me/…).
-            if button_kind == "support" and support_btn_url:
-                url = support_btn_url
+            if button_kind == "support":
+                url = support_btn_by_platform.get(plat, "")
             else:
                 # ⚠️ Вкладку передаём В БИЛДЕР (а не клеим строкой к готовому URL):
                 # в веб/бот-режиме ссылка это `?start=ref_pg…`, и хвост `_tabprogram`
