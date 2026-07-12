@@ -15,6 +15,9 @@ interface Step {
 
 interface Props {
   eventId: number
+  /** Коллаб-событие — доступен плейсхолдер {support_link_org} (служба заботы того,
+   *  от кого пришёл участник: в коллабе у каждого организатора своя база и свой бот). */
+  isCollab?: boolean
 }
 
 // Единицы для интервалов. Множитель в секундах.
@@ -86,7 +89,7 @@ function renderPreviewHtml(raw: string, vars: Record<string, string>): string {
 
 type Audience = 'unreg' | 'reg'
 
-export default function NurtureTab({ eventId }: Props) {
+export default function NurtureTab({ eventId, isCollab }: Props) {
   const [audience, setAudience] = useState<Audience>('unreg')
   return (
     <div className="space-y-4">
@@ -118,15 +121,15 @@ export default function NurtureTab({ eventId }: Props) {
 
       {/* Один и тот же редактор шагов, разный API-клиент и тексты-подсказки */}
       {audience === 'unreg'
-        ? <NurtureEditor eventId={eventId} audience="unreg" />
-        : <NurtureEditor eventId={eventId} audience="reg" />}
+        ? <NurtureEditor eventId={eventId} audience="unreg" isCollab={isCollab} />
+        : <NurtureEditor eventId={eventId} audience="reg" isCollab={isCollab} />}
     </div>
   )
 }
 
 // ─── Редактор шагов одной воронки ──────────────────────────────────────
 
-function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audience }) {
+function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audience: Audience; isCollab?: boolean }) {
   const client = audience === 'unreg' ? api.eventNurture : api.eventNurtureReg
 
   const [steps, setSteps] = useState<Step[]>([])
@@ -217,6 +220,8 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
         event_title: previewUrls?.event_title || 'Название события',
         chats: previewUrls?.chats_html || '<i>(чаты события не заданы)</i>',
         bot_handle: previewUrls?.bot_handle || '(ваш бот)',
+        // В коллабе — служба заботы организатора, приведшего участника (в превью показываем свою).
+        support_link_org: previewUrls?.support_link || 'в этом боте',
         support_link: previewUrls?.support_link || 'в этом боте',
         program_link: previewUrls?.program_link || '',
         gifts_link: previewUrls?.gifts_link || '',
@@ -227,6 +232,7 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
         event_title: previewUrls?.event_title || 'Название события',
         event_date_short: '28 мая в 11:00 МСК',
         owner_telegram: previewUrls?.owner_telegram || '@organizer',
+        support_link_org: previewUrls?.support_link || 'в этом боте',
         support_link: previewUrls?.support_link || 'в этом боте',
         brand_name: previewUrls?.brand_name ? `«${previewUrls.brand_name}»` : '',
       }
@@ -263,6 +269,14 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
         </p>
         <ul className="text-xs text-gray-500 mt-1 ml-4 list-disc space-y-0.5">
           <li><code>{'{event_title}'}</code> — название события</li>
+          {isCollab && (
+            <li className="text-[#C77B3B]">
+              <code>{'{support_link_org}'}</code> — <b>служба заботы того организатора, от которого пришёл участник</b>.
+              Это совместное событие: у каждого организатора своя база и свой бот, поэтому человеку
+              подставятся контакты именно «его» организатора (того, по чьей ссылке он пришёл).
+              Если определить не удалось — подставится ваша служба заботы.
+            </li>
+          )}
           {audience === 'unreg' && (
             <>
               <li><code>{'{event_date_short}'}</code> — дата в формате «28 мая в 11:00 МСК»</li>

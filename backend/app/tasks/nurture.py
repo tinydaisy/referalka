@@ -52,6 +52,7 @@ def _format_text(
     event_date_short: str,
     owner_telegram: str = "",
     support_link: str = "",
+    support_link_org: str = "",
     brand_name: str = "",
 ) -> str:
     """Подставляет плейсхолдеры. Безопасно — формат-строка может содержать
@@ -60,6 +61,10 @@ def _format_text(
     out = out.replace("{event_title}",      escape(event_title or ""))
     out = out.replace("{event_date_short}", escape(event_date_short or ""))
     out = out.replace("{owner_telegram}",   owner_telegram or "")  # уже HTML-тег <a>
+    # ⚠️ {support_link_org} — только для КОЛЛАБ-события: служба заботы ТОГО организатора,
+    # от которого пришёл участник (у каждого своя база и свой бот). Если определить не
+    # удалось — падаем на общий support_link (служба владельца события).
+    out = out.replace("{support_link_org}", support_link_org or support_link or "")
     out = out.replace("{support_link}",     support_link or "")    # уже HTML-тег <a> или текст
     out = out.replace("{brand_name}",       f"«{escape(brand_name)}»" if brand_name else "")
     return out
@@ -257,12 +262,24 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     if contact_row:
         brand_name = (contact_row["brand_name"] or contact_row["name"] or "").strip()
 
+    # {support_link_org} — коллаб-событие: служба заботы ТОГО организатора, от которого
+    # пришёл участник (каждый организатор ведёт свою базу через своего бота).
+    support_link_org = ""
+    try:
+        from app.services.collab_referrer import resolve_source_organizer, support_html_for_client
+        src_cid = await resolve_source_organizer(db, run_row["event_id"], run_row["contact_id"])
+        if src_cid:
+            support_link_org = await support_html_for_client(db, src_cid)
+    except Exception:
+        support_link_org = ""
+
     text = _format_text(
         step_row["text"],
         event_title=event_title,
         event_date_short=event_date_short,
         owner_telegram=owner_tg,
         support_link=support_link,
+        support_link_org=support_link_org,
         brand_name=brand_name,
     )
     button_label = step_row["button_label"] or "Зарегистрироваться"

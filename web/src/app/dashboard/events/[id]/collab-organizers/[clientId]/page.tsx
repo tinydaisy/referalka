@@ -84,15 +84,15 @@ export default function CollabOrganizerCardPage() {
   }
   const removeGift = (i: number) => setGifts(gifts.filter((_, idx) => idx !== i))
 
-  if (err) return <div className="p-8 max-w-3xl mx-auto text-gray-400 text-center">{err}</div>
-  if (!data) return <div className="p-8 text-gray-400 text-center">Загрузка…</div>
+  if (err) return <div className="p-4 md:p-8 text-gray-400">{err}</div>
+  if (!data) return <div className="p-4 md:p-8 text-gray-400">Загрузка…</div>
 
   const o = data.organizer || {}
   const canEdit = !!data.can_edit
   const posters: any[] = data.posters || []
 
   return (
-    <div className="p-4 md:p-8 max-w-3xl mx-auto">
+    <div className="p-4 md:p-8">
       <button onClick={() => router.push(`/dashboard/events/${eventId}?tab=collab_organizers`)}
         className="text-sm text-gray-500 inline-flex items-center gap-1 mb-4">
         <ArrowLeft className="w-4 h-4" />К организаторам

@@ -81,7 +81,8 @@ export default function EventPage() {
       ],
     },
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
-    ...(isVip ? [{
+    // ⚠️ У КОЛЛАБ-события платежей нет — раздел скрыт.
+    ...((isVip && !event.is_collab) ? [{
       key: 'payments' as GroupKey, label: 'Платежи',
       tabs: [
         { key: 'tariffs' as TabKey, label: 'Тарифы' },
@@ -167,10 +168,10 @@ export default function EventPage() {
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
-      {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
+      {activeTab === 'nurture'       && <NurtureTab eventId={eventId} isCollab={!!event.is_collab} />}
       {activeTab === 'welcome' && !event.is_collab && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
-      {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
-      {activeTab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
+      {activeTab === 'tariffs'       && isVip && !event.is_collab && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
+      {activeTab === 'tariff_orders' && isVip && !event.is_collab && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} />}
     </div>
   )
