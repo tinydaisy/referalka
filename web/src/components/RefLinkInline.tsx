@@ -18,21 +18,29 @@ interface Props {
   compact?: boolean
   /** Если 'draft' — ссылка затуманена, копирование заблокировано (партнёру отдавать нельзя). */
   eventStatus?: 'draft' | 'published' | 'ended' | null
+  /** Готовые ссылки {telegram,vk,max}. Если переданы — компонент НЕ фетчит сам.
+   *  Нужно для КОЛЛАБ-события: там у каждого организатора СВОЙ бот, и ссылки считает
+   *  бэк по client_id каждого (общий /share-links строит только по боту владельца). */
+  links?: { telegram?: string; vk?: string; max?: string }
+  /** Заголовок блока (по умолчанию «Партнёрские ссылки»). */
+  title?: string
 }
 
-export default function RefLinkInline({ slug, refCode, compact = false, eventStatus }: Props) {
+export default function RefLinkInline({ slug, refCode, compact = false, eventStatus, links: linksProp, title }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const isDraft = eventStatus === 'draft'
-  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
+  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>(linksProp || {})
 
   useEffect(() => {
+    // Ссылки переданы снаружи (коллаба — бот каждого организатора) → не фетчим.
+    if (linksProp) { setShareLinks(linksProp); return }
     if (!slug || !refCode) { setShareLinks({}); return }
     api.events.shareLinks(slug, refCode)
       .then((r: any) => setShareLinks(r?.links || {}))
       .catch(() => setShareLinks({}))
-  }, [slug, refCode])
+  }, [slug, refCode, linksProp])
 
-  if (!slug || !refCode) {
+  if (!linksProp && (!slug || !refCode)) {
     return (
       <div className="text-[11px] text-gray-400 italic">
         Партнёрская ссылка появится после первого сохранения карточки
@@ -94,7 +102,7 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
     <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5">
       <div className="flex items-center gap-2 mb-1.5">
         <Link2 size={14} className="text-amber-900" />
-        <span className="text-xs font-semibold text-amber-900">Партнёрские ссылки</span>
+        <span className="text-xs font-semibold text-amber-900">{title || 'Партнёрские ссылки'}</span>
       </div>
       <p className="text-[11px] text-amber-800 mb-3 leading-relaxed">
         {isDraft

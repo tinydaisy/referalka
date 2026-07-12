@@ -7,6 +7,7 @@ import OverviewTab from './tabs/OverviewTab'
 import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
 import CoOrganizersTab from './tabs/CoOrganizersTab'
+import CollabOrganizersTab from './tabs/CollabOrganizersTab'
 import NurtureTab from './tabs/NurtureTab'
 import WelcomeTab from './tabs/WelcomeTab'
 import TariffsTab from './tabs/TariffsTab'
@@ -15,7 +16,7 @@ import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -69,8 +70,12 @@ export default function EventPage() {
     {
       key: 'people', label: 'Люди',
       tabs: [
-        // «Организаторы» — только для не-конф мероприятий И при фиче event_organizers.
-        ...((!isConference && hasEventOrganizers) ? [{ key: 'co_organizers' as TabKey, label: 'Организаторы' }] : []),
+        // КОЛЛАБ-событие: «Организаторы» = клиенты-совладельцы (event_owners), у каждого
+        // своя реф-ссылка через СВОЕГО бота. Показываем всегда (без гейта фичей) —
+        // коллаба по определению про нескольких организаторов.
+        ...(event.is_collab ? [{ key: 'collab_organizers' as TabKey, label: 'Организаторы' }] : []),
+        // «Организаторы»-карточки (event_collaborators) — только для не-конф мероприятий И при фиче event_organizers.
+        ...((!isConference && !event.is_collab && hasEventOrganizers) ? [{ key: 'co_organizers' as TabKey, label: 'Организаторы' }] : []),
         { key: 'participants', label: 'Участники' },
       ],
     },
@@ -159,7 +164,8 @@ export default function EventPage() {
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
-      {activeTab === 'co_organizers' && !isConference && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
+      {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} eventStatus={event.status} />}
+      {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
       {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}

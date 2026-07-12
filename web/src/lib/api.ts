@@ -684,6 +684,9 @@ export const api = {
     reconsiderRequest: (id: number) =>
       request(`/api/v1/collab/requests/${id}/reconsider`, { method: 'POST' }),
     eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
+    // Организаторы коллаб-события + реф-ссылки КАЖДОГО через ЕГО собственного бота.
+    eventOrganizers: (eventId: number, mode?: 'miniapp' | 'bot') =>
+      request(`/api/v1/collab/events/${eventId}/organizers${mode ? `?mode=${mode}` : ''}`),
     collabs: () => request('/api/v1/collab/collabs'),
     leaveCollab: (eventId: number) =>
       request(`/api/v1/collab/events/${eventId}/leave`, { method: 'POST' }),

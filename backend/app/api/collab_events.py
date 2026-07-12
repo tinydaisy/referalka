@@ -253,6 +253,66 @@ async def event_owners(event_id: int, client=Depends(get_current_client), db: as
     return {"owners": [dict(r) for r in rows]}
 
 
+@router.get("/events/{event_id}/organizers")
+async def collab_organizers_with_links(event_id: int, mode: Optional[str] = None,
+                                       client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Организаторы коллаб-события (раздел «Люди» → «Организаторы») + реф-ссылки КАЖДОГО.
+
+    ⚠️ КЛЮЧЕВОЕ ДЛЯ КОЛЛАБЫ: у каждого организатора СВОЙ VIP-бот и СВОЯ база.
+    Поэтому ссылка каждого строится через ЕГО бота (build_share_links с его client_id),
+    а не через бота владельца события. Реф-код (pid) — его собственный (contacts.ref_code
+    его self-коллаба), чтобы приведённые им люди засчитались ему (вклад в hub_collab_history).
+    """
+    from app.services.share_links import build_share_links, resolve_event_link_mode
+    from app.services.self_collaborator import ensure_self_collaborator
+    me = int(client["sub"])
+    iam = await db.fetchval(
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, me)
+    if not iam:
+        raise HTTPException(403, "Вы не организатор этого события")
+    ev = await db.fetchrow("SELECT slug, link_mode FROM events WHERE id=$1", event_id)
+    if not ev:
+        raise HTTPException(404, "Событие не найдено")
+
+    # Реф-код организатора живёт в его self-коллабе. У старых клиентов его могло не быть
+    # (создаётся при регистрации) — гарантируем идемпотентно, иначе ссылка уйдёт без pid
+    # и приведённые им люди не засчитаются ему в вклад.
+    owner_ids = await db.fetch(
+        "SELECT client_id FROM event_owners WHERE event_id=$1 AND status='accepted'", event_id)
+    for o in owner_ids:
+        try:
+            await ensure_self_collaborator(db, o["client_id"])
+        except Exception:
+            pass  # не роняем список из-за одного клиента
+
+    rows = await db.fetch(
+        """SELECT o.client_id, o.role, o.status,
+                  c.name, c.brand_name, c.telegram_username,
+                  COALESCE(c.owner_photo_url, c.profile_photo_url) AS photo_url,
+                  -- Реф-код организатора = ref_code контакта его self-коллаба
+                  (SELECT ct.ref_code FROM collaborators col
+                     JOIN contacts ct ON ct.id = col.contact_id
+                    WHERE col.id = c.self_collaborator_id) AS ref_code
+             FROM event_owners o
+             JOIN clients c ON c.id = o.client_id
+            WHERE o.event_id=$1 AND o.status='accepted'
+            ORDER BY (o.role='owner') DESC, o.id""", event_id)
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
+            db, client_id=d["client_id"], event_link_mode=ev["link_mode"])
+        # Ссылки — через СВОЙ бот каждого организатора, с ЕГО реф-кодом.
+        d["links"] = await build_share_links(
+            db, client_id=d["client_id"], event_slug=ev["slug"],
+            partner_id=d.get("ref_code"), link_mode=lm,
+        )
+        d["is_me"] = d["client_id"] == me
+        out.append(d)
+    return {"organizers": out, "slug": ev["slug"]}
+
+
 # ═══════════════════════════════════════════════════════════════
 # Коллабы — список совместных событий, где я владелец (с ФИО организаторов)
 # ═══════════════════════════════════════════════════════════════
