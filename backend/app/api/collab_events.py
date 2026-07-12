@@ -4,7 +4,8 @@
 Поток (см. documentation/CONCEPT-COLLAB-NETWORK.md §9):
 1. Клиент 1 из Хаба жмёт «Предложить коллаборацию» (опц. к своему событию) → hub_collab_requests (pending=серый).
 2. Клиент 2 видит входящий запрос → Принять/Отклонить.
-3. Принял → event_owners(event_id, client_2, accepted, co_owner). Событие становится коллаб (is_collab=TRUE).
+3. Принял → event_owners(event_id, client_2, accepted, owner). Событие становится коллаб (is_collab=TRUE).
+   ⚠️ В коллабе ВСЕ организаторы равноправны — роль у всех 'owner', деления на создателя нет.
    Реф-ссылка клиента 2 на событие создаётся (его вклад считается). Молчун — висит серым, не участвует.
 4. Активно, если подтвердил ≥1. Реф-ссылки только подтвердившим.
 
@@ -144,7 +145,7 @@ async def _make_collab_slug(db):
 @router.post("/requests/{request_id}/respond")
 async def respond_request(request_id: int, body: dict, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     """Принять/отклонить запрос. accept=true:
-      - есть event_id → присоединяю партнёра к существующей коллабе (co_owner).
+      - есть event_id → присоединяю партнёра к существующей коллабе (owner — все равноправны).
       - нет event_id → СОЗДАЮ коллабу-событие (название из фамилий). Пустые события заранее НЕ плодим."""
     me = int(client["sub"])
     accept = bool(body.get("accept"))
@@ -168,8 +169,8 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
                 if partner_cid and partner_cid != owner_cid:
                     await db.execute(
                         """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
-                           VALUES ($1,$2,'accepted','co_owner',$3,NOW())
-                           ON CONFLICT (event_id, client_id) DO UPDATE SET status='accepted', role='co_owner', responded_at=NOW()""",
+                           VALUES ($1,$2,'accepted','owner',$3,NOW())
+                           ON CONFLICT (event_id, client_id) DO UPDATE SET status='accepted', role='owner', responded_at=NOW()""",
                         req["event_id"], partner_cid, owner_cid)
                 await db.execute("UPDATE events SET is_collab=TRUE WHERE id=$1", req["event_id"])
                 created_event_id = req["event_id"]
@@ -187,7 +188,7 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
                 await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", created_event_id, initiator)
                 await db.execute(
                     """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
-                       VALUES ($1,$2,'accepted','co_owner',$3,NOW()) ON CONFLICT (event_id, client_id) DO NOTHING""",
+                       VALUES ($1,$2,'accepted','owner',$3,NOW()) ON CONFLICT (event_id, client_id) DO NOTHING""",
                     created_event_id, acceptor, initiator)
                 await db.execute("UPDATE hub_collab_requests SET event_id=$2 WHERE id=$1", request_id, created_event_id)
     return {"ok": True, "status": new_status, "event_id": created_event_id}
@@ -208,7 +209,8 @@ async def reconsider_request(request_id: int, client=Depends(get_current_client)
         if req["status"] == "accepted" and req["event_id"]:
             ev_id = req["event_id"]
             # я (acceptor) выхожу из коллабы
-            await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2 AND role='co_owner'", ev_id, me)
+            # ⚠️ В коллабе ВСЕ организаторы — owner (равноправны), поэтому по роли не фильтруем.
+            await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2", ev_id, me)
             cnt = await db.fetchval("SELECT count(*) FROM event_owners WHERE event_id=$1 AND status='accepted'", ev_id)
             if (cnt or 0) <= 1:
                 await db.execute("UPDATE events SET is_collab=FALSE WHERE id=$1", ev_id)
@@ -553,25 +555,22 @@ async def my_collabs(client=Depends(get_current_client), db: asyncpg.Connection 
 # ═══════════════════════════════════════════════════════════════
 @router.post("/events/{event_id}/leave")
 async def leave_collab(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    """Выйти из коллабы. Организаторы РАВНОПРАВНЫ — выйти может любой, включая создателя.
+    """Выйти из коллабы. ⚠️ Организаторы РАВНОПРАВНЫ — у всех role='owner', «создателя»
+    как особой роли нет. Выйти может любой.
 
-    ⚠️ `role='owner'` — не «главный», а технический маркер: по всему коду клиент события
-    резолвится как `ORDER BY (role='owner') DESC` (лендинг, статистика, fallback'ы).
-    Поэтому при выходе владельца роль ПЕРЕДАЁТСЯ следующему организатору — событие не
-    должно остаться без owner'а. Последний организатор выйти не может: событие осталось
-    бы вообще без владельца (его нужно удалять, а не покидать).
+    Единственное ограничение: последний организатор выйти не может — событие осталось бы
+    вообще без владельца (его нужно удалять, а не покидать).
     """
     me = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT role FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'",
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'",
         event_id, me)
     if not row:
         raise HTTPException(404, "Вы не участник этой коллабы")
 
-    others = await db.fetch(
-        """SELECT client_id FROM event_owners
-            WHERE event_id=$1 AND client_id<>$2 AND status='accepted'
-            ORDER BY id""",
+    others = await db.fetchval(
+        """SELECT count(*) FROM event_owners
+            WHERE event_id=$1 AND client_id<>$2 AND status='accepted'""",
         event_id, me)
     if not others:
         raise HTTPException(
@@ -582,13 +581,8 @@ async def leave_collab(event_id: int, client=Depends(get_current_client), db: as
 
     async with db.transaction():
         await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2", event_id, me)
-        # Владелец ушёл → передаём маркер owner следующему организатору.
-        if row["role"] == 'owner':
-            await db.execute(
-                "UPDATE event_owners SET role='owner' WHERE event_id=$1 AND client_id=$2",
-                event_id, others[0]["client_id"])
         # Остался один организатор — событие перестаёт быть коллабой.
-        if len(others) <= 1:
+        if others <= 1:
             await db.execute("UPDATE events SET is_collab=FALSE WHERE id=$1", event_id)
     return {"ok": True}
 
