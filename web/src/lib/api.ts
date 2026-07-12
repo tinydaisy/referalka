@@ -684,9 +684,14 @@ export const api = {
     reconsiderRequest: (id: number) =>
       request(`/api/v1/collab/requests/${id}/reconsider`, { method: 'POST' }),
     eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
-    // Организаторы коллаб-события + реф-ссылки КАЖДОГО через ЕГО собственного бота.
-    eventOrganizers: (eventId: number, mode?: 'miniapp' | 'bot') =>
-      request(`/api/v1/collab/events/${eventId}/organizers${mode ? `?mode=${mode}` : ''}`),
+    // Организаторы коллаб-события — просто список людей (ссылки внутри карточки).
+    eventOrganizers: (eventId: number) =>
+      request(`/api/v1/collab/events/${eventId}/organizers`),
+    // Карточка организатора: тема, подарки (только из ПЛЮСОНа, до 4), афиша + ссылки через ЕГО бота.
+    organizerCard: (eventId: number, clientId: number) =>
+      request(`/api/v1/collab/events/${eventId}/organizers/${clientId}`),
+    updateOrganizerCard: (eventId: number, clientId: number, data: any) =>
+      request(`/api/v1/collab/events/${eventId}/organizers/${clientId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     collabs: () => request('/api/v1/collab/collabs'),
     leaveCollab: (eventId: number) =>
       request(`/api/v1/collab/events/${eventId}/leave`, { method: 'POST' }),

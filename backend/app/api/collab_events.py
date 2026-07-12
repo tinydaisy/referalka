@@ -285,14 +285,24 @@ async def collab_organizers_with_links(event_id: int, mode: Optional[str] = None
         except Exception:
             pass  # не роняем список из-за одного клиента
 
+    # У каждого организатора должна быть КАРТОЧКА в событии (event_collaborators,
+    # role='organizer') — там живут тема, подарки, афиша (как у спикера конференции).
+    # Заводим её из его self-коллаба, идемпотентно.
+    for o in owner_ids:
+        await _ensure_organizer_card(db, event_id, o["client_id"])
+
     rows = await db.fetch(
         """SELECT o.client_id, o.role, o.status,
                   c.name, c.brand_name, c.telegram_username,
                   COALESCE(c.owner_photo_url, c.profile_photo_url) AS photo_url,
+                  c.self_collaborator_id,
                   -- Реф-код организатора = ref_code контакта его self-коллаба
                   (SELECT ct.ref_code FROM collaborators col
                      JOIN contacts ct ON ct.id = col.contact_id
-                    WHERE col.id = c.self_collaborator_id) AS ref_code
+                    WHERE col.id = c.self_collaborator_id) AS ref_code,
+                  -- Карточка этого организатора в событии
+                  (SELECT ec.id FROM event_collaborators ec
+                    WHERE ec.event_id = $1 AND ec.speaker_id = c.self_collaborator_id) AS ec_id
              FROM event_owners o
              JOIN clients c ON c.id = o.client_id
             WHERE o.event_id=$1 AND o.status='accepted'
@@ -301,16 +311,197 @@ async def collab_organizers_with_links(event_id: int, mode: Optional[str] = None
     out = []
     for r in rows:
         d = dict(r)
-        lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
-            db, client_id=d["client_id"], event_link_mode=ev["link_mode"])
-        # Ссылки — через СВОЙ бот каждого организатора, с ЕГО реф-кодом.
-        d["links"] = await build_share_links(
-            db, client_id=d["client_id"], event_slug=ev["slug"],
-            partner_id=d.get("ref_code"), link_mode=lm,
-        )
         d["is_me"] = d["client_id"] == me
         out.append(d)
+    # ⚠️ Ссылки здесь НЕ отдаём — это просто список людей.
+    # Реф-ссылки живут внутри карточки организатора (вкладка «Ссылки»).
     return {"organizers": out, "slug": ev["slug"]}
+
+
+async def _ensure_organizer_card(db, event_id: int, client_id: int) -> Optional[int]:
+    """Гарантирует карточку организатора в событии (event_collaborators, role='organizer').
+
+    Организатор коллабы — это КЛИЕНТ (event_owners). Но тема/подарки/афиша живут на
+    карточке человека в событии (event_collaborators, как у спикера конференции).
+    Мост между ними — self-коллаб клиента (clients.self_collaborator_id).
+    Идемпотентно: есть карточка → вернуть её id.
+    """
+    from app.services.self_collaborator import ensure_self_collaborator
+    try:
+        collab_id = await ensure_self_collaborator(db, client_id)
+    except Exception:
+        collab_id = None
+    if not collab_id:
+        return None
+    ec_id = await db.fetchval(
+        "SELECT id FROM event_collaborators WHERE event_id=$1 AND speaker_id=$2", event_id, collab_id)
+    if ec_id:
+        return ec_id
+    return await db.fetchval(
+        """INSERT INTO event_collaborators (speaker_id, event_id, role, sort_order)
+           VALUES ($1, $2, 'organizer',
+                   COALESCE((SELECT MAX(sort_order)+1 FROM event_collaborators
+                              WHERE event_id=$2 AND role='organizer'), 0))
+           RETURNING id""",
+        collab_id, event_id)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Карточка организатора внутри коллаб-события
+# (как карточка спикера конференции: «Выступление» + «Ссылки»)
+# ═══════════════════════════════════════════════════════════════
+class OrganizerCardUpdate(BaseModel):
+    topics: Optional[list] = None            # список тем (conf_speaker_topics)
+    poster_id: Optional[int] = None          # индивидуальная афиша из библиотеки коллаба
+    # ⚠️ Подарки в коллабе — ТОЛЬКО из ПЛЮСОНа (до 4). Полей «название текстом + ссылка»
+    # здесь НЕТ (в отличие от конференции, где можно задать вручную).
+    gift_lead_magnets: Optional[list] = None  # [{kind:'magnet'|'package', id:int}]
+
+
+async def _organizer_ctx(db, event_id: int, client_id: int, me: int):
+    """Общая проверка: я организатор события; целевой client_id — тоже организатор.
+    Возвращает (ec_id, collab_id, can_edit). can_edit=True только для СВОЕЙ карточки."""
+    iam = await db.fetchval(
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, me)
+    if not iam:
+        raise HTTPException(403, "Вы не организатор этого события")
+    target = await db.fetchval(
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, client_id)
+    if not target:
+        raise HTTPException(404, "Организатор не найден в этом событии")
+    ec_id = await _ensure_organizer_card(db, event_id, client_id)
+    if not ec_id:
+        raise HTTPException(400, "Не удалось создать карточку организатора")
+    collab_id = await db.fetchval("SELECT self_collaborator_id FROM clients WHERE id=$1", client_id)
+    return ec_id, collab_id, (client_id == me)
+
+
+@router.get("/events/{event_id}/organizers/{client_id}")
+async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] = None,
+                             client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Карточка организатора в коллаб-событии: профиль + тема + подарки (из ПЛЮСОНа) +
+    афиша + реф-ссылки ЧЕРЕЗ ЕГО БОТА. Чужую карточку видно, но редактировать нельзя."""
+    from app.services.share_links import build_share_links, resolve_event_link_mode
+    me = int(client["sub"])
+    ec_id, collab_id, can_edit = await _organizer_ctx(db, event_id, client_id, me)
+
+    ev = await db.fetchrow("SELECT slug, link_mode, status FROM events WHERE id=$1", event_id)
+    row = await db.fetchrow(
+        """SELECT c.id AS client_id, c.name, c.brand_name,
+                  COALESCE(c.owner_photo_url, c.profile_photo_url) AS photo_url,
+                  c.owner_positioning, c.positioning,
+                  o.role,
+                  (SELECT ct.ref_code FROM collaborators col JOIN contacts ct ON ct.id=col.contact_id
+                    WHERE col.id = c.self_collaborator_id) AS ref_code,
+                  ec.poster_id
+             FROM event_owners o
+             JOIN clients c ON c.id=o.client_id
+             LEFT JOIN event_collaborators ec ON ec.id = $3
+            WHERE o.event_id=$1 AND o.client_id=$2""", event_id, client_id, ec_id)
+
+    topics = await db.fetch(
+        "SELECT id, topic, sort_order FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order, id", ec_id)
+
+    gifts = await db.fetch(
+        """SELECT g.lead_magnet_id, g.package_id, g.sort_order,
+                  lm.name AS lm_name, lp.name AS lp_name
+             FROM event_collaborator_lead_magnets g
+             LEFT JOIN lead_magnets lm ON lm.id = g.lead_magnet_id
+             LEFT JOIN lead_magnet_packages lp ON lp.id = g.package_id
+            WHERE g.ec_id=$1 ORDER BY g.sort_order, g.id""", ec_id)
+    gift_list = [
+        {"kind": "magnet", "id": g["lead_magnet_id"], "name": g["lm_name"]} if g["lead_magnet_id"]
+        else {"kind": "package", "id": g["package_id"], "name": g["lp_name"]}
+        for g in gifts
+    ]
+
+    posters = await db.fetch(
+        "SELECT id, url, label FROM collaborator_posters WHERE collaborator_id=$1 ORDER BY sort_order, id",
+        collab_id) if collab_id else []
+
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
+        db, client_id=client_id, event_link_mode=ev["link_mode"])
+    links = await build_share_links(
+        db, client_id=client_id, event_slug=ev["slug"],
+        partner_id=row["ref_code"] if row else None, link_mode=lm)
+
+    d = dict(row) if row else {}
+    d["positioning"] = d.pop("owner_positioning", None) or d.pop("positioning", None)
+    return {
+        "ec_id": ec_id,
+        "can_edit": can_edit,
+        "is_me": can_edit,
+        "event_status": ev["status"],
+        "organizer": d,
+        "topics": [dict(t) for t in topics],
+        "gift_lead_magnets": gift_list,
+        "posters": [dict(p) for p in posters],
+        "links": links,
+    }
+
+
+@router.patch("/events/{event_id}/organizers/{client_id}")
+async def update_organizer_card(event_id: int, client_id: int, data: OrganizerCardUpdate,
+                                client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Сохранить СВОЮ карточку организатора (тема / подарки из ПЛЮСОНа / афиша).
+    ⚠️ Чужую карточку править нельзя — 403."""
+    me = int(client["sub"])
+    ec_id, collab_id, can_edit = await _organizer_ctx(db, event_id, client_id, me)
+    if not can_edit:
+        raise HTTPException(403, "Можно редактировать только свою карточку")
+
+    fs = data.model_fields_set
+
+    # Темы — переписываем список целиком
+    if "topics" in fs:
+        topics = [str(t).strip() for t in (data.topics or []) if str(t).strip()]
+        await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id=$1", ec_id)
+        for i, t in enumerate(topics):
+            await db.execute(
+                "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1,$2,$3)", ec_id, t, i)
+
+    # Афиша — из библиотеки ЭТОГО коллаба
+    if "poster_id" in fs:
+        pid = data.poster_id
+        if pid:
+            ok = await db.fetchval(
+                "SELECT 1 FROM collaborator_posters WHERE id=$1 AND collaborator_id=$2", pid, collab_id)
+            if not ok:
+                raise HTTPException(400, "Афиша не найдена в вашей библиотеке")
+        await db.execute("UPDATE event_collaborators SET poster_id=$2 WHERE id=$1", ec_id, pid)
+
+    # Подарки — ТОЛЬКО из ПЛЮСОНа этого клиента, до 4
+    if "gift_lead_magnets" in fs:
+        items = data.gift_lead_magnets or []
+        if len(items) > 4:
+            raise HTTPException(400, "Можно привязать не более 4 подарков")
+        clean = []
+        for it in items:
+            kind = (it or {}).get("kind")
+            try:
+                iid = int((it or {}).get("id") or 0)
+            except (ValueError, TypeError):
+                iid = 0
+            if iid <= 0 or kind not in ("magnet", "package"):
+                continue
+            table = "lead_magnets" if kind == "magnet" else "lead_magnet_packages"
+            ok = await db.fetchval(
+                f"SELECT 1 FROM {table} WHERE id=$1 AND client_id=$2", iid, client_id)
+            if not ok:
+                raise HTTPException(400, "Подарок не найден в вашем ПЛЮСОНе")
+            clean.append((kind, iid))
+        await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id=$1", ec_id)
+        for i, (kind, iid) in enumerate(clean):
+            if kind == "magnet":
+                await db.execute(
+                    "INSERT INTO event_collaborator_lead_magnets (ec_id, lead_magnet_id, sort_order) VALUES ($1,$2,$3)",
+                    ec_id, iid, i)
+            else:
+                await db.execute(
+                    "INSERT INTO event_collaborator_lead_magnets (ec_id, package_id, sort_order) VALUES ($1,$2,$3)",
+                    ec_id, iid, i)
+
+    return {"ok": True}
 
 
 # ═══════════════════════════════════════════════════════════════

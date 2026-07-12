@@ -164,7 +164,7 @@ export default function EventPage() {
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
-      {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} eventStatus={event.status} />}
+      {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
       {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
