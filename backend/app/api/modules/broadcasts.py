@@ -573,15 +573,20 @@ async def list_templates(
             event_id
         )
 
-    # Дефолтная афиша события (если в шаблоне photo_url не задан клиентом):
-    # лучшая из event_posters по приоритету square > horizontal > vertical.
+    # Дефолтная афиша события — ТОЛЬКО ДЛЯ ПОКАЗА в дашборде, отдельным полем.
+    #
+    # ⚠️ Раньше она подмешивалась прямо в `photo_url` шаблона. Фронт при сохранении
+    # слал это значение обратно — и «афиша для превью» оседала в БД как «своё фото
+    # шаблона». В итоге у шаблона было фото, которого клиент не загружал, и оно
+    # перебивало афишу ДНЯ (приоритет: фото шаблона > афиша дня > общая афиша).
+    # Теперь photo_url остаётся ровно тем, что задал клиент (обычно пустым), а
+    # афиша подставляется при отправке — там же, где решается приоритет.
     from app.services.message_builder import get_default_event_photo
     default_poster = await get_default_event_photo(db, event_id)
     result = []
     for r in rows:
         d = dict(r)
-        if d["type"] in ("day_end", "day_live", "vip_offer") and not d["photo_url"] and default_poster:
-            d["photo_url"] = default_poster
+        d["default_photo_url"] = default_poster if not d["photo_url"] else None
         result.append(d)
     return {"templates": result}
 

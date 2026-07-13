@@ -331,6 +331,9 @@ export default function TemplatesPage() {
   const [confPosters, setConfPosters] = useState<{ horizontal: string[]; vertical: string[]; square: string[] }>({
     horizontal: [], vertical: [], square: [],
   })
+  // Афиши дней события (event_posters.day = N). Дневные шаблоны берут афишу
+  // своего дня; если у дня афиши нет — общую афишу события.
+  const [dayPosters, setDayPosters] = useState<any[]>([])
   const [previewRegistered, setPreviewRegistered] = useState(false)
 
   useEffect(() => {
@@ -347,14 +350,19 @@ export default function TemplatesPage() {
     api.conference.get(eventId).then(r => setConfData(r.conference)).catch(() => {})
     api.events.get(eventId).then(r => setEventData(r.event || r)).catch(() => {})
     api.conference.sessions.list(eventId).then(r => setConfSessions(r.sessions || [])).catch(() => {})
-    // Афиши лежат в event_posters (общая таблица для всех событий) — забираем все ориентации
+    // Афиши лежат в event_posters. ОБЩИЕ (day = null) идут в confPosters, афиши
+    // ДНЕЙ (day = N) — отдельно: в превью дневных шаблонов подставляется афиша
+    // выбранного дня, как и при реальной отправке (фото шаблона → афиша дня →
+    // общая афиша; внутри группы square > horizontal > vertical).
     api.referralProgram.posters.list(eventId).then(r => {
       const items = r.items || []
+      const common = items.filter((p: any) => p.day == null)
       setConfPosters({
-        horizontal: items.filter((p: any) => p.orientation === 'horizontal').map((p: any) => p.url),
-        vertical:   items.filter((p: any) => p.orientation === 'vertical').map((p: any) => p.url),
-        square:     items.filter((p: any) => p.orientation === 'square').map((p: any) => p.url),
+        horizontal: common.filter((p: any) => p.orientation === 'horizontal').map((p: any) => p.url),
+        vertical:   common.filter((p: any) => p.orientation === 'vertical').map((p: any) => p.url),
+        square:     common.filter((p: any) => p.orientation === 'square').map((p: any) => p.url),
       })
+      setDayPosters(items.filter((p: any) => p.day != null))
     }).catch(() => {})
   }, [eventId])
 
@@ -1772,9 +1780,16 @@ export default function TemplatesPage() {
                   || previewModal.def.type === '2h_before_reg'
                   || previewModal.def.type === '30min_before'
                   || previewModal.def.type === 'event_live'
-                // Афиша события: тот же приоритет, что и в backend get_default_event_photo —
+                // Афиша: тот же приоритет, что и в бэке (get_day_event_photo) —
+                // афиша ДНЯ превью → общая афиша события. Внутри группы:
                 // square > horizontal > vertical.
-                const eventPoster = confPosters.square[0] || confPosters.horizontal[0] || confPosters.vertical[0]
+                const pickByOrientation = (arr: any[]) =>
+                  arr.find(p => p.orientation === 'square')?.url
+                  || arr.find(p => p.orientation === 'horizontal')?.url
+                  || arr.find(p => p.orientation === 'vertical')?.url
+                const dayPoster = pickByOrientation(dayPosters.filter(p => Number(p.day) === Number(testDay)))
+                const commonPoster = confPosters.square[0] || confPosters.horizontal[0] || confPosters.vertical[0]
+                const eventPoster = dayPoster || commonPoster
                 const speakerPoster = previewSpeaker?.cse_poster_url || previewSpeaker?.speaker_poster_url || previewSpeaker?.poster_url
                 const speakerPhoto = previewSpeaker?.photo_url
                 // Режим фото: 'photo' → сначала фото коллаба, 'poster' (default) → афиша.
