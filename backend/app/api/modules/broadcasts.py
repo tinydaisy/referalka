@@ -8,6 +8,23 @@ import re
 from zoneinfo import ZoneInfo
 
 
+async def _support_link_preview(db, client_id: int) -> str:
+    """Значение {support_link} для ПРЕВЬЮ и ТЕСТА.
+
+    В реальной рассылке контакт подставляет Celery — свой для каждой площадки
+    (в Telegram телеграм-контакт, в VK — ВК, в MAX — MAX). В превью платформа
+    неизвестна (сообщение одно на все), поэтому показываем все каналы поддержки
+    клиента блоком — так клиент видит, что плейсхолдер рабочий.
+    """
+    from app.services.support_message import build_support_inline_html
+    row = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id=$1", client_id
+    )
+    if not row:
+        return ""
+    return build_support_inline_html(row["work_tg_username"], row["work_vk"], row["work_max"])
+
+
 def _msk_str_to_utc(day_date, hhmm) -> Optional[datetime]:
     """Собирает UTC datetime из day_date (DATE) + строки "HH:MM" в МСК.
     Используется только под капотом для расчёта fire_at — пользователь видит только строку времени."""
@@ -2494,6 +2511,9 @@ async def preview_schedule(
         speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
         subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
         explicit_day=schedule.get("day"),
+        # В превью платформа неизвестна (одно сообщение на все) — показываем все
+        # каналы поддержки блоком. При отправке Celery подставит контакт СВОЕЙ площадки.
+        support_link=await _support_link_preview(db, client_id),
     )
 
     return {
@@ -2649,6 +2669,7 @@ async def test_existing_schedule_now(
         speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
         subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
         explicit_day=schedule.get("day"),
+        support_link=await _support_link_preview(db, client_id),
     )
     # subject → жирной первой строкой (как в реальной отправке).
     subj = (content.get("subject") or "").strip()
@@ -2683,6 +2704,10 @@ async def test_template(
     )
     from app.services.channels import get_client_telegram_token
     bot_token = await get_client_telegram_token(client_id, db)
+    # {support_link} в тестовой отправке: текст один на все площадки, поэтому
+    # показываем все каналы поддержки блоком (в реальной рассылке Celery подставит
+    # контакт ТОЙ площадки, куда уходит сообщение).
+    _sup_link = await _support_link_preview(db, client_id)
     test_tg_ids = client_row["test_telegram_ids"] or []
     test_vk_ids = client_row["test_vk_ids"] or []
     test_max_ids = client_row["test_max_ids"] or []
@@ -2822,6 +2847,7 @@ async def test_template(
                     fire_at=None, tz=tz,
                     video_url=tpl["video_url"], media_type=tpl["media_type"],
                     speaker_photo_mode=tpl.get("speaker_photo_mode") or "poster",
+                    support_link=_sup_link,
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
@@ -2851,6 +2877,7 @@ async def test_template(
                     fire_at=None, tz=tz,
                     video_url=tpl["video_url"], media_type=tpl["media_type"],
                     speaker_photo_mode=tpl.get("speaker_photo_mode") or "poster",
+                    support_link=_sup_link,
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
@@ -2882,6 +2909,7 @@ async def test_template(
             template_id=tpl["id"],
             video_url=tpl["video_url"], media_type=tpl["media_type"],
             explicit_day=day,
+            support_link=_sup_link,
         )
         async with httpx.AsyncClient(timeout=15) as http:
             send_results = await _send_one_content(http, content)

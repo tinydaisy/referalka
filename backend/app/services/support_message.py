@@ -72,6 +72,29 @@ def has_support(work_tg=None, work_vk=None, work_max=None) -> bool:
     return bool(_lines(work_tg, work_vk, work_max))
 
 
+async def support_block_for_event(conn, event_id) -> str:
+    """Значение {support_link} для ПРЕВЬЮ / ТЕСТА рассылки события.
+
+    Платформа там неизвестна (текст один на все площадки), поэтому показываем все
+    каналы поддержки клиента-владельца события блоком. В реальной отправке контакт
+    подставляет Celery — свой для каждой площадки (см. support_url_for_platform).
+    """
+    if not event_id:
+        return ""
+    row = await conn.fetchrow(
+        """SELECT cl.work_tg_username, cl.work_vk, cl.work_max
+             FROM events e
+             JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo
+                                          WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                                          ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1)
+            WHERE e.id = $1""",
+        event_id,
+    )
+    if not row:
+        return ""
+    return build_support_inline_html(row["work_tg_username"], row["work_vk"], row["work_max"])
+
+
 def support_url_for_platform(platform: str, work_tg=None, work_vk=None, work_max=None) -> str:
     """Ссылка на поддержку ТОЙ площадки, куда уходит сообщение.
 

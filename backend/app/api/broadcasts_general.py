@@ -490,10 +490,14 @@ async def preview(
         "buttons": snap_btns or [],
     }
     tz = await _client_tz(db, client_id)
+    # {support_link} в превью: платформа неизвестна (текст один на все) — показываем
+    # все каналы поддержки блоком. При отправке Celery подставит контакт СВОЕЙ площадки.
+    from app.api.modules.broadcasts import _support_link_preview
     content = await build_message_content(
         conn=db, tpl_type="custom", tmpl_text="", photo_url=None,
         btn_text=None, btn_url="", event_id=None, session_id=None,
         fire_at=row["fire_at"], tz=tz, template_id=None, snapshot=snap,
+        support_link=await _support_link_preview(db, client_id),
     )
     # Заголовок (subject) для TG/VK/MAX уходит первой жирной строкой — показываем
     # это в превью ровно так, как получит подписчик (см. tasks/broadcast.py).

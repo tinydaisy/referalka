@@ -23,6 +23,7 @@ from app.config import settings
 from app.database import get_db
 from app.services import r2_storage
 from app.services.image_processor import process_image, is_image
+from app.services.support_message import support_block_for_event
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
@@ -1076,6 +1077,8 @@ async def get_me_broadcasts(
     )
 
     tz = ZoneInfo("Europe/Moscow")
+    # {support_link} в превью: все каналы поддержки блоком (площадка неизвестна).
+    _sup_link = await support_block_for_event(db, event_id)
     out = []
     for r in rows:
         try:
@@ -1094,6 +1097,7 @@ async def get_me_broadcasts(
                 video_url=r["tmpl_video"],
                 media_type=r["tmpl_media_type"],
                 speaker_photo_mode=r["tmpl_speaker_photo_mode"] or "poster",
+                support_link=_sup_link,
             )
         except Exception:
             content = {"text": r["tmpl_text"] or "", "photo": r["tmpl_photo"],
@@ -1261,6 +1265,7 @@ async def send_broadcast_test(
             template_id=row["template_id"], video_url=row["tmpl_video"],
             media_type=row["tmpl_media_type"],
             speaker_photo_mode=row["tmpl_speaker_photo_mode"] or "poster",
+            support_link=await support_block_for_event(db, row["event_id"]),
         )
     except Exception:
         content = {"text": row["tmpl_text"] or "", "photo": row["tmpl_photo"], "video": None,

@@ -799,7 +799,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                  video_url=None, media_type=None,
                                  speaker_photo_mode: str = "poster",
                                  subject: str | None = None,
-                                 explicit_day: int | None = None) -> dict:
+                                 explicit_day: int | None = None,
+                                 support_link: str | None = None) -> dict:
     """
     Единственная функция сборки текста, фото/видео и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
@@ -897,6 +898,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             if token in raw_text:
                 raw_text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", raw_text, flags=re.MULTILINE)
                 raw_text = raw_text.replace(token, "")
+        # {support_link} — и в произвольной рассылке тоже. Подставляем только если
+        # значение передано (превью/тест); при отправке его подставит Celery
+        # контактом ТОЙ площадки, куда уходит сообщение.
+        if support_link is not None:
+            raw_text = raw_text.replace("{support_link}", support_link)
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
         return {
             "text": raw_text,
@@ -1585,10 +1591,22 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     # подстановка ниже, в отдельной ветке). Пусто → строка с плейсхолдером убирается.
     text, btn_url = await _apply_event_globals(conn, event_id, text, btn_url)
 
+    # {support_link} — служба поддержки. Работает в ЛЮБОМ типе шаблона любого события.
+    # ⚠️ Подставляется здесь ТОЛЬКО если вызывающий передал готовое значение
+    # (превью / тест — там платформа неизвестна, показываем все каналы блоком).
+    # При реальной отправке support_link НЕ передаётся: Celery подставит контакт
+    # ТОЙ площадки, куда уходит сообщение (в TG — телеграм, в VK — ВК, в MAX — MAX),
+    # поэтому плейсхолдер должен дожить до broadcast.py и НЕ попасть в зачистку ниже.
+    if support_link is not None:
+        text = text.replace("{support_link}", support_link)
+        if subject:
+            subject = subject.replace("{support_link}", support_link)
+
     # Финальная зачистка: любой известный плейсхолдер, не подставленный этим
     # типом шаблона (клиент вставил его вручную в неподходящий тип), НЕ должен
     # уйти получателю сырым. Убираем строку целиком, если плейсхолдер — единственное
     # значимое на ней, иначе просто вырезаем сам плейсхолдер.
+    # ⚠️ {support_link} в списке НЕТ намеренно — см. выше.
     _KNOWN_PLACEHOLDERS = [
         "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
         "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
