@@ -969,9 +969,17 @@ export default function QueuePage() {
                       </div>
                     )}
 
-                    {/* Заголовок + превью текста (как в общих рассылках) */}
-                    {s.snapshot_subject && (
-                      <p className="text-sm font-semibold text-gray-900 mb-0.5 truncate">{s.snapshot_subject}</p>
+                    {/* Заголовок (тема) + превью текста. eff_subject = своя тема у
+                        произвольной рассылки, иначе тема шаблона — у шаблонных
+                        рассылок snapshot_subject пуст, и тема раньше не показывалась. */}
+                    {(s.eff_subject || s.snapshot_subject) && (
+                      <p className="text-sm font-semibold text-gray-900 mb-0.5 truncate">
+                        {(() => {
+                          let sub = String(s.eff_subject || s.snapshot_subject)
+                          if (s.speaker_name) sub = sub.replace(/\{speaker_name\}/g, s.speaker_name)
+                          return sub
+                        })()}
+                      </p>
                     )}
                     {(() => {
                       // Сниппет для списка: подставляем имя спикера, убираем HTML-теги и

@@ -1064,6 +1064,15 @@ export default function TemplatesPage() {
                 </div>
 
                 <div className="bg-gray-50 rounded-xl p-4">
+                  {/* Тема (subject) — в email это тема письма, в TG/VK/MAX первая жирная
+                      строка. В снимке её не показывали, и было не видно, что она вообще
+                      задана: приходилось лезть в редактор. */}
+                  {tpl.subject && (
+                    <p className="text-xs text-gray-900 font-semibold font-mono mb-2 pb-2 border-b border-gray-200">
+                      <span className="text-gray-400 font-sans font-normal mr-1.5">Тема:</span>
+                      {tpl.subject}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{(tpl.text || '').replace(/\\n/g, '\n')}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                     {tpl.photo_url ? (
@@ -1130,6 +1139,13 @@ export default function TemplatesPage() {
                     <img src={tpl.photo_url} alt="" className="w-full max-h-40 object-contain rounded-lg mb-3"
                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   ) : null}
+                  {/* Тема (subject) — в email тема письма, в TG/VK/MAX первая жирная строка. */}
+                  {tpl.subject && (
+                    <p className="text-xs text-gray-900 font-semibold font-mono mb-2 pb-2 border-b border-gray-200">
+                      <span className="text-gray-400 font-sans font-normal mr-1.5">Тема:</span>
+                      {tpl.subject}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{(tpl.text || '').replace(/\\n/g, '\n')}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                     {tpl.media_type === 'video' && tpl.video_url && <span>🎬 Своё видео</span>}

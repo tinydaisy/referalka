@@ -891,6 +891,10 @@ async def list_schedules(
                bs.error_log,
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_subject, bs.snapshot_photo, bs.snapshot_video,
+               -- Эффективная тема: у произвольной рассылки — своя (snapshot), у
+               -- шаблонной — тема шаблона. Без этого в очереди тема шаблонных
+               -- рассылок не показывалась (snapshot_subject у них пуст).
+               COALESCE(NULLIF(bs.snapshot_subject, ''), bt.subject) AS eff_subject,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
                bs.send_to_client_chats, bs.send_to_private_chats, bs.target_channel_ids,
                -- Эффективные каналы/флаги: schedule → иначе значения шаблона (как при отправке).
