@@ -422,6 +422,53 @@ DEFAULT_TEMPLATES = [
 ]
 
 
+# У ТУРНИРА нет «конференции» — есть «событие», а знакомство охватывает ещё и жюри.
+# Здесь только СТАРТОВЫЕ название и текст шаблона (дальше клиент правит их сам).
+# Одна точка правки на оба места, где шаблон берётся из DEFAULT_TEMPLATES:
+# авто-сид (list_templates) и пресеты (_allowed_preset_types_for_event).
+_TURNIR_TEMPLATE_NAMES = {
+    "speaker_intro": "Знакомство со спикерами и жюри",
+    "day_live": "День события (старт эфира)",
+    "day_end": "День события (итоги дня + подарки)",
+}
+
+_TURNIR_TEMPLATE_TEXTS = {
+    "day_live": (
+        "Мы начинаем День {day_number} события «{conf_title}»\n\n"
+        "<b>Нажимай на кнопку «Войти в эфир»</b>\n"
+        "👇🏻👇🏻👇🏻\n"
+        "{stream_url}\n\n"
+        "—\n"
+        "При возникновении технических трудностей пишите — @forbs_service2"
+    ),
+    "day_end": (
+        "Благодарим вас за участие в {day_ordinal} дне события «{conf_title}»\n\n"
+        "Самое время ввести собранные КОДОВЫЕ СЛОВА и получить за них дополнительные билеты для розыгрыша:\n"
+        "{raffle_url}\n\n"
+        "<b>{next_day_mention}</b>\n\n"
+        "—\n\n"
+        "{day_speakers_gifts}"
+    ),
+}
+
+
+def _template_name_for_event(tpl: dict, is_turnir: bool) -> str:
+    """Имя шаблона с учётом типа события (у турнира — «День события», не «конференции»)."""
+    if is_turnir:
+        return _TURNIR_TEMPLATE_NAMES.get(tpl["type"], tpl["name"])
+    return tpl["name"]
+
+
+def _template_text_for_event(tpl: dict, is_turnir: bool, is_plain_event: bool) -> str:
+    """Стартовый текст шаблона: у турнира — без слова «конференция», у мероприятия
+    (без программы по дням) — альтернативный text_event, если он задан."""
+    if is_turnir and tpl["type"] in _TURNIR_TEMPLATE_TEXTS:
+        return _TURNIR_TEMPLATE_TEXTS[tpl["type"]]
+    if is_plain_event and tpl.get("text_event"):
+        return tpl["text_event"]
+    return tpl["text"]
+
+
 @router.get("/templates", summary="Список шаблонов рассылок")
 async def list_templates(
     event_id: int,
@@ -489,11 +536,10 @@ async def list_templates(
             # спикерами, один на событие) остаётся и живёт параллельно.
             # Для мероприятий — альтернативный текст без программы по дням (text_event),
             # если он задан у шаблона. Конференции/турниры используют основной text.
-            tpl_text = tpl["text_event"] if (is_plain_event and tpl.get("text_event")) else tpl["text"]
-            # У турнира знакомство охватывает и жюри — отражаем это в названии шаблона.
-            tpl_name = tpl["name"]
-            if is_turnir and tpl["type"] == "speaker_intro":
-                tpl_name = "Знакомство со спикерами и жюри"
+            # У турнира свои название и текст: «День события» вместо «День конференции»,
+            # знакомство охватывает и жюри.
+            tpl_name = _template_name_for_event(tpl, bool(is_turnir))
+            tpl_text = _template_text_for_event(tpl, bool(is_turnir), is_plain_event)
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
@@ -612,10 +658,8 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
             if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
                 continue
         # «За сутки в 09:12» доступно и конференции (по каждому дню программы).
-        tpl_name = tpl["name"]
-        if is_turnir and tpl["type"] == "speaker_intro":
-            tpl_name = "Знакомство со спикерами и жюри"
-        tpl_text = tpl["text_event"] if (is_plain_event and tpl.get("text_event")) else tpl["text"]
+        tpl_name = _template_name_for_event(tpl, is_turnir)
+        tpl_text = _template_text_for_event(tpl, is_turnir, is_plain_event)
         out.append({**tpl, "name": tpl_name, "text": tpl_text})
     return out
 
