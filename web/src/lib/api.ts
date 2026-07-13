@@ -721,6 +721,17 @@ export const api = {
       request(`/api/v1/funnel-templates/${type}`),
     update: (type: string, data: any) =>
       request(`/api/v1/funnel-templates/${type}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    // Превью текста воронки: подставляет материалы выбранного лид-магнита/пакета,
+    // бренд, канал подписки и контакты. platform влияет на {support_platform}.
+    preview: (type: string, data: {
+      step: 'text_1' | 'text_2' | 'text_3_delivered' | 'text_3_stuck'
+      lead_magnet_id?: number | null
+      package_id?: number | null
+      platform?: 'telegram' | 'vk' | 'max'
+      text?: string
+    }) => request(`/api/v1/funnel-templates/${type}/preview`, {
+      method: 'POST', body: JSON.stringify(data),
+    }),
   },
   utils: {
     /** Резолвит @username канала в числовой chat_id (через Bot API getChat).

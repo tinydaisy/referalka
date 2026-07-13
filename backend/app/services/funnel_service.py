@@ -55,9 +55,13 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
               owner_positioning,
               owner_achievements,
               social_links,
-              -- Служба заботы (Настройки → Профиль). ⚠️ Это НЕ канал основателя:
-              -- {owner_telegram} раньше подставлял первый TG-КАНАЛ из social_links,
-              -- хотя по смыслу (и по подписи в UI) это личный аккаунт поддержки.
+              -- {owner_telegram} — ЛИЧНЫЙ телеграм основателя (тот, что он указал
+              -- при регистрации, Настройки → Профиль). Только Telegram: личных
+              -- аккаунтов на VK/MAX у клиента в базе нет.
+              telegram_username,
+              -- Служба заботы (Настройки → Профиль) — это ДРУГОЕ, не личка основателя.
+              -- Отсюда {support_platform} (контакт своей площадки) и {support_link}
+              -- (все площадки списком).
               work_tg_username, work_vk, work_max
              FROM clients WHERE id = $1""",
         client_id
@@ -128,15 +132,21 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     if platform != "vk":
         tg_channels = get_founder_tg_channels(social)
 
+    # ── Личка основателя ──────────────────────────────────────────────────────
+    # {owner_telegram} — ЛИЧНЫЙ телеграм основателя (clients.telegram_username,
+    # указывается при регистрации). ⚠️ Это НЕ служба заботы и НЕ канал основателя.
+    # Только Telegram — личных аккаунтов основателя на VK/MAX в базе нет.
+    from app.services.support_message import _lines as _support_lines, _norm_tg, support_url_for_platform
+    owner_tg_personal = _norm_tg(row["telegram_username"])
+
     # ── Служба заботы (Настройки → Профиль) ───────────────────────────────────
-    # ⚠️ {owner_telegram} — это ЛИЧНЫЙ аккаунт поддержки (work_tg_username), а НЕ
-    # TG-канал основателя. Раньше сюда подставлялся первый канал из social_links,
-    # что противоречило и смыслу, и подписи в UI («аккаунт службы поддержки»).
-    from app.services.support_message import _lines as _support_lines
     support_rows = _support_lines(row["work_tg_username"], row["work_vk"], row["work_max"])
-    support_map = {label: url for label, url in support_rows}
-    owner_tg_support = support_map.get("Телеграм", "")
-    # {support_links} — все каналы поддержки (ВК / Телеграм / MAX), по строке на каждый.
+    # {support_platform} — служба заботы на ТОЙ площадке, где человек в воронке
+    # (в Telegram — телеграм-контакт, в VK — ВК, в MAX — MAX). Пусто, если на этой
+    # площадке контакт не заполнен.
+    support_platform = support_url_for_platform(
+        platform, row["work_tg_username"], row["work_vk"], row["work_max"])
+    # {support_links} — ВСЕ каналы поддержки (ВК / Телеграм / MAX), по строке на каждый.
     # HTML для TG/MAX, VK всё равно срежет теги и оставит URL.
     support_links = "\n".join(
         f'{label}: <a href="{url}">{url}</a>' for label, url in support_rows)
@@ -150,9 +160,11 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
         "subscription_channel": sub_channel,                   # https-ссылка (или список через \n) для текста
         "subscription_channel_api": sub_channel_api,           # TG @username первого канала / VK screen_name
         "subscription_channel_chat_id": sub_channel_chat_id,   # числовой id первого канала (для VK group_id)
-        # Личный TG-аккаунт службы заботы (clients.work_tg_username). Пусто, если
-        # не заполнен. Фолбэка на канал основателя НЕТ — это разные вещи.
-        "owner_telegram": owner_tg_support,
+        # {owner_telegram} — ЛИЧНЫЙ телеграм основателя (clients.telegram_username,
+        # из регистрации). Не служба заботы и не канал. Только Telegram.
+        "owner_telegram": owner_tg_personal,
+        # {support_platform} — служба заботы на площадке этой воронки.
+        "support_platform": support_platform,
         "support_links": support_links,                        # все каналы поддержки, по строке
         "tg_channels": tg_channels,                            # массив для проверки подписки на ВСЕ
     }
@@ -285,8 +297,11 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
         "client_owner_positioning": ctx.get("owner_positioning", ""),
         "client_owner_achievements": ctx.get("owner_achievements", ""),
         "subscription_channel": ctx.get("subscription_channel", ""),
-        # Личный TG службы заботы (НЕ канал основателя).
+        # ЛИЧНЫЙ телеграм основателя (clients.telegram_username, из регистрации).
+        # НЕ служба заботы и НЕ канал основателя. Только Telegram.
         "owner_telegram": ctx.get("owner_telegram", ""),
+        # Служба заботы на ТОЙ площадке, где человек в воронке (TG / VK / MAX).
+        "support_platform": ctx.get("support_platform", ""),
         # Все каналы службы заботы (ВК / Телеграм / MAX) — по строке на каждый.
         "support_links": ctx.get("support_links", ""),
     }

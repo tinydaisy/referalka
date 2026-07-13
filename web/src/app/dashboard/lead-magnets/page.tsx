@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download } from 'lucide-react'
+import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download, Eye } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 import { useMe } from '@/hooks/useMe'
@@ -683,12 +683,35 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
 
 // ============== Шаблон воронки ==============
 
+// Шаги воронки — для превью (глазик у каждого текста).
+type FunnelStep = 'text_1' | 'text_2' | 'text_3_delivered' | 'text_3_stuck'
+const STEP_TITLES: Record<FunnelStep, string> = {
+  text_1: 'Текст 1 — приветствие со списком подарков',
+  text_2: 'Текст 2 — выдача материалов',
+  text_3_delivered: 'Текст 3 — получившим материалы',
+  text_3_stuck: 'Текст 3 — зависшим на проверке подписки',
+}
+
 function TemplateEditor() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // ── Превью текста воронки ──
+  // Тексты 1 и 2 подставляют список подарков — поэтому в превью выбирается
+  // конкретный лид-магнит или пакет. Тексты 3 от подарков не зависят, но выбор
+  // оставляем: там тоже могут стоять {materials_*}.
+  const [previewStep, setPreviewStep] = useState<FunnelStep | null>(null)
+  const [previewText, setPreviewText] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewErr, setPreviewErr] = useState<string | null>(null)
+  const [magnets, setMagnets] = useState<any[]>([])
+  const [packages, setPackages] = useState<any[]>([])
+  // Что выдаём в превью: 'm:<id>' — лид-магнит, 'p:<id>' — пакет.
+  const [previewSource, setPreviewSource] = useState('')
+  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max'>('telegram')
 
   async function load() {
     setLoading(true)
@@ -697,6 +720,49 @@ function TemplateEditor() {
     finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+
+  // Списки для селектора в превью — грузим один раз.
+  useEffect(() => {
+    Promise.all([
+      api.leadMagnets.list().catch(() => ({ items: [] })),
+      api.leadMagnetPackages.list().catch(() => ({ items: [] })),
+    ]).then(([m, p]) => {
+      const ms = m.items || m.lead_magnets || []
+      const ps = p.items || p.packages || []
+      setMagnets(ms)
+      setPackages(ps)
+      setPreviewSource(prev => prev || (ms[0] ? `m:${ms[0].id}` : (ps[0] ? `p:${ps[0].id}` : '')))
+    })
+  }, [])
+
+  // Рендер превью на бэке — та же логика, что при реальной отправке.
+  async function runPreview(step: FunnelStep, source: string, platform: 'telegram' | 'vk' | 'max') {
+    setPreviewLoading(true)
+    setPreviewErr(null)
+    try {
+      const [kind, idStr] = source.split(':')
+      const id = Number(idStr) || null
+      const res = await api.funnelTemplates.preview('lead_magnet', {
+        step,
+        lead_magnet_id: kind === 'm' ? id : null,
+        package_id: kind === 'p' ? id : null,
+        platform,
+        // Шлём текст «как в форме» — превью работает и до сохранения.
+        text: data?.[step] ?? '',
+      })
+      setPreviewText(res.text || '')
+    } catch (e: any) {
+      setPreviewErr(e.message)
+      setPreviewText('')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  function openPreview(step: FunnelStep) {
+    setPreviewStep(step)
+    runPreview(step, previewSource, previewPlatform)
+  }
 
   async function save() {
     setSaving(true)
@@ -756,7 +822,8 @@ function TemplateEditor() {
             ['{client_owner_bio}', 'биография основателя'],
             ['{client_owner_achievements}', 'ваши регалии и факты в цифрах'],
             ['{subscription_channel}', 'ссылка на канал, на который нужно подписаться за подарок'],
-            ['{owner_telegram}', 'аккаунт службы заботы в Telegram (Настройки → Профиль)'],
+            ['{owner_telegram}', 'личный Telegram основателя — тот, что вы указали при регистрации (Настройки → Профиль). Это не служба заботы'],
+            ['{support_platform}', 'служба заботы на той площадке, где человек в воронке: в Telegram — телеграм-контакт, в ВК — ВК, в MAX — MAX'],
             ['{support_links}', 'все каналы службы заботы (ВКонтакте, Telegram, MAX) — по строке на каждый'],
           ].map(([ph, desc]) => (
             <div key={ph} className="flex flex-col sm:flex-row sm:gap-2">
@@ -781,10 +848,16 @@ function TemplateEditor() {
             <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 1 — приветствие со списком подарков</h3>
             <p className="text-xs text-gray-500 mt-1">Уходит сразу когда человек открыл бота по ссылке лид-магнита.</p>
           </div>
-          <button type="button" onClick={() => fillFromDefault('text_1')}
-                  className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
-            Заполнить из шаблона
-          </button>
+          <div className="shrink-0 flex gap-2">
+            <button type="button" onClick={() => openPreview('text_1')}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+              <Eye size={13} /> Просмотреть
+            </button>
+            <button type="button" onClick={() => fillFromDefault('text_1')}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+              Заполнить из шаблона
+            </button>
+          </div>
         </header>
 
         <Field label="Текст сообщения">
@@ -825,10 +898,16 @@ function TemplateEditor() {
             <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 2 — выдача материалов</h3>
             <p className="text-xs text-gray-500 mt-1">Уходит после того как человек нажал «ГОТОВО» и подписка на канал подтверждена.</p>
           </div>
-          <button type="button" onClick={() => fillFromDefault('text_2')}
-                  className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
-            Заполнить из шаблона
-          </button>
+          <div className="shrink-0 flex gap-2">
+            <button type="button" onClick={() => openPreview('text_2')}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+              <Eye size={13} /> Просмотреть
+            </button>
+            <button type="button" onClick={() => fillFromDefault('text_2')}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+              Заполнить из шаблона
+            </button>
+          </div>
         </header>
 
         <Field label="Текст сообщения">
@@ -863,13 +942,125 @@ function TemplateEditor() {
         <Field label="Получившим материалы">
           <textarea value={data.text_3_delivered || ''} onChange={set('text_3_delivered')} rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+          <button type="button" onClick={() => openPreview('text_3_delivered')}
+                  className="mt-1.5 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+            <Eye size={13} /> Просмотреть
+          </button>
         </Field>
 
         <Field label="Зависшим на проверке подписки">
           <textarea value={data.text_3_stuck || ''} onChange={set('text_3_stuck')} rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+          <button type="button" onClick={() => openPreview('text_3_stuck')}
+                  className="mt-1.5 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+            <Eye size={13} /> Просмотреть
+          </button>
         </Field>
       </section>
+
+      {/* === Модалка превью текста воронки === */}
+      {previewStep && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 p-5 border-b border-gray-200">
+              <h3 className="font-semibold text-gray-800 text-sm">
+                Просмотр: {STEP_TITLES[previewStep]}
+              </h3>
+              <button onClick={() => setPreviewStep(null)} className="shrink-0 text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              {/* Что выдаётся — от этого зависит список подарков в тексте */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Лид-магнит или пакет</label>
+                <select
+                  value={previewSource}
+                  onChange={e => {
+                    setPreviewSource(e.target.value)
+                    runPreview(previewStep, e.target.value, previewPlatform)
+                  }}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                  {magnets.length === 0 && packages.length === 0 && (
+                    <option value="">Нет лид-магнитов и пакетов</option>
+                  )}
+                  {magnets.length > 0 && (
+                    <optgroup label="Лид-магниты">
+                      {magnets.map((m: any) => (
+                        <option key={`m${m.id}`} value={`m:${m.id}`}>{m.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {packages.length > 0 && (
+                    <optgroup label="Пакеты">
+                      {packages.map((p: any) => (
+                        <option key={`p${p.id}`} value={`p:${p.id}`}>{p.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {/* Площадка — от неё зависит {support_platform} и канал подписки */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Площадка</label>
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                  {(['telegram', 'vk', 'max'] as const).map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => {
+                        setPreviewPlatform(p)
+                        runPreview(previewStep, previewSource, p)
+                      }}
+                      className={`px-3 py-1.5 border-l first:border-l-0 border-gray-200 ${
+                        previewPlatform === p ? 'bg-brand text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                      style={previewPlatform === p ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}>
+                      {p === 'telegram' ? 'Telegram' : p === 'vk' ? 'ВКонтакте' : 'MAX'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  От площадки зависит {'{support_platform}'} и ссылка на канал подписки.
+                </p>
+              </div>
+
+              {/* Само сообщение */}
+              <div className="rounded-xl border border-gray-200 bg-[#eef7e6] p-4">
+                {previewLoading ? (
+                  <p className="text-sm text-gray-400">Собираем сообщение…</p>
+                ) : previewErr ? (
+                  <p className="text-sm text-red-600">{previewErr}</p>
+                ) : (
+                  <div
+                    className="text-sm text-gray-800 whitespace-pre-wrap break-words"
+                    style={{ overflowWrap: 'anywhere' }}
+                    dangerouslySetInnerHTML={{ __html: previewText || '<span class="text-gray-400">Текст пустой</span>' }}
+                  />
+                )}
+                {(previewStep === 'text_1') && data.button_label && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 text-center text-sm font-medium text-blue-700">
+                    {data.button_label}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                Показан текст из формы (даже несохранённый). В ВКонтакте HTML-теги срежутся — останется чистый текст и ссылки.
+              </p>
+            </div>
+
+            <div className="p-5 pt-0">
+              <button onClick={() => setPreviewStep(null)}
+                      className="w-full py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 

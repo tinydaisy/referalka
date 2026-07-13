@@ -188,6 +188,56 @@ async def update_template(
     return dict(row)
 
 
+class FunnelPreviewRequest(BaseModel):
+    # Какой из текстов воронки рендерим.
+    step: Literal['text_1', 'text_2', 'text_3_delivered', 'text_3_stuck']
+    # Что выдаётся: один лид-магнит ИЛИ пакет (для {materials_*}).
+    lead_magnet_id: Optional[int] = None
+    package_id: Optional[int] = None
+    # Площадка — от неё зависит {support_platform} и {subscription_channel}.
+    platform: Literal['telegram', 'vk', 'max'] = 'telegram'
+    # Текст можно прислать «как в форме» (несохранённый), иначе берём из шаблона.
+    text: Optional[str] = None
+
+
+@template_router.post("/{type}/preview", summary="Превью текста воронки")
+async def preview_template(
+    type: Literal['lead_magnet'],
+    data: FunnelPreviewRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Рендерит текст воронки ровно так, как его увидит человек: с подставленными
+    материалами выбранного лид-магнита/пакета, брендом, каналом подписки и
+    контактами ({owner_telegram}, {support_platform}, {support_links})."""
+    from app.services.funnel_service import (
+        _get_brand_context, _materials_for_run, _package_description_for_run, _format_text,
+    )
+    cid = int(client["sub"])
+    tpl = await _get_or_create_template(cid, type, db)
+    raw = data.text if data.text is not None else (tpl.get(data.step) or "")
+
+    # Материалы: собираем «как для забега» — тот же код, что и в реальной выдаче.
+    fake_run = {
+        "lead_magnet_id": data.lead_magnet_id,
+        "package_id": data.package_id,
+        "referrer_contact_id": None,   # реф-коды {plsn_ref}/{ext_ref} в превью пустые
+    }
+    materials = []
+    pkg_desc = ""
+    if data.lead_magnet_id or data.package_id:
+        materials = await _materials_for_run(fake_run, db)
+        pkg_desc = await _package_description_for_run(fake_run, db)
+
+    ctx = await _get_brand_context(cid, db, platform=data.platform)
+    text = _format_text(raw, ctx, materials, pkg_desc)
+    return {
+        "text": text,
+        "button_label": tpl.get("button_label") or "ГОТОВО",
+        "materials_count": len(materials),
+    }
+
+
 # ----------- Публичный landing -----------
 
 public_router = APIRouter(tags=["Воронки (публичные)"])
