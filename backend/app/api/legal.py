@@ -183,11 +183,15 @@ async def get_public_privacy(client_id: int, db=Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     data = dict(row)
+    # ⚠️ Политика не опубликована → НЕ 404 («страница не найдена» пугает и выглядит
+    # как поломка ссылки в согласии 152-ФЗ). Отдаём 200 с published=False и именем
+    # организатора — страница покажет «организатор пока не опубликовал политику».
     if not data.get("privacy_policy_text") or not data.get("privacy_policy_published_at"):
-        raise HTTPException(
-            status_code=404,
-            detail="Политика обработки персональных данных пока не опубликована",
-        )
+        return {
+            "published": False,
+            "display_name": data.get("brand_name") or data.get("name") or "Организатор",
+        }
+    data["published"] = True
     # Имя клиента для отображения — brand_name приоритетнее
     data["display_name"] = data.get("brand_name") or data.get("name") or "Клиент"
     return data

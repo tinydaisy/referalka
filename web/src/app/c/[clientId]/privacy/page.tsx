@@ -41,6 +41,31 @@ export default async function PrivacyPage({
   const data = await getPolicy(clientId)
   if (!data) notFound()
 
+  // Политика ещё не опубликована. ⚠️ Не 404: ссылка на политику стоит в согласии
+  // 152-ФЗ при регистрации, и «страница не найдена» выглядит как поломанная ссылка.
+  // Объясняем человеку, что происходит, и что делать.
+  if (data.published === false) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Политика обработки персональных данных
+          </h1>
+          <p className="text-sm text-gray-500 mb-8">{data.display_name}</p>
+          <div className="bg-white rounded-2xl border border-gray-200 p-6">
+            <p className="text-gray-800 font-medium mb-2">
+              Организатор пока не опубликовал политику обработки персональных данных.
+            </p>
+            <p className="text-sm text-gray-600">
+              Ваши данные обрабатываются в соответствии с 152-ФЗ. За текстом политики и по
+              вопросам обработки ваших данных обратитесь напрямую к организатору события.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const publishedDate = data.privacy_policy_published_at
     ? new Date(data.privacy_policy_published_at).toLocaleDateString('ru-RU', {
         year: 'numeric', month: 'long', day: 'numeric',
