@@ -64,7 +64,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
     setLoading(true)
     try {
       const [r, ev] = await Promise.all([
-        api.referralProgram.posters.list(eventId),
+        api.referralProgram.posters.list(eventId, { onlyCommon: true }),
         api.events.get(eventId),
       ])
       setItems(r.items || [])

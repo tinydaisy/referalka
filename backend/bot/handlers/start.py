@@ -1029,7 +1029,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
                          WHERE eo.event_id = e.id AND eo.status = 'accepted'
                          ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                       (SELECT url FROM event_posters
-                         WHERE event_id = e.id
+                         WHERE event_id = e.id AND day IS NULL
                          ORDER BY CASE orientation
                                     WHEN 'horizontal' THEN 1
                                     WHEN 'square'     THEN 2
@@ -1183,7 +1183,7 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
                   (SELECT url FROM event_posters
-                     WHERE event_id = e.id
+                     WHERE event_id = e.id AND day IS NULL
                      ORDER BY CASE orientation
                                 WHEN 'horizontal' THEN 1
                                 WHEN 'square'     THEN 2

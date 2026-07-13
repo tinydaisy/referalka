@@ -148,7 +148,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     # Афиши — единый источник истины event_posters
     posters_rows = await db.fetch(
         """SELECT url, orientation FROM event_posters
-            WHERE event_id = $1 ORDER BY sort, id""",
+            WHERE event_id = $1 AND day IS NULL ORDER BY sort, id""",
         event_id
     )
     poster_horizontal = [p["url"] for p in posters_rows if p["orientation"] == "horizontal"]

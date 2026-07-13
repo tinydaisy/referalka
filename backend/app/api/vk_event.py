@@ -1176,7 +1176,7 @@ _EVENT_FUNNEL_FIELDS = """
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
     (SELECT url FROM event_posters
-       WHERE event_id = e.id
+       WHERE event_id = e.id AND day IS NULL
        ORDER BY CASE orientation
                   WHEN 'horizontal' THEN 1
                   WHEN 'square'     THEN 2
@@ -1537,7 +1537,7 @@ async def vk_event_landing(body: VkEventLandingRequest):
         ev = await conn.fetchrow(
             """SELECT e.id, e.title,
                       (SELECT url FROM event_posters
-                         WHERE event_id = e.id
+                         WHERE event_id = e.id AND day IS NULL
                          ORDER BY CASE orientation
                                     WHEN 'horizontal' THEN 1 WHEN 'square' THEN 2
                                     WHEN 'vertical' THEN 3 ELSE 4 END, sort, id

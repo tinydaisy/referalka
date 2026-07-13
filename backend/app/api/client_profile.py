@@ -270,7 +270,7 @@ async def public_client_events(
             -- ниже мероприятия с более поздним start_at).
             SELECT e.id, e.slug, e.title, e.description, e.module_slug,
                    (SELECT url FROM event_posters
-                     WHERE event_id = e.id
+                     WHERE event_id = e.id AND day IS NULL
                      ORDER BY CASE orientation
                                 WHEN 'square'     THEN 1
                                 WHEN 'horizontal' THEN 2
@@ -707,7 +707,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
             SELECT e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.description,
                    e.description_post_register, e.module_slug,
                    (SELECT url FROM event_posters
-                     WHERE event_id = e.id
+                     WHERE event_id = e.id AND day IS NULL
                      ORDER BY CASE orientation
                                 WHEN 'square'     THEN 1
                                 WHEN 'horizontal' THEN 2
@@ -767,7 +767,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     # Афиши события (горизонтальные используем как hero)
     posters = await db.fetch(
         """SELECT url, orientation FROM event_posters
-            WHERE event_id = $1 ORDER BY sort, id""",
+            WHERE event_id = $1 AND day IS NULL ORDER BY sort, id""",
         row["id"]
     )
     d["posters"] = [dict(p) for p in posters]
@@ -826,7 +826,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
             )
             SELECT s.id, s.slug, s.title, s.start_at,
                    (SELECT url FROM event_posters
-                     WHERE event_id = s.id
+                     WHERE event_id = s.id AND day IS NULL
                      ORDER BY CASE orientation
                                 WHEN 'square'     THEN 1
                                 WHEN 'horizontal' THEN 2

@@ -526,13 +526,13 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
 
 async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
     """
-    Дефолтная афиша события для рассылок: лучшая из event_posters
-    с приоритетом square > horizontal > vertical. Используется как
+    Дефолтная ОБЩАЯ афиша события для рассылок: лучшая из event_posters
+    (day IS NULL) с приоритетом square > horizontal > vertical. Используется как
     fallback, когда в шаблоне рассылки photo_url не задан клиентом.
     """
     return await conn.fetchval(
         """SELECT url FROM event_posters
-            WHERE event_id = $1
+            WHERE event_id = $1 AND day IS NULL
             ORDER BY CASE orientation
                        WHEN 'square'     THEN 1
                        WHEN 'horizontal' THEN 2
@@ -542,6 +542,33 @@ async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
             LIMIT 1""",
         event_id
     )
+
+
+async def get_day_event_photo(conn, event_id: int, day: Optional[int]) -> Optional[str]:
+    """
+    Фото для ДНЕВНОЙ рассылки (за сутки / за 2 часа / за 30 мин / старт дня / итоги дня).
+
+    Приоритет (фото шаблона проверяется вызывающей стороной — оно главнее всего):
+      1) афиша ЭТОГО дня  (event_posters.day = N);
+      2) общая афиша события (event_posters.day IS NULL).
+    Внутри каждой группы: square > horizontal > vertical (одинаково для обеих).
+    """
+    if day:
+        day_photo = await conn.fetchval(
+            """SELECT url FROM event_posters
+                WHERE event_id = $1 AND day = $2
+                ORDER BY CASE orientation
+                           WHEN 'square'     THEN 1
+                           WHEN 'horizontal' THEN 2
+                           WHEN 'vertical'   THEN 3
+                           ELSE 4
+                         END, sort, id
+                LIMIT 1""",
+            event_id, day
+        )
+        if day_photo:
+            return day_photo
+    return await get_default_event_photo(conn, event_id)
 
 
 async def _get_event_globals(conn, event_id: int) -> dict:
@@ -958,8 +985,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                 f"в {event_start_msk.strftime('%H:%M')} МСК")
         else:
             day_datetime_str = day_date_str
+        # Фото дневной рассылки. Приоритет:
+        #   1) фото, загруженное в сам шаблон (photo — уже заполнено выше);
+        #   2) афиша ЭТОГО дня программы (event_posters.day = day);
+        #   3) общая афиша события (event_posters.day IS NULL).
+        # Внутри каждой группы: квадрат > горизонтальная > вертикальная.
         if not photo:
-            photo = await get_default_event_photo(conn, event_id)
+            photo = await get_day_event_photo(conn, event_id, day if is_program_event else None)
 
         # Программа дня — у событий с программой (конференция/турнир). У мероприятий conf_sessions пуст.
         day_sessions = await conn.fetch(

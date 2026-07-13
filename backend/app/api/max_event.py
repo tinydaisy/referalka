@@ -122,7 +122,7 @@ async def handle_max_event(body: MaxEventRequest):
             ev = await conn.fetchrow(
                 """SELECT id, title, status,
                           (SELECT url FROM event_posters
-                             WHERE event_id = events.id
+                             WHERE event_id = events.id AND day IS NULL
                              ORDER BY CASE orientation
                                         WHEN 'square' THEN 1 WHEN 'horizontal' THEN 2
                                         WHEN 'vertical' THEN 3 ELSE 4 END, sort, id

@@ -361,7 +361,7 @@ async def _load_event_poster(db, event_id):
     """Лучшая афиша события (square > horizontal > vertical) — как в send_event_menu."""
     return await db.fetchval(
         """SELECT url FROM event_posters
-            WHERE event_id = $1
+            WHERE event_id = $1 AND day IS NULL
             ORDER BY CASE orientation
                        WHEN 'square'     THEN 1
                        WHEN 'horizontal' THEN 2

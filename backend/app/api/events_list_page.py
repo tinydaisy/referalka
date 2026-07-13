@@ -77,7 +77,7 @@ WITH conf_dates AS (
 )
 SELECT e.id, e.slug, e.title, e.module_slug,
        (SELECT url FROM event_posters
-         WHERE event_id = e.id
+         WHERE event_id = e.id AND day IS NULL
          ORDER BY CASE orientation
                     WHEN 'square'     THEN 1
                     WHEN 'horizontal' THEN 2

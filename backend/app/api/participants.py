@@ -321,7 +321,7 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     rows = await db.fetch(
         """SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                   (SELECT url FROM event_posters
-                    WHERE event_id = e.id
+                    WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
                                WHEN 'square'     THEN 1
                                WHEN 'horizontal' THEN 2
@@ -438,7 +438,7 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
            )
            SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                   (SELECT url FROM event_posters
-                    WHERE event_id = e.id
+                    WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
                                WHEN 'square'     THEN 1
                                WHEN 'horizontal' THEN 2

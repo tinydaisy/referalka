@@ -856,7 +856,7 @@ async def get_me_materials(
     posters = await db.fetch(
         """SELECT id, url, orientation, sort
              FROM event_posters
-            WHERE event_id = $1
+            WHERE event_id = $1 AND day IS NULL
             ORDER BY CASE orientation
                        WHEN 'horizontal' THEN 1
                        WHEN 'vertical'   THEN 2

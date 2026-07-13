@@ -173,19 +173,41 @@ class PosterIn(BaseModel):
     url: str
     orientation: str = "horizontal"   # 'horizontal' | 'vertical' | 'square'
     sort: int = 0
+    # День программы (conf_days.day_number), к которому относится афиша.
+    # None = общая афиша события (поведение по умолчанию, как было всегда).
+    day: Optional[int] = None
 
 
 @router.get("/posters", summary="Список афиш события")
 async def list_posters(
     event_id: int,
+    day: Optional[int] = None,          # None = все афиши (общие + дневные)
+    only_common: bool = False,          # True = только общие (day IS NULL)
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    """Афиши события. Без фильтров — все (у каждой в ответе есть `day`:
+    NULL у общей, номер дня у дневной). `day=N` — только афиши дня N,
+    `only_common=true` — только общие."""
     await _check_event_owned(event_id, int(client["sub"]), db)
-    rows = await db.fetch(
-        "SELECT id, url, orientation, sort, created_at FROM event_posters WHERE event_id = $1 ORDER BY sort, id",
-        event_id
-    )
+    if day is not None:
+        rows = await db.fetch(
+            "SELECT id, url, orientation, sort, day, created_at FROM event_posters "
+            "WHERE event_id=$1 AND day=$2 ORDER BY sort, id",
+            event_id, day
+        )
+    elif only_common:
+        rows = await db.fetch(
+            "SELECT id, url, orientation, sort, day, created_at FROM event_posters "
+            "WHERE event_id=$1 AND day IS NULL ORDER BY sort, id",
+            event_id
+        )
+    else:
+        rows = await db.fetch(
+            "SELECT id, url, orientation, sort, day, created_at FROM event_posters "
+            "WHERE event_id=$1 ORDER BY day NULLS FIRST, sort, id",
+            event_id
+        )
     return {"items": [dict(r) for r in rows]}
 
 
@@ -200,10 +222,10 @@ async def add_poster(
     if data.orientation not in ("horizontal", "vertical", "square"):
         raise HTTPException(status_code=400, detail="orientation должен быть 'horizontal', 'vertical' или 'square'")
     row = await db.fetchrow(
-        """INSERT INTO event_posters (event_id, url, orientation, sort)
-           VALUES ($1, $2, $3, $4)
-           RETURNING id, url, orientation, sort, created_at""",
-        event_id, data.url, data.orientation, data.sort
+        """INSERT INTO event_posters (event_id, url, orientation, sort, day)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, url, orientation, sort, day, created_at""",
+        event_id, data.url, data.orientation, data.sort, data.day
     )
     return dict(row)
 
@@ -217,10 +239,10 @@ async def update_poster(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     row = await db.fetchrow(
-        """UPDATE event_posters SET url=$1, orientation=$2, sort=$3
-           WHERE id=$4 AND event_id=$5
-           RETURNING id, url, orientation, sort, created_at""",
-        data.url, data.orientation, data.sort, poster_id, event_id
+        """UPDATE event_posters SET url=$1, orientation=$2, sort=$3, day=$4
+           WHERE id=$5 AND event_id=$6
+           RETURNING id, url, orientation, sort, day, created_at""",
+        data.url, data.orientation, data.sort, data.day, poster_id, event_id
     )
     if not row:
         raise HTTPException(status_code=404, detail="Афиша не найдена")
@@ -870,10 +892,10 @@ async def export_speaker_materials(
             t = t.replace(k, v)
         return t
 
-    # ── 3. Афиши события ──
+    # ── 3. Афиши события (общие; дневные афиши в экспорт материалов не идут) ──
     posters = await db.fetch(
         """SELECT url, orientation FROM event_posters
-            WHERE event_id = $1
+            WHERE event_id = $1 AND day IS NULL
             ORDER BY CASE orientation
                        WHEN 'horizontal' THEN 1
                        WHEN 'vertical'   THEN 2

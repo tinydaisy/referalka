@@ -5,6 +5,7 @@ import { useLang } from '@/contexts/LangContext'
 import FileUploader from '@/components/FileUploader'
 import AnnouncementTextsBlock from '@/components/AnnouncementTextsBlock'
 import MaterialsExportButton from '@/components/MaterialsExportButton'
+import DayPostersBlock from '@/components/DayPostersBlock'
 
 type Orientation = 'horizontal' | 'vertical' | 'square'
 
@@ -21,7 +22,7 @@ const POSTER_TYPES: { key: Orientation; labelRu: string; labelEn: string; ratio:
   { key: 'square',     labelRu: 'Квадратные',      labelEn: 'Square',     ratio: '1:1',  aspect: 'aspect-square' },
 ]
 
-type SubTab = 'posters' | 'materials'
+type SubTab = 'posters' | 'days' | 'materials'
 
 // Афиши конференции лежат в `event_posters` — единый источник истины,
 // общий с обычными мероприятиями. API: /events/{id}/referral/posters.
@@ -32,14 +33,15 @@ export default function PostersTab({ eventId, moduleSlug }: { eventId: number; m
   const [tab, setTab] = useState<SubTab>('posters')
 
   const labels: Record<SubTab, string> = {
-    posters:   lang === 'ru' ? 'Афиши'      : 'Posters',
-    materials: lang === 'ru' ? 'Материалы'  : 'Materials',
+    posters:   lang === 'ru' ? 'Общие афиши' : 'Common posters',
+    days:      lang === 'ru' ? 'Дни события' : 'Event days',
+    materials: lang === 'ru' ? 'Материалы'   : 'Materials',
   }
 
   return (
     <div>
       <div className="border-b border-gray-200 mb-6 flex items-center gap-1 -mt-2">
-        {(['posters','materials'] as SubTab[]).map(t => (
+        {(['posters','days','materials'] as SubTab[]).map(t => (
           <button key={t}
                   onClick={() => setTab(t)}
                   className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -55,9 +57,9 @@ export default function PostersTab({ eventId, moduleSlug }: { eventId: number; m
         </div>
       </div>
 
-      {tab === 'posters'
-        ? <PostersBlock eventId={eventId} />
-        : <AnnouncementTextsBlock eventId={eventId} />}
+      {tab === 'posters' && <PostersBlock eventId={eventId} />}
+      {tab === 'days' && <DayPostersBlock eventId={eventId} />}
+      {tab === 'materials' && <AnnouncementTextsBlock eventId={eventId} />}
     </div>
   )
 }
@@ -73,7 +75,8 @@ function PostersBlock({ eventId }: { eventId: number }) {
     setLoading(true)
     try {
       const [r, ev] = await Promise.all([
-        api.referralProgram.posters.list(eventId),
+        // Только ОБЩИЕ афиши события (day IS NULL). Афиши дней — в подвкладке «Дни события».
+        api.referralProgram.posters.list(eventId, { onlyCommon: true }),
         api.events.get(eventId),
       ])
       setItems(r.items || [])

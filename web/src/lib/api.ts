@@ -787,7 +787,15 @@ export const api = {
   },
   referralProgram: {
     posters: {
-      list: (eventId: number) => request(`/api/v1/events/${eventId}/posters`),
+      // Без опций — все афиши (у каждой поле day: null у общей, номер дня у дневной).
+      // { onlyCommon: true } — только общие афиши события.
+      // { day: N } — только афиши дня N программы.
+      list: (eventId: number, opts?: { day?: number; onlyCommon?: boolean }) => {
+        const qs = opts?.day != null
+          ? `?day=${opts.day}`
+          : (opts?.onlyCommon ? '?only_common=true' : '')
+        return request(`/api/v1/events/${eventId}/posters${qs}`)
+      },
       create: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/posters`, { method: 'POST', body: JSON.stringify(data) }),
       update: (eventId: number, id: number, data: any) =>

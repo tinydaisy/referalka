@@ -173,7 +173,7 @@ async def list_events(
     base_select = """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.is_collab,
                (SELECT url FROM event_posters
-                 WHERE event_id = e.id
+                 WHERE event_id = e.id AND day IS NULL
                  ORDER BY CASE orientation
                             WHEN 'square'     THEN 1
                             WHEN 'horizontal' THEN 2
@@ -293,7 +293,7 @@ async def create_event(
 # (миграция 044 удалила это поле, источник истины теперь — event_posters).
 _POSTER_SUBQ = """(
     SELECT url FROM event_posters
-     WHERE event_id = e.id
+     WHERE event_id = e.id AND day IS NULL
      ORDER BY CASE orientation
                 WHEN 'square'     THEN 1
                 WHEN 'horizontal' THEN 2
@@ -618,9 +618,9 @@ async def copy_event(
         )
         for p in old_posters:
             new_p = await db.fetchval(
-                """INSERT INTO event_posters (event_id, url, orientation, sort)
-                   VALUES ($1, $2, $3, $4) RETURNING id""",
-                new_id, p['url'], p['orientation'], p['sort']
+                """INSERT INTO event_posters (event_id, url, orientation, sort, day)
+                   VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+                new_id, p['url'], p['orientation'], p['sort'], p['day']
             )
             poster_id_map[p['id']] = new_p
 

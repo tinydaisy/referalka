@@ -1243,7 +1243,7 @@ async def _process_start(
             ev = await conn.fetchrow(
                 """SELECT id, title, status, landing_url,
                           (SELECT url FROM event_posters
-                             WHERE event_id = events.id
+                             WHERE event_id = events.id AND day IS NULL
                              ORDER BY CASE orientation
                                         WHEN 'square'     THEN 1
                                         WHEN 'horizontal' THEN 2
@@ -1456,7 +1456,7 @@ async def _send_max_event_menu(
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
                   stream_url, hide_stream_button, start_at,
                   (SELECT url FROM event_posters
-                     WHERE event_id = events.id
+                     WHERE event_id = events.id AND day IS NULL
                      ORDER BY CASE orientation
                                 WHEN 'square' THEN 1 WHEN 'horizontal' THEN 2
                                 WHEN 'vertical' THEN 3 ELSE 4 END, sort, id
