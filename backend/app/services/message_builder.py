@@ -1124,6 +1124,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                   stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention,
                                   day_title=day_title, day_datetime=day_datetime_str,
                                   day_program_with_links=day_program_with_links)
+        # Тема письма (subject) — та же подстановка, что и в тексте. Без этого
+        # {day_title}/{conf_title}/{day_date} в заголовке уходили СЫРЫМИ.
+        if subject:
+            subject = build_day_message(subject, day, conf_title, day_date_str, day_program,
+                                        stream_url, reg_url, raffle_url, day_speakers_gifts,
+                                        next_day_mention, day_title=day_title,
+                                        day_datetime=day_datetime_str,
+                                        day_program_with_links=day_program_with_links)
         btn_url = (btn_url
                    .replace("{stream_url}", stream_url)
                    .replace("{landing_url}", reg_url)
@@ -1375,6 +1383,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         text = text.replace("{conf_date}", conf_date_str)
         text = text.replace("{landing_url}", reg_url)
         text = text.replace("{registration_url}", reg_url)
+        # Тема письма — те же подстановки, что и в тексте.
+        if subject:
+            subject = (subject
+                       .replace("{conf_title}", conf_title)
+                       .replace("{conf_description}", conf_desc)
+                       .replace("{conf_date}", conf_date_str)
+                       .replace("{landing_url}", reg_url)
+                       .replace("{registration_url}", reg_url))
         btn_url = (btn_url
                    .replace("{landing_url}", reg_url)
                    .replace("{registration_url}", reg_url))
@@ -1502,18 +1518,26 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             photo = await get_default_event_photo(conn, event_id)
 
         ordinal = ORDINALS.get(day_number, f"{day_number}-м")
-        text = text.replace("{conf_title}", conf_title)
-        text = text.replace("{conf_description}", conf_desc)
-        text = text.replace("{conf_date}", conf_date_str)
-        text = text.replace("{day_number}", str(day_number))
-        text = text.replace("{day_ordinal}", ordinal)
-        text = text.replace("{day_date}", day_date_str)
-        text = text.replace("{day_program_with_links}", day_program_with_links or day_program)
-        text = text.replace("{day_program}", day_program)
-        text = text.replace("{stream_url}", stream_url)
-        text = text.replace("{landing_url}", reg_url)
-        text = text.replace("{registration_url}", reg_url)
-        text = text.replace("{raffle_url}", raffle_url)
+        _subs = {
+            "{conf_title}": conf_title,
+            "{conf_description}": conf_desc,
+            "{conf_date}": conf_date_str,
+            "{day_number}": str(day_number),
+            "{day_ordinal}": ordinal,
+            "{day_date}": day_date_str,
+            "{day_program_with_links}": day_program_with_links or day_program,
+            "{day_program}": day_program,
+            "{stream_url}": stream_url,
+            "{landing_url}": reg_url,
+            "{registration_url}": reg_url,
+            "{raffle_url}": raffle_url,
+        }
+        for _tok, _val in _subs.items():
+            text = text.replace(_tok, _val)
+        # Тема письма — те же подстановки, что и в тексте.
+        if subject:
+            for _tok, _val in _subs.items():
+                subject = subject.replace(_tok, _val)
 
         # Убираем незамененные строки с плейсхолдерами, если значение пустое
         if not day_program:
@@ -1589,9 +1613,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
-    # Subject (заголовок) — подставляем в него {speaker_name}/{brand_name}, чтобы
-    # тема рассылки со спикером не ушла с сырым плейсхолдером. brand_name берём из
-    # тех же глобалей события.
+    # Subject (заголовок/тема письма) — проходит ТЕ ЖЕ подстановки, что и текст.
+    # Дневные ({day_title}, {day_date}, {day_program}…) и {conf_title} подставлены
+    # выше в своих ветках (там subject прогоняется тем же кодом, что и текст).
+    # Здесь добиваем общее: имя спикера, бренд, название события — и подчищаем
+    # хвосты, чтобы в теме письма никогда не уехал сырой {плейсхолдер}.
     resolved_subject = subject or None
     if resolved_subject:
         if "{speaker_name}" in resolved_subject:
@@ -1599,7 +1625,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if "{brand_name}" in resolved_subject:
             g = await _get_event_globals(conn, event_id)
             resolved_subject = resolved_subject.replace("{brand_name}", g["brand_name"])
-        resolved_subject = resolved_subject.strip() or None
+        # {conf_title} — на случай типов, чья ветка его не подставляла (спикерские и др.)
+        if "{conf_title}" in resolved_subject:
+            _ev_title = await conn.fetchval("SELECT title FROM events WHERE id=$1", event_id) or ""
+            resolved_subject = resolved_subject.replace("{conf_title}", _ev_title)
+        # Хвосты: любой оставшийся известный плейсхолдер в теме — вычищаем
+        # (пустое значение / плейсхолдер не для этого типа). Сырой {…} в теме письма
+        # выглядит как баг у получателя.
+        for _ph in _KNOWN_PLACEHOLDERS:
+            resolved_subject = resolved_subject.replace("{" + _ph + "}", "")
+        resolved_subject = re.sub(r"\s{2,}", " ", resolved_subject).strip() or None
 
     # Для шаблонов media_type='video' → отдаём видео (фото игнорируем).
     tpl_mtype = (media_type or "").strip().lower() or None

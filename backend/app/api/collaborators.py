@@ -287,6 +287,53 @@ async def create_collaborator(
     return {"speaker": d, "collaborator": d}
 
 
+async def _find_contact_by_personal_identity(
+    db: asyncpg.Connection,
+    client_id: int,
+    data,
+) -> Optional[int]:
+    """Найти контакт клиента по личной идентичности (TG/VK/MAX) из payload.
+
+    Идентичность — надёжный ключ, имя — нет: один и тот же человек может быть
+    записан как «Марго Форбс» и «Марго Форбс•основатель iViSiON». Поэтому при
+    создании/импорте коллаба контакт ищем СНАЧАЛА по TG/VK/MAX-аккаунту и только
+    потом по имени — иначе рядом с настоящим контактом рождается пустой дубль,
+    а занятый аккаунт к нему всё равно не привязывается (UNIQUE) → 409.
+
+    Ищем и по числовому platform_user_id, и по username, и по псевдо-записи
+    `@username` (её создаёт _upsert_personal_identity, когда резолв не удался).
+    Возвращает contact_id или None.
+    """
+    for platform, uid, uname in (
+        ('telegram', getattr(data, "personal_tg_id", None), getattr(data, "personal_tg_username", None)),
+        ('vk',       getattr(data, "personal_vk_id", None),  getattr(data, "personal_vk_username", None)),
+        ('max',      getattr(data, "personal_max_id", None), getattr(data, "personal_max_username", None)),
+    ):
+        uid_clean = (uid or "").strip() or None
+        uname_clean = (uname or "").lstrip("@").strip() or None
+        if not uid_clean and not uname_clean:
+            continue
+        found = await db.fetchval(
+            """SELECT pu.contact_id
+                 FROM platform_users pu
+                 JOIN contacts ct ON ct.id = pu.contact_id
+                WHERE pu.client_id = $1
+                  AND pu.platform_slug = $2
+                  AND ct.merged_into IS NULL
+                  AND (
+                        ($3::text IS NOT NULL AND pu.platform_user_id = $3)
+                     OR ($4::text IS NOT NULL AND LOWER(pu.username) = LOWER($4))
+                     OR ($4::text IS NOT NULL AND LOWER(pu.platform_user_id) = LOWER('@' || $4))
+                  )
+                ORDER BY pu.id
+                LIMIT 1""",
+            client_id, platform, uid_clean, uname_clean,
+        )
+        if found:
+            return found
+    return None
+
+
 async def _upsert_personal_identity(
     db: asyncpg.Connection,
     client_id: int,
@@ -838,18 +885,25 @@ async def import_collaborators(
                 if data.skip_duplicates:
                     skipped.append(item.name)
                     continue
-            # contact_id обязателен (миграция 086). Ищем контакт по имени,
-            # если нет — создаём пустой (без email/phone) и привязываем.
-            contact_row = await db.fetchrow(
-                """SELECT id FROM contacts
-                    WHERE client_id = $1 AND merged_into IS NULL
-                      AND LOWER(name) = LOWER($2)
-                    ORDER BY id LIMIT 1""",
-                client_id, item.name
-            )
-            if contact_row:
-                contact_id = contact_row["id"]
-            else:
+            # contact_id обязателен (миграция 086). Порядок поиска контакта:
+            # 1) по личной идентичности (TG/VK/MAX) — надёжный ключ;
+            # 2) по имени — запасной;
+            # 3) нет ни того ни другого → создаём пустой контакт.
+            # Идентичность ПЕРВЕЕ имени: тот же человек мог быть записан под
+            # другим именем («Марго Форбс» vs «Марго Форбс•основатель iViSiON»).
+            # Поиск по имени создал бы рядом пустой контакт-дубль, а занятый
+            # TG к нему всё равно не прицепился бы (UNIQUE) → 409.
+            contact_id = await _find_contact_by_personal_identity(db, client_id, item)
+            if contact_id is None:
+                contact_row = await db.fetchrow(
+                    """SELECT id FROM contacts
+                        WHERE client_id = $1 AND merged_into IS NULL
+                          AND LOWER(name) = LOWER($2)
+                        ORDER BY id LIMIT 1""",
+                    client_id, item.name
+                )
+                contact_id = contact_row["id"] if contact_row else None
+            if contact_id is None:
                 new_contact = await db.fetchrow(
                     """INSERT INTO contacts (client_id, name, ref_code)
                        VALUES ($1, $2, SUBSTR(REPLACE(gen_random_uuid()::text, '-', ''), 1, 8))
@@ -857,6 +911,24 @@ async def import_collaborators(
                     client_id, item.name
                 )
                 contact_id = new_contact["id"]
+            else:
+                # Один коллаб на контакт. Если у найденного контакта карточка уже
+                # есть — второй не заводим (иначе дубль карточки на одного человека).
+                existing_coll = await db.fetchrow(
+                    "SELECT id, name FROM collaborators WHERE contact_id = $1", contact_id
+                )
+                if existing_coll:
+                    if data.skip_duplicates:
+                        skipped.append(item.name)
+                        continue
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"У этого человека уже есть карточка коллаборатора "
+                            f"«{existing_coll['name']}» (id={existing_coll['id']}) — "
+                            f"тот же Telegram/VK/MAX-аккаунт."
+                        ),
+                    )
             access_code = await _generate_unique_access_code(db)
             media_assets = _normalize_media_assets(item.media_assets) or []
             row = await db.fetchrow(
