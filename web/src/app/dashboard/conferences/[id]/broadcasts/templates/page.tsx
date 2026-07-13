@@ -60,8 +60,8 @@ const TYPE_DEFS_RAW: TypeDef[] = [
   {
     type: '30min_before',
     title: 'За 30 минут до старта',
-    hint: 'Общий шаблон: за 30 минут до старта дня конференции или до старта мероприятия. Кнопка → ссылка на эфир.',
-    variables: ['{conf_title}', '{stream_url}', '{day_date}'],
+    hint: 'За 30 минут до старта ДНЯ программы (у события с днями — на каждый день) или до старта мероприятия. Кнопка → ссылка на эфир.',
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_date}', '{day_datetime}', '{day_program}', '{day_program_with_links}', '{stream_url}', '{support_link}'],
     showPhoto: true,
   },
   {
@@ -75,43 +75,43 @@ const TYPE_DEFS_RAW: TypeDef[] = [
   {
     type: '2h_before_unreg',
     title: 'За 2 часа (не зарегистрирован)',
-    hint: 'Для тех, кто ещё не зарегистрирован. Кнопка и ссылка — на лендинг регистрации. Фото — горизонтальная афиша.',
-    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{day_program_with_links}', '{landing_url}'],
+    hint: 'Для тех, кто ещё не зарегистрирован. У события с днями — на каждый день программы. Кнопка и ссылка — на лендинг регистрации.',
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_date}', '{day_datetime}', '{day_program}', '{day_program_with_links}', '{landing_url}', '{stream_url}', '{support_link}'],
     showPhoto: true,
   },
   {
     type: '2h_before_reg',
     title: 'За 2 часа (зарегистрирован)',
-    hint: 'Для уже зарегистрированных. Эфира ещё нет — лучше предложить позвать друзей через свой партнёрский кабинет ({game_link}).',
-    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{day_program_with_links}', '{game_link}', '{stream_url}'],
+    hint: 'Для уже зарегистрированных. У события с днями — на каждый день программы. Эфира ещё нет — можно предложить позвать друзей через партнёрский кабинет ({game_link}).',
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_date}', '{day_datetime}', '{day_program}', '{day_program_with_links}', '{game_link}', '{landing_url}', '{stream_url}', '{support_link}'],
     showPhoto: true,
   },
   {
     type: 'day_before_09_12_unreg',
     title: 'За сутки в 09:12 МСК (не зарегистрирован)',
-    hint: 'Только для мероприятий. За сутки до events.start_at в 09:12 МСК. Кнопка → ссылка на лендинг регистрации.',
-    variables: ['{conf_title}', '{landing_url}'],
+    hint: 'За сутки до дня в 09:12 МСК. У события с днями — накануне КАЖДОГО дня программы, с программой этого дня. Кнопка → лендинг регистрации.',
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_date}', '{day_datetime}', '{day_program}', '{day_program_with_links}', '{landing_url}', '{support_link}'],
     showPhoto: true,
   },
   {
     type: 'day_before_09_12_reg',
     title: 'За сутки в 09:12 МСК (зарегистрирован)',
-    hint: 'Только для мероприятий. За сутки до events.start_at в 09:12 МСК. Кнопка → партнёрский кабинет ({game_link}).',
-    variables: ['{conf_title}', '{game_link}'],
+    hint: 'За сутки до дня в 09:12 МСК. У события с днями — накануне КАЖДОГО дня программы, с программой этого дня. Кнопка → партнёрский кабинет ({game_link}).',
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_date}', '{day_datetime}', '{day_program}', '{day_program_with_links}', '{game_link}', '{support_link}'],
     showPhoto: true,
   },
   {
     type: 'day_live',
-    title: 'День конференции — старт эфира',
-    hint: 'Отправляется за 5 минут до старта дня конференции.',
-    variables: ['{conf_title}', '{day_number}', '{stream_url}'],
+    title: 'Начинаем День события',
+    hint: 'Отправляется за 5 минут до старта КАЖДОГО дня программы. Кнопка → ссылка на эфир.',
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_date}', '{day_datetime}', '{day_program}', '{day_program_with_links}', '{stream_url}', '{support_link}'],
     showPhoto: true,
   },
   {
     type: 'day_end',
-    title: 'День конференции — итоги дня',
+    title: 'День события — итоги дня',
     hint: 'Отправляется по окончании дня. Автоматически вставляет список подарков всех спикеров этого дня.',
-    variables: ['{conf_title}', '{day_ordinal}', '{next_day_mention}', '{raffle_url}', '{day_speakers_gifts}'],
+    variables: ['{conf_title}', '{day_title}', '{day_number}', '{day_ordinal}', '{day_date}', '{day_program}', '{next_day_mention}', '{raffle_url}', '{day_speakers_gifts}', '{support_link}'],
     showPhoto: true,
   },
   {
@@ -161,8 +161,11 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{brand_name}', desc: 'Бренд клиента (из настроек; работает в любом типе рассылки)' },
   { name: '{conf_title}', desc: 'Название конференции' },
   { name: '{day_number}', desc: 'Номер дня (1, 2, 3…)' },
+  { name: '{day_title}', desc: 'Заголовок дня из программы («День 1 — Соревновательные эфиры»). Если заголовка нет — «День N»' },
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
   { name: '{day_date}', desc: 'Дата дня конференции' },
+  { name: '{day_datetime}', desc: 'Дата дня + время старта («13 июля в 10:00 МСК»)' },
+  { name: '{support_link}', desc: 'Служба поддержки. В каждом канале подставится контакт своей площадки: в Telegram — телеграм, в VK — ВК, в MAX — MAX' },
   { name: '{day_program}', desc: 'Программа дня (список спикеров и тем)' },
   { name: '{day_program_with_links}', desc: 'Программа дня, но имена спикеров — ссылками на их карточки' },
   { name: '{next_day_mention}', desc: 'Фраза про следующую встречу (авто: завтра/дата, пусто если последний день)' },
@@ -283,9 +286,10 @@ function PreviewImage({ src, placeholder }: { src: string; placeholder: string }
 
 const CUSTOM_PLACEHOLDERS = [
   '{conf_title}', '{conf_date}', '{conf_description}',
-  '{day_number}', '{day_date}', '{day_program}', '{day_program_with_links}',
+  '{day_number}', '{day_title}', '{day_date}', '{day_datetime}',
+  '{day_program}', '{day_program_with_links}',
   '{stream_url}', '{landing_url}', '{raffle_url}',
-  '{first_name}', '{vip_url}',
+  '{first_name}', '{vip_url}', '{support_link}',
 ]
 
 function customDayRefLabel(ref: string, confDays: number[]): string {
@@ -515,6 +519,10 @@ export default function TemplatesPage() {
     const dayNums = days.map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
     if (dayNums.length > 0) setConfDays(dayNums)
     setConfDaysData(days)
+    // ⚠️ День превью — ПЕРВЫЙ РЕАЛЬНЫЙ день программы, а не «1». У турнира дни идут
+    // 2, 3, 4, 6… — при дефолтном testDay=1 такого дня нет, и превью показывало
+    // заглушки «[программа дня]» вместо настоящей программы.
+    if (dayNums.length > 0 && !dayNums.includes(testDay)) setTestDay(dayNums[0])
     if (confR.conference) setConfData(confR.conference)
     setConfSessions(sessionsR.sessions || [])
     const freshSpeakers = [...(speakersR.speakers || [])].sort(
@@ -874,13 +882,32 @@ export default function TemplatesPage() {
       : ''
     const realConfDesc = eventData?.description || ''
 
+    // {day_title} — заголовок дня из программы (conf_days.title), fallback «День N».
+    // Так же, как на бэке (message_builder), — без отсебятины.
+    const realDayTitle = (dayObj?.title || '').trim() || `День ${d}`
+    // {day_datetime} — дата дня + время старта первой сессии.
+    const firstStart = daySessions.length > 0 && daySessions[0].start_time
+      ? String(daySessions[0].start_time).slice(0, 5) : ''
+    const realDayDatetime = dayObj?.day_date
+      ? (firstStart ? `${realDayDate} в ${firstStart} МСК` : realDayDate)
+      : realDayDate
+    // {support_link} — контакт поддержки. В реальной рассылке подставляется контакт
+    // ТОЙ площадки, куда уходит сообщение; в превью показываем телеграм-контакт.
+    const supportLink = (me?.work_tg_username || me?.work_vk || me?.work_max || '').trim()
+      || '[ссылка на поддержку]'
+
     out = out
       .replace(/\{conf_title\}/g, realConfTitle)
       .replace(/\{conf_date\}/g, confDay1Date || '[дата конференции]')
       .replace(/\{conf_description\}/g, realConfDesc || '[описание конференции]')
       .replace(/\{day_number\}/g, String(d))
       .replace(/\{day_ordinal\}/g, dayOrdinal)
+      .replace(/\{day_title\}/g, realDayTitle)
+      .replace(/\{day_datetime\}/g, realDayDatetime)
       .replace(/\{day_date\}/g, realDayDate)
+      .replace(/\{support_link\}/g, supportLink)
+      // {day_program_with_links} — ДО {day_program} (это его подстрока).
+      .replace(/\{day_program_with_links\}/g, dayProgram)
       .replace(/\{day_program\}/g, dayProgram)
       .replace(/\{next_day_mention\}/g, nextDayMention)
       .replace(/\{raffle_url\}/g, realRaffleUrl || '🔗 [ссылка на розыгрыш]')

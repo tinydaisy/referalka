@@ -852,7 +852,7 @@ async def get_me_materials(
     else:
         announcement_posters = []
 
-    # Афиши события (упорядочены: horizontal → vertical → square)
+    # Общие афиши события (упорядочены: horizontal → vertical → square)
     posters = await db.fetch(
         """SELECT id, url, orientation, sort
              FROM event_posters
@@ -863,6 +863,26 @@ async def get_me_materials(
                        WHEN 'square'     THEN 3
                        ELSE 4
                      END, sort, id""",
+        e_id,
+    )
+
+    # Афиши ДНЕЙ события (миграция 215) — спикер скачивает афишу нужного дня
+    # под свой анонс. Отдаём с названием дня из программы (conf_days.title),
+    # чтобы в кабинете было понятно, какой день на афише.
+    day_posters = await db.fetch(
+        """SELECT ep.id, ep.url, ep.orientation, ep.sort, ep.day,
+                  cd.day_date,
+                  COALESCE(NULLIF(cd.title, ''), 'День ' || ep.day::text) AS day_title
+             FROM event_posters ep
+             LEFT JOIN conf_days cd ON cd.event_id = ep.event_id AND cd.day_number = ep.day
+            WHERE ep.event_id = $1 AND ep.day IS NOT NULL
+            ORDER BY ep.day,
+                     CASE ep.orientation
+                       WHEN 'horizontal' THEN 1
+                       WHEN 'vertical'   THEN 2
+                       WHEN 'square'     THEN 3
+                       ELSE 4
+                     END, ep.sort, ep.id""",
         e_id,
     )
 
@@ -955,6 +975,8 @@ async def get_me_materials(
         "event_slug":   base["event_slug"],
         "event_title":  base["event_title"],
         "posters":      [dict(r) for r in posters],
+        # Афиши дней события (миграция 215): у каждой day + day_title + day_date.
+        "day_posters":  [dict(r) for r in day_posters],
         # Фото профиля коллаба (collaborators.photo_url) — «Фото для сайта»
         # в кабинете спикера. На лендинге и в Mini App используется именно оно.
         "photo_url":         base.get("speaker_photo_url"),

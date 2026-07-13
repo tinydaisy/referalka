@@ -109,6 +109,11 @@ type SpeakerMaterials = {
   event_slug: string
   event_title: string
   posters: { id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'; sort: number }[]
+  // Афиши дней события (миграция 215): своя афиша под каждый день программы.
+  day_posters?: {
+    id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'
+    sort: number; day: number; day_title: string; day_date: string | null
+  }[]
   // Фото профиля коллаба (collaborators.photo_url) — «Фото для сайта»
   photo_url: string | null
   // Афиша помеченная клиентом «Для рассылок по чат-боту» в этой конференции.
@@ -1744,6 +1749,60 @@ function MaterialsTab({
           </div>
         )}
       </div>
+
+      {/* Афиши по дням события */}
+      {materials.day_posters && materials.day_posters.length > 0 && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Афиши по дням</div>
+          <div style={subCss}>
+            Своя афиша под каждый день события — берите ту, про которую делаете анонс.
+          </div>
+          {Array.from(new Set(materials.day_posters.map(p => p.day)))
+            .sort((a, b) => a - b)
+            .map(dayNum => {
+              const dayItems = materials.day_posters!.filter(p => p.day === dayNum)
+              const title = dayItems[0]?.day_title || `День ${dayNum}`
+              return (
+                <div key={dayNum} style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 8 }}>
+                    {title}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+                    {dayItems.map(p => (
+                      <div key={p.id} style={{
+                        border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+                      }}>
+                        <img
+                          src={p.url}
+                          alt={`${title} — ${p.orientation}`}
+                          onClick={() => setLightbox(p.url)}
+                          style={{
+                            width: '100%',
+                            aspectRatio: p.orientation === 'horizontal' ? '16/9' : p.orientation === 'vertical' ? '9/16' : '1/1',
+                            objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                          }}
+                        />
+                        <a
+                          href={p.url}
+                          download
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            display: 'block', textAlign: 'center', padding: '6px 8px',
+                            fontSize: 11, color: DARK, textDecoration: 'none',
+                            background: '#fff', borderTop: '1px solid #d4dee5',
+                          }}
+                        >
+                          ⬇ Скачать
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      )}
 
       {/* Индивидуальное видео */}
       {materials.speaker_video_url && (

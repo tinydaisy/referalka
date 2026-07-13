@@ -892,7 +892,8 @@ async def export_speaker_materials(
             t = t.replace(k, v)
         return t
 
-    # ── 3. Афиши события (общие; дневные афиши в экспорт материалов не идут) ──
+    # ── 3. Афиши события ──
+    # Общие (day IS NULL) — в корень папки «Афиши».
     posters = await db.fetch(
         """SELECT url, orientation FROM event_posters
             WHERE event_id = $1 AND day IS NULL
@@ -904,6 +905,22 @@ async def export_speaker_materials(
                      END, sort, id""",
         event_id,
     )
+    # Афиши ДНЕЙ (миграция 215) — в подпапки «Афиши/День N — Название дня/».
+    day_posters = await db.fetch(
+        """SELECT ep.url, ep.orientation, ep.day,
+                  COALESCE(NULLIF(cd.title, ''), '') AS day_title
+             FROM event_posters ep
+             LEFT JOIN conf_days cd ON cd.event_id = ep.event_id AND cd.day_number = ep.day
+            WHERE ep.event_id = $1 AND ep.day IS NOT NULL
+            ORDER BY ep.day,
+                     CASE ep.orientation
+                       WHEN 'horizontal' THEN 1
+                       WHEN 'vertical'   THEN 2
+                       WHEN 'square'     THEN 3
+                       ELSE 4
+                     END, ep.sort, ep.id""",
+        event_id,
+    )
 
     # ── Сборка ZIP ──
     buf = io.BytesIO()
@@ -913,7 +930,7 @@ async def export_speaker_materials(
         for i, t in enumerate(texts, start=1):
             zf.writestr(f"Тексты для анонсов/Анонс {i}.txt", _apply_placeholders(t["content"]))
 
-        # Афиши события в корень папки «Афиши»
+        # Общие афиши события — в корень папки «Афиши»
         used_counts: dict[str, int] = {}
         for p in posters:
             data = await _download_file_bytes(p["url"])
@@ -924,6 +941,21 @@ async def export_speaker_materials(
             suffix = "" if used_counts[label] == 1 else f" {used_counts[label]}"
             ext = _ext_from_url(p["url"])
             zf.writestr(f"Афиши/{label}{suffix}.{ext}", data)
+
+        # Афиши дней события — в подпапки «Афиши/День N — Название дня/»
+        day_counts: dict[tuple, int] = {}
+        for p in day_posters:
+            data = await _download_file_bytes(p["url"])
+            if data is None:
+                continue
+            title = (p["day_title"] or "").strip()
+            folder = _safe_filename(f"День {p['day']}" + (f" — {title}" if title else ""))
+            label = _ORIENTATION_RU.get(p["orientation"], "Афиша")
+            key = (p["day"], label)
+            day_counts[key] = day_counts.get(key, 0) + 1
+            suffix = "" if day_counts[key] == 1 else f" {day_counts[key]}"
+            ext = _ext_from_url(p["url"])
+            zf.writestr(f"Афиши/{folder}/{label}{suffix}.{ext}", data)
 
         # Индивидуальные афиши коллабов (отмеченные «для анонсов»)
         for c in collabs:
