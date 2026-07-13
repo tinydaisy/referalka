@@ -465,8 +465,9 @@ async def list_templates(
             "event_live",
         }
         # Турнир получает (помимо общих) рассылку знакомства со спикерами и жюри
-        # (speaker_intro) И «за 5 минут до выступления» (5min_before) — как конференция.
-        TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before"}
+        # (speaker_intro), «за 5 минут до выступления» (5min_before) и «старт дня»
+        # (day_live — за 5 мин до начала КАЖДОГО дня программы) — как конференция.
+        TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before", "day_live"}
         for tpl in DEFAULT_TEMPLATES:
             # expert_day не сидим автоматически — это разовый анонс «Экспертного дня»,
             # клиент добавляет его сам через «Добавить готовый шаблон» (пресеты).
@@ -481,8 +482,11 @@ async def list_templates(
                 # Турниру дополнительно разрешаем speaker_intro (знакомство со спикерами/жюри).
                 if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
                     continue
-            if is_conf and tpl["type"].startswith("day_before_09_12"):
-                continue  # для конф эту роль играет pre_conf
+            # «За сутки в 09:12» — и у конференции тоже (уходит накануне КАЖДОГО дня
+            # программы с программой этого дня). Раньше конференциям этот шаблон не
+            # засевался («роль играет pre_conf»), из-за чего рассылки за сутки по дням
+            # у конференций не создавались вовсе. pre_conf (анонс знакомства со
+            # спикерами, один на событие) остаётся и живёт параллельно.
             # Для мероприятий — альтернативный текст без программы по дням (text_event),
             # если он задан у шаблона. Конференции/турниры используют основной text.
             tpl_text = tpl["text_event"] if (is_plain_event and tpl.get("text_event")) else tpl["text"]
@@ -587,12 +591,14 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
         "30min_before", "2h_before_unreg", "2h_before_reg",
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
-    # Турнир: знакомство (speaker_intro) + «за 5 мин до выступления» (5min_before).
-    TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before"}
+    # Турнир: знакомство (speaker_intro), «за 5 мин до выступления» (5min_before)
+    # и «старт дня» (day_live — за 5 мин до начала каждого дня программы).
+    TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before", "day_live"}
     # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf),
-    # «подарок спикера после выступления» (gift) и «Экспертный день» (expert_day).
+    # «подарок спикера после выступления» (gift), «итоги дня» (day_end) и
+    # «Экспертный день» (expert_day).
     if for_presets:
-        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "gift", "expert_day"}
+        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "gift", "day_end", "expert_day"}
     out = []
     for tpl in DEFAULT_TEMPLATES:
         # expert_day — только как пресет (не в авто-сиде), и для конф, и для турнира.
@@ -605,8 +611,7 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
         if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
             if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
                 continue
-        if is_conf and tpl["type"].startswith("day_before_09_12"):
-            continue
+        # «За сутки в 09:12» доступно и конференции (по каждому дню программы).
         tpl_name = tpl["name"]
         if is_turnir and tpl["type"] == "speaker_intro":
             tpl_name = "Знакомство со спикерами и жюри"
