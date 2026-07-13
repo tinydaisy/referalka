@@ -29,6 +29,10 @@ export default function Sidebar() {
 
   const features = me?.features || []
   const hasConference = features.includes('conference')
+  // Премии/Турниры — ОТДЕЛЬНЫЙ платный модуль (features.tournaments, 5000 ₽/мес).
+  // Раньше открывался по фиче 'conference' — клиент, купивший только Конференции,
+  // получал турниры бесплатно.
+  const hasTournaments = features.includes('tournaments')
   const hasContests = features.includes('contests')
   const hasCollabHub = features.includes('collab_hub')
   const isAnyAssistant = me?.role === 'assistant'
@@ -82,8 +86,8 @@ export default function Sidebar() {
         ...(hasConference ? [{ href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic }] : []),
         // Премии/Турниры — multi-day программы (этапы / недели / дни) поверх тех же таблиц
         // conf_* что и конференции, но семантика и UI заточены под чемпионаты/премии.
-        // Доступ — той же фичей 'conference' пока не выделим в отдельную.
-        ...(hasConference ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
+        // ⚠️ Доступ — по СВОЕЙ фиче 'tournaments' (модуль-аддон), не по 'conference'.
+        ...(hasTournaments ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
         // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),

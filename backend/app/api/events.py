@@ -248,6 +248,20 @@ async def create_event(
         if not is_service:
             raise HTTPException(status_code=403, detail="Тип «МедиаЛифт» доступен только сервисному аккаунту.")
 
+    # Модульные типы событий — каждый требует СВОЮ фичу (гейтим только по фиче,
+    # не по tariff_slug). Турниры («Премии и Турниры») — отдельный платный модуль:
+    # клиент с одними «Конференциями» их создавать не может.
+    MODULE_FEATURE = {
+        "conference": ("conference", "Модуль «Конференции» не подключён."),
+        "turnir":     ("tournaments", "Модуль «Премии и Турниры» не подключён."),
+        "contest":    ("contests", "Модуль «Участие в конкурсах» не подключён."),
+    }
+    if data.module_slug in MODULE_FEATURE:
+        from app.services.features import client_has_feature
+        feat, msg = MODULE_FEATURE[data.module_slug]
+        if not await client_has_feature(db, client_id, feat):
+            raise HTTPException(status_code=403, detail=msg)
+
     slug = await _make_unique_short_slug(db)
 
     from datetime import datetime as _dt
