@@ -314,6 +314,32 @@ async def _send_broadcast(schedule_id: int):
             )
             name_by_tg = {r["platform_user_id"]: r["first_name"] for r in name_rows}
 
+        # {support_link} — контакт службы поддержки ТОЙ площадки, куда уходит
+        # сообщение (в Telegram — телеграм-поддержка, в VK — VK, в MAX — MAX).
+        # Текст рассылки собирается один раз на все платформы, поэтому подстановка
+        # делается в момент отправки в каждую платформу — как {first_name}.
+        needs_support_link = "{support_link}" in (text or "")
+        support_by_platform: dict[str, str] = {}
+        if needs_support_link:
+            from app.services.support_message import support_url_for_platform
+            sup_row = await conn.fetchrow(
+                "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id=$1",
+                schedule["client_id"]
+            )
+            for _p in ("telegram", "vk", "max", "email"):
+                support_by_platform[_p] = support_url_for_platform(
+                    _p,
+                    sup_row["work_tg_username"] if sup_row else None,
+                    sup_row["work_vk"] if sup_row else None,
+                    sup_row["work_max"] if sup_row else None,
+                ) if sup_row else ""
+
+        def _with_support(txt: str | None, platform: str) -> str:
+            """Подставить {support_link} контактом поддержки этой платформы."""
+            if not txt or not needs_support_link:
+                return txt or ""
+            return txt.replace("{support_link}", support_by_platform.get(platform, ""))
+
         # {game_link} — ссылка на вкладку «Игра» события (личный кабинет получателя).
         # Используется в `2h_before_reg` / `day_before_09_12_reg` — это уже зарегистрированные
         # участники, их реферер уже зафиксирован при регистрации, перезатирать не надо.
@@ -426,7 +452,7 @@ async def _send_broadcast(schedule_id: int):
 
         async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
-                msg_text = text
+                msg_text = _with_support(text, "telegram")
                 msg_btn_url = button_url
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
@@ -556,7 +582,7 @@ async def _send_broadcast(schedule_id: int):
         # получит сообщение в обоих местах (это норма, см. CLAUDE.md «один контакт в нескольких контекстах»).
         try:
             vk_sent = await _send_broadcast_vk_part(
-                conn, schedule, event_id, text, photo_url, button_text, button_url,
+                conn, schedule, event_id, _with_support(text, "vk"), photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -571,7 +597,7 @@ async def _send_broadcast(schedule_id: int):
         # иначе системный MAX_SYSTEM_BOT_TOKEN из .env.
         try:
             max_sent = await _send_broadcast_max_part(
-                conn, schedule, event_id, text, photo_url, button_text, button_url,
+                conn, schedule, event_id, _with_support(text, "max"), photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -585,7 +611,7 @@ async def _send_broadcast(schedule_id: int):
         # с главного email-канала клиента. Один человек = один email = одно письмо.
         try:
             email_sent = await _send_broadcast_email_part(
-                conn, schedule, event_id, text_for_email, photo_url, button_text, button_url,
+                conn, schedule, event_id, _with_support(text_for_email, "email"), photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,

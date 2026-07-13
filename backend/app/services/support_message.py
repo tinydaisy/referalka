@@ -72,6 +72,27 @@ def has_support(work_tg=None, work_vk=None, work_max=None) -> bool:
     return bool(_lines(work_tg, work_vk, work_max))
 
 
+def support_url_for_platform(platform: str, work_tg=None, work_vk=None, work_max=None) -> str:
+    """Ссылка на поддержку ТОЙ площадки, куда уходит сообщение.
+
+    Рассылка собирается один раз на все платформы, но контакт поддержки должен
+    быть «свой»: в Telegram — телеграм-поддержка, в VK — VK, в MAX — MAX.
+    Подставляется на этапе отправки в каждой платформенной ветке (как {first_name}).
+    Нет контакта на этой площадке — пусто (плейсхолдер просто исчезает)."""
+    p = (platform or "").lower()
+    if p == "telegram":
+        return _norm_tg(work_tg)
+    if p == "vk":
+        return _norm_url(work_vk)
+    if p == "max":
+        return _norm_url(work_max)
+    if p == "email":
+        # В письме кликабельны любые ссылки — отдаём первый заполненный канал.
+        rows = _lines(work_tg, work_vk, work_max)
+        return rows[0][1] if rows else ""
+    return ""
+
+
 def build_support_message_plain(work_tg=None, work_vk=None, work_max=None) -> str:
     """Plain-текст (VK / MAX — там разметка не нужна, ссылки кликабельны как есть).
     Пустая строка → возвращаем дефолт без каналов."""

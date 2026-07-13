@@ -347,15 +347,15 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": False,
     },
     {
-        "name": "День конференции (старт эфира)",
+        "name": "Начинаем День события",
         "type": "day_live",
         "text": (
-            "Мы начинаем День {day_number} масштабной онлайн-конференции «{conf_title}»\n\n"
+            "Мы начинаем {day_title} : «{conf_title}»\n\n"
             "<b>Нажимай на кнопку «Войти в эфир»</b>\n"
             "👇🏻👇🏻👇🏻\n"
             "{stream_url}\n\n"
             "—\n"
-            "При возникновении технических трудностей пишите — @forbs_service2"
+            "При возникновении технических трудностей пишите — {support_link}"
         ),
         "photo_url": None,
         "button_text": "Войти в эфир",
@@ -428,19 +428,10 @@ DEFAULT_TEMPLATES = [
 # авто-сид (list_templates) и пресеты (_allowed_preset_types_for_event).
 _TURNIR_TEMPLATE_NAMES = {
     "speaker_intro": "Знакомство со спикерами и жюри",
-    "day_live": "День события (старт эфира)",
     "day_end": "День события (итоги дня + подарки)",
 }
 
 _TURNIR_TEMPLATE_TEXTS = {
-    "day_live": (
-        "Мы начинаем День {day_number} события «{conf_title}»\n\n"
-        "<b>Нажимай на кнопку «Войти в эфир»</b>\n"
-        "👇🏻👇🏻👇🏻\n"
-        "{stream_url}\n\n"
-        "—\n"
-        "При возникновении технических трудностей пишите — @forbs_service2"
-    ),
     "day_end": (
         "Благодарим вас за участие в {day_ordinal} дне события «{conf_title}»\n\n"
         "Самое время ввести собранные КОДОВЫЕ СЛОВА и получить за них дополнительные билеты для розыгрыша:\n"
@@ -1349,20 +1340,10 @@ async def generate_schedules(
                 if ttype in tmpl_map:
                     await add_schedule(tmpl_map[ttype], fire_0912_utc, None, ttype, day=day_num)
 
-    # ── event_live для события с программой (турнир) ──
-    # У турнира этот шаблон засеян как у мероприятия, но точка отсчёта = первая
-    # сессия ПЕРВОГО дня программы (а не events.start_at, который не используется).
-    if use_day_program and days:
-        first_day_num = min(days.keys())
-        first_day_sessions = days[first_day_num]
-        prog_first_start_utc = _msk_str_to_utc(
-            first_day_sessions[0].get("day_date"), first_day_sessions[0].get("start_time")
-        )
-        if prog_first_start_utc and "event_live" in tmpl_map:
-            tmpl = tmpl_map["event_live"]
-            offset = tmpl["offset_minutes"] or 5
-            await add_schedule(tmpl, prog_first_start_utc - timedelta(minutes=offset), None, "event_live",
-                               day=first_day_num)
+    # ⚠️ `event_live` («за 5 минут до старта мероприятия») у события С ПРОГРАММОЙ
+    # НЕ генерируется — это дубль `day_live` («старт дня»), который уходит перед
+    # КАЖДЫМ днём программы. event_live — только для мероприятий без дней
+    # (точка отсчёта events.start_at), см. блок ниже.
 
     # ── Расписания для событий БЕЗ программы по дням (одна точка отсчёта = events.start_at) ──
     # Обычные мероприятия (и турнир без программы). Все «дневные» рассылки
