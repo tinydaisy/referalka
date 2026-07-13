@@ -479,8 +479,16 @@ export default function TemplatesPage() {
     }
   }
 
-  async function removeTemplate(tplId: number) {
-    if (!confirm('Удалить шаблон?')) return
+  async function removeTemplate(tplId: number, tplName?: string) {
+    // Уже поставленные в очередь рассылки НЕ удаляются: у них свой снимок текста,
+    // а связь с шаблоном просто обнуляется (FK ON DELETE SET NULL). Типовой шаблон
+    // потом можно вернуть кнопкой «Добавить шаблон» (готовые пресеты).
+    const name = tplName ? `«${tplName}»` : 'шаблон'
+    if (!confirm(
+      `Удалить ${name}?\n\n` +
+      'Рассылки, уже стоящие в очереди, останутся и уйдут как есть — удаляется только сам шаблон. ' +
+      'Добавить его обратно можно кнопкой «Добавить шаблон».'
+    )) return
     try {
       await api.conference.templates.delete(eventId, tplId)
       setTemplates(templates.filter((x: any) => x.id !== tplId))
@@ -1068,6 +1076,15 @@ export default function TemplatesPage() {
                       style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
                       <Edit2 size={13} /> Редактировать
                     </button>
+                    {/* Удалять можно и типовые шаблоны — вернуть их потом можно
+                        кнопкой «Добавить шаблон» (готовые пресеты). Авто-сид
+                        срабатывает только когда шаблонов ноль, так что удалённый
+                        сам не вернётся. */}
+                    <button onClick={() => removeTemplate(tpl.id, tpl.name || def.title)}
+                      title="Удалить шаблон"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-red-600 font-medium border border-red-200 hover:bg-red-50 transition-colors">
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 </div>
 
@@ -1133,7 +1150,8 @@ export default function TemplatesPage() {
                       style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
                       <Edit2 size={13} /> Редактировать
                     </button>
-                    <button onClick={() => removeTemplate(tpl.id)}
+                    <button onClick={() => removeTemplate(tpl.id, tpl.name)}
+                      title="Удалить шаблон"
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-red-600 font-medium border border-red-200 hover:bg-red-50 transition-colors">
                       <Trash2 size={13} />
                     </button>
