@@ -35,7 +35,7 @@ export default function PostersTab({ eventId, moduleSlug }: { eventId: number; m
   const labels: Record<SubTab, string> = {
     posters:   lang === 'ru' ? 'Общие афиши' : 'Common posters',
     days:      lang === 'ru' ? 'Дни события' : 'Event days',
-    materials: lang === 'ru' ? 'Материалы'   : 'Materials',
+    materials: lang === 'ru' ? 'Тексты анонсов' : 'Announcement texts',
   }
 
   return (

@@ -1090,6 +1090,14 @@ async def create_and_add_speaker(
                 detail="Укажите хотя бы один личный аккаунт спикера: Telegram, VK или MAX. Без этого ему не получится отправить инструкцию для редактирования профиля."
             )
 
+    # Идентичность ПЕРВЕЕ имени: если указанный TG/VK/MAX уже есть в базе клиента,
+    # это тот же человек (пусть и записанный под другим именем) — берём его контакт.
+    # Иначе рядом с настоящим контактом рождается пустой дубль, а занятый аккаунт
+    # к нему всё равно не привязывается (UNIQUE) → 409 и спикера не завести.
+    if contact_id is None:
+        from app.api.collaborators import _find_contact_by_personal_identity
+        contact_id = await _find_contact_by_personal_identity(db, client_id, data)
+
     # Если existing_contact_id не дали и не force_create — ищем похожие по имени.
     # Возвращаем клиенту выбор (UI: «Использовать существующего» / «Создать нового»).
     if contact_id is None and not data.force_create:
@@ -1128,7 +1136,9 @@ async def create_and_add_speaker(
                 client_id, name
             )
         else:
-            # Если уже есть коллаб у этого контакта — 409 (один коллаб на контакт)
+            # Если уже есть коллаб у этого контакта — 409 (один коллаб на контакт).
+            # Контакт сюда попадает и явным existing_contact_id, и резолвом по
+            # личной идентичности (TG/VK/MAX) — в обоих случаях дубль карточки не нужен.
             existing_coll = await db.fetchval(
                 "SELECT id FROM collaborators WHERE contact_id = $1", contact_id
             )

@@ -762,6 +762,13 @@ async def create_collaborator_quick(
     # Если username введён, но id не известен — _upsert_personal_identity сам
     # попробует резолвить → fallback на псевдо-запись с is_unsubscribed=TRUE.
 
+    # Идентичность ПЕРВЕЕ имени. Если указанный TG/VK/MAX уже есть в базе клиента —
+    # это тот же человек (пусть и записанный под другим именем). Берём его контакт,
+    # а не плодим пустой дубль: занятый аккаунт к новому контакту всё равно не
+    # привязался бы (UNIQUE) — создание падало бы 409-й «аккаунт уже у другого».
+    if contact_id is None:
+        contact_id = await _find_contact_by_personal_identity(db, client_id, data)
+
     if contact_id is None and not data.force_create:
         matches = await db.fetch(
             """SELECT c.id, c.name,

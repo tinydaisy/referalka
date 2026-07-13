@@ -35,7 +35,7 @@ export default function PostersTab({ eventId }: { eventId: number }) {
 function SubTabs({ current, onChange }: { current: SubTab; onChange: (t: SubTab) => void }) {
   const items: { key: SubTab; label: string }[] = [
     { key: 'posters',   label: 'Афиши' },
-    { key: 'materials', label: 'Материалы' },
+    { key: 'materials', label: 'Тексты анонсов' },
   ]
   return (
     <div className="border-b border-gray-200 mb-6 flex gap-1 -mt-2">
