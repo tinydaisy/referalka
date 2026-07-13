@@ -1458,7 +1458,8 @@ SELECT $new_client_id, ch.id, TRUE
 **Frontend компоненты:**
 - [`SubscriptionBadge.tsx`](web/src/components/SubscriptionBadge.tsx) — бейдж в шапке дашборда: зелёный/жёлтый/красный по дням до истечения. Клик → `/dashboard/settings?tab=subscription`.
 - [`SubscriptionBanner.tsx`](web/src/components/SubscriptionBanner.tsx) — крупный red banner при истёкшей подписке.
-- `Sidebar.tsx` — пункт «Конференции» скрыт если нет фичи `conference`.
+- `Sidebar.tsx` — пункты модулей скрыты без своей фичи: «Конференции» → `conference`, **«Премии/Турниры» → `tournaments`** (не `conference`! до 2026-07-13 турниры ошибочно открывались по фиче конференций — клиент с одними «Конференциями» за 3000 ₽ получал модуль за 5000 ₽ бесплатно), «Участие в конкурсах» → `contests`, «Коллабы» → `collab_hub`.
+- **Гейт на бэке — `create_event`** ([events.py](backend/app/api/events.py)): `MODULE_FEATURE = {conference: 'conference', turnir: 'tournaments', contest: 'contests'}` → 403 без фичи. Скрытия пункта меню недостаточно — по прямой ссылке модуль создавался бы мимо оплаты.
 - `dashboard/settings/page.tsx` — вкладка «Подписка»: тариф, дата, состав фич, кнопка продления (через Telegram).
 - `dashboard/channels/page.tsx` — `me.features.includes('channels')` вместо `me.allow_custom_bot`.
 - `admin/clients/page.tsx` — статус подписки + бейджи фич.
