@@ -1841,16 +1841,30 @@ async def update_session(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
+    # ⚠️ Различаем «поле не прислали» и «прислали null»: явный null у speaker_id /
+    # topic_id — это ОСВОБОЖДЕНИЕ слота (снять спикера / отвязать тему). Раньше
+    # тут стояло `if v is not None` — null молча выбрасывался, и слот навсегда
+    # оставался за прежним спикером.
+    fs = data.model_fields_set
+    NULLABLE = ("speaker_id", "topic_id", "track_id")
     updates = {}
     for k, v in data.model_dump().items():
-        if v is not None:
-            if k in ("start_time", "end_time"):
-                updates[k] = _normalize_hhmm(v)
-            else:
-                updates[k] = v
+        if k not in fs:
+            continue
+        if v is None and k not in NULLABLE:
+            continue
+        if k in ("start_time", "end_time") and v is not None:
+            updates[k] = _normalize_hhmm(v)
+        else:
+            updates[k] = v
+
+    # Сняли спикера — слот освобождается целиком: тема спикера к нему больше не
+    # относится (иначе в программе осталась бы чужая тема).
+    if updates.get("speaker_id") is None and "speaker_id" in updates:
+        updates["topic_id"] = None
 
     # Если меняется topic_id но title не передан — обновляем title из темы
-    if "topic_id" in updates and "title" not in updates:
+    if updates.get("topic_id") is not None and "title" not in updates:
         row = await db.fetchrow("SELECT topic FROM conf_speaker_topics WHERE id = $1", updates["topic_id"])
         if row:
             updates["title"] = row["topic"]

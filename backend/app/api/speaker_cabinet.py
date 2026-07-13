@@ -213,11 +213,23 @@ async def get_me(
     if not row:
         raise HTTPException(status_code=404, detail="Спикер не найден (возможно, удалён)")
     topics = await db.fetch(
-        "SELECT topic FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
+        "SELECT id, topic FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
         se_id
     )
     d = dict(row)
-    d["topics"] = [t["topic"] for t in topics if t["topic"]]
+    # В кабинете темы — плоский список строк (индекс = позиция). Пустые заглушки
+    # не показываем, поэтому индекс привязанной темы считаем ПО ЭТОМУ ЖЕ списку.
+    visible = [t for t in topics if t["topic"]]
+    d["topics"] = [t["topic"] for t in visible]
+    # Какая из тем реально стоит в слоте программы (conf_sessions.topic_id) —
+    # её текст уходит в программу и рассылки, остальные не используются.
+    bound_topic_id = await db.fetchval(
+        "SELECT topic_id FROM conf_sessions WHERE speaker_id = $1 AND topic_id IS NOT NULL LIMIT 1",
+        se_id,
+    )
+    d["bound_topic_index"] = next(
+        (i for i, t in enumerate(visible) if t["id"] == bound_topic_id), None
+    ) if bound_topic_id else None
     # media_assets (JSONB) — asyncpg отдаёт строкой, парсим в list
     import json as _json
     ma = d.get("media_assets")
@@ -468,6 +480,21 @@ async def patch_me(
     if data.topics is not None:
         from app.api.modules.conference import _rewrite_speaker_topics
         await _rewrite_speaker_topics(db, se_id, data.topics)
+        # ⚠️ Спикер мог занять слот РАНЬШЕ, чем вписал тему — тогда слот остался
+        # без topic_id и в программу/рассылки уходил замороженный «Тема будет
+        # уточнена позже». Как только тема появилась — привязываем её к слоту.
+        await db.execute(
+            """
+            UPDATE conf_sessions cs
+               SET topic_id = t.id,
+                   title    = t.topic
+              FROM (SELECT id, topic FROM conf_speaker_topics
+                     WHERE cse_id = $1 AND NULLIF(topic,'') IS NOT NULL
+                     ORDER BY sort_order, id LIMIT 1) t
+             WHERE cs.speaker_id = $1 AND cs.topic_id IS NULL
+            """,
+            se_id,
+        )
 
     # 5. Подарки и материал. Различаем «не передано» (не трогаем) и «передано null»
     # (обнуляем) через model_fields_set — иначе нельзя стереть ручной подарок при

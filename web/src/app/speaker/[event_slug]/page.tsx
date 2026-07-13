@@ -65,6 +65,9 @@ type SpeakerMe = {
   ref_code: string | null
   ref_links: { telegram?: string; vk?: string; max?: string }
   topics: string[]
+  // индекс темы (в topics), привязанной к слоту программы — она уходит в
+  // программу и рассылки; null = слота нет или тема не привязана
+  bound_topic_index: number | null
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
   gift_lead_magnet_id: number | null
@@ -1004,12 +1007,36 @@ export default function SpeakerCabinetPage() {
 
         {me.show_topic_field && (
           <Section title="Темы выступления">
-            {(me.topics || []).map((t, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <input style={inputCss} value={t} onChange={(e) => updTopics(i, e.target.value)} placeholder={`Тема ${i + 1}`} />
-                <button onClick={() => removeTopic(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
+            {me.bound_topic_index != null && (
+              <div style={{ fontSize: 12, color: '#1a7f4b', background: '#eaf7f0', border: '1px solid #bfe3cd', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
+                Зелёным отмечена тема, которая стоит в вашем слоте программы — именно она уходит
+                в программу события и в рассылки. Правьте текст <b>именно этой темы</b>.
+                Остальные темы в программе не показываются.
               </div>
-            ))}
+            )}
+            {(me.topics || []).map((t, i) => {
+              const bound = me.bound_topic_index === i
+              return (
+                <div key={i} style={{ marginBottom: 8 }}>
+                  {bound && (
+                    <div style={{ fontSize: 11, color: '#1a7f4b', fontWeight: 700, marginBottom: 3 }}>
+                      ✓ Тема в вашем слоте программы
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      style={bound
+                        ? { ...inputCss, border: '2px solid #2e9e63', background: '#f4fbf7' }
+                        : inputCss}
+                      value={t}
+                      onChange={(e) => updTopics(i, e.target.value)}
+                      placeholder={`Тема ${i + 1}`}
+                    />
+                    <button onClick={() => removeTopic(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
+                  </div>
+                </div>
+              )
+            })}
             <button onClick={addTopic} style={{ padding: '8px 14px', background: '#fff', border: `1px dashed ${PEACH}`, color: DARK, borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>+ добавить тему</button>
           </Section>
         )}
