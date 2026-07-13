@@ -1194,14 +1194,18 @@ async def jury_review(event_id: int, stage_id: Optional[int] = None,
     # ── Сырые баллы жюри (только по критериям этапа) ──
     #    scores[key][juror_ec_id][criterion_id] = value
     scores: dict[str, dict[int, dict[int, float]]] = {}
+    # комментарии «Почему такая оценка»: comments[key][juror_ec_id][criterion_id] = text
+    comments: dict[str, dict[int, dict[int, str]]] = {}
     if crit_ids:
         srows = await db.fetch(
-            "SELECT criterion_id, subject_kind, subject_id, juror_ec_id, value_number "
+            "SELECT criterion_id, subject_kind, subject_id, juror_ec_id, value_number, comment "
             "FROM tournament_scores WHERE event_id=$1 AND scorer='jury' AND criterion_id = ANY($2::bigint[])",
             event_id, crit_ids)
         for s in srows:
             key = _skey(s["subject_kind"], s["subject_id"])
             scores.setdefault(key, {}).setdefault(s["juror_ec_id"], {})[s["criterion_id"]] = float(s["value_number"])
+            if s["comment"]:
+                comments.setdefault(key, {}).setdefault(s["juror_ec_id"], {})[s["criterion_id"]] = s["comment"]
 
     # ── Обратная связь жюри (по этапу) ──
     #    fb[key][juror_ec_id] = body
@@ -1249,7 +1253,8 @@ async def jury_review(event_id: int, stage_id: Optional[int] = None,
                 "filled": filled,
                 "n_crit": n_crit,
                 "scores": [{"criterion_id": c["id"], "title": c["title"], "scale_max": float(c["scale_max"]),
-                            "value": jsc.get(c["id"])} for c in crits],
+                            "value": jsc.get(c["id"]),
+                            "comment": comments.get(key, {}).get(jec, {}).get(c["id"])} for c in crits],
                 "feedback": fb.get(key, {}).get(jec),
             })
         for jec in extra_ordered:
@@ -1265,7 +1270,8 @@ async def jury_review(event_id: int, stage_id: Optional[int] = None,
                 "filled": filled,
                 "n_crit": n_crit,
                 "scores": [{"criterion_id": c["id"], "title": c["title"], "scale_max": float(c["scale_max"]),
-                            "value": jsc.get(c["id"])} for c in crits],
+                            "value": jsc.get(c["id"]),
+                            "comment": comments.get(key, {}).get(jec, {}).get(c["id"])} for c in crits],
                 "feedback": fb.get(key, {}).get(jec),
             })
 
@@ -1755,7 +1761,7 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
             "SELECT id, title, description, scale_max FROM tournament_criteria WHERE package_id=ANY($1::bigint[]) AND is_active AND scorer='jury' ORDER BY sort_order, id", pkg_ids)
 
     my_scores = await db.fetch(
-        "SELECT criterion_id, subject_kind, subject_id, value_number FROM tournament_scores WHERE event_id=$1 AND juror_ec_id=$2",
+        "SELECT criterion_id, subject_kind, subject_id, value_number, comment FROM tournament_scores WHERE event_id=$1 AND juror_ec_id=$2",
         event_id, juror_ec_id)
     my_fb = await db.fetch(
         "SELECT subject_kind, subject_id, body, stage_id FROM tournament_feedback WHERE event_id=$1 AND juror_ec_id=$2",
@@ -1787,7 +1793,9 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
         "juror_name": juror["name"],
         "subjects": [{"key": s["key"], "name": s["name"], "material": s["material"]} for s in subjects],
         "criteria": [{**dict(c), "scale_max": float(c["scale_max"])} for c in jcrits],
-        "my_scores": [{"criterion_id": s["criterion_id"], "key": _skey(s["subject_kind"], s["subject_id"]), "value_number": float(s["value_number"])} for s in my_scores],
+        "my_scores": [{"criterion_id": s["criterion_id"], "key": _skey(s["subject_kind"], s["subject_id"]),
+                       "value_number": float(s["value_number"]), "comment": s["comment"] or ""} for s in my_scores],
+        "score_comment_min_words": SCORE_COMMENT_MIN_WORDS,
         "my_feedback": [{"key": _skey(f["subject_kind"], f["subject_id"]), "body": f["body"], "stage_id": f["stage_id"]} for f in my_fb],
         "stages": stages,
         "locked_keys": locked_keys,
@@ -1799,6 +1807,15 @@ class JuryScoreIn(BaseModel):
     criterion_id: int
     key: str
     value: float
+    comment: Optional[str] = None     # «Почему такая оценка» (≥7 слов — требуется при фиксации)
+
+
+# Минимум слов в комментарии к КАЖДОМУ критерию (зеркалит фронт-валидацию).
+SCORE_COMMENT_MIN_WORDS = 7
+
+
+def _words(text: Optional[str]) -> int:
+    return len((text or "").split())
 
 
 @jury_router.post("/score", summary="Кабинет жюри: поставить балл")
@@ -1828,12 +1845,16 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
         event_id, juror_ec_id, kind, int(sid))
     if not ok:
         raise HTTPException(status_code=403, detail="Этот участник вам не назначен")
+    # comment=None → комментарий не трогаем (сохраняем прежний): фронт шлёт балл и
+    # комментарий разными onBlur-ами, один не должен затирать другой.
     await db.execute(
-        """INSERT INTO tournament_scores (event_id, criterion_id, subject_kind, subject_id, juror_ec_id, scorer, value_number)
-           VALUES ($1,$2,$3,$4,$5,'jury',$6)
+        """INSERT INTO tournament_scores (event_id, criterion_id, subject_kind, subject_id, juror_ec_id, scorer, value_number, comment)
+           VALUES ($1,$2,$3,$4,$5,'jury',$6,$7)
            ON CONFLICT (criterion_id, subject_kind, subject_id, juror_ec_id) WHERE juror_ec_id IS NOT NULL
-           DO UPDATE SET value_number = EXCLUDED.value_number, updated_at = now()""",
-        event_id, data.criterion_id, kind, int(sid), juror_ec_id, data.value)
+           DO UPDATE SET value_number = EXCLUDED.value_number,
+                         comment = COALESCE(EXCLUDED.comment, tournament_scores.comment),
+                         updated_at = now()""",
+        event_id, data.criterion_id, kind, int(sid), juror_ec_id, data.value, data.comment)
     return {"ok": True}
 
 
@@ -1859,6 +1880,40 @@ async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db:
     words = len((fb_body or "").split())
     if words < 10:
         raise HTTPException(status_code=422, detail="Нужна развёрнутая обратная связь — минимум 10 слов.")
+
+    # Комментарий «Почему такая оценка» — обязателен к КАЖДОМУ критерию жюри
+    # этого этапа (≥7 слов). Критерии этапа = jury-критерии его пакетов
+    # (+ пакеты без этапа, stage_id IS NULL) — как в jury_me.
+    if data.stage_id is None:
+        crit_rows = await db.fetch(
+            """SELECT cr.id, cr.title FROM tournament_criteria cr
+                 JOIN tournament_packages p ON p.id = cr.package_id
+                WHERE cr.event_id=$1 AND cr.is_active AND p.is_active AND cr.scorer='jury'
+                ORDER BY cr.sort_order, cr.id""",
+            event_id)
+    else:
+        crit_rows = await db.fetch(
+            """SELECT cr.id, cr.title FROM tournament_criteria cr
+                 JOIN tournament_packages p ON p.id = cr.package_id
+                WHERE cr.event_id=$1 AND cr.is_active AND p.is_active AND cr.scorer='jury'
+                  AND (p.stage_id=$2 OR p.stage_id IS NULL)
+                ORDER BY cr.sort_order, cr.id""",
+            event_id, data.stage_id)
+    if crit_rows:
+        got = await db.fetch(
+            """SELECT criterion_id, comment FROM tournament_scores
+                WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4
+                  AND criterion_id = ANY($5::bigint[])""",
+            event_id, juror_ec_id, kind, int(sid), [c["id"] for c in crit_rows])
+        by_crit = {r["criterion_id"]: r["comment"] for r in got}
+        bad = [c["title"] for c in crit_rows
+               if _words(by_crit.get(c["id"])) < SCORE_COMMENT_MIN_WORDS]
+        if bad:
+            raise HTTPException(
+                status_code=422,
+                detail=("К каждому критерию нужен комментарий «Почему такая оценка» — "
+                        f"минимум {SCORE_COMMENT_MIN_WORDS} слов. Не хватает: " + ", ".join(bad)))
+
     await db.execute(
         """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id, subject_kind, subject_id)
            VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING""",

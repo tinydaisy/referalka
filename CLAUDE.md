@@ -314,7 +314,16 @@
 
 **Бэкенд** ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py)): `GET /me/program` (этапы+дни+слоты, по каждому `is_mine`/`is_free`/`occupant_name`/`topic`), `POST /me/claim-slot {session_id}` (в транзакции `FOR UPDATE`: 409 если занят другим, иначе освобождает мой прежний слот в событии + занимает целевой `WHERE speaker_id IS NULL`), `POST /me/release-slot`. `session.se_id` = `event_collaborators.id` = `conf_sessions.speaker_id`. При claim, если у спикера ровно 1 тема (`conf_speaker_topics`) — проставляется её `topic_id`.
 
+### ⚠️ Тема слота: занял слот РАНЬШЕ, чем вписал тему + освобождение слота (2026-07-13, ПРОД 5d51ac5)
 
+**Баг, из-за которого в рассылке ушло «Тема будет уточнена позже».** Спикер занимал слот, когда тем у него ещё не было → `conf_sessions.topic_id` оставался NULL. Потом вписывал тему в кабинете — тема создавалась новой строкой в `conf_speaker_topics`, но **слот про неё ничего не знал** (связь идёт по `topic_id`, а не «по спикеру»). Программа и рассылки (`5min_before`, ветка `message_builder.py:1349` — `speaker_topic or session_title`) показывали замороженный `conf_sessions.title`. Пострадали 6 спикеров события 24, у двоих рассылка уже ушла со старым заголовком.
+
+**Три правки:**
+1. **PATCH тем в кабинете спикера привязывает тему к слоту сам** ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py), после `_rewrite_speaker_topics`): если у слота спикера `topic_id IS NULL` — ставим первую непустую тему (+ `title`). Порядок «занял слот → вписал тему» теперь безопасен.
+2. **`update_session` различает «не прислали» и «прислали null»** ([modules/conference.py](backend/app/api/modules/conference.py)). Было `if v is not None` → явный `speaker_id: null` («— без спикера —» в модалке слота) **молча выбрасывался**, слот навсегда оставался за спикером и не мог быть занят другим. Теперь `model_fields_set` + `NULLABLE = (speaker_id, topic_id, track_id)`; снятие спикера отвязывает и тему (`topic_id = NULL`), иначе в слоте осталась бы чужая тема. ⚠️ Тот же паттерн, что в `PATCH /clients/me/profile` — при новых nullable-полях использовать `model_fields_set`, не `is not None`.
+3. **В кабинете спикера привязанная к слоту тема подсвечена зелёным** (рамка + «✓ Тема в вашем слоте программы» + пояснение сверху). `GET /public/speaker-cabinet/me` отдаёт `bound_topic_index` — индекс темы в массиве `topics` (по `conf_sessions.topic_id` его слота), NULL = слота/привязки нет. Остальные темы — обычные белые: в программу они не идут.
+
+⚠️ **Бэкфилл** существующих слотов без `topic_id` — разовый UPDATE (первая непустая тема спикера); при похожих правках не забывать про уже созданные данные, а не только про новый код.
 
 ### ⚠️ Системный бот — только email (с 2026-06-27, коммиты 745eb1f, 143e6f2)
 

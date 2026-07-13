@@ -2698,6 +2698,9 @@ function JudgingTab({ token }: { token: string }) {
   // Ссылки на инпуты оценок (ключ `criterionId|subjectKey`) — чтобы при фиксации
   // читать актуально введённое значение, даже если onBlur ещё не сработал.
   const scoreRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  // Ссылки на комментарии к критериям (ключ `criterionId|subjectKey`) — чтобы при
+  // фиксации читать актуальный текст, даже если onBlur ещё не сработал.
+  const cmtRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
 
   const load = useCallback(() => {
     setLoading(true)
@@ -2716,11 +2719,19 @@ function JudgingTab({ token }: { token: string }) {
     const s = (data?.my_scores || []).find((x: any) => x.criterion_id === criterionId && x.key === key)
     return s ? String(s.value_number) : ''
   }
+  // Комментарий «Почему такая оценка» — по каждому критерию, минимум 7 слов.
+  const CMT_MIN_WORDS: number = data?.score_comment_min_words ?? 7
+  const cmtVal = (criterionId: number, key: string): string => {
+    const s = (data?.my_scores || []).find((x: any) => x.criterion_id === criterionId && x.key === key)
+    return s?.comment || ''
+  }
+  const countWords = (t: string) => (t || '').trim().split(/\s+/).filter(Boolean).length
   const fbVal = (key: string): string => {
     const f = (data?.my_feedback || []).find((x: any) => x.key === key && (stageId ? x.stage_id === stageId : x.stage_id == null))
     return f ? f.body : ''
   }
-  const saveScore = async (criterionId: number, key: string, value: string, scaleMax: number, inputEl?: HTMLInputElement) => {
+  const saveScore = async (criterionId: number, key: string, value: string, scaleMax: number,
+                           inputEl?: HTMLInputElement, comment?: string) => {
     if (value === '') return
     let num = Number(value)
     if (isNaN(num)) return
@@ -2728,11 +2739,21 @@ function JudgingTab({ token }: { token: string }) {
     if (num < 0) num = 0
     if (num > scaleMax) num = scaleMax
     if (inputEl && String(num) !== value) inputEl.value = String(num)  // поправить поле визуально
+    const body: any = { criterion_id: criterionId, key, value: num }
+    // comment=undefined → бэк не трогает уже сохранённый комментарий
+    if (comment !== undefined) body.comment = comment
     await fetch(`${API}/api/v1/public/tournament-jury/score`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ criterion_id: criterionId, key, value: num }),
+      body: JSON.stringify(body),
     })
     // НЕ перезагружаем страницу — балл уже сохранён, чтобы не сбивать фокус/скролл при вводе.
+  }
+  // Комментарий к критерию сохраняем вместе с баллом (одна строка в БД).
+  // Без выставленного балла сохранять нечего — бэк пишет comment в строку балла.
+  const saveComment = async (criterionId: number, key: string, comment: string, scaleMax: number) => {
+    const raw = scoreRefs.current[`${criterionId}|${key}`]?.value ?? scoreVal(criterionId, key)
+    if (!raw || raw.trim() === '') return   // балла ещё нет — комментарий сохранится вместе с ним
+    await saveScore(criterionId, key, raw, scaleMax, undefined, comment)
   }
   const saveFb = async (key: string, body: string) => {
     await fetch(`${API}/api/v1/public/tournament-jury/feedback`, {
@@ -2762,10 +2783,21 @@ function JudgingTab({ token }: { token: string }) {
       alert(`Нельзя сохранить оценку — не проставлены все критерии.\n\nОсталось заполнить: ${missing.map((c: any) => c.title).join(', ')}`)
       return
     }
-    // Досохраняем оценки, которые ещё не ушли на сервер (onBlur не сработал).
+    // Комментарий «Почему такая оценка» — обязателен к КАЖДОМУ критерию (≥7 слов).
+    const curCmt = (cid: number) => {
+      const raw = cmtRefs.current[`${cid}|${key}`]?.value
+      return (raw != null ? raw : cmtVal(cid, key)).trim()
+    }
+    const badCmt = crits.filter((c: any) => countWords(curCmt(c.id)) < CMT_MIN_WORDS)
+    if (badCmt.length > 0) {
+      alert(`К каждому критерию нужен комментарий «Почему такая оценка» — минимум ${CMT_MIN_WORDS} слов.\n\n`
+            + `Не хватает: ${badCmt.map((c: any) => c.title).join(', ')}`)
+      return
+    }
+    // Досохраняем оценки и комментарии, которые ещё не ушли на сервер (onBlur не сработал).
     for (const c of crits) {
       const el = scoreRefs.current[`${c.id}|${key}`]
-      if (el && el.value !== '') await saveScore(c.id, key, el.value, Number(c.scale_max))
+      if (el && el.value !== '') await saveScore(c.id, key, el.value, Number(c.scale_max), undefined, curCmt(c.id))
     }
     // Актуальный текст берём из поля (может быть ещё не сохранён onBlur).
     const fb = ((fbRefs.current[key]?.value ?? fbVal(key)) || '').trim()
@@ -2846,18 +2878,31 @@ function JudgingTab({ token }: { token: string }) {
                 )}
                 {data.criteria.length === 0 && <div style={{ fontSize: 13, color: '#94a3b8' }}>На этом этапе нет критериев для оценки жюри.</div>}
                 {data.criteria.map((c: any) => (
-                  <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500 }}>{c.title}</div>
-                      {c.description && (
-                        <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
-                      )}
+                  <div key={c.id} style={{ marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #eef2f5' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500 }}>{c.title}</div>
+                        {c.description && (
+                          <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
+                        )}
+                      </div>
+                      <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
+                        ref={(el) => { scoreRefs.current[`${c.id}|${s.key}`] = el }}
+                        onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
+                        style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: '#fff' }} />
+                      <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
                     </div>
-                    <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
-                      ref={(el) => { scoreRefs.current[`${c.id}|${s.key}`] = el }}
-                      onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
-                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: '#fff' }} />
-                    <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: DARK, marginBottom: 3 }}>
+                        Почему такая оценка <span style={{ color: '#dc2626', fontWeight: 400 }}>— обязательно, минимум {CMT_MIN_WORDS} слов</span>
+                      </div>
+                      <textarea defaultValue={cmtVal(c.id, s.key)}
+                        placeholder={`Поясните оценку по этому критерию (минимум ${CMT_MIN_WORDS} слов)…`}
+                        ref={(el) => { cmtRefs.current[`${c.id}|${s.key}`] = el }}
+                        onBlur={(e) => saveComment(c.id, s.key, e.target.value, Number(c.scale_max))}
+                        style={{ width: '100%', minHeight: 52, padding: 8, borderRadius: 8, border: '1px solid #d4dee5',
+                                 fontSize: 13, fontFamily: 'inherit', background: '#fff', boxSizing: 'border-box' }} />
+                    </div>
                   </div>
                 ))}
                 <div style={{ marginTop: 10 }}>

@@ -929,12 +929,19 @@ function JuryBySubjectList({ subjects, open, setOpen, openJuror, setOpenJuror }:
                           {/* Оценки по критериям */}
                           <div className="space-y-1 mb-2">
                             {(j.scores || []).map((sc: any) => (
-                              <div key={sc.criterion_id} className="flex items-center gap-2 text-sm">
-                                <span className="text-gray-600 flex-1 min-w-0 truncate">{sc.title}</span>
-                                <span className={`font-bold ${sc.value == null ? 'text-red-400' : 'text-[#25455D]'}`}>
-                                  {sc.value == null ? '—' : sc.value}
-                                </span>
-                                <span className="text-gray-300 text-xs">/ {sc.scale_max}</span>
+                              <div key={sc.criterion_id}>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="text-gray-600 flex-1 min-w-0 truncate">{sc.title}</span>
+                                  <span className={`font-bold ${sc.value == null ? 'text-red-400' : 'text-[#25455D]'}`}>
+                                    {sc.value == null ? '—' : sc.value}
+                                  </span>
+                                  <span className="text-gray-300 text-xs">/ {sc.scale_max}</span>
+                                </div>
+                                {sc.comment && (
+                                  <div className="text-xs text-gray-500 whitespace-pre-wrap bg-gray-50 rounded px-2 py-1 mt-0.5 mb-1.5">
+                                    {sc.comment}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1062,12 +1069,19 @@ function JuryByJurorList({ subjects, allJurors, open, setOpen, openJuror, setOpe
                           {/* Оценки по критериям */}
                           <div className="space-y-1 mb-2">
                             {(s.scores || []).map((sc: any) => (
-                              <div key={sc.criterion_id} className="flex items-center gap-2 text-sm">
-                                <span className="text-gray-600 flex-1 min-w-0 truncate">{sc.title}</span>
-                                <span className={`font-bold ${sc.value == null ? 'text-red-400' : 'text-[#25455D]'}`}>
-                                  {sc.value == null ? '—' : sc.value}
-                                </span>
-                                <span className="text-gray-300 text-xs">/ {sc.scale_max}</span>
+                              <div key={sc.criterion_id}>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="text-gray-600 flex-1 min-w-0 truncate">{sc.title}</span>
+                                  <span className={`font-bold ${sc.value == null ? 'text-red-400' : 'text-[#25455D]'}`}>
+                                    {sc.value == null ? '—' : sc.value}
+                                  </span>
+                                  <span className="text-gray-300 text-xs">/ {sc.scale_max}</span>
+                                </div>
+                                {sc.comment && (
+                                  <div className="text-xs text-gray-500 whitespace-pre-wrap bg-gray-50 rounded px-2 py-1 mt-0.5 mb-1.5">
+                                    {sc.comment}
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
