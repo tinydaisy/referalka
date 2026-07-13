@@ -823,3 +823,138 @@ async def clients_email_quality(
         })
 
     return {"period_days": 30, "clients": result}
+
+
+# ─────────────────────────────────────────────────────────────
+# БИБЛИОТЕКА ДЕФОЛТНЫХ ШАБЛОНОВ РАССЫЛОК (миграция 217)
+#
+# Отсюда шаблоны копируются клиенту при создании события (авто-сид) и по кнопке
+# «Добавить шаблон» (пресеты). Правки здесь действуют на НОВЫЕ события и на
+# добавление шаблона вручную; уже созданные события не трогаются — там свои
+# тексты клиента, перезатирать их нельзя.
+# ─────────────────────────────────────────────────────────────
+
+_DBT_FIELDS = (
+    "type", "name", "subject", "text", "text_event", "photo_url",
+    "button_text", "button_url", "schedule_mode", "offset_minutes",
+    "audience_include", "audience_exclude", "allow_custom_datetime",
+    "for_event", "for_conference", "for_turnir", "autoseed", "multi_instance",
+    "turnir_name", "turnir_text", "is_active", "sort_order",
+)
+
+
+class DefaultTemplateIn(BaseModel):
+    type: Optional[str] = None
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    text: Optional[str] = None
+    text_event: Optional[str] = None
+    photo_url: Optional[str] = None
+    button_text: Optional[str] = None
+    button_url: Optional[str] = None
+    schedule_mode: Optional[str] = None
+    offset_minutes: Optional[int] = None
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
+    allow_custom_datetime: Optional[bool] = None
+    for_event: Optional[bool] = None
+    for_conference: Optional[bool] = None
+    for_turnir: Optional[bool] = None
+    autoseed: Optional[bool] = None
+    multi_instance: Optional[bool] = None
+    turnir_name: Optional[str] = None
+    turnir_text: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+@router.get("/broadcast-templates", summary="Библиотека дефолтных шаблонов рассылок")
+async def list_default_templates(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    rows = await db.fetch(
+        f"SELECT id, {', '.join(_DBT_FIELDS)}, created_at, updated_at "
+        "FROM default_broadcast_templates ORDER BY sort_order, id"
+    )
+    # Сколько событий уже используют шаблон этого типа — чтобы админ понимал,
+    # что правка НЕ затронет их (они живут своей копией в broadcast_templates).
+    used = {r["type"]: r["cnt"] for r in await db.fetch(
+        "SELECT type, COUNT(*) AS cnt FROM broadcast_templates GROUP BY type"
+    )}
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["used_in_events"] = used.get(d["type"], 0)
+        out.append(d)
+    return {"templates": out}
+
+
+@router.post("/broadcast-templates", summary="Добавить дефолтный шаблон")
+async def create_default_template(
+    data: DefaultTemplateIn,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if not data.type or not data.name or not data.text:
+        raise HTTPException(status_code=400, detail="Нужны тип, название и текст")
+    try:
+        row = await db.fetchrow(
+            """INSERT INTO default_broadcast_templates
+                 (type, name, subject, text, text_event, photo_url, button_text, button_url,
+                  schedule_mode, offset_minutes, audience_include, audience_exclude,
+                  allow_custom_datetime, for_event, for_conference, for_turnir,
+                  autoseed, multi_instance, turnir_name, turnir_text, is_active, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+               RETURNING *""",
+            data.type, data.name, data.subject, data.text, data.text_event, data.photo_url,
+            data.button_text, data.button_url,
+            data.schedule_mode or "fixed_offset", data.offset_minutes or 0,
+            data.audience_include or "all_event", data.audience_exclude or "none",
+            bool(data.allow_custom_datetime),
+            bool(data.for_event), bool(data.for_conference), bool(data.for_turnir),
+            True if data.autoseed is None else bool(data.autoseed),
+            bool(data.multi_instance), data.turnir_name, data.turnir_text,
+            True if data.is_active is None else bool(data.is_active),
+            data.sort_order or 0,
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="Шаблон с таким типом уже есть")
+    return {"template": dict(row)}
+
+
+@router.patch("/broadcast-templates/{tid}", summary="Редактировать дефолтный шаблон")
+async def update_default_template(
+    tid: int,
+    data: DefaultTemplateIn,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    # Различаем «не прислали» и «прислали null» (очистка) — как в профиле клиента.
+    fs = data.model_fields_set
+    upd = {f: getattr(data, f) for f in _DBT_FIELDS if f in fs}
+    if not upd:
+        raise HTTPException(status_code=400, detail="Нечего обновлять")
+    sets = [f"{k} = ${i + 2}" for i, k in enumerate(upd.keys())]
+    sets.append("updated_at = NOW()")
+    try:
+        row = await db.fetchrow(
+            f"UPDATE default_broadcast_templates SET {', '.join(sets)} WHERE id = $1 RETURNING *",
+            tid, *upd.values(),
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="Шаблон с таким типом уже есть")
+    if not row:
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
+    return {"template": dict(row)}
+
+
+@router.delete("/broadcast-templates/{tid}", summary="Удалить дефолтный шаблон")
+async def delete_default_template(
+    tid: int,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    # Копии в событиях клиентов не трогаем — удаляем только запись библиотеки.
+    await db.execute("DELETE FROM default_broadcast_templates WHERE id = $1", tid)
+    return {"ok": True}

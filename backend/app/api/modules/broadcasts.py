@@ -503,62 +503,25 @@ async def list_templates(
     )
 
     if not rows:
-        # Какие типы сидим зависит от типа события:
-        #  • Конференция: все «общие» + конф-специфика (pre_conf, speaker_intro, gift, 5min_before per-session, day_live, day_end, vip_offer).
-        #  • Мероприятие: только общие (2h_before_*, 30min_before, day_before_09_12_*) + event_live (= аналог 5 минут до старта эфира, но event-level).
-        # `5min_before` (за 5 мин до выступления спикера) — только для конференции.
-        # `event_live` (за 5 мин до старта мероприятия) — только для мероприятия.
+        # Авто-сид: копируем клиенту шаблоны библиотеки (default_broadcast_templates,
+        # правится в админке), доступные ЭТОМУ типу события и помеченные autoseed.
+        # Принадлежность модулю — флаги for_event / for_conference / for_turnir.
         ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
-        is_conf = ev_row and ev_row["module_slug"] == "conference"
-        is_turnir = ev_row and ev_row["module_slug"] == "turnir"
-        # Мероприятие = не конференция и не турнир (base/webinar/прочие без программы).
-        is_plain_event = not is_conf and not is_turnir
-        EVENT_ONLY_TYPES = {
-            "30min_before",
-            "2h_before_unreg", "2h_before_reg",
-            "day_before_09_12_unreg", "day_before_09_12_reg",
-            "event_live",
-        }
-        # Турнир получает (помимо общих) рассылку знакомства со спикерами и жюри
-        # (speaker_intro), «за 5 минут до выступления» (5min_before) и «старт дня»
-        # (day_live — за 5 мин до начала КАЖДОГО дня программы) — как конференция.
-        TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before", "day_live"}
-        for tpl in DEFAULT_TEMPLATES:
-            # expert_day не сидим автоматически — это разовый анонс «Экспертного дня»,
-            # клиент добавляет его сам через «Добавить готовый шаблон» (пресеты).
-            if tpl["type"] == "expert_day":
-                continue
-            # event_live — только мероприятиям; 5min_before — конференциям и турнирам.
-            if tpl["type"] == "event_live" and (is_conf or is_turnir):
-                continue
-            if tpl["type"] == "5min_before" and not (is_conf or is_turnir):
-                continue
-            if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
-                # Турниру дополнительно разрешаем speaker_intro (знакомство со спикерами/жюри).
-                if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
-                    continue
-            # «За сутки в 09:12» — и у конференции тоже (уходит накануне КАЖДОГО дня
-            # программы с программой этого дня). Раньше конференциям этот шаблон не
-            # засевался («роль играет pre_conf»), из-за чего рассылки за сутки по дням
-            # у конференций не создавались вовсе. pre_conf (анонс знакомства со
-            # спикерами, один на событие) остаётся и живёт параллельно.
-            # Для мероприятий — альтернативный текст без программы по дням (text_event),
-            # если он задан у шаблона. Конференции/турниры используют основной text.
-            # У турнира свои название и текст: «День события» вместо «День конференции»,
-            # знакомство охватывает и жюри.
-            tpl_name = _template_name_for_event(tpl, bool(is_turnir))
-            tpl_text = _template_text_for_event(tpl, bool(is_turnir), is_plain_event)
+        is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
+        is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
+        for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=False):
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
-                  (client_id, event_id, name, type, text, photo_url, button_text, button_url,
+                  (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
                    schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 """,
-                client_id, event_id, tpl_name, tpl["type"],
-                tpl_text, tpl["photo_url"], tpl["button_text"], tpl["button_url"],
-                tpl["schedule_mode"], tpl["offset_minutes"],
-                tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
+                client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
+                tpl["text"], tpl.get("photo_url"), tpl.get("button_text"), tpl.get("button_url"),
+                tpl.get("schedule_mode", "fixed_offset"), tpl.get("offset_minutes", 0),
+                tpl.get("audience_include", "all_event"), tpl.get("audience_exclude", "none"),
+                bool(tpl.get("allow_custom_datetime", False)),
             )
         rows = await db.fetch(
             """
@@ -638,47 +601,95 @@ async def create_template(
     return dict(row)
 
 
-def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets: bool = False) -> list[dict]:
-    """Возвращает DEFAULT_TEMPLATES, отфильтрованные по типу события — те же
-    правила, что в auto-seed списка шаблонов (list_templates).
+async def load_default_templates(db) -> list[dict]:
+    """Библиотека дефолтных шаблонов — из БД (миграция 217), ею управляет админка.
 
-    for_presets=True — режим «Добавить готовый шаблон вручную»: турниру
-    дополнительно разрешаем спикерские анонсы (pre_conf, 5min_before), которых
-    нет в авто-сиде, но которые клиент может захотеть добавить сам."""
-    is_plain_event = not is_conf and not is_turnir
-    EVENT_ONLY_TYPES = {
+    Список в коде (DEFAULT_TEMPLATES) остаётся ФОЛБЭКОМ: если таблица ещё не
+    заполнена (сид не прогнан), работаем как раньше — ничего не ломается.
+    """
+    try:
+        rows = await db.fetch(
+            """
+            SELECT type, name, subject, text, text_event, photo_url, button_text, button_url,
+                   schedule_mode, offset_minutes, audience_include, audience_exclude,
+                   allow_custom_datetime, for_event, for_conference, for_turnir,
+                   autoseed, multi_instance, turnir_name, turnir_text
+              FROM default_broadcast_templates
+             WHERE is_active
+             ORDER BY sort_order, id
+            """
+        )
+    except asyncpg.PostgresError:
+        rows = []
+    if not rows:
+        return []
+    return [dict(r) for r in rows]
+
+
+def _fallback_flags(t: str, for_presets: bool) -> dict:
+    """Прежняя (захардкоженная) принадлежность шаблона модулям — для фолбэка,
+    пока библиотека в БД не заполнена."""
+    EVENT_ONLY = {
         "30min_before", "2h_before_unreg", "2h_before_reg",
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
-    # Турнир: знакомство (speaker_intro), «за 5 мин до выступления» (5min_before)
-    # и «старт дня» (day_live — за 5 мин до начала каждого дня программы).
-    TURNIR_EXTRA_TYPES = {"speaker_intro", "5min_before", "day_live"}
-    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf),
-    # «подарок спикера после выступления» (gift), «итоги дня» (day_end) и
-    # «Экспертный день» (expert_day).
+    TURNIR_EXTRA = {"speaker_intro", "5min_before", "day_live"}
     if for_presets:
-        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "gift", "day_end", "expert_day"}
+        TURNIR_EXTRA = TURNIR_EXTRA | {"pre_conf", "gift", "day_end", "expert_day"}
+    return {
+        "for_event": t in EVENT_ONLY,
+        "for_conference": t != "event_live",
+        "for_turnir": (t in EVENT_ONLY or t in TURNIR_EXTRA) and t != "event_live",
+        "autoseed": t != "expert_day",
+        "multi_instance": t in {"vip_offer", "custom", "expert_day"},
+    }
+
+
+async def _allowed_preset_types_for_event(db, is_conf: bool, is_turnir: bool,
+                                          for_presets: bool = False) -> list[dict]:
+    """Шаблоны библиотеки, доступные этому типу события.
+
+    Принадлежность модулю — по флагам for_event / for_conference / for_turnir
+    (правятся в админке). Раньше это был клубок if-ов по типам.
+
+    for_presets=False — режим АВТО-СИДА (создание события): берём только те,
+    у кого autoseed=TRUE. for_presets=True — «Добавить готовый шаблон»: берём все.
+    """
+    is_plain_event = not is_conf and not is_turnir
+    lib = await load_default_templates(db)
+    if not lib:
+        # Фолбэк: библиотека ещё не заполнена — работаем от кода, как раньше.
+        lib = [{**t, **_fallback_flags(t["type"], for_presets),
+                "turnir_name": _TURNIR_TEMPLATE_NAMES.get(t["type"]),
+                "turnir_text": _TURNIR_TEMPLATE_TEXTS.get(t["type"])}
+               for t in DEFAULT_TEMPLATES]
+
     out = []
-    for tpl in DEFAULT_TEMPLATES:
-        # expert_day — только как пресет (не в авто-сиде), и для конф, и для турнира.
-        if tpl["type"] == "expert_day" and not for_presets:
+    for tpl in lib:
+        if is_conf and not tpl.get("for_conference"):
             continue
-        if tpl["type"] == "event_live" and (is_conf or is_turnir):
+        if is_turnir and not tpl.get("for_turnir"):
             continue
-        if tpl["type"] == "5min_before" and not (is_conf or is_turnir):
+        if is_plain_event and not tpl.get("for_event"):
             continue
-        if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
-            if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
-                continue
-        # «За сутки в 09:12» доступно и конференции (по каждому дню программы).
-        tpl_name = _template_name_for_event(tpl, is_turnir)
-        tpl_text = _template_text_for_event(tpl, is_turnir, is_plain_event)
-        out.append({**tpl, "name": tpl_name, "text": tpl_text})
+        if not for_presets and not tpl.get("autoseed", True):
+            continue
+        # Название/текст под тип события: у турнира «событие», а не «конференция»;
+        # у мероприятия — вариант текста без программы по дням.
+        name = (tpl.get("turnir_name") or tpl["name"]) if is_turnir else tpl["name"]
+        text = tpl["text"]
+        if is_turnir and tpl.get("turnir_text"):
+            text = tpl["turnir_text"]
+        elif is_plain_event and tpl.get("text_event"):
+            text = tpl["text_event"]
+        out.append({**tpl, "name": name, "text": text})
     return out
 
 
 # Типы, которых у события может быть несколько (произвольные продающие/анонсные).
 # Их не «прячем» из пресетов, даже если один такой уже создан.
+# ⚠️ Источник истины — колонка multi_instance в default_broadcast_templates;
+# эта константа осталась только как фолбэк для типа custom (его нет в библиотеке).
 MULTI_INSTANCE_PRESET_TYPES = {"vip_offer", "custom", "expert_day"}
 
 
@@ -700,9 +711,10 @@ async def list_template_presets(
         "SELECT DISTINCT type FROM broadcast_templates WHERE event_id=$1", event_id
     )}
     presets = []
-    for tpl in _allowed_preset_types_for_event(is_conf, is_turnir, for_presets=True):
+    for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True):
         # Уже существующий одиночный тип — не предлагаем повторно.
-        if tpl["type"] in existing_types and tpl["type"] not in MULTI_INSTANCE_PRESET_TYPES:
+        multi = tpl.get("multi_instance", tpl["type"] in MULTI_INSTANCE_PRESET_TYPES)
+        if tpl["type"] in existing_types and not multi:
             continue
         presets.append({
             "type": tpl["type"],
@@ -725,14 +737,15 @@ async def create_template_from_preset(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    """Создаёт шаблон по типу из DEFAULT_TEMPLATES с его дефолтным текстом/кнопкой."""
+    """Создаёт шаблон по типу из библиотеки (default_broadcast_templates) — с её
+    текстом/кнопкой. То, что отредактировано в админке, попадает сюда сразу."""
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
     ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
     is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
     is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
 
-    tpl = next((t for t in _allowed_preset_types_for_event(is_conf, is_turnir, for_presets=True)
+    tpl = next((t for t in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True)
                 if t["type"] == data.type), None)
     if not tpl:
         raise HTTPException(status_code=400, detail="Такой готовый шаблон недоступен для этого события")
@@ -748,9 +761,10 @@ async def create_template_from_preset(
                   custom_day_ref, custom_time, target_channel_ids, created_at
         """,
         client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
-        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
-        tpl["schedule_mode"], tpl["offset_minutes"],
-        tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
+        tpl["text"], tpl.get("photo_url"), tpl.get("button_text"), tpl.get("button_url"),
+        tpl.get("schedule_mode", "fixed_offset"), tpl.get("offset_minutes", 0),
+        tpl.get("audience_include", "all_event"), tpl.get("audience_exclude", "none"),
+        bool(tpl.get("allow_custom_datetime", False)),
     )
     return dict(row)
 
