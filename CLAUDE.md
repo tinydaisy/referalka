@@ -90,6 +90,23 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Афиши ДНЯ события + приоритет фото в дневных рассылках (миграция 215 от 2026-07-13)
+
+У каждого дня программы (конференция/турнир) — своя афиша: **квадратная / горизонтальная / вертикальная**. Живут в той же `event_posters`, новая колонка **`event_posters.day INT NULL`**: `NULL` = общая афиша события (как было всегда), `N` = афиша дня N (`conf_days.day_number`).
+
+**Приоритет фото в дневных рассылках** (`DAY_TYPES`: за сутки ×2, за 2 часа ×2, за 30 минут, `day_live`, `day_end`) — хелпер `get_day_event_photo(conn, event_id, day)` в [message_builder.py](backend/app/services/message_builder.py):
+1. **фото, загруженное в сам шаблон** рассылки (`broadcast_templates.photo_url`);
+2. **афиша ЭТОГО дня** (`event_posters.day = day` рассылки);
+3. **общая афиша события** (`event_posters.day IS NULL`).
+
+Внутри каждой группы порядок ориентаций: **square > horizontal > vertical** (как и было у общих афиш).
+
+⚠️ **Все места, где берётся «афиша события», отфильтрованы по `day IS NULL`** — иначе дневная афиша подменила бы общую на лендинге/в Mini App/в боте. Точки: [events.py](backend/app/api/events.py) (`_POSTER_SUBQ` + список), [events_list_page.py](backend/app/api/events_list_page.py), [participants.py](backend/app/api/participants.py), [vk_event.py](backend/app/api/vk_event.py), [event_page_html.py](backend/app/api/event_page_html.py), [max_webhook.py](backend/app/api/max_webhook.py), [max_event.py](backend/app/api/max_event.py), [client_profile.py](backend/app/api/client_profile.py), [modules/conference.py](backend/app/api/modules/conference.py), [speaker_cabinet.py](backend/app/api/speaker_cabinet.py), [referral_program.py](backend/app/api/referral_program.py) (экспорт материалов), [bot/handlers/start.py](backend/bot/handlers/start.py). **При новом запросе к `event_posters` — не забыть `AND day IS NULL`, если нужна общая афиша.** `copy_event` копирует `day`.
+
+**API:** `GET /events/{id}/posters` отдаёт все афиши с полем `day`; `?only_common=true` — только общие; `?day=N` — только дня N. POST/PATCH принимают `day` ([referral_program.py](backend/app/api/referral_program.py)).
+
+**Фронт:** вкладка «Афиши» → подвкладки **«Общие афиши» / «Дни события» / «Материалы»** ([PostersTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/PostersTab.tsx); турнир переиспользует страницу конференции). Дневные афиши — компонент [DayPostersBlock.tsx](web/src/components/DayPostersBlock.tsx): селектор дня (галочкой отмечены дни с загруженной афишей) + три загрузчика. Общий блок грузит только `only_common`.
+
 ### День рассылки хранится ЯВНО — `broadcast_schedules.day` (миграция 214 от 2026-07-13)
 
 **Проблема.** Дневные рассылки (`2h_before_unreg/reg`, `30min_before`, `day_live`, `day_end`, `day_before_09_12_unreg/reg` — константа `DAY_TYPES` в [message_builder.py](backend/app/services/message_builder.py)) подставляют программу дня. Номер дня определялся **только по дате `fire_at`**: искали `conf_days` с `day_date` = дата отправки. Для «за 2 часа»/«за 30 минут» дата совпадает с днём — работало. Для **«за сутки» (`day_before_09_12_*`) отправка идёт НАКАНУНЕ**, такого `day_date` в `conf_days` нет → день молча падал в **1**, и в письмо уезжала программа первого дня. Селектор «День конференции» в модалке «Добавить рассылку вручную» существовал, но бэкенд поле `day` **выбрасывал** — хранить было негде.

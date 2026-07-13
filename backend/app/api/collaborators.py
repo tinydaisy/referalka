@@ -851,8 +851,8 @@ async def import_collaborators(
                 contact_id = contact_row["id"]
             else:
                 new_contact = await db.fetchrow(
-                    """INSERT INTO contacts (client_id, name)
-                       VALUES ($1, $2)
+                    """INSERT INTO contacts (client_id, name, ref_code)
+                       VALUES ($1, $2, SUBSTR(REPLACE(gen_random_uuid()::text, '-', ''), 1, 8))
                        RETURNING id""",
                     client_id, item.name
                 )
