@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import MediaAssetsField from '@/components/MediaAssetsField'
 
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
@@ -503,13 +504,16 @@ export function MatchmakerView() {
 export function MyCardView() {
   const [card, setCard] = useState<any>(null)
   const [niches, setNiches] = useState<any[]>([])
-  const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_city: '', hub_about: '' })
+  // media_assets — медийность КЛИЕНТА (clients.media_assets). Именно её каталог Хаба
+  // показывает как «до 1 000 / до 10 000 / …». Раньше поля не было в форме → оно было
+  // пустым почти у всех, и в каталоге у всех рисовалась нижняя градация.
+  const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_city: '', hub_about: '', media_assets: [] })
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState('')
   const load = async () => {
     const r: any = await api.collabHub.myCard()
     setCard(r.card)
-    setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '' })
+    setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '', media_assets: Array.isArray(r.card.media_assets) ? r.card.media_assets : [] })
   }
   useEffect(() => { load().catch(() => {}); api.collabHub.niches().then((r: any) => setNiches(r.niches || [])).catch(() => {}) }, [])
   const save = async () => { setErr(''); try { await api.collabHub.publishCard(form); setSaved(true); setTimeout(() => setSaved(false), 2000); load() } catch (e: any) { setErr(e?.message || 'Ошибка') } }
@@ -575,9 +579,19 @@ export function MyCardView() {
           <option value="">— не выбрано —</option>{niches.map(n => <option key={n.slug} value={n.slug}>{n.title}</option>)}
         </select>
         <label className="block text-sm font-medium text-gray-700 mb-1">Город (для офлайн-бизнеса)</label>
-        <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" placeholder="Москва" />
+        <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
         <label className="block text-sm font-medium text-gray-700 mb-1">Что предлагаете партнёрам</label>
-        <textarea value={form.hub_about} onChange={e => setForm({ ...form, hub_about: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" rows={3} placeholder="Чем полезна коллаборация с вами" />
+        <textarea value={form.hub_about} onChange={e => setForm({ ...form, hub_about: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" rows={3} />
+
+        {/* Медийные активы — по ним каталог считает градацию охвата («до 1 000», «до 10 000»…).
+            Без них у всех показывается нижняя градация. */}
+        <label className="block text-sm font-medium text-gray-700 mb-1">Медийные активы</label>
+        <p className="text-xs text-gray-500 mb-2">
+          Сколько подписчиков на каждой площадке. По этим цифрам в каталоге считается ваш охват.
+        </p>
+        <div className="mb-4">
+          <MediaAssetsField value={form.media_assets || []} onChange={(next) => setForm({ ...form, media_assets: next })} />
+        </div>
         <label className="flex items-center gap-2 mb-4 text-sm">
           <input type="checkbox" checked={form.is_published_in_hub} onChange={e => setForm({ ...form, is_published_in_hub: e.target.checked })} />
           Опубликовать в каталоге

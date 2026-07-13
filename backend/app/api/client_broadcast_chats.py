@@ -283,3 +283,82 @@ async def delete_chat(
     if res.endswith("0"):
         raise HTTPException(status_code=404, detail="Чат не найден")
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Проверка: наш бот в чате и админ ли он
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ ТОЛЬКО TELEGRAM. У VK/MAX нет метода, который отдал бы боту состав ЧУЖОЙ
+# беседы (groups.isMember проверяет подписку на СООБЩЕСТВО, а не членство в
+# беседе; у MAX публичного API для этого нет). Поэтому для vk/max возвращаем
+# supported=False, и UI не показывает плашку.
+@router.post("/{chat_id}/check-bot", summary="Проверить, что бот в чате (и админ)")
+async def check_bot_in_chat(
+    chat_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает {supported, in_chat, is_admin, can_post, error}.
+
+    Зачем: без бота в чате рассылка в этот чат не уйдёт вовсе, а чтобы бот мог
+    слушать чат (кодовые слова, баллы) и удалять сообщения по гейту — он должен
+    быть АДМИНОМ. UI подсвечивает красным «Добавьте бота в админы».
+    """
+    client_id = int(client["sub"])
+    await _assert_feature(db, client_id)
+
+    row = await db.fetchrow(
+        """SELECT id, platform, chat_id, title FROM client_broadcast_chats
+            WHERE id = $1 AND client_id = $2""",
+        chat_id, client_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Чат не найден")
+
+    if row["platform"] != "telegram":
+        return {"supported": False, "in_chat": None, "is_admin": None,
+                "can_post": None, "error": None}
+
+    from app.services.channels import get_client_telegram_token
+    token = await get_client_telegram_token(client_id, db)
+    if not token:
+        return {"supported": True, "in_chat": False, "is_admin": False,
+                "can_post": False, "error": "no_bot",
+                "message": "У вас не подключён свой Telegram-бот — подключите его в разделе «Каналы»."}
+
+    async with httpx.AsyncClient(timeout=10) as http:
+        me = (await http.get(f"https://api.telegram.org/bot{token}/getMe")).json()
+        if not me.get("ok"):
+            raise HTTPException(status_code=502, detail="Не удалось обратиться к Telegram")
+        bot_id = me["result"]["id"]
+
+        r = (await http.get(
+            f"https://api.telegram.org/bot{token}/getChatMember",
+            params={"chat_id": row["chat_id"], "user_id": bot_id},
+        )).json()
+
+    if not r.get("ok"):
+        desc = (r.get("description") or "").lower()
+        err = "bot_not_in_chat"
+        if "chat not found" in desc:
+            err = "chat_not_found"
+        return {"supported": True, "in_chat": False, "is_admin": False,
+                "can_post": False, "error": err,
+                "message": "Бот не найден в этом чате. Добавьте его в чат и сделайте администратором."}
+
+    res = r["result"]
+    status = res.get("status", "")
+    in_chat = status in ("administrator", "creator", "member", "restricted")
+    is_admin = status in ("administrator", "creator")
+    # У обычного участника право писать может быть отобрано (restricted).
+    can_post = is_admin or (status == "member") or bool(res.get("can_send_messages"))
+
+    message = None
+    if not in_chat:
+        message = "Бот не в чате. Добавьте его и сделайте администратором."
+    elif not is_admin:
+        message = "Бот в чате, но НЕ администратор. Сделайте его администратором."
+
+    return {"supported": True, "in_chat": in_chat, "is_admin": is_admin,
+            "can_post": can_post, "error": None if is_admin else "not_admin",
+            "message": message}

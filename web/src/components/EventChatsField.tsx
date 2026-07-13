@@ -50,6 +50,11 @@ export default function EventChatsField({ value, onChange }: Props) {
   const [loading, setLoading] = useState(true)
   const [picker, setPicker] = useState<ChatPlatform | null>(null)
   const [activeTab, setActiveTab] = useState<ChatPlatform>('telegram')
+  // Бот-админ в чате. ⚠️ ТОЛЬКО Telegram: у VK/MAX нет метода, который отдал бы боту
+  // состав ЧУЖОЙ беседы. Без бота в чате рассылка туда не уйдёт, а чтобы бот слушал
+  // чат (кодовые слова, баллы) и мог удалять по гейту — он должен быть АДМИНОМ.
+  const [botCheck, setBotCheck] = useState<any>(null)
+  const [botChecking, setBotChecking] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -61,6 +66,19 @@ export default function EventChatsField({ value, onChange }: Props) {
   }, [])
 
   const chatById = (id: number | null) => id ? chats.find(c => c.id === id) || null : null
+
+  // Проверяем бота в выбранном TG-чате (пере-проверяем при смене чата).
+  const tgRef = value[REF_KEY['telegram']]
+  async function checkBot(id: number) {
+    setBotChecking(true)
+    try { setBotCheck(await api.miniApp.broadcastChats.checkBot(id)) }
+    catch { setBotCheck(null) }
+    finally { setBotChecking(false) }
+  }
+  useEffect(() => {
+    setBotCheck(null)
+    if (tgRef) checkBot(tgRef)
+  }, [tgRef])
 
   function pickChat(platform: ChatPlatform, chatId: number | null) {
     const next = { ...value, [REF_KEY[platform]]: chatId }
@@ -159,6 +177,27 @@ export default function EventChatsField({ value, onChange }: Props) {
                         className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
                   + Добавить чат
                 </button>
+              )}
+
+              {/* Бот-админ в чате — проверяем реально через Telegram (getChatMember).
+                  Без бота рассылка в чат не уйдёт; без прав админа он не сможет читать
+                  чат (кодовые слова/баллы) и удалять сообщения по гейту подписки. */}
+              {platform === 'telegram' && selected && (
+                <div className="mt-2">
+                  {botChecking ? (
+                    <div className="text-xs text-gray-400">Проверяем бота в чате…</div>
+                  ) : botCheck?.is_admin ? (
+                    <div className="text-xs text-green-600">✓ Бот в чате и админ</div>
+                  ) : botCheck ? (
+                    <div className="rounded-lg px-3 py-2 text-xs bg-red-50 border border-red-200 text-red-700">
+                      <b>{botCheck.in_chat ? 'Бот в чате, но НЕ администратор.' : 'Бота нет в этом чате.'}</b>{' '}
+                      Добавьте своего бота в чат и сделайте его администратором — иначе рассылка
+                      в этот чат не уйдёт, а кодовые слова и баллы работать не будут.
+                      <button type="button" onClick={() => selected && checkBot(selected.id)}
+                              className="ml-1 underline">Проверить снова</button>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </div>
 

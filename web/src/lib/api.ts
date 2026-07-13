@@ -779,6 +779,10 @@ export const api = {
       create:  (data: any) => request('/api/v1/clients/me/broadcast-chats/', { method: 'POST', body: JSON.stringify(data) }),
       update:  (id: number, data: any) => request(`/api/v1/clients/me/broadcast-chats/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete:  (id: number) => request(`/api/v1/clients/me/broadcast-chats/${id}`, { method: 'DELETE' }),
+      // Проверить, что наш бот в чате и админ (только Telegram — у VK/MAX состав
+      // чужой беседы боту недоступен).
+      checkBot: (id: number) =>
+        request(`/api/v1/clients/me/broadcast-chats/${id}/check-bot`, { method: 'POST' }),
     },
   },
   referralProgram: {
