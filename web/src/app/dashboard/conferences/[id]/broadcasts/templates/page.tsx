@@ -380,8 +380,12 @@ export default function TemplatesPage() {
       if ((form as any).target_channel_ids !== null && (form as any).target_channel_ids !== undefined) {
         payload.target_channel_ids = (form as any).target_channel_ids
       }
-      const res = await api.conference.templates.update(eventId, editModal.id, payload)
-      setTemplates(templates.map((x: any) => x.id === editModal.id ? res : x))
+      await api.conference.templates.update(eventId, editModal.id, payload)
+      // Перечитываем список целиком, а не подменяем строку ответом PATCH: GET
+      // дополняет шаблоны данными, которых в ответе PATCH нет (дефолтная афиша
+      // события и т.п.). Иначе карточка после сохранения показывала старый снимок.
+      const fresh = await api.conference.templates.list(eventId)
+      setTemplates(fresh.templates || [])
       setEditModal(null)
     } catch (e: any) {
       alert(e.message)
@@ -1032,7 +1036,14 @@ export default function TemplatesPage() {
               <div key={tpl.id} className="bg-white rounded-2xl border border-gray-100 p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
-                    <h4 className="font-semibold text-gray-800">{def.title}</h4>
+                    {/* Название — то, что клиент задал в шаблоне (tpl.name из БД).
+                        Раньше показывалось статичное def.title из TYPE_DEFS — своё
+                        название после переименования не подхватывалось. Типовое
+                        назначение шаблона остаётся подписью ниже. */}
+                    <h4 className="font-semibold text-gray-800">{tpl.name || def.title}</h4>
+                    {tpl.name && tpl.name !== def.title && (
+                      <p className="text-[11px] text-gray-400 mt-0.5">{def.title}</p>
+                    )}
                     {def.hint && <p className="text-xs text-gray-400 mt-0.5">{def.hint}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
