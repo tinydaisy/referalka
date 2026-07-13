@@ -247,6 +247,7 @@ async def _send_broadcast(schedule_id: int):
             media_type=tmpl_media_type_val,
             speaker_photo_mode=(tmpl["speaker_photo_mode"] if tmpl else "poster") or "poster",
             subject=tmpl_subject_val,
+            explicit_day=schedule.get("day"),
         )
 
         text = content["text"]

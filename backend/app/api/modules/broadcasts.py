@@ -830,6 +830,7 @@ async def list_schedules(
                  ELSE c.name
                END as speaker_name,
                bs.session_id,
+               bs.day,
                bs.error_log,
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_subject, bs.snapshot_photo, bs.snapshot_video,
@@ -1026,7 +1027,10 @@ async def generate_schedules(
     created = 0
     skipped = 0
 
-    async def add_schedule(tmpl, fire_at, session_id=None, sched_type=None):
+    # day — номер дня программы, к которому относится дневная рассылка. Пишем его
+    # ЯВНО, чтобы message_builder не гадал по дате fire_at (для «за сутки» дата
+    # отправки — накануне, и по ней день не определить).
+    async def add_schedule(tmpl, fire_at, session_id=None, sched_type=None, day=None):
         nonlocal created, skipped
         t = sched_type or tmpl["type"]
         if session_id:
@@ -1049,13 +1053,14 @@ async def generate_schedules(
         await db.execute(
             """
             INSERT INTO broadcast_schedules
-              (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+              (event_id, session_id, template_id, type, fire_at, day, status, audience_include, audience_exclude,
                snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-            VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11)
             """,
             event_id, session_id, tmpl["id"], t, fire_at,
             tmpl["audience_include"], tmpl["audience_exclude"],
-            tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+            tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+            day
         )
         created += 1
 
@@ -1257,7 +1262,10 @@ async def generate_schedules(
             offset = tmpl["offset_minutes"] or 5
             await add_schedule(tmpl, s_end_utc - timedelta(minutes=offset), s["id"], "gift")
 
-    # ── day_* — по первой/последней сессии каждого дня (только конф) ──
+    # ── Дневные рассылки — на КАЖДЫЙ день программы (конференция/турнир) ──
+    # Точка отсчёта дня = первая сессия этого дня. Номер дня пишем явно (day=),
+    # чтобы в сообщение попала программа именно этого дня.
+    tz_msk = ZoneInfo("Europe/Moscow")
     for day_num, day_sessions in days.items():
         first_session = day_sessions[0]
         last_session = day_sessions[-1]
@@ -1268,20 +1276,32 @@ async def generate_schedules(
             if ttype in tmpl_map and first_start_utc:
                 tmpl = tmpl_map[ttype]
                 offset = tmpl["offset_minutes"] or 30
-                await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, ttype)
+                await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, ttype, day=day_num)
 
         if "day_live" in tmpl_map and first_start_utc:
             tmpl = tmpl_map["day_live"]
             offset = tmpl["offset_minutes"] or 5
-            await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, "day_live")
+            await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, "day_live", day=day_num)
 
         if "day_end" in tmpl_map and last_end_utc:
             tmpl = tmpl_map["day_end"]
             offset = tmpl["offset_minutes"] or 30
-            await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end")
+            await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end", day=day_num)
 
-    # ── event_live + day_before_09_12 для события с программой (турнир) ──
-    # У турнира эти шаблоны засеяны как у мероприятия, но точка отсчёта = первая
+        # «За сутки в 09:12 МСК» — тоже на КАЖДЫЙ день программы (раньше создавалась
+        # одна запись на всё событие, по первому дню). Отправка накануне дня в 09:12,
+        # содержимое — программа дня day_num.
+        if first_start_utc:
+            day_before_date = first_start_utc.astimezone(tz_msk).date() - timedelta(days=1)
+            fire_0912_utc = datetime(
+                day_before_date.year, day_before_date.month, day_before_date.day, 9, 12, 0, tzinfo=tz_msk
+            ).astimezone(ZoneInfo("UTC"))
+            for ttype in ("day_before_09_12_unreg", "day_before_09_12_reg"):
+                if ttype in tmpl_map:
+                    await add_schedule(tmpl_map[ttype], fire_0912_utc, None, ttype, day=day_num)
+
+    # ── event_live для события с программой (турнир) ──
+    # У турнира этот шаблон засеян как у мероприятия, но точка отсчёта = первая
     # сессия ПЕРВОГО дня программы (а не events.start_at, который не используется).
     if use_day_program and days:
         first_day_num = min(days.keys())
@@ -1289,21 +1309,11 @@ async def generate_schedules(
         prog_first_start_utc = _msk_str_to_utc(
             first_day_sessions[0].get("day_date"), first_day_sessions[0].get("start_time")
         )
-        if prog_first_start_utc:
-            if "event_live" in tmpl_map:
-                tmpl = tmpl_map["event_live"]
-                offset = tmpl["offset_minutes"] or 5
-                await add_schedule(tmpl, prog_first_start_utc - timedelta(minutes=offset), None, "event_live")
-            # day_before_09_12_*: за сутки до первой сессии, в 09:12 МСК
-            tz_msk = ZoneInfo("Europe/Moscow")
-            first_start_msk = prog_first_start_utc.astimezone(tz_msk)
-            day_before = first_start_msk.date() - timedelta(days=1)
-            fire_0912_utc = datetime(
-                day_before.year, day_before.month, day_before.day, 9, 12, 0, tzinfo=tz_msk
-            ).astimezone(ZoneInfo("UTC"))
-            for ttype in ("day_before_09_12_unreg", "day_before_09_12_reg"):
-                if ttype in tmpl_map:
-                    await add_schedule(tmpl_map[ttype], fire_0912_utc, None, ttype)
+        if prog_first_start_utc and "event_live" in tmpl_map:
+            tmpl = tmpl_map["event_live"]
+            offset = tmpl["offset_minutes"] or 5
+            await add_schedule(tmpl, prog_first_start_utc - timedelta(minutes=offset), None, "event_live",
+                               day=first_day_num)
 
     # ── Расписания для событий БЕЗ программы по дням (одна точка отсчёта = events.start_at) ──
     # Обычные мероприятия (и турнир без программы). Все «дневные» рассылки
@@ -1757,16 +1767,19 @@ async def add_manual_schedule(
     new_status = "pending" if data.enqueue else "draft"
     if data.enqueue:
         _assert_fire_at_not_past(dt_utc)
+    # День программы (для дневных типов) — клиент выбирает в селекторе «День».
+    # Пишем как есть; message_builder возьмёт его в приоритете над датой fire_at.
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
-          (event_id, template_id, type, session_id, fire_at, status, is_test, audience_include, audience_exclude,
+          (event_id, template_id, type, session_id, day, fire_at, status, is_test, audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
-        VALUES ($1, $2, $3, $4, $5, $13, $6, $7, $8, $9, $10, $11, $12, $14)
-        RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
+        VALUES ($1, $2, $3, $4, $15, $5, $13, $6, $7, $8, $9, $10, $11, $12, $14)
+        RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude, day
         """,
         event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude,
-        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status, client_id
+        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status, client_id,
+        data.day
     )
     result = dict(row)
     if data.request_owner_confirm:
@@ -2450,6 +2463,7 @@ async def preview_schedule(
         media_type=schedule["tmpl_media_type"],
         speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
         subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
+        explicit_day=schedule.get("day"),
     )
 
     return {
@@ -2604,6 +2618,7 @@ async def test_existing_schedule_now(
         video_url=schedule["tmpl_video"], media_type=schedule["tmpl_media_type"],
         speaker_photo_mode=schedule.get("tmpl_speaker_photo_mode") or "poster",
         subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
+        explicit_day=schedule.get("day"),
     )
     # subject → жирной первой строкой (как в реальной отправке).
     subj = (content.get("subject") or "").strip()
@@ -2836,6 +2851,7 @@ async def test_template(
             fire_at=fake_fire_at, tz=tz,
             template_id=tpl["id"],
             video_url=tpl["video_url"], media_type=tpl["media_type"],
+            explicit_day=day,
         )
         async with httpx.AsyncClient(timeout=15) as http:
             send_results = await _send_one_content(http, content)

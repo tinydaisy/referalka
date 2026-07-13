@@ -771,7 +771,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                  template_id=None, snapshot=None,
                                  video_url=None, media_type=None,
                                  speaker_photo_mode: str = "poster",
-                                 subject: str | None = None) -> dict:
+                                 subject: str | None = None,
+                                 explicit_day: int | None = None) -> dict:
     """
     Единственная функция сборки текста, фото/видео и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
@@ -887,10 +888,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     resolved_speaker_name = ""
 
     if tpl_type in DAY_TYPES:
-        # Определяем номер дня по fire_at (МСК-дата дня в conf_days.day_date).
+        # Номер дня программы. Приоритет — явно заданный день рассылки
+        # (broadcast_schedules.day, клиент выбрал его в селекторе «День»).
+        # Иначе — определяем по дате fire_at (МСК-дата дня в conf_days.day_date).
+        # ⚠️ Для «за сутки» (day_before_09_12_*) дата fire_at — НАКАНУНЕ дня, такой
+        # day_date в conf_days нет → без явного дня получался бы День 1.
         # Для НЕ-конференций conf_days отсутствует — день всегда 1.
         day = 1
-        if fire_at:
+        if explicit_day:
+            day = int(explicit_day)
+        elif fire_at:
             fire_local = fire_at.astimezone(ZoneInfo("Europe/Moscow"))
             fire_date = fire_local.date()
             day_row = await conn.fetchrow(

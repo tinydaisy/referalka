@@ -110,6 +110,52 @@ function nowMoscowMinus1MinLocal(): string {
   return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`
 }
 
+// Дневные типы рассылок — содержимое зависит от ДНЯ программы (программа дня,
+// его дата и время старта). У всех у них в форме показываем селектор «День».
+// Выбранный день сохраняется в broadcast_schedules.day и имеет приоритет над
+// вычислением дня по дате отправки (для «за сутки» отправка идёт накануне, и по
+// дате день не определить — раньше туда уезжала программа первого дня).
+const DAY_TYPES = [
+  '2h_before_unreg', '2h_before_reg', '30min_before',
+  'day_before_09_12_unreg', 'day_before_09_12_reg',
+  'day_live', 'day_end',
+]
+
+// Дата+время отправки для дневной рассылки: старт первой сессии выбранного дня
+// минус offset шаблона. Для «за сутки» — накануне дня в 09:12 МСК (как в
+// авто-генерации из программы). Возвращает строку для <input type=datetime-local>.
+function fireAtForDay(tplType: string, dayNumber: number, days: any[], sessions: any[]): string {
+  const day = days.find(d => Number(d.day_number) === Number(dayNumber))
+  if (!day?.day_date) return ''
+  const dateStr = day.day_date.toString().slice(0, 10)   // YYYY-MM-DD
+
+  if (tplType.startsWith('day_before_09_12')) {
+    const d = new Date(`${dateStr}T09:12:00`)
+    d.setDate(d.getDate() - 1)
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:12`
+  }
+
+  // Остальные — от старта первой сессии дня (fallback: open_time дня).
+  const daySessions = sessions
+    .filter(s => Number(s.day) === Number(dayNumber) && s.start_time)
+    .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))
+  const startHHMM = daySessions[0]?.start_time
+    ? String(daySessions[0].start_time).slice(0, 5)
+    : (day.open_time ? String(day.open_time).slice(0, 5) : '')
+  if (!startHHMM) return ''
+
+  const OFFSETS: Record<string, number> = {
+    '2h_before_unreg': 120, '2h_before_reg': 120,
+    '30min_before': 30, 'day_live': 5, 'day_end': 0,
+  }
+  const offset = OFFSETS[tplType] ?? 0
+  const d = new Date(`${dateStr}T${startHHMM}:00`)
+  d.setMinutes(d.getMinutes() - offset)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 // Человекочитаемая причина ошибки доставки
 function humanReason(err: string): string {
   const low = (err || '').toLowerCase()
@@ -533,13 +579,15 @@ export default function QueuePage() {
     const tplType = tpl?.type || ''
     // expert_day, как и speaker_intro, привязан к event_collaborators.id
     const isSpeakerType = ['speaker_intro', 'expert_day', 'gift', '5min_before'].includes(tplType)
-    const isDayType = tplType.startsWith('day_')
+    // День обязателен только у событий с программой (конференция/турнир).
+    // У обычного мероприятия дней нет — селектор не показываем и день не шлём.
+    const isDayType = DAY_TYPES.includes(tplType) && confDays.length > 0
     if (isSpeakerType && !manualForm.session_id) {
       showMsg('Выберите спикера', 'err')
       return
     }
     if (isDayType && !manualForm.day) {
-      showMsg('Выберите день', 'err')
+      showMsg('Выберите день программы', 'err')
       return
     }
     try {
@@ -888,6 +936,14 @@ export default function QueuePage() {
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-white/80 border border-gray-200 text-gray-600">
                         {TYPE_LABELS[s.template_type] || s.type}
                       </span>
+                      {/* Дневная рассылка — какой день программы уйдёт в сообщении */}
+                      {s.day && (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-100"
+                          title="В сообщении будет программа этого дня">
+                          День {s.day}
+                        </span>
+                      )}
                       {s.is_test && (
                         <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200">
                           ТЕСТ
@@ -1482,13 +1538,19 @@ export default function QueuePage() {
                     </div>
                   )
                 }
-                if (tplType.startsWith('day_')) {
+                if (DAY_TYPES.includes(tplType) && confDays.length > 0) {
                   return (
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">День конференции</label>
+                      <label className="text-xs text-gray-500 mb-1 block">День программы</label>
                       <select
                         value={manualForm.day}
-                        onChange={e => setManualForm({ ...manualForm, day: e.target.value })}
+                        onChange={e => {
+                          const day = e.target.value
+                          // Выбрали день — сразу подставляем дату и время отправки
+                          // по правилу шаблона (за 2 часа / за 30 мин / за сутки…).
+                          const auto = day ? fireAtForDay(tplType, Number(day), confDays, confSessions) : ''
+                          setManualForm(f => ({ ...f, day, ...(auto ? { fire_at: auto } : {}) }))
+                        }}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                         <option value="">— выберите день —</option>
                         {confDays.map(d => {
@@ -1500,11 +1562,14 @@ export default function QueuePage() {
                           }
                           return (
                             <option key={d.day_number} value={d.day_number}>
-                              День {d.day_number}{dateLabel}
+                              День {d.day_number}{dateLabel}{d.title ? ` · ${d.title}` : ''}
                             </option>
                           )
                         })}
                       </select>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        В сообщение попадёт программа этого дня. Дата отправки подставится сама — её можно поправить ниже.
+                      </p>
                     </div>
                   )
                 }
