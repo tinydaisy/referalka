@@ -156,6 +156,38 @@ function fireAtForDay(tplType: string, dayNumber: number, days: any[], sessions:
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+// Дата+время отправки для СПИКЕРСКОЙ рассылки (5min_before / gift): считаем ровно
+// как автогенерация из программы — 5min_before = старт слота минус offset шаблона,
+// gift = конец слота минус offset (offset_minutes шаблона, по умолчанию 5).
+// Время слота (conf_sessions.start_time/end_time) — строка "HH:MM" по МСК, дата дня
+// берётся из conf_days.day_date. Собираем строку для <input type=datetime-local>
+// вручную, БЕЗ new Date() — иначе браузер во Вьетнаме сдвинет время на свою tz.
+function fireAtForSession(tplType: string, sessionId: number, sessions: any[], days: any[], offsetMinutes?: number | null): string {
+  const s = sessions.find(x => Number(x.id) === Number(sessionId))
+  if (!s) return ''
+  const day = days.find(d => Number(d.day_number) === Number(s.day))
+  const dateStr = day?.day_date ? String(day.day_date).slice(0, 10) : ''
+  const hhmm = tplType === 'gift'
+    ? (s.end_time ? String(s.end_time).slice(0, 5) : '')
+    : (s.start_time ? String(s.start_time).slice(0, 5) : '')
+  if (!dateStr || !hhmm) return ''
+
+  const offset = offsetMinutes ?? 5
+  // Минуты вычитаем в «стенных» минутах суток; при переходе через полночь
+  // сдвигаем календарную дату (арифметика по UTC — без влияния tz браузера).
+  const [h, m] = hhmm.split(':').map(Number)
+  let total = h * 60 + m - offset
+  let dayShift = 0
+  while (total < 0) { total += 24 * 60; dayShift -= 1 }
+  while (total >= 24 * 60) { total -= 24 * 60; dayShift += 1 }
+
+  const base = new Date(`${dateStr}T00:00:00Z`)
+  base.setUTCDate(base.getUTCDate() + dayShift)
+  const p = (n: number) => String(n).padStart(2, '0')
+  const y = base.getUTCFullYear(), mo = p(base.getUTCMonth() + 1), da = p(base.getUTCDate())
+  return `${y}-${mo}-${da}T${p(Math.floor(total / 60))}:${p(total % 60)}`
+}
+
 // Человекочитаемая причина ошибки доставки
 function humanReason(err: string): string {
   const low = (err || '').toLowerCase()
@@ -1524,7 +1556,18 @@ export default function QueuePage() {
                       <label className="text-xs text-gray-500 mb-1 block">Спикер (выступление)</label>
                       <select
                         value={manualForm.session_id}
-                        onChange={e => setManualForm({ ...manualForm, session_id: e.target.value })}
+                        onChange={e => {
+                          const sid = e.target.value
+                          // Выбрали спикера — сразу подставляем дату и время его слота
+                          // по правилу шаблона (за 5 минут до старта / подарок в конце),
+                          // как это делает авто-генерация из программы. Раньше в поле
+                          // оставался дефолт «сейчас + 10 мин» — и рассылка вставала на
+                          // сегодня, а не на день выступления.
+                          const auto = sid
+                            ? fireAtForSession(tplType, Number(sid), confSessions, confDays, tpl?.offset_minutes)
+                            : ''
+                          setManualForm(f => ({ ...f, session_id: sid, ...(auto ? { fire_at: auto } : {}) }))
+                        }}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                         <option value="">— выберите спикера —</option>
                         {sessionsWithSpeaker.map(s => {
