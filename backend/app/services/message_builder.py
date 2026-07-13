@@ -401,15 +401,24 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
     title = glist[0][0] if glist else ""
     url = glist[0][1] if glist else ""
 
+    # ⚠️ Подарка у спикера НЕТ (ни ручного, ни лид-магнита). Раньше строки с
+    # {gift_title}/{gift_url} просто вырезались — и в эфир уходил голый заголовок
+    # «🎁 Имя: Подарки после эфира» без единого слова о том, что делать дальше.
+    # Теперь вместо них подставляется приглашение написать спикеру в личку — тот
+    # же фолбэк, что и у встроенного текста (ниже), только он работал лишь когда
+    # у шаблона не было своего текста.
+    no_gift_body = (
+        f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}"
+        if tg_mention else
+        "🎁 Чтобы забрать материалы — напишите спикеру в личку"
+    )
+
     tmpl = (tmpl_text or "").strip()
     # Единый плейсхолдер {gifts} — нумерованный список всех подарков:
-    # «1. Название\nссылка\n\n2. Название\nссылка …». Пусто → строка убирается.
+    # «1. Название\nссылка\n\n2. Название\nссылка …».
     if tmpl and "{gifts}" in tmpl:
         text = tmpl
-        if glist:
-            text = text.replace("{gifts}", _gifts_block(numbered=True))
-        else:
-            text = re.sub(r"^[^\n]*\{gifts\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        text = text.replace("{gifts}", _gifts_block(numbered=True) if glist else no_gift_body)
         if not tg_mention:
             text = re.sub(r"^[^\n]*\{personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
         text = (text
@@ -426,9 +435,16 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
             text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
             title = _gifts_block()
             url = ""
+        elif not glist:
+            # Подарка нет: строку со ссылкой убираем, а на месте названия —
+            # приглашение написать в личку (иначе осталась бы пустота).
+            text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+            title = no_gift_body
+            url = ""
+            if "{gift_title}" not in text:
+                # В шаблоне нет места под подарок — дописываем приглашение в конец.
+                text = f"{text.rstrip()}\n\n{no_gift_body}"
         else:
-            if not title:
-                text = re.sub(r"^[^\n]*\{gift_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
             if not url:
                 text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
         if not tg_mention:
@@ -441,10 +457,7 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         return text.strip()
 
     header = f"🎁 {speaker_name}: Подарки после эфира"
-    if not glist:
-        body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
-    else:
-        body = _gifts_block()
+    body = _gifts_block() if glist else no_gift_body
     return f"{header}\n\n{body}"
 
 
