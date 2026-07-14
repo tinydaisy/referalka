@@ -378,7 +378,7 @@ export default function SettingsPage() {
                 type="text"
                 value={form.work_tg_username}
                 onChange={set('work_tg_username')}
-                placeholder="https://t.me/username"
+                placeholder="https://telegram.me/username"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
               />
             </div>
@@ -485,7 +485,7 @@ export default function SettingsPage() {
                 {notifyBotHandle ? (
                   <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
                     <li>Создайте <strong>закрытый</strong> Telegram-канал.</li>
-                    <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
+                    <li>Добавьте <a href={`https://telegram.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
                     <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из канала — бот ответит с ID.</li>
                   </ol>
                 ) : (
@@ -1604,7 +1604,7 @@ function PartnerRegistrationBlock({
       // системный @pluson_bot не подставляем (2026-07-08).
       const handle = (botHandles?.telegram || '').replace(/^@/, '')
       if (!handle) return null
-      return `https://t.me/${handle}?start=prtc_${clientId}`
+      return `https://telegram.me/${handle}?start=prtc_${clientId}`
     }
     if (p === 'vk') {
       // Партнёрская корневая ссылка через VK Mini App клиента
@@ -1628,7 +1628,7 @@ function PartnerRegistrationBlock({
       // Только свой бот клиента. Нет бота → ссылки возврата нет (2026-07-08).
       const handle = (botHandles?.telegram || '').replace(/^@/, '')
       if (!handle) return null
-      return `https://t.me/${handle}?start=partner_done_${clientId}`
+      return `https://telegram.me/${handle}?start=partner_done_${clientId}`
     }
     if (p === 'vk') {
       const handle = (botHandles?.vk || '').replace(/^@/, '')

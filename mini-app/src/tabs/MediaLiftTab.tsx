@@ -37,8 +37,8 @@ function initials(name?: string) {
 function tgLink(url?: string | null): string | null {
   if (!url) return null
   if (/^https?:\/\//i.test(url)) return url
-  if (url.startsWith('@')) return `https://t.me/${url.slice(1)}`
-  return `https://t.me/${url}`
+  if (url.startsWith('@')) return `https://telegram.me/${url.slice(1)}`
+  return `https://telegram.me/${url}`
 }
 
 export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRegistered, onRegistered }: Props) {
@@ -254,7 +254,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
         {error && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 10 }}>{error}</div>}
         <input
           value={channelUrl} onChange={e => setChannelUrl(e.target.value)}
-          placeholder="https://t.me/ваш_канал"
+          placeholder="https://telegram.me/ваш_канал"
           style={{
             width: '100%', boxSizing: 'border-box', padding: '11px 12px', fontSize: 14,
             border: '1px solid #cfd8e0', borderRadius: 10, marginBottom: 10,

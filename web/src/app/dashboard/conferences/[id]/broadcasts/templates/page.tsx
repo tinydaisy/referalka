@@ -608,7 +608,7 @@ export default function TemplatesPage() {
     // веб-страницу события (системный @pluson_bot в превью не показываем — 2026-07-08).
     const slug = eventData?.slug || '{slug}'
     const handle = (eventData as any)?.client_bot_handle || (confData as any)?.client_bot_handle || ''
-    if (handle) return `https://t.me/${handle}?startapp=ref_pg${slug}_tabgame`
+    if (handle) return `https://telegram.me/${handle}?startapp=ref_pg${slug}_tabgame`
     return `https://pluson.ru/event/${slug}#game`
   }
 

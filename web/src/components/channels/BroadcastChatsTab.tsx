@@ -630,7 +630,7 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
                 type="url"
                 value={url}
                 onChange={e => { setUrl(e.target.value); setResolvedOk(false) }}
-                placeholder={platform === 'vk' ? 'https://vk.com/your_group' : platform === 'max' ? 'https://max.ru/your_chat' : 'https://t.me/your_chat'}
+                placeholder={platform === 'vk' ? 'https://vk.com/your_group' : platform === 'max' ? 'https://max.ru/your_chat' : 'https://telegram.me/your_chat'}
                 className="flex-1 min-w-0 px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
               />
               {canResolve && (
@@ -753,7 +753,7 @@ function RenameChatModal({ chat, onClose, onSaved }: {
           type="text"
           value={chatUrl}
           onChange={e => setChatUrl(e.target.value)}
-          placeholder="https://t.me/+abcDEF…"
+          placeholder="https://telegram.me/+abcDEF…"
           className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
         />
         <p className="text-[11px] text-gray-400 mt-1">Оставьте пустым, чтобы убрать ссылку.</p>

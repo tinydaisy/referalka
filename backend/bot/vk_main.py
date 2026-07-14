@@ -431,7 +431,7 @@ async def _handle_speaker_self_register_vk(
                 bot_handle = (data["result"].get("username") or bot_handle).lstrip("@")
         except Exception:
             pass
-    spkinv_url = f"https://t.me/{bot_handle}?start=spkinv_{access_code}"
+    spkinv_url = f"https://telegram.me/{bot_handle}?start=spkinv_{access_code}"
 
     if already:
         text = (

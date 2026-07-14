@@ -58,7 +58,7 @@ async function getEvent(slug: string): Promise<LandingEvent> {
 function buildTgRedirectUrl(botHandle: string | null, slug: string): string {
   // Бот клиента: Main Mini App открывается через t.me/<handle> + ?startapp=...
   // (скрипт redirect_web_app.js допишет ?startapp=ref_pgSLUG_pidX_srcY).
-  if (botHandle) return `https://t.me/${botHandle}`
+  if (botHandle) return `https://telegram.me/${botHandle}`
   // Нет своего бота → веб-страница события (без Telegram). Системный @pluson_bot
   // не используем (2026-07-08).
   return `https://pluson.ru/event/${slug}`

@@ -130,7 +130,7 @@ export default function TournamentTaskControlHelpPage() {
         <div className="text-sm font-semibold text-gray-800 mb-1">Не нашли ответ?</div>
         <p className="text-sm text-gray-600">
           Напишите разработчику —{' '}
-          <a href="https://t.me/margo_forbs?text=Вопрос_по_контролю_заданий"
+          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_контролю_заданий"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             открыть чат в Telegram

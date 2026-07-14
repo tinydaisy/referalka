@@ -141,7 +141,7 @@ def normalize_button_url(raw: str) -> str:
     системный фолбэк. Поэтому чиним и валидируем здесь, в одной точке для TG/VK/MAX.
 
     Правила:
-      · `https//t.me/x`, `https:/t.me/x`, `http//x` → `https://t.me/x`
+      · `https//t.me/x`, `https:/t.me/x`, `http//x` → `https://telegram.me/x`
       · `t.me/x`, `pluson.ru/x`, `@nick` → `https://…`
       · кириллица и пробелы в пути/квери — процент-кодирование (TG требует ASCII)
       · tg://, mailto:, tel: — пропускаем как есть
@@ -160,7 +160,7 @@ def normalize_button_url(raw: str) -> str:
     s = re.sub(r"^(https?)(?::?/{1,2}|:)(?=[^/])", r"\1://", s, flags=re.I)
     # @nickname → t.me/nickname
     if s.startswith("@"):
-        s = f"https://t.me/{s[1:]}"
+        s = f"https://telegram.me/{s[1:]}"
     if not re.match(r"^https?://", s, flags=re.I):
         s = f"https://{s.lstrip('/')}"
 

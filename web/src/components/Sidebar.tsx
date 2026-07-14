@@ -213,7 +213,7 @@ export default function Sidebar() {
         {supportOpen && (
           <div className="ml-4 pl-3 border-l border-white/10 mt-0.5 mb-1 space-y-0.5">
             <a
-              href="https://t.me/margo_forbs?text=Вопрос_по_Плюсон"
+              href="https://telegram.me/margo_forbs?text=Вопрос_по_Плюсон"
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setMobileOpen(false)}

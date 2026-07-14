@@ -69,7 +69,7 @@ async def get_my_referral_dashboard(
 
     # Реф-ссылки
     web_link = f"https://pluson.ru/?pid={client['referral_code']}"
-    bot_link = f"https://t.me/pluson_bot?start=ref{client['referral_code']}"
+    bot_link = f"https://telegram.me/pluson_bot?start=ref{client['referral_code']}"
 
     # История бонусных операций — последние 100
     tx_rows = await db.fetch(

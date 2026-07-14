@@ -318,7 +318,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
                   Забрать подарок →
                 </a>
               ) : p.speaker_tg_username ? (
-                <a href={`https://t.me/${p.speaker_tg_username.replace(/^@/, '')}`}
+                <a href={`https://telegram.me/${p.speaker_tg_username.replace(/^@/, '')}`}
                    target="_blank" rel="noopener noreferrer" style={{
                   display: 'inline-block', background: PEACH, color: DARK,
                   padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700,

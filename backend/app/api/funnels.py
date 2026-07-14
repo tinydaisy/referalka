@@ -328,7 +328,7 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db:
         bot_username = await _client_bot_username(client_id, db)
         if not bot_username:
             raise HTTPException(status_code=404, detail="У клиента не подключён Telegram-бот для воронки")
-        return f"https://t.me/{bot_username}?start=fnl_{run_id}"
+        return f"https://telegram.me/{bot_username}?start=fnl_{run_id}"
     if platform == 'vk':
         # Берём собственный Mini App клиента (vk_app_id из platform_meta его VK-канала).
         # vk.me/{handle}?ref=... в VK НЕ работает для уже подписанных пользователей

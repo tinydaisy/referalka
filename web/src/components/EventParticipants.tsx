@@ -54,7 +54,7 @@ function PlatformBadge({
   const label = username ? `@${username.replace(/^@+/, '')}` : `#${userId}`
   const href =
     platform === 'telegram'
-      ? (username ? `https://t.me/${username.replace(/^@+/, '')}` : `tg://user?id=${userId}`)
+      ? (username ? `https://telegram.me/${username.replace(/^@+/, '')}` : `tg://user?id=${userId}`)
       : platform === 'vk'
       ? (username ? `https://vk.com/${username.replace(/^@+/, '')}` : `https://vk.com/id${userId}`)
       : (username ? `https://max.ru/${username}` : '#')

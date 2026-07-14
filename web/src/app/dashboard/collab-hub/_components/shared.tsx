@@ -350,7 +350,7 @@ export function RequestsView() {
                     <Calendar className="w-3 h-3" />О коллабе
                   </button>
                 )}
-                {r.other_tg && <a href={`https://t.me/${(r.other_tg||'').replace('@','')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600"><Send className="w-3 h-3" />Написать в Telegram</a>}
+                {r.other_tg && <a href={`https://telegram.me/${(r.other_tg||'').replace('@','')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600"><Send className="w-3 h-3" />Написать в Telegram</a>}
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">

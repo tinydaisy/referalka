@@ -468,7 +468,7 @@ export default function ApiDocsPage() {
       "title": "Эксперт по PR",
       "achievements": "10 лет в индустрии...",
       "photo_url": "https://referalka.r2.../speakers/12.jpg",
-      "tg_channel_url": "https://t.me/ramilya",
+      "tg_channel_url": "https://telegram.me/ramilya",
       "instagram_url": "https://instagram.com/...",
       "personal_tg_username": "ramilya_shim",
       "role": "speaker",
@@ -536,10 +536,10 @@ export default function ApiDocsPage() {
       "speaker_id": 12,
       "name": "Рамиля Шиманская",
       "tg_channel_id": "-1002161199761",
-      "tg_channel_url": "https://t.me/ramilya"
+      "tg_channel_url": "https://telegram.me/ramilya"
     }
   ],
-  "not_subscribed_text": "Рамиля Шиманская: https://t.me/ramilya"
+  "not_subscribed_text": "Рамиля Шиманская: https://telegram.me/ramilya"
 }`} />
 
           <p className="text-xs uppercase tracking-wide text-gray-400 mt-4 mb-2">Использование в Salebot</p>
@@ -600,7 +600,7 @@ export default function ApiDocsPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Вопросы по интеграции</div>
           <p className="text-sm text-gray-600">
             Напишите —{' '}
-            <a href="https://t.me/margo_forbs?text=Вопрос_по_API_iViSiON: ПЛЮСОН"
+            <a href="https://telegram.me/margo_forbs?text=Вопрос_по_API_iViSiON: ПЛЮСОН"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>

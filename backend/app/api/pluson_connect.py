@@ -69,7 +69,7 @@ async def _bot_return_deeplink(db, client_id: int, platform: str) -> str:
     from app.services.share_links import get_client_bot_handles
     handles = await get_client_bot_handles(db, client_id)
     if platform == "telegram" and handles.get("telegram"):
-        return f"https://t.me/{handles['telegram'].lstrip('@')}?start=pluson_connected"
+        return f"https://telegram.me/{handles['telegram'].lstrip('@')}?start=pluson_connected"
     if platform == "max" and handles.get("max"):
         return f"https://max.ru/{handles['max'].lstrip('@')}?start=pluson_connected"
     if platform == "vk" and handles.get("vk"):

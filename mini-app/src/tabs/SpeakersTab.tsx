@@ -69,8 +69,8 @@ const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
 function tgLink(url?: string | null): string | null {
   if (!url) return null
   if (/^https?:\/\//i.test(url)) return url
-  if (url.startsWith('@')) return `https://t.me/${url.slice(1)}`
-  return `https://t.me/${url}`
+  if (url.startsWith('@')) return `https://telegram.me/${url.slice(1)}`
+  return `https://telegram.me/${url}`
 }
 
 function initials(name?: string) {

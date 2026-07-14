@@ -61,7 +61,7 @@ const SAMPLE_JSON = `{
         "title": "Основатель и креатор чемпионата",
         "photo_url": "https://pub.../margo.jpg",
         "achievements": ["..."],
-        "tg_channel_url": "https://t.me/margo_forbs_pro",
+        "tg_channel_url": "https://telegram.me/margo_forbs_pro",
         "vk_url": null, "max_url": null,
         "instagram_url": null, "website_url": null,
         "media_assets": [

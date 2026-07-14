@@ -128,7 +128,7 @@ def _build_chat_links_message(
         wt = _html.escape(work_tg)
         text += (
             "\n\n\n\n--- По всем техническим вопросам обращайтесь в "
-            f'<a href="https://t.me/{wt}">@{wt}</a>'
+            f'<a href="https://telegram.me/{wt}">@{wt}</a>'
         )
 
     rows.append([InlineKeyboardButton(
@@ -593,7 +593,7 @@ async def handle_speaker_self_register(callback: CallbackQuery):
         bot_handle = me.username or "pluson_bot"
     except Exception:
         bot_handle = "pluson_bot"
-    spkinv_url = f"https://t.me/{bot_handle}?start=spkinv_{access_code}"
+    spkinv_url = f"https://telegram.me/{bot_handle}?start=spkinv_{access_code}"
 
     assistant_hint = (
         "\n\nЕсли хотите, чтобы ваш профиль вёл ассистент — войдите в кабинет "

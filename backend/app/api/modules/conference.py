@@ -3157,7 +3157,7 @@ async def send_speaker_to_telegram(
 
     reply_markup = {
         "inline_keyboard": [[
-            {"text": "Программа конференции", "url": "https://t.me/ivision_conf_bot?start=program"}
+            {"text": "Программа конференции", "url": "https://telegram.me/ivision_conf_bot?start=program"}
         ]]
     }
 
@@ -3369,7 +3369,7 @@ async def send_schedule_to_telegram(
 
     # Inline-кнопки
     buttons = [
-        [{"text": "ИНФОРМАЦИЯ О СПИКЕРАХ", "url": "https://t.me/ivision_conf_bot?start=spikers"}],
+        [{"text": "ИНФОРМАЦИЯ О СПИКЕРАХ", "url": "https://telegram.me/ivision_conf_bot?start=spikers"}],
     ]
     if conf_url:
         buttons.append([{"text": "ПОЛУЧИТЬ ЗАПИСИ И VIP-ТАРИФ", "url": conf_url}])
@@ -3501,7 +3501,7 @@ async def send_raffle_gifts_to_telegram(
         "disable_web_page_preview": True,
         "reply_markup": {
             "inline_keyboard": [[
-                {"text": "Проверить/Получить билеты", "url": "https://t.me/ivision_conf_bot?start=check_get_bilets"}
+                {"text": "Проверить/Получить билеты", "url": "https://telegram.me/ivision_conf_bot?start=check_get_bilets"}
             ]]
         },
     }

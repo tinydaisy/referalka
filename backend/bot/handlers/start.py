@@ -1012,7 +1012,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         sa_parts.append(f"q{fk}")
     startapp = "_".join(sa_parts)
     app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
-    mini_app_link = f"https://t.me/{bot_username}{app_part}?startapp={startapp}"
+    mini_app_link = f"https://telegram.me/{bot_username}{app_part}?startapp={startapp}"
 
     from app.services.external_landing import (
         resolve_or_create_participant,
@@ -1735,9 +1735,9 @@ async def handle_app(message: Message):
     # VIP-бот: Main Mini App открывается по `?startapp=...` (без него t.me-ссылка
     # просто ведёт в чат с ботом и приложение не открывается).
     if bot_username == PLUSON_TG_HANDLE:
-        app_url = f"https://t.me/{bot_username}/{PLUSON_TG_APP}?startapp=hub"
+        app_url = f"https://telegram.me/{bot_username}/{PLUSON_TG_APP}?startapp=hub"
     else:
-        app_url = f"https://t.me/{bot_username}?startapp=hub"
+        app_url = f"https://telegram.me/{bot_username}?startapp=hub"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Открыть приложение", url=app_url)
     ]])

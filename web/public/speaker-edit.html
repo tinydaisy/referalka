@@ -841,8 +841,8 @@
   function updateDefaultHints() {
     const tgUsername = (currentData?.personal_tg_username || currentData?.assistant_tg_username || '').replace(/^@/, '')
     const defaultGasUrl = tgUsername
-      ? `https://t.me/${tgUsername}?text=ivision`
-      : 'https://t.me/username?text=ivision'
+      ? `https://telegram.me/${tgUsername}?text=ivision`
+      : 'https://telegram.me/username?text=ivision'
 
     setFieldHint(
       'gas-title',

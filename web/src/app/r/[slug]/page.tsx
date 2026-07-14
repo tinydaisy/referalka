@@ -175,7 +175,7 @@ export default function RegisteredReturnPage() {
     // per-бот). Нет своего бота → веб-страница события (без Telegram): системный
     // @pluson_bot больше не используется (2026-07-08).
     const url = handle
-      ? `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
+      ? `https://telegram.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
       : `https://pluson.ru/event/${encodeURIComponent(slug)}`
     setFallbackUrl(url)
     setStatus('fallback')

@@ -127,7 +127,7 @@ async def send_welcome_email_if_needed(
     )
     # Только свой бот клиента. Системный @pluson_bot убран — нет своего бота → нет TG-кнопки.
     tg_url = (
-        f"https://t.me/{tg_bot_handle}?startapp=ref_pg{event['slug']}"
+        f"https://telegram.me/{tg_bot_handle}?startapp=ref_pg{event['slug']}"
         if tg_bot_handle else ""
     )
 

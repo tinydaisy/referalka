@@ -490,7 +490,7 @@ function BuyerCard({ b, unpaid, currentTariffId, allTariffs, onRemove, onPatch }
       <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
         {(b.tg_id || b.tg_username) && (
           <PlatformChip label="TG" color="#229ED9"
-            href={b.tg_username ? `https://t.me/${b.tg_username.replace(/^@+/, '')}` : `tg://user?id=${b.tg_id}`} />
+            href={b.tg_username ? `https://telegram.me/${b.tg_username.replace(/^@+/, '')}` : `tg://user?id=${b.tg_id}`} />
         )}
         {(b.vk_id || b.vk_username) && (
           <PlatformChip label="VK" color="#0077FF"
@@ -828,7 +828,7 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
       return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
     }
     const tgLink = (o: OrderRow) =>
-      o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : (o.tg_id ? `tg://user?id=${o.tg_id}` : '')
+      o.tg_username ? `https://telegram.me/${o.tg_username.replace(/^@+/, '')}` : (o.tg_id ? `tg://user?id=${o.tg_id}` : '')
     const vkLink = (o: OrderRow) =>
       o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : (o.vk_id ? `https://vk.com/id${o.vk_id}` : '')
     const maxLink = (o: OrderRow) =>
@@ -952,7 +952,7 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
                   <td className="px-2 py-2">
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">
-                        {(o.tg_id || o.tg_username) && <PlatformChip label="TG" color="#229ED9" href={o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : `tg://user?id=${o.tg_id}`} />}
+                        {(o.tg_id || o.tg_username) && <PlatformChip label="TG" color="#229ED9" href={o.tg_username ? `https://telegram.me/${o.tg_username.replace(/^@+/, '')}` : `tg://user?id=${o.tg_id}`} />}
                         {(o.vk_id || o.vk_username) && <PlatformChip label="VK" color="#0077FF" href={o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${o.vk_id}`} />}
                       </div>
                       {o.email && <span className="text-xs text-gray-500 truncate" title={o.email}>{o.email}</span>}

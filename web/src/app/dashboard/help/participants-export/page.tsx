@@ -350,7 +350,7 @@ export default function ParticipantsExportHelpPage() {
           <b>или</b> <code className="bg-amber-100 px-1 rounded">null</code>. Сначала
           проверьте на null, потом берите вложенные поля.
           <ul className="list-disc pl-5 mt-2 space-y-1">
-            <li><b>telegram.username</b> — ник <b>без @</b>. Ссылка на профиль = <code className="bg-amber-100 px-1 rounded">https://t.me/</code> + username. Может быть null (нет юзернейма — есть только id).</li>
+            <li><b>telegram.username</b> — ник <b>без @</b>. Ссылка на профиль = <code className="bg-amber-100 px-1 rounded">https://telegram.me/</code> + username. Может быть null (нет юзернейма — есть только id).</li>
             <li><b>telegram.id</b> — числовой Telegram-id (для отправки ботом).</li>
             <li><b>vk.username</b> — часто вида <code className="bg-amber-100 px-1 rounded">id23758485</code>. Ссылка = <code className="bg-amber-100 px-1 rounded">https://vk.com/</code> + username.</li>
             <li><b>max.username</b> — у MAX часто null, есть только id.</li>
@@ -366,7 +366,7 @@ for p in data["participants"]:
     if tg:
         tg_id = tg["id"]
         tg_user = tg["username"]          # без @, может быть None
-        tg_link = "https://t.me/" + tg_user if tg_user else None
+        tg_link = "https://telegram.me/" + tg_user if tg_user else None
     else:
         tg_id = tg_user = tg_link = None
 
@@ -401,7 +401,7 @@ for p in data["participants"]:
         <div className="text-sm font-semibold text-gray-800 mb-1">Нужна помощь с подключением?</div>
         <p className="text-sm text-gray-600">
           Напишите разработчику —{' '}
-          <a href="https://t.me/margo_forbs?text=Вопрос_по_выгрузке_участников"
+          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_выгрузке_участников"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             открыть чат в Telegram

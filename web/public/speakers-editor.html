@@ -737,7 +737,7 @@
   function buildGasUrlHintForSp(sp) {
     const username = (sp.personal_tg_username || sp.assistant_tg_username || '').replace(/^@/, '')
     if (!username) return ''
-    const url = `https://t.me/${username}?text=ivision`
+    const url = `https://telegram.me/${username}?text=ivision`
     return `Если ссылка не указана, в рассылке укажем: <strong>${esc(url)}</strong>`
   }
 

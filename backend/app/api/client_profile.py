@@ -1054,7 +1054,7 @@ async def update_my_profile(
                         raise HTTPException(
                             status_code=400,
                             detail=f"Кнопка «{_lbl}»: ссылка «{_url}» некорректна. "
-                                   f"Укажите полный адрес, например https://t.me/ваш_ник",
+                                   f"Укажите полный адрес, например https://telegram.me/ваш_ник",
                         )
                     _clean.append({"type": "custom", "label": _lbl, "url": _fixed})
             else:  # events / owner — url проставит резолвер, храним только текст
@@ -1193,7 +1193,7 @@ async def resolve_telegram_chat_id(
 
     Источник @username (приоритет):
       1. `payload.username` — явно переданный @username/username (для закрытого канала, который реально публичный).
-      2. `payload.url` — URL канала (https://t.me/foo) → из него вытаскивается @username.
+      2. `payload.url` — URL канала (https://telegram.me/foo) → из него вытаскивается @username.
 
     Возвращает `{chat_id, username}` — фронт сам кладёт chat_id в нужный элемент
     массива `social_links.telegram_channels` и шлёт PATCH /me/profile.

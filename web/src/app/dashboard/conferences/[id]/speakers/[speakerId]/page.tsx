@@ -123,7 +123,7 @@ function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number
   // Mini App-ссылка — только при своём боте клиента. Системный @pluson_bot
   // не подставляем (с 2026-07-08): нет бота → показываем только веб-ссылку.
   const tgUrl = botHandle
-    ? `https://t.me/${botHandle}?startapp=ref_pg${slug}_spk${ecId}`
+    ? `https://telegram.me/${botHandle}?startapp=ref_pg${slug}_spk${ecId}`
     : ''
   const [copied, setCopied] = useState<string | null>(null)
   const copy = async (url: string, key: string) => {
@@ -1172,7 +1172,7 @@ export default function ConferenceSpeakerPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
             <input type="url" value={profile.tg_channel_url || ''} onChange={setP('tg_channel_url')}
-              placeholder="https://t.me/username"
+              placeholder="https://telegram.me/username"
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div className="grid grid-cols-2 gap-4">

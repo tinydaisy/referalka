@@ -78,7 +78,7 @@ def _build_owner_contact(work_tg: str | None, social_telegram: str | None) -> st
     fallback на текст про Экосистему приложения."""
     handle = (work_tg or "").lstrip("@").strip()
     if not handle and social_telegram:
-        # social_telegram уже нормализован к https://t.me/... (см. services/social_links.py)
+        # social_telegram уже нормализован к https://telegram.me/... (см. services/social_links.py)
         # Достаём из него username для лейбла.
         s = social_telegram.strip()
         if "t.me/" in s:
@@ -86,7 +86,7 @@ def _build_owner_contact(work_tg: str | None, social_telegram: str | None) -> st
     if not handle:
         # Без контакта в настройках — нейтральный fallback
         return "откройте приложение → вкладка «Экосистема» — там контакты"
-    href = f"https://t.me/{handle}"
+    href = f"https://telegram.me/{handle}"
     return f'<a href="{href}">@{escape(handle)}</a>'
 
 
@@ -97,7 +97,7 @@ def _build_support_contact(work_tg: str | None) -> str:
     handle = (work_tg or "").lstrip("@").strip()
     if not handle:
         return "в этом боте"
-    return f'<a href="https://t.me/{escape(handle)}">@{escape(handle)}</a>'
+    return f'<a href="https://telegram.me/{escape(handle)}">@{escape(handle)}</a>'
 
 
 async def _build_app_url(

@@ -14,7 +14,7 @@ const JSON_EXAMPLE = `{
       "name": "Иван Иванов",
       "title": "Эксперт по маркетингу",
       "achievements": ["Регалия 1", "Регалия 2"],
-      "tg_channel_url": "https://t.me/username",
+      "tg_channel_url": "https://telegram.me/username",
       "tg_channel_id": "-100123456789",
       "personal_tg_id": "123456789",
       "personal_tg_username": "username",

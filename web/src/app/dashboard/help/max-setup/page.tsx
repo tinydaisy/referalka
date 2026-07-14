@@ -170,7 +170,7 @@ export default function ConnectMaxChannelInstructionPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
             Напишите в поддержку —{' '}
-            <a href="https://t.me/margo_forbs?text=Вопрос_по_созданию_канала_в_MAX"
+            <a href="https://telegram.me/margo_forbs?text=Вопрос_по_созданию_канала_в_MAX"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>

@@ -1337,7 +1337,7 @@ function VipBotWizard({ clientId, onClose, onDone }: {
             <div className="space-y-4">
               <h3 className="font-semibold text-gray-900">Шаг 1. Создайте бот в @BotFather</h3>
               <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
-                <li>Откройте <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a> в Telegram</li>
+                <li>Откройте <a href="https://telegram.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a> в Telegram</li>
                 <li>Отправьте команду <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/newbot</code></li>
                 <li>Придумайте имя и username (должен заканчиваться на <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">_bot</code>)</li>
                 <li>BotFather пришлёт токен — скопируйте его</li>
@@ -1431,7 +1431,7 @@ function VipBotWizard({ clientId, onClose, onDone }: {
               </p>
 
               <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
-                <li>Откройте <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a></li>
+                <li>Откройте <a href="https://telegram.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a></li>
                 <li>Команда <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/mybots</code> → выберите <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">@{result.bot_username}</code></li>
                 <li>Нажмите <b>«Bot Settings»</b> → <b>«Configure Mini App»</b></li>
                 <li>Если Mini App ещё не включён — <b>«Enable Mini App»</b></li>
@@ -1469,7 +1469,7 @@ function VipBotWizard({ clientId, onClose, onDone }: {
               </div>
 
               <a
-                href={`https://t.me/${result.bot_username}`}
+                href={`https://telegram.me/${result.bot_username}`}
                 target="_blank"
                 rel="noopener"
                 className="block text-center py-2.5 rounded-xl font-medium text-sm border border-gray-200 hover:bg-gray-50"

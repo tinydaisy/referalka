@@ -48,8 +48,8 @@ export default function MiniAppDeeplinksPage() {
   // Общий @pluson_bot:      t.me/pluson_bot/pluson?startapp=... (со short-name pluson)
   function buildLink(targetTab: string, slugValue: string) {
     const startapp = `ref_pg${slugValue}_tab${targetTab}`
-    if (useOwnBot && botHandle) return `https://t.me/${botHandle}?startapp=${startapp}`
-    return `https://t.me/pluson_bot/pluson?startapp=${startapp}`
+    if (useOwnBot && botHandle) return `https://telegram.me/${botHandle}?startapp=${startapp}`
+    return `https://telegram.me/pluson_bot/pluson?startapp=${startapp}`
   }
 
   const selectedTab = TABS.find(t => t.id === tab)!
@@ -193,7 +193,7 @@ export default function MiniAppDeeplinksPage() {
       <Section step="●" title="Все варианты — справочник">
         <p className="text-sm text-gray-700 mb-3">
           Подставьте <code>{'{slug}'}</code> вашего события (это «Код ссылки» во вкладке «Основное»).
-          Бот: <code>https://t.me/pluson_bot/pluson</code> (общий) или <code>https://t.me/ваш_бот</code> (свой, VIP).
+          Бот: <code>https://telegram.me/pluson_bot/pluson</code> (общий) или <code>https://telegram.me/ваш_бот</code> (свой, VIP).
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
@@ -238,7 +238,7 @@ export default function MiniAppDeeplinksPage() {
         <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
         <p className="text-sm text-gray-600">
           Напишите разработчику —{' '}
-          <a href="https://t.me/margo_forbs?text=Вопрос_по_ссылкам_Mini_App"
+          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_ссылкам_Mini_App"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline inline-flex items-center gap-1">
             открыть чат в Telegram <ExternalLink size={12}/>

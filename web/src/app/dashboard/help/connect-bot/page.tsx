@@ -76,7 +76,7 @@ export default function ConnectBotInstructionPage() {
           Если хотите чтобы участники получали сообщения от <strong>вашего бота</strong> — добавьте его токен в раздел Каналы:
         </p>
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
-          <li>Получите токен у <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@BotFather <ExternalLink size={12}/></a> (команда <code>/newbot</code> для нового бота или <code>/mybots</code> → API Token для существующего)</li>
+          <li>Получите токен у <a href="https://telegram.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@BotFather <ExternalLink size={12}/></a> (команда <code>/newbot</code> для нового бота или <code>/mybots</code> → API Token для существующего)</li>
           <li>Откройте раздел <Link href="/dashboard/channels" className="text-blue-600 hover:underline font-medium">«Каналы»</Link> в кабинете</li>
           <li>Добавьте новый канал → платформа <strong>Telegram</strong> → вставьте токен → сохраните</li>
         </ol>
@@ -88,7 +88,7 @@ export default function ConnectBotInstructionPage() {
 
       <Section step="2" title="Открыть @BotFather и выбрать вашего бота">
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
-          <li>В Telegram найдите и откройте <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@BotFather <ExternalLink size={12}/></a></li>
+          <li>В Telegram найдите и откройте <a href="https://telegram.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@BotFather <ExternalLink size={12}/></a></li>
           <li>Команда <code>/mybots</code></li>
           <li>Выберите вашего бота (например <code>@pluson_bot</code>)</li>
         </ol>
@@ -161,7 +161,7 @@ export default function ConnectBotInstructionPage() {
 
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900 mb-3">
           💡 BotFather подтвердит <em>«Done! Web app …»</em> и выдаст готовую ссылку
-          <code className="mx-1">https://t.me/ваш_бот/pluson</code>. После этого ссылки возврата
+          <code className="mx-1">https://telegram.me/ваш_бот/pluson</code>. После этого ссылки возврата
           в дашборде (карточка события → «Подключение стороннего лендинга») заработают —
           юзер с success-страницы лендинга вернётся напрямую в Mini App, а не в чат бота.
         </div>
@@ -316,7 +316,7 @@ export default function ConnectBotInstructionPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
             Напишите разработчику —{' '}
-            <a href="https://t.me/margo_forbs?text=Вопрос_по_подключению_Mini_App"
+            <a href="https://telegram.me/margo_forbs?text=Вопрос_по_подключению_Mini_App"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>

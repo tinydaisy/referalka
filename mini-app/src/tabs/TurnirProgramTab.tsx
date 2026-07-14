@@ -192,9 +192,9 @@ function initials(name?: string) {
 }
 function tgLink(url?: string | null, username?: string | null): string | null {
   if (url && /^https?:\/\//i.test(url)) return url
-  if (url && url.startsWith('@')) return `https://t.me/${url.slice(1)}`
-  if (url) return `https://t.me/${url}`
-  if (username) return `https://t.me/${username.replace(/^@/, '')}`
+  if (url && url.startsWith('@')) return `https://telegram.me/${url.slice(1)}`
+  if (url) return `https://telegram.me/${url}`
+  if (username) return `https://telegram.me/${username.replace(/^@/, '')}`
   return null
 }
 

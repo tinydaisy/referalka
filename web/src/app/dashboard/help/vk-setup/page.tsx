@@ -712,7 +712,7 @@ export default function VkSetupInstructionPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
             Напишите разработчику —{' '}
-            <a href="https://t.me/margo_forbs?text=Вопрос_по_подключению_ВК"
+            <a href="https://telegram.me/margo_forbs?text=Вопрос_по_подключению_ВК"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>

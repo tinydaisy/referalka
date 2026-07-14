@@ -149,7 +149,7 @@ def speaker_card_link(event_slug, ec_id, link_mode=None, bot_handle=None):
         return ""
     if link_mode == "miniapp" and bot_handle:
         h = str(bot_handle).lstrip("@")
-        return f"https://t.me/{h}?startapp=ref_pg{slug}_spk{ec_id}"
+        return f"https://telegram.me/{h}?startapp=ref_pg{slug}_spk{ec_id}"
     return f"https://pluson.ru/event/{slug}?spk={ec_id}"
 
 

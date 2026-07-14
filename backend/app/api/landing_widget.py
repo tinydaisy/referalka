@@ -495,7 +495,7 @@ async def participants_tg(
         "in_chat": in_chat,
         "count": len(usernames),
         "usernames": usernames,                                  # ["nick1", "nick2", ...]
-        "tg_urls": [f"https://t.me/{u}" for u in usernames],     # готовые ссылки
+        "tg_urls": [f"https://telegram.me/{u}" for u in usernames],     # готовые ссылки
         "mentions": [f"@{u}" for u in usernames],                # ["@nick1", "@nick2", ...]
         # по каждому нику — в чате он или нет (для смешанной выгрузки in_chat=all)
         "participants": [

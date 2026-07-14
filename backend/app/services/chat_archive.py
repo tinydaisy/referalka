@@ -346,7 +346,7 @@ def _build_message_link(platform: str, chat_id: str, message_ref: Optional[str])
         cid = chat_id.lstrip("-")
         if cid.startswith("100"):
             cid = cid[3:]
-        return f"https://t.me/c/{cid}/{message_ref}"
+        return f"https://telegram.me/c/{cid}/{message_ref}"
     return None
 
 

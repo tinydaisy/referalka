@@ -193,7 +193,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
     const twa = (window as any).Telegram?.WebApp
     const text = `Присоединяйтесь к ${event?.title || 'событию'}: ${refLink}`
     if (twa?.openTelegramLink) {
-      twa.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`)
+      twa.openTelegramLink(`https://telegram.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`)
     } else {
       copy(refLink)
     }

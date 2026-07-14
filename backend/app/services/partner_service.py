@@ -439,7 +439,7 @@ async def run_started_partner_vk(run_id: int, vk_id: str, username: Optional[str
             f"Ваш партнёрский код: {existing_code}",
         ]
         if brand_info["work_tg"]:
-            text_parts += ["", f"По вопросам — https://t.me/{brand_info['work_tg']}"]
+            text_parts += ["", f"По вопросам — https://telegram.me/{brand_info['work_tg']}"]
         text = "\n".join(text_parts)
         keyboard = None
     else:
@@ -556,12 +556,12 @@ async def send_partner_done_vk(client_id: int, vk_id: str, db, token: str) -> No
             f"Ваш партнёрский код: {code}",
         ]
         if work_tg:
-            parts += ["", f"Чтобы отслеживать состояние партнёрского кабинета — https://t.me/{work_tg}"]
+            parts += ["", f"Чтобы отслеживать состояние партнёрского кабинета — https://telegram.me/{work_tg}"]
         text = "\n".join(parts)
     else:
         parts = ["😕 Упс, что-то пошло не так. Наша система не получила ваш партнёрский код."]
         if work_tg:
-            parts += ["", f"Напишите Основателю и пришлите скрин: https://t.me/{work_tg}"]
+            parts += ["", f"Напишите Основателю и пришлите скрин: https://telegram.me/{work_tg}"]
         text = "\n".join(parts)
 
     try:

@@ -5,7 +5,7 @@
 платформе (TG / VK / MAX), формируем прямую ссылку на его аккаунт:
 
   • Telegram — `tg://user?id={tg_id}` (открывает диалог даже без @username) либо
-    `https://t.me/{username}` если ник есть. Внутри TG @username и так кликабелен,
+    `https://telegram.me/{username}` если ник есть. Внутри TG @username и так кликабелен,
     но прямую ссылку всё равно добавляем — чтобы был единый формат.
   • ВКонтакте — `https://vk.com/id{vk_id}` (или `https://vk.com/{screen_name}`):
     @screen_name НЕ кликабелен из Telegram, а ссылка — да, ведёт на страницу,
@@ -41,7 +41,7 @@ def profile_url(platform: str, *, user_id: Optional[str | int] = None,
     if platform == "telegram":
         # @username (если есть) — публичная ссылка; иначе deep-link по id.
         if uname:
-            return f"https://t.me/{uname}"
+            return f"https://telegram.me/{uname}"
         if uid and uid.isdigit():
             return f"tg://user?id={uid}"
         return None

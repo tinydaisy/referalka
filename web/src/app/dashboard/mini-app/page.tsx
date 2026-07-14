@@ -42,7 +42,7 @@ function isBadButtonUrl(url?: string): boolean {
   if (!s) return false
   if (/^(tg:\/\/|mailto:|tel:)/i.test(s)) return false           // спецсхемы допустимы
   s = s.replace(/^(https?)(?::?\/{1,2}|:)(?=[^/])/i, '$1://')    // https// , https:/ , http:
-  if (s.startsWith('@')) s = `https://t.me/${s.slice(1)}`
+  if (s.startsWith('@')) s = `https://telegram.me/${s.slice(1)}`
   if (!/^https?:\/\//i.test(s)) s = `https://${s.replace(/^\/+/, '')}`
   const host = s.replace(/^https?:\/\//i, '').split(/[/?#]/)[0]
   return !host || host.includes(' ') || !host.includes('.')
@@ -303,7 +303,7 @@ export default function MiniAppSettingsPage() {
     const badBtn = (profile.start_buttons || []).find(b => b.type === 'custom' && isBadButtonUrl(b.url))
     if (badBtn) {
       alert(`Кнопка «${badBtn.label || 'без названия'}»: ссылка «${badBtn.url}» некорректна.\n\n`
-            + 'Укажите полный адрес, например https://t.me/ваш_ник')
+            + 'Укажите полный адрес, например https://telegram.me/ваш_ник')
       return
     }
     setSaving(true)
@@ -862,7 +862,7 @@ export default function MiniAppSettingsPage() {
                             />
                             {isBadButtonUrl(btn.url) && (
                               <p className="text-xs text-red-600 mt-1">
-                                Неверная ссылка. Нужен полный адрес — например <b>https://t.me/ваш_ник</b>.
+                                Неверная ссылка. Нужен полный адрес — например <b>https://telegram.me/ваш_ник</b>.
                                 С такой ссылкой Telegram не покажет приветствие вовсе.
                               </p>
                             )}

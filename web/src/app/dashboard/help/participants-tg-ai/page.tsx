@@ -114,7 +114,7 @@ ${base}?registered={yes|no|all}&in_chat={all|yes|no}
   "in_chat": "yes",
   "count": 252,
   "usernames": ["nick1", "nick2"],
-  "tg_urls": ["https://t.me/nick1"],
+  "tg_urls": ["https://telegram.me/nick1"],
   "mentions": ["@nick1"],
   "participants": [{"username": "nick1", "in_chat": true}]
 }
@@ -240,7 +240,7 @@ ${base}?registered={yes|no|all}&in_chat={all|yes|no}
   "in_chat": "yes",
   "count": 252,
   "usernames": ["nick1", "nick2"],
-  "tg_urls": ["https://t.me/nick1", "https://t.me/nick2"],
+  "tg_urls": ["https://telegram.me/nick1", "https://telegram.me/nick2"],
   "mentions": ["@nick1", "@nick2"],
   "participants": [
     { "username": "nick1", "in_chat": true },
@@ -250,7 +250,7 @@ ${base}?registered={yes|no|all}&in_chat={all|yes|no}
         <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
           <li><b>count</b> — сколько ников в списке.</li>
           <li><b>usernames</b> — массив ников без «@».</li>
-          <li><b>tg_urls</b> — готовые ссылки <code className="bg-gray-100 px-1 rounded">https://t.me/ник</code>.</li>
+          <li><b>tg_urls</b> — готовые ссылки <code className="bg-gray-100 px-1 rounded">https://telegram.me/ник</code>.</li>
           <li><b>mentions</b> — те же ники с «@».</li>
           <li><b>participants[].in_chat</b> — флаг по каждому: в чате он или нет (удобно при <code className="bg-gray-100 px-1 rounded">in_chat=all</code>).</li>
         </ul>
@@ -290,7 +290,7 @@ ${base}?registered={yes|no|all}&in_chat={all|yes|no}
         <div className="text-sm font-semibold text-gray-800 mb-1">Нужна помощь с подключением?</div>
         <p className="text-sm text-gray-600">
           Напишите разработчику —{' '}
-          <a href="https://t.me/margo_forbs?text=Вопрос_по_ссылкам_на_участников"
+          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_ссылкам_на_участников"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             открыть чат в Telegram

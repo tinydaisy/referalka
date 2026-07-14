@@ -100,7 +100,7 @@ export default function OrgProfilePage() {
         {/* контакты */}
         {(tg || c.telegram_username) && (
           <div className="flex flex-wrap gap-2 mt-5">
-            {c.telegram_username && <a href={`https://t.me/${c.telegram_username.replace('@', '')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-sm px-4 py-2 rounded-xl text-white inline-flex items-center gap-1.5" style={{ background: DARK }}><Send className="w-4 h-4" />Написать в Telegram</a>}
+            {c.telegram_username && <a href={`https://telegram.me/${c.telegram_username.replace('@', '')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-sm px-4 py-2 rounded-xl text-white inline-flex items-center gap-1.5" style={{ background: DARK }}><Send className="w-4 h-4" />Написать в Telegram</a>}
             {tg && <a href={tg} target="_blank" rel="noreferrer" className="text-sm px-4 py-2 rounded-xl border inline-flex items-center gap-1.5">Канал</a>}
           </div>
         )}

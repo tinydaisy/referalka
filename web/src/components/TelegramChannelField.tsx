@@ -120,11 +120,11 @@ export function TelegramChannelField({
           type="url"
           value={value.url}
           onChange={e => onChange({ ...value, url: e.target.value })}
-          placeholder="https://t.me/your_channel"
+          placeholder="https://telegram.me/your_channel"
           className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
         />
         <p className="text-xs text-gray-500 mt-1">
-          Полная ссылка через https. Для закрытого канала — инвайт-ссылка вида https://t.me/+abcDEF…
+          Полная ссылка через https. Для закрытого канала — инвайт-ссылка вида https://telegram.me/+abcDEF…
         </p>
       </div>
 

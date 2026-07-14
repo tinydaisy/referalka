@@ -369,7 +369,7 @@ async def _send_broadcast(schedule_id: int):
             # {game_link} вести некуда — оставляем ссылку пустой (плейсхолдер
             # подставится пустотой, кнопка/текст без рабочей ссылки на этой платформе).
             if bot_handle:
-                game_link_url = f"https://t.me/{bot_handle}?startapp=ref_pg{event_slug_for_glink}_tabgame"
+                game_link_url = f"https://telegram.me/{bot_handle}?startapp=ref_pg{event_slug_for_glink}_tabgame"
             else:
                 game_link_url = ""
 

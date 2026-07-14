@@ -6,7 +6,7 @@
 события и на странице регистрации, ответы ботов на свободный текст.
 
 Поля клиента (clients):
-  work_tg_username — Telegram. Вводится ССЫЛКОЙ (https://t.me/...), но старые
+  work_tg_username — Telegram. Вводится ССЫЛКОЙ (https://telegram.me/...), но старые
                      значения-ники (@name / name) тоже поддерживаются.
   work_vk          — ВКонтакте (ссылка).
   work_max         — MAX (ссылка).
@@ -28,7 +28,7 @@ SUPPORT_INTRO = "Возникли вопросы? Напишите нам в л�
 
 
 def _norm_tg(raw):
-    """work_tg_username → ссылка https://t.me/... Принимает уже-ссылку, @ник, ник."""
+    """work_tg_username → ссылка https://telegram.me/... Принимает уже-ссылку, @ник, ник."""
     s = (raw or "").strip()
     if not s:
         return ""
@@ -37,7 +37,7 @@ def _norm_tg(raw):
     if "t.me/" in s:
         return "https://" + s[s.index("t.me/"):]
     handle = s.lstrip("@").strip()
-    return f"https://t.me/{handle}" if handle else ""
+    return f"https://telegram.me/{handle}" if handle else ""
 
 
 def _norm_url(raw):

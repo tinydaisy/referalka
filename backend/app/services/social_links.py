@@ -6,7 +6,7 @@
   в шаблон воронки (`{subscription_channel}`).
 
 Главная цель — корректно работать с инвайт-ссылками закрытых каналов
-(`https://t.me/+abc...`), для которых @-префикс не годится.
+(`https://telegram.me/+abc...`), для которых @-префикс не годится.
 """
 import re
 from typing import Optional
@@ -19,11 +19,11 @@ def normalize_telegram_link(s: Optional[str]) -> str:
     """Любой ввод → корректный https-URL Telegram, либо исходная строка.
 
     Поддерживает:
-    - `https://t.me/foo`, `http://t.me/foo`, `t.me/foo`, `telegram.me/foo`
-    - `https://t.me/+abc` (закрытый канал — инвайт)
-    - `@username`              → `https://t.me/username`
-    - `+abc` (без хоста)       → `https://t.me/+abc`
-    - `username` (без префикса) → `https://t.me/username`
+    - `https://telegram.me/foo`, `http://t.me/foo`, `t.me/foo`, `telegram.me/foo`
+    - `https://telegram.me/+abc` (закрытый канал — инвайт)
+    - `@username`              → `https://telegram.me/username`
+    - `+abc` (без хоста)       → `https://telegram.me/+abc`
+    - `username` (без префикса) → `https://telegram.me/username`
     Если строка не похожа ни на один из форматов — возвращаем её как есть
     (не добавляя @, не теряя данные).
     """
@@ -34,23 +34,23 @@ def normalize_telegram_link(s: Optional[str]) -> str:
         return ""
     m = re.match(r"^https?://(?:t\.me|telegram\.me)/(.+)$", raw, re.I)
     if m:
-        return f"https://t.me/{m.group(1).strip('/')}"
+        return f"https://telegram.me/{m.group(1).strip('/')}"
     if raw.startswith("t.me/") or raw.startswith("telegram.me/"):
         path = raw.split("/", 1)[1].strip("/")
-        return f"https://t.me/{path}" if path else raw
+        return f"https://telegram.me/{path}" if path else raw
     if raw.startswith("@"):
         u = raw[1:]
         # `@+abcDEF...` — артефакт старого кода (он лепил @ ко всему, включая
         # инвайт-коды закрытых каналов). Чиним и такие записи.
         if u.startswith("+") and _TG_RE_INVITE.match(u):
-            return f"https://t.me/{u}"
+            return f"https://telegram.me/{u}"
         if _TG_RE_USERNAME.match(u):
-            return f"https://t.me/{u}"
+            return f"https://telegram.me/{u}"
         return raw
     if _TG_RE_INVITE.match(raw):
-        return f"https://t.me/{raw}"
+        return f"https://telegram.me/{raw}"
     if _TG_RE_USERNAME.match(raw):
-        return f"https://t.me/{raw}"
+        return f"https://telegram.me/{raw}"
     return raw
 
 
@@ -63,12 +63,12 @@ def telegram_api_id(s: Optional[str]) -> str:
     с инвайт-кодом не работает, проверить подписку этим способом нельзя.
     """
     norm = normalize_telegram_link(s)
-    if not norm.startswith("https://t.me/"):
+    if not norm.startswith("https://telegram.me/"):
         return ""
-    path = norm[len("https://t.me/"):].strip("/")
+    path = norm[len("https://telegram.me/"):].strip("/")
     if not path or path.startswith("+"):
         return ""
-    if "/" in path:  # вида `https://t.me/foo/123` — берём только канал
+    if "/" in path:  # вида `https://telegram.me/foo/123` — берём только канал
         path = path.split("/", 1)[0]
     return f"@{path}"
 
@@ -131,7 +131,7 @@ def normalize_telegram_channels(value) -> list[dict]:
 
     На входе ожидается список словарей со свободной формой; на выходе —
     канонизированный список:
-        [{"url": "https://t.me/...", "chat_id": "-100..." | "", "name": "..."}]
+        [{"url": "https://telegram.me/...", "chat_id": "-100..." | "", "name": "..."}]
 
     Правила:
       - url нормализуется через normalize_telegram_link, пустой url → элемент отбрасывается;

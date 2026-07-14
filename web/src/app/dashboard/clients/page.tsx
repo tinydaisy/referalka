@@ -607,7 +607,7 @@ export default function ContactsPage() {
                         </span>
                         {ident.username && (
                           <a
-                            href={ident.platform_slug === 'telegram' ? `https://t.me/${ident.username}` : '#'}
+                            href={ident.platform_slug === 'telegram' ? `https://telegram.me/${ident.username}` : '#'}
                             target="_blank" rel="noreferrer"
                             className="text-sm text-[#25455D] hover:underline flex items-center gap-1"
                           >
@@ -1505,7 +1505,7 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
       // Только свой TG-бот клиента — системный @pluson_bot больше не fallback.
       const handle = (botHandles?.telegram || '').replace(/^@/, '')
       if (!handle) return null
-      return `https://t.me/${handle}?start=prtp_${contactId}`
+      return `https://telegram.me/${handle}?start=prtp_${contactId}`
     }
     if (p === 'vk') {
       // Партнёрская ссылка через VK Mini App клиента

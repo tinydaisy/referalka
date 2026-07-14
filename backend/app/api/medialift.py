@@ -289,7 +289,7 @@ class AddChannelIn(BaseModel):
 async def _resolve_channel(http: httpx.AsyncClient, token: str, url: str) -> tuple[Optional[str], Optional[str]]:
     """По ссылке на канал возвращает (tg_channel_id, title) через getChat.
     Название НЕ храним — берём на лету; но id храним (нужен для getChatMember)."""
-    m = (url or "").replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
+    m = (url or "").replace("https://telegram.me/", "").replace("http://telegram.me/", "").replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
     if not m or m.startswith("+"):
         return None, None
     try:

@@ -322,7 +322,7 @@ export default function SpeakerCabinetPage() {
       setError(
         `Соцсети нужно указывать полной ссылкой, а не никнеймом. ` +
         `Исправьте: ${badSocials.join(', ')}. ` +
-        `Например: https://t.me/username, https://vk.com/username, https://instagram.com/username`
+        `Например: https://telegram.me/username, https://vk.com/username, https://instagram.com/username`
       )
       return
     }
@@ -907,7 +907,7 @@ export default function SpeakerCabinetPage() {
             Указывайте <b>полную ссылку</b> (начинается с https://), а не никнейм. По нику переход не работает.
           </div>
           <label style={labelCss}>Telegram-канал (ссылка)</label>
-          <input style={inputCss} value={me.tg_channel_url || ''} onChange={(e) => update({ tg_channel_url: e.target.value })} placeholder="https://t.me/…" />
+          <input style={inputCss} value={me.tg_channel_url || ''} onChange={(e) => update({ tg_channel_url: e.target.value })} placeholder="https://telegram.me/…" />
           <label style={labelCss}>VK-сообщество (ссылка)</label>
           <input style={inputCss} value={me.vk_url || ''} onChange={(e) => update({ vk_url: e.target.value })} placeholder="https://vk.com/…" />
           <label style={labelCss}>MAX-канал (ссылка)</label>
@@ -960,7 +960,7 @@ export default function SpeakerCabinetPage() {
               style={inputCss}
               value={me.tg_channel_url || ''}
               onChange={(e) => update({ tg_channel_url: e.target.value })}
-              placeholder="https://t.me/your_channel"
+              placeholder="https://telegram.me/your_channel"
             />
             {me.tg_channel_id && (
               <div style={{ fontSize: 11, color: '#7a8c9c', marginTop: 4 }}>ID канала: <code>{me.tg_channel_id}</code> (определяется автоматически)</div>

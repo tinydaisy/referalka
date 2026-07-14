@@ -59,8 +59,8 @@ export default function AltLaunchLinksPage() {
   // Свой бот клиента (VIP): t.me/{handle}
   // Общий @pluson_bot:      t.me/pluson_bot (для startapp добавляем short-name /pluson)
   function botBase(forStartapp: boolean) {
-    if (useOwnBot && botHandle) return `https://t.me/${botHandle}`
-    return forStartapp ? `https://t.me/pluson_bot/pluson` : `https://t.me/pluson_bot`
+    if (useOwnBot && botHandle) return `https://telegram.me/${botHandle}`
+    return forStartapp ? `https://telegram.me/pluson_bot/pluson` : `https://telegram.me/pluson_bot`
   }
 
   // Сборка ссылки под выбранный режим.
@@ -190,7 +190,7 @@ export default function AltLaunchLinksPage() {
         <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
         <p className="text-sm text-gray-600">
           Напишите разработчику —{' '}
-          <a href="https://t.me/margo_forbs?text=Вопрос_по_альтернативным_ссылкам"
+          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_альтернативным_ссылкам"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline inline-flex items-center gap-1">
             открыть чат в Telegram <ExternalLink size={12}/>

@@ -137,7 +137,7 @@ export default function ChatGatesTab() {
             <AlertTriangle size={16} /> Отключите privacy mode у бота <code className="font-mono">@{botHandle}</code>
           </div>
           <div className="text-amber-800">
-            В <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="underline">@BotFather</a>:
+            В <a href="https://telegram.me/BotFather" target="_blank" rel="noopener" className="underline">@BotFather</a>:
             {' '}<code className="font-mono">/mybots</code> → выберите <code className="font-mono">@{botHandle}</code> → <code>Bot Settings</code> → <code>Group Privacy</code> → <code>Turn off</code>.
             После этого нужно <strong>удалить бота из чата и заново добавить</strong> — privacy mode применяется только при добавлении.
             Без этого Telegram присылает боту только сообщения с упоминанием — гейт работать не будет.

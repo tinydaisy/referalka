@@ -49,7 +49,7 @@ const SAMPLE_JSON = `{
       "role": "organizer",
       "is_commercial": false,
       "topic": null,
-      "tg_channel_url": "https://t.me/margo_forbs_pro",
+      "tg_channel_url": "https://telegram.me/margo_forbs_pro",
       "vk_url": null, "max_url": null,
       "instagram_url": null, "website_url": null,
       "knowledge_base_title": null,
@@ -131,7 +131,7 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/{ID}/collaborators
   "role": "organizer",
   "is_commercial": false,
   "topic": null,
-  "tg_channel_url": "https://t.me/...",
+  "tg_channel_url": "https://telegram.me/...",
   "vk_url": null, "max_url": null,
   "instagram_url": null, "website_url": null,
   "knowledge_base_title": null, "knowledge_base_url": null,
@@ -390,7 +390,7 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/participants-tg?
   "registered": "yes",
   "count": 57,
   "usernames": ["nick1", "nick2", "nick3"],            // без @
-  "tg_urls":   ["https://t.me/nick1", "..."],          // готовые ссылки
+  "tg_urls":   ["https://telegram.me/nick1", "..."],          // готовые ссылки
   "mentions":  ["@nick1", "@nick2", "@nick3"]          // готовые упоминания
 }`}
             lang="JSON"

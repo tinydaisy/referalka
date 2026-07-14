@@ -22,7 +22,7 @@ router = APIRouter(prefix="/utils", tags=["TG-утилиты"])
 
 
 class ResolveIn(BaseModel):
-    username: Optional[str] = None  # @foo / foo / https://t.me/foo
+    username: Optional[str] = None  # @foo / foo / https://telegram.me/foo
     url: Optional[str] = None       # альтернативно — полный URL канала
 
 
