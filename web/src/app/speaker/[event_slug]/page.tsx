@@ -2770,29 +2770,14 @@ function JudgingTab({ token }: { token: string }) {
   // Фиксация оценки ОДНОГО участника. Требуем: ВСЕ критерии проставлены +
   // развёрнутая обратная связь (≥10 слов).
   const lockSubject = async (key: string, name: string) => {
-    // Проверка: все критерии этапа должны быть заполнены (нельзя частично).
-    // Актуальное значение берём из поля (может быть ещё не сохранено onBlur),
-    // фолбэк — на сохранённое.
+    // ⚠️ Баллы по критериям и комментарии к ним — НЕОБЯЗАТЕЛЬНЫ (жюри может
+    // оставить любой критерий пустым). Обязательна только общая обратная связь
+    // (проверка ниже). Раньше фиксация требовала все критерии + комментарий
+    // ≥7 слов к каждому — это блокировало жюри.
     const crits = data?.criteria || []
-    const curVal = (cid: number) => {
-      const raw = scoreRefs.current[`${cid}|${key}`]?.value
-      return (raw != null ? raw : scoreVal(cid, key)).trim()
-    }
-    const missing = crits.filter((c: any) => curVal(c.id) === '')
-    if (missing.length > 0) {
-      alert(`Нельзя сохранить оценку — не проставлены все критерии.\n\nОсталось заполнить: ${missing.map((c: any) => c.title).join(', ')}`)
-      return
-    }
-    // Комментарий «Почему такая оценка» — обязателен к КАЖДОМУ критерию (≥7 слов).
     const curCmt = (cid: number) => {
       const raw = cmtRefs.current[`${cid}|${key}`]?.value
       return (raw != null ? raw : cmtVal(cid, key)).trim()
-    }
-    const badCmt = crits.filter((c: any) => countWords(curCmt(c.id)) < CMT_MIN_WORDS)
-    if (badCmt.length > 0) {
-      alert(`К каждому критерию нужен комментарий «Почему такая оценка» — минимум ${CMT_MIN_WORDS} слов.\n\n`
-            + `Не хватает: ${badCmt.map((c: any) => c.title).join(', ')}`)
-      return
     }
     // Досохраняем оценки и комментарии, которые ещё не ушли на сервер (onBlur не сработал).
     for (const c of crits) {
@@ -2894,10 +2879,10 @@ function JudgingTab({ token }: { token: string }) {
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: DARK, marginBottom: 3 }}>
-                        Почему такая оценка <span style={{ color: '#dc2626', fontWeight: 400 }}>— обязательно, минимум {CMT_MIN_WORDS} слов</span>
+                        Почему такая оценка <span style={{ color: '#94a3b8', fontWeight: 400 }}>— по желанию</span>
                       </div>
                       <textarea defaultValue={cmtVal(c.id, s.key)}
-                        placeholder={`Поясните оценку по этому критерию (минимум ${CMT_MIN_WORDS} слов)…`}
+                        placeholder="Можно пояснить оценку по этому критерию…"
                         ref={(el) => { cmtRefs.current[`${c.id}|${s.key}`] = el }}
                         onBlur={(e) => saveComment(c.id, s.key, e.target.value, Number(c.scale_max))}
                         style={{ width: '100%', minHeight: 52, padding: 8, borderRadius: 8, border: '1px solid #d4dee5',

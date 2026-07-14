@@ -1881,38 +1881,11 @@ async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db:
     if words < 10:
         raise HTTPException(status_code=422, detail="Нужна развёрнутая обратная связь — минимум 10 слов.")
 
-    # Комментарий «Почему такая оценка» — обязателен к КАЖДОМУ критерию жюри
-    # этого этапа (≥7 слов). Критерии этапа = jury-критерии его пакетов
-    # (+ пакеты без этапа, stage_id IS NULL) — как в jury_me.
-    if data.stage_id is None:
-        crit_rows = await db.fetch(
-            """SELECT cr.id, cr.title FROM tournament_criteria cr
-                 JOIN tournament_packages p ON p.id = cr.package_id
-                WHERE cr.event_id=$1 AND cr.is_active AND p.is_active AND cr.scorer='jury'
-                ORDER BY cr.sort_order, cr.id""",
-            event_id)
-    else:
-        crit_rows = await db.fetch(
-            """SELECT cr.id, cr.title FROM tournament_criteria cr
-                 JOIN tournament_packages p ON p.id = cr.package_id
-                WHERE cr.event_id=$1 AND cr.is_active AND p.is_active AND cr.scorer='jury'
-                  AND (p.stage_id=$2 OR p.stage_id IS NULL)
-                ORDER BY cr.sort_order, cr.id""",
-            event_id, data.stage_id)
-    if crit_rows:
-        got = await db.fetch(
-            """SELECT criterion_id, comment FROM tournament_scores
-                WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4
-                  AND criterion_id = ANY($5::bigint[])""",
-            event_id, juror_ec_id, kind, int(sid), [c["id"] for c in crit_rows])
-        by_crit = {r["criterion_id"]: r["comment"] for r in got}
-        bad = [c["title"] for c in crit_rows
-               if _words(by_crit.get(c["id"])) < SCORE_COMMENT_MIN_WORDS]
-        if bad:
-            raise HTTPException(
-                status_code=422,
-                detail=("К каждому критерию нужен комментарий «Почему такая оценка» — "
-                        f"минимум {SCORE_COMMENT_MIN_WORDS} слов. Не хватает: " + ", ".join(bad)))
+    # ⚠️ Баллы по критериям и комментарии к ним — НЕОБЯЗАТЕЛЬНЫ: жюри может
+    # оставить любой критерий пустым и всё равно зафиксировать оценку.
+    # Обязательна ТОЛЬКО общая обратная связь (проверка выше, ≥10 слов).
+    # Раньше здесь требовался комментарий ≥7 слов к каждому критерию — это
+    # блокировало фиксацию.
 
     await db.execute(
         """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id, subject_kind, subject_id)
