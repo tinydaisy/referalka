@@ -40,6 +40,14 @@ jury_router = APIRouter(prefix="/api/v1/public/tournament-jury", tags=["Турн
 
 _CAB_AUD = "speaker-cabinet"
 
+# ⚠️ Потолок балла (scale_max) осмыслен ТОЛЬКО у критериев ЖЮРИ — там шкала 0..10
+# и поле «макс» есть в форме. Ручные и авто-критерии — это СЧЁТЧИКИ (зрителей в
+# эфире, денег, лидов, рефералов), верхней границы у них нет; поля «макс» в UI у
+# них тоже нет. Раньше им молча проставлялся дефолт (10 или 1) — и ввод резался
+# («Балл не может быть больше 10»). Поэтому им ставится заведомо недостижимое
+# значение: ограничение не должно появляться у них никогда.
+UNLIMITED_SCALE_MAX = 1_000_000_000
+
 DEFAULT_EXPERTISE_CRITERIA = [
     "Уровень экспертизы в профессиональной области",
     "Авторский метод / уникальная концепция / методология",
@@ -92,15 +100,16 @@ async def _seed_defaults_if_empty(event_id: int, db: asyncpg.Connection):
            VALUES ($1, 'Вовлечение', 1, TRUE, 1) RETURNING id""",
         event_id,
     )
+    # У авто/ручных критериев потолка нет — это счётчики (рефералы, лиды, зрители).
     await db.execute(
         """INSERT INTO tournament_criteria (package_id, event_id, title, scorer, auto_kind, scale_max, weight, sort_order)
-           VALUES ($1, $2, 'Привёл по реф-ссылке', 'auto', 'referrals', 1, 1, 0)""",
-        pkg_eng, event_id,
+           VALUES ($1, $2, 'Привёл по реф-ссылке', 'auto', 'referrals', $3, 1, 0)""",
+        pkg_eng, event_id, UNLIMITED_SCALE_MAX,
     )
     await db.execute(
         """INSERT INTO tournament_criteria (package_id, event_id, title, scorer, auto_kind, scale_max, weight, sort_order)
-           VALUES ($1, $2, 'Пришло в лид-магнит', 'auto', 'lead_magnet', 1, 1, 1)""",
-        pkg_eng, event_id,
+           VALUES ($1, $2, 'Пришло в лид-магнит', 'auto', 'lead_magnet', $3, 1, 1)""",
+        pkg_eng, event_id, UNLIMITED_SCALE_MAX,
     )
 
 
@@ -738,11 +747,17 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
     # code_phrase нужен и manual, и auto_number (по фразе ищем сдачу в чате)
     code_phrase = (data.code_phrase.strip() if (data.code_phrase and data.scorer in ("manual", "auto_number")) else None)
     lead_since = _parse_lead_since(data.lead_count_since)
+    # ⚠️ scale_max (потолок балла) осмыслен ТОЛЬКО у оценок жюри — там шкала 0..10
+    # и поле «макс» есть в форме. У ручных/авто-критериев это счётчик (зрители в
+    # эфире, деньги, лиды, рефералы) — верхней границы у него нет, а дефолт 10
+    # молча резал ввод («Балл не может быть больше 10»). Ставим им заведомо
+    # недостижимый потолок, чтобы ограничение не появлялось само.
+    scale_max = data.scale_max if data.scorer == "jury" else UNLIMITED_SCALE_MAX
     c = await db.fetchrow(
         """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order, code_phrase, lead_count_since)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
         data.package_id, event_id, data.title.strip(), data.description, data.scorer,
-        auto_kind, data.stage_id, data.scale_max, data.weight, data.sort_order, code_phrase, lead_since)
+        auto_kind, data.stage_id, scale_max, data.weight, data.sort_order, code_phrase, lead_since)
     return {"criterion": dict(c)}
 
 
@@ -766,6 +781,11 @@ async def update_criterion(event_id: int, criterion_id: int, data: CriterionUpda
     # lead_count_since приходит строкой (datetime-local) — парсим в datetime/None.
     if "lead_count_since" in payload:
         payload["lead_count_since"] = _parse_lead_since(payload["lead_count_since"])
+    # Тип сменили на НЕ-жюри (ручной/авто/народный) — снимаем потолок балла:
+    # у счётчиков (зрители, деньги, лиды) верхней границы нет, а старое значение
+    # (напр. 10) продолжало бы резать ввод. Поля «макс» в UI у них тоже нет.
+    if payload.get("scorer") and payload["scorer"] != "jury":
+        payload["scale_max"] = UNLIMITED_SCALE_MAX
     if payload:
         cols = list(payload.keys())
         sets = ", ".join(f"{c} = ${i+3}" for i, c in enumerate(cols))

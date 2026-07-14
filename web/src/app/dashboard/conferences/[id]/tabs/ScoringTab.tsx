@@ -608,9 +608,11 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     if (value === '') return
     const num = Number(value)
     if (isNaN(num) || num < 0) { alert('Балл не может быть отрицательным.'); load(); return }
-    const col = (board?.columns || []).find((c: any) => c.criterion_id === criterionId)
-    const mx = col ? Number(col.scale_max) : null
-    if (mx != null && !isNaN(mx) && num > mx) { alert(`Балл не может быть больше максимума (${mx}).`); load(); return }
+    // ⚠️ Потолок scale_max к РУЧНЫМ критериям не применяется. У них в форме нет
+    // поля «макс» — значение (10) проставлялось дефолтом само, и ввести «30
+    // зрителей в эфире» было нельзя: «Балл не может быть больше 10». Ручной
+    // критерий — это счётчик (зрители, деньги, лиды), у него нет верхней границы.
+    // Ограничение по scale_max остаётся только у оценок ЖЮРИ (там шкала 0..10).
     // Бэк возвращает пересчитанную таблицу — обновляем без полного рефетча (без мигания).
     const r = await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: num, stage_id: stageId })
     if (r?.board) setBoard(r.board)
