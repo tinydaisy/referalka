@@ -465,17 +465,28 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
           <span className="text-xs text-gray-400">— распределение отдельное на каждом этапе</span>
         </div>
       )}
-      <p className="text-xs text-gray-400 mb-3">
-        Счётчик у участника: <span className="text-[#229ED9] font-semibold">всего</span> /
-        <span className="text-emerald-600 font-semibold"> без конфликта</span> /
-        <span className="text-red-500 font-semibold"> привели его</span>. Красная цифра — жюри, которое само привело участника по реф-ссылке.
-      </p>
       <div className="overflow-auto border rounded-xl" style={{ WebkitOverflowScrolling: 'touch', maxHeight: '70vh' }}>
         <table className="text-sm min-w-max">
           <thead className="sticky top-0 z-30">
             <tr className="bg-gray-50">
               <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-20 w-[220px] min-w-[220px] max-w-[220px]">Участник</th>
-              <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center sticky left-[220px] bg-gray-50 z-20 border-r">Жюри</th>
+              {/* Расшифровка трёх цифр — под «?» у заголовка (раньше висела длинной
+                  подписью над таблицей и всё равно оставалась непонятной). */}
+              <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center sticky left-[220px] bg-gray-50 z-20 border-r">
+                Жюри
+                <span className="ml-0.5 relative inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help group/jc">
+                  <HelpCircle size={13} />
+                  <span className="invisible opacity-0 group-hover/jc:visible group-hover/jc:opacity-100 transition-opacity absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-64 bg-[#1f2d3a] text-white text-[11px] font-normal normal-case leading-snug text-left rounded-lg px-2.5 py-2 shadow-xl pointer-events-none">
+                    Сколько жюри оценивают этого участника:
+                    <br /><br />
+                    <b className="text-[#7cc4ea]">синяя</b> — всего назначено
+                    <br />
+                    <b className="text-emerald-300">зелёная</b> — из них без конфликта интересов
+                    <br />
+                    <b className="text-red-300">красная</b> — из них те, кто сам привёл этого участника по своей реф-ссылке (конфликт: оценивают «своего»)
+                  </span>
+                </span>
+              </th>
               {data.jurors.map((j: any) => {
                 // Сколько участников отмечено этому жюри (по текущему набору pairs).
                 const cnt = (data.subjects || []).reduce((acc: number, s: any) =>
