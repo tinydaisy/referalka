@@ -1725,7 +1725,11 @@ class SessionCreate(BaseModel):
     track_label: Optional[str] = None
     track_color: Optional[str] = None
     track_id: Optional[int] = None  # FK на conf_tracks (на будущее, UI пока не использует)
-    sort_order: int = 0
+    # ⚠️ None (а не 0) — «не задан». Дашборд сортирует слоты дня ПО sort_order, а
+    # фронт его при создании не шлёт: с дефолтом 0 новый слот улетал в САМОЕ
+    # НАЧАЛО дня (выше 13:00), клиент его не находил и жал «Добавить» снова →
+    # дубли. Не задан → ставим в конец дня (см. create_session).
+    sort_order: Optional[int] = None
 
 
 class SessionUpdate(BaseModel):
@@ -1820,13 +1824,21 @@ async def create_session(
     if not title:
         raise HTTPException(status_code=422, detail="Нужно указать тему слота или выбрать тему спикера")
 
+    # sort_order не задан → в конец дня (список в дашборде сортируется по нему).
+    sort_order = data.sort_order
+    if sort_order is None:
+        sort_order = (await db.fetchval(
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM conf_sessions WHERE event_id=$1 AND day=$2",
+            event_id, data.day,
+        )) or 1
+
     session = await db.fetchrow(
         """INSERT INTO conf_sessions
           (event_id, speaker_id, topic_id, day, start_time, end_time, title,
            gift_description, stream_url, track_label, track_color, track_id, sort_order)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
         event_id, data.speaker_id, data.topic_id, data.day, start_t, end_t, title,
-        data.gift_description, data.stream_url, data.track_label, data.track_color, data.track_id, data.sort_order
+        data.gift_description, data.stream_url, data.track_label, data.track_color, data.track_id, sort_order
     )
     await regenerate_landing_data(event_id, db)
     return {"session": dict(session)}

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, Calendar, Trash2, Save } from 'lucide-react'
+import { Plus, Calendar, Trash2, Save, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import ShiftTimingModal from '@/components/ShiftTimingModal'
@@ -33,7 +33,9 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   // Сбрасывается после успешного сохранения.
   const [dirtyDays, setDirtyDays] = useState<Set<number>>(new Set())
   const [dayForms, setDayForms] = useState<Record<number, any>>({})
-  const [sessionModal, setSessionModal] = useState<{ day: number } | null>(null)
+  // editId != null → редактируем существующий слот (в конференции раньше слот
+  // можно было только удалить и завести заново).
+  const [sessionModal, setSessionModal] = useState<{ day: number; editId?: number | null } | null>(null)
   const [sessionForm, setSessionForm] = useState({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
   const [speakerTopics, setSpeakerTopics] = useState<{ id: number; topic: string }[]>([])
   const [customTitle, setCustomTitle] = useState(false)
@@ -148,22 +150,45 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     setSessionForm(f => ({ ...f, speaker_id: speakerId, topic_id: autoTopicId, title: autoTitle }))
   }
 
+  // Открыть существующий слот на редактирование (тема живёт по topic_id — берём
+  // реальную привязку слота, а не угадываем по спикеру).
+  function openSessionEdit(s: any) {
+    const sp = speakers.find((x: any) => String(x.id) === String(s.speaker_id ?? ''))
+    const topics: { id: number; topic: string }[] = sp?.topics || []
+    setSpeakerTopics(topics)
+    const boundId = s.topic_id != null && topics.some(t => t.id === s.topic_id) ? String(s.topic_id) : ''
+    setCustomTitle(!s.speaker_id)
+    setSessionForm({
+      title: s.title || '',
+      topic_id: boundId,
+      speaker_id: s.speaker_id != null ? String(s.speaker_id) : '',
+      start_time: (s.start_time || '').slice(0, 5),
+      end_time: (s.end_time || '').slice(0, 5),
+    })
+    setSessionModal({ day: s.day, editId: s.id })
+  }
+
   async function addSession() {
     if (!sessionModal) return
     const speakerId = sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null
     // Без спикера тема обязательна; со спикером — тема живёт по topic_id, иначе заглушка.
     if (!speakerId && !sessionForm.title.trim()) return
     const title = sessionForm.title.trim() || (speakerId ? 'Тема будет уточнена позже' : '')
+    const payload = {
+      day: sessionModal.day,
+      title: title || undefined,
+      topic_id: sessionForm.topic_id ? Number(sessionForm.topic_id) : null,
+      speaker_id: speakerId,
+      start_time: sessionForm.start_time || null,
+      end_time: sessionForm.end_time || null,
+    }
     setSavingSession(true)
     try {
-      await api.conference.sessions.create(eventId, {
-        day: sessionModal.day,
-        title: title || undefined,
-        topic_id: sessionForm.topic_id ? Number(sessionForm.topic_id) : undefined,
-        speaker_id: speakerId,
-        start_time: sessionForm.start_time || null,
-        end_time: sessionForm.end_time || null,
-      })
+      if (sessionModal.editId != null) {
+        await api.conference.sessions.update(eventId, sessionModal.editId, payload)
+      } else {
+        await api.conference.sessions.create(eventId, payload)
+      }
       setSessionModal(null)
       setSessionForm({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
       setSpeakerTopics([])
@@ -215,7 +240,21 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
 
       {days.map((day: any) => {
         const dayNum = day.day_number
-        const daySessions = sessions.filter((s: any) => s.day === dayNum).sort((a: any, b: any) => a.sort_order - b.sort_order)
+        // Сортируем ПО ВРЕМЕНИ начала, а не по sort_order: у слотов, созданных
+        // через модалку, sort_order оставался 0 — и новый слот улетал в самое
+        // начало дня (выше 13:00). Клиент его там не находил и жал «Добавить»
+        // снова → дубли. Слоты без времени — в конец.
+        const daySessions = sessions
+          .filter((s: any) => s.day === dayNum)
+          .slice()
+          .sort((a: any, b: any) => {
+            const ta = String(a.start_time || '').slice(0, 5)
+            const tb = String(b.start_time || '').slice(0, 5)
+            if (ta && tb && ta !== tb) return ta < tb ? -1 : 1
+            if (ta && !tb) return -1
+            if (!ta && tb) return 1
+            return (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id
+          })
         const df = dayForms[dayNum] || {}
 
         return (
@@ -271,7 +310,11 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                         <p className="text-sm font-medium text-gray-900">{s.title}</p>
                         {s.speaker_name && <p className="text-xs text-gray-400">{s.speaker_name}</p>}
                       </div>
-                      <button onClick={() => deleteSession(s.id)}
+                      <button onClick={() => openSessionEdit(s)} title="Редактировать слот"
+                        className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-[#25455D] transition-all p-1 rounded">
+                        <Pencil size={13} />
+                      </button>
+                      <button onClick={() => deleteSession(s.id)} title="Удалить слот"
                         className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded">
                         <Trash2 size={13} />
                       </button>
@@ -333,7 +376,11 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       )}
 
       {sessionModal && (
-        <Modal title={tp.sessionModal.title(sessionModal.day)} onClose={() => { setSessionModal(null); setSpeakerTopics([]); setCustomTitle(false) }}>
+        <Modal
+          title={sessionModal.editId != null
+            ? `Редактировать слот — День ${sessionModal.day}`
+            : tp.sessionModal.title(sessionModal.day)}
+          onClose={() => { setSessionModal(null); setSpeakerTopics([]); setCustomTitle(false) }}>
           <div className="space-y-3">
             <div>
               <label className="label">{tp.sessionModal.speaker}</label>
@@ -403,7 +450,9 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
           <div className="flex gap-3 mt-5">
             <button onClick={addSession} disabled={(!sessionForm.speaker_id && !sessionForm.title.trim()) || savingSession}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${savingSession ? 'btn-loading' : ''}`}>
-              {savingSession ? <><Spinner /> {t.common.saving}</> : tp.sessionModal.addBtn}
+              {savingSession
+                ? <><Spinner /> {t.common.saving}</>
+                : (sessionModal.editId != null ? 'Сохранить слот' : tp.sessionModal.addBtn)}
             </button>
             <button onClick={() => setSessionModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
