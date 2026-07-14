@@ -1881,11 +1881,37 @@ async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db:
     if words < 10:
         raise HTTPException(status_code=422, detail="Нужна развёрнутая обратная связь — минимум 10 слов.")
 
-    # ⚠️ Баллы по критериям и комментарии к ним — НЕОБЯЗАТЕЛЬНЫ: жюри может
-    # оставить любой критерий пустым и всё равно зафиксировать оценку.
-    # Обязательна ТОЛЬКО общая обратная связь (проверка выше, ≥10 слов).
-    # Раньше здесь требовался комментарий ≥7 слов к каждому критерию — это
-    # блокировало фиксацию.
+    # БАЛЛ по каждому критерию жюри этого этапа — ОБЯЗАТЕЛЕН (частичную оценку
+    # не фиксируем). Критерии этапа = jury-критерии его пакетов (+ пакеты без
+    # этапа, stage_id IS NULL) — как в jury_me.
+    # ⚠️ А вот КОММЕНТАРИЙ «Почему такая оценка» — НЕОБЯЗАТЕЛЕН: раньше к каждому
+    # критерию требовалось ≥7 слов, теперь его можно не писать.
+    if data.stage_id is None:
+        crit_rows = await db.fetch(
+            """SELECT cr.id, cr.title FROM tournament_criteria cr
+                 JOIN tournament_packages p ON p.id = cr.package_id
+                WHERE cr.event_id=$1 AND cr.is_active AND p.is_active AND cr.scorer='jury'
+                ORDER BY cr.sort_order, cr.id""",
+            event_id)
+    else:
+        crit_rows = await db.fetch(
+            """SELECT cr.id, cr.title FROM tournament_criteria cr
+                 JOIN tournament_packages p ON p.id = cr.package_id
+                WHERE cr.event_id=$1 AND cr.is_active AND p.is_active AND cr.scorer='jury'
+                  AND (p.stage_id=$2 OR p.stage_id IS NULL)
+                ORDER BY cr.sort_order, cr.id""",
+            event_id, data.stage_id)
+    if crit_rows:
+        scored = {r["criterion_id"] for r in await db.fetch(
+            """SELECT criterion_id FROM tournament_scores
+                WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4
+                  AND criterion_id = ANY($5::bigint[]) AND value_number IS NOT NULL""",
+            event_id, juror_ec_id, kind, int(sid), [c["id"] for c in crit_rows])}
+        missing = [c["title"] for c in crit_rows if c["id"] not in scored]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail="Не проставлены все баллы. Осталось заполнить: " + ", ".join(missing))
 
     await db.execute(
         """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id, subject_kind, subject_id)
