@@ -318,7 +318,10 @@ async def _send_broadcast(schedule_id: int):
         # сообщение (в Telegram — телеграм-поддержка, в VK — VK, в MAX — MAX).
         # Текст рассылки собирается один раз на все платформы, поэтому подстановка
         # делается в момент отправки в каждую платформу — как {first_name}.
-        needs_support_link = "{support_link}" in (text or "")
+        # {support_platform} — единое имя плейсхолдера службы заботы по площадке
+        # (как в воронках лид-магнитов). {support_link} — старое имя, принимаем его
+        # тоже, чтобы не сломать уже настроенные шаблоны.
+        needs_support_link = ("{support_platform}" in (text or "")) or ("{support_link}" in (text or ""))
         support_by_platform: dict[str, str] = {}
         if needs_support_link:
             from app.services.support_message import support_url_for_platform
@@ -335,10 +338,12 @@ async def _send_broadcast(schedule_id: int):
                 ) if sup_row else ""
 
         def _with_support(txt: str | None, platform: str) -> str:
-            """Подставить {support_link} контактом поддержки этой платформы."""
+            """Подставить {support_platform}/{support_link} контактом службы заботы
+            этой площадки (оба имени — синонимы, единый резолв по площадке)."""
             if not txt or not needs_support_link:
                 return txt or ""
-            return txt.replace("{support_link}", support_by_platform.get(platform, ""))
+            val = support_by_platform.get(platform, "")
+            return txt.replace("{support_platform}", val).replace("{support_link}", val)
 
         # {game_link} — ссылка на вкладку «Игра» события (личный кабинет получателя).
         # Используется в `2h_before_reg` / `day_before_09_12_reg` — это уже зарегистрированные

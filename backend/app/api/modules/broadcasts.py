@@ -372,7 +372,7 @@ DEFAULT_TEMPLATES = [
             "👇🏻👇🏻👇🏻\n"
             "{stream_url}\n\n"
             "—\n"
-            "При возникновении технических трудностей пишите — {support_link}"
+            "При возникновении технических трудностей пишите — {support_platform}"
         ),
         "photo_url": None,
         "button_text": "Войти в эфир",

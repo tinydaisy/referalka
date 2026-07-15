@@ -915,7 +915,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # значение передано (превью/тест); при отправке его подставит Celery
         # контактом ТОЙ площадки, куда уходит сообщение.
         if support_link is not None:
-            raw_text = raw_text.replace("{support_link}", support_link)
+            raw_text = raw_text.replace("{support_platform}", support_link).replace("{support_link}", support_link)
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
         return {
             "text": raw_text,
@@ -1610,10 +1610,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     # При реальной отправке support_link НЕ передаётся: Celery подставит контакт
     # ТОЙ площадки, куда уходит сообщение (в TG — телеграм, в VK — ВК, в MAX — MAX),
     # поэтому плейсхолдер должен дожить до broadcast.py и НЕ попасть в зачистку ниже.
+    # {support_platform} — единое имя (как в воронках); {support_link} — старый
+    # синоним, принимаем оба.
     if support_link is not None:
-        text = text.replace("{support_link}", support_link)
+        text = text.replace("{support_platform}", support_link).replace("{support_link}", support_link)
         if subject:
-            subject = subject.replace("{support_link}", support_link)
+            subject = subject.replace("{support_platform}", support_link).replace("{support_link}", support_link)
 
     # Финальная зачистка: любой известный плейсхолдер, не подставленный этим
     # типом шаблона (клиент вставил его вручную в неподходящий тип), НЕ должен
