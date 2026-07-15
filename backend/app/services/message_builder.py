@@ -1095,8 +1095,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial,
                        (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
                           SELECT eclm.id, eclm.sort_order,
-                                 COALESCE(glm.name, glp.name) AS title,
-                                 CASE WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                 COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
+                                 CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                                      WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
                                       THEN 'https://pluson.ru/p/'||glp.slug
                                       ELSE glm.url END AS url
                             FROM event_collaborator_lead_magnets eclm
