@@ -336,6 +336,16 @@ async def check_bot_in_chat(
             f"https://api.telegram.org/bot{token}/getChatMember",
             params={"chat_id": row["chat_id"], "user_id": bot_id},
         )).json()
+        # Тип чата (group/supergroup vs channel) — от него зависит логика прав.
+        gc = (await http.get(
+            f"https://api.telegram.org/bot{token}/getChat",
+            params={"chat_id": row["chat_id"]},
+        )).json()
+
+    # Тип чата: 'channel' — вещание (у бота-админа есть тумблер «Публикация сообщений»);
+    # 'group'/'supergroup' — обычный чат (админ пишет всегда, тумблера нет).
+    chat_type = (gc.get("result", {}).get("type") if gc.get("ok") else None)
+    is_channel = chat_type == "channel"
 
     if not r.get("ok"):
         desc = (r.get("description") or "").lower()
@@ -343,22 +353,41 @@ async def check_bot_in_chat(
         if "chat not found" in desc:
             err = "chat_not_found"
         return {"supported": True, "in_chat": False, "is_admin": False,
-                "can_post": False, "error": err,
+                "can_post": False, "chat_type": chat_type, "is_channel": is_channel,
+                "error": err,
                 "message": "Бот не найден в этом чате. Добавьте его в чат и сделайте администратором."}
 
     res = r["result"]
     status = res.get("status", "")
     in_chat = status in ("administrator", "creator", "member", "restricted")
     is_admin = status in ("administrator", "creator")
-    # У обычного участника право писать может быть отобрано (restricted).
-    can_post = is_admin or (status == "member") or bool(res.get("can_send_messages"))
+
+    # Может ли бот реально ПОСТИТЬ:
+    # - канал: только админ с включённым правом «Публикация сообщений» (can_post_messages).
+    #   У создателя (creator) право есть всегда. can_post_messages может отсутствовать в
+    #   ответе (None) — тогда считаем, что права нет (безопасный дефолт).
+    # - группа/супергруппа: тумблера нет — админ пишет всегда. Для надёжности рассылок
+    #   считаем «готово» именно у админа (не-админ → красное предупреждение на фронте).
+    if is_channel:
+        can_post = (status == "creator") or (is_admin and bool(res.get("can_post_messages")))
+    else:
+        can_post = is_admin
 
     message = None
+    error = None
     if not in_chat:
+        error = "not_in_chat"
         message = "Бот не в чате. Добавьте его и сделайте администратором."
     elif not is_admin:
-        message = "Бот в чате, но НЕ администратор. Сделайте его администратором."
+        error = "not_admin"
+        message = ("Бот в канале, но НЕ администратор. Сделайте его администратором."
+                   if is_channel else
+                   "Бот в чате, но НЕ администратор. Сделайте его администратором.")
+    elif is_channel and not can_post:
+        error = "no_post_rights"
+        message = ("Бот — админ канала, но у него выключено право «Публикация сообщений». "
+                   "Включите его боту в настройках канала — иначе рассылка в канал не уйдёт.")
 
     return {"supported": True, "in_chat": in_chat, "is_admin": is_admin,
-            "can_post": can_post, "error": None if is_admin else "not_admin",
-            "message": message}
+            "can_post": can_post, "chat_type": chat_type, "is_channel": is_channel,
+            "error": error, "message": message}

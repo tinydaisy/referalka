@@ -93,21 +93,16 @@ export default function EventChatsField({ value, onChange }: Props) {
     setPicker(null)
   }
 
-  function setPrimary(platform: ChatPlatform) {
-    if (!value[REF_KEY[platform]]) return
-    onChange({ ...value, primary: platform })
-  }
-
   const anySelected = !!(value.tgChatRef || value.vkChatRef || value.maxChatRef)
 
   return (
     <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
       <div>
-        <label className="block text-sm font-semibold text-gray-800">Чаты события</label>
+        <label className="block text-sm font-semibold text-gray-800">Чаты/каналы события</label>
         <p className="text-xs text-gray-500 mt-1">
-          Выберите чат для каждой площадки из вашей базы чатов. Чаты добавляются один раз в{' '}
+          Выберите чат или канал для каждой площадки из вашей базы. Чаты/каналы добавляются один раз в{' '}
           <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">Каналы → «Чаты для рассылок»</a>{' '}
-          (там определяется ID и ссылка). Радио-кнопкой выберите <b>главный чат</b>.
+          (там определяется ID и ссылка).
         </p>
       </div>
 
@@ -136,27 +131,10 @@ export default function EventChatsField({ value, onChange }: Props) {
         const meta = PLATFORM_META[platform]
         const ref = value[REF_KEY[platform]]
         const selected = chatById(ref)
-        const isPrimary = value.primary === platform
         const platformChats = chats.filter(c => c.platform === platform)
         return (
           <div className="bg-white border border-gray-200 rounded p-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="primary_chat_platform"
-                checked={isPrimary}
-                onChange={() => setPrimary(platform)}
-                disabled={!ref}
-                className="w-4 h-4 cursor-pointer disabled:cursor-not-allowed"
-                style={{ accentColor: '#25455D' }}
-                title={ref ? 'Сделать главным чатом' : 'Сначала выберите чат'}
-              />
-              <span className="text-sm text-gray-700">Главный чат ({meta.label})</span>
-              {isPrimary && (
-                <span className="ml-auto text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
-                      style={{ background: '#FFCFA4', color: '#25455D' }}>Главный</span>
-              )}
-            </label>
+            <div className="text-sm font-medium text-gray-700">Чат/канал события ({meta.label})</div>
 
             <div className="mt-3">
               {selected ? (
@@ -179,23 +157,17 @@ export default function EventChatsField({ value, onChange }: Props) {
                 </button>
               )}
 
-              {/* Бот-админ в чате — проверяем реально через Telegram (getChatMember).
-                  Без бота рассылка в чат не уйдёт; без прав админа он не сможет читать
-                  чат (кодовые слова/баллы) и удалять сообщения по гейту подписки. */}
+              {/* Статус бота — живая проверка через Telegram (getChat + getChatMember)
+                  при заходе на страницу и смене чата. Две строки:
+                  1) бот в чате/канале?  2) может ли реально писать/публиковать?
+                  Логика прав различается для группы (админ пишет всегда) и канала
+                  (нужно право «Публикация сообщений»). */}
               {platform === 'telegram' && selected && (
                 <div className="mt-2">
                   {botChecking ? (
-                    <div className="text-xs text-gray-400">Проверяем бота в чате…</div>
-                  ) : botCheck?.is_admin ? (
-                    <div className="text-xs text-green-600">✓ Бот в чате и админ</div>
+                    <div className="text-xs text-gray-400">Проверяем бота…</div>
                   ) : botCheck ? (
-                    <div className="rounded-lg px-3 py-2 text-xs bg-red-50 border border-red-200 text-red-700">
-                      <b>{botCheck.in_chat ? 'Бот в чате, но НЕ администратор.' : 'Бота нет в этом чате.'}</b>{' '}
-                      Добавьте своего бота в чат и сделайте его администратором — иначе рассылка
-                      в этот чат не уйдёт, а кодовые слова и баллы работать не будут.
-                      <button type="button" onClick={() => selected && checkBot(selected.id)}
-                              className="ml-1 underline">Проверить снова</button>
-                    </div>
+                    <BotStatus check={botCheck} onRecheck={() => selected && checkBot(selected.id)} />
                   ) : null}
                 </div>
               )}
@@ -221,6 +193,50 @@ export default function EventChatsField({ value, onChange }: Props) {
           Если ни один чат не выбран — плитка «Чат» в Mini App у участников не покажется.
         </p>
       )}
+    </div>
+  )
+}
+
+/* ─────── Статус бота в чате/канале (2 строки) ─────── */
+function BotStatus({ check, onRecheck }: { check: any; onRecheck: () => void }) {
+  const isChannel = !!check.is_channel
+  const inChat = !!check.in_chat
+  const isAdmin = !!check.is_admin
+  const canPost = !!check.can_post
+  const place = isChannel ? 'канале' : 'чате'
+
+  // Строка 1 — присутствие в чате/канале.
+  const line1ok = inChat
+  const line1 = line1ok
+    ? `Бот в ${place}`
+    : `Бота нет в ${place} — добавьте своего бота`
+
+  // Строка 2 — может ли реально писать/публиковать.
+  let line2ok = false
+  let line2 = ''
+  if (isChannel) {
+    // Канал: нужно право «Публикация сообщений».
+    if (canPost) { line2ok = true; line2 = 'Может публиковать' }
+    else if (isAdmin) { line2 = 'Нет права «Публикация сообщений» — включите его боту в настройках канала' }
+    else { line2 = 'Бот не админ — сделайте его администратором канала' }
+  } else {
+    // Группа/супергруппа: админ пишет всегда.
+    if (isAdmin) { line2ok = true; line2 = 'Может писать' }
+    else { line2 = 'Бот не админ — сделайте его администратором' }
+  }
+
+  const Row = ({ ok, text }: { ok: boolean; text: string }) => (
+    <div className={`text-xs flex items-start gap-1 ${ok ? 'text-green-600' : 'text-red-600'}`}>
+      <span className="shrink-0">{ok ? '✓' : '✕'}</span>
+      <span className={ok ? '' : 'font-medium'}>{text}</span>
+    </div>
+  )
+
+  return (
+    <div className={`rounded-lg px-3 py-2 space-y-1 ${line1ok && line2ok ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+      <Row ok={line1ok} text={line1} />
+      <Row ok={line2ok} text={line2} />
+      <button type="button" onClick={onRecheck} className="text-[11px] text-gray-500 underline mt-0.5">Проверить снова</button>
     </div>
   )
 }

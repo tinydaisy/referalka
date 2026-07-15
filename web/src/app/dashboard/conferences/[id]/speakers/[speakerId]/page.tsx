@@ -546,7 +546,8 @@ export default function ConferenceSpeakerPage() {
         }
       }
       setEventSaved(true)
-      setTimeout(() => setEventSaved(false), 3000)
+      // После сохранения возвращаемся в список спикеров (Люди → Спикеры).
+      router.push(`${basePath}/${confId}?tab=speakers`)
     } catch (err: any) {
       setError(err.message)
     } finally {
