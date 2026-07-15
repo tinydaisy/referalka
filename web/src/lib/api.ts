@@ -827,6 +827,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/referral/thresholds/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/referral/thresholds/${id}`, { method: 'DELETE' }),
+      move: (eventId: number, id: number, dir: 'up' | 'down') =>
+        request(`/api/v1/events/${eventId}/referral/thresholds/${id}/move?dir=${dir}`, { method: 'POST' }),
     },
     materials: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/referral/materials`),

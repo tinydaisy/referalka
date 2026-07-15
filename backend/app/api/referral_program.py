@@ -359,7 +359,7 @@ async def list_thresholds(
            LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
            LEFT JOIN clients oc ON oc.id = lm.client_id
            WHERE t.event_id = $1
-           ORDER BY t.threshold_count""",
+           ORDER BY t.threshold_count, t.sort, t.id""",
         event_id
     )
     from app.services.event_access import is_collab_event
@@ -445,6 +445,53 @@ async def delete_threshold(
     if result.endswith("0"):
         raise HTTPException(status_code=404, detail="Порог не найден")
     return {"ok": True}
+
+
+@router.post("/referral/thresholds/{threshold_id}/move", summary="Сдвинуть порог вверх/вниз в пределах одного числа друзей")
+async def move_threshold(
+    event_id: int, threshold_id: int,
+    dir: str,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Меняет порядок показа порога СРЕДИ порогов с ТЕМ ЖЕ threshold_count (два
+    подарка «за 0 друзей» и т.п.). Между разными числами друзей двигать нельзя —
+    там порядок задаёт само число. Обмен sort с соседом; при равных sort стабилизируем по id."""
+    if dir not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="dir должен быть up или down")
+    await _check_event_owned(event_id, int(client["sub"]), db)
+
+    cur = await db.fetchrow(
+        "SELECT id, threshold_count, sort FROM event_referral_thresholds WHERE id=$1 AND event_id=$2",
+        threshold_id, event_id,
+    )
+    if not cur:
+        raise HTTPException(status_code=404, detail="Порог не найден")
+
+    # Все пороги с тем же числом друзей, в порядке показа.
+    group = await db.fetch(
+        """SELECT id, sort FROM event_referral_thresholds
+            WHERE event_id=$1 AND threshold_count=$2
+            ORDER BY sort, id""",
+        event_id, cur["threshold_count"],
+    )
+    ids = [r["id"] for r in group]
+    idx = ids.index(threshold_id)
+    swap_idx = idx - 1 if dir == "up" else idx + 1
+    if swap_idx < 0 or swap_idx >= len(ids):
+        return {"ok": True, "moved": False}  # уже с краю — двигать некуда
+
+    # Нормализуем sort всей группы по текущему порядку, затем меняем местами
+    # выбранный элемент и соседа (надёжно даже если sort у всех был 0).
+    order = ids[:]
+    order[idx], order[swap_idx] = order[swap_idx], order[idx]
+    async with db.transaction():
+        for pos, tid in enumerate(order):
+            await db.execute(
+                "UPDATE event_referral_thresholds SET sort=$1, updated_at=NOW() WHERE id=$2 AND event_id=$3",
+                pos, tid, event_id,
+            )
+    return {"ok": True, "moved": True}
 
 
 # ──────────────────────────────────────────────

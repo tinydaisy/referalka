@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Trash2, ImageIcon, Type, ExternalLink, Download, X, Save } from 'lucide-react'
+import { Gift, Plus, Trash2, ImageIcon, Type, ExternalLink, Download, X, Save, ChevronUp, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 
@@ -277,6 +277,11 @@ function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: s
     load()
   }
 
+  async function handleMove(id: number, dir: 'up' | 'down') {
+    await api.referralProgram.thresholds.move(eventId, id, dir).catch((e: any) => alert(e.message))
+    load()
+  }
+
   return (
     <div className="space-y-4">
       {/* Логика подсчёта подарков */}
@@ -308,8 +313,30 @@ function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: s
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
-          {items.map(t => (
+          {items.map(t => {
+            // Стрелки нужны только внутри одного числа друзей (несколько подарков
+            // «за 0», «за 3» и т.п.). items уже отсортированы threshold_count → sort.
+            const sameGroup = items.filter(x => x.threshold_count === t.threshold_count)
+            const posInGroup = sameGroup.findIndex(x => x.id === t.id)
+            const showArrows = sameGroup.length > 1
+            const canUp = posInGroup > 0
+            const canDown = posInGroup < sameGroup.length - 1
+            return (
             <div key={t.id} className="p-4 flex items-start gap-3">
+              {showArrows && (
+                <div className="flex flex-col shrink-0 -ml-1">
+                  <button onClick={() => handleMove(t.id, 'up')} disabled={!canUp}
+                          title="Выше"
+                          className="p-0.5 rounded text-gray-400 enabled:hover:text-brand enabled:hover:bg-gray-100 disabled:opacity-30 disabled:cursor-default">
+                    <ChevronUp size={16} />
+                  </button>
+                  <button onClick={() => handleMove(t.id, 'down')} disabled={!canDown}
+                          title="Ниже"
+                          className="p-0.5 rounded text-gray-400 enabled:hover:text-brand enabled:hover:bg-gray-100 disabled:opacity-30 disabled:cursor-default">
+                    <ChevronDown size={16} />
+                  </button>
+                </div>
+              )}
               <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold shrink-0"
                    style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
                 {t.threshold_count}
@@ -355,7 +382,8 @@ function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: s
                 </button>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
