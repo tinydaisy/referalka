@@ -606,6 +606,11 @@ class SpeakerEventUpdate(BaseModel):
     # (её снимает только спикер в своём кабинете). Веб-дашборд шлёт это при
     # переключении вкладки подарка «ПЛЮСОН → вручную».
     clear_pluson_gifts: Optional[bool] = None
+    # Список подарков спикера (до 4): magnet/package/manual. Полностью переписывает
+    # event_collaborator_lead_magnets. В дашборде организатор задаёт РУЧНЫЕ подарки
+    # (kind='manual', title+url) — для спикеров без ПЛЮСОНа. ПЛЮСОН-строки из веба
+    # не шлём (их настраивает спикер в кабинете).
+    gift_lead_magnets: Optional[list] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     knowledge_base_title: Optional[str] = None
@@ -735,6 +740,71 @@ async def _save_topics(cse_id: int, topics: list, db) -> None:
     await _rewrite_speaker_topics(db, cse_id, topics)
 
 
+async def save_ec_gifts(db, ec_id: int, items: list, linked_client_id: int | None) -> None:
+    """Полностью переписывает список подарков спикера (до 4) в
+    event_collaborator_lead_magnets. Строка — ОДИН из трёх видов:
+      • {'kind':'magnet','id':N}  — ПЛЮСОН-лид-магнит (проверяется по linked_client_id)
+      • {'kind':'package','id':N} — ПЛЮСОН-пакет (проверяется по linked_client_id)
+      • {'kind':'manual','title':..,'url':..} — ручной подарок (оба поля обязательны)
+    Синхронизирует legacy gift_lead_magnet_id/gift_package_id с ПЕРВОЙ ПЛЮСОН-строкой.
+    ⚠️ Привязку linked_client_id НЕ трогает.
+    """
+    items = items or []
+    if len(items) > 4:
+        raise HTTPException(status_code=400, detail="Можно добавить не более 4 подарков")
+    clean = []  # [(kind, id|None, title|None, url|None)]
+    for it in items:
+        kind = (it or {}).get("kind")
+        if kind == "manual":
+            title = ((it or {}).get("title") or "").strip()
+            url = ((it or {}).get("url") or "").strip()
+            if not title or not url:
+                raise HTTPException(status_code=400, detail="У ручного подарка обязательны и название, и ссылка")
+            clean.append(("manual", None, title, url))
+            continue
+        try:
+            iid = int((it or {}).get("id") or 0)
+        except (ValueError, TypeError):
+            iid = 0
+        if iid <= 0 or kind not in ("magnet", "package"):
+            continue
+        # ПЛЮСОН-подарок — только из привязанного аккаунта спикера.
+        if kind == "magnet":
+            ok = await db.fetchval("SELECT 1 FROM lead_magnets WHERE id=$1 AND client_id=$2", iid, linked_client_id)
+            if not ok:
+                raise HTTPException(status_code=400, detail="Лид-магнит не найден в ПЛЮСОН-аккаунте спикера")
+        else:
+            ok = await db.fetchval("SELECT 1 FROM lead_magnet_packages WHERE id=$1 AND client_id=$2", iid, linked_client_id)
+            if not ok:
+                raise HTTPException(status_code=400, detail="Пакет не найден в ПЛЮСОН-аккаунте спикера")
+        clean.append((kind, iid, None, None))
+
+    await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id=$1", ec_id)
+    for idx, (kind, iid, title, url) in enumerate(clean):
+        if kind == "magnet":
+            await db.execute(
+                "INSERT INTO event_collaborator_lead_magnets (ec_id, lead_magnet_id, sort_order) VALUES ($1,$2,$3)",
+                ec_id, iid, idx)
+        elif kind == "package":
+            await db.execute(
+                "INSERT INTO event_collaborator_lead_magnets (ec_id, package_id, sort_order) VALUES ($1,$2,$3)",
+                ec_id, iid, idx)
+        else:  # manual
+            await db.execute(
+                "INSERT INTO event_collaborator_lead_magnets (ec_id, manual_title, manual_url, sort_order) VALUES ($1,$2,$3,$4)",
+                ec_id, title, url, idx)
+
+    # legacy gift_lead_magnet_id/gift_package_id — по первой ПЛЮСОН-строке (для
+    # старого кода/medialift). Если ПЛЮСОН-строк нет — обнуляем.
+    first_pluson = next(((k, i) for k, i, _, _ in clean if k in ("magnet", "package")), None)
+    if first_pluson and first_pluson[0] == "magnet":
+        await db.execute("UPDATE event_collaborators SET gift_lead_magnet_id=$2, gift_package_id=NULL WHERE id=$1", ec_id, first_pluson[1])
+    elif first_pluson and first_pluson[0] == "package":
+        await db.execute("UPDATE event_collaborators SET gift_package_id=$2, gift_lead_magnet_id=NULL WHERE id=$1", ec_id, first_pluson[1])
+    else:
+        await db.execute("UPDATE event_collaborators SET gift_lead_magnet_id=NULL, gift_package_id=NULL WHERE id=$1", ec_id)
+
+
 async def apply_default_speaker_stages(ec_id: int, event_id: int, db) -> None:
     """Привязывает нового спикера к этапам «по умолчанию» (conf_conferences.
     default_speaker_stage_ids). Используется при саморегистрации и добавлении из
@@ -811,9 +881,11 @@ async def list_event_speakers(
                   lp.name AS gift_lp_name, lp.slug AS gift_lp_slug,
                   (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
                      SELECT eclm.id, eclm.sort_order, eclm.lead_magnet_id, eclm.package_id,
-                            COALESCE(glm.name, glp.name) AS name,
-                            CASE WHEN eclm.lead_magnet_id IS NOT NULL THEN 'magnet' ELSE 'package' END AS kind,
-                            CASE WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                            COALESCE(eclm.manual_title, glm.name, glp.name) AS name,
+                            CASE WHEN eclm.manual_title IS NOT NULL THEN 'manual'
+                                 WHEN eclm.lead_magnet_id IS NOT NULL THEN 'magnet' ELSE 'package' END AS kind,
+                            CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                                 WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
                                  THEN 'https://pluson.ru/p/'||glp.slug ELSE glm.url END AS url
                        FROM event_collaborator_lead_magnets eclm
                        LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
@@ -1229,6 +1301,18 @@ async def update_speaker_event(
     topics_list = raw.pop("topics", None)
     stage_ids = raw.pop("stage_ids", None)  # этапы участия — отдельной таблицей
     force_remove = bool(raw.pop("force_remove_stage_data", None))
+    gift_items = raw.pop("gift_lead_magnets", None)  # список подарков (magnet/package/manual)
+    if gift_items is not None:
+        # Организатор задаёт РУЧНЫЕ подарки (до 4). Ручные — без привязки к ПЛЮСОНу,
+        # поэтому linked_client_id тут не нужен (magnet/package из веба не приходят).
+        linked = await db.fetchval(
+            "SELECT c.linked_client_id FROM collaborators c JOIN event_collaborators ec ON ec.speaker_id=c.id WHERE ec.id=$1",
+            speaker_event_id)
+        # Ручной подарок снимает legacy-поля ручного ввода (взаимоисключение).
+        await db.execute(
+            "UPDATE event_collaborators SET gift_after_speech_title=NULL, gift_after_speech_url=NULL WHERE id=$1 AND event_id=$2",
+            speaker_event_id, event_id)
+        await save_ec_gifts(db, speaker_event_id, gift_items, linked)
     clear_pluson_gifts = bool(raw.pop("clear_pluson_gifts", None))
     if clear_pluson_gifts:
         # Снимаем ПЛЮСОН-подарки (список + одиночные), привязку linked_client_id

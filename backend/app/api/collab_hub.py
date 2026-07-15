@@ -5,7 +5,8 @@
 Коллаборатор = спикер/жюри в чьём-то событии — ДРУГОЙ слой. Карточка тянет:
 фото основателя (owner_photo_url / profile_photo_url), бренд (brand_name), био (bio),
 регалии (owner_achievements), соцсети/каналы (social_links), медийность (clients.media_assets).
-Хаб-специфика на clients: is_published_in_hub, hub_category/niche/city/about (миграция 135).
+Хаб-специфика на clients: is_published_in_hub, hub_category/niche/city/about (миграция 135),
+hub_impact/hub_wow + галочки *_public (миграция 218).
 
 Термины: ВЛАДЕЛЬЦЫ совместного события = «Организаторы» (event_owners, клиенты-совладельцы).
 """
@@ -62,15 +63,21 @@ def _parse_json(v, default):
     return v
 
 
-def _client_card(row) -> dict:
+def _client_card(row, public: bool = False) -> dict:
     """Собирает карточку организатора из строки clients.
 
     ⚠️ name (заголовок карточки) = ИМЯ ОСНОВАТЕЛЯ (clients.name) — человек, а не бренд.
     Название проекта отдаём отдельно (brand_name) — фронт рисует строкой «Проект: …».
     Раньше name = brand_name || name, из-за чего имя основателя терялось.
+
+    public=True — карточка отдаётся ДРУГОМУ клиенту (каталог/профиль). Тогда поля
+    hub_impact/hub_wow скрываются, если сняты галочки *_public. Владельцу своей
+    карточки (public=False) поля отдаём всегда — он их редактирует.
     """
     d = dict(row)
     ma = _parse_json(d.get('media_assets'), [])
+    impact_public = d.get('hub_impact_public')
+    wow_public = d.get('hub_wow_public')
     return {
         'client_id': d.get('id'),
         'name': d.get('name') or d.get('brand_name'),
@@ -88,12 +95,17 @@ def _client_card(row) -> dict:
         'hub_niche': d.get('hub_niche'),
         'hub_city': d.get('hub_city'),
         'hub_about': d.get('hub_about'),
+        'hub_impact': (None if public and not impact_public else d.get('hub_impact')),
+        'hub_impact_public': impact_public,
+        'hub_wow': (None if public and not wow_public else d.get('hub_wow')),
+        'hub_wow_public': wow_public,
     }
 
 
 _CLIENT_COLS = """id, name, brand_name, owner_photo_url, profile_photo_url, bio,
     owner_positioning, positioning, owner_achievements, social_links, media_assets,
-    is_published_in_hub, hub_category, hub_niche, hub_city, hub_about"""
+    is_published_in_hub, hub_category, hub_niche, hub_city, hub_about,
+    hub_impact, hub_impact_public, hub_wow, hub_wow_public"""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -114,6 +126,10 @@ class HubCardIn(BaseModel):
     hub_niche: Optional[str] = None
     hub_city: Optional[str] = None
     hub_about: Optional[str] = None
+    hub_impact: Optional[str] = None        # «Что я создаю и меняю в стране/мире…»
+    hub_impact_public: bool = True          # показывать impact в публичной карточке
+    hub_wow: Optional[str] = None           # «Капелька безумия / WOW-факт»
+    hub_wow_public: bool = True             # показывать wow в публичной карточке
     media_assets: Optional[list] = None   # [{platform, subscribers}]
 
 
@@ -137,9 +153,11 @@ async def publish_my_card(data: HubCardIn, client=Depends(get_current_client), d
         """UPDATE clients
               SET is_published_in_hub=$2, hub_category=$3, hub_niche=$4, hub_city=$5, hub_about=$6,
                   media_assets=COALESCE($7::jsonb, media_assets),
+                  hub_impact=$8, hub_impact_public=$9, hub_wow=$10, hub_wow_public=$11,
                   hub_published_at=CASE WHEN $2 AND hub_published_at IS NULL THEN NOW() ELSE hub_published_at END
             WHERE id=$1""",
-        cid, data.is_published_in_hub, data.hub_category, data.hub_niche, data.hub_city, data.hub_about, ma
+        cid, data.is_published_in_hub, data.hub_category, data.hub_niche, data.hub_city, data.hub_about, ma,
+        data.hub_impact, data.hub_impact_public, data.hub_wow, data.hub_wow_public
     )
     return {"ok": True}
 
@@ -183,7 +201,7 @@ async def catalog(
     rows = await db.fetch(sql, *args)
     out = []
     for r in rows:
-        card = _client_card(r)
+        card = _client_card(r, public=True)  # чужие карточки — уважаем галочки *_public
         card['collabs_count'] = r['collabs_count']
         card['avg_contribution'] = r['avg_contribution']
         card['avg_rating'] = r['avg_rating']
@@ -240,7 +258,7 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
         """SELECT count(*) AS collabs,
                   round(avg(CASE WHEN participants_total>0 THEN 100.0*brought_live/participants_total ELSE 0 END)) AS avg_contribution
              FROM hub_collab_history WHERE client_id=$1""", client_id)
-    card = _client_card(row)
+    card = _client_card(row, public=(me != client_id))  # свой профиль — поля видны всегда
     card['telegram_username'] = row.get('telegram_username')
     return {
         "card": card,

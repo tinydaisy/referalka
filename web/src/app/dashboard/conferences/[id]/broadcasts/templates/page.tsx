@@ -306,6 +306,9 @@ export default function TemplatesPage() {
   const { me } = useMe()
   // Сегменты по оплате — только при фиче платных тарифов события.
   const hasPayments = (me?.features || []).includes('event_tariffs')
+  // База чатов клиента (общие/личные каналы) — только с фичей broadcast_chats (Экстра/vip).
+  // «В чаты события» доступна всем — её НЕ гейтим.
+  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
 
   const [templates, setTemplates] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -381,6 +384,10 @@ export default function TemplatesPage() {
         intro_start_time: (form as any).intro_start_time || '11:00',
         intro_interval_min: (form as any).intro_interval_min || 15,
         intro_days_before: (form as any).intro_days_before || 1,
+        // Общие/личные чаты — только с фичей broadcast_chats. Без неё принудительно false,
+        // чтобы старое включённое значение не «прилипло» при сохранении.
+        send_to_client_chats: hasChatsFeature ? !!(form as any).send_to_client_chats : false,
+        send_to_private_chats: hasChatsFeature ? !!(form as any).send_to_private_chats : false,
       }
       // target_channel_ids: null = «не трогаем текущее значение в БД»,
       // массив = заменяем целиком. Picker всегда приводит null → массив после
@@ -465,8 +472,9 @@ export default function TemplatesPage() {
         custom_day_ref: f.custom_day_ref,
         custom_time: f.custom_time,
         send_to_event_chats: !!f.send_to_event_chats,
-        send_to_client_chats: !!f.send_to_client_chats,
-        send_to_private_chats: !!f.send_to_private_chats,
+        // Общие/личные чаты — только с фичей broadcast_chats.
+        send_to_client_chats: hasChatsFeature ? !!f.send_to_client_chats : false,
+        send_to_private_chats: hasChatsFeature ? !!f.send_to_private_chats : false,
       }
       if (f.target_channel_ids !== null && f.target_channel_ids !== undefined) {
         payload.target_channel_ids = f.target_channel_ids
@@ -1467,7 +1475,7 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_client_chats}
                   onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
@@ -1478,8 +1486,8 @@ export default function TemplatesPage() {
                     В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок», без галочки «Личный»).
                   </span>
                 </span>
-              </label>
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              </label>)}
+              {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_private_chats}
                   onChange={e => setForm({ ...form, send_to_private_chats: e.target.checked } as any)}
@@ -1490,7 +1498,7 @@ export default function TemplatesPage() {
                     В каналы из базы чатов, помеченные галочкой «Личный».
                   </span>
                 </span>
-              </label>
+              </label>)}
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
@@ -1710,8 +1718,8 @@ export default function TemplatesPage() {
 
               {/* Галочка «чаты события» убрана — теперь только общие чаты. */}
 
-              {/* Галочка: слать ещё и в общую базу чатов клиента */}
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              {/* Галочка: слать ещё и в общую базу чатов клиента (только с фичей broadcast_chats) */}
+              {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_client_chats}
                   onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
@@ -1722,7 +1730,7 @@ export default function TemplatesPage() {
                     Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
                   </span>
                 </span>
-              </label>
+              </label>)}
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCustom}

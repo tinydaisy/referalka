@@ -70,6 +70,19 @@ export default function OrgProfilePage() {
             <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_about}</p>
           </div>
         )}
+        {/* Импакт и WOW-факт — бэк отдаёт null, если владелец снял галочку публичности */}
+        {c.hub_impact && (
+          <div className="mt-4 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+            <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
+            <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_impact}</p>
+          </div>
+        )}
+        {c.hub_wow && (
+          <div className="mt-4 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+            <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
+            <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_wow}</p>
+          </div>
+        )}
 
         {/* Регалии — каждая с новой строки (режем по \n, не по маркеру). */}
         {c.bio && <BioBlock bio={c.bio} open className="mt-5" />}

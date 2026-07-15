@@ -143,6 +143,18 @@ async def _send_broadcast(schedule_id: int):
                 schedule = dict(schedule); schedule["send_to_client_chats"] = True
             if not schedule.get("send_to_private_chats") and tmpl["send_to_private_chats"]:
                 schedule = dict(schedule); schedule["send_to_private_chats"] = True
+
+        # Гейт по фиче: отправка в ОБЩИЕ/ЛИЧНЫЕ чаты клиента (база client_broadcast_chats)
+        # доступна только с фичей broadcast_chats (Экстра/vip). У Профи и ниже эти флаги
+        # игнорируются — даже если проставлены в БД (через bulk/API/старую запись).
+        # «В чаты СОБЫТИЯ» (send_to_event_chats) — доступно всем, НЕ трогаем.
+        if schedule.get("send_to_client_chats") or schedule.get("send_to_private_chats"):
+            from app.services.features import client_has_feature
+            if not await client_has_feature(conn, schedule["client_id"], "broadcast_chats"):
+                schedule = dict(schedule)
+                schedule["send_to_client_chats"] = False
+                schedule["send_to_private_chats"] = False
+
         tmpl_subject_val  = tmpl["subject"]      if tmpl else None
         tmpl_text_val  = tmpl["text"]         if tmpl else ""
         tmpl_photo_val = tmpl["photo_url"]    if tmpl else None

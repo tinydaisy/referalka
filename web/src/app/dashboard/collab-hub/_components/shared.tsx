@@ -104,6 +104,8 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
   const project = item.brand_name && item.brand_name !== ownerName ? item.brand_name : null
   const about = item.hub_about || ''
   const aboutLong = about.length > 90
+  const impact = item.hub_impact || ''   // бэк уже вернул null если скрыто галочкой
+  const wow = item.hub_wow || ''
   return (
     <div className={`rounded-2xl p-4 transition flex flex-col ${isMe ? 'border-2' : 'border bg-white hover:shadow-md'}`}
          style={isMe ? { borderColor: PEACH, background: '#FFF8F1' } : {}}>
@@ -139,6 +141,18 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
               {aboutOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
             </button>
           )}
+        </div>
+      )}
+      {impact && (
+        <div className="mt-2 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+          <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
+          <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{impact}</p>
+        </div>
+      )}
+      {wow && (
+        <div className="mt-2 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+          <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
+          <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{wow}</p>
         </div>
       )}
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»). */}
@@ -507,13 +521,13 @@ export function MyCardView() {
   // media_assets — медийность КЛИЕНТА (clients.media_assets). Именно её каталог Хаба
   // показывает как «до 1 000 / до 10 000 / …». Раньше поля не было в форме → оно было
   // пустым почти у всех, и в каталоге у всех рисовалась нижняя градация.
-  const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_city: '', hub_about: '', media_assets: [] })
+  const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_city: '', hub_about: '', hub_impact: '', hub_impact_public: true, hub_wow: '', hub_wow_public: true, media_assets: [] })
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState('')
   const load = async () => {
     const r: any = await api.collabHub.myCard()
     setCard(r.card)
-    setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '', media_assets: Array.isArray(r.card.media_assets) ? r.card.media_assets : [] })
+    setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '', hub_impact: r.card.hub_impact || '', hub_impact_public: r.card.hub_impact_public ?? true, hub_wow: r.card.hub_wow || '', hub_wow_public: r.card.hub_wow_public ?? true, media_assets: Array.isArray(r.card.media_assets) ? r.card.media_assets : [] })
   }
   useEffect(() => { load().catch(() => {}); api.collabHub.niches().then((r: any) => setNiches(r.niches || [])).catch(() => {}) }, [])
   const save = async () => { setErr(''); try { await api.collabHub.publishCard(form); setSaved(true); setTimeout(() => setSaved(false), 2000); load() } catch (e: any) { setErr(e?.message || 'Ошибка') } }
@@ -549,6 +563,23 @@ export function MyCardView() {
               <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{form.hub_about}</p>
             </div>
           )}
+          {/* Импакт и WOW-факт — живое превью; «скрыто» если снята галочка публичности */}
+          {form.hub_impact && (
+            <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+              <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>
+                Что создаёт и меняет в мире{!form.hub_impact_public && <span className="ml-1 text-gray-400 font-normal">· скрыто в публичной</span>}
+              </div>
+              <p className={`text-sm whitespace-pre-wrap ${form.hub_impact_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }}>{form.hub_impact}</p>
+            </div>
+          )}
+          {form.hub_wow && (
+            <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+              <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>
+                Капелька безумия / WOW-факт{!form.hub_wow_public && <span className="ml-1 text-gray-400 font-normal">· скрыто в публичной</span>}
+              </div>
+              <p className={`text-sm whitespace-pre-wrap ${form.hub_wow_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }}>{form.hub_wow}</p>
+            </div>
+          )}
           {/* Регалии — каждая с новой строки (как введены в профиле Основателя). */}
           {card.bio && <BioBlock bio={card.bio} open className="mt-4" />}
           {achievements.length > 0 && (
@@ -582,6 +613,20 @@ export function MyCardView() {
         <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
         <label className="block text-sm font-medium text-gray-700 mb-1">Что предлагаете партнёрам</label>
         <textarea value={form.hub_about} onChange={e => setForm({ ...form, hub_about: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" rows={3} />
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">Что я создаю и меняю в стране/мире своей деятельностью и проектами?</label>
+        <textarea value={form.hub_impact} onChange={e => setForm({ ...form, hub_impact: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-1.5" rows={3} />
+        <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
+          <input type="checkbox" checked={form.hub_impact_public} onChange={e => setForm({ ...form, hub_impact_public: e.target.checked })} />
+          Показывать в публичной карточке в каталоге
+        </label>
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">Моя «капелька безумия» или WOW-факт</label>
+        <textarea value={form.hub_wow} onChange={e => setForm({ ...form, hub_wow: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-1.5" rows={3} />
+        <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
+          <input type="checkbox" checked={form.hub_wow_public} onChange={e => setForm({ ...form, hub_wow_public: e.target.checked })} />
+          Показывать в публичной карточке в каталоге
+        </label>
 
         {/* Медийные активы — по ним каталог считает градацию охвата («до 1 000», «до 10 000»…).
             Без них у всех показывается нижняя градация. */}

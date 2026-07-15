@@ -11,6 +11,7 @@ import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/Broadcas
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
 import EmailFunnelStats, { type EmailStats } from '@/components/EmailFunnelStats'
+import { useMe } from '@/hooks/useMe'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -783,6 +784,9 @@ function CustomBroadcastModal(props: {
   const [isTest, setIsTest] = useState(!!props.initial?.is_test)
   const [sendToClientChats, setSendToClientChats] = useState(!!props.initial?.send_to_client_chats)
   const [sendToPrivateChats, setSendToPrivateChats] = useState(!!props.initial?.send_to_private_chats)
+  // База чатов клиента (общие/личные каналы) — только с фичей broadcast_chats (Экстра/vip).
+  const { me } = useMe()
+  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   // target_channel_ids: null = «пока не выбрано» (BroadcastChannelPicker
   // проставит все каналы клиента); массив = подмножество.
   const [targetChannels, setTargetChannels] = useState<number[] | null>(
@@ -879,8 +883,9 @@ function CustomBroadcastModal(props: {
         media_type: media.media_type,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
-        send_to_client_chats: sendToClientChats,
-        send_to_private_chats: sendToPrivateChats,
+        // Общие/личные чаты — только с фичей broadcast_chats. Без неё — принудительно false.
+        send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
+        send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
       }
       // target_channel_ids передаём только когда picker уже отрисовался
       // (после useEffect он точно перешёл из null в массив).
@@ -1015,7 +1020,7 @@ function CustomBroadcastModal(props: {
             </div>
           </div>
           <BroadcastChannelPicker value={targetChannels} onChange={setTargetChannels} />
-          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+          {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
             <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
               className="w-4 h-4 mt-0.5 accent-[#25455D]" />
             <span>
@@ -1025,8 +1030,8 @@ function CustomBroadcastModal(props: {
                 (Каналы → «Чаты для рассылок», без галочки «Личный»).
               </span>
             </span>
-          </label>
-          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+          </label>)}
+          {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
             <input type="checkbox" checked={sendToPrivateChats} onChange={e => setSendToPrivateChats(e.target.checked)}
               className="w-4 h-4 mt-0.5 accent-[#25455D]" />
             <span>
@@ -1035,7 +1040,7 @@ function CustomBroadcastModal(props: {
                 В каналы из базы чатов, помеченные галочкой «Личный».
               </span>
             </span>
-          </label>
+          </label>)}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX / Email из настроек)</span>

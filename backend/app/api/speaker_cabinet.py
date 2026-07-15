@@ -553,68 +553,12 @@ async def patch_me(
         if "gift_lead_magnets" not in sent_fields:
             await _sync_gift_magnet_list_from_legacy(db, se_id)
 
-    # 5c. Список до 4 подарков-лид-магнитов (миграция 200). Приоритетнее legacy.
+    # 5c. Список до 4 подарков (миграция 200 + 219: magnet/package/manual).
+    # Приоритетнее legacy. Единый хелпер — тот же, что использует дашборд.
     if "gift_lead_magnets" in sent_fields:
-        items = data.gift_lead_magnets or []
-        if len(items) > 4:
-            raise HTTPException(status_code=400, detail="Можно привязать не более 4 лид-магнитов")
-        linked = await db.fetchval(
-            "SELECT linked_client_id FROM collaborators WHERE id = $1", c_id
-        )
-        # Валидируем каждый элемент — принадлежность ПЛЮСОН-аккаунту спикера.
-        clean = []  # [(kind, id)]
-        for it in items:
-            kind = (it or {}).get("kind")
-            try:
-                iid = int((it or {}).get("id") or 0)
-            except (ValueError, TypeError):
-                iid = 0
-            if iid <= 0 or kind not in ("magnet", "package"):
-                continue
-            if kind == "magnet":
-                ok = await db.fetchval(
-                    "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2", iid, linked
-                )
-                if not ok:
-                    raise HTTPException(status_code=400, detail="Лид-магнит не найден в вашем ПЛЮСОН-аккаунте")
-            else:
-                ok = await db.fetchval(
-                    "SELECT 1 FROM lead_magnet_packages WHERE id = $1 AND client_id = $2", iid, linked
-                )
-                if not ok:
-                    raise HTTPException(status_code=400, detail="Пакет не найден в вашем ПЛЮСОН-аккаунте")
-            clean.append((kind, iid))
-        # Переписываем список целиком в переданном порядке.
-        await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id = $1", se_id)
-        for idx, (kind, iid) in enumerate(clean):
-            if kind == "magnet":
-                await db.execute(
-                    "INSERT INTO event_collaborator_lead_magnets (ec_id, lead_magnet_id, sort_order) VALUES ($1, $2, $3)",
-                    se_id, iid, idx,
-                )
-            else:
-                await db.execute(
-                    "INSERT INTO event_collaborator_lead_magnets (ec_id, package_id, sort_order) VALUES ($1, $2, $3)",
-                    se_id, iid, idx,
-                )
-        # Синхронизируем legacy-поля с ПЕРВОЙ записью (для medialift и др.).
-        if clean:
-            first_kind, first_id = clean[0]
-            if first_kind == "magnet":
-                await db.execute(
-                    "UPDATE event_collaborators SET gift_lead_magnet_id = $2, gift_package_id = NULL WHERE id = $1",
-                    se_id, first_id,
-                )
-            else:
-                await db.execute(
-                    "UPDATE event_collaborators SET gift_package_id = $2, gift_lead_magnet_id = NULL WHERE id = $1",
-                    se_id, first_id,
-                )
-        else:
-            await db.execute(
-                "UPDATE event_collaborators SET gift_lead_magnet_id = NULL, gift_package_id = NULL WHERE id = $1",
-                se_id,
-            )
+        linked = await db.fetchval("SELECT linked_client_id FROM collaborators WHERE id = $1", c_id)
+        from app.api.modules.conference import save_ec_gifts
+        await save_ec_gifts(db, se_id, data.gift_lead_magnets or [], linked)
 
     return await get_me(session, db)
 

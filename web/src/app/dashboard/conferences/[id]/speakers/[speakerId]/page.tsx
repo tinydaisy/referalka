@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy } from 'lucide-react'
+import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -204,8 +204,11 @@ export default function ConferenceSpeakerPage() {
   // кабинете. Показываем отдельной read-only плашкой — иначе выглядит будто
   // подарка нет, хотя он есть.
   const [giftPluson, setGiftPluson] = useState<{ name: string; url: string | null } | null>(null)
-  // Список подарков-лид-магнитов из ПЛЮСОНа (до 4, миграция 200) — read-only.
+  // ПЛЮСОН-подарки спикера (magnet/package, до 4) — read-only на вкладке ПЛЮСОН.
   const [giftMagnets, setGiftMagnets] = useState<Array<{ name: string; url: string | null; kind: string }>>([])
+  // Ручные подарки (kind='manual', до 4) — редактируемый список на вкладке
+  // «Ввести вручную»: каждый = название + ссылка (миграция 219).
+  const [manualGifts, setManualGifts] = useState<Array<{ title: string; url: string }>>([])
   // Вкладка блока подарка: 'manual' (ручной ввод — 1-я) / 'pluson' (просмотр).
   // ⚠️ В вебе клиент НЕ трогает ПЛЮСОН-подарки: их выбирает спикер в своём
   // кабинете. Вкладка ПЛЮСОН — только просмотр факта привязки. Переключение
@@ -262,19 +265,28 @@ export default function ConferenceSpeakerPage() {
         // Бэк для рассылок подставляет имя магнита в gift_after_speech_title —
         // но здесь это НЕ ручной ввод, поэтому показываем отдельной плашкой и НЕ
         // кладём в редактируемое поле (иначе при сохранении перезапишет привязку).
-        const magnetList = Array.isArray(sp.gift_magnets) ? sp.gift_magnets : []
-        setGiftMagnets(magnetList.map((g: any) => ({ name: g.name, url: g.url || null, kind: g.kind })))
-        const fromPluson = !!(sp.gift_lead_magnet_id || sp.gift_package_id || magnetList.length)
-        setGiftPluson(fromPluson && !magnetList.length
-          ? { name: sp.gift_lm_name || sp.gift_lp_name || sp.gift_after_speech_title || 'Лид-магнит из ПЛЮСОН',
-              url: sp.gift_lm_url || sp.gift_after_speech_url || null }
-          : null)
+        const allGifts = Array.isArray(sp.gift_magnets) ? sp.gift_magnets : []
+        // ПЛЮСОН-подарки (magnet/package) — read-only; ручные (manual) — редактируемые.
+        const plusonG = allGifts.filter((g: any) => g.kind !== 'manual')
+        const manualG = allGifts.filter((g: any) => g.kind === 'manual')
+          .map((g: any) => ({ title: g.name || '', url: g.url || '' }))
+        setGiftMagnets(plusonG.map((g: any) => ({ name: g.name, url: g.url || null, kind: g.kind })))
+        // Legacy: старый ручной подарок в gift_after_speech_* (одним куском, как у
+        // спикеров без структурированного списка) — показываем как ОДИН ручной
+        // подарок, если структурированных ручных ещё нет.
+        if (manualG.length === 0 && (sp.gift_after_speech_title || sp.gift_after_speech_url)
+            && !sp.gift_lead_magnet_id && !sp.gift_package_id) {
+          manualG.push({ title: sp.gift_after_speech_title || '', url: sp.gift_after_speech_url || '' })
+        }
+        setManualGifts(manualG)
+        const hasPluson = plusonG.length > 0 || !!sp.gift_lead_magnet_id || !!sp.gift_package_id
+        setGiftPluson(null)
         // Привязка ПЛЮСОН (независимо от того, выбрал ли спикер подарки).
         setSpeakerLinked(sp.linked_client_id
           ? { id: sp.linked_client_id, email: sp.linked_client_email || null } : null)
         // Вкладка по умолчанию: ПЛЮСОН — если ПЛЮСОН привязан ИЛИ подарок оттуда;
         // иначе ручной ввод.
-        setGiftTab((sp.linked_client_id || fromPluson) ? 'pluson' : 'manual')
+        setGiftTab((sp.linked_client_id || hasPluson) ? 'pluson' : 'manual')
 
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
@@ -283,10 +295,9 @@ export default function ConferenceSpeakerPage() {
         setEventForm({
           role: sp.role || 'speaker',
           topics: rawTopics.length > 0 ? rawTopics : [''],
-          // Если подарок из ПЛЮСОНа — ручные поля пустые (бэк подставил туда имя
-          // магнита для рассылок, но это не ручной ввод — показываем плашкой ниже).
-          gift_after_speech_title: fromPluson ? '' : (sp.gift_after_speech_title || ''),
-          gift_after_speech_url: fromPluson ? '' : (sp.gift_after_speech_url || ''),
+          // Ручной подарок теперь в manualGifts (список), эти поля не используются.
+          gift_after_speech_title: '',
+          gift_after_speech_url: '',
           gift_raffle_title: sp.gift_raffle_title || '',
           gift_raffle_url: sp.gift_raffle_url || '',
           knowledge_base_title: sp.knowledge_base_title || '',
@@ -477,19 +488,28 @@ export default function ConferenceSpeakerPage() {
       const priority = ((eventForm as any).priority ?? null) !== null
         ? Number((eventForm as any).priority)
         : calcPriority(eventForm.role, eventForm.is_commercial)
-      // ⚠️ ПЛЮСОН-подарок спикера из ВЕБА не трогаем НИКОГДА (его настраивает
-      // спикер в кабинете; в вебе — только просмотр). Ручные поля отправляем
-      // ТОЛЬКО когда организатор реально что-то ввёл вручную — иначе не шлём их
-      // вовсе, чтобы не занулить и не задеть ПЛЮСОН-привязку.
-      // gift_lead_magnet_id / gift_package_id из веба НЕ передаём — только спикер.
-      const manualFilled = !!eventForm.gift_after_speech_title.trim() || !!eventForm.gift_after_speech_url.trim()
+      // ⚠️ ПЛЮСОН-подарки спикера из ВЕБА не трогаем НИКОГДА (их настраивает
+      // спикер в кабинете). Ручные подарки (список до 4) шлём как gift_lead_magnets
+      // с kind='manual' — ТОЛЬКО когда активна вкладка «Ввести вручную» (иначе не
+      // трогаем подарки вовсе). У каждого ручного обязательны И название, И ссылка.
+      const cleanManual = manualGifts
+        .map(g => ({ title: g.title.trim(), url: g.url.trim() }))
+        .filter(g => g.title && g.url)
+      if (giftTab === 'manual') {
+        const partial = manualGifts.some(g => (g.title.trim() && !g.url.trim()) || (!g.title.trim() && g.url.trim()))
+        if (partial) {
+          setError('У каждого подарка нужны и название, и ссылка. Заполните оба поля или удалите пустой подарок.')
+          setSavingEvent(false); return
+        }
+      }
       const payload: any = {
         role: eventForm.role,
         topics,
         stage_ids: stageIds,
-        ...(manualFilled ? {
-          gift_after_speech_title: eventForm.gift_after_speech_title,
-          gift_after_speech_url: eventForm.gift_after_speech_url,
+        // Ручные подарки пишем только с вкладки «Вручную» (на вкладке ПЛЮСОН —
+        // просмотр, туда не лезем).
+        ...(giftTab === 'manual' ? {
+          gift_lead_magnets: cleanManual.map(g => ({ kind: 'manual', title: g.title, url: g.url })),
         } : {}),
         gift_raffle_title: eventForm.gift_raffle_title,
         gift_raffle_url: eventForm.gift_raffle_url,
@@ -815,20 +835,39 @@ export default function ConferenceSpeakerPage() {
           </div>
 
           {giftTab === 'manual' ? (
-            <>
-              <div>
-                <FieldLabel label="Название" empty={!eventForm.gift_after_speech_title.trim()} />
-                <textarea value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
-                  rows={3} placeholder="Например: Чек-лист по нутрициологии"
-                  className="input resize-y text-sm" />
-              </div>
-              <div>
-                <FieldLabel label="Ссылка / текст со ссылками" empty={!eventForm.gift_after_speech_url.trim()} />
-                <textarea value={eventForm.gift_after_speech_url} onChange={setEF('gift_after_speech_url')}
-                  rows={3} placeholder={"https://...\nили несколько ссылок / инструкция как получить"}
-                  className="input resize-y text-sm" />
-              </div>
-            </>
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">
+                До 4 подарков. У каждого — название и ссылка (они уйдут в рассылку парой: название, под ним ссылка).
+              </p>
+              {manualGifts.map((g, i) => (
+                <div key={i} className="rounded-xl border border-gray-200 p-3 space-y-2 relative">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-500">Подарок {i + 1}</span>
+                    <button type="button" title="Удалить подарок"
+                      onClick={() => setManualGifts(list => list.filter((_, k) => k !== i))}
+                      className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
+                  </div>
+                  <input value={g.title}
+                    onChange={e => setManualGifts(list => list.map((x, k) => k === i ? { ...x, title: e.target.value } : x))}
+                    placeholder="Название — например: Чек-лист по нутрициологии"
+                    className="input text-sm" />
+                  <input value={g.url}
+                    onChange={e => setManualGifts(list => list.map((x, k) => k === i ? { ...x, url: e.target.value } : x))}
+                    placeholder="Ссылка — https://..."
+                    className="input text-sm" />
+                </div>
+              ))}
+              {manualGifts.length < 4 && (
+                <button type="button"
+                  onClick={() => setManualGifts(list => [...list, { title: '', url: '' }])}
+                  className="text-sm font-medium text-[#25455D] hover:opacity-80 flex items-center gap-1.5">
+                  <Plus size={15} /> Добавить подарок
+                </button>
+              )}
+              {manualGifts.length === 0 && (
+                <p className="text-xs text-gray-400">Пока подарков нет. Нажмите «Добавить подарок».</p>
+              )}
+            </div>
           ) : (
             /* Вкладка ПЛЮСОН — ТОЛЬКО ПРОСМОТР. */
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm space-y-2">

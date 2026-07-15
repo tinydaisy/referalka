@@ -217,6 +217,8 @@ export default function QueuePage() {
   const { me } = useMe()
   // Сегменты по оплате показываем только клиентам с фичей платных тарифов события.
   const hasPayments = (me?.features || []).includes('event_tariffs')
+  // База чатов клиента (общие/личные) — только с фичей broadcast_chats. «В чаты события» — всем.
+  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
 
   const [schedules, setSchedules] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
@@ -573,8 +575,8 @@ export default function QueuePage() {
         audience_exclude: editAudienceExclude,
         target_channel_ids: editChannelIds,
         send_to_event_chats: editEventChats,
-        send_to_client_chats: editClientChats,
-        send_to_private_chats: editPrivateChats,
+        send_to_client_chats: hasChatsFeature ? editClientChats : false,
+        send_to_private_chats: hasChatsFeature ? editPrivateChats : false,
       })
       setFireAtModal(null)
       await load()
@@ -1268,7 +1270,7 @@ export default function QueuePage() {
                     <span className="block text-[11px] text-gray-500 mt-0.5">В групповые чаты этого события (заданы в настройках события).</span>
                   </span>
                 </label>
-                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                {hasChatsFeature && (<label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                   <input type="checkbox" checked={editClientChats}
                     onChange={e => setEditClientChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -1276,8 +1278,8 @@ export default function QueuePage() {
                     <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок»).</span>
                   </span>
-                </label>
-                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                </label>)}
+                {hasChatsFeature && (<label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                   <input type="checkbox" checked={editPrivateChats}
                     onChange={e => setEditPrivateChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -1285,7 +1287,7 @@ export default function QueuePage() {
                     <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В каналы из базы чатов, помеченные галочкой «Личный».</span>
                   </span>
-                </label>
+                </label>)}
               </div>
 
               <div className="space-y-1.5">
