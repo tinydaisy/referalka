@@ -87,7 +87,7 @@ async def _fetch_cards(
                c.id                 AS collaborator_id,
                ct.id                AS contact_id,
                ct.name              AS name,
-               c.hub_about          AS description,
+               NULL AS description,
                c.tg_channel_url     AS tg_channel_url,
                c.tg_channel_id      AS tg_channel_id,
                c.photo_url          AS photo_url,
@@ -121,7 +121,7 @@ async def _fill_recent(
                c.id                 AS collaborator_id,
                ct.id                AS contact_id,
                ct.name              AS name,
-               c.hub_about          AS description,
+               NULL AS description,
                c.tg_channel_url     AS tg_channel_url,
                c.tg_channel_id      AS tg_channel_id,
                c.photo_url          AS photo_url,
@@ -355,11 +355,9 @@ async def add_channel(
         """UPDATE collaborators
               SET tg_channel_url = $1,
                   tg_channel_id  = COALESCE($2, tg_channel_id),
-                  hub_about      = COALESCE($3, hub_about),
                   updated_at     = NOW()
-            WHERE id = $4""",
-        data.tg_channel_url.strip(), channel_id,
-        (data.description or None), collaborator_id)
+            WHERE id = $3""",
+        data.tg_channel_url.strip(), channel_id, collaborator_id)
 
     # Автосвязка с клиентским аккаунтом ПЛЮСОНа по числовому tg_id.
     # Если у человека уже есть свой client-аккаунт с этим же tg_id — привязываем молча.

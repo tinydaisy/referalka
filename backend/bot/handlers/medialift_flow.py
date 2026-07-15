@@ -93,7 +93,7 @@ async def _chain_cards(db, event_id: int, contact_id: Optional[int], min_sub: in
 
 _CARD_SQL = """
     SELECT ec.id AS ec_id, c.id AS collaborator_id, ct.id AS contact_id,
-           ct.name AS name, c.hub_about AS description,
+           ct.name AS name, NULL AS description,
            c.tg_channel_url, c.tg_channel_id, c.photo_url,
            c.linked_client_id, ec.gift_lead_magnet_id
       FROM event_collaborators ec
