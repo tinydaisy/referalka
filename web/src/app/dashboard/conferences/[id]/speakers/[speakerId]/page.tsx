@@ -205,6 +205,10 @@ export default function ConferenceSpeakerPage() {
     exclude_channel_from_subscription: false,
     poster_id: null as number | null,
     announcement_poster_ids: [] as number[],
+    // Привязка темы к слоту программы (только для показа, не сохраняется).
+    bound_topic_index: null as number | null,
+    slot_label: null as string | null,
+    slot_has_topic: null as boolean | null,
   })
   const [posterLibrary, setPosterLibrary] = useState<Array<{ id: number; url: string; label: string | null }>>([])
   const [uploadingPoster, setUploadingPoster] = useState(false)
