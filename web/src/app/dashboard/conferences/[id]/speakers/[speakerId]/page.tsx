@@ -206,10 +206,16 @@ export default function ConferenceSpeakerPage() {
   const [giftPluson, setGiftPluson] = useState<{ name: string; url: string | null } | null>(null)
   // Список подарков-лид-магнитов из ПЛЮСОНа (до 4, миграция 200) — read-only.
   const [giftMagnets, setGiftMagnets] = useState<Array<{ name: string; url: string | null; kind: string }>>([])
-  // Вкладка блока подарка: 'pluson' (лид-магнит спикера) / 'manual' (ручной ввод).
-  // Клиент не выбирает чужие магниты, но может СНЯТЬ ПЛЮСОН-привязку и ввести
-  // ручной подарок — как в кабинете спикера.
+  // Вкладка блока подарка: 'manual' (ручной ввод — 1-я) / 'pluson' (просмотр).
+  // ⚠️ В вебе клиент НЕ трогает ПЛЮСОН-подарки: их выбирает спикер в своём
+  // кабинете. Вкладка ПЛЮСОН — только просмотр факта привязки. Переключение
+  // вкладок ничего не удаляет и уведомлений не шлёт.
   const [giftTab, setGiftTab] = useState<'pluson' | 'manual'>('manual')
+  // Привязан ли ПЛЮСОН-аккаунт у спикера (collaborators.linked_client_id).
+  // Показ вкладки ПЛЮСОН завязан на ЭТО, а не на факт выбранных подарков: спикер
+  // мог удалить у себя все подарки, но привязка остаётся — она снимается только
+  // если он сам отвяжет ПЛЮСОН в кабинете.
+  const [speakerLinked, setSpeakerLinked] = useState<{ id: number; email: string | null } | null>(null)
   // Этапы турнира + в каких участвует этот спикер/жюри (event_collaborator_stages)
   const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
   const [stageIds, setStageIds] = useState<number[]>([])
@@ -263,8 +269,12 @@ export default function ConferenceSpeakerPage() {
           ? { name: sp.gift_lm_name || sp.gift_lp_name || sp.gift_after_speech_title || 'Лид-магнит из ПЛЮСОН',
               url: sp.gift_lm_url || sp.gift_after_speech_url || null }
           : null)
-        // Вкладка по умолчанию: ПЛЮСОН — если подарок оттуда, иначе ручной ввод.
-        setGiftTab(fromPluson ? 'pluson' : 'manual')
+        // Привязка ПЛЮСОН (независимо от того, выбрал ли спикер подарки).
+        setSpeakerLinked(sp.linked_client_id
+          ? { id: sp.linked_client_id, email: sp.linked_client_email || null } : null)
+        // Вкладка по умолчанию: ПЛЮСОН — если ПЛЮСОН привязан ИЛИ подарок оттуда;
+        // иначе ручной ввод.
+        setGiftTab((sp.linked_client_id || fromPluson) ? 'pluson' : 'manual')
 
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
@@ -445,19 +455,16 @@ export default function ConferenceSpeakerPage() {
     }
   }
 
-  // Снять ПЛЮСОН-подарок (лид-магнит/пакет спикера) и переключиться на ручной
-  // ввод. Клиент не может выбирать чужие магниты, но убрать привязку — может.
-  async function removePlusonGift() {
-    if (!confirm('Убрать подарок-лид-магнит из ПЛЮСОН у этого спикера? Затем можно ввести подарок вручную.')) return
-    try {
-      await api.conference.speakers.update(confId, speakerEventId, {
-        gift_lead_magnet_id: 0, gift_package_id: null,
-        gift_after_speech_title: null, gift_after_speech_url: null,
-      })
-      setGiftPluson(null); setGiftMagnets([])
-      setEventForm(f => ({ ...f, gift_after_speech_title: '', gift_after_speech_url: '' }))
-      setGiftTab('manual')
-    } catch (err: any) { alert(err.message || 'Не удалось убрать подарок') }
+  // Переключение вкладки подарка. Если у спикера НАСТРОЕН подарок в ПЛЮСОН —
+  // на «Ввести вручную» переключиться НЕЛЬЗЯ (убрать его может только спикер в
+  // своём кабинете). Ничего не удаляем. Обратно (на ПЛЮСОН) — свободно.
+  function switchGiftTab(target: 'manual' | 'pluson') {
+    const hasPlusonGift = giftMagnets.length > 0 || !!giftPluson
+    if (target === 'manual' && hasPlusonGift) {
+      alert('У спикера настроен подарок из ПЛЮСОН. Ввести подарок вручную нельзя, пока он выбран.\n\nУбрать подарок из ПЛЮСОН может только сам спикер в своём кабинете.')
+      return
+    }
+    setGiftTab(target)
   }
 
   async function saveEvent(e: React.FormEvent) {
@@ -470,18 +477,20 @@ export default function ConferenceSpeakerPage() {
       const priority = ((eventForm as any).priority ?? null) !== null
         ? Number((eventForm as any).priority)
         : calcPriority(eventForm.role, eventForm.is_commercial)
-      // На вкладке ПЛЮСОН с реальной привязкой ручные подарочные поля НЕ шлём —
-      // иначе очистили бы то, что бэк подставил для рассылок. Ручной подарок
-      // сохраняется только на вкладке «Ввести вручную».
-      const keepPluson = giftTab === 'pluson' && (!!giftPluson || giftMagnets.length > 0)
+      // ⚠️ ПЛЮСОН-подарок спикера из ВЕБА не трогаем НИКОГДА (его настраивает
+      // спикер в кабинете; в вебе — только просмотр). Ручные поля отправляем
+      // ТОЛЬКО когда организатор реально что-то ввёл вручную — иначе не шлём их
+      // вовсе, чтобы не занулить и не задеть ПЛЮСОН-привязку.
+      // gift_lead_magnet_id / gift_package_id из веба НЕ передаём — только спикер.
+      const manualFilled = !!eventForm.gift_after_speech_title.trim() || !!eventForm.gift_after_speech_url.trim()
       const payload: any = {
         role: eventForm.role,
         topics,
         stage_ids: stageIds,
-        ...(keepPluson ? {} : {
+        ...(manualFilled ? {
           gift_after_speech_title: eventForm.gift_after_speech_title,
           gift_after_speech_url: eventForm.gift_after_speech_url,
-        }),
+        } : {}),
         gift_raffle_title: eventForm.gift_raffle_title,
         gift_raffle_url: eventForm.gift_raffle_url,
         knowledge_base_title: eventForm.knowledge_base_title,
@@ -772,27 +781,30 @@ export default function ConferenceSpeakerPage() {
           <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))} />
         </div>
 
-        {/* Подарок после эфира — 2 вкладки: ПЛЮСОН (лид-магнит спикера) / вручную.
-            Как в кабинете спикера: можно снять ПЛЮСОН-подарок и ввести ручной. */}
+        {/* Подарок после эфира — 2 вкладки.
+            1-я «Ввести вручную» (веб): организатор задаёт подарок руками.
+            2-я «Из ПЛЮСОН»: ТОЛЬКО ПРОСМОТР состава, что выбрал спикер у себя в
+            кабинете. Организатор здесь ничего не меняет и не удаляет — переключение
+            вкладок безопасно (ничего не трёт, уведомлений не шлёт).
+            Вкладка ПЛЮСОН показывается, если у спикера привязан ПЛЮСОН-аккаунт
+            (speakerLinked) — даже если он пока не выбрал ни одного подарка. */}
         {(() => {
-          const hasPluson = !!giftPluson || giftMagnets.length > 0
+          const pluslonItems = giftMagnets.length > 0
+            ? giftMagnets
+            : (giftPluson ? [{ name: giftPluson.name, url: giftPluson.url, kind: 'magnet' }] : [])
           return (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
 
           <div className="flex gap-2">
             {([
-              { v: 'pluson', t: '🎁 Лид-магнит из ПЛЮСОН' },
               { v: 'manual', t: '✍️ Ввести вручную' },
+              { v: 'pluson', t: '🎁 Из ПЛЮСОН' },
             ] as const).map(opt => {
               const active = giftTab === opt.v
               return (
                 <button key={opt.v} type="button"
-                  onClick={() => {
-                    // Уходим с ПЛЮСОН на ручной, а привязка ещё стоит → сперва снимаем.
-                    if (opt.v === 'manual' && hasPluson) { removePlusonGift(); return }
-                    setGiftTab(opt.v)
-                  }}
+                  onClick={() => switchGiftTab(opt.v)}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
                     active ? 'border-[#25455D] border-2 bg-[#EAF2FB] text-[#25455D]'
                            : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'}`}>
@@ -802,26 +814,7 @@ export default function ConferenceSpeakerPage() {
             })}
           </div>
 
-          {giftTab === 'pluson' ? (
-            hasPluson ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
-                <div className="font-semibold text-emerald-800">✓ Подарок настроен через ПЛЮСОН</div>
-                <div className="text-emerald-700 text-xs mt-1.5">
-                  Спикер привязал свой ПЛЮСОН-аккаунт и выбирает подарки-лид-магниты у себя в кабинете.
-                  Их состав видите и меняете не вы, а он — это его база лид-магнитов.
-                </div>
-                <button type="button" onClick={removePlusonGift}
-                  className="mt-2 text-xs font-medium text-red-600 hover:text-red-700 underline">
-                  Убрать подарок из ПЛЮСОН
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
-                Подарок-лид-магнит из ПЛЮСОН выбирает сам спикер в своём кабинете (там он привязывает свой ПЛЮСОН-аккаунт).
-                Здесь вы можете ввести подарок вручную — вкладка «Ввести вручную».
-              </div>
-            )
-          ) : (
+          {giftTab === 'manual' ? (
             <>
               <div>
                 <FieldLabel label="Название" empty={!eventForm.gift_after_speech_title.trim()} />
@@ -836,6 +829,35 @@ export default function ConferenceSpeakerPage() {
                   className="input resize-y text-sm" />
               </div>
             </>
+          ) : (
+            /* Вкладка ПЛЮСОН — ТОЛЬКО ПРОСМОТР. */
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm space-y-2">
+              {speakerLinked && (
+                <div className="text-xs text-emerald-700">
+                  ✓ Подключён ПЛЮСОН{speakerLinked.email ? `: ${speakerLinked.email}` : ''}
+                </div>
+              )}
+              {pluslonItems.length > 0 ? (
+                <ol className="space-y-2 list-decimal list-inside">
+                  {pluslonItems.map((g, i) => (
+                    <li key={i} className="text-emerald-900">
+                      <span className="font-medium">{g.kind === 'package' ? '📦 ' : ''}{g.name}</span>
+                      {g.url && (
+                        <div><a href={g.url} target="_blank" rel="noreferrer"
+                          className="text-emerald-700 underline break-all text-xs">{g.url}</a></div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="text-emerald-800 text-xs">
+                  Спикер пока не выбрал ни одного подарка-лид-магнита.
+                </div>
+              )}
+              <div className="text-emerald-700 text-xs pt-1 border-t border-emerald-200">
+                Привязывать подарки из ПЛЮСОН спикер может только в своём кабинете спикера.
+              </div>
+            </div>
           )}
         </div>
           )

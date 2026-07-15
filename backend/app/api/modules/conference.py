@@ -598,9 +598,14 @@ class SpeakerEventUpdate(BaseModel):
     gift_after_speech_url: Optional[str] = None
     # Подарок-лид-магнит из ПЛЮСОН (для подсчёта баллов в турнире). Взаимоисключимы
     # с ручным подарком: выбор ПЛЮСОН-магнита чистит ручные поля, ручной ввод —
-    # снимает ПЛЮСОН-привязку. gift_lead_magnet_id=0 → снять обе ПЛЮСОН-привязки.
+    # снимает ПЛЮСОН-подарки. gift_lead_magnet_id=0 → снять обе ПЛЮСОН-привязки.
     gift_lead_magnet_id: Optional[int] = None
     gift_package_id: Optional[int] = None
+    # ⚠️ Снять ПЛЮСОН-ПОДАРКИ спикера (список event_collaborator_lead_magnets +
+    # gift_lead_magnet_id/gift_package_id), НЕ трогая привязку linked_client_id
+    # (её снимает только спикер в своём кабинете). Веб-дашборд шлёт это при
+    # переключении вкладки подарка «ПЛЮСОН → вручную».
+    clear_pluson_gifts: Optional[bool] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     knowledge_base_title: Optional[str] = None
@@ -839,6 +844,8 @@ async def list_event_speakers(
                   sp.tg_channel_url, sp.vk_url, sp.max_url,
                   sp.instagram_url, sp.website_url,
                   sp.access_code,
+                  sp.linked_client_id,
+                  (SELECT lc.email FROM clients lc WHERE lc.id = sp.linked_client_id) AS linked_client_email,
                   pu_tg.username AS personal_tg_username,
                   pu_tg.platform_user_id AS personal_tg_id,
                   pu_vk.username AS personal_vk_username,
@@ -1222,6 +1229,14 @@ async def update_speaker_event(
     topics_list = raw.pop("topics", None)
     stage_ids = raw.pop("stage_ids", None)  # этапы участия — отдельной таблицей
     force_remove = bool(raw.pop("force_remove_stage_data", None))
+    clear_pluson_gifts = bool(raw.pop("clear_pluson_gifts", None))
+    if clear_pluson_gifts:
+        # Снимаем ПЛЮСОН-подарки (список + одиночные), привязку linked_client_id
+        # не трогаем — она принадлежит спикеру, снимается только в его кабинете.
+        await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id=$1", speaker_event_id)
+        await db.execute(
+            "UPDATE event_collaborators SET gift_lead_magnet_id=NULL, gift_package_id=NULL WHERE id=$1 AND event_id=$2",
+            speaker_event_id, event_id)
     # Не обновляем speaker_topic через общий механизм — управляем темами отдельно
     raw.pop("speaker_topic", None)
     # Валидация poster_id и announcement_poster_ids: все должны принадлежать
