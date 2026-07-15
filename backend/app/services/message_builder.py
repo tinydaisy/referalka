@@ -433,7 +433,7 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         # строку с {gift_url} убираем (ссылки уже внутри блока).
         if multi and "{gift_title}" in text:
             text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-            title = _gifts_block()
+            title = _gifts_block(numbered=True)   # несколько подарков → «1. …\n2. …»
             url = ""
         elif not glist:
             # Подарка нет: строку со ссылкой убираем, а на месте названия —
@@ -457,7 +457,8 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         return text.strip()
 
     header = f"🎁 {speaker_name}: Подарки после эфира"
-    body = _gifts_block() if glist else no_gift_body
+    # Несколько подарков → нумеруем «1. …\n2. …»; один — без номера.
+    body = (_gifts_block(numbered=len(glist) > 1)) if glist else no_gift_body
     return f"{header}\n\n{body}"
 
 
