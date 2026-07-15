@@ -580,8 +580,22 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // Собрать название из выбранных подарков: «1) Название\n\n2) Название\n\n…».
+  // Разделитель между пунктами — ДВА переноса (пустая строка).
+  function buildNameFromSelected(ids: number[]): string {
+    return ids
+      .map((id, i) => `${i + 1}) ${(magnets.find(m => m.id === id)?.name || '').trim()}`)
+      .join('\n\n')
+  }
+
   function toggle(id: number) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
+    setSelected(s => {
+      const next = s.includes(id) ? s.filter(x => x !== id) : [...s, id]
+      // Автоподстановка названия — только если поле ПУСТОЕ (не затираем ручную
+      // правку). Собрать заново из подарков можно кнопкой ниже.
+      if (!name.trim()) setName(buildNameFromSelected(next))
+      return next
+    })
   }
   function move(idx: number, dir: -1 | 1) {
     setSelected(s => {
@@ -589,6 +603,8 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
       if (next < 0 || next >= s.length) return s
       const out = [...s]
       const tmp = out[idx]; out[idx] = out[next]; out[next] = tmp
+      // Если название сейчас = автосборка старого порядка — перестраиваем под новый.
+      if (name.trim() === buildNameFromSelected(s)) setName(buildNameFromSelected(out))
       return out
     })
   }
@@ -615,9 +631,16 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
     <Modal title={initial ? 'Редактировать пакет' : 'Новый пакет'} onClose={onClose} large>
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label="Название пакета *">
-          <textarea value={name} onChange={e => setName(e.target.value)} rows={2}
+          <textarea value={name} onChange={e => setName(e.target.value)} rows={3}
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                 placeholder="Стартовый набор для предпринимателя" autoFocus />
+                 placeholder={"1) Название подарка 1\n\n2) Название подарка 2"} autoFocus />
+          {selected.length > 0 && (
+            <button type="button"
+              onClick={() => setName(buildNameFromSelected(selected))}
+              className="mt-1.5 text-xs font-medium text-[#25455D] hover:opacity-80 underline">
+              Собрать название из подарков (1) … 2) …)
+            </button>
+          )}
         </Field>
         <Field label="Заметка">
           <textarea value={description} onChange={e => setDescription(e.target.value)}
