@@ -51,7 +51,7 @@ export const ru = {
     name: 'Имя, фамилия или название',
     namePlaceholder: '',
     nameRequired: 'Имя, фамилия или название *',
-    position: 'Должность',
+    position: 'Краткое позиционирование / Должность',
     achievements: 'Регалии (по одной на строку)',
     photo: 'Ссылка на фото',
     posterUrl: 'Индивидуальная афиша',

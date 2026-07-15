@@ -851,10 +851,10 @@ export default function ConferenceSpeakerPage() {
                     onChange={e => setManualGifts(list => list.map((x, k) => k === i ? { ...x, title: e.target.value } : x))}
                     placeholder="Название — например: Чек-лист по нутрициологии"
                     className="input text-sm" />
-                  <input value={g.url}
+                  <textarea value={g.url} rows={2}
                     onChange={e => setManualGifts(list => list.map((x, k) => k === i ? { ...x, url: e.target.value } : x))}
-                    placeholder="Ссылка — https://..."
-                    className="input text-sm" />
+                    placeholder={"Ссылка — https://...\nможно с переносами: ссылка + инструкция как забрать"}
+                    className="input text-sm resize-y" />
                 </div>
               ))}
               {manualGifts.length < 4 && (
