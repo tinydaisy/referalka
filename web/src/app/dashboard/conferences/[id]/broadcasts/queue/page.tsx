@@ -1131,8 +1131,11 @@ export default function QueuePage() {
                       </button>
                     )}
                     {/* Редактировать: для произвольной (custom) — полная правка
-                        текста/фото/кнопок/времени; для шаблонных — только время. */}
-                    {(s.status === 'draft' || s.status === 'pending') && s.fire_at && (
+                        текста/фото/кнопок/времени; для шаблонных — только время.
+                        ⚠️ custom показываем ДАЖЕ без fire_at (у скопированной рассылки
+                        время пустое — его как раз задают в форме). Для шаблонных
+                        «правка времени» без fire_at смысла не имеет — там требуем. */}
+                    {(s.status === 'draft' || s.status === 'pending') && (s.type === 'custom' || s.fire_at) && (
                       <button
                         onClick={() => s.type === 'custom' ? setEditCustomSchedule(s) : openFireAt(s)}
                         className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
