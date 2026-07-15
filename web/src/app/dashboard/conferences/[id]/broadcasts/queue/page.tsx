@@ -823,8 +823,8 @@ export default function QueuePage() {
       )}
 
       {msg && (
-        <div className={`mb-4 text-sm rounded-xl px-4 py-3 flex items-center gap-2 ${
-          msg.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-[90vw] text-sm rounded-xl px-4 py-3 flex items-center gap-2 shadow-lg border ${
+          msg.type === 'ok' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
         }`}>
           {msg.type === 'ok' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
           {msg.text}
