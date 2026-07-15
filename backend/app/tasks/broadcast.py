@@ -554,7 +554,7 @@ async def _send_broadcast(schedule_id: int):
         # системный @pluson_bot как fallback убран.
         sent_tg_chats: set[str] = set()
         if not schedule["is_test"] and default_bot_token:
-            tg_chats: list[str] = []
+            tg_chats: list[tuple[str, str]] = []  # (chat_id, chat_kind)
             if schedule.get("send_to_event_chats") and event_id:
                 # Чат события TG — через ref на client_broadcast_chats.
                 ev_tg = await conn.fetchval(
@@ -562,7 +562,7 @@ async def _send_broadcast(schedule_id: int):
                          JOIN client_broadcast_chats cbc ON cbc.id = e.tg_chat_ref
                         WHERE e.id = $1""", event_id)
                 if ev_tg and str(ev_tg).strip():
-                    tg_chats.append(str(ev_tg).strip())
+                    tg_chats.append((str(ev_tg).strip(), "event"))
             if schedule.get("send_to_client_chats"):
                 # ОБЩИЕ чаты: is_private = FALSE
                 rows_cl = await conn.fetch(
@@ -571,7 +571,7 @@ async def _send_broadcast(schedule_id: int):
                           AND use_for_broadcasts = TRUE AND is_private = FALSE""",
                     schedule["client_id"],
                 )
-                tg_chats += [str(r["chat_id"]).strip() for r in rows_cl if r["chat_id"]]
+                tg_chats += [(str(r["chat_id"]).strip(), "client_common") for r in rows_cl if r["chat_id"]]
             if schedule.get("send_to_private_chats"):
                 # ЛИЧНЫЕ каналы: is_private = TRUE
                 rows_pr = await conn.fetch(
@@ -580,18 +580,25 @@ async def _send_broadcast(schedule_id: int):
                           AND use_for_broadcasts = TRUE AND is_private = TRUE""",
                     schedule["client_id"],
                 )
-                tg_chats += [str(r["chat_id"]).strip() for r in rows_pr if r["chat_id"]]
+                tg_chats += [(str(r["chat_id"]).strip(), "client_private") for r in rows_pr if r["chat_id"]]
             if tg_chats:
                 async with httpx.AsyncClient(timeout=15) as http_extra:
-                    for cid in tg_chats:
+                    for cid, ckind in tg_chats:
                         if not cid or cid in sent_tg_chats:
                             continue
                         sent_tg_chats.add(cid)
-                        await send_telegram_message(
-                            http_extra, default_bot_token, cid, text, photo_url, button_text, button_url,
-                            buttons=buttons,
-                            video_url=video_url if media_type == "video" else None,
-                        )
+                        try:
+                            r = await send_telegram_message(
+                                http_extra, default_bot_token, cid,
+                                _with_support(text, "telegram"), photo_url, button_text, button_url,
+                                buttons=buttons,
+                                video_url=video_url if media_type == "video" else None,
+                            )
+                            ok = not (isinstance(r, dict) and r.get("ok") is False)
+                            await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, ok)
+                        except Exception as ex:
+                            await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, False, str(ex))
+                            logger.warning(f"TG-чат {cid} для рассылки {schedule_id} упал: {ex}")
 
         # === VK подписчики (доп. слой, после TG) ===
         # Шлём VK-подписчикам клиента ту же рассылку через VK API messages.send.
@@ -704,6 +711,23 @@ async def _send_broadcast(schedule_id: int):
         await conn.close()
 
 
+async def _log_chat_send(conn, schedule_id: int, kind: str, platform: str,
+                         chat_ref: str, ok: bool, error: str | None = None,
+                         chat_title: str | None = None) -> None:
+    """Записать доставку в ЧАТ в broadcast_log (миграция 220). Отдельно от личных
+    отправок: platform_user_id=NULL, вид/платформа/чат в chat_* полях."""
+    try:
+        await conn.execute(
+            """INSERT INTO broadcast_log
+                 (schedule_id, platform_user_id, status, error, chat_kind, chat_platform, chat_ref, chat_title)
+               VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)""",
+            schedule_id, ("sent" if ok else "failed"), (None if ok else (error or "не доставлено")),
+            kind, platform, str(chat_ref), chat_title,
+        )
+    except Exception as e:
+        logger.warning(f"broadcast_log chat insert failed (sch={schedule_id}, {platform}/{chat_ref}): {e}")
+
+
 async def _send_broadcast_to_event_chats(
     conn, schedule, event_id: int,
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
@@ -777,6 +801,7 @@ async def _send_broadcast_to_event_chats(
                     res = await max_send(chat_id_int, msg, token=max_token, buttons=max_buttons,
                                          recipient_kind="chat", parse_mode="html",
                                          attachments=[attach] if attach else None)
+                    await _log_chat_send(conn, schedule["id"], "event", "max", max_chat, bool(res))
                     if res:
                         sent += 1
                     if sent_max is not None:
@@ -830,6 +855,7 @@ async def _send_broadcast_to_event_chats(
                     # Шлём если есть текст ИЛИ вложение (фото без текста — норма).
                     if vk_text or vk_attachment:
                         res = await vk_call("messages.send", params, token=vk_row["bot_token"])
+                        await _log_chat_send(conn, schedule["id"], "event", "vk", vk_chat, bool(res))
                         if res:
                             sent += 1
                     if sent_vk is not None:
@@ -864,6 +890,8 @@ async def _send_broadcast_to_client_chats(
     if not rows:
         return 0
     sent = 0
+    # Вид чата для статистики: личный канал клиента vs общий чат клиента.
+    _ckind = "client_private" if is_private else "client_common"
     sent_vk = sent_vk if sent_vk is not None else set()
     sent_max = sent_max if sent_max is not None else set()
 
@@ -916,10 +944,12 @@ async def _send_broadcast_to_client_chats(
                         res = await max_send(cid_int, msg, token=max_token, buttons=max_buttons,
                                              recipient_kind="chat", parse_mode="html",
                                              attachments=[attach] if attach else None)
+                        await _log_chat_send(conn, schedule["id"], _ckind, "max", c, bool(res))
                         if res:
                             sent += 1
                         sent_max.add(c)
                     except Exception as ex:
+                        await _log_chat_send(conn, schedule["id"], _ckind, "max", c, False, str(ex))
                         logger.warning(f"Отправка в MAX-чат клиента {c} упала: {ex}")
         except Exception as ex:
             logger.warning(f"MAX-часть чатов клиента упала: {ex}")
@@ -944,9 +974,11 @@ async def _send_broadcast_to_client_chats(
                 for c in wa_chats:
                     try:
                         res = await wa.send_message(client_id, c, wa_text, media_url=wa_media)
+                        await _log_chat_send(conn, schedule["id"], _ckind, "whatsapp", c, bool(res and res.get("ok")))
                         if res and res.get("ok"):
                             sent += 1
                     except Exception as ex:
+                        await _log_chat_send(conn, schedule["id"], _ckind, "whatsapp", c, False, str(ex))
                         logger.warning(f"Отправка в WhatsApp-чат клиента {c} упала: {ex}")
         except Exception as ex:
             logger.warning(f"WhatsApp-часть чатов клиента упала: {ex}")
@@ -989,6 +1021,7 @@ async def _send_broadcast_to_client_chats(
                     if vk_text or vk_attachment:
                         try:
                             res = await vk_call("messages.send", params, token=vk_row["bot_token"])
+                            await _log_chat_send(conn, schedule["id"], _ckind, "vk", c, bool(res))
                             if res:
                                 sent += 1
                             sent_vk.add(c)

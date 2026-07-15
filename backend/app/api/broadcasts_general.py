@@ -538,15 +538,24 @@ async def log(
         FROM broadcast_log bl
         LEFT JOIN platform_users pu ON pu.id = bl.platform_user_id
         LEFT JOIN channels ch ON ch.id = bl.channel_id
-        WHERE bl.schedule_id = $1
+        WHERE bl.schedule_id = $1 AND bl.platform_user_id IS NOT NULL
         ORDER BY bl.sent_at
         """,
         schedule_id
+    )
+    # Отправки В ЧАТЫ (миграция 220) — отдельным блоком.
+    chat_rows = await db.fetch(
+        """SELECT status, error, sent_at, chat_kind, chat_platform, chat_ref, chat_title
+             FROM broadcast_log
+            WHERE schedule_id = $1 AND chat_kind IS NOT NULL
+            ORDER BY sent_at""",
+        schedule_id,
     )
 
     from app.services.email_funnel_stats import email_funnel_stats
     return {
         "log": [dict(r) for r in rows],
+        "chats": [dict(r) for r in chat_rows],
         "email_stats": await email_funnel_stats(db, schedule_id),
     }
 

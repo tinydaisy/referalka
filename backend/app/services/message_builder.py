@@ -361,7 +361,8 @@ def apply_speaker_material(text, material):
     return text.replace("{speaker_material}", material)
 
 
-def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_text=None, gifts=None):
+def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_text=None, gifts=None,
+                       is_package=False):
     """Формирует сообщение-подарок.
     Если задан tmpl_text — используется он с подстановкой плейсхолдеров
     ({speaker_name}, {gift_title}, {gift_url}, {personal_tg}).
@@ -371,6 +372,10 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
     Если передан и непуст, {gift_title}/{gift_url} (или дефолтное тело) заменяются
     на многострочный блок «Название\\nссылка» по всем подаркам. Одиночные
     gift_title/gift_url — fallback (ручной подарок / обратная совместимость).
+
+    is_package=True — подарок это ПАКЕТ лид-магнитов. Тогда блок подарка выводится
+    в особом формате: ссылка → (2 переноса) → название пакета → (2 переноса) →
+    «Ссылка на пакет материалов: ссылка».
     """
     tg_raw = (personal_tg or "").strip()
     tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
@@ -389,7 +394,23 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         if t0:
             glist = [(t0, u0)]
 
+    def _package_block():
+        # Формат для ПАКЕТА: ссылка → название пакета → «Ссылка на пакет материалов: ссылка».
+        t = glist[0][0] if glist else ""
+        u = glist[0][1] if glist else ""
+        lines = []
+        if u:
+            lines.append(u)          # 1) сначала ссылка
+        if t:
+            lines.append(t)          # 2) название пакета (как введено)
+        if u:
+            lines.append(f"Ссылка на пакет материалов: {u}")  # 3) подпись со ссылкой
+        return "\n\n".join(lines)
+
     def _gifts_block(numbered=False):
+        # Пакет — свой формат (ссылка/название/подпись), не «Название\nссылка».
+        if is_package:
+            return _package_block()
         # По каждому подарку «Название\nссылка», разделитель между подарками —
         # 2 переноса строки (пустая строка). numbered=True → «1. Название\nссылка».
         parts = []
@@ -429,9 +450,14 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
     if tmpl and any(p in tmpl for p in ("{speaker_name}", "{gift_title}", "{gift_url}", "{personal_tg}")):
         text = tmpl
         multi = len(glist) > 1
+        # Пакет: {gift_title} → блок пакета (ссылка/название/подпись), {gift_url}-строку убираем.
+        if is_package and glist and "{gift_title}" in text:
+            text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+            title = _package_block()
+            url = ""
         # Многоподарочный случай: строку с {gift_title} превращаем в блок всех подарков,
         # строку с {gift_url} убираем (ссылки уже внутри блока).
-        if multi and "{gift_title}" in text:
+        elif multi and "{gift_title}" in text:
             text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
             title = _gifts_block(numbered=True)   # несколько подарков → «1. …\n2. …»
             url = ""
@@ -1335,6 +1361,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                         session_data["gift_title"] = session_data["lp_name"]
                         if session_data.get("lp_slug"):
                             session_data["gift_url"] = f"https://pluson.ru/p/{session_data['lp_slug']}"
+                        # Подарок = ПАКЕТ лид-магнитов → особый формат вывода (ссылка/название/подпись).
+                        session_data["gift_is_package"] = True
         if not photo:
             # 5min_before уважает режим speaker_photo_mode (афиша/просто фото);
             # gift оставляем на афише (poster) как прежде.
@@ -1346,6 +1374,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
         if tpl_type == "gift":
+            # is_package — только если подарок это пакет И нет мульти-списка лид-магнитов
+            # (у пакета его нет; иначе формат «несколько подарков» важнее).
+            _is_pkg = bool(session_data.get("gift_is_package")) and not session_data.get("gift_magnets_list")
             text = build_gift_message(
                 session_data.get("speaker_name"),
                 session_data.get("speaker_personal_tg"),
@@ -1353,6 +1384,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 session_data.get("gift_url"),
                 tmpl_text=tmpl_text,
                 gifts=session_data.get("gift_magnets_list"),
+                is_package=_is_pkg,
             )
             text = apply_speaker_material(text, speaker_material)
         else:  # 5min_before

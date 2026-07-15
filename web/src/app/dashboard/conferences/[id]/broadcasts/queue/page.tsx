@@ -247,7 +247,7 @@ export default function QueuePage() {
   const [editEventChats, setEditEventChats] = useState(false)
   const [editClientChats, setEditClientChats] = useState(false)
   const [editPrivateChats, setEditPrivateChats] = useState(false)
-  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[]; emailStats?: EmailStats | null } | null>(null)
+  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[]; chats?: any[]; emailStats?: EmailStats | null } | null>(null)
   const [logLoading, setLogLoading] = useState(false)
   const [manualForm, setManualForm] = useState({
     template_id: '',
@@ -513,7 +513,7 @@ export default function QueuePage() {
     setLogLoading(true)
     try {
       const res = await api.conference.schedules.log(eventId, schedule.id)
-      setLogModal({ schedule, rows: res.log || [], emailStats: res.email_stats || null })
+      setLogModal({ schedule, rows: res.log || [], chats: res.chats || [], emailStats: res.email_stats || null })
     } catch { showMsg('Не удалось загрузить лог', 'err') }
     finally { setLogLoading(false) }
   }
@@ -746,7 +746,12 @@ export default function QueuePage() {
   }
 
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
-  const nullFireCount = schedules.filter(s => s.status === 'draft' && !s.fire_at).length
+  const nullFireDrafts = schedules.filter(s => s.status === 'draft' && !s.fire_at)
+  const nullFireCount = nullFireDrafts.length
+  // Реальные названия типов рассылок без времени (для плашки) — не хардкодим «Знакомство со спикером».
+  const nullFireTypeNames = Array.from(new Set(
+    nullFireDrafts.map(s => TYPE_LABELS[s.template_type] || s.type || 'без типа')
+  ))
   const doneCount = schedules.filter(s => s.status === 'done').length
   // Пересчитываем из актуального списка schedules (обновляется при удалении без reload)
   const nextPending = schedules
@@ -1793,6 +1798,13 @@ export default function QueuePage() {
           else botMap[key].failed += 1
         }
         const botEntries = Object.entries(botMap).sort((a, b) => (b[1].sent + b[1].failed) - (a[1].sent + a[1].failed))
+        // Отправки в ЧАТЫ — отдельным блоком (миграция 220).
+        const chats = logModal.chats || []
+        const CHAT_KIND_LABEL: Record<string, string> = {
+          event: 'Чат события', client_common: 'Общий чат', client_private: 'Личный канал',
+        }
+        const chatSent = chats.filter((c: any) => c.status === 'sent').length
+        const chatFailed = chats.length - chatSent
         return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
@@ -1825,6 +1837,30 @@ export default function QueuePage() {
                 ))}
               </div>
             ) : null}
+            {/* По чатам — отправки в групповые чаты (события / общие / личные) */}
+            {chats.length > 0 && (
+              <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-emerald-800">
+                  По чатам: <span className="text-green-700">доставлено {chatSent}</span>
+                  {chatFailed > 0 && <span className="text-red-500"> · не доставлено {chatFailed}</span>}
+                </p>
+                {chats.map((c: any, i: number) => {
+                  const ok = c.status === 'sent'
+                  const plat = (c.chat_platform || '').toUpperCase()
+                  return (
+                    <div key={i} className={`flex items-center justify-between text-xs px-2 py-1 rounded ${ok ? '' : 'bg-red-50'}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={ok ? 'text-green-500' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
+                        <span className="text-emerald-900 font-medium">{CHAT_KIND_LABEL[c.chat_kind] || c.chat_kind}</span>
+                        {plat && <span className="text-[10px] text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded shrink-0">{plat}</span>}
+                        <span className="text-gray-400 truncate">{c.chat_title || c.chat_ref}</span>
+                      </div>
+                      {!ok && c.error && <span className="text-red-500 shrink-0 ml-2 truncate max-w-[40%]">{c.error}</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
             {/* Статистика по причинам недоставки */}
             {reasons.length > 0 && (
               <div className="mb-3 bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
