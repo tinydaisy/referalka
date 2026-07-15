@@ -805,29 +805,10 @@ export default function ConferenceSpeakerPage() {
           {giftTab === 'pluson' ? (
             hasPluson ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
-                {giftMagnets.length > 0 ? (
-                  <>
-                    <div className="font-semibold text-emerald-800">🎁 Подарки-лид-магниты из ПЛЮСОНа ({giftMagnets.length})</div>
-                    <ol className="mt-1.5 space-y-1.5 list-decimal list-inside">
-                      {giftMagnets.map((g, i) => (
-                        <li key={i} className="text-emerald-900">
-                          {g.kind === 'package' ? '📦 ' : ''}{g.name}
-                          {g.url && (<div><a href={g.url} target="_blank" rel="noreferrer"
-                            className="text-emerald-700 underline break-all text-xs">{g.url}</a></div>)}
-                        </li>
-                      ))}
-                    </ol>
-                  </>
-                ) : (
-                  <>
-                    <div className="font-semibold text-emerald-800">🎁 Подарок из ПЛЮСОНа</div>
-                    <div className="text-emerald-900 mt-0.5">{giftPluson!.name}</div>
-                    {giftPluson!.url && (<a href={giftPluson!.url} target="_blank" rel="noreferrer"
-                      className="text-emerald-700 underline break-all text-xs">{giftPluson!.url}</a>)}
-                  </>
-                )}
-                <div className="text-emerald-700 text-xs mt-2">
-                  Спикер выбрал это в своём кабинете. Менять список магнитов может только он (это его база лид-магнитов).
+                <div className="font-semibold text-emerald-800">✓ Подарок настроен через ПЛЮСОН</div>
+                <div className="text-emerald-700 text-xs mt-1.5">
+                  Спикер привязал свой ПЛЮСОН-аккаунт и выбирает подарки-лид-магниты у себя в кабинете.
+                  Их состав видите и меняете не вы, а он — это его база лид-магнитов.
                 </div>
                 <button type="button" onClick={removePlusonGift}
                   className="mt-2 text-xs font-medium text-red-600 hover:text-red-700 underline">

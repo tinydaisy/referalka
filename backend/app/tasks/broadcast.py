@@ -635,7 +635,7 @@ async def _send_broadcast(schedule_id: int):
                 chats_sent = await _send_broadcast_to_event_chats(
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max,
+                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_support,
                 )
                 sent += chats_sent
                 logger.info(f"Чаты события для рассылки {schedule_id}: отправлено {chats_sent}")
@@ -650,7 +650,7 @@ async def _send_broadcast(schedule_id: int):
                 cl_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False, with_support=_with_support,
                 )
                 sent += cl_sent
                 logger.info(f"Общие чаты клиента для рассылки {schedule_id}: отправлено {cl_sent}")
@@ -664,7 +664,7 @@ async def _send_broadcast(schedule_id: int):
                 pr_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True, with_support=_with_support,
                 )
                 sent += pr_sent
                 logger.info(f"Личные каналы клиента для рассылки {schedule_id}: отправлено {pr_sent}")
@@ -693,6 +693,7 @@ async def _send_broadcast_to_event_chats(
     buttons: list | None = None,
     video_url: str | None = None, media_type: str | None = None,
     sent_vk: set | None = None, sent_max: set | None = None,
+    with_support=None,
 ) -> int:
     """Шлёт рассылку в ГРУППОВЫЕ чаты события VK/MAX (по флагу send_to_event_chats):
     events.vk_chat_id (VK-беседа), max_chat_id (MAX-чат).
@@ -733,7 +734,9 @@ async def _send_broadcast_to_event_chats(
                     max_buttons = tg_inline_to_max_keyboard(rows_btn)
                 elif button_text and button_url:
                     max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
-                msg = html_to_telegram(text or "")
+                # {support_link} → контакт поддержки MAX (в чат события уходит MAX).
+                _txt = with_support(text, "max") if with_support else (text or "")
+                msg = html_to_telegram(_txt or "")
                 attach = None
                 if photo_url and media_type != "video":
                     import tempfile, os as _os
@@ -780,7 +783,8 @@ async def _send_broadcast_to_event_chats(
                 client_id,
             )
             if vk_row and vk_row["bot_token"]:
-                vk_text = html_to_vk_text(text or "")
+                _txt = with_support(text, "vk") if with_support else (text or "")
+                vk_text = html_to_vk_text(_txt or "")
                 if button_url:
                     vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {button_url}"
                 try:
@@ -826,6 +830,7 @@ async def _send_broadcast_to_client_chats(
     video_url: str | None = None, media_type: str | None = None,
     sent_vk: set | None = None, sent_max: set | None = None,
     is_private: bool = False,
+    with_support=None,
 ) -> int:
     """Шлёт рассылку в базу чатов клиента (client_broadcast_chats) для VK и MAX.
     is_private=False — общие чаты (is_private=FALSE); True — личные каналы (is_private=TRUE).
@@ -868,7 +873,8 @@ async def _send_broadcast_to_client_chats(
                     max_buttons = tg_inline_to_max_keyboard(rows_btn)
                 elif button_text and button_url:
                     max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
-                msg = html_to_telegram(text or "")
+                _txt = with_support(text, "max") if with_support else (text or "")
+                msg = html_to_telegram(_txt or "")
                 if media_type == "video" and video_url:
                     msg = f"{msg}\n\n🎬 Видео: {video_url}" if msg else video_url
                 attach = None
@@ -908,7 +914,9 @@ async def _send_broadcast_to_client_chats(
         try:
             from app.services import whatsapp_api as wa
             from app.services.message_builder import html_to_vk_text as _to_plain
-            wa_text = _to_plain(text or "")
+            # WhatsApp своей поддержки нет — падаем на TG-контакт.
+            _txt = with_support(text, "telegram") if with_support else (text or "")
+            wa_text = _to_plain(_txt or "")
             # Фото — отправляем картинкой с подписью. Видео — тяжёлое, ссылкой в тексте.
             wa_media = photo_url if (photo_url and media_type != "video") else None
             if media_type == "video" and video_url:
@@ -942,7 +950,8 @@ async def _send_broadcast_to_client_chats(
                 client_id,
             )
             if vk_row and vk_row["bot_token"]:
-                vk_text = html_to_vk_text(text or "")
+                _txt = with_support(text, "vk") if with_support else (text or "")
+                vk_text = html_to_vk_text(_txt or "")
                 if button_url:
                     vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {button_url}"
                 vk_attachment = None
