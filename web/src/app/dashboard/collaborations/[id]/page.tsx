@@ -10,6 +10,7 @@ import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
 import { TelegramChannelField } from '@/components/TelegramChannelField'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
+import { validateSocialLinks } from '@/lib/validateSocialLinks'
 import CollaboratorPostersField from '@/components/CollaboratorPostersField'
 
 const IMPORTANT_FIELDS: { key: string; label: string }[] = [
@@ -93,6 +94,15 @@ export default function CollaborationPage({ params }: { params: { id: string } }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Соцсети — только полной ссылкой (https://…), не ником.
+    const socialErr = validateSocialLinks([
+      ['Telegram-канал', form.tg_channel_url],
+      ['ВКонтакте', form.vk_url],
+      ['MAX', form.max_url],
+      ['Нельзяграм', form.instagram_url],
+      ['Сайт', form.website_url],
+    ])
+    if (socialErr) { setError(socialErr); return }
     setSaving(true); setError(''); setSaved(false)
     try {
       const achievements = achievementsText

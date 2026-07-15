@@ -75,6 +75,45 @@ def _normalize_media_assets(value: Any) -> Optional[List[dict]]:
     return out
 
 
+# Соцсети/каналы коллаба — только полной ссылкой (https://…), не ником. Ник
+# (@name / name) не открывается из карточки в Mini App и ломает проверку подписки.
+# Дубль фронтовой проверки: импорт/прямой вызов API идут мимо формы.
+_SOCIAL_LINK_FIELDS = {
+    "tg_channel_url": "Telegram-канал",
+    "vk_url": "ВКонтакте",
+    "max_url": "MAX",
+    "instagram_url": "Instagram (Нельзяграм)",
+    "website_url": "Сайт",
+}
+
+
+def _validate_social_links(data) -> None:
+    """Бросает 400, если в любом соц-поле передан ник вместо полной ссылки.
+    Проверяет ТОЛЬКО поля, которые реально пришли (у Pydantic-моделей update —
+    через model_fields_set; у create/import — все присутствующие атрибуты)."""
+    sent = getattr(data, "model_fields_set", None)
+    bad = []
+    for field, label in _SOCIAL_LINK_FIELDS.items():
+        if sent is not None and field not in sent:
+            continue
+        val = getattr(data, field, None)
+        s = (val or "").strip() if isinstance(val, str) else ""
+        if not s:
+            continue
+        if not (s.lower().startswith("http://") or s.lower().startswith("https://")):
+            bad.append(label)
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Соцсети нужно указывать полной ссылкой, а не никнеймом. "
+                f"Исправьте: {', '.join(bad)}. "
+                "Например: https://telegram.me/username, https://vk.com/username, "
+                "https://instagram.com/username"
+            ),
+        )
+
+
 async def _generate_unique_access_code(db: asyncpg.Connection, length: int = 8) -> str:
     """8-символьный код для входа спикера в мини-кабинет (миграция 108)."""
     for _ in range(20):
@@ -237,6 +276,7 @@ async def create_collaborator(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
+    _validate_social_links(data)
     # Проверяем что contact_id принадлежит этому клиенту и не помечен мерджем
     contact = await db.fetchrow(
         "SELECT id, name FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
@@ -613,6 +653,7 @@ async def update_collaborator(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
+    _validate_social_links(data)
     updates_full = {k: v for k, v in data.model_dump().items() if v is not None}
     # Личные идентичности TG/VK/MAX живут в platform_users (миграция 107),
     # а не в collaborators. Отделяем их из updates_full, чтобы не пытаться
@@ -748,6 +789,7 @@ async def create_collaborator_quick(
     name = (data.name or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="Имя обязательно")
+    _validate_social_links(data)
 
     contact_id: Optional[int] = data.existing_contact_id
     if contact_id is not None:
@@ -884,6 +926,7 @@ async def import_collaborators(
 
     for item in data.collaborations:
         try:
+            _validate_social_links(item)
             existing = await db.fetchrow(
                 "SELECT id FROM collaborators WHERE name = $1 AND created_by_client_id = $2",
                 item.name, client_id

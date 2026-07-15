@@ -14,6 +14,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import QrLinkButton from '@/components/QrLinkButton'
+import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
@@ -304,28 +305,14 @@ export default function SpeakerCabinetPage() {
     if (!me || !token) return
     // Соцсети — ТОЛЬКО ссылкой, не никнеймом. Ник (@name / name) не открывается
     // из карточки спикера и ломает проверку подписки. Предупреждаем и не сохраняем.
-    const socialFields: [string, string | null | undefined][] = [
+    const socialErr = validateSocialLinks([
       ['Telegram-канал', me.tg_channel_url],
       ['ВКонтакте', me.vk_url],
       ['MAX', me.max_url],
       ['Нельзяграм', me.instagram_url],
       ['Сайт', me.website_url],
-    ]
-    const badSocials = socialFields
-      .filter(([, v]) => {
-        const s = (v || '').trim()
-        if (!s) return false
-        return !/^https?:\/\//i.test(s)
-      })
-      .map(([label]) => label)
-    if (badSocials.length) {
-      setError(
-        `Соцсети нужно указывать полной ссылкой, а не никнеймом. ` +
-        `Исправьте: ${badSocials.join(', ')}. ` +
-        `Например: https://telegram.me/username, https://vk.com/username, https://instagram.com/username`
-      )
-      return
-    }
+    ])
+    if (socialErr) { setError(socialErr); return }
     setSaving(true); setError(null)
     try {
       // Регалии: парсим текстарею в массив. Сносим маркеры списков (•, *, –, и т.п.)

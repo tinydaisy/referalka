@@ -10,6 +10,7 @@ import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
 import RefLinkInline from '@/components/RefLinkInline'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
+import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 // Поля профиля, которые обязательно нужны
 const PROFILE_FIELDS: { key: string; label: string }[] = [
@@ -79,26 +80,47 @@ function WarningPopup({ missing, onClose }: { missing: string[]; onClose: () => 
 }
 
 /** Редактор списка тем */
-function TopicsEditor({ topics, onChange }: { topics: string[]; onChange: (topics: string[]) => void }) {
+function TopicsEditor({ topics, onChange, boundIndex, slotLabel, slotHasTopic }: {
+  topics: string[]; onChange: (topics: string[]) => void
+  boundIndex?: number | null; slotLabel?: string | null; slotHasTopic?: boolean | null
+}) {
   function updateTopic(i: number, val: string) {
     const next = [...topics]; next[i] = val; onChange(next)
   }
   function removeTopic(i: number) { onChange(topics.filter((_, idx) => idx !== i)) }
   function addTopic() { onChange([...topics, '']) }
+  // Слот в программе есть, но темы в нём ещё нет — предупреждаем.
+  const slotNoTopic = !!slotLabel && slotHasTopic === false
   return (
     <div className="space-y-2">
-      {topics.map((t, i) => (
-        <div key={i} className="flex items-start gap-2">
-          <textarea value={t} onChange={e => updateTopic(i, e.target.value)} rows={2}
-            placeholder={`Тема ${i + 1}`} className="input flex-1 resize-none text-sm" />
-          {topics.length > 1 && (
-            <button type="button" onClick={() => removeTopic(i)}
-              className="mt-1 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0">
-              <X size={14} />
-            </button>
-          )}
+      {slotLabel && (
+        <div className={`text-xs rounded-lg px-3 py-2 ${slotNoTopic ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+          {slotNoTopic
+            ? <>⚠️ Слот <b>{slotLabel}</b> занят, но тема к нему ещё не привязана — сохраните тему, и она подставится в программу и рассылки.</>
+            : <>✓ В программу и рассылки идёт тема, отмеченная зелёным (слот <b>{slotLabel}</b>). Остальные темы в программу не попадают.</>}
         </div>
-      ))}
+      )}
+      {topics.map((t, i) => {
+        const isBound = boundIndex != null && boundIndex === i
+        return (
+          <div key={i} className="flex items-start gap-2">
+            <div className="flex-1">
+              <textarea value={t} onChange={e => updateTopic(i, e.target.value)} rows={2}
+                placeholder={`Тема ${i + 1}`}
+                className={`input w-full resize-none text-sm ${isBound ? 'border-emerald-400 ring-1 ring-emerald-200' : ''}`} />
+              {isBound && (
+                <div className="text-[11px] text-emerald-600 mt-1">✓ Тема в слоте программы{slotLabel ? ` (${slotLabel})` : ''}</div>
+              )}
+            </div>
+            {topics.length > 1 && (
+              <button type="button" onClick={() => removeTopic(i)}
+                className="mt-1 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )
+      })}
       <button type="button" onClick={addTopic}
         className="flex items-center gap-1.5 text-xs text-brand hover:text-brand/80 transition-colors py-1">
         + Добавить тему
@@ -318,6 +340,10 @@ export default function ConferenceSpeakerPage() {
           poster_id: sp.poster_id ?? null,
           // Афиши «для анонсов» в этой конференции (миграция 122).
           announcement_poster_ids: Array.isArray(sp.announcement_poster_ids) ? sp.announcement_poster_ids : [],
+          // Привязка темы к слоту программы (какая тема реально идёт в рассылку).
+          bound_topic_index: sp.bound_topic_index ?? null,
+          slot_label: sp.slot_label ?? null,
+          slot_has_topic: sp.slot_has_topic ?? null,
         })
 
         return api.collaborators.get(sp.speaker_id)
@@ -338,6 +364,15 @@ export default function ConferenceSpeakerPage() {
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault()
+    // Соцсети — только полной ссылкой (https://…), не ником.
+    const socialErr = validateSocialLinks([
+      ['Telegram-канал', profile.tg_channel_url],
+      ['ВКонтакте', profile.vk_url],
+      ['MAX', profile.max_url],
+      ['Нельзяграм', profile.instagram_url],
+      ['Сайт', profile.website_url],
+    ])
+    if (socialErr) { setError(socialErr); return }
     setSavingProfile(true); setError(''); setProfileSaved(false)
     try {
       const achievements = achievementsText.split('\n').map(s => s.trim()).filter(Boolean)
@@ -798,7 +833,13 @@ export default function ConferenceSpeakerPage() {
         {/* Темы выступления — перед подарками */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <FieldLabel label="Темы выступления" empty={!eventForm.topics.some(t => t.trim())} />
-          <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))} />
+          <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))}
+            boundIndex={(eventForm as any).bound_topic_index}
+            slotLabel={(eventForm as any).slot_label}
+            slotHasTopic={(eventForm as any).slot_has_topic} />
+          <p className="text-xs text-gray-400 pt-2">
+            Если у спикера несколько тем, в программу и рассылки идёт та, что привязана к его слоту (отмечена зелёным). Спикер выбирает слот сам в своём кабинете; тема слота обновляется автоматически.
+          </p>
         </div>
 
         {/* Подарок после эфира — 2 вкладки.

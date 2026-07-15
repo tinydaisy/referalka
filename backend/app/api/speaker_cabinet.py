@@ -362,8 +362,13 @@ async def patch_me(
     session: dict = Depends(_auth_session),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    from app.api.collaborators import _upsert_personal_identities, _normalize_media_assets
+    from app.api.collaborators import (
+        _upsert_personal_identities, _normalize_media_assets, _validate_social_links,
+    )
     import json as _json
+
+    # Соцсети — только полной ссылкой (https://…), не ником (дубль фронт-проверки).
+    _validate_social_links(data)
 
     se_id = int(session["se_id"])
     c_id = int(session["c_id"])
@@ -477,24 +482,11 @@ async def patch_me(
 
     # 4. Темы выступления — единый хелпер: тема №1 живёт по постоянному id
     # (её текст правим, а не пересоздаём), поэтому привязка слота не слетает.
+    # Хелпер САМ привязывает первую тему к слоту, если слот занят без темы
+    # («занял слот раньше, чем вписал тему») — из всех точек правки одинаково.
     if data.topics is not None:
         from app.api.modules.conference import _rewrite_speaker_topics
         await _rewrite_speaker_topics(db, se_id, data.topics)
-        # ⚠️ Спикер мог занять слот РАНЬШЕ, чем вписал тему — тогда слот остался
-        # без topic_id и в программу/рассылки уходил замороженный «Тема будет
-        # уточнена позже». Как только тема появилась — привязываем её к слоту.
-        await db.execute(
-            """
-            UPDATE conf_sessions cs
-               SET topic_id = t.id,
-                   title    = t.topic
-              FROM (SELECT id, topic FROM conf_speaker_topics
-                     WHERE cse_id = $1 AND NULLIF(topic,'') IS NOT NULL
-                     ORDER BY sort_order, id LIMIT 1) t
-             WHERE cs.speaker_id = $1 AND cs.topic_id IS NULL
-            """,
-            se_id,
-        )
 
     # 5. Подарки и материал. Различаем «не передано» (не трогаем) и «передано null»
     # (обнуляем) через model_fields_set — иначе нельзя стереть ручной подарок при

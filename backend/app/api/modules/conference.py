@@ -734,6 +734,26 @@ async def _rewrite_speaker_topics(db, cse_id: int, topics: list) -> None:
         (clean[0] if clean else ""), cse_id,
     )
 
+    # ⚠️ Спикер мог занять слот РАНЬШЕ, чем появилась тема (или тему вписал
+    # организатор в дашборде — раньше эта ветка была только в кабинете спикера,
+    # из-за чего слот, занятый до темы, оставался с «Тема будет уточнена позже»).
+    # Как только у спикера появилась первая непустая тема — привязываем её к его
+    # слоту, если тот ещё без темы. Работает из ВСЕХ точек правки тем: дашборд,
+    # кабинет спикера, импорт.
+    if clean:
+        await db.execute(
+            """
+            UPDATE conf_sessions cs
+               SET topic_id = t.id,
+                   title    = t.topic
+              FROM (SELECT id, topic FROM conf_speaker_topics
+                     WHERE cse_id = $1 AND NULLIF(topic,'') IS NOT NULL
+                     ORDER BY sort_order, id LIMIT 1) t
+             WHERE cs.speaker_id = $1 AND cs.topic_id IS NULL
+            """,
+            cse_id,
+        )
+
 
 async def _save_topics(cse_id: int, topics: list, db) -> None:
     """Полностью заменяет темы спикера в событии (обёртка над общим хелпером)."""
@@ -941,11 +961,44 @@ async def list_event_speakers(
         event_id
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)
+    # Слоты программы этих спикеров — чтобы в карточке показать, какая тема реально
+    # привязана к слоту (conf_sessions.topic_id) и когда слот. Спикер мог иметь
+    # несколько тем — важно видеть, какая из них уходит в программу/рассылки.
+    slot_rows = await db.fetch(
+        """SELECT cs.speaker_id AS cse_id, cs.topic_id, cs.day, cs.start_time, cs.end_time
+             FROM conf_sessions cs
+            WHERE cs.event_id = $1 AND cs.speaker_id = ANY($2::int[])
+            ORDER BY cs.speaker_id, cs.day, cs.start_time""",
+        event_id, [r["id"] for r in rows],
+    )
+    slot_map: dict = {}
+    for s in slot_rows:
+        slot_map.setdefault(s["cse_id"], []).append(dict(s))
+
     result = []
     import json as _json_c
     for r in rows:
         d = dict(r)
         d["topics"] = topics_map.get(d["id"], [])
+        # Привязка темы к слоту: индекс темы (в массиве topics), которая стоит в
+        # слоте, + человекочитаемая подпись слота (День N, HH:MM–HH:MM).
+        slots = slot_map.get(d["id"], [])
+        bound_topic_id = next((s["topic_id"] for s in slots if s["topic_id"]), None)
+        d["bound_topic_index"] = next(
+            (i for i, t in enumerate(d["topics"]) if t["id"] == bound_topic_id), None
+        ) if bound_topic_id else None
+        bound_slot = next((s for s in slots if s["topic_id"] == bound_topic_id), None) if bound_topic_id else None
+        if bound_slot is None and slots:
+            bound_slot = slots[0]  # слот занят, но темы в нём ещё нет
+        if bound_slot:
+            _st = str(bound_slot.get("start_time") or "")[:5]
+            _et = str(bound_slot.get("end_time") or "")[:5]
+            _time = (f"{_st}–{_et}" if _st and _et else _st) or ""
+            d["slot_label"] = f"День {bound_slot['day']}" + (f", {_time} МСК" if _time else "")
+            d["slot_has_topic"] = bound_topic_id is not None
+        else:
+            d["slot_label"] = None
+            d["slot_has_topic"] = None
         d["poster_url"] = d.get("cse_poster_url") or d.get("speaker_poster_url")
         # Список подарков-лид-магнитов (до 4, миграция 200) — для карточки спикера
         # и превью рассылки gift.

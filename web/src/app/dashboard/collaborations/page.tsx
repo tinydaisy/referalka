@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import { Spinner } from '@/components/Spinner'
 import { useMe } from '@/hooks/useMe'
+import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 const JSON_EXAMPLE = `{
   "collaborations": [
@@ -506,6 +507,9 @@ function QuickCreateCollabModal({
 
   async function submit(opts?: { force_create?: boolean; existing_contact_id?: number }) {
     if (!name.trim()) return
+    // Instagram — только полной ссылкой (https://…), не ником.
+    const socialErr = validateSocialLinks([['Нельзяграм', instagram]])
+    if (socialErr) { alert(socialErr); return }
     setSaving(true)
     try {
       const payload: any = {
