@@ -702,27 +702,40 @@ export default function QueuePage() {
   async function runSelected() {
     const ids = [...selectedIds]
     const selected = schedules.filter(s => ids.includes(s.id))
-    const hasDraft = selected.some(s => s.status === 'draft')
-    if (!hasDraft) {
-      alert('Среди выбранных нет задач в статусе "Черновик". Запустить можно только черновики.')
-      return
-    }
     const drafts = selected.filter(s => s.status === 'draft')
-    const pastDrafts = drafts.filter(s => s.fire_at_iso && new Date(s.fire_at_iso) <= new Date())
-    if (pastDrafts.length > 0) {
-      alert(`${pastDrafts.length} задач(и) имеют прошедшее время и не будут запущены. Сначала установите им актуальное время.`)
+    if (drafts.length === 0) {
+      alert('Среди выбранных нет черновиков. Запустить можно только черновики.')
       return
     }
-    const noDrafts = drafts.filter(s => !s.fire_at_iso)
-    if (noDrafts.length > 0) {
-      alert(`${noDrafts.length} задач(и) без времени отправки. Сначала задайте время через кнопку редактирования.`)
+    // Запускаем ВСЕ годные, а «косячные» просто пропускаем (не блокируем весь запуск):
+    //  - без времени отправки (нужно сначала «Задать время»);
+    //  - с прошедшим временем (ушли бы мгновенно / не подхватятся планировщиком).
+    const noTime = drafts.filter(s => !s.fire_at_iso)
+    const pastTime = drafts.filter(s => s.fire_at_iso && new Date(s.fire_at_iso) <= new Date())
+    const skipIds = new Set([...noTime, ...pastTime].map(s => s.id))
+    const runnable = drafts.filter(s => !skipIds.has(s.id))
+
+    if (runnable.length === 0) {
+      alert('Все выбранные черновики без времени или с прошедшим временем. Задайте им время через кнопку «Задать время» рядом с рассылкой.')
       return
     }
-    if (!confirm(`Запустить ${drafts.length} рассылок?\n\nПосле запуска можно отменить любую из них (значок ✕ справа на задаче).`)) return
+
+    // Сколько пропустим — предупреждаем, но запуск не блокируем.
+    const skippedParts: string[] = []
+    if (noTime.length > 0) skippedParts.push(`${noTime.length} без времени`)
+    if (pastTime.length > 0) skippedParts.push(`${pastTime.length} с прошедшим временем`)
+    const skippedNote = skippedParts.length
+      ? `\n\nБудет пропущено (запускать не будем): ${skippedParts.join(', ')} — задайте им время отдельно.`
+      : ''
+    if (!confirm(`Запустить ${runnable.length} рассылок?${skippedNote}\n\nПосле запуска можно отменить любую (значок ✕ справа на задаче).`)) return
+
     setRunningSelected(true)
     try {
-      const r = await api.conference.schedules.runSelected(eventId, ids)
-      showMsg(`Запущено ${r.queued} рассылок — Celery отправит их по расписанию. Чтобы отменить — кликните ✕ справа на задаче.`)
+      // Шлём на бэк ТОЛЬКО годные id — косячные и невыбранные игнорируются.
+      const runnableIds = runnable.map(s => s.id)
+      const r = await api.conference.schedules.runSelected(eventId, runnableIds)
+      const tail = skippedParts.length ? ` Пропущено: ${skippedParts.join(', ')}.` : ''
+      showMsg(`Запущено ${r.queued} рассылок — Celery отправит их по расписанию.${tail} Отменить — ✕ справа на задаче.`)
       await load()
       setSelectedIds(new Set())
     } catch (e: any) {

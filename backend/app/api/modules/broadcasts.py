@@ -2228,42 +2228,39 @@ async def run_all_schedules(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
-    # Проверяем есть ли draft-рассылки без времени (fire_at = NULL)
+    # «Косячные» черновики НЕ блокируют запуск всей очереди — просто пропускаем их
+    # (без времени / с прошедшим временем). Запускаем ВСЕ годные.
     null_fire = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='draft' AND fire_at IS NULL",
         event_id
-    )
-    if null_fire and null_fire > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"У {null_fire} рассылок не задано время отправки. Установите дату для «Знакомства со спикерами» перед запуском."
-        )
-
-    # ⚠️ Защита от ошибочной массовой отправки: рассылки с датой в прошлом
-    # ушли бы немедленно. Блокируем запуск, пока клиент не поправит дату.
+    ) or 0
     past_fire = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='draft' "
         "AND fire_at IS NOT NULL AND fire_at < (NOW() - INTERVAL '5 minutes')",
         event_id
-    )
-    if past_fire and past_fire > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"У {past_fire} рассылок дата отправки уже прошла — они ушли бы сразу. "
-                   "Исправьте дату (или удалите старые копии) перед запуском."
-        )
+    ) or 0
 
-    # Переводим draft → pending
+    # Переводим в pending только годные draft (есть время И оно не в прошлом).
     await db.execute(
-        "UPDATE broadcast_schedules SET status='pending' WHERE event_id=$1 AND status='draft' AND fire_at IS NOT NULL",
+        "UPDATE broadcast_schedules SET status='pending' "
+        "WHERE event_id=$1 AND status='draft' "
+        "  AND fire_at IS NOT NULL AND fire_at >= (NOW() - INTERVAL '5 minutes')",
         event_id
     )
 
     count = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='pending'", event_id
     )
+    skipped = null_fire + past_fire
+    msg = f"Очередь активирована. {count} рассылок уйдут по расписанию."
+    if skipped:
+        parts = []
+        if null_fire: parts.append(f"{null_fire} без времени")
+        if past_fire: parts.append(f"{past_fire} с прошедшим временем")
+        msg += f" Пропущено: {', '.join(parts)} — задайте им время отдельно."
     # Celery Beat сам подхватит по расписанию — нам не нужно ничего дополнительно делать.
-    return {"ok": True, "queued": count, "message": f"Очередь активирована. {count} рассылок уйдут по расписанию."}
+    return {"ok": True, "queued": count,
+            "skipped_no_time": null_fire, "skipped_past": past_fire, "message": msg}
 
 
 @router.post("/schedules/run-selected", summary="Запустить выбранные рассылки")
@@ -2280,36 +2277,32 @@ async def run_selected_schedules(
     if not ids:
         raise HTTPException(status_code=400, detail="Не указаны ID рассылок")
 
+    # «Косячные» черновики НЕ блокируют весь запуск — просто пропускаем их:
+    #  - без времени (fire_at IS NULL) — нужно задать время отдельно;
+    #  - с прошедшим временем (ушли бы мгновенно / не подхватятся планировщиком).
+    # Запускаем ТОЛЬКО годные (draft + fire_at в будущем с люфтом 5 мин).
     null_fire = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE id = ANY($1::int[]) AND event_id=$2 AND status='draft' AND fire_at IS NULL",
         ids, event_id
-    )
-    if null_fire and null_fire > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"У {null_fire} выбранных рассылок не задано время отправки."
-        )
-
+    ) or 0
     past_fire = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE id = ANY($1::int[]) AND event_id=$2 "
         "AND status='draft' AND fire_at IS NOT NULL AND fire_at < (NOW() - INTERVAL '5 minutes')",
         ids, event_id
-    )
-    if past_fire and past_fire > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"У {past_fire} выбранных рассылок дата уже прошла — они ушли бы сразу. Исправьте дату."
-        )
+    ) or 0
 
     await db.execute(
-        "UPDATE broadcast_schedules SET status='pending' WHERE id = ANY($1::int[]) AND event_id=$2 AND status='draft' AND fire_at IS NOT NULL",
+        "UPDATE broadcast_schedules SET status='pending' "
+        "WHERE id = ANY($1::int[]) AND event_id=$2 AND status='draft' "
+        "  AND fire_at IS NOT NULL AND fire_at >= (NOW() - INTERVAL '5 minutes')",
         ids, event_id
     )
-    count = await db.fetchval(
+    # queued — сколько реально ушло в pending этим вызовом (только годные из выбранных).
+    queued = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE id = ANY($1::int[]) AND event_id=$2 AND status='pending'",
         ids, event_id
     )
-    return {"ok": True, "queued": count}
+    return {"ok": True, "queued": queued, "skipped_no_time": null_fire, "skipped_past": past_fire}
 
 
 @router.post("/schedules/{schedule_id}/force-reset", summary="Аварийный сброс зависшей рассылки в pending")
