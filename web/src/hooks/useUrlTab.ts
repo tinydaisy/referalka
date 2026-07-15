@@ -1,5 +1,6 @@
 'use client'
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
 
 /**
  * Ref для кнопки активной вкладки: при активации (и при первом монтировании —
@@ -51,6 +52,20 @@ export function useUrlTab<T extends string>(key: string, def: T, valid?: readonl
       window.history.replaceState(window.history.state, '', url.toString())
     }
   }, [key, def])
+
+  // ⚠️ Подхватываем ВНЕШНЕЕ изменение URL без перемонтирования компонента.
+  // Пример: со страницы спикера кнопка «Назад» (Link → ?tab=speakers) меняет
+  // URL клиентской навигацией, но карточка события уже смонтирована — useState
+  // повторно не читает, и вкладка оставалась старой (открывались «Настройки»).
+  // usePathname меняется при такой навигации → перечитываем ?tab= из URL.
+  const pathname = usePathname()
+  const search = useSearchParams()
+  useEffect(() => {
+    const v = search?.get(key) as T | null
+    const next = (v && (!valid || valid.includes(v))) ? v : def
+    setTab(prev => (prev === next ? prev : next))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, search, key])
 
   return [tab, set]
 }
