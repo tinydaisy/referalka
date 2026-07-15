@@ -206,6 +206,10 @@ export default function ConferenceSpeakerPage() {
   const [giftPluson, setGiftPluson] = useState<{ name: string; url: string | null } | null>(null)
   // Список подарков-лид-магнитов из ПЛЮСОНа (до 4, миграция 200) — read-only.
   const [giftMagnets, setGiftMagnets] = useState<Array<{ name: string; url: string | null; kind: string }>>([])
+  // Вкладка блока подарка: 'pluson' (лид-магнит спикера) / 'manual' (ручной ввод).
+  // Клиент не выбирает чужие магниты, но может СНЯТЬ ПЛЮСОН-привязку и ввести
+  // ручной подарок — как в кабинете спикера.
+  const [giftTab, setGiftTab] = useState<'pluson' | 'manual'>('manual')
   // Этапы турнира + в каких участвует этот спикер/жюри (event_collaborator_stages)
   const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
   const [stageIds, setStageIds] = useState<number[]>([])
@@ -259,6 +263,8 @@ export default function ConferenceSpeakerPage() {
           ? { name: sp.gift_lm_name || sp.gift_lp_name || sp.gift_after_speech_title || 'Лид-магнит из ПЛЮСОН',
               url: sp.gift_lm_url || sp.gift_after_speech_url || null }
           : null)
+        // Вкладка по умолчанию: ПЛЮСОН — если подарок оттуда, иначе ручной ввод.
+        setGiftTab(fromPluson ? 'pluson' : 'manual')
 
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
@@ -439,6 +445,21 @@ export default function ConferenceSpeakerPage() {
     }
   }
 
+  // Снять ПЛЮСОН-подарок (лид-магнит/пакет спикера) и переключиться на ручной
+  // ввод. Клиент не может выбирать чужие магниты, но убрать привязку — может.
+  async function removePlusonGift() {
+    if (!confirm('Убрать подарок-лид-магнит из ПЛЮСОН у этого спикера? Затем можно ввести подарок вручную.')) return
+    try {
+      await api.conference.speakers.update(confId, speakerEventId, {
+        gift_lead_magnet_id: 0, gift_package_id: null,
+        gift_after_speech_title: null, gift_after_speech_url: null,
+      })
+      setGiftPluson(null); setGiftMagnets([])
+      setEventForm(f => ({ ...f, gift_after_speech_title: '', gift_after_speech_url: '' }))
+      setGiftTab('manual')
+    } catch (err: any) { alert(err.message || 'Не удалось убрать подарок') }
+  }
+
   async function saveEvent(e: React.FormEvent) {
     e.preventDefault()
     setSavingEvent(true); setError(''); setEventSaved(false)
@@ -449,12 +470,18 @@ export default function ConferenceSpeakerPage() {
       const priority = ((eventForm as any).priority ?? null) !== null
         ? Number((eventForm as any).priority)
         : calcPriority(eventForm.role, eventForm.is_commercial)
+      // На вкладке ПЛЮСОН с реальной привязкой ручные подарочные поля НЕ шлём —
+      // иначе очистили бы то, что бэк подставил для рассылок. Ручной подарок
+      // сохраняется только на вкладке «Ввести вручную».
+      const keepPluson = giftTab === 'pluson' && (!!giftPluson || giftMagnets.length > 0)
       const payload: any = {
         role: eventForm.role,
         topics,
         stage_ids: stageIds,
-        gift_after_speech_title: eventForm.gift_after_speech_title,
-        gift_after_speech_url: eventForm.gift_after_speech_url,
+        ...(keepPluson ? {} : {
+          gift_after_speech_title: eventForm.gift_after_speech_title,
+          gift_after_speech_url: eventForm.gift_after_speech_url,
+        }),
         gift_raffle_title: eventForm.gift_raffle_title,
         gift_raffle_url: eventForm.gift_raffle_url,
         knowledge_base_title: eventForm.knowledge_base_title,
@@ -745,54 +772,93 @@ export default function ConferenceSpeakerPage() {
           <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))} />
         </div>
 
-        {/* Подарок после эфира */}
+        {/* Подарок после эфира — 2 вкладки: ПЛЮСОН (лид-магнит спикера) / вручную.
+            Как в кабинете спикера: можно снять ПЛЮСОН-подарок и ввести ручной. */}
+        {(() => {
+          const hasPluson = !!giftPluson || giftMagnets.length > 0
+          return (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
-          {giftMagnets.length > 0 && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
-              <div className="font-semibold text-emerald-800">🎁 Подарки-лид-магниты из ПЛЮСОНа ({giftMagnets.length})</div>
-              <ol className="mt-1.5 space-y-1.5 list-decimal list-inside">
-                {giftMagnets.map((g, i) => (
-                  <li key={i} className="text-emerald-900">
-                    {g.kind === 'package' ? '📦 ' : ''}{g.name}
-                    {g.url && (
-                      <div><a href={g.url} target="_blank" rel="noreferrer"
-                        className="text-emerald-700 underline break-all text-xs">{g.url}</a></div>
-                    )}
-                  </li>
-                ))}
-              </ol>
-              <div className="text-emerald-700 text-xs mt-1.5">
-                Спикер выбрал их в своём кабинете (порядок настраивает он же). Ручные поля ниже можно оставить пустыми.
-              </div>
-            </div>
-          )}
-          {giftPluson && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
-              <div className="font-semibold text-emerald-800">🎁 Подарок из ПЛЮСОНа</div>
-              <div className="text-emerald-900 mt-0.5">{giftPluson.name}</div>
-              {giftPluson.url && (
-                <a href={giftPluson.url} target="_blank" rel="noreferrer"
-                  className="text-emerald-700 underline break-all text-xs">{giftPluson.url}</a>
-              )}
-              <div className="text-emerald-700 text-xs mt-1">
-                Спикер выбрал этот лид-магнит в своём кабинете. Ручные поля ниже можно оставить пустыми.
-              </div>
-            </div>
-          )}
-          <div>
-            <FieldLabel label="Название" empty={!giftPluson && giftMagnets.length === 0 && !eventForm.gift_after_speech_title.trim()} />
-            <textarea value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
-              rows={3} placeholder="Например: Чек-лист по нутрициологии"
-              className="input resize-y text-sm" />
+
+          <div className="flex gap-2">
+            {([
+              { v: 'pluson', t: '🎁 Лид-магнит из ПЛЮСОН' },
+              { v: 'manual', t: '✍️ Ввести вручную' },
+            ] as const).map(opt => {
+              const active = giftTab === opt.v
+              return (
+                <button key={opt.v} type="button"
+                  onClick={() => {
+                    // Уходим с ПЛЮСОН на ручной, а привязка ещё стоит → сперва снимаем.
+                    if (opt.v === 'manual' && hasPluson) { removePlusonGift(); return }
+                    setGiftTab(opt.v)
+                  }}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                    active ? 'border-[#25455D] border-2 bg-[#EAF2FB] text-[#25455D]'
+                           : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  {opt.t}
+                </button>
+              )
+            })}
           </div>
-          <div>
-            <FieldLabel label="Ссылка / текст со ссылками" empty={!eventForm.gift_after_speech_url.trim()} />
-            <textarea value={eventForm.gift_after_speech_url} onChange={setEF('gift_after_speech_url')}
-              rows={3} placeholder={"https://...\nили несколько ссылок / инструкция как получить"}
-              className="input resize-y text-sm" />
-          </div>
+
+          {giftTab === 'pluson' ? (
+            hasPluson ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                {giftMagnets.length > 0 ? (
+                  <>
+                    <div className="font-semibold text-emerald-800">🎁 Подарки-лид-магниты из ПЛЮСОНа ({giftMagnets.length})</div>
+                    <ol className="mt-1.5 space-y-1.5 list-decimal list-inside">
+                      {giftMagnets.map((g, i) => (
+                        <li key={i} className="text-emerald-900">
+                          {g.kind === 'package' ? '📦 ' : ''}{g.name}
+                          {g.url && (<div><a href={g.url} target="_blank" rel="noreferrer"
+                            className="text-emerald-700 underline break-all text-xs">{g.url}</a></div>)}
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-semibold text-emerald-800">🎁 Подарок из ПЛЮСОНа</div>
+                    <div className="text-emerald-900 mt-0.5">{giftPluson!.name}</div>
+                    {giftPluson!.url && (<a href={giftPluson!.url} target="_blank" rel="noreferrer"
+                      className="text-emerald-700 underline break-all text-xs">{giftPluson!.url}</a>)}
+                  </>
+                )}
+                <div className="text-emerald-700 text-xs mt-2">
+                  Спикер выбрал это в своём кабинете. Менять список магнитов может только он (это его база лид-магнитов).
+                </div>
+                <button type="button" onClick={removePlusonGift}
+                  className="mt-2 text-xs font-medium text-red-600 hover:text-red-700 underline">
+                  Убрать подарок из ПЛЮСОН
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
+                Подарок-лид-магнит из ПЛЮСОН выбирает сам спикер в своём кабинете (там он привязывает свой ПЛЮСОН-аккаунт).
+                Здесь вы можете ввести подарок вручную — вкладка «Ввести вручную».
+              </div>
+            )
+          ) : (
+            <>
+              <div>
+                <FieldLabel label="Название" empty={!eventForm.gift_after_speech_title.trim()} />
+                <textarea value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
+                  rows={3} placeholder="Например: Чек-лист по нутрициологии"
+                  className="input resize-y text-sm" />
+              </div>
+              <div>
+                <FieldLabel label="Ссылка / текст со ссылками" empty={!eventForm.gift_after_speech_url.trim()} />
+                <textarea value={eventForm.gift_after_speech_url} onChange={setEF('gift_after_speech_url')}
+                  rows={3} placeholder={"https://...\nили несколько ссылок / инструкция как получить"}
+                  className="input resize-y text-sm" />
+              </div>
+            </>
+          )}
         </div>
+          )
+        })()}
 
         {/* Подарок для розыгрыша */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">

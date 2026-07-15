@@ -596,6 +596,11 @@ class SpeakerEventUpdate(BaseModel):
     force_remove_stage_data: Optional[bool] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
+    # Подарок-лид-магнит из ПЛЮСОН (для подсчёта баллов в турнире). Взаимоисключимы
+    # с ручным подарком: выбор ПЛЮСОН-магнита чистит ручные поля, ручной ввод —
+    # снимает ПЛЮСОН-привязку. gift_lead_magnet_id=0 → снять обе ПЛЮСОН-привязки.
+    gift_lead_magnet_id: Optional[int] = None
+    gift_package_id: Optional[int] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     knowledge_base_title: Optional[str] = None
@@ -1243,7 +1248,39 @@ async def update_speaker_event(
                     status_code=400,
                     detail="poster_id / announcement_poster_ids ссылаются на афиши не из библиотеки этого коллаба"
                 )
-    updates = {k: v for k, v in raw.items() if v is not None}
+    # ⚠️ Подарочные поля различают «не прислали» и «прислали null» (очистка),
+    # иначе снять ПЛЮСОН-подарок или стереть ручной было бы нельзя (null молча
+    # выбрасывался). Плюс взаимоисключение ПЛЮСОН ↔ ручной, как в кабинете спикера.
+    fs = data.model_fields_set
+    GIFT_NULLABLE = {"gift_lead_magnet_id", "gift_package_id",
+                     "gift_after_speech_title", "gift_after_speech_url"}
+    updates = {}
+    for k, v in raw.items():
+        if k in GIFT_NULLABLE:
+            if k in fs:
+                updates[k] = v  # применяем даже None (очистка)
+        elif v is not None:
+            updates[k] = v
+
+    # Выбрали ПЛЮСОН-магнит/пакет → снимаем ручной подарок; 0 = снять ПЛЮСОН-привязки.
+    if updates.get("gift_lead_magnet_id"):
+        updates["gift_package_id"] = None
+        updates["gift_after_speech_title"] = None
+        updates["gift_after_speech_url"] = None
+    elif updates.get("gift_package_id"):
+        updates["gift_lead_magnet_id"] = None
+        updates["gift_after_speech_title"] = None
+        updates["gift_after_speech_url"] = None
+    else:
+        if updates.get("gift_lead_magnet_id") == 0:
+            updates["gift_lead_magnet_id"] = None
+        # Ввели ручной подарок (название или ссылка) → снимаем ПЛЮСОН-привязки.
+        manual_set = (("gift_after_speech_title" in fs and (data.gift_after_speech_title or "").strip())
+                      or ("gift_after_speech_url" in fs and (data.gift_after_speech_url or "").strip()))
+        if manual_set:
+            updates["gift_lead_magnet_id"] = None
+            updates["gift_package_id"] = None
+
     if updates:
         set_parts = [f"{k} = ${i+3}" for i, k in enumerate(updates.keys())]
         await db.execute(
