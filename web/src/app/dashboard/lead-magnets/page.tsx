@@ -421,8 +421,8 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
     <Modal title={initial ? 'Редактировать лид-магнит' : 'Новый лид-магнит'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label="Название *">
-          <input type="text" value={name} onChange={e => setName(e.target.value)}
-                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          <textarea value={name} onChange={e => setName(e.target.value)} rows={2}
+                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                  placeholder="Чек-лист по продажам" autoFocus />
         </Field>
         <Field label="Ссылка *">
@@ -615,8 +615,8 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
     <Modal title={initial ? 'Редактировать пакет' : 'Новый пакет'} onClose={onClose} large>
       <form onSubmit={handleSubmit} className="space-y-4">
         <Field label="Название пакета *">
-          <input type="text" value={name} onChange={e => setName(e.target.value)}
-                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          <textarea value={name} onChange={e => setName(e.target.value)} rows={2}
+                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                  placeholder="Стартовый набор для предпринимателя" autoFocus />
         </Field>
         <Field label="Заметка">
