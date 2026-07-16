@@ -36,19 +36,19 @@ apiAddress: 127.0.0.1:9997
 # ── Пути потоков ─────────────────────────────────────────────────────────────
 # Все потоки идут в /live/{key}. Публикацию валидирует бэкенд-хук:
 # MediaMTX дёргает наш эндпоинт, тот проверяет ключ в webinar_rooms и разрешает/запрещает.
-pathDefaults:
-  # Проверка ключа при публикации потока (видеокодер подключился).
-  # $MTX_PATH = "live/{stream_key}". Скрипт вернёт код 0 (разрешить) или !=0 (запретить).
-  runOnPublish: >
-    curl -sf -m 5 -X POST
-    -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
-    "http://127.0.0.1:8000/api/v1/internal/webinar/stream/publish?path=$MTX_PATH"
-  runOnPublishRestart: no
-  # Поток остановлен — уведомляем бэкенд (комната → ended).
-  runOnUnpublish: >
-    curl -sf -m 5 -X POST
-    -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
-    "http://127.0.0.1:8000/api/v1/internal/webinar/stream/unpublish?path=$MTX_PATH"
-
+# ⚠️ MediaMTX v1.19+ не принимает runOnPublish/runOnUnpublish в pathDefaults —
+# только внутри конкретного path (paths.all_others). Раньше был pathDefaults.
 paths:
   all_others:
+    # Проверка ключа при публикации потока (видеокодер подключился).
+    # $MTX_PATH = "live/{stream_key}". Скрипт вернёт код 0 (разрешить) или !=0 (запретить).
+    runOnPublish: >
+      curl -sf -m 5 -X POST
+      -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
+      "http://127.0.0.1:8000/api/v1/internal/webinar/stream/publish?path=$MTX_PATH"
+    runOnPublishRestart: no
+    # Поток остановлен — уведомляем бэкенд (комната → ended).
+    runOnUnpublish: >
+      curl -sf -m 5 -X POST
+      -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
+      "http://127.0.0.1:8000/api/v1/internal/webinar/stream/unpublish?path=$MTX_PATH"
