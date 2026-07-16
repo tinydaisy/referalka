@@ -302,6 +302,67 @@ async def build_funnel_landing_links(
     return result
 
 
+# ── Токены ссылок воронки подарков-лид-магнитов ⟦GF:m|p:slug⟧ ────────────────
+# Подарок-лид-магнит/пакет ПЛЮСОНа в тексте рассылки помечается токеном
+# ⟦GF:kind:slug⟧ (kind = m — лид-магнит, p — пакет). Прямой файл в рассылку НЕ
+# уходит: он выдаётся воронкой за подписку. Токен раскрывается ПЛАТФОРМЕННОЙ
+# ссылкой на воронку через VIP-бот клиента, с приоритетом по площадке получателя.
+import re as _re
+
+GIFT_FUNNEL_TOKEN_RE = _re.compile(r"⟦GF:([mp]):([^⟧]+)⟧")
+
+# Приоритет выбора площадки ссылки в зависимости от площадки рассылки:
+#   MAX-рассылка → max > vk > telegram
+#   VK-рассылка  → vk > max > telegram
+#   TG/email     → telegram > max > vk
+GIFT_FUNNEL_PLATFORM_PRIORITY: dict[str, tuple[str, ...]] = {
+    "telegram": ("telegram", "max", "vk"),
+    "max": ("max", "vk", "telegram"),
+    "vk": ("vk", "max", "telegram"),
+    "email": ("telegram", "max", "vk"),
+}
+
+
+def pick_gift_funnel_link(links: dict, platform: str) -> str:
+    """Выбрать ссылку воронки для площадки по приоритету с фолбэком.
+
+    links — {'telegram'|'vk'|'max' → url}, как отдаёт build_funnel_landing_links
+    (только те площадки, где у клиента подключён свой бот/сообщество).
+    Нет ни одной → '' (ссылка не строится)."""
+    for _p in GIFT_FUNNEL_PLATFORM_PRIORITY.get(platform, GIFT_FUNNEL_PLATFORM_PRIORITY["telegram"]):
+        if links.get(_p):
+            return links[_p]
+    return ""
+
+
+async def resolve_gift_funnel_tokens(db, *, client_id: int, text: str | None, platform: str) -> str:
+    """Заменить в тексте все токены ⟦GF:kind:slug⟧ ссылкой на воронку нужной
+    площадки. Разовое использование (превью/тест-отправка). В боевой рассылке
+    ссылки кэшируются на всю аудиторию — там своя inline-версия."""
+    if not text or "⟦GF:" not in text:
+        return text or ""
+    cache: dict[tuple[str, str], dict] = {}
+
+    async def _links(kind: str, slug: str) -> dict:
+        key = (kind, slug)
+        if key not in cache:
+            try:
+                cache[key] = await build_funnel_landing_links(
+                    db, client_id=client_id, slug=slug, kind=kind)
+            except Exception:
+                cache[key] = {}
+        return cache[key]
+
+    # Собираем уникальные (kind, slug), резолвим ссылки, затем подставляем.
+    for m in set((mm.group(1), mm.group(2)) for mm in GIFT_FUNNEL_TOKEN_RE.finditer(text)):
+        await _links(m[0], m[1])
+
+    def _sub(m):
+        return pick_gift_funnel_link(cache.get((m.group(1), m.group(2))) or {}, platform)
+
+    return GIFT_FUNNEL_TOKEN_RE.sub(_sub, text)
+
+
 async def build_invite_links_for_collaborator(
     db,
     client_id: int,

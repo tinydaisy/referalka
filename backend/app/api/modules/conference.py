@@ -904,6 +904,14 @@ async def list_event_speakers(
                             COALESCE(eclm.manual_title, glm.name, glp.name) AS name,
                             CASE WHEN eclm.manual_title IS NOT NULL THEN 'manual'
                                  WHEN eclm.lead_magnet_id IS NOT NULL THEN 'magnet' ELSE 'package' END AS kind,
+                            -- funnel_slug + funnel_kind: для лид-магнита/пакета фронт сам
+                            -- строит платформенную ссылку на воронку (m_/p_). url оставлен
+                            -- для ручного подарка (прямая ссылка) и обратной совместимости.
+                            CASE WHEN eclm.lead_magnet_id IS NOT NULL THEN glm.slug
+                                 WHEN eclm.package_id IS NOT NULL THEN glp.slug END AS funnel_slug,
+                            CASE WHEN eclm.manual_title IS NOT NULL THEN NULL
+                                 WHEN eclm.lead_magnet_id IS NOT NULL THEN 'm'
+                                 WHEN eclm.package_id IS NOT NULL THEN 'p' END AS funnel_kind,
                             CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
                                  WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
                                  THEN 'https://pluson.ru/p/'||glp.slug ELSE glm.url END AS url

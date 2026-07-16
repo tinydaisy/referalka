@@ -357,6 +357,52 @@ async def _send_broadcast(schedule_id: int):
             val = support_by_platform.get(platform, "")
             return txt.replace("{support_platform}", val).replace("{support_link}", val)
 
+        # ── Ссылки на воронку подарков-лид-магнитов ⟦GF:m|p:slug⟧ ──────────────
+        # Подарок-лид-магнит/пакет ПЛЮСОНа в тексте помечен токеном ⟦GF:kind:slug⟧
+        # (kind = m|p). Прямой файл в рассылку НЕ уходит — он выдаётся воронкой за
+        # подписку. Здесь токен заменяется ПЛАТФОРМЕННОЙ ссылкой на воронку через
+        # VIP-бот клиента, с приоритетом по площадке получателя:
+        #   MAX-рассылка → max > vk > telegram
+        #   VK-рассылка  → vk > max > telegram
+        #   TG-рассылка  → telegram > max > vk
+        # Если у клиента нет бота на приоритетной площадке — берём следующую по
+        # приоритету из подключённых (build_funnel_landing_links вернёт только те).
+        from app.services.share_links import (
+            GIFT_FUNNEL_TOKEN_RE as _GF_TOKEN,
+            build_funnel_landing_links,
+            pick_gift_funnel_link,
+        )
+        _gf_slugs = set()
+        for _txt in (text, button_url):
+            for _m in _GF_TOKEN.finditer(_txt or ""):
+                _gf_slugs.add((_m.group(1), _m.group(2)))
+        # (kind, slug) → {telegram?, vk?, max?}. Резолвим ОДИН раз на всю аудиторию
+        # (build_funnel_landing_links дёргает БД — не гоняем на каждого получателя).
+        _gf_links: dict[tuple[str, str], dict] = {}
+        for _kind, _slug in _gf_slugs:
+            try:
+                _gf_links[(_kind, _slug)] = await build_funnel_landing_links(
+                    conn, client_id=schedule["client_id"], slug=_slug, kind=_kind,
+                )
+            except Exception:
+                _gf_links[(_kind, _slug)] = {}
+
+        def _with_gift_funnel(txt: str | None, platform: str) -> str:
+            """Заменить токены ⟦GF:kind:slug⟧ ссылкой на воронку нужной площадки
+            (приоритет + фолбэк — в pick_gift_funnel_link, общая логика)."""
+            if not txt or not _gf_slugs:
+                return txt or ""
+
+            def _sub(m):
+                links = _gf_links.get((m.group(1), m.group(2))) or {}
+                return pick_gift_funnel_link(links, platform)
+            return _GF_TOKEN.sub(_sub, txt)
+
+        def _with_platform_subst(txt: str | None, platform: str) -> str:
+            """Обе площадко-зависимые подстановки разом: служба заботы + ссылка
+            воронки подарка. Передаётся в хелперы чатов вместо голого _with_support."""
+            return _with_gift_funnel(_with_support(txt, platform), platform)
+
         # {game_link} — ссылка на вкладку «Игра» события (личный кабинет получателя).
         # Используется в `2h_before_reg` / `day_before_09_12_reg` — это уже зарегистрированные
         # участники, их реферер уже зафиксирован при регистрации, перезатирать не надо.
@@ -469,8 +515,8 @@ async def _send_broadcast(schedule_id: int):
 
         async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
-                msg_text = _with_support(text, "telegram")
-                msg_btn_url = button_url
+                msg_text = _with_gift_funnel(_with_support(text, "telegram"), "telegram")
+                msg_btn_url = _with_gift_funnel(button_url, "telegram")
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 if needs_game_link:
@@ -481,14 +527,18 @@ async def _send_broadcast(schedule_id: int):
                     msg_text = msg_text.replace("{game_link}", glink)
                     if msg_btn_url:
                         msg_btn_url = msg_btn_url.replace("{game_link}", glink)
+                # Собираем message_id отправленных сообщений — чтобы потом можно было
+                # удалить их (отзыв рассылки). У одного получателя может быть 2 (фото/видео + текст).
+                msg_ids: list[int] = []
                 ok, err = await send_telegram_message(
                     http_client, token, tg_id, msg_text, photo_url, button_text, msg_btn_url,
                     buttons=buttons,
                     video_url=video_url if media_type == "video" else None,
                     video_file_id=_vid_fid_holder["fid"] if media_type == "video" else None,
                     on_video_file_id=_capture_video_file_id if media_type == "video" else None,
+                    on_message_id=lambda mid: msg_ids.append(mid),
                 )
-                return tg_id, channel_id, (ok, err)
+                return tg_id, channel_id, (ok, err, msg_ids)
 
         async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=max(concurrency + 20, 50))) as http_client:
             # Прогрев file_id: для видео без готового file_id шлём ПЕРВОМУ получателю
@@ -519,12 +569,15 @@ async def _send_broadcast(schedule_id: int):
 
         # Пишем лог одной пачкой после отправки
         BLOCKED_ERRORS = ("bot was blocked by the user", "user is deactivated", "chat not found", "have no rights to send a message")
-        for tg_id, channel_id, (success, tg_error) in results:
+        for tg_id, channel_id, (success, tg_error, msg_ids) in results:
             is_blocked = not success and tg_error and any(e in tg_error.lower() for e in BLOCKED_ERRORS)
+            # external_message_id = message_id(ы) отправленных сообщений через запятую —
+            # нужно для отзыва рассылки (deleteMessage). Пусто если id не получен.
+            ext_mid = ",".join(str(m) for m in msg_ids) if msg_ids else None
             await conn.execute(
                 """
-                INSERT INTO broadcast_log (schedule_id, platform_user_id, channel_id, status, error, sent_at)
-                SELECT $1, pu.id, $6, $2, $3, NOW()
+                INSERT INTO broadcast_log (schedule_id, platform_user_id, channel_id, status, error, external_message_id, sent_at)
+                SELECT $1, pu.id, $6, $2, $3, $7, NOW()
                 FROM platform_users pu
                 WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $4 AND pu.client_id = $5
                 """,
@@ -534,6 +587,7 @@ async def _send_broadcast(schedule_id: int):
                 tg_id,
                 schedule["client_id"],
                 channel_id,
+                ext_mid,
             )
             if is_blocked:
                 # Помечаем отписавшимся в КОНКРЕТНОМ канале через который слали.
@@ -588,14 +642,19 @@ async def _send_broadcast(schedule_id: int):
                             continue
                         sent_tg_chats.add(cid)
                         try:
-                            r = await send_telegram_message(
+                            _chat_mids: list[int] = []
+                            ok, err = await send_telegram_message(
                                 http_extra, default_bot_token, cid,
-                                _with_support(text, "telegram"), photo_url, button_text, button_url,
+                                _with_gift_funnel(_with_support(text, "telegram"), "telegram"),
+                                photo_url, button_text,
+                                _with_gift_funnel(button_url, "telegram"),
                                 buttons=buttons,
                                 video_url=video_url if media_type == "video" else None,
+                                on_message_id=lambda mid: _chat_mids.append(mid),
                             )
-                            ok = not (isinstance(r, dict) and r.get("ok") is False)
-                            await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, ok)
+                            ext_mid = ",".join(str(m) for m in _chat_mids) if _chat_mids else None
+                            await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, ok,
+                                                 error=(err or None), external_message_id=ext_mid)
                         except Exception as ex:
                             await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, False, str(ex))
                             logger.warning(f"TG-чат {cid} для рассылки {schedule_id} упал: {ex}")
@@ -606,7 +665,9 @@ async def _send_broadcast(schedule_id: int):
         # получит сообщение в обоих местах (это норма, см. CLAUDE.md «один контакт в нескольких контекстах»).
         try:
             vk_sent = await _send_broadcast_vk_part(
-                conn, schedule, event_id, _with_support(text, "vk"), photo_url, button_text, button_url,
+                conn, schedule, event_id,
+                _with_gift_funnel(_with_support(text, "vk"), "vk"),
+                photo_url, button_text, _with_gift_funnel(button_url, "vk"),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -621,7 +682,9 @@ async def _send_broadcast(schedule_id: int):
         # иначе системный MAX_SYSTEM_BOT_TOKEN из .env.
         try:
             max_sent = await _send_broadcast_max_part(
-                conn, schedule, event_id, _with_support(text, "max"), photo_url, button_text, button_url,
+                conn, schedule, event_id,
+                _with_gift_funnel(_with_support(text, "max"), "max"),
+                photo_url, button_text, _with_gift_funnel(button_url, "max"),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -635,7 +698,9 @@ async def _send_broadcast(schedule_id: int):
         # с главного email-канала клиента. Один человек = один email = одно письмо.
         try:
             email_sent = await _send_broadcast_email_part(
-                conn, schedule, event_id, _with_support(text_for_email, "email"), photo_url, button_text, button_url,
+                conn, schedule, event_id,
+                _with_gift_funnel(_with_support(text_for_email, "email"), "email"),
+                photo_url, button_text, _with_gift_funnel(button_url, "email"),
                 buttons=buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,
@@ -659,7 +724,7 @@ async def _send_broadcast(schedule_id: int):
                 chats_sent = await _send_broadcast_to_event_chats(
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_support,
+                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst,
                 )
                 sent += chats_sent
                 logger.info(f"Чаты события для рассылки {schedule_id}: отправлено {chats_sent}")
@@ -674,7 +739,7 @@ async def _send_broadcast(schedule_id: int):
                 cl_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False, with_support=_with_support,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False, with_support=_with_platform_subst,
                 )
                 sent += cl_sent
                 logger.info(f"Общие чаты клиента для рассылки {schedule_id}: отправлено {cl_sent}")
@@ -688,7 +753,7 @@ async def _send_broadcast(schedule_id: int):
                 pr_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True, with_support=_with_support,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True, with_support=_with_platform_subst,
                 )
                 sent += pr_sent
                 logger.info(f"Личные каналы клиента для рассылки {schedule_id}: отправлено {pr_sent}")
@@ -713,16 +778,18 @@ async def _send_broadcast(schedule_id: int):
 
 async def _log_chat_send(conn, schedule_id: int, kind: str, platform: str,
                          chat_ref: str, ok: bool, error: str | None = None,
-                         chat_title: str | None = None) -> None:
+                         chat_title: str | None = None,
+                         external_message_id: str | None = None) -> None:
     """Записать доставку в ЧАТ в broadcast_log (миграция 220). Отдельно от личных
-    отправок: platform_user_id=NULL, вид/платформа/чат в chat_* полях."""
+    отправок: platform_user_id=NULL, вид/платформа/чат в chat_* полях.
+    external_message_id — message_id(ы) для последующего отзыва (deleteMessage)."""
     try:
         await conn.execute(
             """INSERT INTO broadcast_log
-                 (schedule_id, platform_user_id, status, error, chat_kind, chat_platform, chat_ref, chat_title)
-               VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)""",
+                 (schedule_id, platform_user_id, status, error, chat_kind, chat_platform, chat_ref, chat_title, external_message_id)
+               VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8)""",
             schedule_id, ("sent" if ok else "failed"), (None if ok else (error or "не доставлено")),
-            kind, platform, str(chat_ref), chat_title,
+            kind, platform, str(chat_ref), chat_title, external_message_id,
         )
     except Exception as e:
         logger.warning(f"broadcast_log chat insert failed (sch={schedule_id}, {platform}/{chat_ref}): {e}")
@@ -1533,6 +1600,7 @@ async def _send_broadcast_max_part(
             message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url
         ok = False
         err: str | None = None
+        max_message_id: str | None = None
         try:
             # Рассылка адресуется по user_id подписчика (platform_users.platform_user_id),
             # а не по id беседы — иначе MAX отвечает chat.not.found и молча не доставляет.
@@ -1540,6 +1608,11 @@ async def _send_broadcast_max_part(
             ok = bool(res)
             if not ok:
                 err = "MAX send returned None"
+            elif isinstance(res, dict):
+                # mid нужен для отзыва (DELETE /messages). Путь как в dialogs._max_send.
+                mid = ((res.get("message") or {}).get("body") or {}).get("mid")
+                if mid:
+                    max_message_id = str(mid)
         except Exception as e:
             err = str(e)
             logger.warning(f"MAX send failed for max_id={max_id_int}: {e}")
@@ -1547,10 +1620,10 @@ async def _send_broadcast_max_part(
         try:
             await conn.execute(
                 """INSERT INTO broadcast_log
-                       (schedule_id, platform_user_id, channel_id, status, error, sent_at)
-                   VALUES ($1, $2, $3, $4, $5, NOW())""",
+                       (schedule_id, platform_user_id, channel_id, status, error, external_message_id, sent_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
                 schedule["id"], r["pu_id"], max_channel_id,
-                "sent" if ok else "failed", err,
+                "sent" if ok else "failed", err, max_message_id,
             )
         except Exception as e:
             logger.warning(f"MAX broadcast_log insert failed for pu_id={r['pu_id']}: {e}")

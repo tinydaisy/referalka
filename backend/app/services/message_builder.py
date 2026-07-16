@@ -1096,9 +1096,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
                           SELECT eclm.id, eclm.sort_order,
                                  COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
+                                 -- Ручной подарок → своя ссылка как есть.
+                                 -- Лид-магнит/пакет ПЛЮСОНа → ТОКЕН воронки (⟦GF:m|p:slug⟧),
+                                 -- который на отправке заменяется платформенной ссылкой на
+                                 -- воронку через VIP-бот (НЕ прямой файл — он выдаётся за подписку).
                                  CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
                                       WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                      THEN 'https://pluson.ru/p/'||glp.slug
+                                      THEN '⟦GF:p:'||glp.slug||'⟧'
+                                      WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                                      THEN '⟦GF:m:'||glm.slug||'⟧'
                                       ELSE glm.url END AS url
                             FROM event_collaborator_lead_magnets eclm
                             LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
@@ -1307,14 +1313,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.gift_after_speech_url as gift_url,
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        cse.gift_lead_magnet_id, cse.gift_package_id,
-                       lm.name AS lm_name, lm.url AS lm_url,
+                       lm.name AS lm_name, lm.url AS lm_url, lm.slug AS lm_slug,
                        lp.name AS lp_name, lp.slug AS lp_slug,
                        (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
                           SELECT eclm.id, eclm.sort_order,
                                  COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
+                                 -- см. day_end: лид-магнит/пакет → ТОКЕН воронки, ручной → url как есть.
                                  CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
                                       WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                      THEN 'https://pluson.ru/p/'||glp.slug
+                                      THEN '⟦GF:p:'||glp.slug||'⟧'
+                                      WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                                      THEN '⟦GF:m:'||glm.slug||'⟧'
                                       ELSE glm.url END AS url
                             FROM event_collaborator_lead_magnets eclm
                             LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
@@ -1354,14 +1363,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     for g in (_gm or []) if g and g.get("title")
                 ]
                 # Одиночный подарок (fallback): приоритет ручному вводу; иначе из ПЛЮСОНа.
+                # Лид-магнит/пакет ПЛЮСОНа → ТОКЕН воронки (⟦GF:m|p:slug⟧), НЕ прямой файл.
                 if not session_data.get("gift_title"):
                     if session_data.get("lm_name"):
                         session_data["gift_title"] = session_data["lm_name"]
-                        session_data["gift_url"] = session_data.get("lm_url") or session_data.get("gift_url")
+                        _lm_slug = session_data.get("lm_slug")
+                        session_data["gift_url"] = (f"⟦GF:m:{_lm_slug}⟧" if _lm_slug
+                                                    else (session_data.get("lm_url") or session_data.get("gift_url")))
                     elif session_data.get("lp_name"):
                         session_data["gift_title"] = session_data["lp_name"]
                         if session_data.get("lp_slug"):
-                            session_data["gift_url"] = f"https://pluson.ru/p/{session_data['lp_slug']}"
+                            session_data["gift_url"] = f"⟦GF:p:{session_data['lp_slug']}⟧"
                         # Подарок = ПАКЕТ лид-магнитов → особый формат вывода (ссылка/название/подпись).
                         session_data["gift_is_package"] = True
         if not photo:
@@ -1747,6 +1759,20 @@ _PHOTO_BYTES_CACHE: dict[str, bytes] = {}
 _PHOTO_FID_CACHE: dict[str, str] = {}
 
 
+def _emit_message_id(cb, data: dict) -> None:
+    """Вытащить message_id из ответа Telegram и отдать его в колбэк (если задан).
+    Используется чтобы захватить ID отправленного сообщения для последующего
+    удаления (отзыва рассылки). Тихо игнорирует любые сбои — на доставку не влияет."""
+    if not cb:
+        return
+    try:
+        mid = (data.get("result") or {}).get("message_id")
+        if mid is not None:
+            cb(mid)
+    except Exception:
+        pass
+
+
 async def _tg_send_photo(
     client: httpx.AsyncClient,
     bot_token: str,
@@ -1754,6 +1780,7 @@ async def _tg_send_photo(
     photo_url: str,
     caption: str | None = None,
     reply_markup: dict | None = None,
+    on_message_id=None,
 ) -> tuple[bool, str]:
     """Надёжно отправляет ФОТО в Telegram (аналогично _tg_send_video).
 
@@ -1789,6 +1816,7 @@ async def _tg_send_photo(
             r = await client.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload, timeout=60)
             data = r.json()
             if data.get("ok"):
+                _emit_message_id(on_message_id, data)
                 return True, ""
             # file_id мог быть от другого бота (fanout) — падаем на multipart
         except Exception:
@@ -1825,6 +1853,7 @@ async def _tg_send_photo(
             photos = (data.get("result", {}) or {}).get("photo") or []
             if photos:
                 _PHOTO_FID_CACHE[photo_url] = photos[-1].get("file_id")
+            _emit_message_id(on_message_id, data)
             return True, ""
         return False, data.get("description", f"HTTP {r.status_code}")
     except Exception as e:
@@ -1840,6 +1869,7 @@ async def _tg_send_video(
     video_url: str,
     video_file_id: str | None,
     on_video_file_id=None,
+    on_message_id=None,
 ) -> tuple[bool, str]:
     """Отправляет видео в Telegram со встроенным плеером.
 
@@ -1877,6 +1907,7 @@ async def _tg_send_video(
             r = await client.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", json=payload, timeout=60)
             data = r.json()
             if data.get("ok"):
+                _emit_message_id(on_message_id, data)
                 return True, "", (data.get("result", {}).get("video") or {}).get("file_id")
             return False, data.get("description", f"HTTP {r.status_code}"), None
         except Exception as e:
@@ -1933,6 +1964,7 @@ async def _tg_send_video(
             )
             data = r.json()
             if data.get("ok"):
+                _emit_message_id(on_message_id, data)
                 return True, "", (data.get("result", {}).get("video") or {}).get("file_id")
             return False, data.get("description", f"HTTP {r.status_code}"), None
         except Exception as e:
@@ -1960,7 +1992,8 @@ async def _tg_send_video(
         if reply_markup:
             payload["reply_markup"] = reply_markup
         try:
-            await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+            r2 = await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+            _emit_message_id(on_message_id, r2.json())
         except Exception:
             pass
     return True, ""
@@ -1979,8 +2012,13 @@ async def send_telegram_message(
     video_url: str = None,
     video_file_id: str = None,
     on_video_file_id=None,
+    on_message_id=None,
 ) -> tuple[bool, str]:
     """Отправляет сообщение через Telegram Bot API.
+
+    on_message_id(mid) — колбэк, вызывается с message_id каждого отправленного
+    сообщения (для последующего удаления — отзыва рассылки). Может вызваться
+    дважды (фото/видео + длинный текст отдельным сообщением).
     - Если передан `buttons` (список {text, url}) — используется он (по одной в ряду, до 3).
     - Иначе, если есть `button_text`+`button_url` — одиночная inline-кнопка (совместимость).
 
@@ -2015,6 +2053,7 @@ async def send_telegram_message(
             ok, err = await _tg_send_video(
                 client, bot_token, chat_id, text, reply_markup,
                 video_url, video_file_id, on_video_file_id,
+                on_message_id=on_message_id,
             )
             if ok:
                 return True, ""
@@ -2026,6 +2065,7 @@ async def send_telegram_message(
                 payload["reply_markup"] = reply_markup
             resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
             if resp.status_code == 200:
+                _emit_message_id(on_message_id, resp.json())
                 return True, ""
             err2 = resp.json().get("description", f"HTTP {resp.status_code}")
             return False, err2
@@ -2034,7 +2074,8 @@ async def send_telegram_message(
             # Короткий текст — фото с подписью одним сообщением. Надёжная отправка
             # (скачиваем байты → multipart → кеш file_id), с проверкой результата.
             ok, err = await _tg_send_photo(client, bot_token, chat_id, photo_url,
-                                           caption=text, reply_markup=reply_markup)
+                                           caption=text, reply_markup=reply_markup,
+                                           on_message_id=on_message_id)
             if ok:
                 return True, ""
             return False, err
@@ -2043,7 +2084,8 @@ async def send_telegram_message(
             # ⚠️ Раньше первый sendPhoto по URL не проверялся → фото молча терялось,
             # уходил только текст. Теперь надёжная отправка фото с проверкой.
             ok_p, err_p = await _tg_send_photo(client, bot_token, chat_id, photo_url,
-                                               caption=None, reply_markup=None)
+                                               caption=None, reply_markup=None,
+                                               on_message_id=on_message_id)
             if not ok_p:
                 logger.warning(f"broadcast: фото не ушло ({err_p}) для {chat_id} — шлём только текст")
             payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
@@ -2057,6 +2099,7 @@ async def send_telegram_message(
             resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
 
         if resp.status_code == 200:
+            _emit_message_id(on_message_id, resp.json())
             return True, ""
         # Авторетрай при 429 (Too Many Requests) — Telegram говорит сколько ждать
         if resp.status_code == 429 and _retry < 1:
@@ -2069,7 +2112,7 @@ async def send_telegram_message(
             await _a.sleep(wait)
             return await send_telegram_message(
                 client, bot_token, chat_id, text, photo_url, button_text, button_url,
-                buttons=buttons, _retry=_retry + 1
+                buttons=buttons, _retry=_retry + 1, on_message_id=on_message_id,
             )
         err = resp.json().get("description", f"HTTP {resp.status_code}")
         logger.warning(f"Telegram отклонил сообщение в {chat_id}: {err}")

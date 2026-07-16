@@ -321,6 +321,8 @@ export default function TemplatesPage() {
   const [form, setForm] = useState({ ...emptyForm })
   const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
   const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
+  // Площадка превью (вкладки Telegram/VK/MAX) — ссылка воронки подарка зависит от неё.
+  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max'>('telegram')
   const [varsOpen, setVarsOpen] = useState(false)
   const [testModal, setTestModal] = useState<{ def: TypeDef; tpl: any } | null>(null)
   const [testSending, setTestSending] = useState(false)
@@ -620,7 +622,30 @@ export default function TemplatesPage() {
     return `https://pluson.ru/event/${slug}#game`
   }
 
-  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
+  // Ссылка на воронку подарка-лид-магнита по площадке (тот же формат, что бэк
+  // build_funnel_landing_links). kind: 'm' лид-магнит | 'p' пакет.
+  // Приоритет по площадке рассылки: max→vk→tg, vk→max→tg, tg→max→vk.
+  function giftFunnelLink(kind: string, slug: string, platform: 'telegram' | 'vk' | 'max'): string {
+    const bh = (me as any)?.bot_handles || {}
+    const vkApp = (me as any)?.vk_app_id
+    const tg = bh.telegram ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=${kind}_${slug}` : ''
+    const vk = (bh.vk && vkApp) ? `https://vk.com/app${vkApp}#${kind}_${slug}` : ''
+    const max = bh.max ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=${kind}_${slug}` : ''
+    const links: Record<string, string> = { telegram: tg, vk, max }
+    const order = platform === 'max' ? ['max', 'vk', 'telegram']
+      : platform === 'vk' ? ['vk', 'max', 'telegram']
+      : ['telegram', 'max', 'vk']
+    for (const p of order) if (links[p]) return links[p]
+    return ''
+  }
+
+  // Ссылка подарка-магнита для превью: воронка (если funnel_slug) или прямой url.
+  function giftMagnetUrl(g: any, platform: 'telegram' | 'vk' | 'max'): string {
+    if (g?.funnel_slug && g?.funnel_kind) return giftFunnelLink(g.funnel_kind, g.funnel_slug, platform)
+    return g?.url || ''
+  }
+
+  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number, platform: 'telegram' | 'vk' | 'max' = 'telegram'): string {
     if (!text) return ''
     // Нормализуем литеральные \n на случай старых данных из БД
     let out = text.replace(/\\n/g, '\n')
@@ -698,7 +723,7 @@ export default function TemplatesPage() {
         // ручному подарку; иначе показываем все магниты «Название\nссылка».
         const magnets: Array<{ title: string; url: string }> = (Array.isArray(speaker.gift_magnets) ? speaker.gift_magnets : [])
           .filter((g: any) => g && g.name)
-          .map((g: any) => ({ title: g.name, url: g.url || '' }))
+          .map((g: any) => ({ title: g.name, url: giftMagnetUrl(g, platform) }))
         let giftBlock = ''
         if (!giftTitle && magnets.length) {
           giftBlock = magnets.map((g) => (g.url ? `${g.title}\n${g.url}` : g.title)).join('\n\n')
@@ -1772,6 +1797,24 @@ export default function TemplatesPage() {
               </div>
             )}
 
+            {/* Вкладки площадок — для шаблонов с подарком (ссылка воронки зависит
+                от площадки: TG/VK/MAX-бот клиента). Показываем для gift/day_end. */}
+            {['gift', 'day_end'].includes(previewModal.def.type) && (
+              <div className="mb-4">
+                <label className="text-xs text-gray-500 mb-1.5 block">Площадка (ссылка подарка):</label>
+                <div className="flex gap-1">
+                  {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const).map(([pk, label]) => (
+                    <button key={pk} onClick={() => setPreviewPlatform(pk)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${
+                        previewPlatform === pk ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Выбор спикера — для шаблонов со спикером */}
             {previewModal.def.hasSpeaker && speakers.length > 0 && (
               <div className="mb-4">
@@ -1844,7 +1887,8 @@ export default function TemplatesPage() {
                   previewModal.tpl.text,
                   previewModal.def.hasSpeaker ? previewSpeaker : null,
                   previewModal.def.type,
-                  testDay
+                  testDay,
+                  previewPlatform
                 )}} />
               {previewModal.tpl.button_text && (
                 <div className="mt-3">
@@ -1857,7 +1901,8 @@ export default function TemplatesPage() {
                         previewModal.tpl.button_url,
                         previewModal.def.hasSpeaker ? previewSpeaker : null,
                         previewModal.def.type,
-                        testDay
+                        testDay,
+                        previewPlatform
                       )}
                     </p>
                   )}

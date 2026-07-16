@@ -897,6 +897,10 @@ async def list_schedules(
                     ELSE NULL END as duration_seconds,
                (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id AND bl.status = 'failed') as recipients_failed,
                (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id AND bl.status = 'bounced') as recipients_bounced,
+               -- Сколько сообщений можно отозвать = записей с сохранённым message_id
+               -- (TG/VK/MAX). Кнопка «Отозвать» блокируется, если 0.
+               (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id
+                  AND bl.external_message_id IS NOT NULL AND bl.external_message_id <> '') as recallable_count,
                bt.name as template_name, bt.type as template_type,
                bt.schedule_mode,
                cs.title as session_title,
@@ -2349,6 +2353,30 @@ async def cancel_schedule(
     return {"ok": True}
 
 
+@router.post("/schedules/{schedule_id}/recall", summary="Отозвать (удалить у получателей) отправленную рассылку")
+async def recall_schedule(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Удаляет уже отправленные сообщения рассылки у получателей в Telegram
+    (личные + групповые чаты). Работает только для сообщений, у которых при
+    отправке был сохранён message_id (личные/чат-TG с 2026-07-16), и только в
+    пределах 48 часов после отправки (ограничение Telegram)."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    row = await db.fetchrow(
+        "SELECT id FROM broadcast_schedules WHERE id=$1 AND event_id=$2",
+        schedule_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Рассылка не найдена")
+    from app.services.broadcast_recall import recall_broadcast
+    result = await recall_broadcast(db, schedule_id)
+    return result
+
+
 @router.post("/schedules/cancel-all", summary="Снять все pending рассылки с очереди → черновики")
 async def cancel_all_schedules(
     event_id: int,
@@ -2541,14 +2569,31 @@ async def preview_schedule(
         support_link=await _support_link_preview(db, client_id),
     )
 
+    # Подарки-лид-магниты помечены токенами ⟦GF:kind:slug⟧ — раскрываем ссылкой
+    # на воронку по каждой площадке (клиент увидит 3 вкладки: Telegram/VK/MAX).
+    from app.services.share_links import resolve_gift_funnel_tokens
+    base_text = content["text"] or ""
+    base_btn = content.get("button_url") or ""
+    text_by_platform = {}
+    btn_by_platform = {}
+    for _p in ("telegram", "vk", "max"):
+        text_by_platform[_p] = await resolve_gift_funnel_tokens(
+            db, client_id=client_id, text=base_text, platform=_p)
+        btn_by_platform[_p] = await resolve_gift_funnel_tokens(
+            db, client_id=client_id, text=base_btn, platform=_p)
+
     return {
-        "text": content["text"],
+        # base text/button — раскрыты по TG-приоритету (чтобы сырой ⟦GF⟧ не светился
+        # у старого фронта); новый фронт берёт text_by_platform для 3 вкладок.
+        "text": text_by_platform["telegram"],
+        "text_by_platform": text_by_platform,
+        "button_url_by_platform": btn_by_platform,
         "subject": content.get("subject"),
         "photo": content["photo"],
         "video": content.get("video"),
         "media_type": content.get("media_type"),
         "button_text": content.get("button_text"),
-        "button_url": content.get("button_url"),
+        "button_url": btn_by_platform["telegram"],
         "buttons": content.get("buttons") or [],
         "template_type": tpl_type,
     }
@@ -2588,8 +2633,13 @@ async def _load_test_targets(db, client_id: int):
     return bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz
 
 
-async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token):
-    """Шлёт готовый content (text/photo/video/buttons) во все тестовые ID всех платформ."""
+async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
+                                 db=None, client_id: int | None = None):
+    """Шлёт готовый content (text/photo/video/buttons) во все тестовые ID всех платформ.
+
+    db/client_id — чтобы раскрыть токены воронки подарков ⟦GF⟧ ссылкой СВОЕЙ
+    площадки (как в боевой рассылке). Без них токены остаются как есть."""
+    from app.services.share_links import resolve_gift_funnel_tokens
     text = content.get("text") or ""
     photo = content.get("photo")
     video = content.get("video")
@@ -2597,19 +2647,30 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
     buttons = content.get("buttons") or []
     btn_text = content.get("button_text") or (buttons[0]["text"] if buttons else None)
     btn_url = content.get("button_url") or (buttons[0]["url"] if buttons else None)
+
+    async def _txt(platform: str) -> str:
+        return await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform=platform) if db else text
+
+    async def _burl(platform: str):
+        return await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform=platform) if (db and btn_url) else btn_url
+
     out: list[dict] = []
     async with httpx.AsyncClient(timeout=20) as http:
         if test_tg_ids and bot_token:
+            tg_text = await _txt("telegram")
+            tg_burl = await _burl("telegram")
             for chat_id in [str(t) for t in test_tg_ids]:
                 ok, err = await send_telegram_message(
-                    http, bot_token, chat_id, text, photo, btn_text, btn_url,
+                    http, bot_token, chat_id, tg_text, photo, btn_text, tg_burl,
                     buttons=buttons or None,
                     video_url=video if m_type == "video" else None)
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
     if test_vk_ids:
         from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
-        vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": btn_url}]]) if (btn_text and btn_url) else None
-        vk_text = f"{photo}\n\n{text}".strip() if photo else text
+        vk_burl = await _burl("vk")
+        vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_burl}]]) if (btn_text and vk_burl) else None
+        _vt = await _txt("vk")
+        vk_text = f"{photo}\n\n{_vt}".strip() if photo else _vt
         if m_type == "video" and video:
             vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
         for vid in [str(t) for t in test_vk_ids]:
@@ -2620,8 +2681,10 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 out.append({"platform": "vk", "chat_id": vid, "ok": False, "error": str(e)})
     if test_max_ids and max_token:
         from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
-        max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": btn_url}]]) if (btn_text and btn_url) else None
-        max_text = f"{photo}\n\n{text}".strip() if photo else text
+        max_burl = await _burl("max")
+        max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": max_burl}]]) if (btn_text and max_burl) else None
+        _mt = await _txt("max")
+        max_text = f"{photo}\n\n{_mt}".strip() if photo else _mt
         if m_type == "video" and video:
             max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
         for mid in [str(t) for t in test_max_ids]:
@@ -2701,7 +2764,8 @@ async def test_existing_schedule_now(
     if subj:
         content = dict(content)
         content["text"] = f"<b>{subj}</b>\n\n{content.get('text') or ''}"
-    results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token)
+    results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
+                                           db=db, client_id=client_id)
     sent = sum(1 for r in results if r.get("ok"))
     return {"ok": True, "sent": sent, "total": len(results), "results": results}
 
@@ -2765,6 +2829,7 @@ async def test_template(
         """Шлёт `content` (text/photo/button_text/button_url) во все тестовые
         ID всех включённых платформ. Возвращает список результатов
         [{platform, chat_id, ok, error}, ...]."""
+        from app.services.share_links import resolve_gift_funnel_tokens
         out: list[dict] = []
         text = content.get("text") or ""
         photo = content.get("photo")
@@ -2775,9 +2840,11 @@ async def test_template(
 
         # === Telegram ===
         if test_tg_ids and bot_token:
+            tg_text = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="telegram")
+            tg_burl = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="telegram") if btn_url else btn_url
             for chat_id in [str(t) for t in test_tg_ids]:
                 ok, err = await send_telegram_message(
-                    http, bot_token, chat_id, text, photo, btn_text, btn_url,
+                    http, bot_token, chat_id, tg_text, photo, btn_text, tg_burl,
                     video_url=video if m_type == "video" else None,
                 )
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
@@ -2788,11 +2855,13 @@ async def test_template(
                 send_message as vk_send,
                 tg_inline_to_vk_keyboard,
             )
+            vk_btn_url = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="vk") if btn_url else btn_url
             vk_keyboard = None
-            if btn_text and btn_url:
-                vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": btn_url}]])
+            if btn_text and vk_btn_url:
+                vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_btn_url}]])
+            _vk_body = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="vk")
             # Фото в превью: VK сам развернёт по URL в начале сообщения.
-            vk_text = f"{photo}\n\n{text}".strip() if photo else text
+            vk_text = f"{photo}\n\n{_vk_body}".strip() if photo else _vk_body
             if m_type == "video" and video:
                 vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
             for vid in [str(t) for t in test_vk_ids]:
@@ -2811,10 +2880,11 @@ async def test_template(
                 send_message as max_send,
                 tg_inline_to_max_keyboard,
             )
+            max_btn_url = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="max") if btn_url else btn_url
             max_buttons = None
-            if btn_text and btn_url:
-                max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": btn_url}]])
-            max_text = text
+            if btn_text and max_btn_url:
+                max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": max_btn_url}]])
+            max_text = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="max")
             if photo:
                 max_text = f"{photo}\n\n{max_text}".strip()
             if m_type == "video" and video:

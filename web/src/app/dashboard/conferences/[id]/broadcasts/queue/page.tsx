@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation'
 import {
   Send, Wand2, XCircle, Play, PlusCircle, Eye, Clock,
   CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2, Copy, Users,
-  ChevronDown, ChevronRight, FileText, Upload
+  ChevronDown, ChevronRight, FileText, Upload, Undo2
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
@@ -228,6 +228,8 @@ export default function QueuePage() {
   const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null)
   const [previewModal, setPreviewModal] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  // Площадка превью (Telegram/VK/MAX) — вкладки, если у подарков разные ссылки воронки.
+  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max'>('telegram')
   const [manualModal, setManualModal] = useState(false)
   // Модалка «Сформировать из программы» — выбор шаблонов галочками.
   const [genModal, setGenModal] = useState(false)
@@ -249,6 +251,7 @@ export default function QueuePage() {
   const [editPrivateChats, setEditPrivateChats] = useState(false)
   const [logModal, setLogModal] = useState<{ schedule: any; rows: any[]; chats?: any[]; emailStats?: EmailStats | null } | null>(null)
   const [logLoading, setLogLoading] = useState(false)
+  const [recallingId, setRecallingId] = useState<number | null>(null)
   const [manualForm, setManualForm] = useState({
     template_id: '',
     // Московское «сейчас + 10 мин» — иначе календарь откроется на «сегодня»
@@ -501,6 +504,7 @@ export default function QueuePage() {
     setPreviewModal(null)
     try {
       const res = await api.conference.schedules.preview(eventId, schedule.id)
+      setPreviewPlatform('telegram')
       setPreviewModal({ ...res, schedule })
     } catch {
       showMsg('Не удалось загрузить превью', 'err')
@@ -1193,6 +1197,51 @@ export default function QueuePage() {
                         title="Аварийный перезапуск задачи">
                         Перезапустить
                       </button>
+                    )}
+                    {/* Отозвать — удалить уже отправленные сообщения у получателей (только done).
+                        Кнопка активна только если есть сохранённые message_id (recallable_count>0);
+                        иначе отзывать нечего (старые рассылки до 16.07.2026 / только email). */}
+                    {s.status === 'done' && (
+                      (s.recallable_count || 0) > 0 ? (
+                        <button onClick={async () => {
+                          if (recallingId) return
+                          if (!confirm(
+                            'Отозвать рассылку?\n\n' +
+                            'Попробуем УДАЛИТЬ уже отправленные сообщения у получателей (Telegram, VK, MAX) и в чатах события.\n\n' +
+                            'Платформа может отказать удалить слишком старое сообщение или при отсутствии прав у бота — такие попадут в «не удалось» с причиной. Email отозвать нельзя (письмо уже доставлено).'
+                          )) return
+                          setRecallingId(s.id)
+                          try {
+                            const r: any = await api.conference.schedules.recall(eventId, s.id)
+                            const bp = r.by_platform || {}
+                            const parts = [`Удалено: ${r.deleted}`]
+                            const plat = [
+                              bp.telegram ? `TG ${bp.telegram}` : null,
+                              bp.vk ? `VK ${bp.vk}` : null,
+                              bp.max ? `MAX ${bp.max}` : null,
+                            ].filter(Boolean).join(', ')
+                            if (plat) parts.push(`(${plat})`)
+                            if (r.failed) parts.push(`не удалось: ${r.failed}`)
+                            if (r.skipped_no_msgid) parts.push(`без ID: ${r.skipped_no_msgid}`)
+                            if (r.skipped_email) parts.push(`email (нельзя): ${r.skipped_email}`)
+                            let msg = parts.join(' · ')
+                            if (r.errors && r.errors.length) msg += `\nПричины: ${r.errors.join('; ')}`
+                            showMsg(msg, r.deleted > 0 ? 'ok' : 'err')
+                          } catch (e: any) { showMsg(e.message, 'err') }
+                          finally { setRecallingId(null) }
+                        }}
+                          disabled={recallingId === s.id}
+                          className="p-1.5 border border-amber-300 rounded-lg text-amber-500 hover:text-white hover:bg-amber-500 disabled:opacity-50"
+                          title="Отозвать — удалить отправленные сообщения у получателей">
+                          {recallingId === s.id ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />}
+                        </button>
+                      ) : (
+                        <button disabled
+                          className="p-1.5 border border-gray-200 rounded-lg text-gray-300 cursor-not-allowed"
+                          title="Отозвать нельзя: у этой рассылки не сохранены ID сообщений (отправлена до появления функции) либо она только по email.">
+                          <Undo2 size={13} />
+                        </button>
+                      )
                     )}
                     {/* Удалить задачу (всегда доступно) */}
                     <button onClick={() => deleteOne(s)}
@@ -1912,6 +1961,22 @@ export default function QueuePage() {
               </h3>
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
             </div>
+            {/* Вкладки площадок — показываем только если в подарках есть ссылки
+                воронки (у разных площадок они разные: TG/VK/MAX-бот клиента). */}
+            {previewModal.text_by_platform && (
+              <div className="flex gap-1 mb-3">
+                {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const).map(([pk, label]) => (
+                  <button key={pk} onClick={() => setPreviewPlatform(pk)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${
+                      previewPlatform === pk
+                        ? 'bg-[#25455D] text-white'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Telegram-bubble */}
             <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
               {previewModal.photo && (
@@ -1927,7 +1992,7 @@ export default function QueuePage() {
               )}
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed break-words"
                 style={{ overflowWrap: 'anywhere' }}
-                dangerouslySetInnerHTML={{ __html: previewModal.text || '' }} />
+                dangerouslySetInnerHTML={{ __html: (previewModal.text_by_platform?.[previewPlatform] ?? previewModal.text) || '' }} />
               {previewModal.buttons && previewModal.buttons.length > 0 ? (
                 <div className="mt-3 space-y-1.5">
                   {previewModal.buttons.map((b: any, i: number) => (
@@ -1944,9 +2009,9 @@ export default function QueuePage() {
                   <div className="mt-3 w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
                     {previewModal.button_text}
                   </div>
-                  {previewModal.button_url && (
+                  {(previewModal.button_url_by_platform?.[previewPlatform] ?? previewModal.button_url) && (
                     <p className="text-xs text-gray-400 mt-1 text-center break-all">
-                      {previewModal.button_url}
+                      {previewModal.button_url_by_platform?.[previewPlatform] ?? previewModal.button_url}
                     </p>
                   )}
                 </>
