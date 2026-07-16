@@ -1136,11 +1136,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     except (ValueError, TypeError):
                         _gm = None
                 magnets = [(g.get("title"), g.get("url")) for g in (_gm or []) if g and g.get("title")]
+                # У кого подарка НЕТ вообще (ни ручного, ни лид-магнита) — не показываем
+                # в сводном перечне «Итоги дня» (раньше был мусор «пишите в личку»).
+                if not title and not magnets:
+                    continue
                 if not title and magnets:
                     body = "\n\n".join(f"{t}\n{u}" if u else t for t, u in magnets)
                     block = f"🎁 <b>{gs['speaker_name']}:</b>\n{body}"
-                elif not title:
-                    block = f"🎁 <b>{gs['speaker_name']}:</b> пишите в личку {tg_mention}" if tg_mention else f"🎁 <b>{gs['speaker_name']}:</b> уточните у спикера"
                 elif not url:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
                 else:
