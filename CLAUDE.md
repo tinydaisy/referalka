@@ -90,6 +90,27 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Вебинарная комната — стрим через видеокодер + чат + продажи + аналитика (миграция 221 от 2026-07-16, ЛОКАЛЬНО, не на проде)
+
+Своя вебинарная комната на pluson.ru — аналог GetCourse (тип трансляции «Видеокодер»). Полный план и список файлов — [documentation/WEBINAR-ROOM-PLAN.md](documentation/WEBINAR-ROOM-PLAN.md).
+
+**Суть.** Zoom (Custom Live Streaming) / OBS → RTMP на наш **MediaMTX** ([media-server/](media-server/), отдельный процесс как `wa-bridge`) → HLS-плеер на `pluson.ru/webinar/{slug}/{day}` ([web/src/app/webinar/[slug]/[day]/page.tsx](web/src/app/webinar/%5Bslug%5D/%5Bday%5D/page.tsx), hls.js). Zoom НЕ встраивается в iframe (SDK запрещает) — идёт именно видеопоток по RTMP.
+
+**Комната на ДЕНЬ события** (`webinar_rooms` по `event_id`+`day_number`, привязка к `conf_days`, не к событию целиком). Навигация вкладками дней в дашборде — как программа конференции.
+
+**Гейт по фиче** (не по slug): `webinar_room` (Экстра/vip — своя комната), `webinar_link` (Профи/pro — только ссылка на стороннюю). Триалу зеркалятся обе (trial=pro).
+
+**Что внутри комнаты:** HLS-плеер, живой чат (WebSocket + Redis pub/sub, [webinar_hub.py](backend/app/services/webinar_hub.py)), продающие блоки (`button`/`form`/`speaker_follow`/`gift` с таймингом `show_at_min`/`hide_at_min`), **умные формы** (известный контакт → 1 тап «Оставить заявку»; новый → поля; итог → контакт + **тег формы** = «группа» GetCourse через `contacts.tags`), реакции **👍/👎 по спикерам** (названия редактируются, 👎 отключаемая тумблером `show_down_reaction`, счётчики), **батлы** (спикеры выбираются из события, `webinar_battles`/`_players`), **опросы** (`webinar_polls`), кнопка **«Подписаться на спикера»** + плашка **«Сейчас выступает: {имя}»** (авто-смена по слоту `conf_sessions`, `current_speaker_ec_id`), **подарок спикера** по таймингу слота, удаление/бан участника (`webinar_banned`), редирект после эфира (`redirect_url`).
+
+**Аналитика** ([webinar_analytics.py](backend/app/services/webinar_analytics.py)): heartbeat присутствия раз в минуту (`webinar_presence`, UNIQUE по room+contact/session+минута → уникальные онлайн), график по интервалам 5/10/20/40/60, метрики (всего уникальных, пик, комменты, клики, оплаты), **активность ПО КАЖДОМУ ЗРИТЕЛЮ** (`webinar_activity` с contact_id — фундамент геймификации), срез «онлайн в интервале → тег контактам».
+
+**⚠️ `conf_sessions.speaker_id` = `event_collaborators.id`** (не `collaborators.id`) — текущий спикер по слоту резолвится через это. Владелец события — `event_owners (status='accepted')` (у `events` нет `client_id`). MediaMTX-хук `runOnPublish` дёргает `/api/v1/internal/webinar/stream/publish` (X-Bridge-Token) — валидирует ключ, ставит комнату `live`; неизвестный ключ → публикация отклонена.
+
+**Роутеры:** клиентский `/api/v1/events/{id}/webinar` ([modules/webinar_room.py](backend/app/api/modules/webinar_room.py)), публичный `/api/v1/public/webinar/{slug}/{day}` + WS `/ws/webinar/{slug}/{day}` ([webinar_public.py](backend/app/api/webinar_public.py)). Фронт-дашборд — [WebinarTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarTab.tsx) + [WebinarAnalytics.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarAnalytics.tsx), api-группа `api.webinar.*`.
+
+**⚠️ Для выката на прод:** миграция 221 (`sudo -u postgres`, роль plusson не владелец) + установка MediaMTX ([media-server/README.md](media-server/README.md), бинарник + systemd + nginx `/hls/` + `ufw allow 1935` + `WEBINAR_BRIDGE_TOKEN`) + nginx WebSocket-upgrade на `/ws/` + `npm install` (hls.js) в web.
+
+
 ### Афиши ДНЯ события + приоритет фото в дневных рассылках (миграция 215 от 2026-07-13)
 
 У каждого дня программы (конференция/турнир) — своя афиша: **квадратная / горизонтальная / вертикальная**. Живут в той же `event_posters`, новая колонка **`event_posters.day INT NULL`**: `NULL` = общая афиша события (как было всегда), `N` = афиша дня N (`conf_days.day_number`).

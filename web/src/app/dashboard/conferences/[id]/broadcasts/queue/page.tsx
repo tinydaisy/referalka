@@ -504,7 +504,11 @@ export default function QueuePage() {
     setPreviewModal(null)
     try {
       const res = await api.conference.schedules.preview(eventId, schedule.id)
-      setPreviewPlatform('telegram')
+      // Активна — первая ПОДКЛЮЧЁННАЯ у клиента площадка (бэк прислал только их).
+      // Жёсткий 'telegram' показал бы пустую вкладку клиенту без TG-бота.
+      const avail = Object.keys(res?.text_by_platform || {})
+      const first = (['telegram', 'vk', 'max'] as const).find(p => avail.includes(p))
+      setPreviewPlatform(first || 'telegram')
       setPreviewModal({ ...res, schedule })
     } catch {
       showMsg('Не удалось загрузить превью', 'err')
@@ -1962,19 +1966,24 @@ export default function QueuePage() {
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
             </div>
             {/* Вкладки площадок — показываем только если в подарках есть ссылки
-                воронки (у разных площадок они разные: TG/VK/MAX-бот клиента). */}
+                воронки (у разных площадок они разные: TG/VK/MAX-бот клиента).
+                ⚠️ Только площадки, где у клиента ПОДКЛЮЧЁН свой канал — их
+                присылает бэк ключами text_by_platform. Одна площадка → одна
+                активная вкладка (не прячем, чтобы было видно, куда уйдёт). */}
             {previewModal.text_by_platform && (
               <div className="flex gap-1 mb-3">
-                {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const).map(([pk, label]) => (
-                  <button key={pk} onClick={() => setPreviewPlatform(pk)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${
-                      previewPlatform === pk
-                        ? 'bg-[#25455D] text-white'
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    }`}>
-                    {label}
-                  </button>
-                ))}
+                {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const)
+                  .filter(([pk]) => pk in (previewModal.text_by_platform || {}))
+                  .map(([pk, label]) => (
+                    <button key={pk} onClick={() => setPreviewPlatform(pk)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${
+                        previewPlatform === pk
+                          ? 'bg-[#25455D] text-white'
+                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
               </div>
             )}
             {/* Telegram-bubble */}

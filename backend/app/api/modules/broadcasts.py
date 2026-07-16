@@ -2570,13 +2570,28 @@ async def preview_schedule(
     )
 
     # Подарки-лид-магниты помечены токенами ⟦GF:kind:slug⟧ — раскрываем ссылкой
-    # на воронку по каждой площадке (клиент увидит 3 вкладки: Telegram/VK/MAX).
+    # на воронку по каждой площадке.
+    # ⚠️ Вкладки строим ТОЛЬКО по площадкам, где у клиента подключён свой канал
+    # (get_active_platforms). Иначе клиент видел вкладки VK/MAX, которых у него нет,
+    # с пустой ссылкой на воронку — и думал, что рассылка сломана.
     from app.services.share_links import resolve_gift_funnel_tokens
     base_text = content["text"] or ""
     base_btn = content.get("button_url") or ""
+    # Подключённая площадка = у клиента есть ЛЮБОЙ свой канал на ней (то, что он
+    # видит в разделе «Каналы»). Флаг cc.is_active тут НЕ смотрим — это «главный
+    # канал площадки», а не факт подключения: у клиента может быть доп. канал без
+    # галочки, площадка всё равно подключена. Системные каналы не считаем.
+    _rows = await db.fetch(
+        """SELECT DISTINCT ch.platform_slug
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND ch.is_system = FALSE""",
+        client_id)
+    _active = {r["platform_slug"] for r in _rows}
+    _plats = [p for p in ("telegram", "vk", "max") if p in _active]
     text_by_platform = {}
     btn_by_platform = {}
-    for _p in ("telegram", "vk", "max"):
+    for _p in _plats:
         text_by_platform[_p] = await resolve_gift_funnel_tokens(
             db, client_id=client_id, text=base_text, platform=_p)
         btn_by_platform[_p] = await resolve_gift_funnel_tokens(
@@ -2584,8 +2599,11 @@ async def preview_schedule(
 
     return {
         # base text/button — раскрыты по TG-приоритету (чтобы сырой ⟦GF⟧ не светился
-        # у старого фронта); новый фронт берёт text_by_platform для 3 вкладок.
-        "text": text_by_platform["telegram"],
+        # у старого фронта); новый фронт берёт text_by_platform для вкладок.
+        # Нет подключённых площадок (или нет TG) — фолбэк на первую доступную,
+        # иначе на сырой текст: KeyError тут уронил бы всё превью.
+        "text": (text_by_platform.get("telegram")
+                 or next(iter(text_by_platform.values()), base_text)),
         "text_by_platform": text_by_platform,
         "button_url_by_platform": btn_by_platform,
         "subject": content.get("subject"),

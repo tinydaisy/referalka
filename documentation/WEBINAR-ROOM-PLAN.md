@@ -1,6 +1,7 @@
 # WEBINAR-ROOM-PLAN.md — Вебинарная комната (стрим + чат + продажи + аналитика)
 
-> Статус: **план / проектирование** (2026-07-16). Код ещё не пишется.
+> Статус: **реализовано локально (2026-07-16), на прод НЕ выкачено.**
+> Ниже — исходный план; фактические файлы реализации перечислены в конце (раздел «Реализация»).
 > Идея: своя вебинарная комната на pluson.ru — как в GetCourse (тип трансляции «Видеокодер»),
 > но встроенная в ПЛЮСОН: **на каждый день события**, с чатом, продающими блоками,
 > реакциями по спикерам, батлами, опросами и аналитикой присутствия «сколько людей по часам».
@@ -303,6 +304,51 @@ GET/PATCH /events/{id}/webinar/{day}               — настройки ком
    + привязать к тарифам (зеркалить в trial, т.к. trial = pro по фичам).
 
 ---
+
+## Реализация (файлы, 2026-07-16 — локально)
+
+**БД:** `db/migrations/221_webinar_room.sql` — все таблицы (`webinar_rooms`,
+`webinar_presence`, `webinar_chat_messages`, `webinar_banned`, `webinar_blocks`,
+`webinar_activity`, `webinar_speaker_reactions`, `webinar_polls`/`_options`/`_votes`,
+`webinar_battles`/`_players`/`_votes`, `webinar_registrations`) + фичи `webinar_room`
+(Экстра) и `webinar_link` (Профи+) в `features`/`tariff_features` + модуль `battle`.
+
+**Media-сервер:** `media-server/` — `mediamtx.yml` (RTMP→HLS, хук publish/unpublish),
+`plusson-mediamtx.service` (systemd), `nginx-hls.conf` (проксирование `/hls/`), `README.md`
+(установка на прод разово). Config: `webinar_bridge_token`, `webinar_rtmp_host`,
+`webinar_hls_base` в `backend/app/config.py`.
+
+**Бэкенд:**
+- `backend/app/services/webinar_service.py` — владение событием, ключ потока, текущий
+  спикер по слоту, авто-кнопка/подарок спикера, тегирование контакта, rtmp/hls URL.
+- `backend/app/services/webinar_hub.py` — WebSocket-хаб + Redis pub/sub (graceful без Redis).
+- `backend/app/services/webinar_analytics.py` — `compute_analytics` (график присутствия,
+  метрики) + `viewer_activity` (активность по каждому зрителю).
+- `backend/app/api/modules/webinar_room.py` — клиентский роутер (CRUD комнат по дням,
+  блоки, опросы/батлы, модерация, аналитика, срез) + `internal_router` (хук MediaMTX).
+- `backend/app/api/webinar_public.py` — публичный роутер зрителя (данные комнаты,
+  heartbeat, чат, реакции, батл/опрос-голоса, умная форма, регистрация) + WS-endpoint
+  `/ws/webinar/{slug}/{day}`.
+- Регистрация в `backend/app/main.py`.
+
+**Фронт:**
+- `web/src/lib/api.ts` — группа `api.webinar.*`.
+- `web/src/app/dashboard/conferences/[id]/page.tsx` — вкладка «Вебинары» (гейт `hasWebinar`).
+- `web/src/app/dashboard/conferences/[id]/tabs/WebinarTab.tsx` — навигация по дням (табы),
+  настройки комнаты, конструктор блоков, пульт ведущего (опросы/батлы).
+- `web/src/app/dashboard/conferences/[id]/tabs/WebinarAnalytics.tsx` — дашборд аналитики
+  (canvas-график 5/10/20/40/60, метрики-плитки, активность зрителей).
+- `web/src/app/webinar/[slug]/[day]/page.tsx` — страница зрителя (hls.js-плеер, чат,
+  блоки, реакции, опросы, батлы, «Сейчас выступает», WebSocket realtime).
+- `web/package.json` — добавлен `hls.js`.
+
+**Осталось для выката на прод (разово, вне живого события):**
+1. Прогнать миграцию 221 на проде (`sudo -u postgres psql -d plusson -f 221_webinar_room.sql` —
+   роль plusson не владелец таблиц).
+2. Установить MediaMTX по `media-server/README.md` (бинарник + systemd + nginx `/hls/` +
+   `ufw allow 1935`), задать `WEBINAR_BRIDGE_TOKEN` в backend `.env` и `media-server/.env`.
+3. nginx: проксирование WebSocket на `/ws/` (upgrade-заголовки) для api.
+4. `npm install` в web (появился hls.js) + zero-downtime билд.
 
 ## Связанные документы и правила проекта
 

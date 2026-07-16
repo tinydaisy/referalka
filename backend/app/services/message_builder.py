@@ -1394,9 +1394,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
         if tpl_type == "gift":
-            # is_package — только если подарок это пакет И нет мульти-списка лид-магнитов
-            # (у пакета его нет; иначе формат «несколько подарков» важнее).
-            _is_pkg = bool(session_data.get("gift_is_package")) and not session_data.get("gift_magnets_list")
+            # is_package — подарок это ПАКЕТ лид-магнитов → особый формат вывода
+            # (ссылка → название пакета → «Ссылка на пакет материалов: ссылка»).
+            #
+            # ⚠️ Пакет попадает и в мульти-список подарков (event_collaborator_lead_magnets
+            # с package_id) — раньше условие «и НЕТ мульти-списка» гасило флаг, и формат
+            # пакета не применялся никогда. Считаем пакетом, когда единственный подарок
+            # спикера — пакет: сам список из одной записи-пакета ИЛИ флаг из fallback-ветки.
+            _gml = session_data.get("gift_magnets_list") or []
+            _pkg_only = len(_gml) == 1 and str((_gml[0] or {}).get("url") or "").startswith("⟦GF:p:")
+            _is_pkg = bool(session_data.get("gift_is_package")) or _pkg_only
             text = build_gift_message(
                 session_data.get("speaker_name"),
                 session_data.get("speaker_personal_tg"),
