@@ -40,15 +40,16 @@ apiAddress: 127.0.0.1:9997
 # только внутри конкретного path (paths.all_others). Раньше был pathDefaults.
 paths:
   all_others:
-    # Проверка ключа при публикации потока (видеокодер подключился).
-    # $MTX_PATH = "live/{stream_key}". Скрипт вернёт код 0 (разрешить) или !=0 (запретить).
-    runOnPublish: >
+    # Проверка ключа при публикации потока (видеокодер подключился, поток готов).
+    # $MTX_PATH = "live/{stream_key}". Бэкенд проверяет ключ в webinar_rooms → комната live.
+    # ⚠️ MediaMTX v1.19 переименовал runOnPublish→runOnReady, runOnUnpublish→runOnNotReady.
+    runOnReady: >
       curl -sf -m 5 -X POST
       -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
       "http://127.0.0.1:8000/api/v1/internal/webinar/stream/publish?path=$MTX_PATH"
-    runOnPublishRestart: no
+    runOnReadyRestart: no
     # Поток остановлен — уведомляем бэкенд (комната → ended).
-    runOnUnpublish: >
+    runOnNotReady: >
       curl -sf -m 5 -X POST
       -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
       "http://127.0.0.1:8000/api/v1/internal/webinar/stream/unpublish?path=$MTX_PATH"
