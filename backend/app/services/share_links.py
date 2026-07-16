@@ -335,10 +335,45 @@ def pick_gift_funnel_link(links: dict, platform: str) -> str:
     return ""
 
 
+async def gift_funnel_owner_id(db, kind: str, slug: str) -> int | None:
+    """client_id ХОЗЯИНА лид-магнита/пакета по его slug.
+
+    ⚠️ Ключевое правило подарков: воронка живёт в базе ХОЗЯИНА магнита (спикера),
+    поэтому ссылка обязана вести в ЕГО бот — а не в бот клиента, который шлёт
+    рассылку. Иначе человек придёт в чужой бот, где этой воронки нет, и подарок
+    не выдастся.
+
+    kind: 'p' — пакет (lead_magnet_packages), 'm' — лид-магнит (lead_magnets).
+    """
+    if kind == "p":
+        return await db.fetchval("SELECT client_id FROM lead_magnet_packages WHERE slug=$1", slug)
+    return await db.fetchval("SELECT client_id FROM lead_magnets WHERE slug=$1", slug)
+
+
+async def build_gift_funnel_links_by_owner(db, kind: str, slug: str) -> dict[str, str]:
+    """{площадка → ссылка} на воронку подарка, построенная по каналам ХОЗЯИНА магнита.
+
+    Площадку выбирает ОТПРАВИТЕЛЬ рассылки (см. pick_gift_funnel_link), но бот
+    внутри площадки — всегда хозяина. Хозяин не найден / нет его каналов → {}.
+    """
+    owner = await gift_funnel_owner_id(db, kind, slug)
+    if not owner:
+        return {}
+    try:
+        return await build_funnel_landing_links(db, client_id=owner, slug=slug, kind=kind)
+    except Exception:
+        return {}
+
+
 async def resolve_gift_funnel_tokens(db, *, client_id: int, text: str | None, platform: str) -> str:
     """Заменить в тексте все токены ⟦GF:kind:slug⟧ ссылкой на воронку нужной
     площадки. Разовое использование (превью/тест-отправка). В боевой рассылке
-    ссылки кэшируются на всю аудиторию — там своя inline-версия."""
+    ссылки кэшируются на всю аудиторию — там своя inline-версия.
+
+    ⚠️ client_id (отправитель рассылки) тут НЕ используется для построения ссылки —
+    бот берётся у ХОЗЯИНА магнита по slug. Параметр оставлен для совместимости
+    вызовов; площадка приходит отдельно (её диктует отправитель).
+    """
     if not text or "⟦GF:" not in text:
         return text or ""
     cache: dict[tuple[str, str], dict] = {}
@@ -346,11 +381,7 @@ async def resolve_gift_funnel_tokens(db, *, client_id: int, text: str | None, pl
     async def _links(kind: str, slug: str) -> dict:
         key = (kind, slug)
         if key not in cache:
-            try:
-                cache[key] = await build_funnel_landing_links(
-                    db, client_id=client_id, slug=slug, kind=kind)
-            except Exception:
-                cache[key] = {}
+            cache[key] = await build_gift_funnel_links_by_owner(db, kind, slug)
         return cache[key]
 
     # Собираем уникальные (kind, slug), резолвим ссылки, затем подставляем.

@@ -369,7 +369,7 @@ async def _send_broadcast(schedule_id: int):
         # приоритету из подключённых (build_funnel_landing_links вернёт только те).
         from app.services.share_links import (
             GIFT_FUNNEL_TOKEN_RE as _GF_TOKEN,
-            build_funnel_landing_links,
+            build_gift_funnel_links_by_owner,
             pick_gift_funnel_link,
         )
         _gf_slugs = set()
@@ -377,15 +377,15 @@ async def _send_broadcast(schedule_id: int):
             for _m in _GF_TOKEN.finditer(_txt or ""):
                 _gf_slugs.add((_m.group(1), _m.group(2)))
         # (kind, slug) → {telegram?, vk?, max?}. Резолвим ОДИН раз на всю аудиторию
-        # (build_funnel_landing_links дёргает БД — не гоняем на каждого получателя).
+        # (запрос в БД — не гоняем на каждого получателя).
+        #
+        # ⚠️ Ссылка строится по каналам ХОЗЯИНА магнита (lead_magnets/lead_magnet_packages
+        # .client_id по slug), а НЕ отправителя рассылки: воронка живёт в базе хозяина,
+        # в чужом боте её нет. Площадку по-прежнему диктует отправитель (ниже,
+        # pick_gift_funnel_link по площадке получателя).
         _gf_links: dict[tuple[str, str], dict] = {}
         for _kind, _slug in _gf_slugs:
-            try:
-                _gf_links[(_kind, _slug)] = await build_funnel_landing_links(
-                    conn, client_id=schedule["client_id"], slug=_slug, kind=_kind,
-                )
-            except Exception:
-                _gf_links[(_kind, _slug)] = {}
+            _gf_links[(_kind, _slug)] = await build_gift_funnel_links_by_owner(conn, _kind, _slug)
 
         def _with_gift_funnel(txt: str | None, platform: str) -> str:
             """Заменить токены ⟦GF:kind:slug⟧ ссылкой на воронку нужной площадки
