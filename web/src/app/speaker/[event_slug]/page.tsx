@@ -2722,6 +2722,13 @@ function JudgingTab({ token }: { token: string }) {
     if (value === '') return
     let num = Number(value)
     if (isNaN(num)) return
+    // минимальный порог критерия (задаёт организатор) — ниже ставить нельзя
+    const scaleMin = Number((data?.criteria || []).find((c: any) => c.id === criterionId)?.scale_min) || 0
+    if (scaleMin > 0 && num < scaleMin) {
+      alert(`Минимальная оценка по этому критерию — ${scaleMin}. Ниже ставить нельзя.`)
+      if (inputEl) inputEl.value = scoreVal(criterionId, key)  // вернуть прежнее значение
+      return
+    }
     // нельзя ниже 0 и выше максимума критерия
     if (num < 0) num = 0
     if (num > scaleMax) num = scaleMax
@@ -2767,6 +2774,15 @@ function JudgingTab({ token }: { token: string }) {
     const missing = crits.filter((c: any) => curVal(c.id) === '')
     if (missing.length > 0) {
       alert(`Нельзя сохранить оценку — не проставлены все баллы.\n\nОсталось заполнить: ${missing.map((c: any) => c.title).join(', ')}`)
+      return
+    }
+    // Проверка минимального порога по каждому критерию (задаёт организатор).
+    const belowMin = crits.filter((c: any) => {
+      const mn = Number(c.scale_min) || 0
+      return mn > 0 && Number(curVal(c.id)) < mn
+    })
+    if (belowMin.length > 0) {
+      alert(`Нельзя зафиксировать — балл ниже минимума.\n\n${belowMin.map((c: any) => `${c.title}: минимум ${c.scale_min}`).join('\n')}`)
       return
     }
     // ⚠️ Комментарий «Почему такая оценка» к критерию — НЕОБЯЗАТЕЛЕН (можно
@@ -2867,11 +2883,18 @@ function JudgingTab({ token }: { token: string }) {
                           <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
                         )}
                       </div>
-                      <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
-                        ref={(el) => { scoreRefs.current[`${c.id}|${s.key}`] = el }}
-                        onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
-                        style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: '#fff' }} />
-                      <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
+                      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input type="number" min={Number(c.scale_min) || 0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
+                            ref={(el) => { scoreRefs.current[`${c.id}|${s.key}`] = el }}
+                            onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
+                            style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', background: '#fff' }} />
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>/ {c.scale_max}</span>
+                        </div>
+                        {Number(c.scale_min) > 0 && (
+                          <span style={{ color: '#94a3b8', fontSize: 11 }}>минимум {c.scale_min}</span>
+                        )}
+                      </div>
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: DARK, marginBottom: 3 }}>

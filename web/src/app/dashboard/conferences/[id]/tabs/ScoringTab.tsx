@@ -235,6 +235,17 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
         <option value="auto:lead_magnet">Тип: Лиды в ПЛЮСОН (авто)</option>
       </select>
       {crit.scorer === 'jury' && (
+        <label className="text-xs text-gray-400 flex items-center gap-1" title="Минимальный балл — ниже жюри ставить не сможет. 0 = без ограничения.">мин
+          <input type="number" min={0} className="w-12 border rounded px-1 py-0.5 text-xs" defaultValue={crit.scale_min ?? 0}
+            onBlur={(e) => {
+              const v = Number(e.target.value)
+              if (isNaN(v) || v < 0) { e.target.value = String(crit.scale_min ?? 0); return }
+              if (v >= Number(crit.scale_max)) { alert(`Минимум должен быть меньше максимума (${crit.scale_max}).`); e.target.value = String(crit.scale_min ?? 0); return }
+              save({ scale_min: v })
+            }} />
+        </label>
+      )}
+      {crit.scorer === 'jury' && (
         <label className="text-xs text-gray-400 flex items-center gap-1">макс
           <input type="number" className="w-12 border rounded px-1 py-0.5 text-xs" defaultValue={crit.scale_max}
             onBlur={(e) => Number(e.target.value) > 0 && save({ scale_max: Number(e.target.value) })} />

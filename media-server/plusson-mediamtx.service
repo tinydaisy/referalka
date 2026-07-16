@@ -1,0 +1,20 @@
+[Unit]
+Description=PLUSSON MediaMTX (RTMP→HLS для вебинарных комнат)
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/var/www/plusson/media-server
+# MTX_BRIDGE_TOKEN — общий секрет с бэкендом (тот же, что в backend .env WEBINAR_BRIDGE_TOKEN)
+EnvironmentFile=/var/www/plusson/media-server/.env
+ExecStart=/var/www/plusson/media-server/mediamtx /var/www/plusson/media-server/mediamtx.yml
+Restart=always
+RestartSec=10
+# HLS-ремукс лёгкий, но живой эфир грузит CPU/сеть — мягкий предел
+MemoryHigh=800M
+MemoryMax=1200M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

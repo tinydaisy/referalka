@@ -600,7 +600,7 @@ async def list_criteria(event_id: int, client=Depends(get_current_client), db: a
     for p in pkgs:
         crits = await db.fetch("SELECT * FROM tournament_criteria WHERE package_id=$1 ORDER BY sort_order, id", p["id"])
         d = dict(p); d["weight"] = float(d["weight"])
-        d["criteria"] = [{**dict(c), "scale_max": float(c["scale_max"]), "weight": float(c["weight"])} for c in crits]
+        d["criteria"] = [{**dict(c), "scale_max": float(c["scale_max"]), "scale_min": float(c["scale_min"] or 0), "weight": float(c["weight"])} for c in crits]
         out.append(d)
     stages = await db.fetch(
         "SELECT id, title, COALESCE(listen_audiences, ARRAY['registered']::text[]) AS listen_audiences "
@@ -719,6 +719,7 @@ class CriterionIn(BaseModel):
     auto_kind: Optional[str] = None
     stage_id: Optional[int] = None
     scale_max: float = 10
+    scale_min: float = 0  # минимальный балл жюри (ниже ставить нельзя)
     weight: float = 1
     sort_order: int = 0
     code_phrase: Optional[str] = None  # для manual: кодовая фраза авто-зачёта по чату
@@ -753,11 +754,13 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
     # молча резал ввод («Балл не может быть больше 10»). Ставим им заведомо
     # недостижимый потолок, чтобы ограничение не появлялось само.
     scale_max = data.scale_max if data.scorer == "jury" else UNLIMITED_SCALE_MAX
+    # scale_min (нижний порог балла) осмыслен ТОЛЬКО у оценок жюри; у остальных — 0.
+    scale_min = data.scale_min if data.scorer == "jury" else 0
     c = await db.fetchrow(
-        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order, code_phrase, lead_count_since)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
+        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, scale_min, weight, sort_order, code_phrase, lead_count_since)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
         data.package_id, event_id, data.title.strip(), data.description, data.scorer,
-        auto_kind, data.stage_id, scale_max, data.weight, data.sort_order, code_phrase, lead_since)
+        auto_kind, data.stage_id, scale_max, scale_min, data.weight, data.sort_order, code_phrase, lead_since)
     return {"criterion": dict(c)}
 
 
@@ -768,6 +771,7 @@ class CriterionUpdate(BaseModel):
     auto_kind: Optional[str] = None
     stage_id: Optional[int] = None
     scale_max: Optional[float] = None
+    scale_min: Optional[float] = None
     weight: Optional[float] = None
     sort_order: Optional[int] = None
     code_phrase: Optional[str] = None
@@ -786,6 +790,7 @@ async def update_criterion(event_id: int, criterion_id: int, data: CriterionUpda
     # (напр. 10) продолжало бы резать ввод. Поля «макс» в UI у них тоже нет.
     if payload.get("scorer") and payload["scorer"] != "jury":
         payload["scale_max"] = UNLIMITED_SCALE_MAX
+        payload["scale_min"] = 0  # нижний порог осмыслен только у жюри
     if payload:
         cols = list(payload.keys())
         sets = ", ".join(f"{c} = ${i+3}" for i, c in enumerate(cols))
@@ -1778,7 +1783,7 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
     jcrits = []
     if pkg_ids:
         jcrits = await db.fetch(
-            "SELECT id, title, description, scale_max FROM tournament_criteria WHERE package_id=ANY($1::bigint[]) AND is_active AND scorer='jury' ORDER BY sort_order, id", pkg_ids)
+            "SELECT id, title, description, scale_max, scale_min FROM tournament_criteria WHERE package_id=ANY($1::bigint[]) AND is_active AND scorer='jury' ORDER BY sort_order, id", pkg_ids)
 
     my_scores = await db.fetch(
         "SELECT criterion_id, subject_kind, subject_id, value_number, comment FROM tournament_scores WHERE event_id=$1 AND juror_ec_id=$2",
@@ -1812,7 +1817,7 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
     return {
         "juror_name": juror["name"],
         "subjects": [{"key": s["key"], "name": s["name"], "material": s["material"]} for s in subjects],
-        "criteria": [{**dict(c), "scale_max": float(c["scale_max"])} for c in jcrits],
+        "criteria": [{**dict(c), "scale_max": float(c["scale_max"]), "scale_min": float(c["scale_min"] or 0)} for c in jcrits],
         "my_scores": [{"criterion_id": s["criterion_id"], "key": _skey(s["subject_kind"], s["subject_id"]),
                        "value_number": float(s["value_number"]), "comment": s["comment"] or ""} for s in my_scores],
         "score_comment_min_words": SCORE_COMMENT_MIN_WORDS,
@@ -1845,18 +1850,23 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
     if data.value < 0:
         raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
     crit = await db.fetchrow(
-        """SELECT cr.scorer, cr.scale_max, p.stage_id
+        """SELECT cr.scorer, cr.scale_max, cr.scale_min, p.stage_id
              FROM tournament_criteria cr
              JOIN tournament_packages p ON p.id = cr.package_id
             WHERE cr.id=$1 AND cr.event_id=$2""",
         data.criterion_id, event_id)
     if not crit or crit["scorer"] != "jury":
         raise HTTPException(status_code=422, detail="Критерий не для оценки жюри")
+    def _fmt(v: float) -> str:
+        return str(int(v)) if v == int(v) else str(v)
     # балл не может быть выше максимума критерия
     _sm = float(crit["scale_max"])
     if data.value > _sm:
-        _sm_str = str(int(_sm)) if _sm == int(_sm) else str(_sm)
-        raise HTTPException(status_code=422, detail=f"Балл не может быть выше {_sm_str}")
+        raise HTTPException(status_code=422, detail=f"Балл не может быть выше {_fmt(_sm)}")
+    # балл не может быть ниже минимального порога критерия (задаётся организатором)
+    _smin = float(crit["scale_min"] or 0)
+    if _smin > 0 and data.value < _smin:
+        raise HTTPException(status_code=422, detail=f"Минимальная оценка по этому критерию — {_fmt(_smin)}. Ниже ставить нельзя.")
     kind, sid = data.key.split(":", 1)
     # Правку оценок разрешаем всегда, даже после фиксации (по требованию:
     # жюри может менять баллы; фиксация — лишь отметка «готово»).

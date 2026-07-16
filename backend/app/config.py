@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     wa_bridge_url: str = "http://127.0.0.1:8790"
     wa_bridge_token: str = ""  # общий секрет с мостом (заголовок X-Bridge-Token)
 
+    # Media-сервер вебинарных комнат (MediaMTX, RTMP→HLS, отдельный процесс).
+    # RTMP-адрес клиенту: rtmp://{webinar_rtmp_host}/live/{stream_key}
+    # HLS зрителю:        https://{домен}/hls/{stream_key}/index.m3u8
+    webinar_bridge_token: str = ""            # общий секрет с MediaMTX-хуком (X-Bridge-Token)
+    webinar_rtmp_host: str = "pluson.ru:1935" # что показываем клиенту как RTMP-адрес
+    webinar_hls_base: str = "https://pluson.ru/hls"  # база HLS-плейлистов для плеера
+
     class Config:
         env_file = ".env"
         extra = "ignore"

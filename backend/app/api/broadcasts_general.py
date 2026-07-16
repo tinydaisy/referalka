@@ -257,6 +257,9 @@ async def list_schedules(
                     ELSE NULL END as duration_seconds,
                (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = broadcast_schedules.id AND bl.status = 'failed') as recipients_failed,
                (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = broadcast_schedules.id AND bl.status = 'bounced') as recipients_bounced,
+               -- Сколько сообщений можно отозвать = записей с сохранённым message_id.
+               (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = broadcast_schedules.id
+                  AND bl.external_message_id IS NOT NULL AND bl.external_message_id <> '') as recallable_count,
                -- агрегаты по email-аналитике: уникальные получатели, открывшие/кликнувшие
                (SELECT COUNT(DISTINCT eo.broadcast_log_id)
                   FROM email_open_log eo JOIN broadcast_log bl ON bl.id = eo.broadcast_log_id
@@ -574,6 +577,20 @@ async def cancel(
         schedule_id
     )
     return {"ok": True}
+
+
+@router.post("/schedules/{schedule_id}/recall")
+async def recall(
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Отзыв (удаление у получателей) отправленной рассылки в Telegram.
+    Только для сообщений с сохранённым message_id и в пределах 48ч (лимит Telegram)."""
+    client_id = int(client["sub"])
+    await _check_owner(db, schedule_id, client_id)
+    from app.services.broadcast_recall import recall_broadcast
+    return await recall_broadcast(db, schedule_id)
 
 
 @router.delete("/schedules/{schedule_id}")

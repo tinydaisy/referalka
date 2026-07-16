@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Send, XCircle, Eye, Clock, CheckCircle, AlertCircle, Loader2, X,
-  Edit2, Trash2, Copy, Users, ChevronDown, ChevronRight, FileText, Upload, Play
+  Edit2, Trash2, Copy, Users, ChevronDown, ChevronRight, FileText, Upload, Play, Undo2
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
@@ -105,6 +105,7 @@ export default function GeneralBroadcastsPage() {
   }>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [recallingId, setRecallingId] = useState<number | null>(null)
 
   function showMsg(text: string, type: 'ok' | 'err' = 'ok') {
     setMsg({ text, type })
@@ -508,6 +509,45 @@ export default function GeneralBroadcastsPage() {
                             title="Отменить">
                             <XCircle size={13} />
                           </button>
+                        )}
+                        {/* Отозвать — удалить отправленные сообщения (только done, если есть сохранённые ID) */}
+                        {s.status === 'done' && (
+                          (s.recallable_count || 0) > 0 ? (
+                            <button onClick={async () => {
+                              if (recallingId) return
+                              if (!confirm(
+                                'Отозвать рассылку?\n\n' +
+                                'Попробуем УДАЛИТЬ уже отправленные сообщения у получателей (Telegram, VK, MAX) и в чатах.\n\n' +
+                                'Платформа может отказать удалить слишком старое сообщение или при отсутствии прав у бота — такие попадут в «не удалось» с причиной. Email отозвать нельзя.'
+                              )) return
+                              setRecallingId(s.id)
+                              try {
+                                const r: any = await api.broadcasts.recall(s.id)
+                                const bp = r.by_platform || {}
+                                const parts = [`Удалено: ${r.deleted}`]
+                                const plat = [bp.telegram ? `TG ${bp.telegram}` : null, bp.vk ? `VK ${bp.vk}` : null, bp.max ? `MAX ${bp.max}` : null].filter(Boolean).join(', ')
+                                if (plat) parts.push(`(${plat})`)
+                                if (r.failed) parts.push(`не удалось: ${r.failed}`)
+                                if (r.skipped_no_msgid) parts.push(`без ID: ${r.skipped_no_msgid}`)
+                                if (r.skipped_email) parts.push(`email (нельзя): ${r.skipped_email}`)
+                                let m = parts.join(' · ')
+                                if (r.errors && r.errors.length) m += `\nПричины: ${r.errors.join('; ')}`
+                                showMsg(m, r.deleted > 0 ? 'ok' : 'err')
+                              } catch (e: any) { showMsg(e.message, 'err') }
+                              finally { setRecallingId(null) }
+                            }}
+                              disabled={recallingId === s.id}
+                              className="p-1.5 border border-amber-300 rounded-lg text-amber-500 hover:text-white hover:bg-amber-500 disabled:opacity-50"
+                              title="Отозвать — удалить отправленные сообщения у получателей">
+                              {recallingId === s.id ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />}
+                            </button>
+                          ) : (
+                            <button disabled
+                              className="p-1.5 border border-gray-200 rounded-lg text-gray-300 cursor-not-allowed"
+                              title="Отозвать нельзя: у этой рассылки не сохранены ID сообщений (отправлена до появления функции) либо только email.">
+                              <Undo2 size={13} />
+                            </button>
+                          )
                         )}
                         <button onClick={() => deleteOne(s)}
                           className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-white hover:bg-red-500"

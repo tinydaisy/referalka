@@ -23,13 +23,14 @@ import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
 import BroadcastTemplatesView from './broadcasts/templates/page'
 import BroadcastQueueView from './broadcasts/queue/page'
+import WebinarTab from './tabs/WebinarTab'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -46,6 +47,8 @@ export default function ConferencePage() {
   const { me } = useMe()
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
+  // Раздел «Вебинары» — по фиче webinar_room (Экстра, своя комната) или webinar_link (Профи, ссылка).
+  const hasWebinar = (me?.features || []).includes('webinar_room') || (me?.features || []).includes('webinar_link')
 
   async function handleSalebotExport() {
     setExporting(true)
@@ -75,7 +78,7 @@ export default function ConferencePage() {
   // Группировка вкладок в разделы (двухуровневая навигация):
   //  Настройки / Люди / Отслеживания / Платежи / Рассылки.
   // Программа осталась внутри «Настроек» (часть наполнения события).
-  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'tournament' | 'payments' | 'broadcasts'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'tournament' | 'payments' | 'broadcasts' | 'webinar_grp'
   const GROUPS: { key: GroupKey; label: string; tabs: { id: Tab; label: string }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
@@ -124,6 +127,14 @@ export default function ConferencePage() {
       tabs: [
         { id: 'tariffs' as Tab, label: 'Тарифы' },
         { id: 'tariff_orders' as Tab, label: 'Заказы' },
+      ],
+    }] : []),
+    // «Вебинары» — по фиче webinar_room/webinar_link. Внутри WebinarTab своя
+    // навигация по дням события (табы дней, как этапы турнира).
+    ...(hasWebinar ? [{
+      key: 'webinar_grp' as GroupKey, label: 'Вебинары',
+      tabs: [
+        { id: 'webinar' as Tab, label: 'Вебинарные комнаты' },
       ],
     }] : []),
     {
@@ -243,6 +254,7 @@ export default function ConferencePage() {
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
       {tab === 'broadcast_templates' && <BroadcastTemplatesView />}
       {tab === 'broadcast_queue'     && <BroadcastQueueView />}
+      {tab === 'webinar'      && <WebinarTab eventId={eventId} event={event} />}
     </div>
   )
 }

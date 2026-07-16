@@ -9,7 +9,8 @@ from app.middleware.assistant_permission_guard import assistant_permission_guard
 from app.middleware.email_verification_guard import email_verification_guard_middleware
 from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics
 from app.api.gifts import router_compat as gifts_compat
-from app.api.modules import conference, broadcasts
+from app.api.modules import conference, broadcasts, webinar_room
+from app.api import webinar_public
 from app.api import broadcasts_general
 
 
@@ -128,6 +129,10 @@ app.include_router(tournament.router,            prefix="/api/v1")              
 app.include_router(tournament.jury_router)                                      # /api/v1/public/tournament-jury — кабинет жюри (миграция 132)
 app.include_router(collab_hub.router,            prefix="/api/v1")              # /api/v1/collab-hub — Коллабораторная: карточка, каталог, ниши, рейтинг (миграция 134)
 app.include_router(collab_events.router,         prefix="/api/v1")              # /api/v1/collab — запросы, co-ownership, сват, отзывы (миграция 134)
+app.include_router(webinar_room.router,          prefix="/api/v1")              # /api/v1/events/{id}/webinar — вебинарная комната: CRUD, блоки, опросы/батлы, аналитика (миграция 221)
+app.include_router(webinar_room.internal_router, prefix="/api/v1")              # /api/v1/internal/webinar/stream — хук MediaMTX (X-Bridge-Token)
+app.include_router(webinar_public.router)                                       # /api/v1/public/webinar/{slug}/{day} — зритель: heartbeat, чат, реакции, формы, опросы
+app.include_router(webinar_public.ws_router)                                    # /ws/webinar/{slug}/{day} — WebSocket realtime
 
 
 @app.get("/", tags=["health"])

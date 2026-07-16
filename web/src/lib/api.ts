@@ -391,6 +391,8 @@ export const api = {
         }),
       cancel: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/cancel`, { method: 'POST' }),
+      recall: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/recall`, { method: 'POST' }),
       cancelAll: (eventId: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/cancel-all`, { method: 'POST' }),
       runAll: (eventId: number) =>
@@ -627,6 +629,8 @@ export const api = {
       request(`/api/v1/broadcasts/schedules/${id}/log`),
     cancel: (id: number) =>
       request(`/api/v1/broadcasts/schedules/${id}/cancel`, { method: 'POST' }),
+    recall: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}/recall`, { method: 'POST' }),
     delete: (id: number) =>
       request(`/api/v1/broadcasts/schedules/${id}`, { method: 'DELETE' }),
     copy: (id: number) =>
@@ -1072,5 +1076,53 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ admin_note }),
       }),
+  },
+
+  // Вебинарная комната (миграция 221) — комната на день события
+  webinar: {
+    listRooms: (eventId: number) => request(`/api/v1/events/${eventId}/webinar`),
+    upsertRoom: (eventId: number, day: number, data: any) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteRoom: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'DELETE' }),
+    regenerateKey: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/regenerate-key`, { method: 'POST' }),
+    // блоки
+    blocks: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/blocks`),
+    createBlock: (eventId: number, day: number, data: any) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/blocks`, { method: 'POST', body: JSON.stringify(data) }),
+    updateBlock: (eventId: number, day: number, blockId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/blocks/${blockId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteBlock: (eventId: number, day: number, blockId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/blocks/${blockId}`, { method: 'DELETE' }),
+    pinBlock: (eventId: number, day: number, blockId: number, pinned: boolean) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/blocks/${blockId}/pin?pinned=${pinned}`, { method: 'POST' }),
+    // модерация
+    moderateMsg: (eventId: number, day: number, msgId: number, status: 'visible' | 'hidden') =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/chat/${msgId}/moderate?status=${status}`, { method: 'POST' }),
+    removeParticipant: (eventId: number, day: number, params: { contact_id?: number; session_key?: string }) => {
+      const qs = new URLSearchParams()
+      if (params.contact_id != null) qs.set('contact_id', String(params.contact_id))
+      if (params.session_key) qs.set('session_key', params.session_key)
+      return request(`/api/v1/events/${eventId}/webinar/${day}/participant/remove?${qs.toString()}`, { method: 'POST' })
+    },
+    // опросы / батлы (пульт)
+    createPoll: (eventId: number, day: number, data: { question: string; options: string[] }) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/poll`, { method: 'POST', body: JSON.stringify(data) }),
+    closePoll: (eventId: number, day: number, pollId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/poll/${pollId}/close`, { method: 'POST' }),
+    createBattle: (eventId: number, day: number, data: any) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/battle`, { method: 'POST', body: JSON.stringify(data) }),
+    endBattle: (eventId: number, day: number, battleId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/battle/${battleId}/end`, { method: 'POST' }),
+    // аналитика
+    analytics: (eventId: number, day: number, step = 5) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/analytics?step=${step}`),
+    viewers: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/viewers`),
+    segment: (eventId: number, day: number, from: string, to: string, tag?: string) => {
+      const qs = new URLSearchParams({ from, to })
+      if (tag) qs.set('tag', tag)
+      return request(`/api/v1/events/${eventId}/webinar/${day}/segment?${qs.toString()}`, { method: 'POST' })
+    },
   },
 }

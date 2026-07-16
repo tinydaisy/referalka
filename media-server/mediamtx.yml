@@ -1,0 +1,54 @@
+# PLUSSON MediaMTX — приём RTMP от видеокодера (Zoom/OBS) и раздача HLS.
+#
+# Клиент в дашборде вебинарной комнаты получает:
+#   RTMP-адрес: rtmp://pluson.ru:1935/live/{stream_key}
+#   Ключ:       {stream_key}   (вписывает в Zoom Custom Streaming / OBS)
+# Зритель смотрит HLS:
+#   https://pluson.ru/hls/{stream_key}/index.m3u8   (проксируется nginx на :8888)
+#
+# Приём потока разрешаем ТОЛЬКО если stream_key существует и активен — проверяет
+# наш бэкенд через runOnConnect-хук (HTTP на localhost). Так чужой не зальёт мусор.
+
+logLevel: info
+logDestinations: [stdout]
+
+# ── RTMP: вход от видеокодера ────────────────────────────────────────────────
+rtmp: yes
+rtmpAddress: :1935
+rtmpEncryption: "no"
+
+# ── HLS: выход для зрителей (nginx проксирует /hls/ → :8888) ─────────────────
+hls: yes
+hlsAddress: 127.0.0.1:8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency        # low-latency HLS, задержка ~1-3 сек
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsAllowOrigin: "*"
+
+# ── Отключаем то, что не нужно ───────────────────────────────────────────────
+rtsp: no
+webrtc: no
+srt: no
+api: yes                      # локальный API MediaMTX (для мониторинга статуса потоков)
+apiAddress: 127.0.0.1:9997
+
+# ── Пути потоков ─────────────────────────────────────────────────────────────
+# Все потоки идут в /live/{key}. Публикацию валидирует бэкенд-хук:
+# MediaMTX дёргает наш эндпоинт, тот проверяет ключ в webinar_rooms и разрешает/запрещает.
+pathDefaults:
+  # Проверка ключа при публикации потока (видеокодер подключился).
+  # $MTX_PATH = "live/{stream_key}". Скрипт вернёт код 0 (разрешить) или !=0 (запретить).
+  runOnPublish: >
+    curl -sf -m 5 -X POST
+    -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
+    "http://127.0.0.1:8000/api/v1/internal/webinar/stream/publish?path=$MTX_PATH"
+  runOnPublishRestart: no
+  # Поток остановлен — уведомляем бэкенд (комната → ended).
+  runOnUnpublish: >
+    curl -sf -m 5 -X POST
+    -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
+    "http://127.0.0.1:8000/api/v1/internal/webinar/stream/unpublish?path=$MTX_PATH"
+
+paths:
+  all_others:
