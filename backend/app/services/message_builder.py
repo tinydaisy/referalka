@@ -1141,7 +1141,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 if not title and not magnets:
                     continue
                 if not title and magnets:
-                    body = "\n\n".join(f"{t}\n{u}" if u else t for t, u in magnets)
+                    # Несколько подарков у спикера → нумеруем «1. …\n2. …»; один — без номера.
+                    if len(magnets) > 1:
+                        body = "\n\n".join(f"{i}. {t}\n{u}" if u else f"{i}. {t}"
+                                           for i, (t, u) in enumerate(magnets, 1))
+                    else:
+                        body = "\n\n".join(f"{t}\n{u}" if u else t for t, u in magnets)
                     block = f"🎁 <b>{gs['speaker_name']}:</b>\n{body}"
                 elif not url:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
