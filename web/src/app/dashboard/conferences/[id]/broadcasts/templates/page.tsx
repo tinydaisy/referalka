@@ -906,9 +906,7 @@ export default function TemplatesPage() {
         if (!url) return `🎁 <b>${s.speaker_name}:</b> ${title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
         return `🎁 <b>${s.speaker_name}:</b> ${title}\n${url}`
       })
-    const daySpeakersGifts = speakerGiftBlocks.length > 0
-      ? `А сейчас ловите подарки от спикеров Дня ${d}:\n\n` + speakerGiftBlocks.join('\n\n')
-      : ''
+    const daySpeakersGifts = speakerGiftBlocks.join('\n\n')
 
     // Умная фраза про следующий день
     const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']

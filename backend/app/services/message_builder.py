@@ -1154,7 +1154,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
                 gift_blocks.append(block)
             if gift_blocks:
-                day_speakers_gifts = f"А сейчас ловите подарки от спикеров Дня {day}:\n\n" + "\n\n".join(gift_blocks)
+                day_speakers_gifts = "\n\n".join(gift_blocks)
 
             first_next = await conn.fetchrow(
                 """SELECT cs.start_time, d.day_date
