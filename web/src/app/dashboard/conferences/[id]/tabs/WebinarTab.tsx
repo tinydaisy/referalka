@@ -126,7 +126,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
         )}
         {subView === 'console' && active.room && (
-          <ConsolePanel eventId={eventId} day={active} event={event} slug={event?.slug} />
+          <ConsolePanel eventId={eventId} day={active} event={event} slug={event?.slug} onChanged={load} />
         )}
         {subView === 'console' && !active.room && (
           <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
@@ -523,6 +523,14 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
   const streamActive = r?.stream_active
   const previewRef = useRef<HTMLVideoElement | null>(null)
 
+  // авто-обновление статуса: Zoom мог начать слать поток в любой момент —
+  // перечитываем комнату каждые 8 сек, чтобы кнопка «Начать эфир» ожила сама.
+  useEffect(() => {
+    if (status === 'live' || status === 'ended') return
+    const t = setInterval(() => { onChanged() }, 8000)
+    return () => clearInterval(t)
+  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // превью потока — только ведущему, пока эфир не начат
   useEffect(() => {
     if (!streamActive || !r?.hls_url) return
@@ -585,12 +593,11 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
             {busy ? '…' : '■ Завершить эфир'}
           </button>
         )}
-        <button onClick={onChanged} className="px-3 py-2 rounded-lg border text-sm">Обновить статус</button>
       </div>
 
       {!streamActive && status !== 'live' && (
         <p className="text-xs text-gray-500 mt-2">
-          Кнопка станет активной, когда Zoom/OBS начнёт слать поток на RTMP-адрес из «Настроек».
+          Ждём поток от Zoom/OBS… Кнопка «Начать эфир» загорится сама, как только пойдёт трансляция на RTMP-адрес из «Настроек».
         </p>
       )}
     </div>

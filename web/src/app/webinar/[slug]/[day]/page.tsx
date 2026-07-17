@@ -377,7 +377,12 @@ export default function WebinarRoomPage() {
 }
 
 function FormBlock({ block, slug, day, contactId, sessionKey, onNeedReg }: any) {
-  const [sent, setSent] = useState(false)
+  const submitKey = `webinar_form_${slug}_${day}_${block.id}`
+  // запоминаем отправку локально — после обновления страницы форму снова не покажем
+  const [sent, setSent] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem(submitKey) === '1'
+  })
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '' })
   const [open, setOpen] = useState(false)
 
@@ -387,7 +392,10 @@ function FormBlock({ block, slug, day, contactId, sessionKey, onNeedReg }: any) 
     const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}/form/${block.id}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (r.ok) setSent(true)
+    if (r.ok) {
+      try { localStorage.setItem(submitKey, '1') } catch {}
+      setSent(true)
+    }
   }
 
   if (sent) return <div className="text-sm text-green-300">✓ Заявка принята</div>
