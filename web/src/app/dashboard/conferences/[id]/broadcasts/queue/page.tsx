@@ -2095,6 +2095,7 @@ function CustomBroadcastModal(props: {
     Array.isArray(ed?.target_channel_ids) ? ed.target_channel_ids : null)
   const { me } = useMe()
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
+  const hasPayments = (me?.features || []).includes('event_tariffs')
   const [saving, setSaving] = useState(false)
   // Коллаб-событие (только при создании) — запрос подтверждения соорганизаторам.
   const [reqConfirm, setReqConfirm] = useState(false)
@@ -2313,6 +2314,8 @@ function CustomBroadcastModal(props: {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
                 <option value="all_event">Все участники конфы</option>
                 <option value="registered_event">Зарегистрированные участники</option>
+                {hasPayments && <option value="paid_event">Оплатившие</option>}
+                {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                 <option value="all_client">Вся база клиента</option>
               </select>
             </div>
@@ -2323,6 +2326,8 @@ function CustomBroadcastModal(props: {
                 <option value="none">Никого не исключать</option>
                 <option value="registered_event">Зарегистрированных участников</option>
                 <option value="unregistered_event">Незарегистрированных участников</option>
+                {hasPayments && <option value="paid_event">Оплативших</option>}
+                {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                 <option value="all_event">Всех участников конфы</option>
               </select>
             </div>
