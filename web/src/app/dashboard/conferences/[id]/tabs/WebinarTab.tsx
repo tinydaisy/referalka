@@ -561,7 +561,7 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
       v.src = r.hls_url
     } else {
       import('hls.js').then(({ default: Hls }) => {
-        if (Hls.isSupported()) { hls = new Hls({ lowLatencyMode: true }); hls.loadSource(r.hls_url); hls.attachMedia(v) }
+        if (Hls.isSupported()) { hls = new Hls(); hls.loadSource(r.hls_url); hls.attachMedia(v) }
       })
     }
     return () => { if (hls) hls.destroy() }
