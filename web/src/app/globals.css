@@ -38,17 +38,35 @@ body {
   flex-shrink: 0;
 }
 
+/* Единый стиль кнопок проекта. Базовые отступы/скругление — в самом классе,
+   чтобы кнопка выглядела аккуратно без ручного дублирования px/py/rounded
+   и чтобы в будущем цвета можно было менять в одной точке (кастомные темы тарифов). */
 .btn-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
   background: #FFCFA4;
   color: #0a1520;
   font-weight: 600;
+  line-height: 1.2;
   transition: opacity 0.2s;
 }
 .btn-gold:hover { opacity: 0.88; }
+.btn-gold:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
   background: linear-gradient(45deg, #25455D, #0a1520);
   color: white;
+  font-weight: 600;
   border: 1px solid rgba(255,207,164,0.4);
   transition: opacity 0.2s;
 }
