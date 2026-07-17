@@ -35,7 +35,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
   const [level, setLevel] = useState<'room' | 'link'>('room')
   const [days, setDays] = useState<DayItem[]>([])
   const [activeDay, setActiveDay] = useState<number | null>(null)
-  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'console'>('settings')
+  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'console' | 'records'>('settings')
 
   const load = useCallback(async () => {
     try {
@@ -98,6 +98,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             ['settings', 'Настройки'],
             ['blocks', 'Продающие блоки'],
             ['analytics', 'Аналитика'],
+            ['records', 'Записи'],
             ['console', 'Пульт ведущего'],
           ] as const).map(([k, lbl]) => (
             <button
@@ -123,6 +124,12 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           <WebinarAnalytics eventId={eventId} day={active.day_number} />
         )}
         {subView === 'analytics' && !active.room && (
+          <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
+        )}
+        {subView === 'records' && active.room && (
+          <RecordsTab eventId={eventId} day={active.day_number} />
+        )}
+        {subView === 'records' && !active.room && (
           <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
         )}
         {subView === 'console' && active.room && (
@@ -806,6 +813,94 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
       <p className="text-xs text-gray-400">
         Модерация чата и удаление участников — прямо на странице комнаты во время эфира.
       </p>
+    </div>
+  )
+}
+
+// ─────────────────────────── записи эфира + обзор батлов ───────────────────────────
+function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
+  const [recs, setRecs] = useState<any[]>([])
+  const [battles, setBattles] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [r, b] = await Promise.all([
+        api.webinar.recordings(eventId, day),
+        api.webinar.allBattles(eventId).catch(() => ({ battles: [] })),
+      ])
+      setRecs(r.recordings || [])
+      setBattles(b.battles || [])
+    } finally { setLoading(false) }
+  }, [eventId, day])
+
+  useEffect(() => { load() }, [load])
+  if (loading) return <Spinner />
+
+  async function remove(id: number) {
+    if (!confirm('Удалить запись? Файл удалится безвозвратно.')) return
+    await api.webinar.deleteRecording(eventId, day, id)
+    await load()
+  }
+  const fmtSize = (b: number) => b ? (b / 1048576).toFixed(0) + ' МБ' : '—'
+  const fmtDur = (s: number) => s ? Math.floor(s / 60) + ' мин' : '—'
+  const fmtDt = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '…'
+
+  return (
+    <div className="space-y-6">
+      {/* Записи */}
+      <div>
+        <h4 className="font-semibold mb-2">🎬 Записи эфира</h4>
+        {!recs.length ? (
+          <p className="text-sm text-gray-500">Записей пока нет. Они появляются после завершения эфира.</p>
+        ) : (
+          <div className="space-y-2">
+            {recs.map(r => (
+              <div key={r.id} className="flex items-center justify-between gap-3 border rounded-xl p-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{fmtDt(r.started_at)} – {fmtDt(r.ended_at)}</div>
+                  <div className="text-xs text-gray-500">
+                    {r.status === 'ready' ? `${fmtDur(r.duration_sec)} · ${fmtSize(r.size_bytes)}`
+                      : r.status === 'processing' ? '⏳ обрабатывается…' : '⚠️ ошибка обработки'}
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  {r.status === 'ready' && r.url && (
+                    <a href={r.url} download className="btn-gold text-sm">Скачать</a>
+                  )}
+                  <button onClick={() => remove(r.id)} className="px-3 py-1.5 rounded-lg border text-sm text-gray-500 hover:text-red-500">Удалить</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Обзор батлов события */}
+      {battles.length > 0 && (
+        <div>
+          <h4 className="font-semibold mb-2">⚔️ Батлы события</h4>
+          <div className="space-y-3">
+            {battles.map((b: any) => (
+              <div key={b.id} className="border rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-medium">{b.title || 'Батл'} <span className="text-gray-400">· День {b.day_number}</span></div>
+                  <span className="text-xs text-gray-400">{b.status === 'ended' ? 'завершён' : b.status === 'live' ? 'идёт' : 'черновик'}</span>
+                </div>
+                <div className="space-y-1">
+                  {b.players.map((p: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span>{i + 1}. {p.name || `#${p.speaker_id}`}</span>
+                      <span className="tabular-nums">🔥 {p.up_count} · 👎 {p.down_count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
