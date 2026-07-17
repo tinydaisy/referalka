@@ -57,6 +57,7 @@ class RoomUpsert(BaseModel):
     reaction_down_label: Optional[str] = None
     show_down_reaction: Optional[bool] = None
     intro_text: Optional[str] = None
+    buttons_per_row: Optional[int] = None      # сколько кнопок-офферов в ряд (1=столбик)
 
 
 class BlockIn(BaseModel):
@@ -140,6 +141,7 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "reaction_down_label": r.get("reaction_down_label"),
         "show_down_reaction": r.get("show_down_reaction"),
         "intro_text": r.get("intro_text"),
+        "buttons_per_row": r.get("buttons_per_row") or 1,
     }
 
 

@@ -152,6 +152,7 @@ async def room_view(slug: str, day: int):
                 "reaction_down_label": room.get("reaction_down_label"),
                 "show_down_reaction": room.get("show_down_reaction"),
                 "intro_text": room.get("intro_text"),
+                "buttons_per_row": room.get("buttons_per_row") or 1,
             },
             "blocks": [dict(b) for b in blocks],
             "current_speaker": follow,

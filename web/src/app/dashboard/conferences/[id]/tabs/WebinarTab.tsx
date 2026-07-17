@@ -151,6 +151,7 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
     reaction_down_label: r?.reaction_down_label || 'Слабо',
     show_down_reaction: r?.show_down_reaction ?? true,
     intro_text: r?.intro_text || '',
+    buttons_per_row: r?.buttons_per_row || 1,
   })
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState('')
@@ -169,6 +170,7 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
       reaction_down_label: rr?.reaction_down_label || 'Слабо',
       show_down_reaction: rr?.show_down_reaction ?? true,
       intro_text: rr?.intro_text || '',
+      buttons_per_row: rr?.buttons_per_row || 1,
     })
   }, [day.day_number, day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -265,6 +267,18 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
             <input className="input" value={f.reaction_down_label} onChange={e => setF({ ...f, reaction_down_label: e.target.value })} placeholder="Слабо" />
           </div>
         )}
+      </div>
+
+      <div>
+        <label className="label">Продающих кнопок в ряд</label>
+        <select className="input max-w-[200px]" value={f.buttons_per_row}
+          onChange={e => setF({ ...f, buttons_per_row: Number(e.target.value) })}>
+          <option value={1}>1 — столбиком</option>
+          <option value={2}>2 в ряд</option>
+          <option value={3}>3 в ряд</option>
+          <option value={4}>4 в ряд</option>
+        </select>
+        <p className="text-xs text-gray-500 mt-1">Формы заявок всегда идут на всю ширину — раскладка касается только кнопок.</p>
       </div>
 
       <div>
