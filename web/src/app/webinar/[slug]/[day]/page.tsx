@@ -303,7 +303,7 @@ export default function WebinarRoomPage() {
           {/* Батл */}
           {battle && (
             <div className="mt-3 rounded-xl bg-white/5 p-4">
-              <div className="font-semibold mb-3">⚔️ {battle.title || 'Батл'}</div>
+              {battle.title && <div className="font-semibold mb-3">⚔️ {battle.title}</div>}
               <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(battle.players.length, 2)}, 1fr)` }}>
                 {battle.players.map((pl: any) => (
                   <div key={pl.id} className="rounded-lg bg-white/10 p-3 text-center">

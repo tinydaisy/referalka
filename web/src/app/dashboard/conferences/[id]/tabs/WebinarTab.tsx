@@ -706,13 +706,17 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
   async function launchPoll() {
     const opts = pollOpts.map(o => o.trim()).filter(Boolean)
     if (!pollQ.trim() || opts.length < 2) { setMsg('Введите вопрос и минимум 2 варианта'); return }
-    await api.webinar.createPoll(eventId, day.day_number, { question: pollQ, options: opts })
-    setMsg('Опрос запущен ✓'); setPollQ(''); setPollOpts(['', ''])
+    try {
+      await api.webinar.createPoll(eventId, day.day_number, { question: pollQ, options: opts })
+      setMsg('Опрос запущен ✓'); setPollQ(''); setPollOpts(['', ''])
+    } catch (e: any) { setMsg(e?.message || 'Не удалось запустить опрос') }
   }
   async function launchBattle() {
-    if (battleSpeakers.length < 2) { setMsg('Выберите минимум 2 спикеров'); return }
-    await api.webinar.createBattle(eventId, day.day_number, { title: battleTitle, speaker_ids: battleSpeakers })
-    setMsg('Батл запущен ✓'); setBattleTitle(''); setBattleSpeakers([])
+    if (battleSpeakers.length < 1) { setMsg('Выберите хотя бы одного спикера'); return }
+    try {
+      await api.webinar.createBattle(eventId, day.day_number, { title: battleTitle, speaker_ids: battleSpeakers })
+      setMsg('Батл запущен ✓'); setBattleTitle(''); setBattleSpeakers([]); onChanged?.()
+    } catch (e: any) { setMsg(e?.message || 'Не удалось запустить батл') }
   }
 
   return (
@@ -727,7 +731,7 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
         </div>
       )}
 
-      {msg && <div className="text-sm text-green-600">{msg}</div>}
+      {msg && <div className={`text-sm ${/не удалось|минимум|хотя бы/i.test(msg) ? 'text-red-600' : 'text-green-600'}`}>{msg}</div>}
 
       {/* Управление эфиром — главное на пульте */}
       <LiveControl eventId={eventId} day={day} onChanged={onChanged} />
