@@ -157,6 +157,27 @@ export default function WebinarRoomPage() {
     return () => clearInterval(t)
   }, [room?.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fallback к WebSocket: раз в 12 сек перечитываем статус комнаты.
+  // Если WS не долетел (отвалился, спящая вкладка) — всё равно поймаем
+  // старт эфира и завершение с редиректом.
+  useEffect(() => {
+    if (!room?.room) return
+    const t = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}`)
+        if (!res.ok) return
+        const d = await res.json()
+        const st = d.room?.status
+        if (st === 'ended') {
+          if (d.room?.redirect_url) { window.location.href = d.room.redirect_url; return }
+        }
+        // статус изменился (ready→live и т.п.) — обновим страницу
+        if (st !== room.room.status) load()
+      } catch {}
+    }, 12000)
+    return () => clearInterval(t)
+  }, [room?.room?.id, room?.room?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // автоскролл чата
   useEffect(() => { chatBoxRef.current?.scrollTo(0, chatBoxRef.current.scrollHeight) }, [chat])
 
