@@ -398,23 +398,85 @@ async def end_battle(event_id: int, day_number: int, battle_id: int, client=Depe
 
 
 # ─────────────────────────── аналитика ───────────────────────────
+@router.get("/{day_number}/sessions", summary="Список запусков эфира (сессий)")
+async def sessions(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    from app.services.webinar_analytics import list_sessions
+    return await list_sessions(db, rid)
+
+
 @router.get("/{day_number}/analytics", summary="Аналитика присутствия и активности")
 async def analytics(
     event_id: int, day_number: int, step: int = Query(5, ge=1, le=60),
+    session_id: Optional[int] = Query(None),
     client=Depends(get_current_client), db=Depends(get_db),
 ):
     await ws.assert_event_owner(db, event_id, _cid(client))
     rid = await _room_id(db, event_id, day_number)
     from app.services.webinar_analytics import compute_analytics
-    return await compute_analytics(db, rid, step)
+    return await compute_analytics(db, rid, step, session_id=session_id)
 
 
 @router.get("/{day_number}/viewers", summary="Активность по каждому зрителю (геймификация)")
-async def viewers(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+async def viewers(event_id: int, day_number: int, session_id: Optional[int] = Query(None),
+                  client=Depends(get_current_client), db=Depends(get_db)):
     await ws.assert_event_owner(db, event_id, _cid(client))
     rid = await _room_id(db, event_id, day_number)
     from app.services.webinar_analytics import viewer_activity
-    return await viewer_activity(db, rid)
+    return await viewer_activity(db, rid, session_id=session_id)
+
+
+# ─────────────────────────── записи эфира ───────────────────────────
+@router.get("/{day_number}/recordings", summary="Записи эфира комнаты")
+async def recordings(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        "SELECT id, session_id, url, status, duration_sec, size_bytes, started_at, ended_at, created_at "
+        "FROM webinar_recordings WHERE room_id=$1 ORDER BY created_at DESC", rid)
+    return {"recordings": [dict(r) for r in rows]}
+
+
+@router.delete("/{day_number}/recordings/{rec_id}", summary="Удалить запись (файл + БД)")
+async def delete_recording(event_id: int, day_number: int, rec_id: int,
+                           client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rec = await db.fetchrow("SELECT r2_key FROM webinar_recordings WHERE id=$1 AND room_id=$2", rec_id, rid)
+    if not rec:
+        raise HTTPException(404, "Запись не найдена")
+    if rec["r2_key"]:
+        try:
+            from app.services import r2_storage
+            await r2_storage.delete_object(rec["r2_key"])
+        except Exception:
+            pass
+    await db.execute("DELETE FROM webinar_recordings WHERE id=$1", rec_id)
+    return {"ok": True}
+
+
+# ─────────────────────────── обзор батлов события ───────────────────────────
+@router.get("/battles/all", summary="Все батлы события по дням (обзор результатов)")
+async def all_battles(event_id: int, client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rows = await db.fetch(
+        """
+        SELECT b.id, b.title, b.status, b.created_at, b.reaction_up_label, b.reaction_down_label,
+               wr.day_number, wr.title AS room_title
+          FROM webinar_battles b
+          JOIN webinar_rooms wr ON wr.id = b.room_id
+         WHERE wr.event_id = $1
+         ORDER BY wr.day_number, b.created_at DESC
+        """, event_id,
+    )
+    out = []
+    for b in rows:
+        players = await db.fetch(
+            "SELECT name, speaker_id, up_count, down_count FROM webinar_battle_players "
+            "WHERE battle_id=$1 ORDER BY up_count DESC, sort_order", b["id"])
+        out.append({**dict(b), "players": [dict(p) for p in players]})
+    return {"battles": out}
 
 
 @router.post("/{day_number}/segment", summary="Срез: онлайн в интервале → тег контактам")
@@ -495,12 +557,15 @@ async def go_live(event_id: int, day_number: int, client=Depends(get_current_cli
     room = await ws.get_room_or_404(db, event_id, day_number)
     if not room.get("stream_active"):
         raise HTTPException(400, "Поток не идёт — сначала запустите трансляцию в Zoom/OBS")
+    # Новая эфирная сессия (запуск) — presence/activity будут писаться в неё.
+    sess_id = await db.fetchval(
+        "INSERT INTO webinar_sessions (room_id, started_at) VALUES ($1, NOW()) RETURNING id", room["id"])
     await db.execute(
         "UPDATE webinar_rooms SET status='live', started_at=COALESCE(started_at, NOW()), "
-        "ended_at=NULL WHERE id=$1", room["id"])
+        "ended_at=NULL, current_session_id=$2 WHERE id=$1", room["id"], sess_id)
     from app.services.webinar_hub import publish
     await publish(room["id"], {"type": "stream_live"})   # зрителям — показать плеер
-    return {"ok": True, "status": "live"}
+    return {"ok": True, "status": "live", "session_id": sess_id}
 
 
 @router.post("/{day_number}/end-live", summary="Завершить эфир — редирект зрителей")
@@ -509,7 +574,21 @@ async def end_live(event_id: int, day_number: int, client=Depends(get_current_cl
     await ws.assert_event_owner(db, event_id, cid)
     await _assert_webinar_feature(db, cid, need_room=True)
     room = await ws.get_room_or_404(db, event_id, day_number)
-    await db.execute("UPDATE webinar_rooms SET status='ended', ended_at=NOW() WHERE id=$1", room["id"])
+    sess_id = room.get("current_session_id")   # сохранить ДО обнуления
+    # Закрываем текущую сессию запуска.
+    if sess_id:
+        await db.execute(
+            "UPDATE webinar_sessions SET ended_at=NOW() WHERE id=$1 AND ended_at IS NULL", sess_id)
+    await db.execute(
+        "UPDATE webinar_rooms SET status='ended', ended_at=NOW(), current_session_id=NULL WHERE id=$1",
+        room["id"])
+    # Заливка записи эфира в R2 (фоново, чтобы не держать ответ).
+    if sess_id:
+        try:
+            from app.tasks.webinar_recording import upload_session_recording
+            upload_session_recording.delay(sess_id)
+        except Exception:
+            pass  # запись не критична для завершения эфира
     from app.services.webinar_hub import publish
     await publish(room["id"], {"type": "stream_ended", "redirect_url": room.get("redirect_url")})
     return {"ok": True, "status": "ended"}

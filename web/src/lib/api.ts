@@ -1120,10 +1120,18 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/battle`, { method: 'POST', body: JSON.stringify(data) }),
     endBattle: (eventId: number, day: number, battleId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/battle/${battleId}/end`, { method: 'POST' }),
-    // аналитика
-    analytics: (eventId: number, day: number, step = 5) =>
-      request(`/api/v1/events/${eventId}/webinar/${day}/analytics?step=${step}`),
-    viewers: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/viewers`),
+    // аналитика (session_id — по конкретному запуску эфира)
+    sessions: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/sessions`),
+    analytics: (eventId: number, day: number, step = 5, sessionId?: number | null) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/analytics?step=${step}${sessionId ? `&session_id=${sessionId}` : ''}`),
+    viewers: (eventId: number, day: number, sessionId?: number | null) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/viewers${sessionId ? `?session_id=${sessionId}` : ''}`),
+    // записи эфира
+    recordings: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/recordings`),
+    deleteRecording: (eventId: number, day: number, recId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}`, { method: 'DELETE' }),
+    // обзор батлов события
+    allBattles: (eventId: number) => request(`/api/v1/events/${eventId}/webinar/battles/all`),
     segment: (eventId: number, day: number, from: string, to: string, tag?: string) => {
       const qs = new URLSearchParams({ from, to })
       if (tag) qs.set('tag', tag)

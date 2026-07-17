@@ -5,80 +5,145 @@ import { Spinner } from '@/components/Spinner'
 
 const STEPS = [5, 10, 20, 40, 60]
 
+// линии графика: ключ в series → подпись + цвет + видимость по умолчанию
+const LINES = [
+  { key: 'uniq',       label: 'Уникальные',    color: '#3a78c9', on: true },
+  { key: 'active',     label: 'Активные',      color: '#e07a5f', on: true },
+  { key: 'engaged',    label: 'Вовлечённые',   color: '#5aa469', on: true },
+  { key: 'new',        label: 'Новые',         color: '#5bc0de', on: false },
+  { key: 'authorized', label: 'Авторизованные', color: '#b06ac9', on: false },
+]
+
 export default function WebinarAnalytics({ eventId, day }: { eventId: number; day: number }) {
   const [step, setStep] = useState(5)
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [viewers, setViewers] = useState<any[]>([])
   const [showViewers, setShowViewers] = useState(false)
+  const [sessions, setSessions] = useState<any[]>([])
+  const [sessionId, setSessionId] = useState<number | null>(null)
+  const [visible, setVisible] = useState<Record<string, boolean>>(
+    Object.fromEntries(LINES.map(l => [l.key, l.on])))
+  const [hover, setHover] = useState<{ x: number; i: number } | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  // список запусков
+  useEffect(() => {
+    api.webinar.sessions(eventId, day).then(r => setSessions(r.sessions || [])).catch(() => {})
+  }, [eventId, day])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.webinar.analytics(eventId, day, step)
+      const res = await api.webinar.analytics(eventId, day, step, sessionId)
       setData(res)
     } finally { setLoading(false) }
-  }, [eventId, day, step])
+  }, [eventId, day, step, sessionId])
 
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    if (showViewers && !viewers.length) {
-      api.webinar.viewers(eventId, day).then(r => setViewers(r.viewers || [])).catch(() => {})
-    }
-  }, [showViewers, viewers.length, eventId, day])
+    setViewers([])
+    if (showViewers) api.webinar.viewers(eventId, day, sessionId).then(r => setViewers(r.viewers || [])).catch(() => {})
+  }, [showViewers, eventId, day, sessionId])
 
-  // рисуем график присутствия
+  // геометрия графика (общая для рисования и hover)
+  const geom = useCallback(() => {
+    const c = canvasRef.current
+    const presence = data?.presence || []
+    const W = c?.width || 860, H = c?.height || 300
+    const padL = 40, padR = 12, padT = 14, padB = 34
+    const plotW = W - padL - padR, plotH = H - padT - padB
+    const n = presence.length
+    let maxV = 1
+    for (const p of presence) for (const l of LINES) if (visible[l.key]) maxV = Math.max(maxV, p[l.key] || 0)
+    const x = (i: number) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW)
+    const y = (v: number) => padT + plotH - (v / maxV) * plotH
+    return { W, H, padL, padR, padT, padB, plotW, plotH, n, maxV, x, y, presence }
+  }, [data, visible])
+
   useEffect(() => {
     const c = canvasRef.current
     if (!c || !data) return
-    const ctx = c.getContext('2d')
-    if (!ctx) return
-    const presence = data.presence || []
-    const activity = data.activity || {}
-    const W = c.width, H = c.height, padL = 8, padR = 8, padT = 14, padB = 26
-    const plotW = W - padL - padR, plotH = H - padT - padB
-    const n = presence.length
-    const maxV = Math.max(1, ...presence.map((p: any) => p.uniq))
-    const x = (i: number) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW)
-    const y = (v: number) => padT + plotH - (v / maxV) * plotH
+    const ctx = c.getContext('2d')!
+    const g = geom()
+    ctx.clearRect(0, 0, g.W, g.H)
 
-    ctx.clearRect(0, 0, W, H)
-    // сетка
-    ctx.strokeStyle = '#eceff3'; ctx.lineWidth = 1
-    for (let g = 0; g <= 4; g++) {
-      const yy = padT + (g / 4) * plotH
-      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(W - padR, yy); ctx.stroke()
+    // горизонтальная сетка + подписи Y
+    ctx.strokeStyle = '#eceff3'; ctx.fillStyle = '#9aa5b1'; ctx.font = '10px Roboto, sans-serif'; ctx.lineWidth = 1
+    for (let k = 0; k <= 4; k++) {
+      const yy = g.padT + (k / 4) * g.plotH
+      ctx.beginPath(); ctx.moveTo(g.padL, yy); ctx.lineTo(g.W - g.padR, yy); ctx.stroke()
+      ctx.fillText(String(Math.round(g.maxV * (1 - k / 4))), 6, yy + 3)
     }
-    if (n) {
-      // area
+    // ось X — метки времени
+    ctx.fillStyle = '#9aa5b1'; ctx.textAlign = 'center'
+    const labelEvery = Math.max(1, Math.ceil(g.n / 8))
+    g.presence.forEach((p: any, i: number) => {
+      if (i % labelEvery !== 0) return
+      const t = new Date(p.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+      ctx.fillText(t, g.x(i), g.H - 8)
+    })
+    ctx.textAlign = 'left'
+
+    // линии
+    for (const l of LINES) {
+      if (!visible[l.key]) continue
       ctx.beginPath()
-      presence.forEach((p: any, i: number) => i ? ctx.lineTo(x(i), y(p.uniq)) : ctx.moveTo(x(i), y(p.uniq)))
-      ctx.lineTo(x(n - 1), padT + plotH); ctx.lineTo(x(0), padT + plotH); ctx.closePath()
-      const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH)
-      grad.addColorStop(0, 'rgba(37,69,93,.22)'); grad.addColorStop(1, 'rgba(37,69,93,0)')
-      ctx.fillStyle = grad; ctx.fill()
-      // line
-      ctx.beginPath()
-      presence.forEach((p: any, i: number) => i ? ctx.lineTo(x(i), y(p.uniq)) : ctx.moveTo(x(i), y(p.uniq)))
-      ctx.strokeStyle = '#25455D'; ctx.lineWidth = 2.4; ctx.lineJoin = 'round'; ctx.stroke()
-      // точки активности (клики=золото, оплаты=красный)
-      presence.forEach((p: any, i: number) => {
-        const a = activity[p.at] || {}
-        if (a.click) { ctx.beginPath(); ctx.arc(x(i), y(p.uniq), 3.5, 0, 7); ctx.fillStyle = '#d98a3d'; ctx.fill() }
-        if (a.payment || a.order) { ctx.beginPath(); ctx.arc(x(i), y(p.uniq) - 7, 3.5, 0, 7); ctx.fillStyle = '#c0392b'; ctx.fill() }
+      g.presence.forEach((p: any, i: number) => {
+        const yy = g.y(p[l.key] || 0)
+        i ? ctx.lineTo(g.x(i), yy) : ctx.moveTo(g.x(i), yy)
       })
+      ctx.strokeStyle = l.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke()
     }
-  }, [data])
+
+    // вертикальная линия под курсором + точки
+    if (hover && g.presence[hover.i]) {
+      const hx = g.x(hover.i)
+      ctx.strokeStyle = 'rgba(120,120,120,.4)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(hx, g.padT); ctx.lineTo(hx, g.padT + g.plotH); ctx.stroke()
+      ctx.setLineDash([])
+      for (const l of LINES) {
+        if (!visible[l.key]) continue
+        const v = g.presence[hover.i][l.key] || 0
+        ctx.beginPath(); ctx.arc(hx, g.y(v), 3.5, 0, 7); ctx.fillStyle = l.color; ctx.fill()
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke()
+      }
+    }
+  }, [data, visible, hover, geom])
+
+  function onMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    const c = canvasRef.current!
+    const rect = c.getBoundingClientRect()
+    const px = (e.clientX - rect.left) * (c.width / rect.width)
+    const g = geom()
+    if (g.n === 0) return
+    let best = 0, bd = Infinity
+    for (let i = 0; i < g.n; i++) { const d = Math.abs(g.x(i) - px); if (d < bd) { bd = d; best = i } }
+    setHover({ x: px, i: best })
+  }
 
   if (loading && !data) return <div className="py-12 flex justify-center"><Spinner /></div>
   if (!data) return null
-
   const m = data.metrics || {}
+  const hp = hover && data.presence?.[hover.i]
 
   return (
     <div>
+      {/* селектор запуска */}
+      {sessions.length > 0 && (
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-gray-600">Запуск эфира:</span>
+          <select className="input max-w-md" value={sessionId ?? ''} onChange={e => setSessionId(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">Все запуски (весь день)</option>
+            {sessions.map((s: any) => {
+              const t = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '…'
+              return <option key={s.id} value={s.id}>{t(s.started_at)} – {t(s.ended_at)} · {s.unique_viewers} зрит.</option>
+            })}
+          </select>
+        </div>
+      )}
+
       {/* метрики */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <Tile label="Всего уникальных" value={m.total_unique} />
@@ -87,26 +152,42 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
         <Tile label="Кликов" value={m.clicks} sub={`заказы ${m.orders} · оплаты ${m.payments}`} />
       </div>
 
-      {/* переключатель шага */}
-      <div className="flex items-center gap-2 mb-3">
+      {/* шаг + вовлечённость */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className="text-xs text-gray-500">Шаг:</span>
         {STEPS.map(s => (
-          <button key={s} onClick={() => setStep(s)}
-            className={`text-sm px-2.5 py-1 rounded-lg ${step === s ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}>
-            {s} мин
-          </button>
+          <button key={s} onClick={() => setStep(s)} className={`text-sm px-2.5 py-1 rounded-lg ${step === s ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}>{s} мин</button>
         ))}
         <span className="ml-auto text-xs text-gray-500">Вовлечённость: <b>{m.engagement_pct}%</b></span>
       </div>
 
+      {/* чекбоксы линий */}
+      <div className="flex flex-wrap gap-3 mb-2">
+        {LINES.map(l => (
+          <label key={l.key} className="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="checkbox" checked={visible[l.key]} onChange={e => setVisible({ ...visible, [l.key]: e.target.checked })} />
+            <i className="w-3 h-3 rounded-sm inline-block" style={{ background: l.color }} />
+            {l.label}
+          </label>
+        ))}
+      </div>
+
       {/* график */}
-      <div className="border rounded-xl p-3 bg-white overflow-x-auto">
-        <canvas ref={canvasRef} width={860} height={260} style={{ width: '100%', height: 'auto', display: 'block' }} />
-        <div className="flex flex-wrap gap-4 mt-2 text-xs text-gray-500">
-          <span className="flex items-center gap-1.5"><i className="w-3 h-3 rounded-sm inline-block" style={{ background: '#25455D' }} /> Уникальные онлайн</span>
-          <span className="flex items-center gap-1.5"><i className="w-3 h-3 rounded-sm inline-block" style={{ background: '#d98a3d' }} /> Клики</span>
-          <span className="flex items-center gap-1.5"><i className="w-3 h-3 rounded-sm inline-block" style={{ background: '#c0392b' }} /> Оплаты/заказы</span>
-        </div>
+      <div className="border rounded-xl p-3 bg-white relative overflow-x-auto">
+        <canvas ref={canvasRef} width={860} height={300} style={{ width: '100%', height: 'auto', display: 'block' }}
+          onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+        {hp && (
+          <div className="absolute bg-[#0a1520] text-white text-xs rounded-lg px-3 py-2 pointer-events-none shadow-lg"
+            style={{ left: Math.min(Math.max(hover!.x / (canvasRef.current!.width) * 100, 5), 80) + '%', top: 8 }}>
+            <div className="font-semibold mb-1">{new Date(hp.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })} МСК</div>
+            {LINES.filter(l => visible[l.key]).map(l => (
+              <div key={l.key} className="flex items-center gap-1.5">
+                <i className="w-2 h-2 rounded-sm inline-block" style={{ background: l.color }} />
+                {l.label}: <b>{hp[l.key] || 0}</b>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* активность зрителей */}
@@ -114,34 +195,29 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
         {showViewers ? '▾' : '▸'} Активность по зрителям (для игровых механик)
       </button>
       {showViewers && (
-        <div className="mt-3 border rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs">
-                <tr>
-                  <th className="text-left px-3 py-2">Зритель</th>
-                  <th className="px-3 py-2">Сообщения</th>
-                  <th className="px-3 py-2">Реакции</th>
-                  <th className="px-3 py-2">Клики</th>
-                  <th className="px-3 py-2">Опросы</th>
-                  <th className="px-3 py-2">Всего</th>
+        <div className="mt-3 border rounded-xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs">
+              <tr>
+                <th className="text-left px-3 py-2">Зритель</th>
+                <th className="px-3 py-2">Сообщения</th><th className="px-3 py-2">Реакции</th>
+                <th className="px-3 py-2">Клики</th><th className="px-3 py-2">Опросы</th><th className="px-3 py-2">Всего</th>
+              </tr>
+            </thead>
+            <tbody>
+              {viewers.map((v: any) => (
+                <tr key={v.contact_id} className="border-t">
+                  <td className="px-3 py-2">{v.name || `#${v.contact_id}`}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{v.messages}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{v.reactions}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{v.clicks}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{v.poll_votes}</td>
+                  <td className="px-3 py-2 text-center font-semibold tabular-nums">{v.total}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {viewers.map((v: any) => (
-                  <tr key={v.contact_id} className="border-t">
-                    <td className="px-3 py-2">{v.name || `#${v.contact_id}`}</td>
-                    <td className="px-3 py-2 text-center tabular-nums">{v.messages}</td>
-                    <td className="px-3 py-2 text-center tabular-nums">{v.reactions}</td>
-                    <td className="px-3 py-2 text-center tabular-nums">{v.clicks}</td>
-                    <td className="px-3 py-2 text-center tabular-nums">{v.poll_votes}</td>
-                    <td className="px-3 py-2 text-center font-semibold tabular-nums">{v.total}</td>
-                  </tr>
-                ))}
-                {!viewers.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">Пока нет активности.</td></tr>}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {!viewers.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">Пока нет активности.</td></tr>}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

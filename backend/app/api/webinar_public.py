@@ -190,9 +190,9 @@ async def heartbeat(slug: str, day: int, body: Heartbeat):
         rid = room["id"]
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         await conn.execute(
-            "INSERT INTO webinar_presence (room_id, contact_id, session_key, bucket_at, device) "
-            "VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-            rid, body.contact_id, body.session_key, now, body.device,
+            "INSERT INTO webinar_presence (room_id, contact_id, session_key, bucket_at, device, session_id) "
+            "VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
+            rid, body.contact_id, body.session_key, now, body.device, room.get("current_session_id"),
         )
         online = await _online_now(conn, rid)
     # живой счётчик всем в комнате (если не скрыт)
@@ -230,8 +230,8 @@ async def chat_send(slug: str, day: int, body: ChatIn):
         )
         # активность по зрителю
         await conn.execute(
-            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind) VALUES ($1,$2,$3,'chat_msg')",
-            rid, body.contact_id, body.session_key,
+            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, session_id) VALUES ($1,$2,$3,'chat_msg',$4)",
+            rid, body.contact_id, body.session_key, room.get("current_session_id"),
         )
     msg = {
         "type": "chat", "id": row["id"], "text": text, "author_name": body.author_name,
@@ -281,9 +281,9 @@ async def react(slug: str, day: int, body: ReactIn):
             rid, body.speaker_id, body.reaction,
         )
         await conn.execute(
-            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, value) "
-            "VALUES ($1,$2,$3,'reaction','speaker',$4,$5)",
-            rid, body.contact_id, body.session_key, body.speaker_id, body.reaction,
+            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, value, session_id) "
+            "VALUES ($1,$2,$3,'reaction','speaker',$4,$5,$6)",
+            rid, body.contact_id, body.session_key, body.speaker_id, body.reaction, room.get("current_session_id"),
         )
     await hub.publish(rid, {"type": "reaction", "speaker_id": body.speaker_id, "reaction": body.reaction, "count": cnt})
     return {"ok": True, "count": cnt}
@@ -322,9 +322,9 @@ async def battle_vote(slug: str, day: int, battle_id: int, body: BattleVoteIn):
         down = await conn.fetchval("SELECT COUNT(*) FROM webinar_battle_votes WHERE player_id=$1 AND reaction_key='down'", body.player_id)
         await conn.execute("UPDATE webinar_battle_players SET up_count=$1, down_count=$2 WHERE id=$3", up, down, body.player_id)
         await conn.execute(
-            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, value) "
-            "VALUES ($1,$2,$3,'reaction','battle_player',$4,$5)",
-            rid, body.contact_id, body.session_key, body.player_id, body.reaction,
+            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, value, session_id) "
+            "VALUES ($1,$2,$3,'reaction','battle_player',$4,$5,$6)",
+            rid, body.contact_id, body.session_key, body.player_id, body.reaction, room.get("current_session_id"),
         )
     await hub.publish(rid, {"type": "battle_vote", "player_id": body.player_id, "up": up, "down": down})
     return {"ok": True, "up": up, "down": down}
@@ -355,9 +355,9 @@ async def poll_vote(slug: str, day: int, poll_id: int, body: PollVoteIn):
         if inserted:
             await conn.execute("UPDATE webinar_poll_options SET votes=votes+1 WHERE id=$1", body.option_id)
             await conn.execute(
-                "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id) "
-                "VALUES ($1,$2,$3,'poll_vote','poll_option',$4)",
-                rid, body.contact_id, body.session_key, body.option_id,
+                "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, session_id) "
+                "VALUES ($1,$2,$3,'poll_vote','poll_option',$4,$5)",
+                rid, body.contact_id, body.session_key, body.option_id, room.get("current_session_id"),
             )
         opts = await conn.fetch("SELECT id, text, votes FROM webinar_poll_options WHERE poll_id=$1 ORDER BY sort_order", poll_id)
     await hub.publish(rid, {"type": "poll_update", "poll_id": poll_id, "options": [dict(o) for o in opts]})
@@ -380,9 +380,9 @@ async def track(slug: str, day: int, body: TrackIn):
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         await conn.execute(
-            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id) "
-            "VALUES ($1,$2,$3,$4,'block',$5)",
-            room["id"], body.contact_id, body.session_key, body.kind, body.block_id,
+            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, session_id) "
+            "VALUES ($1,$2,$3,$4,'block',$5,$6)",
+            room["id"], body.contact_id, body.session_key, body.kind, body.block_id, room.get("current_session_id"),
         )
     return {"ok": True}
 
@@ -427,9 +427,9 @@ async def form_submit(slug: str, day: int, block_id: int, body: FormIn):
             await ws.tag_contact(conn, client_id, contact_id, block["form_tag"])
 
         await conn.execute(
-            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id) "
-            "VALUES ($1,$2,$3,'form_submit','block',$4)",
-            rid, contact_id, body.session_key, block_id,
+            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, session_id) "
+            "VALUES ($1,$2,$3,'form_submit','block',$4,$5)",
+            rid, contact_id, body.session_key, block_id, room.get("current_session_id"),
         )
     return {"ok": True, "contact_id": contact_id}
 
