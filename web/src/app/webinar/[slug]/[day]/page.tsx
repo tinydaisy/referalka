@@ -29,7 +29,9 @@ export default function WebinarRoomPage() {
   const contactId = search.get('c') ? Number(search.get('c')) : null
   // Известного человека считаем по contact_id (10 вкладок = 1 зритель).
   // session_key нужен только анонимам — если contactId есть, его не шлём вовсе.
-  const sessionKey = contactId ? null : getSessionKey()
+  // Ленивый useState → ключ вычисляется РОВНО ОДИН раз за жизнь компонента
+  // (без повторной генерации при ре-рендерах/гидратации).
+  const [sessionKey] = useState<string | null>(() => (contactId ? null : getSessionKey()))
 
   const [room, setRoom] = useState<any>(null)
   const [error, setError] = useState('')

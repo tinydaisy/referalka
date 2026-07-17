@@ -623,9 +623,10 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
 
 // Показ продающих блоков ВЖИВУЮ. Тайминг «с минуты N» ненадёжен — спикеры
 // подключаются по программе, эфир плывёт. Менеджер сам решает, когда показать.
-function BlocksLive({ eventId, day }: { eventId: number; day: DayItem }) {
+function BlocksLive({ eventId, day, onSettingsChanged }: { eventId: number; day: DayItem; onSettingsChanged?: () => void }) {
   const [blocks, setBlocks] = useState<any[]>([])
   const [busy, setBusy] = useState<number | null>(null)
+  const [perRow, setPerRow] = useState<number>(day.room?.buttons_per_row || 1)
 
   const load = useCallback(async () => {
     if (!day.room) return
@@ -636,6 +637,7 @@ function BlocksLive({ eventId, day }: { eventId: number; day: DayItem }) {
   }, [eventId, day.day_number, day.room])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPerRow(day.room?.buttons_per_row || 1) }, [day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function toggle(b: any) {
     setBusy(b.id)
@@ -645,43 +647,72 @@ function BlocksLive({ eventId, day }: { eventId: number; day: DayItem }) {
     } finally { setBusy(null) }
   }
 
-  const KIND: Record<string, string> = {
-    button: '🔘', form: '📝', speaker_follow: '➕', gift: '🎁',
+  // порядок: переставить в общем списке + перенумеровать sort_order 0..N
+  async function move(idx: number, dir: -1 | 1) {
+    const j = idx + dir
+    if (j < 0 || j >= blocks.length) return
+    const arr = [...blocks]
+    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
+    setBlocks(arr)
+    await Promise.all(arr.map((b, i) => api.webinar.updateBlock(eventId, day.day_number, b.id, { sort_order: i })))
+    await load()
   }
 
-  if (!blocks.length) {
-    return (
-      <div className="border rounded-xl p-4">
-        <h4 className="font-semibold mb-1">🛒 Показ блоков в эфире</h4>
-        <p className="text-sm text-gray-500">Блоков нет. Создайте их во вкладке «Продающие блоки».</p>
-      </div>
-    )
+  // сетка: сохраняем buttons_per_row на комнату дня
+  async function saveGrid(n: number) {
+    setPerRow(n)
+    await api.webinar.upsertRoom(eventId, day.day_number, { buttons_per_row: n })
+    onSettingsChanged?.()
+  }
+
+  const KIND: Record<string, string> = {
+    button: '🔘', form: '📝', speaker_follow: '➕', gift: '🎁',
   }
 
   return (
     <div className="border rounded-xl p-4">
       <h4 className="font-semibold mb-1">🛒 Показ блоков в эфире</h4>
       <p className="text-xs text-gray-500 mb-3">
-        Нажмите «Показать» — блок сразу появится у зрителей. Нажмите ещё раз, чтобы убрать.
+        «Показать» — блок сразу появится у зрителей. Стрелками задайте порядок, ниже — сколько кнопок в ряд.
       </p>
-      <div className="space-y-2">
-        {blocks.map(b => (
-          <div key={b.id} className={`flex items-center justify-between gap-3 border rounded-lg p-2.5 ${b.is_pinned ? 'border-green-400 bg-green-50/50' : ''}`}>
-            <div className="min-w-0 flex items-center gap-2">
-              <span>{KIND[b.kind] || '•'}</span>
-              <span className="truncate text-sm font-medium">{b.title || '(без названия)'}</span>
-              {b.is_pinned && <span className="text-xs text-green-600 font-semibold shrink-0">в эфире</span>}
-            </div>
-            <button
-              onClick={() => toggle(b)} disabled={busy === b.id}
-              className={`shrink-0 px-3 py-1.5 rounded-lg text-sm font-semibold ${
-                b.is_pinned ? 'bg-gray-200 text-gray-700' : 'btn-gold'}`}
-            >
-              {busy === b.id ? '…' : b.is_pinned ? 'Скрыть' : 'Показать'}
-            </button>
+
+      {!blocks.length ? (
+        <p className="text-sm text-gray-500">Блоков нет. Создайте их во вкладке «Продающие блоки».</p>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {blocks.map((b, idx) => (
+              <div key={b.id} className={`flex items-center justify-between gap-3 border rounded-lg p-2.5 ${b.is_pinned ? 'border-green-400 bg-green-50/50' : ''}`}>
+                <div className="flex flex-col shrink-0">
+                  <button onClick={() => move(idx, -1)} className="text-gray-400 hover:text-gray-700 leading-none text-xs">▲</button>
+                  <button onClick={() => move(idx, 1)} className="text-gray-400 hover:text-gray-700 leading-none text-xs">▼</button>
+                </div>
+                <div className="min-w-0 flex items-center gap-2 flex-1">
+                  <span>{KIND[b.kind] || '•'}</span>
+                  <span className="truncate text-sm font-medium">{b.title || '(без названия)'}</span>
+                  {b.is_pinned && <span className="text-xs text-green-600 font-semibold shrink-0">в эфире</span>}
+                </div>
+                <button
+                  onClick={() => toggle(b)} disabled={busy === b.id}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg text-sm font-semibold ${b.is_pinned ? 'bg-gray-200 text-gray-700' : 'btn-gold'}`}
+                >
+                  {busy === b.id ? '…' : b.is_pinned ? 'Скрыть' : 'Показать'}
+                </button>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+
+          <div className="mt-4 flex items-center gap-2">
+            <span className="text-sm text-gray-600">Кнопок в ряд:</span>
+            {[1, 2, 3, 4].map(n => (
+              <button key={n} onClick={() => saveGrid(n)}
+                className={`w-9 h-9 rounded-lg text-sm font-semibold border ${perRow === n ? 'bg-brand text-white border-brand' : 'border-gray-300 text-gray-600'}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -733,8 +764,8 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
       {/* Управление эфиром — главное на пульте */}
       <LiveControl eventId={eventId} day={day} onChanged={onChanged} />
 
-      {/* Показ блоков вживую — менеджер решает, когда что показать */}
-      <BlocksLive eventId={eventId} day={day} />
+      {/* Показ блоков вживую + порядок + сетка — менеджер управляет внешним видом */}
+      <BlocksLive eventId={eventId} day={day} onSettingsChanged={onChanged} />
 
       {/* Опрос */}
       <div className="border rounded-xl p-4">
