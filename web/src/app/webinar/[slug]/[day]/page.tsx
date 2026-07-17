@@ -91,7 +91,7 @@ export default function WebinarRoomPage() {
     } else {
       import('hls.js').then(({ default: Hls }) => {
         if (Hls.isSupported()) {
-          hls = new Hls({ lowLatencyMode: true })
+          hls = new Hls()
           hls.loadSource(rm.hls_url)
           hls.attachMedia(video)
         }

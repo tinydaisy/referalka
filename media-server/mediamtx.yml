@@ -18,12 +18,15 @@ rtmpAddress: :1935
 rtmpEncryption: "no"
 
 # ── HLS: выход для зрителей (nginx проксирует /hls/ → :8888) ─────────────────
+# ⚠️ lowLatency-режим давал «part duration changed → error in iOS clients» и
+# видео не игралось в Safari/iOS. Обычный mpegts-HLS стабилен: задержка выше
+# (~6-10 сек), но проигрывается везде без ошибок муксера.
 hls: yes
 hlsAddress: 127.0.0.1:8888
 hlsAlwaysRemux: yes
-hlsVariant: lowLatency        # low-latency HLS, задержка ~1-3 сек
+hlsVariant: mpegts            # стабильный HLS (вместо lowLatency)
 hlsSegmentCount: 7
-hlsSegmentDuration: 1s
+hlsSegmentDuration: 2s
 hlsAllowOrigin: "*"
 
 # ── Отключаем то, что не нужно ───────────────────────────────────────────────
