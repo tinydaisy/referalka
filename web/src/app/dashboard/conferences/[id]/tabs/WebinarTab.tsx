@@ -357,6 +357,22 @@ function BlocksEditor({ eventId, day, event }: { eventId: number; day: DayItem; 
     await load()
   }
 
+  // Порядок блоков: меняем sort_order местами с соседом того же типа
+  // (кнопки и формы у зрителя идут отдельными группами — переставляем внутри группы).
+  async function move(idx: number, dir: -1 | 1) {
+    const b = blocks[idx]
+    const sameKind = blocks.filter(x => x.kind === b.kind)
+    const pos = sameKind.findIndex(x => x.id === b.id)
+    const swap = sameKind[pos + dir]
+    if (!swap) return
+    const a = b.sort_order ?? idx, c = swap.sort_order ?? (idx + dir)
+    await Promise.all([
+      api.webinar.updateBlock(eventId, day.day_number, b.id, { sort_order: c }),
+      api.webinar.updateBlock(eventId, day.day_number, swap.id, { sort_order: a }),
+    ])
+    await load()
+  }
+
   const KIND_LABEL: Record<string, string> = {
     button: '🔘 Кнопка', form: '📝 Форма заявки', speaker_follow: '➕ Подписка на спикера', gift: '🎁 Подарок спикера',
   }
@@ -370,9 +386,13 @@ function BlocksEditor({ eventId, day, event }: { eventId: number; day: DayItem; 
         </button>
       </div>
       <div className="space-y-2">
-        {blocks.map(b => (
+        {blocks.map((b, idx) => (
           <div key={b.id} className="flex items-center justify-between border rounded-xl p-3">
-            <div className="min-w-0">
+            <div className="flex flex-col mr-2 shrink-0">
+              <button onClick={() => move(idx, -1)} className="text-gray-400 hover:text-gray-700 leading-none text-sm">▲</button>
+              <button onClick={() => move(idx, 1)} className="text-gray-400 hover:text-gray-700 leading-none text-sm">▼</button>
+            </div>
+            <div className="min-w-0 flex-1">
               <div className="text-xs text-gray-400">{KIND_LABEL[b.kind] || b.kind}</div>
               <div className="font-medium truncate">{b.title || '(без названия)'}</div>
               {(b.show_at_min != null || b.hide_at_min != null) && (

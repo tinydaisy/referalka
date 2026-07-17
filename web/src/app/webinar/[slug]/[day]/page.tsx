@@ -6,10 +6,18 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const WS_URL = API_URL.replace(/^http/, 'ws')
 
 // стабильный ключ анонимной сессии зрителя (для presence/реакций без contact_id)
+// Стойкий ключ анонимного зрителя: и localStorage, и cookie (год).
+// Cookie переживает случаи, когда localStorage недоступен/не успел записаться,
+// и общий для всех вкладок домена → новая вкладка = тот же зритель, не новый.
 function getSessionKey(): string {
   if (typeof window === 'undefined') return ''
-  let k = localStorage.getItem('webinar_session_key')
-  if (!k) { k = 'sk_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('webinar_session_key', k) }
+  const readCookie = () => (document.cookie.match(/(?:^|; )wsk=([^;]+)/)?.[1]) || ''
+  let k = localStorage.getItem('webinar_session_key') || readCookie()
+  if (!k) {
+    k = 'sk_' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  }
+  try { localStorage.setItem('webinar_session_key', k) } catch {}
+  document.cookie = `wsk=${k}; path=/; max-age=31536000; samesite=lax`
   return k
 }
 
@@ -19,7 +27,9 @@ export default function WebinarRoomPage() {
   const slug = String(params.slug)
   const day = Number(params.day)
   const contactId = search.get('c') ? Number(search.get('c')) : null
-  const sessionKey = getSessionKey()
+  // Известного человека считаем по contact_id (10 вкладок = 1 зритель).
+  // session_key нужен только анонимам — если contactId есть, его не шлём вовсе.
+  const sessionKey = contactId ? null : getSessionKey()
 
   const [room, setRoom] = useState<any>(null)
   const [error, setError] = useState('')
@@ -222,10 +232,11 @@ export default function WebinarRoomPage() {
             )}
             {ended ? (
               <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white/80">Трансляция завершена</div>
-            ) : !live ? (
+            ) : (!live && rm.intro_text) ? (
+              /* текст до эфира — только если он задан; пусто → показываем чистую афишу */
               <div className="absolute inset-0 flex items-end justify-center pb-6 px-6 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
                 <span className="text-white/90 text-center font-medium drop-shadow">
-                  {rm.intro_text || 'Трансляция скоро начнётся'}
+                  {rm.intro_text}
                 </span>
               </div>
             ) : null}
