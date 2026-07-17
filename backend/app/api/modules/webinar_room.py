@@ -133,6 +133,7 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "hls_url": ws.hls_url(key) if key else None,
         "external_url": r.get("external_url"),
         "status": r.get("status"),
+        "stream_active": r.get("stream_active"),
         "hide_viewer_count": r.get("hide_viewer_count"),
         "chat_enabled": r.get("chat_enabled"),
         "premoderation": r.get("premoderation"),
