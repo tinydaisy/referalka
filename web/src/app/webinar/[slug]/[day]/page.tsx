@@ -25,6 +25,7 @@ export default function WebinarRoomPage() {
   const [error, setError] = useState('')
   const [chat, setChat] = useState<any[]>([])
   const [chatText, setChatText] = useState('')
+  const [online, setOnline] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, { up: number; down: number }>>({})
   const [poll, setPoll] = useState<any>(null)
   const [battle, setBattle] = useState<any>(null)
@@ -47,6 +48,7 @@ export default function WebinarRoomPage() {
       if (!res.ok) { setError('Комната не найдена'); return }
       const d = await res.json()
       setRoom(d)
+      if (typeof d.online === 'number') setOnline(d.online)
       // реакции спикерам
       const rx: Record<string, { up: number; down: number }> = {}
       for (const r of d.speaker_reactions || []) {
@@ -109,6 +111,8 @@ export default function WebinarRoomPage() {
         case 'battle_start': setBattle(msg.battle); break
         case 'battle_vote': setBattle((b: any) => b ? { ...b, players: b.players.map((pl: any) => pl.id === msg.player_id ? { ...pl, up_count: msg.up, down_count: msg.down } : pl) } : b); break
         case 'battle_end': setBattle(null); break
+        // живой счётчик онлайн (обновляется на каждый heartbeat зрителей)
+        case 'online': setOnline(msg.count); break
         // менеджер показал/убрал продающий блок вживую — перечитываем список
         case 'block_pin': load(); break
         // 'ready'/'offline' — спикер настраивается в Zoom, зрителю показывать нечего.
@@ -228,9 +232,6 @@ export default function WebinarRoomPage() {
             {/* плеер только в эфире: до «Начать эфир» hls_url с бэка не приходит */}
             {live && <video ref={videoRef} controls autoPlay playsInline className="w-full h-full" />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
-            {!rm.hide_viewer_count && room.online != null && (
-              <span className="absolute top-3 right-3 bg-black/50 text-xs px-2 py-0.5 rounded">👁 {room.online}</span>
-            )}
           </div>
 
           {/* Сейчас выступает + подписка */}
@@ -348,6 +349,12 @@ export default function WebinarRoomPage() {
             </div>
           ) : (
             <div className="p-3 border-t border-white/10 text-xs text-white/40 text-center">Чат отключён</div>
+          )}
+          {/* счётчик зрителей — внизу чата, а не на видео */}
+          {online != null && (
+            <div className="px-3 py-2 border-t border-white/10 text-xs text-white/50 flex items-center gap-1.5">
+              <span>👁</span> Сейчас смотрят: <b className="text-white/80">{online}</b>
+            </div>
           )}
         </div>
       </div>

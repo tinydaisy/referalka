@@ -159,8 +159,19 @@ async def room_view(slug: str, day: int):
             "poll": poll_out,
             "battle": battle_out,
             "speaker_reactions": [dict(r) for r in rx],
-            "online": hub.online_count(rid) if not room.get("hide_viewer_count") else None,
+            "online": (None if room.get("hide_viewer_count") else await _online_now(conn, rid)),
         }
+
+
+async def _online_now(conn, room_id: int) -> int:
+    """Сколько зрителей онлайн СЕЙЧАС — по heartbeat за последние 2 минуты.
+    Надёжнее числа живых сокетов: переживает переподключения и разные процессы."""
+    n = await conn.fetchval(
+        "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
+        "FROM webinar_presence WHERE room_id=$1 AND bucket_at >= NOW() - INTERVAL '2 minutes'",
+        room_id,
+    )
+    return n or 0
 
 
 # ─────────────────────────── heartbeat присутствия ───────────────────────────
@@ -182,7 +193,11 @@ async def heartbeat(slug: str, day: int, body: Heartbeat):
             "VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
             rid, body.contact_id, body.session_key, now, body.device,
         )
-    return {"ok": True}
+        online = await _online_now(conn, rid)
+    # живой счётчик всем в комнате (если не скрыт)
+    if not room.get("hide_viewer_count"):
+        await hub.publish(rid, {"type": "online", "count": online})
+    return {"ok": True, "online": online}
 
 
 # ─────────────────────────── чат ───────────────────────────
