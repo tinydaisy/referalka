@@ -153,6 +153,12 @@ async def room_view(slug: str, day: int):
                 "show_down_reaction": room.get("show_down_reaction"),
                 "intro_text": room.get("intro_text"),
                 "buttons_per_row": room.get("buttons_per_row") or 1,
+                "auth_mode": room.get("auth_mode") or "auto",
+                "auth_require_name": room.get("auth_require_name"),
+                "auth_require_email": room.get("auth_require_email"),
+                "auth_require_phone": room.get("auth_require_phone"),
+                "auth_require_tg": room.get("auth_require_tg"),
+                "auth_intro_text": room.get("auth_intro_text"),
             },
             "blocks": [dict(b) for b in blocks],
             "current_speaker": follow,
@@ -439,27 +445,60 @@ class RegisterIn(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
+    tg_id: Optional[int] = None            # из Mini App/бота — опознание без формы
+    pid: Optional[str] = None              # реф-код рефовода (как в реф-программе)
+    utm_source: Optional[str] = None
 
 
-@router.post("/{slug}/{day}/register", summary="Регистрация зрителя, которого нет в базе")
+@router.post("/{slug}/{day}/register", summary="Авторизация зрителя (форма перед эфиром)")
 async def register(slug: str, day: int, body: RegisterIn):
+    """Форма авторизации: находит/создаёт контакт по tg_id/email/phone/нику.
+    Учитывает реф-код (pid) и UTM. Помечает контакт «был в эфире».
+    Возвращает contact_id — фронт запоминает его в cookie (без повторного ввода)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
         client_id = ev["client_id"]
-        if not (body.name or body.email or body.phone or body.telegram_username):
-            raise HTTPException(400, "Заполните имя и хотя бы один контакт")
-        contact_id, _ = await find_or_create_contact(
-            conn, client_id=client_id,
-            name=body.name, email=body.email, phone=body.phone,
-            lookup_telegram_username=body.telegram_username,
-        )
+
+        contact_id = None
+        # 1) известный tg_id (Mini App/бот) — опознаём без формы
+        if body.tg_id:
+            from app.services.contact_merge import upsert_contact_with_identity
+            res = await upsert_contact_with_identity(
+                conn, client_id=client_id, platform_slug="telegram",
+                platform_user_id=str(body.tg_id), username=body.telegram_username,
+                first_name=body.name, utm_source=body.utm_source,
+            )
+            contact_id = res[0] if isinstance(res, (tuple, list)) else res
+        # 2) иначе — по данным формы
+        if not contact_id:
+            if not (body.name or body.email or body.phone or body.telegram_username):
+                raise HTTPException(400, "Заполните имя и хотя бы один контакт")
+            contact_id, _ = await find_or_create_contact(
+                conn, client_id=client_id,
+                name=body.name, email=body.email, phone=body.phone,
+                utm_source=body.utm_source,
+                lookup_telegram_username=body.telegram_username,
+            )
         if not contact_id:
             raise HTTPException(400, "Заполните имя и хотя бы один контакт")
+
+        # реф-код рефовода (как в реф-программе события) — привязываем, если ещё не задан
+        if body.pid:
+            try:
+                await conn.execute(
+                    "UPDATE contacts SET first_referrer_contact_id = COALESCE(first_referrer_contact_id, "
+                    "(SELECT id FROM contacts WHERE ref_code=$2 AND client_id=$3 LIMIT 1)) "
+                    "WHERE id=$1 AND id <> (SELECT id FROM contacts WHERE ref_code=$2 AND client_id=$3 LIMIT 1)",
+                    contact_id, body.pid, client_id)
+            except Exception:
+                pass
+
         await conn.execute(
             "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
             rid, contact_id)
+        await conn.execute("UPDATE contacts SET was_in_webinar=TRUE WHERE id=$1", contact_id)
         await ws.tag_contact(conn, client_id, contact_id, f"webinar:{ev['slug']}:{day}")
     return {"ok": True, "contact_id": contact_id}
 

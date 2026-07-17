@@ -21,17 +21,36 @@ function getSessionKey(): string {
   return k
 }
 
+// cookie на год: авторизованный contact_id + запомненные данные формы,
+// чтобы не вводить на каждом эфире (требование: «запоминай куки формы»).
+function saveAuth(contactId: number, form: any) {
+  try {
+    localStorage.setItem('webinar_auth_contact', String(contactId))
+    localStorage.setItem('webinar_auth_form', JSON.stringify(form || {}))
+  } catch {}
+  document.cookie = `wac=${contactId}; path=/; max-age=31536000; samesite=lax`
+}
+function readAuthContact(): number | null {
+  if (typeof window === 'undefined') return null
+  const c = document.cookie.match(/(?:^|; )wac=(\d+)/)?.[1] || localStorage.getItem('webinar_auth_contact')
+  return c ? Number(c) : null
+}
+function readAuthForm(): any {
+  try { return JSON.parse(localStorage.getItem('webinar_auth_form') || '{}') } catch { return {} }
+}
+
 export default function WebinarRoomPage() {
   const params = useParams()
   const search = useSearchParams()
   const slug = String(params.slug)
   const day = Number(params.day)
-  const contactId = search.get('c') ? Number(search.get('c')) : null
-  // Известного человека считаем по contact_id (10 вкладок = 1 зритель).
-  // session_key нужен только анонимам — если contactId есть, его не шлём вовсе.
-  // Ленивый useState → ключ вычисляется РОВНО ОДИН раз за жизнь компонента
-  // (без повторной генерации при ре-рендерах/гидратации).
-  const [sessionKey] = useState<string | null>(() => (contactId ? null : getSessionKey()))
+  // contact_id: из URL (?c=), либо из Mini App (tg_id резолвится бэком), либо из cookie авторизации
+  const urlContact = search.get('c') ? Number(search.get('c')) : null
+  const pid = search.get('pid') || search.get('ref') || undefined
+  const utm = search.get('utm_source') || undefined
+  const [authContact, setAuthContact] = useState<number | null>(() => urlContact || readAuthContact())
+  const contactId = authContact
+  const [sessionKey] = useState<string | null>(() => (urlContact ? null : getSessionKey()))
 
   const [room, setRoom] = useState<any>(null)
   const [error, setError] = useState('')
@@ -189,6 +208,14 @@ export default function WebinarRoomPage() {
   const rm = room.room
   const ended = rm.status === 'ended'
   const live = rm.status === 'live'
+
+  // Форма авторизации перед эфиром (и перед Zoom). auth_mode:
+  //   off    — никогда; auto — только если не опознан; always — всем.
+  const needAuth = rm.auth_mode !== 'off' && !contactId && (rm.auth_mode === 'always' || rm.auth_mode === 'auto')
+  if (needAuth) {
+    return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm}
+      onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid) }} />
+  }
 
   // Профи: внешняя ссылка
   if (rm.stream_type === 'external_link') {
@@ -484,6 +511,60 @@ function RegModal({ slug, day, onClose }: any) {
         )}
       </div>
     </div>
+  )
+}
+
+// Форма авторизации перед эфиром — настраиваемые поля, предзаполнение из cookie.
+function AuthGate({ slug, day, rm, pid, utm, onAuthed }: any) {
+  const [f, setF] = useState<any>(() => ({ name: '', email: '', phone: '', telegram_username: '', ...readAuthForm() }))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function submit() {
+    // проверка обязательных полей
+    if (rm.auth_require_name && !f.name.trim()) return setErr('Укажите имя')
+    if (rm.auth_require_email && !f.email.trim()) return setErr('Укажите email')
+    if (rm.auth_require_phone && !f.phone.trim()) return setErr('Укажите телефон')
+    if (rm.auth_require_tg && !f.telegram_username.trim()) return setErr('Укажите ник в Telegram')
+    if (!f.name && !f.email && !f.phone && !f.telegram_username) return setErr('Заполните хотя бы одно поле')
+    setBusy(true); setErr('')
+    try {
+      const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...f, pid, utm_source: utm }),
+      })
+      const d = await r.json()
+      if (r.ok && d.contact_id) onAuthed(d.contact_id, f)
+      else setErr(d.detail || 'Не удалось войти')
+    } catch { setErr('Ошибка сети') }
+    finally { setBusy(false) }
+  }
+
+  const field = (key: string, ph: string, req: boolean) => (
+    <input value={f[key]} onChange={e => setF({ ...f, [key]: e.target.value })}
+      placeholder={ph + (req ? ' *' : '')}
+      className="w-full bg-white/10 rounded-lg px-3 py-2.5 text-sm outline-none" />
+  )
+
+  return (
+    <Centered>
+      <div className="w-full max-w-sm">
+        {rm.brand?.logo_url && <img src={rm.brand.logo_url} alt="" className="h-9 mx-auto mb-4 object-contain" />}
+        <h2 className="text-lg font-bold text-center mb-1">Вход в эфир</h2>
+        {rm.auth_intro_text && <p className="text-sm text-white/60 text-center mb-4">{rm.auth_intro_text}</p>}
+        <div className="space-y-2 mt-4">
+          {field('name', 'Имя', !!rm.auth_require_name)}
+          {field('phone', 'Телефон', !!rm.auth_require_phone)}
+          {field('email', 'Email', !!rm.auth_require_email)}
+          {field('telegram_username', 'Ник в Telegram', !!rm.auth_require_tg)}
+          {err && <div className="text-sm text-red-300">{err}</div>}
+          <button onClick={submit} disabled={busy}
+            className="w-full py-2.5 rounded-lg font-semibold mt-1" style={{ background: '#FFCFA4', color: '#0a1520' }}>
+            {busy ? '…' : 'Войти в эфир'}
+          </button>
+        </div>
+      </div>
+    </Centered>
   )
 }
 

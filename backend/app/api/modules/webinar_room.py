@@ -58,6 +58,13 @@ class RoomUpsert(BaseModel):
     show_down_reaction: Optional[bool] = None
     intro_text: Optional[str] = None
     buttons_per_row: Optional[int] = None      # сколько кнопок-офферов в ряд (1=столбик)
+    # форма авторизации зрителя
+    auth_mode: Optional[str] = None            # off | auto | always
+    auth_require_name: Optional[bool] = None
+    auth_require_email: Optional[bool] = None
+    auth_require_phone: Optional[bool] = None
+    auth_require_tg: Optional[bool] = None
+    auth_intro_text: Optional[str] = None
 
 
 class BlockIn(BaseModel):
@@ -143,6 +150,12 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "show_down_reaction": r.get("show_down_reaction"),
         "intro_text": r.get("intro_text"),
         "buttons_per_row": r.get("buttons_per_row") or 1,
+        "auth_mode": r.get("auth_mode") or "auto",
+        "auth_require_name": r.get("auth_require_name"),
+        "auth_require_email": r.get("auth_require_email"),
+        "auth_require_phone": r.get("auth_require_phone"),
+        "auth_require_tg": r.get("auth_require_tg"),
+        "auth_intro_text": r.get("auth_intro_text"),
     }
 
 

@@ -159,6 +159,12 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
     show_down_reaction: r?.show_down_reaction ?? true,
     intro_text: r?.intro_text || '',
     buttons_per_row: r?.buttons_per_row || 1,
+    auth_mode: r?.auth_mode || 'auto',
+    auth_require_name: r?.auth_require_name ?? true,
+    auth_require_email: r?.auth_require_email || false,
+    auth_require_phone: r?.auth_require_phone || false,
+    auth_require_tg: r?.auth_require_tg || false,
+    auth_intro_text: r?.auth_intro_text || '',
   })
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState('')
@@ -178,6 +184,12 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
       show_down_reaction: rr?.show_down_reaction ?? true,
       intro_text: rr?.intro_text || '',
       buttons_per_row: rr?.buttons_per_row || 1,
+      auth_mode: rr?.auth_mode || 'auto',
+      auth_require_name: rr?.auth_require_name ?? true,
+      auth_require_email: rr?.auth_require_email || false,
+      auth_require_phone: rr?.auth_require_phone || false,
+      auth_require_tg: rr?.auth_require_tg || false,
+      auth_intro_text: rr?.auth_intro_text || '',
     })
   }, [day.day_number, day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -296,6 +308,35 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
       <div>
         <label className="label">Текст до эфира</label>
         <textarea className="input" rows={2} value={f.intro_text} onChange={e => setF({ ...f, intro_text: e.target.value })} placeholder="Трансляция скоро начнётся…" />
+      </div>
+
+      {/* Форма авторизации зрителя (работает и для нашей комнаты, и для Zoom) */}
+      <div className="rounded-xl border p-4 space-y-3">
+        <div className="font-semibold text-sm">Форма авторизации зрителя</div>
+        <div>
+          <label className="label">Когда показывать форму</label>
+          <select className="input max-w-md" value={f.auth_mode} onChange={e => setF({ ...f, auth_mode: e.target.value })}>
+            <option value="auto">Только незнакомым (кого не опознали по ссылке)</option>
+            <option value="always">Всем — даже опознанным</option>
+            <option value="off">Никому — вход без формы</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">Пришёл из бота/Mini App или по личной ссылке — опознаётся по contact_id/tg_id без формы. Из рассылки в чат — обезличен, попросим заполнить форму.</p>
+        </div>
+        {f.auth_mode !== 'off' && (
+          <>
+            <div className="text-xs text-gray-500">Обязательные поля формы:</div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <Toggle label="Имя" checked={f.auth_require_name} onChange={v => setF({ ...f, auth_require_name: v })} />
+              <Toggle label="Телефон" checked={f.auth_require_phone} onChange={v => setF({ ...f, auth_require_phone: v })} />
+              <Toggle label="Email" checked={f.auth_require_email} onChange={v => setF({ ...f, auth_require_email: v })} />
+              <Toggle label="Ник в Telegram" checked={f.auth_require_tg} onChange={v => setF({ ...f, auth_require_tg: v })} />
+            </div>
+            <div>
+              <label className="label">Текст над формой</label>
+              <input className="input" value={f.auth_intro_text} onChange={e => setF({ ...f, auth_intro_text: e.target.value })} placeholder="Оставьте контакты для входа в эфир" />
+            </div>
+          </>
+        )}
       </div>
 
       <button onClick={save} disabled={saving} className="btn-gold">
