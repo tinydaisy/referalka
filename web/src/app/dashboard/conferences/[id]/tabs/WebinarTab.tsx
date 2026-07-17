@@ -537,12 +537,13 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
     } finally { setBusy(false) }
   }
 
-  const badge = {
+  const badges: Record<string, { t: string; c: string }> = {
     idle:  { t: 'Потока нет — запустите трансляцию в Zoom/OBS', c: 'bg-gray-100 text-gray-600' },
     ready: { t: 'Поток идёт · зрители НЕ видят', c: 'bg-amber-100 text-amber-700' },
     live:  { t: '● В ЭФИРЕ · зрители видят', c: 'bg-red-100 text-red-700' },
     ended: { t: 'Эфир завершён', c: 'bg-gray-100 text-gray-600' },
-  }[status] || { t: status, c: 'bg-gray-100' }
+  }
+  const badge = badges[status] || { t: status, c: 'bg-gray-100' }
 
   return (
     <div className="border rounded-xl p-4">
