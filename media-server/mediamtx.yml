@@ -40,6 +40,18 @@ apiAddress: 127.0.0.1:9997
 # только внутри конкретного path (paths.all_others). Раньше был pathDefaults.
 paths:
   all_others:
+    # ── ЗАПИСЬ ЭФИРА ─────────────────────────────────────────────────────────
+    # Пишем весь поток на диск (fMP4). Файлы: recordings/live/{stream_key}/{дата}.mp4
+    # ⚠️ Пишется ВЕСЬ поток с момента подключения видеокодера — включая настройку
+    # спикера до «Начать эфир». Обрезка по времени эфира (started_at/ended_at) —
+    # на стороне бэкенда при отдаче записи.
+    record: yes
+    recordPath: /var/www/plusson/media-server/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 1h        # один файл на час эфира
+    recordDeleteAfter: 720h          # хранить 30 дней, потом MediaMTX сам удалит
+
     # Проверка ключа при публикации потока (видеокодер подключился, поток готов).
     # $MTX_PATH = "live/{stream_key}". Бэкенд проверяет ключ в webinar_rooms → комната live.
     # ⚠️ MediaMTX v1.19 переименовал runOnPublish→runOnReady, runOnUnpublish→runOnNotReady.

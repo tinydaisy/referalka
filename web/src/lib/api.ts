@@ -1087,6 +1087,11 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'DELETE' }),
     regenerateKey: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/regenerate-key`, { method: 'POST' }),
+    // управление эфиром: поток идёт ≠ эфир начался (спикер настраивается в Zoom)
+    goLive: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/go-live`, { method: 'POST' }),
+    endLive: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/end-live`, { method: 'POST' }),
     // блоки
     blocks: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/blocks`),
     createBlock: (eventId: number, day: number, data: any) =>

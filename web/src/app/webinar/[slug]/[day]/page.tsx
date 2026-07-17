@@ -109,6 +109,10 @@ export default function WebinarRoomPage() {
         case 'battle_start': setBattle(msg.battle); break
         case 'battle_vote': setBattle((b: any) => b ? { ...b, players: b.players.map((pl: any) => pl.id === msg.player_id ? { ...pl, up_count: msg.up, down_count: msg.down } : pl) } : b); break
         case 'battle_end': setBattle(null); break
+        // менеджер показал/убрал продающий блок вживую — перечитываем список
+        case 'block_pin': load(); break
+        // 'ready'/'offline' — спикер настраивается в Zoom, зрителю показывать нечего.
+        // Плеер появляется только когда ведущий нажал «Начать эфир» → stream_live.
         case 'stream_live': load(); break
         case 'stream_ended':
           if (msg.redirect_url) window.location.href = msg.redirect_url
@@ -188,18 +192,41 @@ export default function WebinarRoomPage() {
 
   return (
     <div className="min-h-screen text-white" style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
+      {/* Шапка: логотип бренда + название + название вебинара */}
+      <header className="border-b border-white/10">
+        <div className="max-w-6xl mx-auto px-3 md:px-5 py-3 flex items-center gap-3">
+          {room.brand?.logo_url
+            ? <img src={room.brand.logo_url} alt="" className="h-8 w-auto object-contain" />
+            : null}
+          <span className="font-bold tracking-tight" style={{ color: '#FFCFA4' }}>
+            {room.brand?.name || 'iViSiON: ПЛЮСОН'}
+          </span>
+          <span className="text-white/40 hidden sm:inline">·</span>
+          <span className="text-white/70 text-sm truncate hidden sm:inline">
+            {rm.title || room.event?.title}
+          </span>
+        </div>
+      </header>
+
       <div className="max-w-6xl mx-auto p-3 md:p-5 grid md:grid-cols-[1fr,340px] gap-4">
         {/* видео + блоки */}
         <div>
           <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
+            {/* До эфира — афиша дня (или горизонтальная афиша события) как заставка */}
+            {!live && room.poster_url && (
+              <img src={room.poster_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            )}
             {ended ? (
-              <div className="absolute inset-0 flex items-center justify-center text-white/70">Трансляция завершена</div>
+              <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white/80">Трансляция завершена</div>
             ) : !live ? (
-              <div className="absolute inset-0 flex items-center justify-center text-white/70 text-center px-6">
-                {rm.intro_text || 'Трансляция скоро начнётся'}
+              <div className="absolute inset-0 flex items-end justify-center pb-6 px-6 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
+                <span className="text-white/90 text-center font-medium drop-shadow">
+                  {rm.intro_text || 'Трансляция скоро начнётся'}
+                </span>
               </div>
             ) : null}
-            <video ref={videoRef} controls autoPlay playsInline className="w-full h-full" />
+            {/* плеер только в эфире: до «Начать эфир» hls_url с бэка не приходит */}
+            {live && <video ref={videoRef} controls autoPlay playsInline className="w-full h-full" />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
             {!rm.hide_viewer_count && room.online != null && (
               <span className="absolute top-3 right-3 bg-black/50 text-xs px-2 py-0.5 rounded">👁 {room.online}</span>

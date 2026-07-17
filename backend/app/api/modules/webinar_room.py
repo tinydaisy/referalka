@@ -438,29 +438,71 @@ def _check_bridge(token: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="bad bridge token")
 
 
-@internal_router.post("/stream/publish", summary="MediaMTX: поток начался")
+@internal_router.post("/stream/publish", summary="MediaMTX: поток пошёл (комната готова, но НЕ в эфире)")
 async def stream_publish(path: str = Query(...), x_bridge_token: Optional[str] = Header(None), db=Depends(get_db)):
-    """path = 'live/{stream_key}'. Разрешаем публикацию только для известного ключа."""
+    """path = 'live/{stream_key}'. Разрешаем публикацию только для известного ключа.
+
+    ⚠️ Поток пришёл ≠ эфир начался. Спикер настраивается в Zoom — зрители этого видеть
+    не должны. Ставим 'ready' (превью только ведущему), в 'live' переводит ведущий
+    кнопкой «Начать эфир» (см. /go-live).
+    """
     _check_bridge(x_bridge_token)
     key = path.split("/")[-1] if path else ""
-    room = await db.fetchrow("SELECT id FROM webinar_rooms WHERE stream_key=$1", key)
+    room = await db.fetchrow("SELECT id, status FROM webinar_rooms WHERE stream_key=$1", key)
     if not room:
         raise HTTPException(status_code=404, detail="unknown stream key")
+    # Если ведущий уже начал эфир — не сбиваем 'live' (переподключение видеокодера).
+    new_status = "live" if room["status"] == "live" else "ready"
     await db.execute(
-        "UPDATE webinar_rooms SET status='live', started_at=COALESCE(started_at, NOW()) WHERE id=$1", room["id"])
+        "UPDATE webinar_rooms SET stream_active=TRUE, status=$2 WHERE id=$1", room["id"], new_status)
     from app.services.webinar_hub import publish
-    await publish(room["id"], {"type": "stream_live"})
+    await publish(room["id"], {"type": "stream_ready"})   # ведущему — «поток пошёл»
     return {"ok": True}
 
 
 @internal_router.post("/stream/unpublish", summary="MediaMTX: поток остановлен")
 async def stream_unpublish(path: str = Query(...), x_bridge_token: Optional[str] = Header(None), db=Depends(get_db)):
+    """Видеокодер отключился. Эфир НЕ завершаем — это может быть обрыв связи, а
+    завершение эфира — решение ведущего (кнопка «Завершить эфир»)."""
     _check_bridge(x_bridge_token)
     key = path.split("/")[-1] if path else ""
-    room = await db.fetchrow("SELECT id, redirect_url FROM webinar_rooms WHERE stream_key=$1", key)
+    room = await db.fetchrow("SELECT id, status FROM webinar_rooms WHERE stream_key=$1", key)
     if not room:
         return {"ok": True}
+    # 'ready' → 'idle' (эфир не начинали). 'live' оставляем: у зрителей плеер сам
+    # переподключится, когда поток вернётся; завершает эфир только ведущий.
+    new_status = "idle" if room["status"] == "ready" else room["status"]
+    await db.execute(
+        "UPDATE webinar_rooms SET stream_active=FALSE, status=$2 WHERE id=$1", room["id"], new_status)
+    from app.services.webinar_hub import publish
+    await publish(room["id"], {"type": "stream_offline"})
+    return {"ok": True}
+
+
+# ─────────────────────────── управление эфиром (пульт ведущего) ───────────────────────────
+@router.post("/{day_number}/go-live", summary="Начать эфир — зрители видят поток")
+async def go_live(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    room = await ws.get_room_or_404(db, event_id, day_number)
+    if not room.get("stream_active"):
+        raise HTTPException(400, "Поток не идёт — сначала запустите трансляцию в Zoom/OBS")
+    await db.execute(
+        "UPDATE webinar_rooms SET status='live', started_at=COALESCE(started_at, NOW()), "
+        "ended_at=NULL WHERE id=$1", room["id"])
+    from app.services.webinar_hub import publish
+    await publish(room["id"], {"type": "stream_live"})   # зрителям — показать плеер
+    return {"ok": True, "status": "live"}
+
+
+@router.post("/{day_number}/end-live", summary="Завершить эфир — редирект зрителей")
+async def end_live(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    room = await ws.get_room_or_404(db, event_id, day_number)
     await db.execute("UPDATE webinar_rooms SET status='ended', ended_at=NOW() WHERE id=$1", room["id"])
     from app.services.webinar_hub import publish
-    await publish(room["id"], {"type": "stream_ended", "redirect_url": room["redirect_url"]})
-    return {"ok": True}
+    await publish(room["id"], {"type": "stream_ended", "redirect_url": room.get("redirect_url")})
+    return {"ok": True, "status": "ended"}

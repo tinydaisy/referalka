@@ -56,10 +56,30 @@ async def room_view(slug: str, day: int):
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
 
-        blocks = await conn.fetch(
+        # Блоки зрителю: показываем только те, что менеджер включил вручную (is_pinned),
+        # либо те, у кого задан тайминг и текущая минута эфира в него попала.
+        # Блок без тайминга и не включённый вручную — зрителю не виден (лежит заготовкой).
+        all_blocks = await conn.fetch(
             "SELECT id, kind, title, url, body, form_fields, form_tag, follow_mode, speaker_id, "
             "       is_pinned, show_at_min, hide_at_min, sort_order "
             "FROM webinar_blocks WHERE room_id=$1 AND is_active=TRUE ORDER BY sort_order, id", rid)
+
+        elapsed_min = None
+        if room.get("status") == "live" and room.get("started_at"):
+            elapsed_min = (datetime.now(timezone.utc) - room["started_at"]).total_seconds() / 60
+
+        def _visible(b) -> bool:
+            if b["is_pinned"]:
+                return True
+            if elapsed_min is None or b["show_at_min"] is None:
+                return False
+            if elapsed_min < b["show_at_min"]:
+                return False
+            if b["hide_at_min"] is not None and elapsed_min > b["hide_at_min"]:
+                return False
+            return True
+
+        blocks = [b for b in all_blocks if _visible(b)]
 
         # текущий спикер по слоту (для авто-кнопки/подарка)
         cur_ec = await ws.current_speaker_ec_id(conn, ev["id"], day)
@@ -85,14 +105,44 @@ async def room_view(slug: str, day: int):
         rx = await conn.fetch(
             "SELECT speaker_id, reaction_key, count FROM webinar_speaker_reactions WHERE room_id=$1", rid)
 
+        # ⚠️ HLS отдаём зрителю ТОЛЬКО когда ведущий начал эфир (status='live').
+        # Пока 'ready' — спикер настраивается в Zoom, зрители видеть не должны.
+        is_live = room.get("status") == "live"
+
+        # бренд клиента для шапки комнаты (как в Mini App: логотип + название)
+        brand = await conn.fetchrow(
+            "SELECT COALESCE(NULLIF(brand_name,''), name) AS brand_name, brand_logo_url "
+            "FROM clients WHERE id=$1", ev["client_id"])
+
+        # Афиша-заставка до эфира: сначала афиша ЭТОГО дня, иначе общая афиша
+        # события (горизонтальная в приоритете) — правило проекта (миграция 215).
+        poster = await conn.fetchval(
+            "SELECT url FROM event_posters WHERE event_id=$1 AND day=$2 "
+            " ORDER BY CASE orientation WHEN 'horizontal' THEN 1 WHEN 'square' THEN 2 "
+            "                           WHEN 'vertical' THEN 3 ELSE 4 END, sort, id LIMIT 1",
+            ev["id"], day,
+        )
+        if not poster:
+            poster = await conn.fetchval(
+                "SELECT url FROM event_posters WHERE event_id=$1 AND day IS NULL "
+                " ORDER BY CASE orientation WHEN 'horizontal' THEN 1 WHEN 'square' THEN 2 "
+                "                           WHEN 'vertical' THEN 3 ELSE 4 END, sort, id LIMIT 1",
+                ev["id"],
+            )
+
         return {
             "event": {"id": ev["id"], "title": ev["title"], "slug": ev["slug"]},
+            "brand": {
+                "name": brand["brand_name"] if brand else None,
+                "logo_url": brand["brand_logo_url"] if brand else None,
+            },
+            "poster_url": poster,   # заставка до начала эфира
             "room": {
                 "id": rid,
                 "title": room.get("title"),
                 "status": room.get("status"),
                 "stream_type": room.get("stream_type"),
-                "hls_url": room.get("hls_url"),
+                "hls_url": room.get("hls_url") if is_live else None,
                 "external_url": room.get("external_url"),
                 "hide_viewer_count": room.get("hide_viewer_count"),
                 "chat_enabled": room.get("chat_enabled"),
