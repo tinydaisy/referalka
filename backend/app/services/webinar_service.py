@@ -151,8 +151,15 @@ async def tag_contact(db, client_id: int, contact_id: int, tag: str) -> None:
 
 
 def rtmp_url(stream_key: str) -> str:
+    """URL трансляции для видеокодера — БЕЗ ключа в конце.
+
+    ⚠️ Zoom (и большинство кодеров) поле «URL трансляции» и «Ключ трансляции»
+    заполняют РАЗДЕЛЬНО и склеивают сами → path = live/{key}. Если отдать ключ
+    внутри URL, а клиент ещё раз впишет его в поле ключа, получится live/{key}/{key}
+    и HLS не совпадёт с тем, что ждёт плеер (live/{key}). Поэтому URL — только база.
+    """
     from app.config import settings
-    return f"rtmp://{settings.webinar_rtmp_host}/live/{stream_key}"
+    return f"rtmp://{settings.webinar_rtmp_host}/live"
 
 
 def hls_url(stream_key: str) -> str:
