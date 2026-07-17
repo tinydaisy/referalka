@@ -339,34 +339,42 @@ export default function WebinarRoomPage() {
             </div>
           )}
 
-          {/* Кнопки-офферы: сетка N в ряд, без заголовка над блоком — текст на самой кнопке */}
+          {/* Продающие блоки — в ЕДИНОМ порядке (как в дашборде).
+              Подряд идущие кнопки собираются в сетку N в ряд; форма разрывает группу
+              и идёт на всю ширину. Порядок = sort_order. */}
           {(() => {
-            const btns = (room.blocks || []).filter((b: any) => b.kind === 'button')
-            if (!btns.length) return null
             const per = Math.max(1, Math.min(4, room.room?.buttons_per_row || 1))
-            return (
-              <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${per}, minmax(0, 1fr))` }}>
-                {btns.map((b: any) => (
-                  <button key={b.id} onClick={() => clickBlock(b)}
-                    className="py-3 px-3 rounded-xl text-sm font-semibold text-center"
-                    style={{ background: '#FFCFA4', color: '#0a1520' }}>
-                    {b.title || 'Подробнее'}
-                  </button>
-                ))}
-              </div>
-            )
+            const items = (room.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form')
+            const out: any[] = []
+            let btnRun: any[] = []
+            const flush = () => {
+              if (!btnRun.length) return
+              const run = btnRun; btnRun = []
+              out.push(
+                <div key={`btns-${run[0].id}`} className="mt-3 grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(${per}, minmax(0, 1fr))` }}>
+                  {run.map((b: any) => (
+                    <button key={b.id} onClick={() => clickBlock(b)} className="btn-gold text-sm">
+                      {b.title || 'Подробнее'}
+                    </button>
+                  ))}
+                </div>
+              )
+            }
+            items.forEach((b: any) => {
+              if (b.kind === 'button') { btnRun.push(b); return }
+              flush()
+              out.push(
+                <div key={b.id} className="mt-3 rounded-xl bg-white/10 p-3">
+                  {b.title && <div className="font-semibold text-sm mb-1">{b.title}</div>}
+                  {b.body && <div className="text-xs text-white/60 mb-2">{b.body}</div>}
+                  <FormBlock block={b} slug={slug} day={day} contactId={contactId} sessionKey={sessionKey} onNeedReg={() => setNeedReg(true)} />
+                </div>
+              )
+            })
+            flush()
+            return out
           })()}
-
-          {/* Формы заявок: столбиком, с заголовком */}
-          <div className="mt-3 space-y-2">
-            {(room.blocks || []).filter((b: any) => b.kind === 'form').map((b: any) => (
-              <div key={b.id} className="rounded-xl bg-white/10 p-3">
-                {b.title && <div className="font-semibold text-sm mb-1">{b.title}</div>}
-                {b.body && <div className="text-xs text-white/60 mb-2">{b.body}</div>}
-                <FormBlock block={b} slug={slug} day={day} contactId={contactId} sessionKey={sessionKey} onNeedReg={() => setNeedReg(true)} />
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* чат */}

@@ -357,19 +357,16 @@ function BlocksEditor({ eventId, day, event }: { eventId: number; day: DayItem; 
     await load()
   }
 
-  // Порядок блоков: меняем sort_order местами с соседом того же типа
-  // (кнопки и формы у зрителя идут отдельными группами — переставляем внутри группы).
+  // Порядок блоков — единый (как видит зритель). Переставляем в ОБЩЕМ списке
+  // и перенумеровываем sort_order 0..N (надёжно даже если он был NULL у всех).
   async function move(idx: number, dir: -1 | 1) {
-    const b = blocks[idx]
-    const sameKind = blocks.filter(x => x.kind === b.kind)
-    const pos = sameKind.findIndex(x => x.id === b.id)
-    const swap = sameKind[pos + dir]
-    if (!swap) return
-    const a = b.sort_order ?? idx, c = swap.sort_order ?? (idx + dir)
-    await Promise.all([
-      api.webinar.updateBlock(eventId, day.day_number, b.id, { sort_order: c }),
-      api.webinar.updateBlock(eventId, day.day_number, swap.id, { sort_order: a }),
-    ])
+    const j = idx + dir
+    if (j < 0 || j >= blocks.length) return
+    const arr = [...blocks]
+    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
+    setBlocks(arr) // мгновенный отклик
+    await Promise.all(arr.map((b, i) =>
+      api.webinar.updateBlock(eventId, day.day_number, b.id, { sort_order: i })))
     await load()
   }
 
