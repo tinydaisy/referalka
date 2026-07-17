@@ -753,25 +753,27 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
         </div>
       </div>
 
-      {/* Батл */}
-      <div className="border rounded-xl p-4">
-        <h4 className="font-semibold mb-3">⚔️ Запустить батл</h4>
-        <input className="input mb-3" placeholder="Название батла (необязательно)" value={battleTitle} onChange={e => setBattleTitle(e.target.value)} />
-        <div className="text-xs text-gray-500 mb-2">Выберите спикеров из события:</div>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {speakers.map((s: any) => {
-            const on = battleSpeakers.includes(s.id)
-            return (
-              <button key={s.id}
-                onClick={() => setBattleSpeakers(on ? battleSpeakers.filter(x => x !== s.id) : [...battleSpeakers, s.id])}
-                className={`px-3 py-1.5 rounded-full text-sm border ${on ? 'bg-brand text-white border-brand' : 'border-gray-300 text-gray-600'}`}>
-                {s.name}
-              </button>
-            )
-          })}
+      {/* Батл — только в Премиях/Турнирах (module_slug='turnir') */}
+      {event?.module_slug === 'turnir' && (
+        <div className="border rounded-xl p-4">
+          <h4 className="font-semibold mb-3">⚔️ Запустить батл</h4>
+          <input className="input mb-3" placeholder="Название батла (необязательно)" value={battleTitle} onChange={e => setBattleTitle(e.target.value)} />
+          <div className="text-xs text-gray-500 mb-2">Выберите спикеров из события:</div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {speakers.map((s: any) => {
+              const on = battleSpeakers.includes(s.id)
+              return (
+                <button key={s.id}
+                  onClick={() => setBattleSpeakers(on ? battleSpeakers.filter(x => x !== s.id) : [...battleSpeakers, s.id])}
+                  className={`px-3 py-1.5 rounded-full text-sm border ${on ? 'bg-brand text-white border-brand' : 'border-gray-300 text-gray-600'}`}>
+                  {s.name}
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={launchBattle} className="btn-gold text-sm">Запустить батл</button>
         </div>
-        <button onClick={launchBattle} className="btn-gold text-sm">Запустить батл</button>
-      </div>
+      )}
 
       <p className="text-xs text-gray-400">
         Модерация чата и удаление участников — прямо на странице комнаты во время эфира.

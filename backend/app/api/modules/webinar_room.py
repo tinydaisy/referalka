@@ -362,6 +362,10 @@ async def close_poll(event_id: int, day_number: int, poll_id: int, client=Depend
 @router.post("/{day_number}/battle", summary="Создать/запустить батл (выбор спикеров из события)")
 async def create_battle(event_id: int, day_number: int, data: BattleIn, client=Depends(get_current_client), db=Depends(get_db)):
     await ws.assert_event_owner(db, event_id, _cid(client))
+    # Батлы — только в Премиях/Турнирах (module_slug='turnir').
+    mod = await db.fetchval("SELECT module_slug FROM events WHERE id=$1", event_id)
+    if mod != "turnir":
+        raise HTTPException(403, "Батлы доступны только в Премиях и Турнирах")
     rid = await _room_id(db, event_id, day_number)
     async with db.transaction():
         b = await db.fetchrow(
