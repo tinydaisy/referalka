@@ -1926,30 +1926,6 @@ export default function QueuePage() {
                 ))}
               </div>
             )}
-            <div className="overflow-y-auto flex-1 space-y-1">
-              {logModal.rows.length === 0 && (
-                <p className="text-sm text-gray-400 text-center py-6">Лог пуст</p>
-              )}
-              {logModal.rows.map((r, i) => {
-                const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username || `tg:${r.tg_id}`
-                const username = r.username ? `@${r.username}` : ''
-                const ok = r.status === 'sent'
-                const bot = r.channel_handle || r.channel_name
-                return (
-                  <div key={i} className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs ${ok ? 'bg-gray-50' : 'bg-red-50'}`}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={ok ? 'text-green-500' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
-                      <span className="font-medium text-gray-800 truncate">{name}</span>
-                      {username && <span className="text-gray-400 shrink-0">{username}</span>}
-                      {bot && <span className="text-blue-500 shrink-0 text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">{bot}</span>}
-                    </div>
-                    {!ok && r.error && (
-                      <span className="text-red-400 truncate max-w-[140px] ml-2" title={r.error}>{humanReason(r.error)}</span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
           </div>
         </div>
         )
