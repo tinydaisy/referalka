@@ -468,6 +468,31 @@ def _fmt_date_eu(v):
     return s
 
 
+def _msk_today_iso():
+    """Сегодняшняя дата в МСК как 'YYYY-MM-DD'."""
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%d")
+
+
+def _pick_active_day(days):
+    """Какой день программы раскрыть по умолчанию: сегодняшний → ближайший
+    будущий → первый. Зеркалит логику Mini App (TurnirProgramTab/ProgramTab)."""
+    if not days:
+        return None
+    today = _msk_today_iso()
+    dated = [d for d in days if str(d.get("day_date") or "")[:10]]
+    for d in dated:
+        if str(d["day_date"])[:10] == today:
+            return d.get("day_number")
+    future = sorted(
+        [d for d in dated if str(d["day_date"])[:10] > today],
+        key=lambda x: str(x["day_date"])[:10],
+    )
+    if future:
+        return future[0].get("day_number")
+    return days[0].get("day_number")
+
+
 def _fmt_date_range_eu(sd, ed):
     """Диапазон дат по-европейски. Если даты совпадают (или одна задана) —
     одна дата. Пусто → ''."""
@@ -803,6 +828,8 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
 
     # Программа: ВСЕ этапы (даже без дней — с описанием/датами, как в Mini App),
     # внутри каждого — его дни; дни без этапа — отдельным блоком в конце.
+    active_day = _pick_active_day(days)
+
     def _render_day(day):
         dn = day.get("day_number")
         dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
@@ -842,8 +869,18 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         day_head = f'{ddate} - {dtitle}' if ddate else dtitle
         # Нет слотов → не показываем прочерк, только шапку дня.
         body = rows
-        return (f'<div class="day"><div class="day-h">{day_head}</div>'
-                f'{body}</div>')
+        # Аккордеон: раскрыт только активный день (сегодня → ближайший будущий
+        # → первый), прошедшие и остальные свёрнуты. Как в Mini App.
+        is_open = (dn is not None and dn == active_day)
+        cls = "day acc" if is_open else "day acc collapsed"
+        past = str(day.get("day_date") or "")[:10] < _msk_today_iso()
+        if past and not is_open:
+            cls += " day-past"
+        return (f'<div class="{cls}">'
+                f'<button class="day-h acc-h" type="button">'
+                f'<span>{day_head}</span>'
+                f'<span class="acc-chev">▾</span></button>'
+                f'<div class="acc-body">{body}</div></div>')
 
     def _stage_header(st):
         st_title = esc(st.get("title") or "Этап")
@@ -1579,7 +1616,13 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .stage-desc {{ font-size:13px; color:#41566a; line-height:1.5; margin:-4px 2px 12px;
     padding:0 2px; white-space:pre-wrap; }}
   .day {{ background:#fff; border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.06); }}
-  .day-h {{ font-weight:700; color:#25455D; margin-bottom:10px; font-size:15px; }}
+  .day-h {{ font-weight:700; color:#25455D; margin-bottom:10px; font-size:15px;
+    width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:none; border:0; padding:0; text-align:left; cursor:pointer; font-family:inherit; }}
+  .day.collapsed .day-h {{ margin-bottom:0; }}
+  .day.day-past .day-h {{ opacity:.62; }}
+  .day .acc-chev {{ flex:0 0 auto; font-size:13px; color:#8a99a8; transition:transform .18s; }}
+  .day.collapsed .acc-chev {{ transform:rotate(-90deg); }}
   .s-row {{ display:flex; gap:10px; padding:8px 0; border-top:1px solid #f0f3f6; }}
   .s-row:first-of-type {{ border-top:none; }}
   .s-time {{ flex:0 0 92px; font-size:12.5px; color:#8593a1; }}
