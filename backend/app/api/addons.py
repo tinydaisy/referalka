@@ -50,6 +50,23 @@ TARIFF_RANK = {"trial": 2, "start": 1, "pro": 2, "vip": 3, "admin": 99}
 COLLAB_HUB_SLUG = "collab_hub"
 COLLAB_HUB_FIXED_UNTIL = datetime(2026, 9, 10, 23, 59, 59, tzinfo=timezone(timedelta(hours=3)))
 
+async def _active_price_lock_promo(db, feature_slug: str):
+    """Действующая акция «заморозка цены» для этого модуля — или None.
+
+    ⚠️ Настройки НЕ в коде: живут в promotions (правятся в /admin/promotions).
+      value   — сколько МЕСЯЦЕВ держать цену
+      ends_at — до какой даты надо успеть оплатить
+    """
+    return await db.fetchrow(
+        """SELECT id, value AS months, ends_at
+             FROM promotions
+            WHERE type = 'price_lock' AND is_active = TRUE
+              AND target_feature_slug = $1
+              AND (ends_at IS NULL OR ends_at > NOW())
+            ORDER BY id DESC LIMIT 1""",
+        feature_slug,
+    )
+
 
 async def _client_tariff_slug(db, client_id: int) -> Optional[str]:
     return await db.fetchval(
@@ -97,6 +114,13 @@ async def list_addons(
         client_id,
     )
     owned_map = {r["feature_id"]: r for r in owned}
+    # 🔒 Активные «заморозки цены» клиента — чтобы показать ЕГО цену, а не новую.
+    locks = await db.fetch(
+        """SELECT feature_id, locked_price, expires_at FROM client_price_locks
+            WHERE client_id = $1 AND expires_at > NOW()""",
+        client_id,
+    )
+    lock_map = {r["feature_id"]: r for r in locks}
     # Фичи, уже входящие в тариф (тогда докупать не надо).
     in_tariff = set(await db.fetch(
         """SELECT f.slug
@@ -132,6 +156,10 @@ async def list_addons(
         d["bundle_price"] = (int(f["price_monthly"] or 0) + pro_price) if d["bundle_available"] else None
         # Можно ли реально оплатить помесячно / за 6 мес — есть ли Prodamus-ссылка ИЛИ карточка LeadPay.
         # Фронт по этим флагам показывает/прячет кнопки, чтобы не открывать нерабочую оплату.
+        # Зафиксированная цена: клиент платит её, а не price_monthly.
+        _lk = lock_map.get(f["id"])
+        d["locked_price"] = int(_lk["locked_price"]) if _lk else None
+        d["locked_until"] = _lk["expires_at"] if _lk else None
         d["monthly_payable"] = bool(f["prodamus_payment_url"] or f["leadpay_product_id"])
         d["sixmo_payable"] = bool(f["prodamus_payment_url_6mo"] or f["leadpay_product_id_6mo"])
         # Предпочтительный провайдер помесячной оплаты (Prodamus если есть ссылка, иначе LeadPay).
@@ -175,7 +203,8 @@ async def create_addon_order(
     feat = await db.fetchrow(
         """SELECT id, slug, name, is_addon, coming_soon, price_monthly, price_6mo, min_tariff_slug,
                   prodamus_payment_url, prodamus_payment_url_6mo,
-                  leadpay_product_id, leadpay_product_id_6mo, leadpay_bundle_pro_product_id
+                  leadpay_product_id, leadpay_product_id_6mo, leadpay_bundle_pro_product_id,
+                  leadpay_product_id_locked, price_monthly_locked
              FROM features WHERE slug = $1""",
         data.feature_slug,
     )
@@ -208,6 +237,22 @@ async def create_addon_order(
         price_month = feat["price_monthly"]
         pay_url = feat["prodamus_payment_url"]
         leadpay_pid = feat["leadpay_product_id"]
+
+    # 🔒 Заморозка цены: у клиента есть активный лок на этот модуль → платит по СТАРОЙ
+    # цене и уходит на СТАРУЮ карточку LeadPay. ⚠️ Карточка обязательна: сумму задаёт
+    # LeadPay на своей стороне, подменить её в нашем коде нельзя. Нет старой карточки —
+    # лок молча не применяем (лучше обычная цена, чем битая оплата).
+    if not bundle and months == 1:
+        lock = await db.fetchrow(
+            """SELECT locked_price FROM client_price_locks
+                WHERE client_id = $1 AND feature_id = $2 AND expires_at > NOW()""",
+            client_id, feat["id"],
+        )
+        if lock and feat["leadpay_product_id_locked"]:
+            price_month = int(lock["locked_price"])
+            leadpay_pid = feat["leadpay_product_id_locked"]
+            pay_url = None          # у «замороженной» цены только LeadPay-карточка
+            provider = "leadpay"
 
     if not price_month or price_month <= 0:
         raise HTTPException(status_code=400, detail="У модуля не задана цена")
@@ -400,6 +445,25 @@ async def _apply_paid_addon_order(
                    RETURNING id""",
                 order["client_id"], order["feature_id"], str(add_days), months, fixed_until,
             )
+
+        # 🔒 Заморозка цены: оплатил в акционный период → фиксируем цену на N месяцев
+        # ОТ ДАТЫ ОПЛАТЫ. Повторная оплата в акцию продлевает лок (UPSERT), не дублирует.
+        promo = await _active_price_lock_promo(db, _feature_slug or "")
+        if promo:
+            lock_months = int(promo["months"] or 0)
+            locked_price = await db.fetchval(
+                "SELECT COALESCE(price_monthly_locked, price_monthly) FROM features WHERE id = $1",
+                order["feature_id"],
+            )
+            if lock_months > 0 and locked_price:
+                await db.execute(
+                    """INSERT INTO client_price_locks (client_id, feature_id, locked_price, expires_at)
+                       VALUES ($1, $2, $3, NOW() + ($4 || ' months')::interval)
+                       ON CONFLICT (client_id, feature_id) DO UPDATE
+                         SET locked_price = EXCLUDED.locked_price,
+                             expires_at   = GREATEST(client_price_locks.expires_at, EXCLUDED.expires_at)""",
+                    order["client_id"], order["feature_id"], int(locked_price), str(lock_months),
+                )
 
         # Комплект «Профи + модуль» — вместе с модулем активируем/продлеваем тариф Профи.
         if order.get("bundle_with_pro"):

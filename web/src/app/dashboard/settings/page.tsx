@@ -1282,12 +1282,30 @@ function ModulesBlock() {
               {!a.coming_soon && (
                 <>
                   <div className="mt-3 mb-1 flex items-baseline gap-2">
-                    {a.promo_old_monthly && a.promo_old_monthly > (a.price_monthly || 0) && (
-                      <span className="text-base line-through text-gray-400">{a.promo_old_monthly.toLocaleString('ru-RU')} ₽</span>
+                    {/* 🔒 Цена зафиксирована за клиентом (ранняя покупка) → платит ЕЁ,
+                        а текущую цену показываем зачёркнутой. */}
+                    {a.locked_price ? (
+                      <>
+                        {a.price_monthly > a.locked_price && (
+                          <span className="text-base line-through text-gray-400">{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
+                        )}
+                        <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.locked_price.toLocaleString('ru-RU')} ₽</span>
+                      </>
+                    ) : (
+                      <>
+                        {a.promo_old_monthly && a.promo_old_monthly > (a.price_monthly || 0) && (
+                          <span className="text-base line-through text-gray-400">{a.promo_old_monthly.toLocaleString('ru-RU')} ₽</span>
+                        )}
+                        <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
+                      </>
                     )}
-                    <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
                     <span className="text-xs text-gray-400"> / мес</span>
                   </div>
+                  {a.locked_price && a.locked_until && (
+                    <p className="text-xs text-emerald-600">
+                      Ваша цена зафиксирована до {new Date(a.locked_until).toLocaleDateString('ru-RU')}
+                    </p>
+                  )}
                   {a.price_6mo && a.price_6mo < a.price_monthly && (
                     <p className="text-xs text-emerald-600">{a.price_6mo.toLocaleString('ru-RU')} ₽/мес за 6 мес</p>
                   )}
