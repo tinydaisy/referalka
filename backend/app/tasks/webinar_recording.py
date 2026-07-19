@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from datetime import datetime
 
-from app.celery_app import celery_app
+from app.celery_app import celery
 from app.database import get_pool
 from app.config import settings
 from app.services import r2_storage
@@ -24,7 +24,7 @@ from app.services import r2_storage
 RECORDINGS_DIR = os.environ.get("WEBINAR_RECORDINGS_DIR", "/var/www/plusson/media-server/recordings")
 
 
-@celery_app.task(name="app.tasks.webinar_recording.upload_session_recording")
+@celery.task(name="app.tasks.webinar_recording.upload_session_recording")
 def upload_session_recording(session_id: int):
     asyncio.run(_run(session_id))
 
