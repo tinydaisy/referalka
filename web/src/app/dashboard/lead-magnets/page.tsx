@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download, Eye } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
+import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import { useMe } from '@/hooks/useMe'
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i
@@ -1313,6 +1314,9 @@ function PlatformShareLinks({ kind, slug, links, name, blocked }: {
       {available.map(p => (
         <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} name={name} />
       ))}
+      <div className="mt-1">
+        <CopyAllLinksButton links={resolved} />
+      </div>
     </div>
   )
 }

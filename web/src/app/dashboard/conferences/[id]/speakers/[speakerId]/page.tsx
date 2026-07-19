@@ -9,6 +9,7 @@ import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
 import RefLinkInline from '@/components/RefLinkInline'
+import CopyAllLinksButton, { countLinks, type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
@@ -219,6 +220,8 @@ export default function ConferenceSpeakerPage() {
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [inviteMsg, setInviteMsg] = useState<string | null>(null)
   const [inviteCopied, setInviteCopied] = useState(false)
+  // Ссылки-приглашения по площадкам — приходят вместе с message из inviteMessage.
+  const [inviteLinks, setInviteLinks] = useState<PlatformLinksType>({})
 
   const [clientWorkAccount, setClientWorkAccount] = useState<{ username: string; id: string } | null>(null)
   const [mainBotHandle, setMainBotHandle] = useState<string>('')
@@ -709,6 +712,7 @@ export default function ConferenceSpeakerPage() {
                 try {
                   const r = await api.collaborators.inviteMessage(profile.id, confId)
                   setInviteMsg(r.message)
+                  setInviteLinks(r.links || {})
                   await navigator.clipboard.writeText(r.message)
                   setInviteCopied(true)
                   setTimeout(() => setInviteCopied(false), 3000)
@@ -720,6 +724,11 @@ export default function ConferenceSpeakerPage() {
               {inviteCopied ? '✓ Скопировано' : '📋 Скопировать сообщение спикеру'}
             </button>
           </div>
+          {countLinks(inviteLinks) > 1 && (
+            <div className="mt-2">
+              <CopyAllLinksButton links={inviteLinks} label="Скопировать только ссылки (3 площадки)" />
+            </div>
+          )}
           {inviteMsg && (
             <details className="mt-3">
               <summary className="text-xs text-gray-600 cursor-pointer">Посмотреть что скопировалось</summary>

@@ -9,6 +9,7 @@ import MiniAppSettingsPage from '../mini-app/page'
 import LegalTab from '@/components/settings/LegalTab'
 import AssistantTab from '@/components/settings/AssistantTab'
 import ChatGatesTab from '@/components/settings/ChatGatesTab'
+import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
 type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates'
 
@@ -1768,6 +1769,15 @@ function PartnerRegistrationBlock({
             )
           })}
         </div>
+        {isConfigured && (
+          <div className="mt-2">
+            <CopyAllLinksButton
+              links={Object.fromEntries(
+                platforms.map((p) => [p, returnUrlFor(p) || '']),
+              ) as PlatformLinksType}
+            />
+          </div>
+        )}
         <p className="text-xs text-gray-500 mt-2">
           Выберите одну из ссылок (по платформе, через которую вы привлекаете партнёров)
           и вставьте её в настройку «редирект после сабмита формы» вашего партнёрского сервиса —
@@ -1810,6 +1820,15 @@ function PartnerRegistrationBlock({
             )
           })}
         </div>
+        {isConfigured && (
+          <div className="mt-2">
+            <CopyAllLinksButton
+              links={Object.fromEntries(
+                platforms.map((p) => [p, rootUrlFor(p) || '']),
+              ) as PlatformLinksType}
+            />
+          </div>
+        )}
         <p className="text-xs text-gray-500 mt-2">
           Это «безымянные» ссылки — без указания, кто привёл нового партнёра. Личные ссылки
           каждого партнёра (с проброшенным кодом-партнёра) находятся в карточке контакта внизу.

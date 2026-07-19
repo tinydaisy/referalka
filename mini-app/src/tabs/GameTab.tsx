@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getGifts, getShareTexts, getShareMaterials, sendShareTextToBot, getEventShareLinks } from '../api'
 import ContactCardModal from '../components/ContactCardModal'
 import { getPlatformName } from '../platform'
+import { buildAllLinksText, countLinks } from '../utils/allLinksText'
 
 // botClientId — клиент, ЧЕЙ БОТ открыл Mini App. В коллабе ≠ владельцу события:
 // реф-ссылка участника должна идти через бота ЕГО организатора.
@@ -949,6 +950,18 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
           </div>
         )
       })}
+      {countLinks(links) > 1 && (
+        <button
+          onClick={() => onCopy('__all__', buildAllLinksText(links))}
+          style={{
+            marginTop: 10, width: '100%', background: '#f0f3f7', color: DARK,
+            padding: '10px 12px', borderRadius: 10, fontWeight: 700, fontSize: 12,
+            cursor: 'pointer', border: 'none',
+          }}
+        >
+          {copiedPlatform === '__all__' ? '✓ Все ссылки скопированы' : '📋 Скопировать все ссылки'}
+        </button>
+      )}
     </div>
   )
 }

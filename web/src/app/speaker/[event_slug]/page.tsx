@@ -14,6 +14,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import QrLinkButton from '@/components/QrLinkButton'
+import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
@@ -1299,6 +1300,7 @@ export default function SpeakerCabinetPage() {
                       </div>
                     )
                   })}
+                  <CopyAllLinksButton links={materials.partner_link} />
                   <div style={{ fontSize: 11, color: '#5a6a7a', lineHeight: 1.5, marginTop: 10 }}>
                     После регистрации пароль для доступа к партнёрскому кабинету придёт вам на email —
                     проверьте папку «Спам». Если не нашли — восстановите пароль на странице входа в кабинет.
@@ -1629,6 +1631,7 @@ function MaterialsTab({
               </div>
             )
           })}
+          <CopyAllLinksButton links={materials.ref_links} />
         </div>
       )}
 

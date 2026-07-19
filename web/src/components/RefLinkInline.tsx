@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Copy, Check, Link2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import QrLinkButton from '@/components/QrLinkButton'
+import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 
 /**
  * Блок «Партнёрская ссылка» для карточки спикера/организатора.
@@ -133,6 +134,13 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
             )}
           </div>
         ))}
+      </div>
+      <div className="mt-2">
+        <CopyAllLinksButton
+          links={shareLinks}
+          disabled={isDraft}
+          disabledHint="Событие в черновике — ссылки не сработают у партнёра. Сначала опубликуйте событие."
+        />
       </div>
     </div>
   )
