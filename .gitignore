@@ -65,3 +65,6 @@ unreg
 upload_r2.py
 violetta_*
 documentation/CONCEPT-COLLAB-NETWORK.md
+
+# Локальные черновики (не коммитим)
+plan*.py
