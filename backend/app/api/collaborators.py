@@ -114,6 +114,16 @@ def _validate_social_links(data) -> None:
         )
 
 
+def normalize_tg_username(value: Optional[str]) -> Optional[str]:
+    """Ник ассистента хранится БЕЗ собаки — клиенты вписывают и так, и так.
+
+    Сравнение в боте идёт по LOWER(assistant_tg_username), поэтому храним
+    каноничный вид: без '@', без пробелов. Пустая строка → None.
+    """
+    cleaned = (value or "").strip().lstrip("@").strip()
+    return cleaned or None
+
+
 async def _generate_unique_access_code(db: asyncpg.Connection, length: int = 8) -> str:
     """8-символьный код для входа спикера в мини-кабинет (миграция 108)."""
     for _ in range(20):
@@ -313,7 +323,7 @@ async def create_collaborator(
         data.contact_id, name, data.title, data.achievements,
         data.photo_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
-        data.tg_channel_id, data.assistant_tg_username,
+        data.tg_channel_id, normalize_tg_username(data.assistant_tg_username),
         access_code, json.dumps(media_assets),
         client_id
     )
@@ -669,6 +679,11 @@ async def update_collaborator(
     ])
     # media_assets — JSONB, нужен явный ::jsonb cast и json.dumps. Обрабатываем отдельно.
     media_assets_in = _normalize_media_assets(updates_full.pop("media_assets", None))
+    # Ник ассистента — всегда без '@' (бот сравнивает по LOWER без собаки).
+    if "assistant_tg_username" in updates_full:
+        updates_full["assistant_tg_username"] = normalize_tg_username(
+            updates_full["assistant_tg_username"]
+        )
     # Авто-резолв числового id VK-сообщества коллаба из vk_url (для проверки
     # подписки groups.isMember). Делаем когда меняется vk_url, а vk_channel_id
     # явно не передан — чтобы клиент не вписывал id руками (как у клиента в профиле).
@@ -873,7 +888,7 @@ async def create_collaborator_quick(
             data.tg_channel_url, data.tg_channel_id,
             data.vk_url, data.max_url,
             data.instagram_url, data.website_url,
-            data.assistant_tg_username,
+            normalize_tg_username(data.assistant_tg_username),
             access_code, json.dumps(media_assets),
             client_id
         )
@@ -994,7 +1009,7 @@ async def import_collaborators(
                 item.tg_channel_url or None,
                 item.vk_url or None, item.max_url or None,
                 item.instagram_url or None, item.website_url or None,
-                item.tg_channel_id or None, item.assistant_tg_username or None,
+                item.tg_channel_id or None, normalize_tg_username(item.assistant_tg_username),
                 access_code, json.dumps(media_assets),
                 client_id
             )

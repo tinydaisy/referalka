@@ -813,15 +813,16 @@ export default function SpeakerCabinetPage() {
           <input style={inputCss} value={me.name || ''} onChange={(e) => update({ name: e.target.value })} />
 
           <label style={labelCss}>Telegram-ник ассистента</label>
-          <input
-            style={inputCss}
-            value={me.assistant_tg_username || ''}
-            onChange={(e) => update({ assistant_tg_username: e.target.value })}
-            placeholder="username без @"
-          />
+          <div style={{ display: 'flex', alignItems: 'center', ...inputCss, padding: 0, overflow: 'hidden' }}>
+            <span style={{ paddingLeft: 12, paddingRight: 2, color: '#9ca3af', userSelect: 'none' }}>@</span>
+            <input
+              style={{ ...inputCss, border: 'none', outline: 'none', flex: 1, paddingLeft: 0, background: 'transparent' }}
+              value={me.assistant_tg_username || ''}
+              onChange={(e) => update({ assistant_tg_username: e.target.value.replace(/^@+/, '').trim() })}
+            />
+          </div>
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: -6, marginBottom: 4 }}>
-            Если хотите, чтобы профиль за вас вёл ассистент — впишите его Telegram-ник.
-            Он сможет войти в этот кабинет по ссылке от организатора и получит ваш код доступа.
+            Только ник, без @. Ассистент сможет получить код доступа к кабинету спикера через бот.
           </div>
 
           <label style={labelCss}>Кто вы? Ваше позиционирование (кратко как роль/должность)</label>

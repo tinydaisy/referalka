@@ -2785,6 +2785,11 @@ async def update_speaker_by_ref_code(
         v = getattr(data, k)
         if v is not None:
             profile_updates[k] = v
+    if "assistant_tg_username" in profile_updates:
+        from app.api.collaborators import normalize_tg_username
+        profile_updates["assistant_tg_username"] = normalize_tg_username(
+            profile_updates["assistant_tg_username"]
+        )
 
     if profile_updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(profile_updates.keys())]
@@ -2916,6 +2921,11 @@ async def update_speaker_as_editor(
                       "instagram_url", "website_url", "tg_channel_id",
                       "assistant_tg_username"]
     profile_updates = {k: getattr(data, k) for k in profile_fields if getattr(data, k) is not None}
+    if "assistant_tg_username" in profile_updates:
+        from app.api.collaborators import normalize_tg_username
+        profile_updates["assistant_tg_username"] = normalize_tg_username(
+            profile_updates["assistant_tg_username"]
+        )
     if profile_updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(profile_updates.keys())]
         set_parts.append("updated_at = NOW()")

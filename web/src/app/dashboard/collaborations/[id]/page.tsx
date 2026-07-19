@@ -413,9 +413,19 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.assistantAccount}</label>
-              <input type="text" value={form.assistant_tg_username || ''} onChange={set('assistant_tg_username')}
-                placeholder="@assistant"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              <div className="flex items-center w-full rounded-xl border border-gray-200 focus-within:border-brand overflow-hidden">
+                <span className="pl-4 pr-1 text-sm text-gray-400 select-none">@</span>
+                <input type="text"
+                  value={form.assistant_tg_username || ''}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/^@+/, '').trim()
+                    setForm((f: any) => ({ ...f, assistant_tg_username: v }))
+                  }}
+                  className="flex-1 pr-4 py-2.5 text-sm focus:outline-none" />
+              </div>
+              <p className="text-xs text-gray-500 mt-1.5">
+                Только ник, без @. Ассистент сможет получить код доступа к кабинету спикера через бот.
+              </p>
             </div>
           </div>
         </div>

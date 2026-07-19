@@ -399,7 +399,8 @@ async def patch_me(
         upd["ask_topics"] = (data.ask_topics or None)
     # Ник ассистента — нормализуем (срезаем @ и пробелы); пустая строка → NULL.
     if data.assistant_tg_username is not None:
-        upd["assistant_tg_username"] = (data.assistant_tg_username or "").lstrip("@").strip() or None
+        from app.api.collaborators import normalize_tg_username
+        upd["assistant_tg_username"] = normalize_tg_username(data.assistant_tg_username)
     # Понятные ограничения длины (вместо падения БД varchar(N)).
     _LIMITS = {"name": (255, "Имя"), "title": (500, "Регалии / должность"),
                "tg_channel_url": (500, "Ссылка Telegram"), "vk_url": (500, "Ссылка ВКонтакте"),
