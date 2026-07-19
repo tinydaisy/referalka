@@ -17,7 +17,7 @@ Webhook:
 import os
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -42,6 +42,13 @@ router = APIRouter(prefix="/addons", tags=["Модули-аддоны"])
 # должны покупаться как с Профи. Даём триалу ранг pro (не 0), иначе _meets_min_tariff
 # режет покупку модулей у триальных клиентов. См. правило «триал ВСЕГДА = Профи».
 TARIFF_RANK = {"trial": 2, "start": 1, "pro": 2, "vip": 3, "admin": 99}
+
+# ⏳ ВРЕМЕННО (до 10.09.2026): модуль «Коллабораторная» в активной доработке, поэтому
+# всем, кто оплачивает его СЕЙЧАС, подписка ставится не на 30 дней, а ДО ОДНОЙ ДАТЫ —
+# 10 сентября 2026, 23:59 МСК. Дата не накапливается при продлении.
+# ⚠️ После 10.09.2026 УБРАТЬ: иначе оплата будет выдавать уже истёкший аддон.
+COLLAB_HUB_SLUG = "collab_hub"
+COLLAB_HUB_FIXED_UNTIL = datetime(2026, 9, 10, 23, 59, 59, tzinfo=timezone(timedelta(hours=3)))
 
 
 async def _client_tariff_slug(db, client_id: int) -> Optional[str]:
@@ -350,6 +357,17 @@ async def _apply_paid_addon_order(
     months = int(order["months"] or 1)
     add_days = 30 * months
 
+    # ⏳ ВРЕМЕННО: у модуля «Коллабораторная» подписка не на 30 дней, а ДО ФИКСИРОВАННОЙ
+    # ДАТЫ — 10 сентября 2026. Модуль в активной доработке, поэтому всем, кто оплачивает
+    # сейчас, срок ставится одинаковый (и при первой покупке, и при продлении: дата не
+    # накапливается, а выставляется ровно в COLLAB_HUB_FIXED_UNTIL).
+    # ⚠️ После 10.09.2026 убрать этот блок — иначе аддон будет выдаваться уже истёкшим.
+    fixed_until = None
+    _feature_slug = await db.fetchval(
+        "SELECT slug FROM features WHERE id = $1", order["feature_id"])
+    if _feature_slug == COLLAB_HUB_SLUG:
+        fixed_until = COLLAB_HUB_FIXED_UNTIL
+
     async with db.transaction():
         await db.execute(
             """UPDATE addon_orders
@@ -365,7 +383,8 @@ async def _apply_paid_addon_order(
             order["client_id"], order["feature_id"],
         )
         if existing:
-            new_expires = existing["expires_at"] + timedelta(days=add_days)
+            # Коллабораторная — фиксированная дата, срок не накапливается.
+            new_expires = fixed_until or (existing["expires_at"] + timedelta(days=add_days))
             await db.execute(
                 "UPDATE client_addons SET expires_at=$2, months=months+$3, updated_at=NOW() WHERE id=$1",
                 existing["id"], new_expires, months,
@@ -375,9 +394,11 @@ async def _apply_paid_addon_order(
             addon_id = await db.fetchval(
                 """INSERT INTO client_addons
                      (client_id, feature_id, started_at, expires_at, status, source, months)
-                   VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'paid', $4)
+                   VALUES ($1, $2, NOW(),
+                           COALESCE($5::timestamptz, NOW() + ($3 || ' days')::interval),
+                           'active', 'paid', $4)
                    RETURNING id""",
-                order["client_id"], order["feature_id"], str(add_days), months,
+                order["client_id"], order["feature_id"], str(add_days), months, fixed_until,
             )
 
         # Комплект «Профи + модуль» — вместе с модулем активируем/продлеваем тариф Профи.
