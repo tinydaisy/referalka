@@ -680,13 +680,13 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
 
   const cols: any[] = board.columns || []
   // группировка колонок по пакетам для шапки
-  const groups: { title: string; weight: number; span: number; normalize: boolean; aggregate: string }[] = []
+  const groups: { title: string; weight: number; span: number; normalize: boolean; aggregate: string; pkg_id?: number; scheme?: string }[] = []
   cols.forEach((c) => {
     const last = groups[groups.length - 1]
     if (last && last.title === c.package_title) last.span++
     else {
       const pkg = board.packages.find((p: any) => p.id === c.package_id)
-      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1, normalize: !!pkg?.normalize, aggregate: pkg?.aggregate || 'avg' })
+      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1, normalize: !!pkg?.normalize, aggregate: pkg?.aggregate || 'avg', pkg_id: c.package_id, scheme: pkg?.scheme })
     }
   })
   // подпись режима пакета: схема + вес
@@ -701,6 +701,16 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
   const pkgOf = (c: any) => board.packages.find((p: any) => p.id === c.package_id)
   // первая колонка каждого пакета (для жирной границы-разделителя)
   const firstInPkg = (i: number) => i === 0 || cols[i - 1].package_id !== cols[i].package_id
+  // последняя колонка пакета — после неё идёт «Σ сумма» (как на публичной странице /t/)
+  const lastInPkg = (i: number) => i === cols.length - 1 || cols[i + 1].package_id !== cols[i].package_id
+  // Σ-колонка есть только у схем s1 (сырая сумма) и s2 (средневзвеш. долей)
+  const hasSumCol = (p: any) => ['s1', 's2'].includes(pkgScheme(p))
+  const sumColLabel = (p: any) => pkgScheme(p) === 's1'
+    ? { t: 'Σ сумма', h: 'крит₁×вес₁ + крит₂×вес₂ + …' }
+    : { t: 'Σ средневзвеш.', h: 'Σ(норм×вес) ÷ Σвес' }
+  const sumColValue = (row: any, p: any) => pkgScheme(p) === 's1'
+    ? row.package_raw_sums?.[String(p.id)]
+    : row.package_wnorm?.[String(p.id)]
   const scorerOf = (cid: number) => cols.find(c => c.criterion_id === cid)?.scorer
   const normalizeOf = (cid: number) => {
     const c = cols.find(x => x.criterion_id === cid)
@@ -731,7 +741,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
               <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l sticky top-0 z-30 bg-gray-50">Баллы по пакетам</th>
               {/* критерии, сгруппированные по пакетам — с режимом расчёта. Жирная граница между пакетами */}
               {groups.map((g, i) => (
-                <th key={i} colSpan={g.span} className="px-2 py-1.5 text-center border-l-2 border-l-gray-300 align-top sticky top-0 z-30 bg-gray-50">
+                <th key={i} colSpan={g.span + (hasSumCol(g) ? 1 : 0)} className="px-2 py-1.5 text-center border-l-2 border-l-gray-300 align-top sticky top-0 z-30 bg-gray-50">
                   <div>{g.title}</div>
                   <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(g)}</div>
                 </th>
@@ -744,23 +754,34 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                   <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(p)}</div>
                 </th>
               ))}
-              {cols.map((c, i) => (
-                <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium sticky z-30 bg-gray-50 ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`} style={{ minWidth: 64, maxWidth: 90, top: 33 }}>
-                  <div className="whitespace-normal break-words leading-tight">
-                    {c.title}{normalizeOf(c.criterion_id) && <NormBadge />}
-                    {c.description && (
-                      <span className="ml-0.5 relative inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help group/qm">
-                        <HelpCircle size={12} />
-                        <span className="invisible opacity-0 group-hover/qm:visible group-hover/qm:opacity-100 transition-opacity absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-56 bg-[#1f2d3a] text-white text-[11px] font-normal normal-case leading-snug text-left whitespace-pre-line rounded-lg px-2.5 py-2 shadow-xl pointer-events-none">{c.description}</span>
-                      </span>
+              {cols.flatMap((c, i) => {
+                const p = pkgOf(c)
+                const th = (
+                  <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium sticky z-30 bg-gray-50 ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`} style={{ minWidth: 64, maxWidth: 90, top: 33 }}>
+                    <div className="whitespace-normal break-words leading-tight">
+                      {c.title}{normalizeOf(c.criterion_id) && <NormBadge />}
+                      {c.description && (
+                        <span className="ml-0.5 relative inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help group/qm">
+                          <HelpCircle size={12} />
+                          <span className="invisible opacity-0 group-hover/qm:visible group-hover/qm:opacity-100 transition-opacity absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-56 bg-[#1f2d3a] text-white text-[11px] font-normal normal-case leading-snug text-left whitespace-pre-line rounded-lg px-2.5 py-2 shadow-xl pointer-events-none">{c.description}</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] font-normal text-gray-400">×{c.weight ?? 1}</div>
+                    {c.code_phrase && (
+                      <div className="text-[9px] font-semibold text-amber-700 leading-tight mt-1 normal-case font-mono whitespace-normal break-words">Кодовая фраза для выкладки отчёта:<br/>«{c.code_phrase}»</div>
                     )}
-                  </div>
-                  <div className="text-[10px] font-normal text-gray-400">×{c.weight ?? 1}</div>
-                  {c.code_phrase && (
-                    <div className="text-[9px] font-semibold text-amber-700 leading-tight mt-1 normal-case font-mono whitespace-normal break-words">Кодовая фраза для выкладки отчёта:<br/>«{c.code_phrase}»</div>
-                  )}
-                </th>
-              ))}
+                  </th>
+                )
+                if (!lastInPkg(i) || !hasSumCol(p)) return [th]
+                const lbl = sumColLabel(p)
+                return [th, (
+                  <th key={`sum-${c.package_id}`} className="px-1.5 py-1.5 align-top font-semibold text-[#25455D] bg-[#FFF8F0] sticky z-30" style={{ minWidth: 72, maxWidth: 100, top: 33 }}>
+                    <div className="whitespace-normal break-words leading-tight">{lbl.t}</div>
+                    <div className="text-[10px] font-normal text-gray-400 normal-case">{lbl.h}</div>
+                  </th>
+                )]
+              })}
             </tr>
           </thead>
           <tbody>
@@ -780,13 +801,25 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                   </td>
                 ))}
                 {/* под колонками критериев — лидер критерия (схема 2 / норм.) */}
-                {cols.map((c: any, i: number) => (
-                  <td key={c.criterion_id} className={`px-2 py-2 text-center align-top ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`}>
-                    {c.leader && pkgScheme(pkgOf(c)) === 's2' ? (
-                      <><div className="font-semibold leading-tight">{c.leader.name || '—'}</div>{c.leader.rank ? <div className="text-[10px] text-gray-500">место {c.leader.rank}</div> : null}<div className="text-[10px] text-gray-500">макс {c.leader.value}</div></>
-                    ) : <span className="text-gray-300">—</span>}
-                  </td>
-                ))}
+                {cols.flatMap((c: any, i: number) => {
+                  const p = pkgOf(c)
+                  const td = (
+                    <td key={c.criterion_id} className={`px-2 py-2 text-center align-top ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`}>
+                      {c.leader && pkgScheme(p) === 's2' ? (
+                        <><div className="font-semibold leading-tight">{c.leader.name || '—'}</div>{c.leader.rank ? <div className="text-[10px] text-gray-500">место {c.leader.rank}</div> : null}<div className="text-[10px] text-gray-500">макс {c.leader.value}</div></>
+                      ) : <span className="text-gray-300">—</span>}
+                    </td>
+                  )
+                  if (!lastInPkg(i) || !hasSumCol(p)) return [td]
+                  // под Σ-колонкой — лидер пакета (схема 1), как на публичной странице
+                  return [td, (
+                    <td key={`sumlead-${c.package_id}`} className="px-2 py-2 text-center align-top bg-[#FFF8F0]">
+                      {p?.leader && pkgScheme(p) === 's1' ? (
+                        <><div className="font-semibold leading-tight">{p.leader.name || '—'}</div>{p.leader.rank ? <div className="text-[10px] text-gray-500">место {p.leader.rank}</div> : null}<div className="text-[10px] text-gray-500">макс {p.leader.value}</div></>
+                      ) : <span className="text-gray-300">—</span>}
+                    </td>
+                  )]
+                })}
               </tr>
             )}
             {board.table.map((row: any) => {
@@ -801,10 +834,11 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                       <td key={p.id} className={`px-2 py-2 text-center text-gray-700 ${i===0?'border-l-2 border-l-gray-300':''}`}>{row.package_scores?.[String(p.id)] ?? '—'}</td>
                     ))}
                     {/* критерии */}
-                    {cols.map((c, i) => {
+                    {cols.flatMap((c, i) => {
                       const val = row.cells[String(c.criterion_id)]
                       const editable = c.scorer === 'vote' || c.scorer === 'manual'
-                      return (
+                      const p = pkgOf(c)
+                      const td = (
                         <td key={c.criterion_id} className={`px-2 py-2 text-center ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`}>
                           {editable ? (
                             <input type="number" min={0} className="w-16 border rounded px-1 py-0.5 text-sm text-center" defaultValue={val ?? ''}
@@ -812,6 +846,13 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                           ) : (val == null ? <span className="text-gray-300">—</span> : val)}
                         </td>
                       )
+                      if (!lastInPkg(i) || !hasSumCol(p)) return [td]
+                      const sv = sumColValue(row, p)
+                      return [td, (
+                        <td key={`sum-${c.package_id}`} className="px-2 py-2 text-center font-semibold text-[#25455D] bg-[#FFF8F0]">
+                          {sv == null ? <span className="text-gray-300">—</span> : sv}
+                        </td>
+                      )]
                     })}
                   </tr>
                 </>
