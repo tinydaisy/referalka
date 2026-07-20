@@ -160,15 +160,26 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         referral_bonus_days = REFERRAL_TRIAL_BONUS_DAYS if referred_by_client_id else 0
         trial_days = base_trial_days + bonus_days + referral_bonus_days
 
+        # Ставка реф-программы ЗАМОРАЖИВАЕТСЯ на клиенте в момент регистрации
+        # (миграция 227): смена процента в админке потом не бьёт задним числом.
+        ref_percent = ref_accrual_until = None
+        if referred_by_client_id:
+            from app.services.referral_rate import get_settings as _rp_settings
+            _s = await _rp_settings(db)
+            ref_percent = int(_s["percent"])
+            ref_accrual_until = _s["accrual_until"]
+
         client = await db.fetchrow(
             """
             INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token,
-                                 referral_code, referred_by_client_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                 referral_code, referred_by_client_id,
+                                 referral_rate_percent, referral_accrual_until)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id, name, email
             """,
             data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
             new_referral_code, referred_by_client_id,
+            ref_percent, ref_accrual_until,
         )
 
         # Создаём запись бонусного баланса (NULL не допустим, всегда нулевая запись)

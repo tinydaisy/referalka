@@ -100,6 +100,10 @@ async def get_my_referral_dashboard(
         """SELECT c.id, c.name, c.email, c.created_at,
                   cs.source AS sub_source, t.slug AS tariff_slug, t.name AS tariff_name,
                   cs.expires_at, (cs.expires_at > NOW()) AS sub_active,
+                  COALESCE(c.referral_rate_percent, 10) AS rate_percent,
+                  c.referral_accrual_until AS accrual_until,
+                  (c.referral_accrual_until IS NOT NULL
+                   AND c.referral_accrual_until < CURRENT_DATE) AS accrual_expired,
                   (SELECT COALESCE(SUM(amount_paid_card_kopecks), 0)
                      FROM subscription_orders WHERE client_id = c.id AND status = 'paid') AS total_paid_kopecks
              FROM clients c
@@ -467,3 +471,70 @@ async def _notify_client_withdrawal_cancelled(db, client_id: int, amount_kopecks
             f"Сумма {amount_kopecks / 100:.0f}₽ возвращена на бонусный баланс.\n\n"
             f"Причина: {reason}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Админ: настройки реф-программы (ставка + сроки). Миграция 227.
+# ---------------------------------------------------------------------------
+
+class ReferralSettingsUpdate(BaseModel):
+    percent: Optional[int] = None
+    signup_until: Optional[str] = None      # 'YYYY-MM-DD'
+    accrual_until: Optional[str] = None     # 'YYYY-MM-DD'
+
+
+@admin_router.get("/referral-settings", summary="Настройки реф-программы")
+async def admin_get_referral_settings(
+    db=Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    from app.services.referral_rate import get_settings
+    s = await get_settings(db)
+    stats = await db.fetchrow(
+        """SELECT count(*) AS total,
+                  count(*) FILTER (WHERE referral_accrual_until >= CURRENT_DATE) AS active,
+                  count(*) FILTER (WHERE referral_accrual_until <  CURRENT_DATE) AS expired
+             FROM clients WHERE referred_by_client_id IS NOT NULL"""
+    )
+    return {
+        "percent": s["percent"],
+        "signup_until": str(s["signup_until"]),
+        "accrual_until": str(s["accrual_until"]),
+        "updated_at": s.get("updated_at"),
+        "referred_total": stats["total"],
+        "referred_active": stats["active"],
+        "referred_expired": stats["expired"],
+    }
+
+
+@admin_router.patch("/referral-settings", summary="Изменить ставку и сроки")
+async def admin_update_referral_settings(
+    data: ReferralSettingsUpdate,
+    db=Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """Меняет ставку для БУДУЩИХ приведённых. Уже приведённым ничего не меняет —
+    у них ставка заморожена на карточке клиента (миграция 227)."""
+    fields, args = [], []
+    if data.percent is not None:
+        if not (0 <= data.percent <= 100):
+            raise HTTPException(400, "Процент должен быть от 0 до 100")
+        args.append(data.percent)
+        fields.append(f"percent = ${len(args)}")
+    for key in ("signup_until", "accrual_until"):
+        val = getattr(data, key)
+        if val:
+            from datetime import date as _date
+            try:
+                args.append(_date.fromisoformat(val))
+            except ValueError:
+                raise HTTPException(400, f"Неверная дата в {key}: ожидается ГГГГ-ММ-ДД")
+            fields.append(f"{key} = ${len(args)}")
+    if not fields:
+        raise HTTPException(400, "Нечего менять")
+    fields.append("updated_at = now()")
+    await db.execute(
+        f"UPDATE referral_program_settings SET {', '.join(fields)} WHERE id = 1",
+        *args,
+    )
+    return await admin_get_referral_settings(db=db, admin=admin)

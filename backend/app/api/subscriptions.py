@@ -543,14 +543,23 @@ async def _credit_referral_cashback(
         return
 
     payer = await db.fetchrow(
-        "SELECT name, referred_by_client_id FROM clients WHERE id = $1",
+        "SELECT name, referred_by_client_id, referral_rate_percent, "
+        "       referral_accrual_until "
+        "FROM clients WHERE id = $1",
         payer_client_id,
     )
     if not payer or not payer["referred_by_client_id"]:
         return
 
+    # Ставка ЗАМОРОЖЕНА на плательщике при его регистрации (миграция 227):
+    # смена процента в админке не бьёт задним числом. Срок начислений истёк → 0.
+    from app.services.referral_rate import effective_percent
+    percent = effective_percent(payer)
+    if percent <= 0:
+        return
+
     referrer_id = payer["referred_by_client_id"]
-    cashback = calc_cashback_kopecks(amount_paid_card_kopecks, percent=10)
+    cashback = calc_cashback_kopecks(amount_paid_card_kopecks, percent=percent)
     if cashback <= 0:
         return
 
@@ -560,7 +569,7 @@ async def _credit_referral_cashback(
         amount_kopecks=cashback,
         source_order_id=order_id,
         source_payer_id=payer_client_id,
-        description=f"10% от оплаты {tariff_name} клиентом «{payer['name']}»",
+        description=f"{percent}% от оплаты {tariff_name} клиентом «{payer['name']}»",
     )
 
     # Уведомляем рефера в его TG (если настроен notifications_telegram_chat_id).

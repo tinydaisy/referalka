@@ -214,6 +214,13 @@ export default function PartnerProgramPage() {
                     <div className="text-xs text-gray-500">
                       Оплатил всего: {((r.total_paid_kopecks || 0) / 100).toLocaleString('ru-RU')} ₽
                     </div>
+                    <div className={`text-xs mt-0.5 ${r.accrual_expired ? 'text-gray-400' : 'text-[#25455D]'}`}>
+                      {r.accrual_expired ? (
+                        <>Начисления завершены{r.accrual_until ? ` ${new Date(r.accrual_until).toLocaleDateString('ru-RU')}` : ''}</>
+                      ) : (
+                        <><b>{r.rate_percent}%</b>{r.accrual_until ? ` до ${new Date(r.accrual_until).toLocaleDateString('ru-RU')}` : ''}</>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

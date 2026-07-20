@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const adminNav = [
@@ -14,6 +14,7 @@ const adminNav = [
   { href: '/admin/promotions', label: 'Акции', icon: Tag },
   { href: '/admin/orders', label: 'Оплаты', icon: CreditCard },
   { href: '/admin/withdrawals', label: 'Заявки на вывод', icon: CreditCard },
+  { href: '/admin/referral-settings', label: 'Реф-программа', icon: Percent },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

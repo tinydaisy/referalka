@@ -1078,6 +1078,15 @@ export const api = {
       }),
   },
 
+  adminReferralSettings: {
+    get: () => request('/api/v1/admin/referral-settings'),
+    update: (data: { percent?: number; signup_until?: string; accrual_until?: string }) =>
+      request('/api/v1/admin/referral-settings', {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+  },
+
   // Вебинарная комната (миграция 221) — комната на день события
   webinar: {
     listRooms: (eventId: number) => request(`/api/v1/events/${eventId}/webinar`),
