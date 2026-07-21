@@ -959,6 +959,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     btn_url = btn_url or ""
     # Имя спикера — заполняется в speaker-ветках; нужно для подстановки в subject.
     resolved_speaker_name = ""
+    # Прочие спикерские значения для subject ({speaker_topic} и т.п.). Заполняются
+    # в спикерских ветках; без этого тема уходила бы с пустыми скобками — все
+    # неизвестные плейсхолдеры вычищаются в финальной зачистке subject ниже.
+    subject_speaker_vals: dict[str, str] = {}
 
     if tpl_type in DAY_TYPES:
         # Номер дня программы. Приоритет — явно заданный день рассылки
@@ -1287,6 +1291,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]),
                 )
                 reg_url = sp["registration_url"] or ""
+                # Спикерские значения для subject (тема выступления, регалии и т.п.).
+                subject_speaker_vals = {
+                    "speaker_topic": topic or "",
+                    "speaker_role": sp["role"] or "",
+                    "speaker_positioning": sp["positioning"] or "",
+                    "speaker_time": sp_time or "",
+                    "speaker_date": sp_date or "",
+                    "speaker_datetime": sp_dt or "",
+                    "gift_after_speech_title": sp["gift_after_speech_title"] or "",
+                    "gift_raffle_title": sp["gift_raffle_title"] or "",
+                }
                 # Плейсхолдеры в URL КНОПКИ (не только в тексте): карточка спикера,
                 # регистрация, ник спикера. {stream_url}/{vip_url}/{event_chat_*}
                 # раскрываются глобально ниже (_apply_event_globals / vip).
@@ -1437,6 +1452,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             )
             text = apply_speaker_material(text, speaker_material)
         btn_url = btn_url.replace("{stream_url}", stream_url)
+        # Имя и тема спикера — нужны для подстановки в subject (заголовок).
+        resolved_speaker_name = session_data.get("speaker_name") or ""
+        subject_speaker_vals = {
+            "speaker_topic": (session_data.get("speaker_topic")
+                              or session_data.get("session_title") or ""),
+            "speaker_role": session_data.get("role") or "",
+            "gift_after_speech_title": session_data.get("gift_title") or "",
+            "gift_title": session_data.get("gift_title") or "",
+        }
 
     elif tpl_type == "pre_conf":
         conf_row = await conn.fetchrow(
@@ -1716,6 +1740,18 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     if resolved_subject:
         if "{speaker_name}" in resolved_subject:
             resolved_subject = resolved_subject.replace("{speaker_name}", resolved_speaker_name)
+        # Остальные спикерские плейсхолдеры темы ({speaker_topic} и др.) — из
+        # значений, собранных спикерской веткой. Без этого они попадали в зачистку
+        # ниже и тема уходила пустой (например «()» вместо «Тема (Имя)»).
+        for _ph, _val in subject_speaker_vals.items():
+            token = "{" + _ph + "}"
+            if token in resolved_subject:
+                # Subject — ОДНА строка (тема письма / первая жирная строка в TG).
+                # У спикера может быть несколько тем через перенос — склеиваем в « · ».
+                _flat = " · ".join(
+                    p.strip() for p in (_val or "").splitlines() if p.strip()
+                )
+                resolved_subject = resolved_subject.replace(token, _flat)
         if "{brand_name}" in resolved_subject:
             g = await _get_event_globals(conn, event_id)
             resolved_subject = resolved_subject.replace("{brand_name}", g["brand_name"])
@@ -1728,6 +1764,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # выглядит как баг у получателя.
         for _ph in _KNOWN_PLACEHOLDERS:
             resolved_subject = resolved_subject.replace("{" + _ph + "}", "")
+        # Пустое значение оставляет за собой мусор вида «()» / « — » / « · »
+        # (шаблон «{speaker_topic} ({speaker_name})» без темы). Подчищаем.
+        resolved_subject = re.sub(r"\(\s*\)", "", resolved_subject)
+        resolved_subject = re.sub(r"^[\s·—–\-:,]+|[\s·—–\-:,]+$", "", resolved_subject)
         resolved_subject = re.sub(r"\s{2,}", " ", resolved_subject).strip() or None
 
     # Для шаблонов media_type='video' → отдаём видео (фото игнорируем).
