@@ -2831,12 +2831,26 @@ function JudgingTab({ token }: { token: string }) {
   return (
     <div>
       {data.stages?.length > 0 && (
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-          <select value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}
-            style={{ padding: '10px 14px', borderRadius: 10, border: 'none', fontSize: 15, fontWeight: 800,
-                     color: PEACH, background: 'linear-gradient(45deg, #25455D, #0a1520)', cursor: 'pointer' }}>
-            {data.stages.map((s: any) => <option key={s.id} value={s.id} style={{ color: '#1a2a3a', background: '#fff', fontWeight: 400 }}>{s.title}</option>)}
-          </select>
+        <div style={{ marginBottom: 12 }}>
+          {/* Этапы — вкладками (как в «Моём слоте»): выпадающий список читался как
+              обычный заголовок, было не видно, что его надо разворачивать. */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap',
+            borderBottom: '1px solid #e1e8ee', paddingBottom: 10, marginBottom: 10 }}>
+            {data.stages.map((s: any) => {
+              const active = stageId === s.id
+              return (
+                <button key={s.id} type="button" onClick={() => setStageId(s.id)}
+                  style={{
+                    padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
+                    border: `1px solid ${active ? DARK : '#d4dee5'}`,
+                    background: active ? 'linear-gradient(45deg, #25455D, #0a1520)' : '#fff',
+                    color: active ? PEACH : DARK, fontWeight: active ? 800 : 500,
+                  }}>
+                  {s.title}
+                </button>
+              )
+            })}
+          </div>
           {stageId && eventSlug && (
             <a href={`/t/${eventSlug}/${stageId}`} target="_blank" rel="noreferrer"
               style={{ fontSize: 13, color: DARK, textDecoration: 'underline', fontWeight: 700 }}>
