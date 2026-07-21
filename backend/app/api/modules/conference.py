@@ -139,7 +139,9 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                   sp.name AS speaker_name, cse.role AS speaker_role,
                   sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
-           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
+           -- is_visible=FALSE («Исключать из Mini App и лендинга») → слот остаётся,
+           -- данные скрытого спикера в публичную выдачу не идут.
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_time""",
@@ -1789,7 +1791,8 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
                   col.name AS speaker_name, col.title AS speaker_title,
                   col.photo_url, cse.role AS speaker_role
            FROM conf_sessions s
-           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
+           -- is_visible=FALSE → слот остаётся, скрытый спикер не показывается.
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1

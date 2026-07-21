@@ -120,7 +120,8 @@ async def _load_program(db, event_id):
                   col.name AS sp_name, col.title AS sp_title,
                   col.photo_url AS sp_photo
              FROM conf_sessions s
-             LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
+             -- is_visible=FALSE → слот остаётся, имя/фото скрытого спикера не выводим.
+             LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE
              LEFT JOIN collaborators col ON col.id = cse.speaker_id
              LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
             WHERE s.event_id = $1
