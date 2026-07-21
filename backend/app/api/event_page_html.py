@@ -88,7 +88,7 @@ async def _load_collaborators(db, event_id):
               JOIN collaborators c ON c.id = cse.speaker_id
               LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
               LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
-             WHERE cse.event_id = $1
+             WHERE cse.event_id = $1 AND cse.is_visible = TRUE
              ORDER BY {order_by_sql('cse')}""",
         event_id,
     )

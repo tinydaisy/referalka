@@ -204,6 +204,7 @@ export default function ConferenceSpeakerPage() {
     priority: 60,
     exclude_gift_from_broadcast: false,
     exclude_channel_from_subscription: false,
+    is_visible: true,
     poster_id: null as number | null,
     announcement_poster_ids: [] as number[],
     // Привязка темы к слоту программы (только для показа, не сохраняется).
@@ -342,6 +343,7 @@ export default function ConferenceSpeakerPage() {
           priority: sp.priority ?? 60,
           exclude_gift_from_broadcast: sp.exclude_gift_from_broadcast || false,
           exclude_channel_from_subscription: sp.exclude_channel_from_subscription || false,
+          is_visible: sp.is_visible !== false,
           // Какая афиша из библиотеки коллаба используется в этой конференции
           // (миграция 121). NULL = первая из библиотеки.
           poster_id: sp.poster_id ?? null,
@@ -568,6 +570,7 @@ export default function ConferenceSpeakerPage() {
         priority,
         exclude_gift_from_broadcast: eventForm.exclude_gift_from_broadcast,
         exclude_channel_from_subscription: eventForm.exclude_channel_from_subscription,
+        is_visible: eventForm.is_visible,
         poster_id: eventForm.poster_id,
         announcement_poster_ids: eventForm.announcement_poster_ids,
       }
@@ -1025,6 +1028,20 @@ export default function ConferenceSpeakerPage() {
               className="w-4 h-4 rounded border-gray-300 text-brand" />
             <span className="text-sm text-gray-700">
               Исключать канал из подписки
+            </span>
+          </label>
+          {/* is_visible в БД — «показывать»; галочка обратная по смыслу («исключать»),
+              поэтому значение инвертируем при чтении и при сохранении. */}
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!eventForm.is_visible}
+              onChange={e => setEventForm(f => ({ ...f, is_visible: !e.target.checked }))}
+              className="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand" />
+            <span className="text-sm text-gray-700">
+              Исключать из Mini App и API для лендинга
+              <span className="block text-xs text-gray-400">
+                Спикер не показывается в Mini App, на веб-странице события и не отдаётся
+                на сторонний лендинг. В дашборде и рассылках остаётся.
+              </span>
             </span>
           </label>
         </div>

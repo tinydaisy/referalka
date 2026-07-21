@@ -244,7 +244,10 @@ async def widget_collaborators(
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
               LEFT JOIN contacts ct ON ct.id = c.contact_id
-             WHERE cse.event_id = $1""",
+             -- is_visible=FALSE («Исключать из Mini App и лендинга» в карточке
+             -- спикера) — человек не отдаётся ни на сторонний лендинг, ни в
+             -- Mini App, ни на веб-страницу события.
+             WHERE cse.event_id = $1 AND cse.is_visible = TRUE""",
         event_id,
     )
 
@@ -328,7 +331,9 @@ async def widget_program(
                   col.instagram_url AS sp_instagram_url, col.website_url AS sp_website_url,
                   col.media_assets AS sp_media_assets
              FROM conf_sessions s
-             LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
+             -- is_visible=FALSE → слот в программе остаётся (время не «схлопывается»),
+             -- но данные скрытого спикера наружу не уходят.
+             LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE
              LEFT JOIN collaborators col ON col.id = cse.speaker_id
              LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
             WHERE s.event_id = $1
