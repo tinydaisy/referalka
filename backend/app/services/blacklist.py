@@ -75,7 +75,11 @@ async def blocked_message(db, client_id: int, platform: str = "telegram") -> str
     lines = ["Доступ к материалам ограничен — вы в чёрном списке."]
     contacts = []
     if row:
-        tg = (row["work_tg_username"] or "").lstrip("@")
+        # ⚠️ work_tg_username у части клиентов заполнен полным URL
+        # (https://telegram.me/ник), а не ником — вытаскиваем ник.
+        tg = (row["work_tg_username"] or "").strip()
+        if tg:
+            tg = tg.rstrip("/").split("/")[-1].lstrip("@")
         if tg:
             contacts.append(f"Telegram: @{tg}" if platform != "telegram"
                             else f'Telegram: <a href="https://t.me/{tg}">@{tg}</a>')
