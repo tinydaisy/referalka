@@ -1190,7 +1190,12 @@ async def _send_broadcast_vk_part(
                 WHERE pu.client_id = $1
                   AND pu.platform_slug = 'vk'
                   AND ch.platform_slug = 'vk'
-                  AND puc.is_unsubscribed = FALSE""",
+                  AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             client_id,
         )
     elif event_id and aud_include == "registered_event":
@@ -1202,7 +1207,12 @@ async def _send_broadcast_vk_part(
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
                  JOIN channels ch ON ch.id = cc.channel_id
                 WHERE ep.event_id = $1 AND ep.is_registered = TRUE
-                  AND ch.platform_slug = 'vk' AND puc.is_unsubscribed = FALSE""",
+                  AND ch.platform_slug = 'vk' AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             event_id,
         )
     elif event_id:
@@ -1214,7 +1224,12 @@ async def _send_broadcast_vk_part(
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
                  JOIN channels ch ON ch.id = cc.channel_id
                 WHERE ep.event_id = $1
-                  AND ch.platform_slug = 'vk' AND puc.is_unsubscribed = FALSE""",
+                  AND ch.platform_slug = 'vk' AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             event_id,
         )
     else:
@@ -1481,7 +1496,12 @@ async def _send_broadcast_max_part(
                 WHERE pu.client_id = $1
                   AND pu.platform_slug = 'max'
                   AND ch.platform_slug = 'max'
-                  AND puc.is_unsubscribed = FALSE""",
+                  AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             client_id,
         )
     elif event_id and aud_include == "registered_event":
@@ -1493,7 +1513,12 @@ async def _send_broadcast_max_part(
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
                  JOIN channels ch ON ch.id = cc.channel_id
                 WHERE ep.event_id = $1 AND ep.is_registered = TRUE
-                  AND ch.platform_slug = 'max' AND puc.is_unsubscribed = FALSE""",
+                  AND ch.platform_slug = 'max' AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             event_id,
         )
     elif event_id:
@@ -1505,7 +1530,12 @@ async def _send_broadcast_max_part(
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
                  JOIN channels ch ON ch.id = cc.channel_id
                 WHERE ep.event_id = $1
-                  AND ch.platform_slug = 'max' AND puc.is_unsubscribed = FALSE""",
+                  AND ch.platform_slug = 'max' AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             event_id,
         )
     else:
@@ -1724,7 +1754,12 @@ async def _send_broadcast_email_part(
                   AND pu.platform_slug = 'email'
                   AND pu.email_is_dead = FALSE
                   AND puc.client_channel_id = $2
-                  AND puc.is_unsubscribed = FALSE""",
+                  AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             client_id, channel_dict["client_channel_id"],
         )
     elif event_id and aud_include == "registered_event":
@@ -1738,7 +1773,12 @@ async def _send_broadcast_email_part(
                 WHERE ep.event_id = $1 AND ep.is_registered = TRUE
                   AND pu.email_is_dead = FALSE
                   AND puc.client_channel_id = $2
-                  AND puc.is_unsubscribed = FALSE""",
+                  AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             event_id, channel_dict["client_channel_id"],
         )
     elif event_id:
@@ -1752,7 +1792,12 @@ async def _send_broadcast_email_part(
                 WHERE ep.event_id = $1
                   AND pu.email_is_dead = FALSE
                   AND puc.client_channel_id = $2
-                  AND puc.is_unsubscribed = FALSE""",
+                  AND puc.is_unsubscribed = FALSE
+                  -- ЧС (миграция 228)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_blacklist bl
+                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                  )""",
             event_id, channel_dict["client_channel_id"],
         )
     else:
@@ -2238,6 +2283,12 @@ async def _build_audience(conn, schedule) -> set:
               AND cc.client_id = pu.client_id
               AND ch.platform_slug = 'telegram'
           )
+        )
+        -- ЧЁРНЫЙ СПИСОК (миграция 228): заблокированные у СВОЕГО клиента
+        -- исключаются из аудитории. Подставляется во все ветки ниже.
+        AND NOT EXISTS (
+            SELECT 1 FROM contact_blacklist bl
+            WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
         )
     """
 

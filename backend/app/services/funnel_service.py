@@ -800,6 +800,15 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         return
 
     client_id = run["client_id"]
+
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — воронка не запускается, материалы не выдаются.
+    try:
+        from app.services.blacklist import is_identity_blacklisted
+        if await is_identity_blacklisted(db, client_id, "telegram", str(tg_id)):
+            log.info("run_started: contact blacklisted (client %s, tg %s)", client_id, tg_id)
+            return
+    except Exception as e:  # noqa: BLE001 — fail-open
+        log.warning("run_started blacklist check failed: %s", e)
     skeleton_contact_id = run["contact_id"]  # legacy: создан на landing у старых забегов; для новых = NULL
 
     # Если у человека уже был забег по этому же магниту/пакету (он повторно кликнул
@@ -1022,6 +1031,15 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
 
     client_id = run["client_id"]
     skeleton_contact_id = run["contact_id"]
+
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — воронка не запускается.
+    try:
+        from app.services.blacklist import is_identity_blacklisted
+        if await is_identity_blacklisted(db, client_id, "vk", str(vk_id)):
+            log.info("run_started_vk: contact blacklisted (client %s, vk %s)", client_id, vk_id)
+            return
+    except Exception as e:  # noqa: BLE001 — fail-open
+        log.warning("run_started_vk blacklist check failed: %s", e)
 
     # Дедуп забегов на той же платформе.
     existing_run = await db.fetchrow(
@@ -1304,6 +1322,15 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
 
     client_id = run["client_id"]
     skeleton_contact_id = run["contact_id"]
+
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — воронка не запускается.
+    try:
+        from app.services.blacklist import is_identity_blacklisted
+        if await is_identity_blacklisted(db, client_id, "max", str(max_user_id)):
+            log.info("run_started_max: contact blacklisted (client %s, max %s)", client_id, max_user_id)
+            return
+    except Exception as e:  # noqa: BLE001 — fail-open
+        log.warning("run_started_max blacklist check failed: %s", e)
 
     # Дедуп забегов на MAX той же связки (магнит/пакет).
     existing_run = await db.fetchrow(

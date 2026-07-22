@@ -94,6 +94,9 @@ async def list_addons(
     """Все покупаемые модули + признаки: куплен ли, доступен ли по тарифу."""
     client_id = int(user["sub"])
     client_slug = await _client_tariff_slug(db, client_id)
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — запрет покупки Коллабораторной, ставит админ.
+    from app.services.blacklist import is_collab_hub_blocked
+    collab_blocked = await is_collab_hub_blocked(db, client_id)
 
     feats = await db.fetch(
         """SELECT id, slug, name, description, tagline, bullet_points,
@@ -146,6 +149,10 @@ async def list_addons(
         d["expires_at"] = ow["expires_at"] if ow else None
         d["included_in_tariff"] = f["slug"] in in_tariff_slugs
         d["coming_soon"] = bool(f["coming_soon"])
+        # ЧЁРНЫЙ СПИСОК (миграция 228): клиенту закрыта покупка Коллабораторной —
+        # карточка не показывается вовсе (не «недоступна», а её нет в списке).
+        if collab_blocked and f["slug"] == COLLAB_HUB_SLUG and not owned_map.get(f["id"]):
+            continue
         # «Скоро будет» — купить нельзя, показываем без цены/кнопки.
         d["available"] = (not f["coming_soon"]) and _meets_min_tariff(client_slug, f["min_tariff_slug"])
         # Комплект «Профи + модуль» одной оплатой — доступен, только если клиенту НЕ хватает тарифа
@@ -212,6 +219,16 @@ async def create_addon_order(
         raise HTTPException(status_code=404, detail="Модуль не найден")
     if feat["coming_soon"]:
         raise HTTPException(status_code=400, detail="Этот модуль скоро будет доступен")
+
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — запрет покупки Коллабораторной.
+    # Дублирует скрытие карточки в списке: прямой POST мимо UI тоже отклоняем.
+    if feat["slug"] == COLLAB_HUB_SLUG:
+        from app.services.blacklist import is_collab_hub_blocked
+        if await is_collab_hub_blocked(db, client_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Покупка этого модуля недоступна. Обратитесь в службу поддержки.",
+            )
 
     client_slug = await _client_tariff_slug(db, client_id)
     # Для комплекта проверку тарифа НЕ делаем — клиент как раз покупает Профи вместе с модулем.
@@ -412,6 +429,24 @@ async def _apply_paid_addon_order(
         "SELECT slug FROM features WHERE id = $1", order["feature_id"])
     if _feature_slug == COLLAB_HUB_SLUG:
         fixed_until = COLLAB_HUB_FIXED_UNTIL
+        # ЧЁРНЫЙ СПИСОК (миграция 228) — последний рубеж. Сюда можно попасть, если
+        # клиента заблокировали ПОСЛЕ создания заказа (ссылка на оплату уже была).
+        # Деньги списаны — модуль не выдаём, но заказ помечаем и громко логируем,
+        # чтобы платёж не потерялся молча и его можно было вернуть.
+        from app.services.blacklist import is_collab_hub_blocked
+        if await is_collab_hub_blocked(db, order["client_id"]):
+            await db.execute(
+                """UPDATE addon_orders
+                      SET status='failed', prodamus_raw=$2::jsonb, updated_at=NOW()
+                    WHERE id=$1""",
+                order_id, json.dumps(raw, ensure_ascii=False),
+            )
+            logger.error(
+                "ADDON BLOCKED: клиент %s в чёрном списке, оплата пришла (order %s), "
+                "модуль collab_hub НЕ выдан — требуется возврат",
+                order["client_id"], order_id,
+            )
+            return {"ok": False, "blocked": True, "order_id": order_id}
 
     async with db.transaction():
         await db.execute(

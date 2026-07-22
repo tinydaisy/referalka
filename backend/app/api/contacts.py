@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.assistant_access import assistant_is_restricted
 from app.services.contact_merge import merge_contacts
 
 
@@ -69,6 +70,7 @@ def _build_contacts_filter(
     lead_magnet_stage: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    blacklisted: str | None = None,
 ) -> tuple[str, list]:
     """Собирает WHERE-клозу и список параметров (без фильтра по subscription state).
 
@@ -260,6 +262,16 @@ def _build_contacts_filter(
         idx = len(params)
         where += f" AND c.last_contact_at <= ${idx}::timestamptz"
 
+    # Чёрный список (миграция 228): 'yes' — только заблокированные,
+    # 'no' — только не заблокированные, пусто — фильтр не применяется.
+    bl_mode = (blacklisted or "").strip().lower()
+    if bl_mode in ("yes", "no"):
+        bl_exists = """EXISTS (
+            SELECT 1 FROM contact_blacklist bl
+             WHERE bl.contact_id = c.id AND bl.client_id = c.client_id
+        )"""
+        where += f" AND {bl_exists}" if bl_mode == "yes" else f" AND NOT {bl_exists}"
+
     return where, params
 
 
@@ -293,6 +305,7 @@ async def get_contacts(
     lead_magnet_stage: str | None = Query(default=None, description="any | delivered (забрал) | not_delivered (не забрал). Работает вместе с lead_magnet_ids/package_ids"),
     date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
     date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
+    blacklisted: str | None = Query(default=None, description="yes — только в чёрном списке, no — только не в нём, пусто — все"),
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
@@ -319,6 +332,7 @@ async def get_contacts(
         lead_magnet_stage=lead_magnet_stage,
         date_from=date_from,
         date_to=date_to,
+        blacklisted=blacklisted,
     )
     UNSUB_EXISTS = UNSUB_EXISTS_SQL
     where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
@@ -359,7 +373,11 @@ async def get_contacts(
           {UNSUB_EXISTS} AS is_unsubscribed,
           EXISTS (
             SELECT 1 FROM event_participants ep WHERE ep.contact_id = c.id
-          ) AS is_participant
+          ) AS is_participant,
+          EXISTS (
+            SELECT 1 FROM contact_blacklist bl
+             WHERE bl.contact_id = c.id AND bl.client_id = c.client_id
+          ) AS is_blacklisted
         FROM contacts c
         {where}
         ORDER BY c.name NULLS LAST, c.id
@@ -411,6 +429,7 @@ async def export_contacts_csv(
     lead_magnet_stage: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    blacklisted: str | None = Query(default=None),
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
@@ -436,6 +455,7 @@ async def export_contacts_csv(
         lead_magnet_stage=lead_magnet_stage,
         date_from=date_from,
         date_to=date_to,
+        blacklisted=blacklisted,
     )
     where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
 
@@ -471,7 +491,11 @@ async def export_contacts_csv(
             JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
             JOIN client_channels cc ON cc.id = puc.client_channel_id
             JOIN channels ch ON ch.id = cc.channel_id
-           WHERE pu.contact_id = c.id AND cc.client_id = c.client_id) AS subs
+           WHERE pu.contact_id = c.id AND cc.client_id = c.client_id) AS subs,
+          EXISTS (
+            SELECT 1 FROM contact_blacklist bl
+             WHERE bl.contact_id = c.id AND bl.client_id = c.client_id
+          ) AS is_blacklisted
         FROM contacts c
         {where}
         ORDER BY c.name NULLS LAST, c.id
@@ -484,7 +508,7 @@ async def export_contacts_csv(
         'ID', 'Имя', 'Email', 'Телефон', 'Реф-код', 'UTM-источник', 'Теги',
         'Telegram', 'VK', 'MAX',
         'Каналы (подписан)', 'Каналы (отписан)',
-        'Откуда пришёл', 'Создан', 'Последний контакт',
+        'Откуда пришёл', 'Создан', 'Последний контакт', 'Чёрный список',
     ])
 
     def _fmt_dt(v):
@@ -532,6 +556,7 @@ async def export_contacts_csv(
             r['referrer_name'] or '',
             _fmt_dt(r['created_at']),
             _fmt_dt(r['last_contact_at']),
+            'да' if r['is_blacklisted'] else '',
         ])
 
     csv_bytes = buf.getvalue().encode('utf-8')
@@ -659,7 +684,11 @@ async def get_contact(
           c.consent_marketing_policy_ver,
           (SELECT json_build_object('id', ref.id, 'name', ref.name)
              FROM contacts ref
-            WHERE ref.id = c.first_referrer_contact_id LIMIT 1) AS referrer
+            WHERE ref.id = c.first_referrer_contact_id LIMIT 1) AS referrer,
+          EXISTS (
+            SELECT 1 FROM contact_blacklist bl
+             WHERE bl.contact_id = c.id AND bl.client_id = c.client_id
+          ) AS is_blacklisted
         FROM contacts c
         WHERE c.id = $1 AND c.client_id = $2
     """, contact_id, client_id)
@@ -853,6 +882,70 @@ async def merge_endpoint(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, **result}
+
+
+# ─── Чёрный список (миграция 228) ────────────────────────────────────────────
+
+class BlacklistRequest(BaseModel):
+    # Причина блокировки — для себя, показывается в карточке контакта.
+    reason: Optional[str] = None
+
+
+async def _assert_own_contact(db, contact_id: int, client_id: int) -> None:
+    """Контакт должен принадлежать этому клиенту, иначе 404."""
+    own = await db.fetchval(
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        contact_id, client_id
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+
+@router.post("/contacts/{contact_id}/blacklist")
+async def add_to_blacklist(
+    contact_id: int,
+    data: BlacklistRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Добавить контакт в чёрный список кабинета.
+
+    Заблокированный не получает контент из ботов этого клиента: бот отвечает
+    заглушкой с каналами поддержки, рассылки не уходят, воронки не запускаются.
+    В базах других клиентов тот же человек работает как обычно.
+    """
+    if await assistant_is_restricted(client):
+        raise HTTPException(403, "Управлять чёрным списком может только владелец кабинета.")
+    client_id = int(client["sub"])
+    await _assert_own_contact(db, contact_id, client_id)
+
+    reason = (data.reason or "").strip() or None
+    await db.execute(
+        """INSERT INTO contact_blacklist (client_id, contact_id, reason, added_by)
+           VALUES ($1, $2, $3, 'client')
+           ON CONFLICT (client_id, contact_id) DO NOTHING""",
+        client_id, contact_id, reason
+    )
+    return {"ok": True}
+
+
+@router.delete("/contacts/{contact_id}/blacklist")
+async def remove_from_blacklist(
+    contact_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Убрать контакт из чёрного списка кабинета."""
+    if await assistant_is_restricted(client):
+        raise HTTPException(403, "Управлять чёрным списком может только владелец кабинета.")
+    client_id = int(client["sub"])
+    await _assert_own_contact(db, contact_id, client_id)
+
+    await db.execute(
+        "DELETE FROM contact_blacklist WHERE client_id = $1 AND contact_id = $2",
+        client_id, contact_id
+    )
+    return {"ok": True}
 
 
 # ─── Редактирование контакта (имя, email, phone, tags) ───────────────────────

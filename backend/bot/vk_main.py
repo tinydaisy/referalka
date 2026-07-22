@@ -552,6 +552,19 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
         )
     except Exception:
         pass
+
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — подписку регистрируем, контент не выдаём.
+    try:
+        from app.services.blacklist import is_identity_blacklisted, blocked_message
+        if await is_identity_blacklisted(db, ctx.client_id, "vk", str(user_id)):
+            from app.services.vk_api import send_message as _vk_send
+            await _vk_send(int(user_id),
+                           await blocked_message(db, ctx.client_id, platform="vk"),
+                           token=ctx.token)
+            return
+    except Exception as e:  # noqa: BLE001 — fail-open
+        logger.warning(f"VK blacklist check (allow) failed: {e}")
+
     await upsert_contact_with_identity(
         db,
         client_id=ctx.client_id,
@@ -1097,6 +1110,19 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         except Exception as e:  # noqa: BLE001 — слушалка не должна ронять обработчик
             logger.warning(f"VK chat archive failed: {e}")
         return
+
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — до выдачи любого контента.
+    # Ставится ниже веток чатов: в беседах блок не применяем, только в ЛС.
+    try:
+        from app.services.blacklist import is_identity_blacklisted, blocked_message
+        if await is_identity_blacklisted(db, ctx.client_id, "vk", str(from_id)):
+            from app.services.vk_api import send_message as _vk_send
+            await _vk_send(int(from_id),
+                           await blocked_message(db, ctx.client_id, platform="vk"),
+                           token=ctx.token)
+            return
+    except Exception as e:  # noqa: BLE001 — fail-open, сбой проверки не блокирует
+        logger.warning(f"VK blacklist check failed: {e}")
 
     # /start — приветствие из НАСТРОЕК клиента (как в TG): режим «конкретное
     # событие» / кастомный текст / дефолт + кнопки «Все события» и «Об основателе».

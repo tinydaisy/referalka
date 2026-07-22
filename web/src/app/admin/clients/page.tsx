@@ -23,6 +23,7 @@ interface Client {
   subscribers_count: number
   unsubscribed_count: number
   collaborators_count: number
+  collab_hub_blocked?: boolean
 }
 
 interface EmailQuality {
@@ -92,7 +93,7 @@ export default function AdminClientsPage() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                {['Клиент', 'Тариф', 'Событий', 'Контактов', 'Подписчиков', 'Своих ботов', 'Коллаб.', 'Зарег.'].map(h => (
+                {['Клиент', 'Тариф', 'Событий', 'Контактов', 'Подписчиков', 'Своих ботов', 'Коллаб.', 'Коллаб. запрещена', 'Зарег.'].map(h => (
                   <th key={h} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -168,6 +169,23 @@ export default function AdminClientsPage() {
                     {c.own_channels_count}
                   </td>
                   <td className="px-3 py-4 text-sm text-gray-700 text-center">{c.collaborators_count}</td>
+                  <td className="px-3 py-4 text-center">
+                    <input
+                      type="checkbox"
+                      checked={!!c.collab_hub_blocked}
+                      title="Запретить покупку Коллабораторной"
+                      onChange={async e => {
+                        const v = e.target.checked
+                        setClients(cs => cs.map(x => x.id === c.id ? { ...x, collab_hub_blocked: v } : x))
+                        try {
+                          await api.admin.updateClient(c.id, { collab_hub_blocked: v })
+                        } catch {
+                          setClients(cs => cs.map(x => x.id === c.id ? { ...x, collab_hub_blocked: !v } : x))
+                        }
+                      }}
+                      className="w-4 h-4 accent-red-600 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-3 py-4 text-xs text-gray-400 whitespace-nowrap">
                     <Calendar size={11} className="inline mr-1" />
                     {new Date(c.created_at).toLocaleDateString('ru')}
@@ -175,7 +193,7 @@ export default function AdminClientsPage() {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={9} className="px-5 py-12 text-center text-sm text-gray-400">
                     {search ? 'Ничего не найдено' : 'Клиентов пока нет'}
                   </td>
                 </tr>

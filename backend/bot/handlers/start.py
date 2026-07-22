@@ -66,6 +66,45 @@ async def _record_subscription(message: Message) -> None:
         log.warning("record_subscription failed: %s", e)
 
 
+async def _reply_if_blacklisted(message) -> bool:
+    """
+    Если человек в чёрном списке клиента ЭТОГО бота — ответить заглушкой
+    с каналами поддержки и вернуть True (контент не выдавать).
+
+    Клиент определяется по боту: один и тот же человек может быть заблокирован
+    у одного клиента и свободно работать в ботах остальных.
+    Ошибка проверки = не блокируем (fail-open) — лучше пропустить, чем
+    оставить человека без ответа из-за сбоя.
+    """
+    user = message.from_user
+    bot_id = message.bot.id if message.bot else None
+    if not user or not bot_id:
+        return False
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        from app.services.blacklist import is_identity_blacklisted, blocked_message
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if not ch:
+                return False
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"]
+            )
+            if not client_id:
+                return False
+            if not await is_identity_blacklisted(db, client_id, "telegram", str(user.id)):
+                return False
+            text = await blocked_message(db, client_id, platform="telegram")
+        await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+        return True
+    except Exception as e:
+        log.warning("blacklist check failed: %s", e)
+        return False
+
+
 async def _upgrade_pseudo_identities(user) -> None:
     """Дорастить ВСЕ псевдо-записи `platform_user_id='@<username>'` этого человека
     до реального числового tg_id — глобально, по всем клиентам.
@@ -248,6 +287,11 @@ async def handle_start(message: Message, command: CommandObject):
                     )
         except Exception:
             pass
+
+    # ЧЁРНЫЙ СПИСОК — до выдачи любого контента (миграция 228).
+    # Лог перехода выше уже записан: видно, что человек пытался войти.
+    if await _reply_if_blacklisted(message):
+        return
 
     # Регистрируем подписку — для счётчика подписчиков канала и базы контактов
     await _record_subscription(message)
@@ -1946,6 +1990,9 @@ async def handle_user_message(message: Message):
     bot_id = message.bot.id if message.bot else None
     if not user or not bot_id:
         return
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — не отвечаем и не шлём уведомление организатору
+    if await _reply_if_blacklisted(message):
+        return
     try:
         from app.services.channels import find_channel_by_bot_id
         pool = await get_pool()
@@ -2086,6 +2133,9 @@ async def handle_user_media(message: Message):
     На голосовое — отвечаем «пишите текстом» (хранить не будем).
     Системный @pluson_bot — игнорируем (как и текст).
     """
+    # ЧЁРНЫЙ СПИСОК (миграция 228) — не архивируем и не уведомляем организатора
+    if await _reply_if_blacklisted(message):
+        return
     user = message.from_user
     bot_id = message.bot.id if message.bot else None
     if not user or not bot_id:

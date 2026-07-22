@@ -1409,6 +1409,38 @@ SELECT $new_client_id, ch.id, TRUE
 - `get_telegram_send_targets` в services/channels.py — JOIN на `client_channels`
 - Импорт CSV — пишет `platform_user_channels` с `client_channel_id` найденным через `client_channels(client_id, channel_id)`.
 
+### Чёрный список (миграция 228 от 2026-07-21)
+
+**⚠️ Две НЕЗАВИСИМЫЕ сущности — не путать и не объединять.**
+
+| | Список клиента | Запрет админа |
+|---|---|---|
+| Где ставится | кнопка на карточке контакта `/dashboard/clients` | галочка в строке клиента `/admin/clients` |
+| На кого | **контакт** в базе конкретного клиента | **клиент** платформы |
+| Хранение | `contact_blacklist (client_id, contact_id, reason, added_by)` | `clients.collab_hub_blocked` |
+| Что даёт | не получает контент из ботов **этого** клиента | не может купить Коллабораторную |
+
+Одно **не подразумевает** другого. Контакт заблокирован у клиента А — в ботах клиента Б он работает как обычно (один человек живёт в базах разных клиентов отдельными строками `contacts`).
+
+**Сервис** — [blacklist.py](backend/app/services/blacklist.py): `is_contact_blacklisted(db, client_id, contact_id)`, `is_identity_blacklisted(db, client_id, platform, platform_user_id)` (на входе в бота, когда contact_id ещё не резолвлен), `blocked_message(db, client_id, platform)` (текст-заглушка + каналы поддержки из `clients.work_tg_username/work_vk/work_max`), `is_collab_hub_blocked(db, client_id)`.
+
+**Точки проверки — единого места нет, вставок несколько:**
+- **TG** — `_reply_if_blacklisted(message)` в [start.py](backend/bot/handlers/start.py): в `handle_start` (после лога перехода, до `_record_subscription`), `handle_user_message`, `handle_user_media`. client_id резолвится по `bot_id → channels → client_channels`.
+- **VK** — [vk_main.py](backend/bot/vk_main.py): `handle_message_new` (после ветки чатов, ДО `/start` — иначе `/start` проскочит) и `handle_message_allow`.
+- **MAX** — [max_webhook.py](backend/app/api/max_webhook.py) `_process_start`, после резолва `client_id`, до `upsert_contact_with_identity`.
+- **Рассылки** — [tasks/broadcast.py](backend/app/tasks/broadcast.py): TG через `SUBSCRIBED_CLAUSE` (одна правка → все 4 ветки), VK/MAX/email — по 3 запроса в каждой функции (всего 9), алиасы `pu.contact_id`/`pu.client_id`.
+- **Воронки** — [funnel_service.py](backend/app/services/funnel_service.py): `run_started`, `run_started_vk`, `run_started_max` — после резолва `client_id`.
+
+⚠️ **Все проверки fail-open** — сбой проверки не блокирует человека (лучше пропустить лишнее, чем оставить без ответа из-за сбоя БД).
+
+**Гейт Коллабораторной — 3 рубежа** ([addons.py](backend/app/api/addons.py)): (1) `GET /addons` не отдаёт карточку `collab_hub` вовсе (если не куплена ранее); (2) `POST /addons/order` → 403 (скрытия мало — прямой POST мимо UI); (3) `_apply_paid_addon_order` — если оплата всё же пришла (клиента заблокировали ПОСЛЕ создания заказа), модуль **не выдаётся**, заказ → `status='failed'` + `logger.error` «требуется возврат». ⚠️ Деньги при этом списаны — молча не выдавать нельзя, поэтому явный лог.
+
+⚠️ `addon_orders.status` имеет CHECK `('created','paid','failed','cancelled')` — значения `'blocked'` там нет, использовать `'failed'`.
+
+**Фильтр и просмотр:** `GET /contacts?blacklisted=yes|no` через `_build_contacts_filter` (тот же хелпер обслуживает и CSV-экспорт → выгрузка ЧС работает сама). Поле `is_blacklisted` в списке и карточке. UI — сегмент «Чёрный список» в панели фильтров, красная точка в строке, бейдж «В ЧС» и тумблер на карточке (скрыт от ассистента).
+
+**Эндпоинты:** `POST/DELETE /contacts/{id}/blacklist` (клиент, ассистенту 403), `PATCH /admin/clients/{id}?collab_hub_blocked=` (админ, параметры в query string).
+
 ### Комплект «тариф Профи + модуль» одной оплатой LeadPay (миграция 197 от 2026-07-07, ПРОД)
 
 **Зачем.** Клиент без тарифа Профи под заблокированным модулем (в кабинете `/dashboard/settings?tab=subscription` → блок «Модули» и на лендинге) видел только «🔒 Нужен тариф Профи или выше» — без кнопки. Теперь там **кнопка «Оформить с Профи — N ₽»**, которая одним платежом по комплект-карточке LeadPay выдаёт **и тариф Профи, и модуль** на 30 дней.

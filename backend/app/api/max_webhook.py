@@ -1204,6 +1204,20 @@ async def _process_start(
             logger.warning(f"MAX /start: no client resolved (user_id={user_id})")
             return
 
+        # ЧЁРНЫЙ СПИСОК (миграция 228) — до выдачи любого контента
+        try:
+            from app.services.blacklist import is_identity_blacklisted, blocked_message
+            if await is_identity_blacklisted(conn, client_id, "max", str(user_id)):
+                await max_api.send_message(
+                    user_id,
+                    await blocked_message(conn, client_id, platform="max"),
+                    token=bot_token,
+                    recipient_kind="user",
+                )
+                return
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning(f"MAX blacklist check failed: {e}")
+
         contact_id, _pu_id, is_new = await upsert_contact_with_identity(
             conn,
             client_id=client_id,

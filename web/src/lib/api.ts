@@ -93,6 +93,8 @@ export interface ContactFilters {
   packageIds?: number[]
   /** Работает только вместе с leadMagnetIds/packageIds: все | забрали | не забрали. */
   leadMagnetStage?: 'any' | 'delivered' | 'not_delivered'
+  /** '' = все, 'yes' = только в чёрном списке, 'no' = только не в чёрном списке. */
+  blacklisted?: string
   dateFrom?: string
   dateTo?: string
 }
@@ -123,6 +125,7 @@ function buildContactsParams(
       && (filters.leadMagnetIds?.length || filters.packageIds?.length)) {
     params.set('lead_magnet_stage', filters.leadMagnetStage)
   }
+  if (filters?.blacklisted) params.set('blacklisted', filters.blacklisted)
   if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters?.dateTo) params.set('date_to', filters.dateTo)
   return params
@@ -464,6 +467,13 @@ export const api = {
       request(`/api/v1/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/contacts/${id}`, { method: 'DELETE' }),
+    addToBlacklist: (id: number, reason?: string) =>
+      request(`/api/v1/contacts/${id}/blacklist`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
+      }),
+    removeFromBlacklist: (id: number) =>
+      request(`/api/v1/contacts/${id}/blacklist`, { method: 'DELETE' }),
     filterOptions: () => request('/api/v1/contacts/filter-options'),
     duplicates: (id: number) => request(`/api/v1/contacts/${id}/duplicates`),
     merge: (primaryId: number, targetId: number) =>
@@ -1009,6 +1019,14 @@ export const api = {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),
     getClient: (id: number) => request(`/api/v1/admin/clients/${id}`),
+    // Бэк принимает параметры в QUERY STRING, не в body (PATCH /admin/clients/{id})
+    updateClient: (id: number, data: { is_active?: boolean; tariff_slug?: string; collab_hub_blocked?: boolean }) => {
+      const params = new URLSearchParams()
+      if (data.is_active !== undefined) params.set('is_active', String(data.is_active))
+      if (data.tariff_slug !== undefined) params.set('tariff_slug', data.tariff_slug)
+      if (data.collab_hub_blocked !== undefined) params.set('collab_hub_blocked', String(data.collab_hub_blocked))
+      return request(`/api/v1/admin/clients/${id}?${params.toString()}`, { method: 'PATCH' })
+    },
     partners: () => request('/api/v1/admin/partners'),
     createPartner: (data: any) =>
       request('/api/v1/admin/partners', { method: 'POST', body: JSON.stringify(data) }),

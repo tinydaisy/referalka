@@ -27,6 +27,7 @@ interface Contact {
   linked_client_id?: number | null
   linked_client_email?: string | null
   is_staff?: boolean
+  is_blacklisted?: boolean
   is_unsubscribed: boolean
   last_contact_at: string | null
   created_at: string | null
@@ -162,6 +163,7 @@ const EMPTY_FILTERS: ContactFilters = {
   leadMagnetIds: [],
   packageIds: [],
   leadMagnetStage: 'any',
+  blacklisted: '',
   dateFrom: '',
   dateTo: '',
 }
@@ -176,6 +178,7 @@ function countActiveFilters(f: ContactFilters): number {
   if (f.eventIds?.length) n++
   if (f.leadMagnetIds?.length) n++
   if (f.packageIds?.length) n++
+  if (f.blacklisted) n++
   if (f.dateFrom) n++
   if (f.dateTo) n++
   return n
@@ -199,6 +202,8 @@ function parseFiltersFromUrl(): { filters: ContactFilters; search: string; showU
   if (sp.has('package_ids'))  f.packageIds = ints('package_ids')
   const lms = sp.get('lead_magnet_stage')
   if (lms === 'delivered' || lms === 'not_delivered' || lms === 'any') f.leadMagnetStage = lms
+  const bl = sp.get('blacklisted')
+  if (bl === 'yes' || bl === 'no') f.blacklisted = bl
   f.dateFrom = sp.get('date_from') || ''
   f.dateTo = sp.get('date_to') || ''
   return {
@@ -212,7 +217,7 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
   if (typeof window === 'undefined') return
   const sp = new URLSearchParams(window.location.search)
   ;['q','subscription','platforms','channel_ids','include_unattached','utm_sources','tags',
-    'event_ids','lead_magnet_ids','package_ids','lead_magnet_stage','date_from','date_to','show_unsubscribed']
+    'event_ids','lead_magnet_ids','package_ids','lead_magnet_stage','blacklisted','date_from','date_to','show_unsubscribed']
     .forEach(k => sp.delete(k))
   if (search) sp.set('q', search)
   if (showUnsubscribed) sp.set('show_unsubscribed', '1')
@@ -229,6 +234,7 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
       && (filters.leadMagnetIds?.length || filters.packageIds?.length)) {
     sp.set('lead_magnet_stage', filters.leadMagnetStage)
   }
+  if (filters.blacklisted) sp.set('blacklisted', filters.blacklisted)
   if (filters.dateFrom) sp.set('date_from', filters.dateFrom)
   if (filters.dateTo) sp.set('date_to', filters.dateTo)
   const qs = sp.toString()
@@ -457,6 +463,12 @@ export default function ContactsPage() {
                     {c.is_participant && (
                       <span className="shrink-0 text-[10px] bg-[#FFCFA4] text-[#25455D] font-semibold px-1.5 py-0.5 rounded-full">УЧ</span>
                     )}
+                    {c.is_blacklisted && (
+                      <span
+                        title="В чёрном списке"
+                        className="shrink-0 w-2 h-2 rounded-full bg-red-600"
+                      />
+                    )}
                   </div>
                   <span className="text-xs text-gray-400 truncate block">
                     {getMetaLine(c)}
@@ -545,6 +557,11 @@ export default function ContactsPage() {
               </div>
               {selected.is_unsubscribed && (
                 <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
+              )}
+              {selected.is_blacklisted && (
+                <span className={`${selected.is_unsubscribed ? 'ml-1' : 'ml-auto'} text-xs bg-red-600 text-white font-semibold px-2 py-1 rounded-full shrink-0`}>
+                  В ЧС
+                </span>
               )}
               {!isAssistant && (
               <button
@@ -732,6 +749,40 @@ export default function ContactsPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Чёрный список */}
+              {!isAssistant && (
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={15} className={`mt-0.5 shrink-0 ${selected.is_blacklisted ? 'text-red-600' : 'text-gray-400'}`} />
+                  <div className="min-w-0">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={!!selected.is_blacklisted}
+                        onChange={async (e) => {
+                          const v = e.target.checked
+                          setSelected((s: any) => s ? { ...s, is_blacklisted: v } : s)
+                          setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, is_blacklisted: v } : c))
+                          try {
+                            if (v) await api.contacts.addToBlacklist(selected.id)
+                            else await api.contacts.removeFromBlacklist(selected.id)
+                          } catch {
+                            setSelected((s: any) => s ? { ...s, is_blacklisted: !v } : s)
+                            setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, is_blacklisted: !v } : c))
+                          }
+                        }}
+                        className="w-4 h-4 accent-red-600"
+                      />
+                      <span className={`text-sm ${selected.is_blacklisted ? 'text-red-600 font-medium' : 'text-gray-800'}`}>
+                        В чёрном списке
+                      </span>
+                    </label>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Не получает рассылки и контент из ваших ботов.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Строка 3: Первый контакт | Последний контакт */}
               <div className="flex items-start gap-2">
@@ -1220,6 +1271,33 @@ function FilterPanel({ initial, onApply, onClose }: {
                       }`}
                     >{opt.label}</button>
                   ))}
+                </div>
+              </div>
+
+              {/* Чёрный список */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Чёрный список</h3>
+                <div className="flex gap-1.5">
+                  {([
+                    { v: '',    label: 'Все' },
+                    { v: 'yes', label: 'В ЧС' },
+                    { v: 'no',  label: 'Не в ЧС' },
+                  ] as const).map(opt => {
+                    const active = (draft.blacklisted || '') === opt.v
+                    return (
+                      <button
+                        key={opt.v || 'all'}
+                        onClick={() => setDraft(d => ({ ...d, blacklisted: opt.v }))}
+                        className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${
+                          active
+                            ? (opt.v === 'yes'
+                                ? 'bg-red-600 text-white border-red-600'
+                                : 'bg-[#25455D] text-white border-[#25455D]')
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >{opt.label}</button>
+                    )
+                  })}
                 </div>
               </div>
 

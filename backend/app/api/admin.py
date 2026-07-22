@@ -84,7 +84,7 @@ async def list_clients(
         f"""
         SELECT
           c.id, c.name, c.email, c.phone, c.telegram_username,
-          c.is_active, c.created_at,
+          c.is_active, c.collab_hub_blocked, c.created_at,
           t.slug AS tariff_slug, t.name AS tariff_name,
           cs.expires_at AS subscription_expires_at,
           cs.status     AS subscription_status,
@@ -147,11 +147,18 @@ async def update_client(
     client_id: int,
     is_active: Optional[bool] = None,
     tariff_slug: Optional[str] = None,
+    collab_hub_blocked: Optional[bool] = None,
     admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db)
 ):
     if is_active is not None:
         await db.execute("UPDATE clients SET is_active = $1 WHERE id = $2", is_active, client_id)
+    # Запрет покупки Коллабораторной (миграция 228) — ставит админ, действует глобально
+    if collab_hub_blocked is not None:
+        await db.execute(
+            "UPDATE clients SET collab_hub_blocked = $1 WHERE id = $2",
+            collab_hub_blocked, client_id
+        )
     if tariff_slug:
         # Перевод на другой тариф: помечаем активную подписку expired,
         # создаём новую подписку с этим тарифом на default_duration_days, source='admin'.
