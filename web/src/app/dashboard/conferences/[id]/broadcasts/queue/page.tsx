@@ -1941,6 +1941,11 @@ export default function QueuePage() {
               </h3>
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
             </div>
+            {previewModal.is_sent_snapshot && (
+              <p className="text-xs text-gray-500 mb-3 -mt-2">
+                Это текст, который реально был отправлен. Правки шаблона его не меняют.
+              </p>
+            )}
             {/* Вкладки площадок — показываем только если в подарках есть ссылки
                 воронки (у разных площадок они разные: TG/VK/MAX-бот клиента).
                 ⚠️ Только площадки, где у клиента ПОДКЛЮЧЁН свой канал — их

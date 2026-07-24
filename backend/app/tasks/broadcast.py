@@ -270,6 +270,43 @@ async def _send_broadcast(schedule_id: int):
         button_url = content.get("button_url")
         buttons = content.get("buttons") or None
 
+        # ── Снимок реально отправляемого сообщения ──────────────────────────────
+        # Для шаблонных рассылок текст собирается из ТЕКУЩЕГО шаблона на лету и
+        # раньше нигде не сохранялся. Если организатор потом правил шаблон — в
+        # списке/превью отправленной рассылки показывался новый текст и сырые
+        # плейсхолдеры в теме ({speaker_topic} и т.п.), а не то, что реально ушло.
+        # Фиксируем собранный content в snapshot_* прямо перед отправкой, чтобы
+        # у отправленной рассылки навсегда остался реальный текст и тема.
+        # (Для type='custom' snapshot и так уже заполнен своим содержимым — не портим.)
+        if tpl_type != "custom":
+            try:
+                import json as _json_snap
+                await conn.execute(
+                    """
+                    UPDATE broadcast_schedules
+                       SET snapshot_text = $1,
+                           snapshot_subject = $2,
+                           snapshot_photo = $3,
+                           snapshot_video = $4,
+                           snapshot_media_type = $5,
+                           snapshot_btn_text = $6,
+                           snapshot_btn_url = $7,
+                           snapshot_buttons = $8
+                     WHERE id = $9
+                    """,
+                    text,
+                    content.get("subject"),
+                    photo_url,
+                    video_url,
+                    media_type,
+                    button_text,
+                    button_url,
+                    _json_snap.dumps(buttons) if buttons else None,
+                    schedule_id,
+                )
+            except Exception as _snap_ex:
+                logger.warning(f"Не удалось сохранить snapshot рассылки {schedule_id}: {_snap_ex}")
+
         # Кеш Telegram file_id для видео: чтобы не качать файл с R2 на каждого
         # получателя — первый успешный sendVideo вернёт file_id, дальше шлём по нему.
         # Для шаблонных рассылок начальный file_id берём из шаблона (если уже грелся

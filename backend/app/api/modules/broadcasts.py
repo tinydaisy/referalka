@@ -1033,6 +1033,12 @@ async def generate_schedules(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
+    # «Сейчас» в UTC — все fire_at ниже приводятся к UTC, поэтому сравниваем с ним.
+    # Рассылки с уже прошедшим временем не создаём (кнопка «Сформировать из программы»
+    # не должна плодить прошедшие даты). Люфт _PAST_GRACE_MIN — как в ручных ручках.
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    past_cutoff = now_utc - timedelta(minutes=_PAST_GRACE_MIN)
+
     # Тип события + дата старта (для мероприятий)
     ev_row = await db.fetchrow(
         "SELECT module_slug, start_at, end_at FROM events WHERE id=$1",
@@ -1117,6 +1123,10 @@ async def generate_schedules(
     async def add_schedule(tmpl, fire_at, session_id=None, sched_type=None, day=None):
         nonlocal created, skipped
         t = sched_type or tmpl["type"]
+        # Не создаём рассылки с уже прошедшим временем отправки.
+        if fire_at is not None and fire_at < past_cutoff:
+            skipped += 1
+            return
         if session_id:
             # Для спикерских рассылок — дубль по session_id + type
             exists = await db.fetchval(
@@ -1167,7 +1177,9 @@ async def generate_schedules(
                 "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='pre_conf'",
                 event_id
             )
-            if not exists:
+            if fire_at_pre_conf < past_cutoff:
+                skipped += 1
+            elif not exists:
                 await db.execute(
                     """
                     INSERT INTO broadcast_schedules
@@ -1244,6 +1256,10 @@ async def generate_schedules(
 
             for i, sp in enumerate(speakers_list):
                 fire_at = base_dt + timedelta(minutes=interval_min * i)
+                # Не создаём рассылки с уже прошедшим временем отправки.
+                if fire_at < past_cutoff:
+                    skipped += 1
+                    continue
                 # expert_day может быть несколько шаблонов на событие — дедупим ещё
                 # и по template_id, чтобы разные «Экспертные дни» не схлопывались.
                 if per_template_dedup:
@@ -1493,6 +1509,11 @@ async def generate_schedules(
             fire_at = datetime(
                 target_date.year, target_date.month, target_date.day, hh, mm, 0, tzinfo=tz
             )
+
+            # Не создаём рассылки с уже прошедшим временем отправки.
+            if fire_at < past_cutoff:
+                skipped += 1
+                continue
 
             exists = await db.fetchval(
                 """SELECT 1 FROM broadcast_schedules
@@ -2525,6 +2546,35 @@ async def preview_schedule(
         raise HTTPException(status_code=404, detail="Не найдено")
 
     tpl_type = schedule["tmpl_type"] or schedule["type"]
+
+    # Уже отправленная рассылка → показываем РЕАЛЬНО отправленный текст (snapshot,
+    # зафиксированный движком в момент отправки), а не пересобираем из текущего
+    # шаблона. Иначе после правки шаблона превью отправленной рассылки показывало бы
+    # новый текст и сырые плейсхолдеры темы ({speaker_topic}) — не то, что ушло людям.
+    if schedule["status"] in ("done", "cancelled") and (schedule.get("snapshot_text") not in (None, "")):
+        snap_buttons = schedule.get("snapshot_buttons")
+        if isinstance(snap_buttons, str):
+            try:
+                import json as _json
+                snap_buttons = _json.loads(snap_buttons)
+            except Exception:
+                snap_buttons = []
+        snap_text = schedule.get("snapshot_text") or ""
+        _plats_sent = ["telegram", "vk", "max"]
+        return {
+            "text": snap_text,
+            "text_by_platform": {p: snap_text for p in _plats_sent},
+            "button_url_by_platform": {p: (schedule.get("snapshot_btn_url") or "") for p in _plats_sent},
+            "subject": schedule.get("snapshot_subject"),
+            "photo": schedule.get("snapshot_photo"),
+            "video": schedule.get("snapshot_video"),
+            "media_type": schedule.get("snapshot_media_type"),
+            "button_text": schedule.get("snapshot_btn_text"),
+            "button_url": schedule.get("snapshot_btn_url"),
+            "buttons": snap_buttons or [],
+            "template_type": tpl_type,
+            "is_sent_snapshot": True,
+        }
 
     client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
     tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
