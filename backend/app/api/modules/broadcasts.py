@@ -2560,11 +2560,22 @@ async def preview_schedule(
             except Exception:
                 snap_buttons = []
         snap_text = schedule.get("snapshot_text") or ""
+        snap_btn = schedule.get("snapshot_btn_url") or ""
+        # Подарки-лид-магниты в снимке помечены токенами ⟦GF:kind:slug⟧ — раскрываем
+        # ссылкой на воронку по каждой площадке (как в обычном превью).
+        from app.services.share_links import resolve_gift_funnel_tokens
         _plats_sent = ["telegram", "vk", "max"]
+        text_by_platform = {}
+        btn_by_platform = {}
+        for _p in _plats_sent:
+            text_by_platform[_p] = await resolve_gift_funnel_tokens(
+                db, client_id=client_id, text=snap_text, platform=_p)
+            btn_by_platform[_p] = await resolve_gift_funnel_tokens(
+                db, client_id=client_id, text=snap_btn, platform=_p)
         return {
-            "text": snap_text,
-            "text_by_platform": {p: snap_text for p in _plats_sent},
-            "button_url_by_platform": {p: (schedule.get("snapshot_btn_url") or "") for p in _plats_sent},
+            "text": text_by_platform.get("telegram") or snap_text,
+            "text_by_platform": text_by_platform,
+            "button_url_by_platform": btn_by_platform,
             "subject": schedule.get("snapshot_subject"),
             "photo": schedule.get("snapshot_photo"),
             "video": schedule.get("snapshot_video"),
