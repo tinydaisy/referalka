@@ -249,6 +249,23 @@ def get_founder_vk_channels(social: Optional[dict]) -> list[dict]:
     return []
 
 
+def get_founder_max_channels(social: Optional[dict]) -> list[dict]:
+    """Массив MAX-каналов основателя. Fallback на legacy одиночный `max`."""
+    if not isinstance(social, dict):
+        return []
+    raw = social.get("max_channels")
+    if isinstance(raw, list) and raw:
+        return normalize_max_channels(raw)
+    legacy_url = (social.get("max") or "").strip()
+    if legacy_url:
+        return normalize_max_channels([{
+            "url": legacy_url,
+            "chat_id": "",
+            "name": "",
+        }])
+    return []
+
+
 def get_founder_tg_channels(social: Optional[dict]) -> list[dict]:
     """Достаёт массив TG-каналов основателя из социал-линков клиента.
 

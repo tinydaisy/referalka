@@ -80,18 +80,30 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     sub_channel_chat_id = ""
 
     if platform == "vk":
-        from app.services.social_links import normalize_vk_link, vk_screen_name_from_link
-        vk_link = (social or {}).get("vk") or ""
-        sub_channel = normalize_vk_link(vk_link)
-        # screen_name VK сообщества — для resolveScreenName. Для прямой проверки
-        # подписки нужен числовой group_id (хранится в social_links.vk_group_id).
-        sub_channel_api = vk_screen_name_from_link(vk_link)
-        raw_group_id = (social or {}).get("vk_group_id")
-        if raw_group_id is not None and str(raw_group_id).strip():
-            try:
-                sub_channel_chat_id = str(int(raw_group_id))
-            except (TypeError, ValueError):
-                sub_channel_chat_id = ""
+        from app.services.social_links import vk_screen_name_from_link, get_founder_vk_channels
+        vk_channels = get_founder_vk_channels(social or {})
+        # Для текста — ссылки на ВСЕ VK-сообщества основателя через перенос строки.
+        sub_channel = "\n".join(ch["url"] for ch in vk_channels) if vk_channels else ""
+        # Первый канал — для legacy-плейсхолдеров и проверки подписки.
+        if vk_channels:
+            first = vk_channels[0]
+            # screen_name VK сообщества — для resolveScreenName.
+            sub_channel_api = vk_screen_name_from_link(first["url"])
+            # Для прямой проверки подписки нужен числовой group_id.
+            raw_group_id = first.get("group_id")
+            if raw_group_id is not None and str(raw_group_id).strip():
+                try:
+                    sub_channel_chat_id = str(int(raw_group_id))
+                except (TypeError, ValueError):
+                    sub_channel_chat_id = ""
+    elif platform == "max":
+        from app.services.social_links import get_founder_max_channels
+        max_channels = get_founder_max_channels(social or {})
+        # Для текста — ссылки на ВСЕ MAX-каналы основателя через перенос строки.
+        sub_channel = "\n".join(ch["url"] for ch in max_channels) if max_channels else ""
+        if max_channels:
+            first = max_channels[0]
+            sub_channel_chat_id = first.get("chat_id") or ""
     else:
         # Telegram (default) — массив каналов основателя (миграция 114).
         # Старые legacy-ключи (telegram/telegram_chat_id) подхватываются get_founder_tg_channels
