@@ -64,7 +64,23 @@ async def list_clients(
 
     if search:
         params.append(f"%{search}%")
-        conditions.append(f"(c.name ILIKE ${len(params)} OR c.email ILIKE ${len(params)})")
+        p = len(params)
+        # Ищем по данным самого клиента (имя/email/телефон/TG-ник из регистрации),
+        # а также по идентичностям связанных контактов: clients не связан с
+        # platform_users напрямую — единственная связка это email. Так поиск
+        # находит клиента по его TG/VK/MAX-нику и по email контакта.
+        conditions.append(
+            f"""(
+                c.name ILIKE ${p} OR c.email ILIKE ${p}
+                OR c.phone ILIKE ${p} OR c.telegram_username ILIKE ${p}
+                OR EXISTS (
+                    SELECT 1 FROM contacts ct
+                    JOIN platform_users pu ON pu.contact_id = ct.id
+                    WHERE ct.email_normalized = lower(c.email)
+                      AND (pu.username ILIKE ${p} OR ct.name ILIKE ${p} OR ct.email ILIKE ${p})
+                )
+            )"""
+        )
 
     if tariff:
         params.append(tariff)
