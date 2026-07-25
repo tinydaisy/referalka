@@ -4,6 +4,7 @@ from typing import Optional
 from app.auth import get_current_admin, hash_password
 from app.database import get_db
 import asyncpg
+import json
 
 router = APIRouter(prefix="/admin", tags=["Администратор"])
 
@@ -123,7 +124,20 @@ async def list_clients(
             WHERE cc.client_id = c.id AND puc.is_unsubscribed = TRUE) AS unsubscribed_count,
           (SELECT COUNT(*) FROM collaborators co
             JOIN contacts ct ON ct.id = co.contact_id
-            WHERE ct.client_id = c.id) AS collaborators_count
+            WHERE ct.client_id = c.id) AS collaborators_count,
+          -- Разбивка подписчиков ПО КАЖДОМУ не-системному каналу клиента
+          -- (для тултипа «?»): платформа, ник/название, подписаны, отписались.
+          (SELECT json_agg(json_build_object(
+                     'platform', ch.platform_slug,
+                     'name', COALESCE(NULLIF(ch.handle,''), ch.display_name),
+                     'subscribed', (SELECT COUNT(*) FROM platform_user_channels puc
+                                      WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = FALSE),
+                     'unsubscribed', (SELECT COUNT(*) FROM platform_user_channels puc
+                                        WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = TRUE))
+                     ORDER BY ch.platform_slug, ch.id)
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = c.id AND ch.is_system = FALSE) AS channels_breakdown
         FROM clients c
         LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
         LEFT JOIN tariffs t ON t.id = cs.tariff_id
@@ -134,7 +148,13 @@ async def list_clients(
         *params
     )
     total = await db.fetchval(f"SELECT COUNT(*) FROM clients c WHERE {where}", *params[:-2])
-    return {"clients": [dict(c) for c in clients], "total": total}
+    result = []
+    for c in clients:
+        d = dict(c)
+        raw = d.get("channels_breakdown")
+        d["channels_breakdown"] = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        result.append(d)
+    return {"clients": result, "total": total}
 
 
 @router.get("/clients/{client_id}", summary="Клиент по ID")

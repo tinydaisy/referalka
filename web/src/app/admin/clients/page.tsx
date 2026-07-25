@@ -24,6 +24,7 @@ interface Client {
   unsubscribed_count: number
   collaborators_count: number
   collab_hub_blocked?: boolean
+  channels_breakdown?: { platform: string; name: string | null; subscribed: number; unsubscribed: number }[]
 }
 
 interface EmailQuality {
@@ -156,8 +157,35 @@ export default function AdminClientsPage() {
                   <td className="px-3 py-4 text-sm text-gray-700 text-center">{c.events_count}</td>
                   <td className="px-3 py-4 text-sm text-gray-700 text-center">{c.contacts_count}</td>
                   <td className="px-3 py-4 text-sm">
-                    <div className="flex items-center gap-1 text-green-600 justify-center" title="Подписаны">
-                      <Users size={12} /><span>{c.subscribers_count}</span>
+                    <div className="flex items-center gap-1 justify-center">
+                      <div className="flex items-center gap-1 text-green-600" title="Подписаны">
+                        <Users size={12} /><span>{c.subscribers_count}</span>
+                      </div>
+                      {c.channels_breakdown && c.channels_breakdown.length > 0 && (
+                        <div className="relative group">
+                          <span className="w-4 h-4 inline-flex items-center justify-center rounded-full bg-gray-200 text-gray-500 text-[9px] font-bold cursor-help select-none">?</span>
+                          <div className="hidden group-hover:block absolute z-20 left-1/2 -translate-x-1/2 top-5 w-56 bg-white border border-gray-200 rounded-lg shadow-lg p-2 text-left">
+                            <div className="text-[10px] font-semibold text-gray-500 mb-1.5 uppercase">Подписчики по ботам</div>
+                            {c.channels_breakdown.map((ch, i) => (
+                              <div key={i} className="flex items-center justify-between gap-2 py-0.5 text-xs">
+                                <span className="text-gray-700 truncate">
+                                  <span className="text-gray-400">{ch.platform}</span>{' '}
+                                  {ch.name || '—'}
+                                </span>
+                                <span className="whitespace-nowrap">
+                                  <span className="text-green-600 font-medium">{ch.subscribed}</span>
+                                  {ch.unsubscribed > 0 && (
+                                    <span className="text-red-400"> / -{ch.unsubscribed}</span>
+                                  )}
+                                </span>
+                              </div>
+                            ))}
+                            <div className="text-[10px] text-gray-400 mt-1.5 pt-1.5 border-t border-gray-100">
+                              Один человек может быть в нескольких ботах — поэтому сумма по ботам может отличаться от числа контактов.
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {c.unsubscribed_count > 0 && (
                       <div className="flex items-center gap-1 text-red-400 text-xs justify-center mt-0.5" title="Отписались">
