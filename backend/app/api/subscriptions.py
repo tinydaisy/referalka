@@ -193,27 +193,15 @@ async def list_all_orders(
     admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    where = ["1=1"]
-    args: list = []
-    if status:
-        args.append(status)
-        where.append(f"so.status = ${len(args)}")
-    if search:
-        args.append(f"%{search}%")
-        where.append(f"(c.name ILIKE ${len(args)} OR c.email ILIKE ${len(args)})")
-
-    args.extend([limit, offset])
-    where_sql = " AND ".join(where)
-
-    rows = await db.fetch(
-        f"""SELECT so.id, so.status,
-                   so.amount_total_kopecks, so.amount_paid_card_kopecks, so.amount_paid_bonus_kopecks,
-                   so.prodamus_order_num, so.prodamus_payment_type, so.paid_at, so.created_at,
-                   t.slug AS tariff_slug, t.name AS tariff_name,
-                   c.id AS client_id, c.name AS client_name, c.email AS client_email,
-                   c.telegram_username,
-                   -- Все ники клиента (TG/VK/MAX) — резолв через контакты с тем же email.
-                   -- clients не связан с platform_users напрямую, единственная связка — email.
+    # Оплаты = подписки на тарифы (subscription_orders) + модули-аддоны
+    # (addon_orders: Коллабораторная / Конференции / Турниры). Объединяем в один
+    # список через UNION ALL с дискриминатором `kind` ('subscription'|'addon').
+    # У аддонов нет разбивки на карту/бонусы — они оплачиваются только картой,
+    # поэтому amount_paid_card = amount_total, bonus = 0. Имя оплаченного —
+    # общее поле item_name (tariffs.name либо features.name).
+    #
+    # ⚠️ id не уникален между таблицами — фронт использует key = kind + id.
+    IDENTITIES_SUBQ = """
                    (SELECT json_agg(json_build_object(
                               'platform', x.platform_slug,
                               'username', x.username,
@@ -226,32 +214,80 @@ async def list_all_orders(
                          WHERE ct.email_normalized = lower(c.email)
                            AND pu.platform_slug <> 'email'
                          ORDER BY pu.platform_slug, pu.id
-                      ) x) AS identities,
-                   ref.id AS referrer_id, ref.name AS referrer_name
-              FROM subscription_orders so
-              JOIN clients c ON c.id = so.client_id
-              JOIN tariffs t ON t.id = so.tariff_id
-              LEFT JOIN clients ref ON ref.id = c.referred_by_client_id
+                      ) x) AS identities"""
+
+    union_sql = f"""
+        SELECT so.id, 'subscription' AS kind, so.status,
+               so.amount_total_kopecks, so.amount_paid_card_kopecks, so.amount_paid_bonus_kopecks,
+               so.payment_provider, so.prodamus_order_num, so.prodamus_payment_type,
+               so.paid_at, so.created_at,
+               t.slug AS item_slug, t.name AS item_name,
+               c.id AS client_id, c.name AS client_name, c.email AS client_email,
+               c.telegram_username,
+               {IDENTITIES_SUBQ},
+               ref.id AS referrer_id, ref.name AS referrer_name
+          FROM subscription_orders so
+          JOIN clients c ON c.id = so.client_id
+          JOIN tariffs t ON t.id = so.tariff_id
+          LEFT JOIN clients ref ON ref.id = c.referred_by_client_id
+        UNION ALL
+        SELECT ao.id, 'addon' AS kind, ao.status,
+               ao.amount_total_kopecks,
+               ao.amount_total_kopecks AS amount_paid_card_kopecks,  -- модули только картой
+               0 AS amount_paid_bonus_kopecks,
+               ao.payment_provider, ao.prodamus_order_num, ao.prodamus_payment_type,
+               ao.paid_at, ao.created_at,
+               f.slug AS item_slug, f.name AS item_name,
+               c.id AS client_id, c.name AS client_name, c.email AS client_email,
+               c.telegram_username,
+               {IDENTITIES_SUBQ},
+               ref.id AS referrer_id, ref.name AS referrer_name
+          FROM addon_orders ao
+          JOIN clients c ON c.id = ao.client_id
+          JOIN features f ON f.id = ao.feature_id
+          LEFT JOIN clients ref ON ref.id = c.referred_by_client_id
+    """
+
+    # Фильтры применяем снаружи по общим колонкам объединённого списка.
+    where = ["1=1"]
+    args: list = []
+    if status:
+        args.append(status)
+        where.append(f"u.status = ${len(args)}")
+    if search:
+        args.append(f"%{search}%")
+        where.append(f"(u.client_name ILIKE ${len(args)} OR u.client_email ILIKE ${len(args)})")
+    where_sql = " AND ".join(where)
+
+    args.extend([limit, offset])
+    rows = await db.fetch(
+        f"""SELECT * FROM ({union_sql}) u
              WHERE {where_sql}
-             ORDER BY so.created_at DESC
+             ORDER BY u.created_at DESC
              LIMIT ${len(args) - 1} OFFSET ${len(args)}""",
         *args,
     )
     total = await db.fetchval(
-        f"""SELECT COUNT(*) FROM subscription_orders so
-              JOIN clients c ON c.id = so.client_id
-             WHERE {where_sql}""",
+        f"""SELECT COUNT(*) FROM ({union_sql}) u WHERE {where_sql}""",
         *args[:-2],
     )
 
-    # Сводка по статусам (без учёта search/status фильтров — полная картина)
+    # Сводка по статусам (без учёта search/status фильтров — полная картина).
+    # Тарифы: карта/бонусы как есть. Модули: вся сумма = карта, бонусов нет.
     summary = await db.fetchrow(
-        """SELECT
+        """WITH u AS (
+             SELECT status, amount_paid_card_kopecks AS card, amount_paid_bonus_kopecks AS bonus
+               FROM subscription_orders
+             UNION ALL
+             SELECT status, amount_total_kopecks AS card, 0 AS bonus
+               FROM addon_orders
+           )
+           SELECT
              COUNT(*) FILTER (WHERE status='paid') AS paid_count,
-             COALESCE(SUM(amount_paid_card_kopecks) FILTER (WHERE status='paid'), 0) AS total_card_paid,
-             COALESCE(SUM(amount_paid_bonus_kopecks) FILTER (WHERE status='paid'), 0) AS total_bonus_paid,
+             COALESCE(SUM(card)  FILTER (WHERE status='paid'), 0) AS total_card_paid,
+             COALESCE(SUM(bonus) FILTER (WHERE status='paid'), 0) AS total_bonus_paid,
              COUNT(*) FILTER (WHERE status='created') AS pending_count
-           FROM subscription_orders"""
+           FROM u"""
     )
 
     orders = []
@@ -260,6 +296,10 @@ async def list_all_orders(
         # identities приходит JSON-строкой от json_agg — парсим в список словарей.
         raw = o.get("identities")
         o["identities"] = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        # Обратная совместимость со старым фронтом (до пересборки): tariff_name/slug
+        # = item_name/slug, чтобы колонка «Тариф» не опустела.
+        o["tariff_name"] = o.get("item_name")
+        o["tariff_slug"] = o.get("item_slug")
         orders.append(o)
 
     return {

@@ -152,7 +152,7 @@ export default function AdminOrdersPage() {
                   <th className="px-4 py-3 font-semibold">#</th>
                   <th className="px-4 py-3 font-semibold">Дата</th>
                   <th className="px-4 py-3 font-semibold">Клиент</th>
-                  <th className="px-4 py-3 font-semibold">Тариф</th>
+                  <th className="px-4 py-3 font-semibold">Тариф / модуль</th>
                   <th className="px-4 py-3 font-semibold text-right">Сумма</th>
                   <th className="px-4 py-3 font-semibold">Статус</th>
                   <th className="px-4 py-3 font-semibold">Привёл</th>
@@ -167,7 +167,7 @@ export default function AdminOrdersPage() {
                   const bonusRub = (o.amount_paid_bonus_kopecks || 0) / 100
                   const totalRub = (o.amount_total_kopecks || 0) / 100
                   return (
-                    <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <tr key={`${o.kind || 'sub'}-${o.id}`} className="border-b border-gray-50 hover:bg-gray-50/50">
                       <td className="px-4 py-3 text-gray-500">#{o.id}</td>
                       <td className="px-4 py-3">
                         <div className="text-gray-800">
@@ -182,7 +182,16 @@ export default function AdminOrdersPage() {
                         <div className="text-xs text-gray-500">{o.client_email}</div>
                         <ClientIdentities order={o} />
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{o.tariff_name}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div className="flex items-center gap-1.5">
+                          <span>{o.item_name || o.tariff_name}</span>
+                          {o.kind === 'addon' && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                              МОДУЛЬ
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <div className="font-semibold text-gray-900">
                           {totalRub.toLocaleString('ru-RU')} ₽

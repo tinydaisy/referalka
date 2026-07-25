@@ -90,7 +90,7 @@ export default function AdminOverviewPage() {
                 <tr className="text-left text-xs text-gray-500 uppercase">
                   <th className="px-2 py-2 font-medium">Дата</th>
                   <th className="px-2 py-2 font-medium">Клиент</th>
-                  <th className="px-2 py-2 font-medium">Тариф</th>
+                  <th className="px-2 py-2 font-medium">Тариф / модуль</th>
                   <th className="px-2 py-2 font-medium text-right">Сумма</th>
                   <th className="px-2 py-2 font-medium">Статус</th>
                 </tr>
@@ -100,7 +100,7 @@ export default function AdminOverviewPage() {
                   const st = STATUS[o.status] || { label: o.status, cls: 'bg-gray-100 text-gray-600' }
                   const date = o.paid_at || o.created_at
                   return (
-                    <tr key={o.id} className="border-t border-gray-50">
+                    <tr key={`${o.kind || 'sub'}-${o.id}`} className="border-t border-gray-50">
                       <td className="px-2 py-2 text-gray-600 whitespace-nowrap">
                         {new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}{' '}
                         <span className="text-gray-400">
@@ -111,7 +111,14 @@ export default function AdminOverviewPage() {
                         <div className="font-medium text-gray-900">{o.client_name}</div>
                         <div className="text-xs text-gray-500">{o.client_email}</div>
                       </td>
-                      <td className="px-2 py-2 text-gray-700">{o.tariff_name}</td>
+                      <td className="px-2 py-2 text-gray-700">
+                        {o.item_name || o.tariff_name}
+                        {o.kind === 'addon' && (
+                          <span className="ml-1 text-[9px] font-semibold px-1 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                            МОДУЛЬ
+                          </span>
+                        )}
+                      </td>
                       <td className="px-2 py-2 text-right font-semibold text-gray-900 whitespace-nowrap">
                         {((o.amount_total_kopecks || 0) / 100).toLocaleString('ru-RU')} ₽
                       </td>
