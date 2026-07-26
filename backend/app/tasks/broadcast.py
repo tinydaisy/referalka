@@ -477,8 +477,11 @@ async def _send_broadcast(schedule_id: int):
         # При клике на чужой платформе человек привяжется к своему контакту,
         # а не создаст дубль. Мапа tg_id → contact_id для получателей-телеграмеров;
         # если contact_id неизвестен — используем общий game_link_url (как раньше).
+        # Ссылка эфира несёт хвост ?c=__CT__ (см. day_stream_url в рассылке) —
+        # per-получатель подставим реальный contact_id (или уберём хвост).
+        needs_stream_ct = "__CT__" in (text or "") or "__CT__" in (button_url or "")
         contact_by_tg: dict[str, int] = {}
-        if needs_game_link and final_ids:
+        if (needs_game_link or needs_stream_ct) and final_ids:
             ct_rows = await conn.fetch(
                 """SELECT platform_user_id, contact_id
                      FROM platform_users
@@ -564,6 +567,13 @@ async def _send_broadcast(schedule_id: int):
                     msg_text = msg_text.replace("{game_link}", glink)
                     if msg_btn_url:
                         msg_btn_url = msg_btn_url.replace("{game_link}", glink)
+                if needs_stream_ct:
+                    # ?c=__CT__ в ссылке эфира → реальный contact_id получателя,
+                    # либо убираем хвост, если контакт неизвестен.
+                    ctv = contact_by_tg.get(tg_id)
+                    msg_text = msg_text.replace("?c=__CT__", f"?c={ctv}" if ctv else "")
+                    if msg_btn_url:
+                        msg_btn_url = msg_btn_url.replace("?c=__CT__", f"?c={ctv}" if ctv else "")
                 # Собираем message_id отправленных сообщений — чтобы потом можно было
                 # удалить их (отзыв рассылки). У одного получателя может быть 2 (фото/видео + текст).
                 msg_ids: list[int] = []
@@ -1392,6 +1402,10 @@ async def _send_broadcast_vk_part(
         except (TypeError, ValueError):
             continue
         message_text = text or ""
+        # Сквозной contact_id в ссылке эфира — по VK-контакту этого получателя.
+        if "?c=__CT__" in message_text:
+            _ctv = r.get("contact_id")
+            message_text = message_text.replace("?c=__CT__", f"?c={_ctv}" if _ctv else "")
         # Внешние URL-кнопки в VK дописываем ссылкой в текст (см. выше).
         if link_lines:
             suffix = "\n\n" + "\n".join(link_lines)
@@ -1656,6 +1670,10 @@ async def _send_broadcast_max_part(
         # и передаём parse_mode='html' ниже. MAX устойчив к незакрытым тегам и
         # HTML-сущностям (проверено), всё сообщение не отвергает.
         message_text = html_to_telegram(text or "")
+        # Сквозной contact_id в ссылке эфира — по MAX-контакту этого получателя.
+        if "?c=__CT__" in message_text:
+            _ctm = r.get("contact_id")
+            message_text = message_text.replace("?c=__CT__", f"?c={_ctm}" if _ctm else "")
         # MAX пока без нативной загрузки картинки. Раньше вшивали R2-URL в начало
         # текста — убрали по тому же правилу что для VK: голая R2-ссылка
         # выглядит как спам. Лучше шлём без фото; нативную загрузку в MAX
@@ -2193,6 +2211,9 @@ async def _send_broadcast_email_part(
         # Персонализация: {first_name}
         first_name_val = r["first_name"] or "друг"
         msg_text = body_text.replace("{first_name}", first_name_val) if "{first_name}" in body_text else body_text
+        # Сквозной contact_id в ссылке эфира — по контакту email-получателя.
+        if "?c=__CT__" in msg_text:
+            msg_text = msg_text.replace("?c=__CT__", f"?c={r['contact_id']}" if r.get("contact_id") else "")
         msg_html = (
             html_body.replace("{first_name}", first_name_val) if (html_body and "{first_name}" in html_body)
             else html_body

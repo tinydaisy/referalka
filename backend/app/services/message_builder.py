@@ -737,7 +737,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
 
     # {stream_url} — ссылка на эфир = вебинарная комната ДНЯ спикера (не общая).
     from app.services.webinar_service import day_stream_url as _day_stream_url
-    stream_v = await _day_stream_url(conn, sp["event_id"], sp["speaker_day"])
+    stream_v = await _day_stream_url(conn, sp["event_id"], sp["speaker_day"], "__CT__")
     reg_v = (sp["registration_url"] or "").strip()
     repl = {"{stream_url}": stream_v, "{landing_url}": reg_v, "{registration_url}": reg_v}
     for token, val in repl.items():
@@ -901,7 +901,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         from app.services.webinar_service import day_stream_url as _day_stream_url
         _wr_day = await conn.fetchval(
             "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", event_id)
-        _ev_stream = await _day_stream_url(conn, event_id, _wr_day) if _wr_day else ""
+        _ev_stream = await _day_stream_url(conn, event_id, _wr_day, "__CT__") if _wr_day else ""
         _ev_repl = {
             "{stream_url}": _ev_stream,
             "{landing_url}": (ev_links["landing_url"] if ev_links else None) or "",
@@ -1025,7 +1025,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         is_conference = (conf_row["module_slug"] == "conference") if conf_row else False
         # Ссылка эфира ВСЕГДА = вебинарная комната дня (мероприятие=день 1, конф/турнир=свой день).
         from app.services.webinar_service import day_stream_url as _day_stream_url
-        stream_url = await _day_stream_url(conn, event_id, day)
+        stream_url = await _day_stream_url(conn, event_id, day, "__CT__")
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         # У мероприятия (нет программы по дням) часто не задан landing_url, но есть
         # stream_url (вебинарная комната). Тогда {landing_url}/{registration_url} и
@@ -1419,7 +1419,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Ссылка эфира = вебинарная комната ДНЯ этого слота.
         from app.services.webinar_service import day_stream_url as _day_stream_url
         stream_url = await _day_stream_url(
-            conn, session_data.get("session_event_id") or event_id, session_data.get("session_day"))
+            conn, session_data.get("session_event_id") or event_id, session_data.get("session_day"), "__CT__")
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
         if tpl_type == "gift":
@@ -1583,7 +1583,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         day_date_str = f"{raw_day_date.day} {RU_MONTHS[raw_day_date.month - 1]}" if raw_day_date else ""
         # Ссылка эфира = вебинарная комната ЭТОГО дня (не общий events.stream_url).
         from app.services.webinar_service import day_stream_url as _day_stream_url
-        stream_url = await _day_stream_url(conn, event_id, day_number)
+        stream_url = await _day_stream_url(conn, event_id, day_number, "__CT__")
 
         # Программа дня — только если есть привязка к конкретному дню
         day_program = ""
@@ -1696,7 +1696,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             from app.services.webinar_service import day_stream_url as _day_stream_url
             _bd = await conn.fetchval(
                 "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", event_id)
-            _btn_stream = await _day_stream_url(conn, event_id, _bd) if _bd else ""
+            _btn_stream = await _day_stream_url(conn, event_id, _bd, "__CT__") if _bd else ""
         btn_url = (btn_url
                    .replace("{stream_url}", _btn_stream)
                    .replace("{landing_url}", (_ev["landing_url"] if _ev else None) or "")

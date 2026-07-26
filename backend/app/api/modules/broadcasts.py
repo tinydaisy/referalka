@@ -2636,6 +2636,12 @@ async def preview_schedule(
     # (get_active_platforms). Иначе клиент видел вкладки VK/MAX, которых у него нет,
     # с пустой ссылкой на воронку — и думал, что рассылка сломана.
     from app.services.share_links import resolve_gift_funnel_tokens
+    # В превью ссылка эфира несёт хвост ?c=__CT__ (сквозной contact_id получателя) —
+    # показываем читаемой меткой, при реальной отправке Celery подставит id.
+    if content.get("text"):
+        content["text"] = content["text"].replace("?c=__CT__", "?c=<ваш_id>")
+    if content.get("button_url"):
+        content["button_url"] = content["button_url"].replace("?c=__CT__", "?c=<ваш_id>")
     base_text = content["text"] or ""
     base_btn = content.get("button_url") or ""
     # Подключённая площадка = у клиента есть ЛЮБОЙ свой канал на ней (то, что он
@@ -2739,8 +2745,19 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
             tg_text = await _txt("telegram")
             tg_burl = await _burl("telegram")
             for chat_id in [str(t) for t in test_tg_ids]:
+                # Тест-отправка = истинная ссылка: подставляем реальный contact_id
+                # тестового получателя (по его tg_id), как в боевой рассылке.
+                _tt, _tb = tg_text, tg_burl
+                if db and client_id and ("?c=__CT__" in (tg_text or "") or "?c=__CT__" in (tg_burl or "")):
+                    _ct = await db.fetchval(
+                        "SELECT contact_id FROM platform_users WHERE client_id=$1 "
+                        "AND platform_slug='telegram' AND platform_user_id=$2 AND contact_id IS NOT NULL LIMIT 1",
+                        client_id, chat_id)
+                    _rep = f"?c={_ct}" if _ct else ""
+                    _tt = (tg_text or "").replace("?c=__CT__", _rep)
+                    _tb = (tg_burl or "").replace("?c=__CT__", _rep) if tg_burl else tg_burl
                 ok, err = await send_telegram_message(
-                    http, bot_token, chat_id, tg_text, photo, btn_text, tg_burl,
+                    http, bot_token, chat_id, _tt, photo, btn_text, _tb,
                     buttons=buttons or None,
                     video_url=video if m_type == "video" else None)
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
