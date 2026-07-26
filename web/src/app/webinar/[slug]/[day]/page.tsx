@@ -303,6 +303,19 @@ export default function WebinarRoomPage() {
     )
   }
 
+  // (b) КОМНАТА ОТКРЫТА, но эфир ещё НЕ идёт — авторизованный зритель ждёт:
+  // афиша + название + «трансляция скоро начнётся» + обратный отсчёт.
+  // Как только ведущий нажмёт «Начать эфир» (stream_live) — WS/fallback перечитает
+  // и покажет плеер.
+  if (!live) {
+    return (
+      <PreStartScreen brand={room.brand} poster={room.poster_url} title={webinarTitle}
+        heading={rm.intro_text || 'Трансляция скоро начнётся'}
+        sub="Вы в эфире — как только начнётся трансляция, она появится здесь."
+        opensAt={rm.opens_at} />
+    )
+  }
+
   async function sendChat() {
     const text = chatText.trim()
     if (!text) return
