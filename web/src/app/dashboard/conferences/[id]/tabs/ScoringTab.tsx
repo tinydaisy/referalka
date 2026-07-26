@@ -306,6 +306,24 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
         </div>
       </div>
     )}
+    {crit.scorer === 'auto' && crit.auto_kind === 'webinar_viewers' && (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-500 shrink-0">День вебинара</span>
+          <input type="number" min={1} placeholder="все дни"
+            className="w-24 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+            defaultValue={crit.webinar_day ?? ''}
+            onBlur={(e) => {
+              const v = e.target.value ? Number(e.target.value) : null
+              if (v !== (crit.webinar_day ?? null)) save({ webinar_day: v })
+            }} />
+        </div>
+        <div className="text-[10px] text-gray-400 leading-tight">
+          Номер дня вебинара, по чьей реф-ссылке считать зрителей. Пусто — по всем вебинарам события.
+          У каждого дня своя ссылка, поэтому обычно указывают конкретный день.
+        </div>
+      </div>
+    )}
    </div>
   )
 }

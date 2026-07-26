@@ -239,7 +239,7 @@ async def _jurors(event_id: int, db: asyncpg.Connection, *,
 
 async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
                       db: asyncpg.Connection, subj: dict | None = None,
-                      lead_since=None) -> float:
+                      lead_since=None, webinar_day=None) -> float:
     # 'lead_magnet' — считаем переходы (funnel_runs) в лид-магнит/пакет,
     # который спикер выбрал «подарком после эфира» (event_collaborators).
     # Привязка живёт на ec → считаем только для субъектов-спикеров (kind='ec').
@@ -325,16 +325,25 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
         )
         return float(v or 0)
     if auto_kind == "webinar_viewers":
-        # Сколько зрителей спикер привёл на вебинары события (по его реф-коду в
-        # webinar_registrations всех комнат события). Даже если люди не в боте.
+        # Сколько зрителей спикер привёл на вебинар(ы) события по его реф-коду.
+        # webinar_day задан → считаем только по этому дню (у каждого вебинара своя
+        # ссылка); NULL → по всем вебинарам события. Даже если люди не в боте.
         if not ref_code:
             return 0.0
-        v = await db.fetchval(
-            "SELECT COUNT(*) FROM webinar_registrations reg "
-            "JOIN webinar_rooms wr ON wr.id = reg.room_id "
-            "WHERE wr.event_id = $1 AND reg.referrer_ref_code = $2",
-            event_id, ref_code,
-        )
+        if webinar_day is not None:
+            v = await db.fetchval(
+                "SELECT COUNT(*) FROM webinar_registrations reg "
+                "JOIN webinar_rooms wr ON wr.id = reg.room_id "
+                "WHERE wr.event_id = $1 AND wr.day_number = $3 AND reg.referrer_ref_code = $2",
+                event_id, ref_code, webinar_day,
+            )
+        else:
+            v = await db.fetchval(
+                "SELECT COUNT(*) FROM webinar_registrations reg "
+                "JOIN webinar_rooms wr ON wr.id = reg.room_id "
+                "WHERE wr.event_id = $1 AND reg.referrer_ref_code = $2",
+                event_id, ref_code,
+            )
         return float(v or 0)
     return 0.0
 
@@ -397,7 +406,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         if crit["scorer"] == "auto":
             return await _auto_value(event_id, subj["contact_id"], subj["ref_code"],
                                      crit["auto_kind"] or "", db, subj=subj,
-                                     lead_since=crit.get("lead_count_since"))
+                                     lead_since=crit.get("lead_count_since"),
+                                     webinar_day=crit.get("webinar_day"))
         return cell["single"] if cell and cell["single"] is not None else None
 
     # сырые значения критерия по всем участникам (для нормализации + колонок)
@@ -736,6 +746,7 @@ class CriterionIn(BaseModel):
     sort_order: int = 0
     code_phrase: Optional[str] = None  # для manual: кодовая фраза авто-зачёта по чату
     lead_count_since: Optional[str] = None  # дата отсчёта лидов (auto_kind='lead_magnet')
+    webinar_day: Optional[int] = None  # день вебинара для auto_kind='webinar_viewers' (NULL = все)
 
 
 @router.post("/criteria", summary="Создать критерий")
@@ -769,10 +780,11 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
     # scale_min (нижний порог балла) осмыслен ТОЛЬКО у оценок жюри; у остальных — 0.
     scale_min = data.scale_min if data.scorer == "jury" else 0
     c = await db.fetchrow(
-        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, scale_min, weight, sort_order, code_phrase, lead_count_since)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
+        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, scale_min, weight, sort_order, code_phrase, lead_count_since, webinar_day)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
         data.package_id, event_id, data.title.strip(), data.description, data.scorer,
-        auto_kind, data.stage_id, scale_max, scale_min, data.weight, data.sort_order, code_phrase, lead_since)
+        auto_kind, data.stage_id, scale_max, scale_min, data.weight, data.sort_order, code_phrase, lead_since,
+        data.webinar_day if auto_kind == "webinar_viewers" else None)
     return {"criterion": dict(c)}
 
 
@@ -788,6 +800,7 @@ class CriterionUpdate(BaseModel):
     sort_order: Optional[int] = None
     code_phrase: Optional[str] = None
     lead_count_since: Optional[str] = None  # дата отсчёта лидов (auto_kind='lead_magnet'); '' → сброс
+    webinar_day: Optional[int] = None  # день вебинара для auto_kind='webinar_viewers'
 
 
 @router.patch("/criteria/{criterion_id}", summary="Обновить критерий")
