@@ -7,9 +7,6 @@ import { webFallback } from './index'
  * (`?vk_user_id=…&vk_app_id=…&sign=…`). Глубокая ссылка — через hash `#…`.
  */
 
-let _email: string | null = null
-let _phone: string | null = null
-
 export async function initPlatform(): Promise<PlatformAdapter> {
   const sp = new URLSearchParams(window.location.search)
   const launchParams: Record<string, string> = {}
@@ -181,20 +178,7 @@ export async function initPlatform(): Promise<PlatformAdapter> {
   }
 }
 
-/** Запрос email через VK Bridge — показывает диалог. */
-export async function requestVkEmail(): Promise<string | null> {
-  try {
-    const r: any = await bridge.send('VKWebAppGetEmail')
-    _email = r?.email || null
-    return _email
-  } catch { return null }
-}
-
-/** Запрос телефона через VK Bridge. До модерации может быть отказ. */
-export async function requestVkPhone(): Promise<string | null> {
-  try {
-    const r: any = await bridge.send('VKWebAppGetPhoneNumber')
-    _phone = r?.phone_number || null
-    return _phone
-  } catch { return null }
-}
+// requestVkEmail / requestVkPhone удалены (2026-07): VKWebAppGetEmail и
+// VKWebAppGetPhoneNumber = «избыточные права», из-за которых модерация VK
+// отклоняла приложение. Контакт из VK создаётся по vk_id + имени — email/телефон
+// из VK не запрашиваем.

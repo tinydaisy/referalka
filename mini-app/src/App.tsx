@@ -425,22 +425,12 @@ async function sendVkEventStart(
     if (adapter.joinGroup) {
       try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
     }
-    const status = await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
+    // Регистрируем контакт по VK-аккаунту (имя + vk_id). Email/телефон у VK
+    // НЕ запрашиваем: VKWebAppGetEmail/GetPhoneNumber = «избыточные права»,
+    // из-за которых модерация VK отклоняла приложение (2026-07). Для воронок
+    // и рефералки email/телефон из VK не нужны — контакт создаётся по vk_id.
+    await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
       parsed.clientId, parsed.utmSource, parsed.initialTab, null, null, parsed.contactId)
-
-    const needEmail = !status.has_email
-    const needPhone = !status.has_phone
-    if (!needEmail && !needPhone) return
-
-    const { requestVkEmail, requestVkPhone } = await import('./platform/vk')
-    const [emailVal, phoneVal] = await Promise.all([
-      needEmail ? requestVkEmail() : Promise.resolve(null),
-      needPhone ? requestVkPhone() : Promise.resolve(null),
-    ])
-    if (emailVal || phoneVal) {
-      sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug, parsed.clientId,
-        parsed.utmSource, parsed.initialTab, emailVal, phoneVal, parsed.contactId)
-    }
   })
 }
 
