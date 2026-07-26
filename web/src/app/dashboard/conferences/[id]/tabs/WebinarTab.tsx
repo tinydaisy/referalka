@@ -1284,9 +1284,12 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
 
       {/* Явно показываем, чей спикер/подарок сейчас в комнате */}
       {(day.room?.speaker_mode || 'auto') === 'manual' ? (
-        <div className="mb-3 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          В комнате показан вручную: <b>{curManualName || '— не выбран —'}</b> (его подарок и кнопка подписки).
-          {' '}Чтобы вернуть по программе — нажмите «Авто».
+        <div className="mb-3 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+          <span>В комнате показан вручную: <b>{curManualName || '— не выбран —'}</b> (его подарок и кнопка подписки).</span>
+          <button onClick={() => { setMode('auto'); setEcId(''); apply('auto') }}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700">
+            ✕ Убрать спикера
+          </button>
         </div>
       ) : (
         <div className="mb-3 text-sm bg-gray-50 border rounded-lg px-3 py-2 text-gray-600">
