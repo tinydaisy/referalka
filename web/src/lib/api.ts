@@ -1152,6 +1152,8 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/battle/${battleId}/end`, { method: 'POST' }),
     // аналитика (session_id — по конкретному запуску эфира)
     sessions: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/sessions`),
+    sessionChat: (eventId: number, day: number, sessionId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/sessions/${sessionId}/chat`),
     analytics: (eventId: number, day: number, step = 5, sessionId?: number | null) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/analytics?step=${step}${sessionId ? `&session_id=${sessionId}` : ''}`),
     viewers: (eventId: number, day: number, sessionId?: number | null) =>

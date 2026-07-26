@@ -379,13 +379,14 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
         <p className="text-xs text-gray-500">Галочка выключена — эфир открывается сразу, без формы. Включена — незнакомых (из рассылки в чат) просим оставить контакты; пришедших по личной ссылке/из бота опознаём сами.</p>
         {f.auth_mode !== 'off' && (
           <>
-            <div className="text-xs text-gray-500">Обязательные поля формы:</div>
+            <div className="text-xs text-gray-500">Какие поля показывать в форме:</div>
             <div className="grid sm:grid-cols-2 gap-2">
-              <Toggle label="Имя" checked={f.auth_require_name} onChange={v => setF({ ...f, auth_require_name: v })} />
+              <Toggle label="Имя (всегда)" checked={true} disabled onChange={() => {}} />
               <Toggle label="Телефон" checked={f.auth_require_phone} onChange={v => setF({ ...f, auth_require_phone: v })} />
               <Toggle label="Email" checked={f.auth_require_email} onChange={v => setF({ ...f, auth_require_email: v })} />
               <Toggle label="Ник в Telegram" checked={f.auth_require_tg} onChange={v => setF({ ...f, auth_require_tg: v })} />
             </div>
+            <div className="text-[11px] text-gray-400 -mt-1">Показываются только включённые поля, и все они обязательны для входа. Имя спрашивается всегда.</div>
             <div>
               <label className="label">Текст над формой</label>
               <input className="input" value={f.auth_intro_text} onChange={e => setF({ ...f, auth_intro_text: e.target.value })} placeholder="Оставьте контакты для входа в эфир" />
@@ -418,13 +419,14 @@ function Field({ label, value, onCopy, copied }: { label: string; value: string;
   )
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <label className="flex items-center gap-3 cursor-pointer text-sm">
+    <label className={`flex items-center gap-3 text-sm ${disabled ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}>
       <button
         type="button"
-        onClick={() => onChange(!checked)}
-        className={`w-10 h-6 rounded-full transition relative shrink-0 ${checked ? 'bg-brand' : 'bg-gray-300'}`}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(!checked)}
+        className={`w-10 h-6 rounded-full transition relative shrink-0 ${checked ? 'bg-brand' : 'bg-gray-300'} ${disabled ? 'cursor-default' : ''}`}
       >
         <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition ${checked ? 'translate-x-4' : ''}`} />
       </button>
@@ -924,6 +926,15 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
   const [recs, setRecs] = useState<any[]>([])
   const [battles, setBattles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [chatModal, setChatModal] = useState<{ msgs: any[]; loading: boolean } | null>(null)
+
+  async function openChat(sessionId: number) {
+    setChatModal({ msgs: [], loading: true })
+    try {
+      const r = await api.webinar.sessionChat(eventId, day, sessionId)
+      setChatModal({ msgs: r.messages || [], loading: false })
+    } catch { setChatModal({ msgs: [], loading: false }) }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -968,6 +979,9 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
+                  {r.session_id && (
+                    <button onClick={() => openChat(r.session_id)} className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">💬 Чат</button>
+                  )}
                   {r.status === 'ready' && r.url && (
                     <a href={r.url} download className="btn-gold text-sm">Скачать</a>
                   )}
@@ -1002,6 +1016,23 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
             ))}
           </div>
         </div>
+      )}
+
+      {chatModal && (
+        <Modal title="Чат этого запуска" onClose={() => setChatModal(null)}>
+          {chatModal.loading ? <Spinner /> : !chatModal.msgs.length ? (
+            <p className="text-sm text-gray-500">В этом запуске сообщений не было.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+              {chatModal.msgs.map((m: any) => (
+                <div key={m.id} className={`text-sm ${m.status !== 'visible' ? 'opacity-40 line-through' : ''}`}>
+                  <span className="font-semibold text-[#25455D]">{m.author_name || 'Гость'}:</span>{' '}
+                  <span className="text-gray-700">{m.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   )

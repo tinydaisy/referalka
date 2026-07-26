@@ -267,10 +267,12 @@ async def chat_send(slug: str, day: int, body: ChatIn):
             author_name = await conn.fetchval(
                 "SELECT NULLIF(TRIM(name), '') FROM contacts WHERE id = $1", body.contact_id
             )
+        # session_id — чат привязан к текущему запуску эфира: после перезапуска
+        # чат новый, а история каждого запуска остаётся с записью этой сессии.
         row = await conn.fetchrow(
-            "INSERT INTO webinar_chat_messages (room_id, contact_id, author_name, text, status) "
-            "VALUES ($1,$2,$3,$4,$5) RETURNING id, at",
-            rid, body.contact_id, author_name, text, status,
+            "INSERT INTO webinar_chat_messages (room_id, contact_id, author_name, text, status, session_id) "
+            "VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, at",
+            rid, body.contact_id, author_name, text, status, room.get("current_session_id"),
         )
         # активность по зрителю
         await conn.execute(
@@ -286,14 +288,25 @@ async def chat_send(slug: str, day: int, body: ChatIn):
     return {"ok": True, "id": row["id"], "status": status}
 
 
-@router.get("/{slug}/{day}/chat", summary="История чата")
+@router.get("/{slug}/{day}/chat", summary="История чата (только текущего запуска)")
 async def chat_history(slug: str, day: int, limit: int = Query(100, le=300)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
-        rows = await conn.fetch(
-            "SELECT id, contact_id, author_name, text, at FROM webinar_chat_messages "
-            "WHERE room_id=$1 AND status='visible' ORDER BY at DESC LIMIT $2", room["id"], limit)
+        cur_sid = room.get("current_session_id")
+        if cur_sid:
+            # только сообщения текущего запуска — после перезапуска чат «чистый»
+            rows = await conn.fetch(
+                "SELECT id, contact_id, author_name, text, at FROM webinar_chat_messages "
+                "WHERE room_id=$1 AND status='visible' AND session_id=$2 "
+                "ORDER BY at DESC LIMIT $3", room["id"], cur_sid, limit)
+        else:
+            # эфир не запущен / старые данные без session_id — показываем только такие
+            # (без session_id), чтобы прошлые запуски не всплывали
+            rows = await conn.fetch(
+                "SELECT id, contact_id, author_name, text, at FROM webinar_chat_messages "
+                "WHERE room_id=$1 AND status='visible' AND session_id IS NULL "
+                "ORDER BY at DESC LIMIT $2", room["id"], limit)
         items = [dict(r) for r in reversed(rows)]
     return {"messages": items}
 

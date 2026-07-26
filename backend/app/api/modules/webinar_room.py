@@ -452,6 +452,19 @@ async def recordings(event_id: int, day_number: int, client=Depends(get_current_
     return {"recordings": [dict(r) for r in rows]}
 
 
+@router.get("/{day_number}/sessions/{session_id}/chat", summary="История чата запуска (для записи)")
+async def session_chat(event_id: int, day_number: int, session_id: int,
+                       client=Depends(get_current_client), db=Depends(get_db)):
+    """Полная история чата конкретного запуска эфира — показывается рядом с его записью."""
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        "SELECT m.id, m.contact_id, m.author_name, m.text, m.at, m.status "
+        "FROM webinar_chat_messages m WHERE m.room_id=$1 AND m.session_id=$2 "
+        "ORDER BY m.at", rid, session_id)
+    return {"messages": [dict(r) for r in rows]}
+
+
 @router.delete("/{day_number}/recordings/{rec_id}", summary="Удалить запись (файл + БД)")
 async def delete_recording(event_id: int, day_number: int, rec_id: int,
                            client=Depends(get_current_client), db=Depends(get_db)):
