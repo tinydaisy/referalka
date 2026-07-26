@@ -21,6 +21,26 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
+// «12.06 · 11:00–11:15 МСК» — подпись слота под привязанной темой.
+function fmtSlotLabel(s: {
+  day_number: number | null; day_title: string | null; day_date: string | null
+  start_time: string | null; end_time: string | null
+}): string {
+  let date = ''
+  if (s.day_date) {
+    const [, m, d] = s.day_date.split('-')
+    if (d && m) date = `${d}.${m}`
+  }
+  const time = s.start_time
+    ? (s.end_time ? `${s.start_time}–${s.end_time}` : s.start_time)
+    : ''
+  const parts: string[] = []
+  if (date) parts.push(date)
+  if (time) parts.push(`${time} МСК`)
+  if (!parts.length && s.day_number != null) parts.push(`День ${s.day_number}`)
+  return parts.join(' · ') || 'слот программы'
+}
+
 type SpeakerListItem = {
   speaker_event_id: number
   collaborator_id: number
@@ -70,6 +90,16 @@ type SpeakerMe = {
   // индекс темы (в topics), привязанной к слоту программы — она уходит в
   // программу и рассылки; null = слота нет или тема не привязана
   bound_topic_index: number | null
+  // для КАЖДОЙ темы (параллельно topics) — список слотов, к которым она
+  // привязана (дата дня + время). У спикера может быть несколько слотов
+  // в разных турах/днях, каждый со своей темой.
+  topic_slots?: {
+    day_number: number | null
+    day_title: string | null
+    day_date: string | null
+    start_time: string | null
+    end_time: string | null
+  }[][]
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
   gift_lead_magnet_id: number | null
@@ -996,22 +1026,23 @@ export default function SpeakerCabinetPage() {
 
         {me.show_topic_field && (
           <Section title="Темы выступления">
-            {me.bound_topic_index != null && (
+            {(me.topic_slots || []).some(s => s && s.length > 0) && (
               <div style={{ fontSize: 12, color: '#1a7f4b', background: '#eaf7f0', border: '1px solid #bfe3cd', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
-                Зелёным отмечена тема, которая стоит в вашем слоте программы — именно она уходит
-                в программу события и в рассылки. Правьте текст <b>именно этой темы</b>.
-                Остальные темы в программе не показываются.
+                Зелёным отмечены темы, привязанные к вашим слотам программы — под каждой указаны
+                <b> дата дня и время слота</b>. Именно эти темы уходят в программу и рассылки.
+                Правьте текст нужной темы по её слоту. Остальные темы в программе не показываются.
               </div>
             )}
             {(me.topics || []).map((t, i) => {
-              const bound = me.bound_topic_index === i
+              const slots = (me.topic_slots || [])[i] || []
+              const bound = slots.length > 0
               return (
                 <div key={i} style={{ marginBottom: 8 }}>
-                  {bound && (
-                    <div style={{ fontSize: 11, color: '#1a7f4b', fontWeight: 700, marginBottom: 3 }}>
-                      ✓ Тема в вашем слоте программы
+                  {slots.map((s, k) => (
+                    <div key={k} style={{ fontSize: 11, color: '#1a7f4b', fontWeight: 700, marginBottom: 3 }}>
+                      ✓ Привязана к слоту: {fmtSlotLabel(s)}
                     </div>
-                  )}
+                  ))}
                   <div style={{ display: 'flex', gap: 6 }}>
                     <input
                       style={bound

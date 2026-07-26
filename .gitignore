@@ -68,3 +68,12 @@ documentation/CONCEPT-COLLAB-NETWORK.md
 
 # Локальные черновики (не коммитим)
 plan*.py
+
+# Медиафайлы — в гит НЕ кладём, всё живёт в R2
+*.mp4
+*.mov
+*.wav
+*.m4v
+*.avi
+*.mkv
+*.webm

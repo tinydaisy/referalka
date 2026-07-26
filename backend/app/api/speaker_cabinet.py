@@ -221,15 +221,38 @@ async def get_me(
     # не показываем, поэтому индекс привязанной темы считаем ПО ЭТОМУ ЖЕ списку.
     visible = [t for t in topics if t["topic"]]
     d["topics"] = [t["topic"] for t in visible]
-    # Какая из тем реально стоит в слоте программы (conf_sessions.topic_id) —
-    # её текст уходит в программу и рассылки, остальные не используются.
-    bound_topic_id = await db.fetchval(
-        "SELECT topic_id FROM conf_sessions WHERE speaker_id = $1 AND topic_id IS NOT NULL LIMIT 1",
+    # Какие темы реально стоят в слотах программы (conf_sessions.topic_id) —
+    # их текст уходит в программу и рассылки. У спикера может быть НЕСКОЛЬКО
+    # слотов (разные туры/дни), каждый со своей темой. Поэтому отдаём для
+    # КАЖДОЙ темы список её слотов (дата дня + время) — чтобы в кабинете было
+    # видно, какая тема к какому слоту привязана, а не одну «зелёную».
+    slot_rows = await db.fetch(
+        """SELECT s.topic_id,
+                  s.start_time, s.end_time,
+                  cd.day_number, cd.title AS day_title, cd.day_date
+             FROM conf_sessions s
+             LEFT JOIN conf_days cd
+               ON cd.event_id = s.event_id AND cd.day_number = s.day
+            WHERE s.speaker_id = $1 AND s.topic_id IS NOT NULL
+            ORDER BY cd.day_date NULLS LAST, s.start_time""",
         se_id,
     )
+    # topic_id -> [{day_number, day_date, start_time, end_time, day_title}]
+    slots_by_topic: dict[int, list] = {}
+    for sr in slot_rows:
+        slots_by_topic.setdefault(sr["topic_id"], []).append({
+            "day_number": sr["day_number"],
+            "day_title": sr["day_title"],
+            "day_date": sr["day_date"].isoformat() if sr["day_date"] else None,
+            "start_time": (str(sr["start_time"])[:5] if sr["start_time"] else None),
+            "end_time": (str(sr["end_time"])[:5] if sr["end_time"] else None),
+        })
+    # Список параллельный d["topics"]: для каждой видимой темы — её слоты (может быть []).
+    d["topic_slots"] = [slots_by_topic.get(t["id"], []) for t in visible]
+    # Обратная совместимость: индекс ПЕРВОЙ привязанной темы (старый фронт).
     d["bound_topic_index"] = next(
-        (i for i, t in enumerate(visible) if t["id"] == bound_topic_id), None
-    ) if bound_topic_id else None
+        (i for i, t in enumerate(visible) if slots_by_topic.get(t["id"])), None
+    )
     # media_assets (JSONB) — asyncpg отдаёт строкой, парсим в list
     import json as _json
     ma = d.get("media_assets")

@@ -304,6 +304,201 @@ c.number_format = MONEY_FMT; style_cell(ws3.cell(row=row, column=1)); style_cell
 autosize(ws3, [46, 18, 14, 14, 14, 16, 10])
 
 # ============================================================
+# ЛИСТ: КЛУБНЫЙ КАНАЛ (двухуровневая партнёрка, решение 2026-07-21)
+# ============================================================
+wc = wb.create_sheet("Клубный канал")
+wc["A1"] = "КЛУБНЫЙ КАНАЛ: ВЛАДЕЛЕЦ КЛУБА + МЕНЕДЖЕР ПРОДАЖ"
+wc["A1"].font = Font(bold=True, size=14, color="25455D")
+wc.merge_cells("A1:F1")
+wc["A2"] = ("Двухуровневая схема: менеджер находит владельца клуба, владелец приводит своих людей как клиентов. "
+            "Владелец получает % пожизненно, менеджер — % ПОКА АКТИВЕН (скользящее окно). "
+            "Схема зафиксирована 2026-07-21, в коде НЕ реализована.")
+wc["A2"].font = Font(italic=True, size=10, color="666666")
+wc.merge_cells("A2:F2")
+wc.row_dimensions[2].height = 30
+wc["A2"].alignment = Alignment(wrap_text=True, vertical="top")
+
+row = 4
+wc.cell(row=row, column=1, value="ВВОДНЫЕ СХЕМЫ")
+style_subheader(wc.cell(row=row, column=1))
+wc.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+row += 1
+for i, h in enumerate(["Параметр", "Значение", "Комментарий"], 1):
+    style_header(wc.cell(row=row, column=i, value=h))
+row += 1
+
+K = {}
+
+
+def kparam(key, label, value, fmt, comment):
+    global row
+    wc.cell(row=row, column=1, value=label)
+    style_cell(wc.cell(row=row, column=1))
+    c = wc.cell(row=row, column=2, value=value)
+    c.number_format = fmt
+    style_input(c)
+    wc.cell(row=row, column=3, value=comment)
+    style_cell(wc.cell(row=row, column=3))
+    wc.cell(row=row, column=3).alignment = Alignment(wrap_text=True, vertical="top")
+    K[key] = f"'Клубный канал'!$B${row}"
+    row += 1
+
+
+kparam("rate_owner", "Ставка владельцу клуба", 0.10, PERCENT_FMT,
+       "Пожизненно, пока его клиенты платят. Это текущая партнёрка 10%")
+kparam("rate_manager", "Ставка менеджеру продаж", 0.05, PERCENT_FMT,
+       "Сверху ставки владельца. Идёт ПОКА МЕНЕДЖЕР АКТИВЕН")
+kparam("club_size", "Клиентов с одного клуба", 50, INT_FMT,
+       "Сколько человек из клуба реально становятся платящими клиентами")
+kparam("clubs", "Клубов у менеджера", 5, INT_FMT,
+       "Сколько клубов менеджер подключил и удерживает")
+kparam("churn", "Отток, % в месяц", 0.06, PERCENT_FMT,
+       "Сколько клиентов клуба отваливается ежемесячно")
+kparam("window_months", "Окно активности, мес", 3, INT_FMT,
+       "Через сколько месяцев без нового клуба выплаты менеджеру прекращаются")
+
+row += 1
+wc.cell(row=row, column=1, value="ИТОГО ПО КАНАЛУ")
+style_subheader(wc.cell(row=row, column=1))
+wc.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+row += 1
+for i, h in enumerate(["Показатель", "Значение", "Комментарий"], 1):
+    style_header(wc.cell(row=row, column=i, value=h))
+row += 1
+
+
+def kcalc(label, formula, fmt, comment, total=False):
+    global row
+    wc.cell(row=row, column=1, value=label)
+    c = wc.cell(row=row, column=2, value=formula)
+    c.number_format = fmt
+    if total:
+        style_total(wc.cell(row=row, column=1)); style_total(c)
+    else:
+        style_cell(wc.cell(row=row, column=1)); style_cell(c)
+    wc.cell(row=row, column=3, value=comment)
+    style_cell(wc.cell(row=row, column=3))
+    wc.cell(row=row, column=3).alignment = Alignment(wrap_text=True, vertical="top")
+    r = row
+    row += 1
+    return f"'Клубный канал'!$B${r}"
+
+
+cl_total = kcalc("Клиентов с канала всего", f"={K['club_size']}*{K['clubs']}", INT_FMT,
+                 "Размер клуба × число клубов")
+rev = kcalc("Выручка с канала, ₽/мес", f"={cl_total}*{P['arpu']}", MONEY_FMT,
+            "На текущем ARPU из листа «Параметры»", total=True)
+pay_owner = kcalc("Владельцам клубов, ₽/мес", f"={rev}*{K['rate_owner']}", MONEY_FMT,
+                  "На всех владельцев вместе, пожизненно")
+pay_owner_one = kcalc("...в т.ч. одному владельцу", f"={pay_owner}/{K['clubs']}", MONEY_FMT,
+                      "Доход одного владельца клуба")
+pay_mgr = kcalc("Менеджеру продаж, ₽/мес", f"={rev}*{K['rate_manager']}", MONEY_FMT,
+                "Один менеджер со всех своих клубов, пока активен", total=True)
+pay_all = kcalc("ВСЕГО выплат по каналу, ₽/мес", f"={pay_owner}+{pay_mgr}", MONEY_FMT,
+                "Владельцы + менеджер", total=True)
+kcalc("Менеджеру за 6 мес (без оттока), ₽", f"={pay_mgr}*6", MONEY_FMT,
+      "Верхняя оценка: все клубы зашли одновременно, никто не ушёл")
+kcalc("Менеджеру за 6 мес (с оттоком), ₽",
+      f"={pay_mgr}*(1-(1-{K['churn']})^6)/{K['churn']}", MONEY_FMT,
+      "Реалистичнее: база тает на заданный отток каждый месяц")
+kcalc("Клиентов клуба доживает до 6 мес",
+      f"={cl_total}*(1-{K['churn']})^6", INT_FMT,
+      "Сколько останется из первоначальной базы")
+
+row += 1
+wc.cell(row=row, column=1, value="ВЛИЯНИЕ НА ЮНИТ-ЭКОНОМИКУ")
+style_subheader(wc.cell(row=row, column=1))
+wc.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+row += 1
+for i, h in enumerate(["Показатель", "Значение", "Комментарий"], 1):
+    style_header(wc.cell(row=row, column=i, value=h))
+row += 1
+
+var_base = kcalc("Переменные: обычный клиент",
+                 f"={P['tax_high']}+{P['acq_rate']}+{P['partner']}", PERCENT_FMT,
+                 "Налог 6% + эквайринг 2.9% + партнёрка 10%")
+var_club = kcalc("Переменные: клиент клубного канала",
+                 f"={P['tax_high']}+{P['acq_rate']}+{K['rate_owner']}+{K['rate_manager']}", PERCENT_FMT,
+                 "То же + ставка менеджера сверху", total=True)
+m_base = kcalc("Маржа: обычный клиент, ₽/мес", f"={P['arpu']}*(1-{var_base})", MONEY_FMT,
+               "На одного клиента")
+m_club = kcalc("Маржа: клиент клубного канала, ₽/мес", f"={P['arpu']}*(1-{var_club})", MONEY_FMT,
+               "Ниже на ставку менеджера")
+kcalc("Разница на клиенте, ₽/мес", f"={m_base}-{m_club}", MONEY_FMT,
+      "Сколько недополучаем с клубного клиента")
+kcalc("Разница на всём канале, ₽/мес", f"=({m_base}-{m_club})*{cl_total}", MONEY_FMT,
+      "Цена канала для платформы", total=True)
+
+fixed_club = f"({P['server']}+{P['staff_4plus']}+{P['marketing']})"
+kcalc("Безубыточность: обычные клиенты", f"=ROUNDUP({fixed_club}/{m_base},0)", INT_FMT,
+      "Сколько нужно клиентов, чтобы выйти в ноль")
+kcalc("Безубыточность: только клубные", f"=ROUNDUP({fixed_club}/{m_club},0)", INT_FMT,
+      "Если бы вся база пришла через клубный канал", total=True)
+
+row += 1
+wc.cell(row=row, column=1, value="СРАВНЕНИЕ СХЕМ ДЛЯ МЕНЕДЖЕРА")
+style_subheader(wc.cell(row=row, column=1))
+wc.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+row += 1
+for i, h in enumerate(["Схема", "Доход менеджера", "Риск для платформы", "Мотивация"], 1):
+    style_header(wc.cell(row=row, column=i, value=h))
+row += 1
+
+schemes = [
+    ("5% ровно 6 месяцев",
+     "Разово, дальше ноль",
+     "Низкий — обязательство конечно",
+     "Слабая: после последней сделки доход обнуляется, хороший менеджер уходит"),
+    ("5% пожизненно",
+     "Навсегда, растёт с каждым клубом",
+     "Высокий — платим и уволившемуся",
+     "Рента: набрал базу и можно не работать"),
+    ("5% пока активен ✅",
+     "Растёт, пока приводит новые клубы",
+     "Средний — платим только работающим",
+     "ВЫБРАНО: не обнуляет за хорошую работу, но и сидеть без дела не даёт"),
+]
+for name, income, risk, motiv in schemes:
+    r = row
+    wc.cell(row=r, column=1, value=name)
+    wc.cell(row=r, column=2, value=income)
+    wc.cell(row=r, column=3, value=risk)
+    wc.cell(row=r, column=4, value=motiv)
+    for col in range(1, 5):
+        style_cell(wc.cell(row=r, column=col))
+        wc.cell(row=r, column=col).alignment = Alignment(wrap_text=True, vertical="top")
+    if "✅" in name:
+        for col in range(1, 5):
+            wc.cell(row=r, column=col).fill = GOAL_FILL
+    wc.row_dimensions[r].height = 34
+    row += 1
+
+row += 1
+wc.cell(row=row, column=1, value="ОТКРЫТЫЕ ВОПРОСЫ (решить до реализации)")
+style_subheader(wc.cell(row=row, column=1))
+wc.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+row += 1
+questions = [
+    "Порог активности: «клуб в квартал» обходится мёртвым клубом на 3 человека. Считать по числу приведённых клиентов или по выручке, а не по количеству сделок.",
+    "Отток не по вине менеджера: если клиенты уходят из-за продукта, доход менеджера падает независимо от его работы. Компенсировать?",
+    "Хвост при увольнении: пожизненный % не заканчивается вместе с трудовым договором. Обрубать сразу или доплачивать фиксированный период?",
+    "Форма выплаты: сейчас в системе бонусы на баланс (client_bonus_balance) + заявки на вывод. Штатному менеджеру нужны реальные деньги — вопрос договора и учёта.",
+    "Мотивация владельца клуба: доход за клуб на 50 человек — слабый стимул. Возможно, разовый бонус за подключение сверх процента.",
+    "В КОДЕ НЕ РЕАЛИЗОВАНО: сейчас ставка глобальная (одна на всю платформу), срок — абсолютная дата, второго уровня и привязки к активности нет.",
+]
+for q in questions:
+    wc.cell(row=row, column=1, value="•")
+    wc.cell(row=row, column=2, value=q)
+    wc.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
+    wc.cell(row=row, column=2).alignment = Alignment(wrap_text=True, vertical="top")
+    for col in range(1, 5):
+        style_cell(wc.cell(row=row, column=col))
+    wc.row_dimensions[row].height = 30
+    row += 1
+
+autosize(wc, [40, 22, 30, 46])
+
+# ============================================================
 # ЛИСТ: BEGET VPS (справочник масштабирования)
 # ============================================================
 wb_ = wb.create_sheet("Сервер Beget")
@@ -363,7 +558,8 @@ lines = [
     ("1. Параметры", "Все вводные в одном месте: цены, портфель, расходы, ставки, пороги, цель"),
     ("2. Год по месяцам", "Первый год помесячно. Налог 4%→6% и эквайринг 0%→2.9% переключаются сами по порогам"),
     ("3. Сценарии и цель", "Прибыль по числу клиентов + расчёт: сколько клиентов до 500к/мес"),
-    ("4. Сервер Beget", "Текущий тариф и когда расширять по числу клиентов"),
+    ("4. Клубный канал", "Двухуровневая партнёрка: владелец клуба 10% пожизненно + менеджер 5% пока активен"),
+    ("5. Сервер Beget", "Текущий тариф и когда расширять по числу клиентов"),
     ("", ""),
     ("ГЛАВНЫЕ ЦИФРЫ (на текущих вводных)", ""),
     ("ARPU", "2 890 ₽/мес (90% Профи+Коллаборатор. 2990, 10% Профи 1990)"),
