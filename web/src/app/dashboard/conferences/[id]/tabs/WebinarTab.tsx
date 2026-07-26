@@ -674,13 +674,13 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
   const streamActive = r?.stream_active
   const previewRef = useRef<HTMLVideoElement | null>(null)
 
-  // авто-обновление статуса: Zoom мог начать слать поток в любой момент —
-  // перечитываем комнату каждые 8 сек, чтобы кнопка «Начать эфир» ожила сама.
+  // авто-обновление статуса каждые 8 сек — и чтобы кнопка «Начать эфир» ожила при
+  // приходе потока, и чтобы бейдж/кнопки не залипали (эфир мог завершиться/сброситься
+  // на бэке, а фронт думал бы «В ЭФИРЕ»). Обновляем ВСЕГДА.
   useEffect(() => {
-    if (status === 'live' || status === 'ended') return
     const t = setInterval(() => { onChanged() }, 8000)
     return () => clearInterval(t)
-  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // превью потока — только ведущему, пока эфир не начат
   useEffect(() => {
