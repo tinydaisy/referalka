@@ -213,7 +213,7 @@ export default function WebinarRoomPage() {
   //   off    — никогда; auto — только если не опознан; always — всем.
   const needAuth = rm.auth_mode !== 'off' && !contactId && (rm.auth_mode === 'always' || rm.auth_mode === 'auto')
   if (needAuth) {
-    return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm}
+    return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm} clientId={room.event?.client_id}
       onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid) }} />
   }
 
@@ -515,18 +515,21 @@ function RegModal({ slug, day, onClose }: any) {
 }
 
 // Форма авторизации перед эфиром — настраиваемые поля, предзаполнение из cookie.
-function AuthGate({ slug, day, rm, pid, utm, onAuthed }: any) {
+function AuthGate({ slug, day, rm, pid, utm, clientId, onAuthed }: any) {
   const [f, setF] = useState<any>(() => ({ name: '', email: '', phone: '', telegram_username: '', ...readAuthForm() }))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [candidates, setCandidates] = useState<any[] | null>(null) // экран «Это вы?»
+  const [consentPd, setConsentPd] = useState(false)
+  const [consentMk, setConsentMk] = useState(false)
+  const privacyUrl = clientId ? `${(typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru')}/c/${clientId}/privacy` : null
 
   async function send(extra: any = {}) {
     setBusy(true); setErr('')
     try {
       const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}/register`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...f, pid, utm_source: utm, ...extra }),
+        body: JSON.stringify({ ...f, pid, utm_source: utm, consent_pd: consentPd, consent_marketing: consentMk, ...extra }),
       })
       const d = await r.json()
       if (d.need_choice) { setCandidates(d.candidates || []); return }
@@ -542,6 +545,7 @@ function AuthGate({ slug, day, rm, pid, utm, onAuthed }: any) {
     if (rm.auth_require_phone && !f.phone.trim()) return setErr('Укажите телефон')
     if (rm.auth_require_tg && !f.telegram_username.trim()) return setErr('Укажите ник в Telegram')
     if (!f.name && !f.email && !f.phone && !f.telegram_username) return setErr('Заполните хотя бы одно поле')
+    if (!consentPd) return setErr('Нужно согласие на обработку персональных данных')
     await send()
   }
 
@@ -588,6 +592,19 @@ function AuthGate({ slug, day, rm, pid, utm, onAuthed }: any) {
           {field('phone', 'Телефон', !!rm.auth_require_phone)}
           {field('email', 'Email', !!rm.auth_require_email)}
           {field('telegram_username', 'Ник в Telegram', !!rm.auth_require_tg)}
+
+          <label className="flex items-start gap-2 text-xs text-white/70 mt-1 cursor-pointer">
+            <input type="checkbox" checked={consentPd} onChange={e => setConsentPd(e.target.checked)} className="mt-0.5" />
+            <span>Согласен на обработку персональных данных и ознакомлен с{' '}
+              {privacyUrl
+                ? <a href={privacyUrl} target="_blank" rel="noreferrer" className="underline" style={{ color: '#FFCFA4' }}>политикой конфиденциальности</a>
+                : <span>политикой конфиденциальности</span>}</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs text-white/70 cursor-pointer">
+            <input type="checkbox" checked={consentMk} onChange={e => setConsentMk(e.target.checked)} className="mt-0.5" />
+            <span>Согласен на получение рекламных материалов</span>
+          </label>
+
           {err && <div className="text-sm text-red-300">{err}</div>}
           <button onClick={submit} disabled={busy}
             className="w-full py-2.5 rounded-lg font-semibold mt-1" style={{ background: '#FFCFA4', color: '#0a1520' }}>

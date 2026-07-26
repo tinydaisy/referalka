@@ -131,7 +131,7 @@ async def room_view(slug: str, day: int):
             )
 
         return {
-            "event": {"id": ev["id"], "title": ev["title"], "slug": ev["slug"]},
+            "event": {"id": ev["id"], "title": ev["title"], "slug": ev["slug"], "client_id": ev["client_id"]},
             "brand": {
                 "name": brand["brand_name"] if brand else None,
                 "logo_url": brand["brand_logo_url"] if brand else None,
@@ -450,6 +450,9 @@ class RegisterIn(BaseModel):
     utm_source: Optional[str] = None
     chosen_contact_id: Optional[int] = None  # зритель выбрал контакт на экране «Это вы?»
     force_new: Optional[bool] = None         # зритель нажал «Это новый человек»
+    consent_pd: Optional[bool] = None        # согласие на обработку ПД (обязательно)
+    consent_marketing: Optional[bool] = None # согласие на рекламу (опционально)
+    policy_version: Optional[int] = None
 
 
 def _mask_email(email: Optional[str]) -> Optional[str]:
@@ -546,6 +549,19 @@ async def register(slug: str, day: int, body: RegisterIn):
             )
         if not contact_id:
             raise HTTPException(400, "Заполните имя и хотя бы один контакт")
+
+        # Согласия (152-ФЗ) — фиксируем дату/версию политики на контакте.
+        # consent_pd обязательна на фронте; тут просто пишем факт, если пришла.
+        if body.consent_pd is True:
+            await conn.execute(
+                "UPDATE contacts SET consent_pd_at = COALESCE(consent_pd_at, NOW()), "
+                "consent_pd_policy_ver = COALESCE(consent_pd_policy_ver, $2) WHERE id=$1",
+                contact_id, body.policy_version or 0)
+        if body.consent_marketing is True:
+            await conn.execute(
+                "UPDATE contacts SET consent_marketing_at = COALESCE(consent_marketing_at, NOW()), "
+                "consent_marketing_policy_ver = COALESCE(consent_marketing_policy_ver, $2) WHERE id=$1",
+                contact_id, body.policy_version or 0)
 
         # реф-код рефовода (как в реф-программе события) — привязываем, если ещё не задан
         if body.pid:
