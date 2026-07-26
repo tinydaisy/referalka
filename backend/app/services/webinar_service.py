@@ -25,6 +25,34 @@ def make_stream_key(n: int = 16) -> str:
     return "".join(secrets.choice(_KEY_ALPHABET) for _ in range(n))
 
 
+async def day_stream_url(db, event_id: int, day: Optional[int],
+                         contact_id: Optional[int] = None) -> str:
+    """Единая ссылка на эфир ДНЯ (после удаления events.stream_url).
+
+    Источник — вебинарная комната дня (webinar_rooms по event_id+day_number):
+      • сторонний вебинар (stream_type='external_link') → её external_url;
+      • наша комната (encoder) → https://pluson.ru/webinar/{slug}/{day}
+        (+ ?c={contact_id} для сквозной идентификации зрителя).
+    Нет дня / нет комнаты / пусто → ''. Общей events.stream_url больше нет.
+    """
+    if not day:
+        return ""
+    wr = await db.fetchrow(
+        "SELECT stream_type, external_url FROM webinar_rooms "
+        "WHERE event_id=$1 AND day_number=$2", event_id, day)
+    if not wr:
+        return ""
+    if wr["stream_type"] == "external_link":
+        return (wr["external_url"] or "").strip()
+    slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
+    if not slug:
+        return ""
+    url = f"https://pluson.ru/webinar/{slug}/{day}"
+    if contact_id:
+        url += f"?c={contact_id}"
+    return url
+
+
 async def resolve_event_by_slug(db, slug: str) -> Optional[dict]:
     """Событие + client_id владельца по slug (у events нет client_id — берём из event_owners)."""
     row = await db.fetchrow(

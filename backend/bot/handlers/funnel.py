@@ -378,7 +378,7 @@ async def handle_event_live(callback: CallbackQuery):
     async with pool.acquire() as db:
         ev = await db.fetchrow(
             """SELECT id, slug, title, module_slug, start_at,
-                      stream_url, hide_stream_button,
+                      hide_stream_button,
                       (SELECT eo.client_id FROM event_owners eo
                         WHERE eo.event_id = e.id AND eo.status='accepted'
                         ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -459,8 +459,11 @@ async def handle_event_live(callback: CallbackQuery):
         else:
             text = "<b>Ближайший эфир</b>"
 
-        # Кнопка/заглушка стрима
-        stream_url = (ev["stream_url"] or "").strip()
+        # Кнопка/заглушка стрима — ссылка эфира = вебинарная комната дня (+ contact_id).
+        from app.services.webinar_service import day_stream_url as _day_stream_url
+        _sd = await db.fetchval(
+            "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", ev["id"])
+        stream_url = await _day_stream_url(db, ev["id"], _sd, contact_id) if _sd else ""
         hide = bool(ev["hide_stream_button"])
         rows = []
         if stream_url and not hide:

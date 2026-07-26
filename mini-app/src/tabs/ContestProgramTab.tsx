@@ -41,7 +41,7 @@ export default function ContestProgramTab({
   // Текст с лендинга (`event.description`) в Mini App после регистрации больше не
   // показываем: на странице регистрации он уже был.
   const descriptionPost: string = event?.description_post_register || ''
-  const hasVotingUrl  = !!event?.stream_url
+  const hasVotingUrl  = !!event?.landing_url
   const hasChat       = !!(event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max)
 
   const { openChat: openChatWithCheck, modal: chatModal, loading: chatLoading } = useChatGate(event, tgUser)
@@ -50,7 +50,7 @@ export default function ContestProgramTab({
     <div style={{ padding: '14px 16px 100px' }}>
       {/* Кнопка «Перейти к голосованию» */}
       {hasVotingUrl && (
-        <a href={event.stream_url} target="_blank" rel="noreferrer"
+        <a href={event.landing_url} target="_blank" rel="noreferrer"
            onClick={() => trackLinkClick(event?.slug, tgUser)}
            style={{
           display: 'flex', alignItems: 'center', gap: 12,

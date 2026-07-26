@@ -14,10 +14,10 @@ export default function ContestOverviewTab({
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
-  // «Ссылка на голосование» сохраняется в events.stream_url
-  // (то же поле, что у мероприятий — там оно для ZOOM/стрима). Mini App
-  // в режиме контестa показывает её плиткой «Перейти к голосованию».
-  const [votingUrl, setVotingUrl] = useState(event.stream_url || '')
+  // «Ссылка на голосование» сохраняется в events.landing_url — это сторонний
+  // лендинг голосования (у конкурса нет вебинарной комнаты). Mini App в режиме
+  // контеста показывает её плиткой «Перейти к голосованию».
+  const [votingUrl, setVotingUrl] = useState(event.landing_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   // Текст кнопки на встроенном лендинге (миграция 212). Пусто → «КАК ГОЛОСОВАТЬ?».
@@ -47,7 +47,7 @@ export default function ContestOverviewTab({
       const dpr = descriptionPostRegister.trim()
       if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
       const v = votingUrl.trim()
-      if (v !== (event.stream_url || ''))                       payload.stream_url = v || null
+      if (v !== (event.landing_url || ''))                      payload.landing_url = v || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso

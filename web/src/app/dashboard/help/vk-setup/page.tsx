@@ -514,7 +514,10 @@ export default function VkSetupInstructionPage() {
           <p className="mb-2">После модерации этот экран пропадает: VK открывает приложение сразу, и ссылка на лид-магнит доходит правильно.</p>
           <p className="font-semibold mb-1">Как отправить на модерацию:</p>
           <ol className="list-decimal pl-5 space-y-1">
-            <li>dev.vk.com → ваше приложение → <strong>«Настройки»</strong></li>
+            <li>Зайдите на <a href="https://dev.vk.com" target="_blank" rel="noreferrer" className="underline font-medium">dev.vk.com</a> и
+              в <strong>верхнем меню кликните пункт «Приложения»</strong> — откроется список ваших Mini App.
+              <span className="block text-xs mt-0.5">⚠️ Не вводите прямые адреса типа dev.vk.com/apps или /mini-apps/management — VK их периодически меняет и вы попадёте на «Страница не найдена». Заходите только через пункт «Приложения» в меню.</span></li>
+            <li>Выберите ваше приложение → <strong>«Настройки»</strong></li>
             <li>Заполните всё обязательное: <strong>название, иконку, описание, категорию,
               скриншоты и ссылку на политику конфиденциальности</strong> — без них модерация не примет</li>
             <li>Убедитесь, что состояние — <strong>«включено и видно всем»</strong> (не тестовый режим)</li>

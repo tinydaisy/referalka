@@ -30,6 +30,7 @@ from ..services.max_api import send_message as max_send_message, tg_inline_to_ma
 from ..services.max_auth import parse_startapp_ref_payload
 from ..services.share_links import max_link as build_max_link
 from ..services.event_welcome import _send_event_organizer_notification
+from ..services.webinar_service import day_stream_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1468,7 +1469,7 @@ async def _send_max_event_menu(
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
-                  stream_url, hide_stream_button, start_at,
+                  hide_stream_button, start_at,
                   (SELECT url FROM event_posters
                      WHERE event_id = events.id AND day IS NULL
                      ORDER BY CASE orientation
@@ -1576,7 +1577,7 @@ async def _handle_max_live(
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     ev = await conn.fetchrow(
-        """SELECT id, slug, title, start_at, stream_url, hide_stream_button
+        """SELECT id, slug, title, start_at, module_slug, landing_url, hide_stream_button
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )
@@ -1626,7 +1627,22 @@ async def _handle_max_live(
     text = "Ближайший эфир" + (f" — {live_when}" if live_when else "")
     if live_what:
         text += f"\n{live_what}"
-    stream_url = (ev["stream_url"] or "").strip()
+    # Ссылка эфира = вебинарная комната дня.
+    # Мероприятие (base) — день 1; конференция/турнир — первый день с комнатой;
+    # конкурс — сторонний лендинг голосования (events.landing_url).
+    module_slug = ev["module_slug"] or "base"
+    stream_url = ""
+    if module_slug == "contest":
+        stream_url = (ev["landing_url"] or "").strip()
+    else:
+        if module_slug in ("conference", "turnir"):
+            _sd = await conn.fetchval(
+                "SELECT MIN(day_number) FROM webinar_rooms WHERE event_id = $1",
+                event_id,
+            ) or 1
+        else:
+            _sd = 1
+        stream_url = await day_stream_url(conn, event_id, _sd, contact_id=contact_id)
     hide = bool(ev["hide_stream_button"])
     rows = []
     if stream_url and not hide:

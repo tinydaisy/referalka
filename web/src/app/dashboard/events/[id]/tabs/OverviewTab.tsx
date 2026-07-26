@@ -18,10 +18,6 @@ export default function OverviewTab({
   const [description, setDescription] = useState(event.description || '')
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
-  // «Ссылка на ZOOM/стрим» сохраняется в events.stream_url (как у конференции),
-  // потому что ProgramTab Mini App рендерит блок стрима по stream_url.
-  // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
-  const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
   const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
   // МедиаЛифт: сколько каналов из ветки обязательно подписать (1..7).
   const isMedialift = event.module_slug === 'medialift'
@@ -69,9 +65,6 @@ export default function OverviewTab({
       if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
       const lu = landingUrl.trim()
       if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
-      const su = streamUrl.trim()
-      const initStream = event.stream_url || event.address || ''
-      if (su !== initStream)                                    payload.stream_url = su || null
       if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
       if (isMedialift && mlRequiredSubs !== (event.medialift_required_subscriptions ?? 3))
         payload.medialift_required_subscriptions = mlRequiredSubs
@@ -159,10 +152,9 @@ export default function OverviewTab({
         <h2 className="block-title mb-4">Настройка ссылок</h2>
 
         <div className="space-y-4">
-          <Field label="Ссылка на ZOOM или вебинарную комнату" hint="Появится плиткой «Стрим» в Mini App в день эфира">
-            <input value={streamUrl} onChange={e => setStreamUrl(e.target.value)}
-                   className="input" placeholder="https://us02web.zoom.us/j/..." />
-          </Field>
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-600">
+            Ссылка на эфир настраивается в разделе «Вебинары» — участник попадёт в вебинарную комнату дня.
+          </div>
 
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" checked={hideStreamButton}

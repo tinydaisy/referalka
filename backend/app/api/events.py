@@ -132,9 +132,9 @@ class UpdateEventRequest(BaseModel):
     # Текст кнопки на встроенном лендинге события (миграция 212). Пусто → дефолт:
     # «КАК ГОЛОСОВАТЬ?» у конкурса, «Зарегистрироваться» у остальных типов.
     landing_cta_label: Optional[str] = None
-    stream_url: Optional[str] = None
     # Скрыть кнопку стрима в Mini App (миграция 128). FALSE (default) = кнопка
-    # показывается. TRUE = жёстко скрыта, даже если stream_url задан.
+    # показывается. TRUE = жёстко скрыта. Ссылка эфира теперь = вебинарная
+    # комната дня (см. webinar_service.day_stream_url), колонка stream_url убрана.
     hide_stream_button: Optional[bool] = None
     # Что показывать на вкладке «Итоги» при завершении события (миграция 195):
     # 'next_event' (default) — следующее незавершённое событие; 'gift' — подарок.
@@ -590,7 +590,7 @@ async def copy_event(
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status,
                   tg_chat_ref, vk_chat_ref, max_chat_ref, primary_chat_platform,
-                  stream_url, vip_url, vip_button_label,
+                  vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
                   skip_contact_form, landing_cta_label)
@@ -599,10 +599,10 @@ async def copy_event(
                        $7,$8,$9,$10,$11,
                        $12,'draft',
                        $13,$14,$15,$16,
-                       $17,$18,$19,
-                       $20,$21,
-                       $22,$23,
-                       $24,$25)
+                       $17,$18,
+                       $19,$20,
+                       $21,$22,
+                       $23,$24)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -613,7 +613,7 @@ async def copy_event(
             src['require_subscription'],
             src.get('tg_chat_ref'), src.get('vk_chat_ref'), src.get('max_chat_ref'),
             src.get('primary_chat_platform'),
-            src.get('stream_url'), src.get('vip_url'),
+            src.get('vip_url'),
             src.get('vip_button_label'),
             src.get('chat_subscriptions_required') or False,
             src.get('chat_member_count_label'),

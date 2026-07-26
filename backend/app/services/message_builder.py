@@ -686,7 +686,10 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                cse.gift_raffle_title, cse.notes AS speaker_notes,
                c.ask_topics AS speaker_ask_topics,
                cse.knowledge_base_title, cse.knowledge_base_url,
-               e.slug AS event_slug, e.landing_url AS registration_url, e.stream_url,
+               e.slug AS event_slug, e.landing_url AS registration_url, e.id AS event_id,
+               (SELECT cs.day FROM conf_sessions cs
+                  WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
+                  ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS speaker_day,
                (SELECT cs.start_time FROM conf_sessions cs
                   WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
                   ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_start,
@@ -732,8 +735,9 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
     text = apply_speaker_material(
         text, build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]))
 
-    # {stream_url}/{landing_url}/{registration_url} — «ссылка на эфир» / регистрация.
-    stream_v = (sp["stream_url"] or "").strip()
+    # {stream_url} — ссылка на эфир = вебинарная комната ДНЯ спикера (не общая).
+    from app.services.webinar_service import day_stream_url as _day_stream_url
+    stream_v = await _day_stream_url(conn, sp["event_id"], sp["speaker_day"])
     reg_v = (sp["registration_url"] or "").strip()
     repl = {"{stream_url}": stream_v, "{landing_url}": reg_v, "{registration_url}": reg_v}
     for token, val in repl.items():
@@ -891,9 +895,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # (ссылка на эфир / регистрацию) — раскрываем и в тексте, и в кнопках, ДАЖЕ БЕЗ
         # выбранного спикера (это данные события, не спикера).
         ev_links = await conn.fetchrow(
-            "SELECT stream_url, landing_url FROM events WHERE id=$1", event_id)
+            "SELECT landing_url FROM events WHERE id=$1", event_id)
+        # {stream_url} — вебинарная комната. Для произвольного сообщения без привязки
+        # к дню берём первый день события с комнатой (мероприятие = день 1).
+        from app.services.webinar_service import day_stream_url as _day_stream_url
+        _wr_day = await conn.fetchval(
+            "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", event_id)
+        _ev_stream = await _day_stream_url(conn, event_id, _wr_day) if _wr_day else ""
         _ev_repl = {
-            "{stream_url}": (ev_links["stream_url"] if ev_links else None) or "",
+            "{stream_url}": _ev_stream,
             "{landing_url}": (ev_links["landing_url"] if ev_links else None) or "",
             "{registration_url}": (ev_links["landing_url"] if ev_links else None) or "",
         }
@@ -993,7 +1003,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                    e.landing_url AS registration_url,
                    e.slug AS event_slug,
                    cc.raffle_url,
-                   e.stream_url,
                    cd.title AS day_title,
                    COALESCE(cd.day_date,
                             (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date,
@@ -1014,18 +1023,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # «Событие с программой по дням» — конференция ИЛИ турнир (оба используют conf_days).
         is_program_event = (conf_row["module_slug"] in ("conference", "turnir")) if conf_row else False
         is_conference = (conf_row["module_slug"] == "conference") if conf_row else False
-        stream_url = (conf_row["stream_url"] or "") if conf_row else ""
-        # ⚠️ Ссылка эфира по ДНЮ: если у этого дня есть вебинарная комната —
-        # {stream_url} = ссылка комнаты дня (pluson.ru/webinar/{slug}/{day}) или её
-        # внешняя ссылка (стороннийвебинар). Общий events.stream_url — только fallback.
-        wr = await conn.fetchrow(
-            "SELECT room_state, stream_type, external_url FROM webinar_rooms "
-            "WHERE event_id=$1 AND day_number=$2", event_id, day)
-        if wr:
-            if wr["stream_type"] == "external_link" and (wr["external_url"] or "").strip():
-                stream_url = wr["external_url"].strip()
-            elif conf_row and conf_row["event_slug"]:
-                stream_url = f"https://pluson.ru/webinar/{conf_row['event_slug']}/{day}"
+        # Ссылка эфира ВСЕГДА = вебинарная комната дня (мероприятие=день 1, конф/турнир=свой день).
+        from app.services.webinar_service import day_stream_url as _day_stream_url
+        stream_url = await _day_stream_url(conn, event_id, day)
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         # У мероприятия (нет программы по дням) часто не задан landing_url, но есть
         # stream_url (вебинарная комната). Тогда {landing_url}/{registration_url} и
@@ -1363,7 +1363,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                             LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
                            WHERE eclm.ec_id = cse.id
                        ) g) AS gift_magnets_json,
-                       e.stream_url,
+                       cs.day AS session_day, cs.event_id AS session_event_id,
                        cl.default_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                           WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
@@ -1416,7 +1416,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 photo = session_data.get("speaker_photo") or session_data.get("speaker_poster")
             else:
                 photo = session_data.get("speaker_poster") or session_data.get("speaker_photo")
-        stream_url = session_data.get("stream_url") or ""
+        # Ссылка эфира = вебинарная комната ДНЯ этого слота.
+        from app.services.webinar_service import day_stream_url as _day_stream_url
+        stream_url = await _day_stream_url(
+            conn, session_data.get("session_event_id") or event_id, session_data.get("session_day"))
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
         if tpl_type == "gift":
@@ -1527,10 +1530,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         days_by_num = {d["day_number"]: d for d in conf_days_rows}
         first_day = conf_days_rows[0] if conf_days_rows else None
         last_day = conf_days_rows[-1] if conf_days_rows else None
-        # Один stream_url на всю конференцию — теперь хранится в events
-        event_stream_url = await conn.fetchval(
-            "SELECT stream_url FROM events WHERE id=$1", event_id
-        ) or ""
 
         # Определяем «целевой» день для плейсхолдеров
         target_day_num = None
@@ -1582,7 +1581,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         day_number = target_day_num or (first_day["day_number"] if first_day else 1)
         raw_day_date = target_day["day_date"] if target_day else raw_first_date
         day_date_str = f"{raw_day_date.day} {RU_MONTHS[raw_day_date.month - 1]}" if raw_day_date else ""
-        stream_url = event_stream_url
+        # Ссылка эфира = вебинарная комната ЭТОГО дня (не общий events.stream_url).
+        from app.services.webinar_service import day_stream_url as _day_stream_url
+        stream_url = await _day_stream_url(conn, event_id, day_number)
 
         # Программа дня — только если есть привязка к конкретному дню
         day_program = ""
@@ -1687,9 +1688,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     # эфир / регистрацию. В тексте они уже подставлены в своих ветках; здесь
     # добираем кнопку, чтобы «ссылка на эфир» в кнопке тоже раскрывалась.
     if btn_url and ("{stream_url}" in btn_url or "{landing_url}" in btn_url or "{registration_url}" in btn_url):
-        _ev = await conn.fetchrow("SELECT stream_url, landing_url FROM events WHERE id=$1", event_id)
+        _ev = await conn.fetchrow("SELECT landing_url FROM events WHERE id=$1", event_id)
+        # {stream_url} в кнопке — уже вычисленная выше ссылка эфира (комната дня),
+        # иначе первый день события с комнатой.
+        _btn_stream = locals().get("stream_url") or ""
+        if not _btn_stream:
+            from app.services.webinar_service import day_stream_url as _day_stream_url
+            _bd = await conn.fetchval(
+                "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", event_id)
+            _btn_stream = await _day_stream_url(conn, event_id, _bd) if _bd else ""
         btn_url = (btn_url
-                   .replace("{stream_url}", (_ev["stream_url"] if _ev else None) or "")
+                   .replace("{stream_url}", _btn_stream)
                    .replace("{landing_url}", (_ev["landing_url"] if _ev else None) or "")
                    .replace("{registration_url}", (_ev["landing_url"] if _ev else None) or ""))
 

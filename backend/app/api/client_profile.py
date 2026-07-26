@@ -36,6 +36,7 @@ from app.services.external_landing import (
     build_external_landing_url,
     resolve_or_create_participant,
 )
+from app.services.webinar_service import day_stream_url
 from app.config import settings
 
 
@@ -732,7 +733,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    e.primary_chat_platform,
                    e.chat_member_count_label, e.chat_button_label, e.accent_button,
                    e.require_subscription,
-                   e.stream_url, e.hide_stream_button, e.skip_contact_form,
+                   e.hide_stream_button, e.skip_contact_form,
                    e.landing_cta_label,
                    e.is_collab,
                    c.name AS client_name, c.brand_name AS client_brand,
@@ -763,6 +764,36 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     d = dict(row)
+
+    # ── Ссылка эфира = вебинарная комната ДНЯ (events.stream_url удалён, миграция 233) ──
+    # У конкурса комнаты нет: «стрим» = ссылка голосования → сторонний лендинг.
+    # У мероприятия (base) день всегда 1; у конференции/турнира — сегодняшний
+    # day_number (МСК), иначе первый день с webinar_rooms.
+    if d.get("module_slug") == "contest":
+        d["stream_url"] = (d.get("landing_url") or "").strip()
+    else:
+        _day = 1
+        has_days = await db.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM conf_days WHERE event_id=$1)", d["id"])
+        if has_days:
+            _day = await db.fetchval(
+                """SELECT day_number FROM conf_days
+                    WHERE event_id=$1
+                      AND day_date = (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                    ORDER BY day_number LIMIT 1""",
+                d["id"],
+            )
+            if not _day:
+                _day = await db.fetchval(
+                    """SELECT cd.day_number FROM conf_days cd
+                        WHERE cd.event_id=$1
+                          AND EXISTS(SELECT 1 FROM webinar_rooms wr
+                                      WHERE wr.event_id=cd.event_id
+                                        AND wr.day_number=cd.day_number)
+                        ORDER BY cd.day_number LIMIT 1""",
+                    d["id"],
+                )
+        d["stream_url"] = await day_stream_url(db, d["id"], _day) if _day else ""
 
     # Афиши события (горизонтальные используем как hero)
     posters = await db.fetch(

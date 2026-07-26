@@ -608,7 +608,7 @@ export default function TemplatesPage() {
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
     // Без префикса 🔗 — он уже есть в самом тексте шаблона перед {stream_url},
     // иначе в превью получаем «🔗 🔗 [ссылка на эфир]».
-    return dayObj?.stream_url || eventData?.stream_url || '[ссылка на эфир]'
+    return dayObj?.stream_url || '[ссылка на эфир]'
   }
 
   function getGameLink(): string {
@@ -839,7 +839,7 @@ export default function TemplatesPage() {
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
     // Для конференции — данные из conf_days/conf_conferences. Для мероприятия —
     // прямые поля events.title / events.stream_url / events.landing_url.
-    const realStreamUrl = dayObj?.stream_url || eventData?.stream_url || ''
+    const realStreamUrl = dayObj?.stream_url || ''
     const realRegUrl = confData?.event_landing_url || eventData?.landing_url || ''
     const realConfTitle = confData?.event_title || confData?.title || eventData?.title || '[Название события]'
     const realDayDate = dayObj?.day_date

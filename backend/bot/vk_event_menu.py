@@ -305,8 +305,9 @@ async def handle_vk_event_menu_back(event_id: int, vk_user_id: int, db, ctx) -> 
 async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«📺 Ссылка на эфир» (VK) — ближайший эфир + кнопка стрима. Порт
     funnel.py:handle_event_live."""
+    from app.services.webinar_service import day_stream_url
     ev = await db.fetchrow(
-        """SELECT id, slug, title, module_slug, start_at, stream_url, hide_stream_button
+        """SELECT id, slug, title, module_slug, start_at, hide_stream_button
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )
@@ -374,7 +375,11 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     else:
         text = "Ближайший эфир"
 
-    stream_url = (ev["stream_url"] or "").strip()
+    _sd = await db.fetchval(
+        "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1",
+        ev["id"],
+    )
+    stream_url = (await day_stream_url(db, ev["id"], _sd, contact_id)) if _sd else ""
     hide = bool(ev["hide_stream_button"])
     rows: list[list[dict]] = []
     if stream_url and not hide:

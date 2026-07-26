@@ -4,6 +4,7 @@ from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
+from app.services.webinar_service import day_stream_url
 import asyncpg
 import re
 import json
@@ -170,17 +171,20 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
             return val.strftime("%-d %B %Y года")
         return str(val)
 
-    # Stream_url теперь один на всю конференцию (events.stream_url),
-    # но для обратной совместимости лендинга прокидываем его в каждый день.
-    event_stream_url = (event["stream_url"] if event and "stream_url" in event else "") or ""
+    # Ссылка эфира = вебинарная комната ДНЯ (events.stream_url удалён миграцией 233).
+    # На каждый день считаем свою ссылку; корень — по первому дню.
+    root_stream_url = ""
 
     schedule = []
     for d in days:
         day_sessions = [s for s in sessions if s["day"] == d["day_number"]]
+        day_stream = await day_stream_url(db, event_id, d["day_number"]) or ""
+        if not root_stream_url:
+            root_stream_url = day_stream
         schedule.append({
             "day": f"День {d['day_number']}",
             "date": date_str(d["day_date"]),
-            "stream_url": event_stream_url,
+            "stream_url": day_stream,
             "slots": [
                 {
                     "time": dt_str(s["start_time"]),
@@ -205,7 +209,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "description": (event["description"] if event else "") or "",
         "registration_url": (event["landing_url"] if event else None) or conf["getcourse_form_url"] or "",
         "chat_url": (event["chat_url"] if event else None) or conf["chat_url"] or "",
-        "stream_url": event_stream_url,
+        "stream_url": root_stream_url,
         "landing_template": conf["landing_template"] or "ivision",
         "speakers": [
             {
@@ -255,7 +259,6 @@ class ConferenceUpdate(BaseModel):
     vk_chat_ref: Optional[int] = None
     max_chat_ref: Optional[int] = None
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
-    stream_url: Optional[str] = None
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
     offer_url: Optional[str] = None                # оферта мероприятия (миграция 157)
@@ -301,7 +304,6 @@ async def get_conference(
                (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_chat_url_vk,
                (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_url_max,
                e.primary_chat_platform AS event_primary_chat_platform,
-               e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
                e.offer_url   AS event_offer_url,
@@ -326,14 +328,14 @@ async def get_conference(
     if not conf:
         return {"conference": None}
     d = dict(conf)
-    # chat_url / stream_url / vip_url / landing_url — единый
-    # источник истины events.
+    # chat_url / vip_url / landing_url — единый источник истины events.
     d["chat_url"]      = d.pop("event_chat_url")     or d.get("chat_url") or ""
     d["chat_url_tg"]   = d.pop("event_chat_url_tg")  or ""
     d["chat_url_vk"]   = d.pop("event_chat_url_vk")  or ""
     d["chat_url_max"]  = d.pop("event_chat_url_max") or ""
     d["primary_chat_platform"] = d.pop("event_primary_chat_platform") or None
-    d["stream_url"] = d.pop("event_stream_url") or ""
+    # Ссылка эфира = вебинарная комната по первому дню (events.stream_url удалён, миграция 233)
+    d["stream_url"] = await day_stream_url(db, event_id, None) or ""
     d["vip_url"]    = d.pop("event_vip_url")    or ""
     d["vip_button_label"] = d.pop("event_vip_button_label") or ""
     d["offer_url"]    = d.pop("event_offer_url")    or ""
@@ -388,7 +390,7 @@ async def update_conference(
     # Поля, которые живут в events (не в conf_conferences) — единый источник истины.
     EVENT_FIELDS = (
         "primary_chat_platform",
-        "stream_url", "vip_url", "vip_button_label", "offer_url",
+        "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
         "link_mode",
         # Что показывать на «Итогах» при завершении (миграция 195)
@@ -458,7 +460,6 @@ async def update_conference(
                (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_chat_url_vk,
                (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_url_max,
                e.primary_chat_platform AS event_primary_chat_platform,
-               e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
                e.offer_url   AS event_offer_url,
@@ -486,7 +487,8 @@ async def update_conference(
     d["chat_url_vk"]       = d.pop("event_chat_url_vk")  or ""
     d["chat_url_max"]      = d.pop("event_chat_url_max") or ""
     d["primary_chat_platform"] = d.pop("event_primary_chat_platform") or None
-    d["stream_url"]        = d.pop("event_stream_url") or ""
+    # Ссылка эфира = вебинарная комната по первому дню (events.stream_url удалён, миграция 233)
+    d["stream_url"]        = await day_stream_url(db, event_id, None) or ""
     d["vip_url"]           = d.pop("event_vip_url")    or ""
     d["vip_button_label"]  = d.pop("event_vip_button_label") or ""
     d["offer_url"]         = d.pop("event_offer_url")  or ""
