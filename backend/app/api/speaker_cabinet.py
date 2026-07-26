@@ -1590,12 +1590,42 @@ async def speaker_program(
         "LEFT JOIN contacts c ON c.id=col.contact_id JOIN events e ON e.id=ec.event_id "
         "WHERE ec.id=$1", se_id)
 
+    # Флаг «эфир дня завершён»: дата дня прошла И прошло 2 часа после конца
+    # последнего слота дня (МСК). Тогда реф-ссылку в кабинете замыливаем.
+    from datetime import datetime, timezone, timedelta, time as _time
+    MSK = timezone(timedelta(hours=3))
+    now_msk = datetime.now(MSK)
+    # последнее время окончания слота по дню (строки "HH:MM")
+    last_end: dict = {}
+    for s in vis_sessions:
+        t = s.get("end_time") or s.get("start_time")
+        if not t:
+            continue
+        cur = last_end.get(s["day"])
+        if cur is None or str(t) > cur:
+            last_end[s["day"]] = str(t)
+    days_out = []
+    for d in days:
+        dd = dict(d)
+        ended = False
+        dt = d["day_date"]
+        if dt:
+            hhmm = last_end.get(d["day_number"], "23:59")
+            try:
+                hh, mm = int(hhmm[:2]), int(hhmm[3:5])
+            except Exception:
+                hh, mm = 23, 59
+            end_dt = datetime.combine(dt, _time(hh, mm), tzinfo=MSK) + timedelta(hours=2)
+            ended = now_msk > end_dt
+        dd["webinar_ended"] = ended
+        days_out.append(dd)
+
     return {
         "my_ec_id": se_id,
         "event_slug": ref["slug"] if ref else None,
         "my_ref_code": ref["ref_code"] if ref else None,
         "stages": [dict(s) for s in stages],
-        "days": [dict(d) for d in days],
+        "days": days_out,
         "sessions": vis_sessions,
         "my_topics": [dict(t) for t in my_topics],
     }

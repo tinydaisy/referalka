@@ -2336,6 +2336,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [activeStage, setActiveStage] = useState<number | null>(null)
+  const [copiedDay, setCopiedDay] = useState<number | null>(null)
   // раскрытые дни-аккордеоны (day_number). null = ещё не трогали → откроется первый
   const [openDays, setOpenDays] = useState<Set<number> | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -2631,17 +2632,28 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
                   {/* Личная реф-ссылка спикера на вебинар этого дня */}
                   {(d.has_webinar ?? true) && data.event_slug && data.my_ref_code && (() => {
                     const link = `${typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru'}/webinar/${data.event_slug}/${d.day_number}?pid=${data.my_ref_code}`
+                    const ended = !!d.webinar_ended
                     return (
                       <div style={{ background: '#fff7ef', border: `1px solid ${PEACH}`, borderRadius: 12, padding: 12, marginBottom: 4 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: DARK, marginBottom: 4 }}>🔗 Ваша ссылка на эфир этого дня</div>
-                        <div style={{ fontSize: 11, color: '#7a8c9c', marginBottom: 8 }}>Приглашайте зрителей — все, кто придёт по ней, засчитаются вам.</div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <input readOnly value={link} style={{ flex: 1, fontSize: 11, padding: '8px 10px', border: '1px solid #e1e8ee', borderRadius: 8, background: '#fff', color: DARK }} />
-                          <button type="button" onClick={() => { navigator.clipboard.writeText(link) }}
-                            style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: PEACH, color: DARK, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
-                            Копировать
-                          </button>
-                        </div>
+                        {ended ? (
+                          <>
+                            <div style={{ fontSize: 12, color: '#9aa9b7', fontWeight: 600, marginBottom: 8 }}>Событие завершено</div>
+                            <input readOnly value={link} style={{ width: '100%', fontSize: 11, padding: '8px 10px', border: '1px solid #e1e8ee', borderRadius: 8, background: '#f2f4f6', color: '#c3cfd8', filter: 'blur(3px)', userSelect: 'none', pointerEvents: 'none' }} />
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 11, color: '#7a8c9c', marginBottom: 8 }}>Приглашайте зрителей — все, кто придёт по ней, засчитаются вам.</div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <input readOnly value={link} style={{ flex: 1, fontSize: 11, padding: '8px 10px', border: '1px solid #e1e8ee', borderRadius: 8, background: '#fff', color: DARK }} />
+                              <button type="button"
+                                onClick={() => { navigator.clipboard.writeText(link); setCopiedDay(d.day_number); setTimeout(() => setCopiedDay(null), 1800) }}
+                                style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: copiedDay === d.day_number ? '#1f7a44' : PEACH, color: copiedDay === d.day_number ? '#fff' : DARK, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0, minWidth: 96 }}>
+                                {copiedDay === d.day_number ? '✓ Скопировано' : 'Копировать'}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )
                   })()}
