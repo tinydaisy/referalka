@@ -1309,11 +1309,21 @@ function PlatformShareLinks({ kind, slug, links, name, blocked }: {
       </div>
     )
   }
+  const hasVk = available.includes('vk')
   return (
     <div className="flex flex-col gap-1">
       {available.map(p => (
         <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} name={name} />
       ))}
+      {hasVk && (
+        <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-0.5 leading-snug">
+          ⚠️ <b>VK-ссылка откроется у людей только если ваше VK Mini App включено «для всех».</b>{' '}
+          Если у клиентов ошибка «доступно только администраторам» или «игра заблокирована» —
+          зайдите в <a href="https://dev.vk.com" target="_blank" rel="noreferrer" className="underline font-medium">dev.vk.com</a> → ваше приложение → Настройки → «Состояние приложения» → включите «видно всем».{' '}
+          <a href="/dashboard/help/vk-setup" target="_blank" rel="noreferrer" className="underline font-medium">Инструкция →</a>{' '}
+          Всегда проверяйте ссылку в режиме инкогнито (у вас-админа она открывается всегда).
+        </div>
+      )}
       <div className="mt-1">
         <CopyAllLinksButton links={resolved} />
       </div>
