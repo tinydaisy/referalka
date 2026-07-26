@@ -49,13 +49,14 @@ class VkDiagLaunchRequest(BaseModel):
 async def vk_diag_launch(body: VkDiagLaunchRequest):
     """Только лог. Помогает найти, куда VK кладёт payload при «холодном» запуске
     через экран «Запустить» (одноразовый первый-запуск приложения)."""
-    logger.info(
+    lp = body.launch_params or {}
+    logger.warning(
         "VK DIAG-LAUNCH: resolved=%r hash=%r bridge_ref=%r url_ref=%r "
-        "app_id=%s user=%s vk_ref=%r ref=%r startapp=%r raw_hash=%r",
-        body.resolved, body.hash, body.bridge_ref, body.url_ref,
-        body.launch_params.get("vk_app_id"), body.launch_params.get("vk_user_id"),
-        body.launch_params.get("vk_ref"), body.launch_params.get("ref"),
-        body.launch_params.get("startapp"), body.raw_hash,
+        "raw_hash=%r app_id=%s user=%s || ALL_LAUNCH_KEYS=%s || vk_ref=%r ref=%r "
+        "startapp=%r ref_source=%r",
+        body.resolved, body.hash, body.bridge_ref, body.url_ref, body.raw_hash,
+        lp.get("vk_app_id"), lp.get("vk_user_id"), sorted(lp.keys()),
+        lp.get("vk_ref"), lp.get("ref"), lp.get("startapp"), lp.get("ref_source"),
     )
     return {"ok": True}
 
