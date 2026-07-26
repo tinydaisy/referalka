@@ -136,9 +136,25 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
         rx = await conn.fetch(
             "SELECT speaker_id, reaction_key, count FROM webinar_speaker_reactions WHERE room_id=$1", rid)
 
-        # ⚠️ HLS отдаём зрителю ТОЛЬКО когда ведущий начал эфир (status='live').
-        # Пока 'ready' — спикер настраивается в Zoom, зрители видеть не должны.
-        is_live = room.get("status") == "live"
+        # ⚠️ HLS отдаём зрителю ТОЛЬКО когда ведущий начал эфир (status='live')
+        # И комната открыта. Пока 'ready' — спикер настраивается в Zoom, не показываем.
+        room_state = room.get("room_state") or "created"
+        is_live = room.get("status") == "live" and room_state == "open"
+
+        # Время старта для обратного отсчёта: явное opens_at, иначе старт дня программы
+        # (conf_days.day_date + open_time), трактуем как МСК.
+        opens_at_iso = room["opens_at"].isoformat() if room.get("opens_at") else None
+        if not opens_at_iso:
+            drow = await conn.fetchrow(
+                "SELECT day_date, open_time FROM conf_days WHERE event_id=$1 AND day_number=$2",
+                ev["id"], day)
+            if drow and drow["day_date"]:
+                t = (drow["open_time"] or "10:00")[:5]
+                try:
+                    hh, mm = t.split(":")
+                    opens_at_iso = f"{drow['day_date'].isoformat()}T{int(hh):02d}:{int(mm):02d}:00+03:00"
+                except Exception:
+                    opens_at_iso = f"{drow['day_date'].isoformat()}T10:00:00+03:00"
 
         # бренд клиента для шапки комнаты (как в Mini App: логотип + название)
         brand = await conn.fetchrow(
@@ -190,6 +206,8 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
                 "auth_require_phone": room.get("auth_require_phone"),
                 "auth_require_tg": room.get("auth_require_tg"),
                 "auth_intro_text": room.get("auth_intro_text"),
+                "room_state": room_state,        # created | open | closed
+                "opens_at": opens_at_iso,         # для обратного отсчёта на странице
             },
             "blocks": blocks,
             "current_speaker": follow,

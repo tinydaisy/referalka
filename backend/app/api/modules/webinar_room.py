@@ -157,6 +157,8 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "auth_require_phone": r.get("auth_require_phone"),
         "auth_require_tg": r.get("auth_require_tg"),
         "auth_intro_text": r.get("auth_intro_text"),
+        "room_state": r.get("room_state") or "created",
+        "opens_at": r["opens_at"].isoformat() if r.get("opens_at") else None,
         "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
     }
 
@@ -691,6 +693,8 @@ async def go_live(event_id: int, day_number: int, client=Depends(get_current_cli
     await ws.assert_event_owner(db, event_id, cid)
     await _assert_webinar_feature(db, cid, need_room=True)
     room = await ws.get_room_or_404(db, event_id, day_number)
+    if (room.get("room_state") or "created") != "open":
+        raise HTTPException(400, "Сначала откройте комнату — тогда можно начать эфир.")
     if not room.get("stream_active"):
         raise HTTPException(400, "Поток не идёт — сначала запустите трансляцию в Zoom/OBS")
     # Новая эфирная сессия (запуск) — presence/activity будут писаться в неё.
@@ -704,21 +708,23 @@ async def go_live(event_id: int, day_number: int, client=Depends(get_current_cli
     return {"ok": True, "status": "live", "session_id": sess_id}
 
 
-@router.post("/{day_number}/end-live", summary="Завершить эфир — редирект зрителей")
+@router.post("/{day_number}/end-live", summary="Завершить ЭФИР (сессию) — комната остаётся открытой")
 async def end_live(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    """Завершает ТЕКУЩИЙ эфир (сессию), но НЕ закрывает комнату — можно запустить
+    новый эфир того же дня (кнопка «Начать эфир» снова). Зрители видят «эфир на паузе,
+    скоро продолжим». Полное закрытие с редиректом — отдельная кнопка «Закрыть комнату»."""
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
     await _assert_webinar_feature(db, cid, need_room=True)
     room = await ws.get_room_or_404(db, event_id, day_number)
     sess_id = room.get("current_session_id")   # сохранить ДО обнуления
-    # Закрываем текущую сессию запуска.
     if sess_id:
         await db.execute(
             "UPDATE webinar_sessions SET ended_at=NOW() WHERE id=$1 AND ended_at IS NULL", sess_id)
+    # status='ended' = «эфир сейчас не идёт», но room_state НЕ трогаем (комната открыта).
     await db.execute(
         "UPDATE webinar_rooms SET status='ended', ended_at=NOW(), current_session_id=NULL WHERE id=$1",
         room["id"])
-    # Заливка записи эфира в R2 (фоново, чтобы не держать ответ).
     if sess_id:
         try:
             from app.tasks.webinar_recording import upload_session_recording
@@ -726,5 +732,56 @@ async def end_live(event_id: int, day_number: int, client=Depends(get_current_cl
         except Exception:
             pass  # запись не критична для завершения эфира
     from app.services.webinar_hub import publish
-    await publish(room["id"], {"type": "stream_ended", "redirect_url": room.get("redirect_url")})
+    # paused — зрители видят «эфир на паузе», плеер прячется, редиректа НЕТ.
+    await publish(room["id"], {"type": "stream_paused"})
     return {"ok": True, "status": "ended"}
+
+
+@router.post("/{day_number}/open-room", summary="Открыть комнату — пускать зрителей на авторизацию")
+async def open_room(event_id: int, day_number: int,
+                    opens_at: Optional[str] = Query(None),   # ISO время старта для countdown
+                    client=Depends(get_current_client), db=Depends(get_db)):
+    """room_state='open': зритель может авторизоваться (имя+email) и попасть внутрь.
+    До эфира видит афишу + «трансляция начнётся через…». Эфир запускается отдельно."""
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    room = await ws.get_room_or_404(db, event_id, day_number)
+    import datetime as _dt
+    oa = None
+    if opens_at:
+        try:
+            oa = _dt.datetime.fromisoformat(opens_at.replace("Z", "+00:00"))
+        except Exception:
+            oa = None
+    await db.execute(
+        "UPDATE webinar_rooms SET room_state='open', opens_at=COALESCE($2, opens_at) WHERE id=$1",
+        room["id"], oa)
+    from app.services.webinar_hub import publish
+    await publish(room["id"], {"type": "room_opened"})   # зрителям — перечитать (появится форма)
+    return {"ok": True, "room_state": "open"}
+
+
+@router.post("/{day_number}/close-room", summary="Закрыть комнату — «вебинар завершён» + редирект")
+async def close_room(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    """Финал дня: room_state='closed'. Все, кто заходит, видят «вебинар завершён,
+    переводим вас…» и редирект на redirect_url. Идущий эфир тоже гасится."""
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    room = await ws.get_room_or_404(db, event_id, day_number)
+    sess_id = room.get("current_session_id")
+    if sess_id:
+        await db.execute(
+            "UPDATE webinar_sessions SET ended_at=NOW() WHERE id=$1 AND ended_at IS NULL", sess_id)
+        try:
+            from app.tasks.webinar_recording import upload_session_recording
+            upload_session_recording.delay(sess_id)
+        except Exception:
+            pass
+    await db.execute(
+        "UPDATE webinar_rooms SET room_state='closed', status='ended', ended_at=NOW(), "
+        "current_session_id=NULL WHERE id=$1", room["id"])
+    from app.services.webinar_hub import publish
+    await publish(room["id"], {"type": "stream_ended", "redirect_url": room.get("redirect_url")})
+    return {"ok": True, "room_state": "closed"}

@@ -198,7 +198,9 @@ export default function WebinarRoomPage() {
         // 'ready'/'offline' — спикер настраивается в Zoom, зрителю показывать нечего.
         // Плеер появляется только когда ведущий нажал «Начать эфир» → stream_live.
         case 'stream_live': load(); break
-        case 'stream_ended':
+        case 'room_opened': load(); break      // комната открыта — появится форма/плеер
+        case 'stream_paused': load(); break     // эфир завершён, но комната открыта — «пауза»
+        case 'stream_ended':                    // комната закрыта — редирект
           if (msg.redirect_url) window.location.href = msg.redirect_url
           else load()
           break
@@ -238,11 +240,12 @@ export default function WebinarRoomPage() {
         if (!res.ok) return
         const d = await res.json()
         const st = d.room?.status
-        if (st === 'ended') {
+        // Редирект — ТОЛЬКО когда комната закрыта (не при паузе эфира).
+        if (d.room?.room_state === 'closed') {
           if (d.room?.redirect_url) { window.location.href = d.room.redirect_url; return }
         }
-        // статус изменился (ready→live и т.п.) — обновим страницу
-        if (st !== room.room.status) load()
+        // статус или состояние комнаты изменились — обновим страницу
+        if (st !== room.room.status || d.room?.room_state !== room.room.room_state) load()
       } catch {}
     }, 12000)
     return () => clearInterval(t)
@@ -255,13 +258,31 @@ export default function WebinarRoomPage() {
   if (!room) return <Centered>Загрузка…</Centered>
 
   const rm = room.room
+  const roomState = rm.room_state || 'created'
+  const live = rm.status === 'live' && roomState === 'open'
   const ended = rm.status === 'ended'
-  const live = rm.status === 'live'
+  const webinarTitle = rm.title || room.event?.title
 
-  // Анонимов быть не должно: если зритель не опознан (нет contact_id из бота/Mini App
-  // и не авторизовался раньше) — показываем форму ВСЕГДА. Как минимум просим имя,
-  // остальные поля — по настройкам комнаты (auth_require_*). auth_mode влияет только
-  // на набор обязательных полей, но не на сам факт показа формы.
+  // (d) КОМНАТА ЗАКРЫТА — «вебинар завершён», редирект (если задан).
+  if (roomState === 'closed') {
+    return (
+      <PreStartScreen brand={room.brand} poster={room.poster_url} title={webinarTitle}
+        heading="Вебинар завершён" sub={rm.redirect_url ? 'Сейчас переведём вас по ссылке…' : 'Спасибо, что были с нами!'}
+        redirectUrl={rm.redirect_url} />
+    )
+  }
+
+  // (a) КОМНАТА НЕ ОТКРЫТА — афиша + название + обратный отсчёт, БЕЗ формы входа.
+  if (roomState === 'created') {
+    return (
+      <PreStartScreen brand={room.brand} poster={room.poster_url} title={webinarTitle}
+        heading={rm.intro_text || 'Трансляция скоро начнётся'} opensAt={rm.opens_at} />
+    )
+  }
+
+  // Дальше room_state === 'open'.
+  // Анонимов быть не должно: если зритель не опознан — показываем форму ВСЕГДА
+  // (в т.ч. когда эфир уже идёт: авторизовался → сразу в плеер; cookie помнит вход).
   const needAuth = !contactId
   if (needAuth) {
     return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm} clientId={room.event?.client_id}
@@ -699,6 +720,55 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex items-center justify-center text-white/80 p-6" style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
       {children}
+    </div>
+  )
+}
+
+// Экран до старта / после закрытия: логотип + название вебинара + афиша + отсчёт.
+function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectUrl }: any) {
+  useEffect(() => {
+    if (!redirectUrl) return
+    const t = setTimeout(() => { window.location.href = redirectUrl }, 4000)
+    return () => clearTimeout(t)
+  }, [redirectUrl])
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center text-white p-6 text-center"
+      style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
+      {brand?.logo_url && <img src={brand.logo_url} alt="" className="h-10 mb-4 object-contain" />}
+      {title && <h1 className="text-xl sm:text-2xl font-bold mb-2 max-w-xl">{title}</h1>}
+      {poster && (
+        <img src={poster} alt="" className="w-full max-w-md rounded-2xl shadow-lg mb-5 object-cover" />
+      )}
+      {heading && <p className="text-lg text-white/90 mb-1 max-w-xl whitespace-pre-wrap">{heading}</p>}
+      {sub && <p className="text-sm text-white/60 mb-3">{sub}</p>}
+      {opensAt && <Countdown opensAt={opensAt} />}
+      {redirectUrl && (
+        <a href={redirectUrl} className="mt-4 underline text-sm" style={{ color: '#FFCFA4' }}>Перейти сейчас</a>
+      )}
+    </div>
+  )
+}
+
+// Обратный отсчёт до opensAt (ISO). После наступления — «Трансляция вот-вот начнётся».
+function Countdown({ opensAt }: { opensAt: string }) {
+  const [left, setLeft] = useState<number>(() => Math.max(0, new Date(opensAt).getTime() - Date.now()))
+  useEffect(() => {
+    const t = setInterval(() => setLeft(Math.max(0, new Date(opensAt).getTime() - Date.now())), 1000)
+    return () => clearInterval(t)
+  }, [opensAt])
+  if (left <= 0) return <p className="text-base text-white/70">Трансляция вот-вот начнётся…</p>
+  const s = Math.floor(left / 1000)
+  const d = Math.floor(s / 86400)
+  const hh = Math.floor((s % 86400) / 3600)
+  const mm = Math.floor((s % 3600) / 60)
+  const ss = s % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    <div className="mt-1">
+      <p className="text-xs text-white/50 mb-1.5 uppercase tracking-wide">До начала эфира</p>
+      <div className="text-2xl sm:text-3xl font-bold tabular-nums" style={{ color: '#FFCFA4' }}>
+        {d > 0 && <span>{d} дн </span>}{pad(hh)}:{pad(mm)}:{pad(ss)}
+      </div>
     </div>
   )
 }

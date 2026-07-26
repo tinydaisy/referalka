@@ -698,12 +698,17 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
     return () => { if (hls) hls.destroy() }
   }, [streamActive, r?.hls_url])
 
-  async function go(action: 'go' | 'end') {
-    if (action === 'end' && !confirm('Завершить эфир? Зрителей перебросит на указанную ссылку.')) return
+  const roomState = r?.room_state || 'created'
+
+  async function go(action: 'go' | 'end' | 'open' | 'close') {
+    if (action === 'end' && !confirm('Завершить текущий эфир? Комната останется открытой — потом сможете начать эфир снова.')) return
+    if (action === 'close' && !confirm('Закрыть комнату? Все зрители увидят «вебинар завершён» и уедут по ссылке после эфира. Новый эфир этого дня будет нельзя.')) return
     setBusy(true)
     try {
       if (action === 'go') await api.webinar.goLive(eventId, day.day_number)
-      else await api.webinar.endLive(eventId, day.day_number)
+      else if (action === 'end') await api.webinar.endLive(eventId, day.day_number)
+      else if (action === 'open') await api.webinar.openRoom(eventId, day.day_number)
+      else await api.webinar.closeRoom(eventId, day.day_number)
       await onChanged()
     } catch (e: any) {
       alert(e?.message || 'Ошибка')
@@ -714,43 +719,88 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
     idle:  { t: 'Потока нет — запустите трансляцию в Zoom/OBS', c: 'bg-gray-100 text-gray-600' },
     ready: { t: 'Поток идёт · зрители НЕ видят', c: 'bg-amber-100 text-amber-700' },
     live:  { t: '● В ЭФИРЕ · зрители видят', c: 'bg-red-100 text-red-700' },
-    ended: { t: 'Эфир завершён', c: 'bg-gray-100 text-gray-600' },
+    ended: { t: 'Эфир не идёт', c: 'bg-gray-100 text-gray-600' },
   }
   const badge = badges[status] || { t: status, c: 'bg-gray-100' }
 
+  const roomBadge: Record<string, { t: string; c: string }> = {
+    created: { t: 'Комната закрыта · зрители видят отсчёт', c: 'bg-gray-100 text-gray-600' },
+    open:    { t: '● Комната открыта · зрители входят', c: 'bg-green-100 text-green-700' },
+    closed:  { t: 'Комната завершена · редирект', c: 'bg-gray-100 text-gray-500' },
+  }
+  const rb = roomBadge[roomState] || roomBadge.created
+
   return (
-    <div className="border rounded-xl p-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h4 className="font-semibold">🎬 Управление эфиром</h4>
-        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${badge.c}`}>{badge.t}</span>
+    <div className="space-y-3">
+      {/* 1) Доступ в комнату — открыть/закрыть (не эфир!) */}
+      <div className="border rounded-xl p-4">
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h4 className="font-semibold">🚪 Комната</h4>
+          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${rb.c}`}>{rb.t}</span>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          «Открыть» — зрители смогут войти по имени/почте и ждать эфир (видят афишу и отсчёт).
+          «Закрыть» — вебинар завершён, всех уводит по ссылке после эфира.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          {roomState !== 'open' ? (
+            <button onClick={() => go('open')} disabled={busy || roomState === 'closed'}
+              className="btn-gold text-sm disabled:opacity-40">
+              {busy ? '…' : '🔓 Открыть комнату'}
+            </button>
+          ) : (
+            <button onClick={() => go('close')} disabled={busy}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+              {busy ? '…' : '🔒 Закрыть комнату'}
+            </button>
+          )}
+          {roomState === 'closed' && (
+            <button onClick={() => go('open')} disabled={busy}
+              className="px-4 py-2 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">
+              Открыть заново
+            </button>
+          )}
+        </div>
       </div>
 
-      {streamActive && status !== 'live' && (
-        <div className="mb-3">
-          <div className="text-xs text-gray-500 mb-1">Превью — видите только вы. Проверьте картинку и звук:</div>
-          <video ref={previewRef} controls muted playsInline className="w-full rounded-lg bg-black aspect-video" />
+      {/* 2) Эфир — начать/завершить (можно несколько раз внутри открытой комнаты) */}
+      <div className="border rounded-xl p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h4 className="font-semibold">🎬 Эфир</h4>
+          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${badge.c}`}>{badge.t}</span>
         </div>
-      )}
 
-      <div className="flex gap-2">
-        {status !== 'live' ? (
-          <button onClick={() => go('go')} disabled={busy || !streamActive}
-            className="btn-gold text-sm disabled:opacity-40 disabled:cursor-not-allowed">
-            {busy ? '…' : '▶ Начать эфир'}
-          </button>
-        ) : (
-          <button onClick={() => go('end')} disabled={busy}
-            className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
-            {busy ? '…' : '■ Завершить эфир'}
-          </button>
+        {roomState !== 'open' && (
+          <p className="text-xs text-amber-600 mb-3">Сначала откройте комнату — тогда можно начинать эфир.</p>
+        )}
+
+        {streamActive && status !== 'live' && (
+          <div className="mb-3">
+            <div className="text-xs text-gray-500 mb-1">Превью — видите только вы. Проверьте картинку и звук:</div>
+            <video ref={previewRef} controls muted playsInline className="w-full rounded-lg bg-black aspect-video" />
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          {status !== 'live' ? (
+            <button onClick={() => go('go')} disabled={busy || !streamActive || roomState !== 'open'}
+              className="btn-gold text-sm disabled:opacity-40 disabled:cursor-not-allowed">
+              {busy ? '…' : '▶ Начать эфир'}
+            </button>
+          ) : (
+            <button onClick={() => go('end')} disabled={busy}
+              className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700">
+              {busy ? '…' : '⏸ Завершить эфир (пауза)'}
+            </button>
+          )}
+        </div>
+
+        {!streamActive && status !== 'live' && (
+          <p className="text-xs text-gray-500 mt-2">
+            Ждём поток от Zoom/OBS… Кнопка «Начать эфир» загорится сама, как только пойдёт трансляция на RTMP-адрес из «Настроек».
+          </p>
         )}
       </div>
-
-      {!streamActive && status !== 'live' && (
-        <p className="text-xs text-gray-500 mt-2">
-          Ждём поток от Zoom/OBS… Кнопка «Начать эфир» загорится сама, как только пойдёт трансляция на RTMP-адрес из «Настроек».
-        </p>
-      )}
     </div>
   )
 }
