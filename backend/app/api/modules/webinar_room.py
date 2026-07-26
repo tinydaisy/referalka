@@ -494,6 +494,62 @@ async def webinar_referrals(event_id: int, day_number: int, client=Depends(get_c
     return {"referrers": [dict(r) for r in rows], "total_registrations": total}
 
 
+# ─────────────────────────── зрители вебинара ───────────────────────────
+@router.get("/{day_number}/audience", summary="Список зрителей вебинара (кто был, откуда, контакты)")
+async def audience(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        """
+        SELECT c.id AS contact_id, c.name, c.phone,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                  WHERE pu.contact_id=c.id AND pu.platform_slug='email' LIMIT 1) AS email,
+               (SELECT pu.username FROM platform_users pu
+                  WHERE pu.contact_id=c.id AND pu.platform_slug='telegram' LIMIT 1) AS tg_username,
+               reg.referrer_ref_code,
+               rc.name AS referrer_name,
+               reg.created_at AS registered_at,
+               (SELECT MIN(p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id) AS first_seen,
+               (SELECT MAX(p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id) AS last_seen,
+               (SELECT COUNT(*) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id) AS minutes_online,
+               (SELECT COUNT(*) FROM webinar_activity a WHERE a.room_id=$1 AND a.contact_id=c.id AND a.kind='chat_msg') AS messages,
+               (SELECT COUNT(*) FROM webinar_activity a WHERE a.room_id=$1 AND a.contact_id=c.id AND a.kind='reaction') AS reactions
+          FROM webinar_registrations reg
+          JOIN contacts c ON c.id = reg.contact_id
+          LEFT JOIN contacts rc ON rc.ref_code = reg.referrer_ref_code
+         WHERE reg.room_id=$1
+         ORDER BY last_seen DESC NULLS LAST, reg.created_at DESC
+        """, rid,
+    )
+    return {"viewers": [dict(r) for r in rows]}
+
+
+@router.get("/{day_number}/audience/{contact_id}/timeline", summary="История входов/выходов зрителя")
+async def audience_timeline(event_id: int, day_number: int, contact_id: int,
+                            client=Depends(get_current_client), db=Depends(get_db)):
+    """Интервалы присутствия — из поминутного heartbeat склеиваем в отрезки
+    заходил→выходил (разрыв >2 мин = новый заход)."""
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        "SELECT bucket_at FROM webinar_presence WHERE room_id=$1 AND contact_id=$2 ORDER BY bucket_at",
+        rid, contact_id)
+    intervals = []
+    start = prev = None
+    for r in rows:
+        t = r["bucket_at"]
+        if start is None:
+            start = prev = t
+        elif (t - prev).total_seconds() > 180:  # разрыв >3 мин → новый заход
+            intervals.append({"from": start.isoformat(), "to": prev.isoformat()})
+            start = prev = t
+        else:
+            prev = t
+    if start is not None:
+        intervals.append({"from": start.isoformat(), "to": prev.isoformat()})
+    return {"intervals": intervals}
+
+
 # ─────────────────────────── обзор батлов события ───────────────────────────
 @router.get("/battles/all", summary="Все батлы события по дням (обзор результатов)")
 async def all_battles(event_id: int, client=Depends(get_current_client), db=Depends(get_db)):

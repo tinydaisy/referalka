@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio } from 'lucide-react'
@@ -35,7 +35,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
   const [level, setLevel] = useState<'room' | 'link'>('room')
   const [days, setDays] = useState<DayItem[]>([])
   const [activeDay, setActiveDay] = useState<number | null>(null)
-  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'records' | 'referrals' | 'console'>('settings')
+  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'>('settings')
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +101,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             ['records', 'Записи'],
             ['referrals', 'Рефералы'],
             ['console', 'Пульт ведущего'],
+            ['audience', 'Зрители'],
           ] as const).map(([k, lbl]) => (
             <button
               key={k}
@@ -143,6 +144,12 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           <ConsolePanel eventId={eventId} day={active} event={event} slug={event?.slug} onChanged={load} />
         )}
         {subView === 'console' && !active.room && (
+          <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
+        )}
+        {subView === 'audience' && active.room && (
+          <AudienceTab eventId={eventId} day={active.day_number} />
+        )}
+        {subView === 'audience' && !active.room && (
           <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
         )}
       </div>
@@ -1035,6 +1042,101 @@ function ReferralsTab({ eventId, day, slug }: { eventId: number; day: number; sl
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────── зрители вебинара ───────────────────────────
+function AudienceTab({ eventId, day }: { eventId: number; day: number }) {
+  const [viewers, setViewers] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [openId, setOpenId] = useState<number | null>(null)
+  const [timeline, setTimeline] = useState<Record<number, any[]>>({})
+
+  useEffect(() => {
+    api.webinar.audience(eventId, day).then(r => setViewers(r.viewers || [])).catch(() => {}).finally(() => setLoading(false))
+  }, [eventId, day])
+
+  async function toggle(cid: number) {
+    if (openId === cid) { setOpenId(null); return }
+    setOpenId(cid)
+    if (!timeline[cid]) {
+      const r = await api.webinar.audienceTimeline(eventId, day, cid).catch(() => ({ intervals: [] }))
+      setTimeline(t => ({ ...t, [cid]: r.intervals || [] }))
+    }
+  }
+
+  if (loading) return <Spinner />
+  const tm = (d: string) => d ? new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '—'
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-semibold">Зрители вебинара <span className="text-gray-400 font-normal">· {viewers.length}</span></h4>
+      </div>
+      {!viewers.length ? (
+        <p className="text-sm text-gray-500">Пока никто не заходил в эфир.</p>
+      ) : (
+        <div className="border rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs">
+                <tr>
+                  <th className="text-left px-3 py-2">Зритель</th>
+                  <th className="text-left px-3 py-2">Контакты</th>
+                  <th className="text-left px-3 py-2">Кто привёл</th>
+                  <th className="px-3 py-2">Был в эфире</th>
+                  <th className="px-3 py-2">Активность</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {viewers.map((v: any) => (
+                  <Fragment key={v.contact_id}>
+                    <tr className="border-t hover:bg-gray-50/50">
+                      <td className="px-3 py-2">
+                        <a href={`/dashboard/clients?contact=${v.contact_id}`} className="text-brand hover:underline font-medium">
+                          {v.name || `#${v.contact_id}`}
+                        </a>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-500">
+                        {[v.email, v.tg_username ? '@' + v.tg_username : null, v.phone].filter(Boolean).join(' · ') || '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs">{v.referrer_name || (v.referrer_ref_code ? v.referrer_ref_code : '—')}</td>
+                      <td className="px-3 py-2 text-center text-xs">
+                        {v.first_seen ? `${tm(v.first_seen)}–${tm(v.last_seen)}` : '—'}
+                        {v.minutes_online ? <span className="text-gray-400"> · {v.minutes_online} мин</span> : null}
+                      </td>
+                      <td className="px-3 py-2 text-center text-xs tabular-nums">💬 {v.messages} · 🔥 {v.reactions}</td>
+                      <td className="px-3 py-2 text-center">
+                        <button onClick={() => toggle(v.contact_id)} className="text-xs text-gray-500 hover:text-gray-700">
+                          {openId === v.contact_id ? '▾ история' : '▸ история'}
+                        </button>
+                      </td>
+                    </tr>
+                    {openId === v.contact_id && (
+                      <tr className="bg-gray-50/50">
+                        <td colSpan={6} className="px-3 py-2">
+                          <div className="text-xs text-gray-600">
+                            <div className="font-semibold mb-1">Заходы в эфир:</div>
+                            {(timeline[v.contact_id] || []).length ? (
+                              <ul className="space-y-0.5">
+                                {(timeline[v.contact_id] || []).map((iv: any, i: number) => (
+                                  <li key={i}>вход {tm(iv.from)} → выход {tm(iv.to)}</li>
+                                ))}
+                              </ul>
+                            ) : <span className="text-gray-400">нет данных о присутствии</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

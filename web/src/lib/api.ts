@@ -1161,6 +1161,10 @@ export const api = {
     allBattles: (eventId: number) => request(`/api/v1/events/${eventId}/webinar/battles/all`),
     // реферальный отчёт: кто сколько привёл на вебинар
     referrals: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/referrals`),
+    // зрители вебинара
+    audience: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/audience`),
+    audienceTimeline: (eventId: number, day: number, contactId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/audience/${contactId}/timeline`),
     segment: (eventId: number, day: number, from: string, to: string, tag?: string) => {
       const qs = new URLSearchParams({ from, to })
       if (tag) qs.set('tag', tag)
