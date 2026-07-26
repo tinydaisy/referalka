@@ -495,9 +495,13 @@ async def register(slug: str, day: int, body: RegisterIn):
             except Exception:
                 pass
 
+        # Реф-регистрация: фиксируем, по чьей ссылке пришёл (referrer_ref_code).
+        # Заслуга рефовода = человек зарегистрировался на вебинар (даже если не в боте).
         await conn.execute(
-            "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-            rid, contact_id)
+            "INSERT INTO webinar_registrations (room_id, contact_id, referrer_ref_code) "
+            "VALUES ($1,$2,$3) ON CONFLICT (room_id, contact_id) "
+            "DO UPDATE SET referrer_ref_code = COALESCE(webinar_registrations.referrer_ref_code, EXCLUDED.referrer_ref_code)",
+            rid, contact_id, body.pid)
         await conn.execute("UPDATE contacts SET was_in_webinar=TRUE WHERE id=$1", contact_id)
         await ws.tag_contact(conn, client_id, contact_id, f"webinar:{ev['slug']}:{day}")
     return {"ok": True, "contact_id": contact_id}

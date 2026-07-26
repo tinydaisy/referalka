@@ -35,7 +35,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
   const [level, setLevel] = useState<'room' | 'link'>('room')
   const [days, setDays] = useState<DayItem[]>([])
   const [activeDay, setActiveDay] = useState<number | null>(null)
-  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'console' | 'records'>('settings')
+  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'records' | 'referrals' | 'console'>('settings')
 
   const load = useCallback(async () => {
     try {
@@ -99,6 +99,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             ['blocks', 'Продающие блоки'],
             ['analytics', 'Аналитика'],
             ['records', 'Записи'],
+            ['referrals', 'Рефералы'],
             ['console', 'Пульт ведущего'],
           ] as const).map(([k, lbl]) => (
             <button
@@ -130,6 +131,12 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           <RecordsTab eventId={eventId} day={active.day_number} />
         )}
         {subView === 'records' && !active.room && (
+          <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
+        )}
+        {subView === 'referrals' && active.room && (
+          <ReferralsTab eventId={eventId} day={active.day_number} slug={event?.slug} />
+        )}
+        {subView === 'referrals' && !active.room && (
           <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
         )}
         {subView === 'console' && active.room && (
@@ -313,15 +320,15 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
       {/* Форма авторизации зрителя (работает и для нашей комнаты, и для Zoom) */}
       <div className="rounded-xl border p-4 space-y-3">
         <div className="font-semibold text-sm">Форма авторизации зрителя</div>
-        <div>
-          <label className="label">Когда показывать форму</label>
-          <select className="input max-w-md" value={f.auth_mode} onChange={e => setF({ ...f, auth_mode: e.target.value })}>
-            <option value="auto">Только незнакомым (кого не опознали по ссылке)</option>
-            <option value="always">Всем — даже опознанным</option>
-            <option value="off">Никому — вход без формы</option>
-          </select>
-          <p className="text-xs text-gray-500 mt-1">Пришёл из бота/Mini App или по личной ссылке — опознаётся по contact_id/tg_id без формы. Из рассылки в чат — обезличен, попросим заполнить форму.</p>
-        </div>
+        <Toggle label="Просить контакты перед входом в эфир"
+          checked={f.auth_mode !== 'off'}
+          onChange={v => setF({ ...f, auth_mode: v ? 'auto' : 'off' })} />
+        {f.auth_mode !== 'off' && (
+          <Toggle label="Спрашивать даже у знакомых (кого опознали по ссылке)"
+            checked={f.auth_mode === 'always'}
+            onChange={v => setF({ ...f, auth_mode: v ? 'always' : 'auto' })} />
+        )}
+        <p className="text-xs text-gray-500">Галочка выключена — эфир открывается сразу, без формы. Включена — незнакомых (из рассылки в чат) просим оставить контакты; пришедших по личной ссылке/из бота опознаём сами.</p>
         {f.auth_mode !== 'off' && (
           <>
             <div className="text-xs text-gray-500">Обязательные поля формы:</div>
@@ -942,6 +949,62 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────── реферальный отчёт вебинара ───────────────────────────
+function ReferralsTab({ eventId, day, slug }: { eventId: number; day: number; slug?: string }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.webinar.referrals(eventId, day).then(setData).catch(() => {}).finally(() => setLoading(false))
+  }, [eventId, day])
+
+  if (loading) return <Spinner />
+  const base = (typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru')
+  const refs = data?.referrers || []
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl bg-gray-50 border p-4 text-sm text-gray-600">
+        <div className="font-semibold text-gray-900 mb-1">Как это работает</div>
+        Каждый (спикер, участник) зовёт людей на вебинар по своей ссылке
+        <code className="mx-1 px-1.5 py-0.5 bg-white rounded text-brand">{base}/webinar/{slug}/{day}?pid=РЕФ-КОД</code>.
+        Пришедший регистрируется (заполняет форму или опознаётся) — и засчитывается рефоводу.
+        Работает даже если человек не в боте. Реф-код каждого — в разделе «Люди» / карточке контакта.
+      </div>
+
+      <div>
+        <h4 className="font-semibold mb-2">Кто сколько привёл на вебинар <span className="text-gray-400 font-normal">· всего регистраций: {data?.total_registrations ?? 0}</span></h4>
+        {!refs.length ? (
+          <p className="text-sm text-gray-500">Пока никто не привёл по реф-ссылке.</p>
+        ) : (
+          <div className="border rounded-xl overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-500 text-xs">
+                <tr>
+                  <th className="text-left px-3 py-2">Рефовод</th>
+                  <th className="px-3 py-2">Реф-код</th>
+                  <th className="px-3 py-2">Привёл (регистраций)</th>
+                  <th className="px-3 py-2">Из них были в эфире</th>
+                </tr>
+              </thead>
+              <tbody>
+                {refs.map((r: any, i: number) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2">{r.referrer_name || '—'}</td>
+                    <td className="px-3 py-2 text-center font-mono text-xs text-gray-500">{r.referrer_ref_code}</td>
+                    <td className="px-3 py-2 text-center font-semibold tabular-nums">{r.brought}</td>
+                    <td className="px-3 py-2 text-center tabular-nums text-gray-500">{r.attended}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

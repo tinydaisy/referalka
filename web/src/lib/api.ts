@@ -1159,6 +1159,8 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}`, { method: 'DELETE' }),
     // обзор батлов события
     allBattles: (eventId: number) => request(`/api/v1/events/${eventId}/webinar/battles/all`),
+    // реферальный отчёт: кто сколько привёл на вебинар
+    referrals: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/referrals`),
     segment: (eventId: number, day: number, from: string, to: string, tag?: string) => {
       const qs = new URLSearchParams({ from, to })
       if (tag) qs.set('tag', tag)

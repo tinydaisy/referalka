@@ -469,6 +469,31 @@ async def delete_recording(event_id: int, day_number: int, rec_id: int,
     return {"ok": True}
 
 
+# ─────────────────────────── реферальный отчёт вебинара ───────────────────────────
+@router.get("/{day_number}/referrals", summary="Кто сколько привёл на вебинар (по реф-ссылкам)")
+async def webinar_referrals(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        """
+        SELECT wr.referrer_ref_code,
+               c.name AS referrer_name,
+               COUNT(*) AS brought,
+               COUNT(*) FILTER (WHERE reg.contact_id IN (
+                   SELECT DISTINCT contact_id FROM webinar_presence WHERE room_id=$1 AND contact_id IS NOT NULL
+               )) AS attended
+          FROM webinar_registrations reg
+          JOIN webinar_registrations wr ON wr.id = reg.id
+          LEFT JOIN contacts c ON c.ref_code = wr.referrer_ref_code
+         WHERE reg.room_id=$1 AND wr.referrer_ref_code IS NOT NULL
+         GROUP BY wr.referrer_ref_code, c.name
+         ORDER BY brought DESC
+        """, rid,
+    )
+    total = await db.fetchval("SELECT COUNT(*) FROM webinar_registrations WHERE room_id=$1", rid)
+    return {"referrers": [dict(r) for r in rows], "total_registrations": total}
+
+
 # ─────────────────────────── обзор батлов события ───────────────────────────
 @router.get("/battles/all", summary="Все батлы события по дням (обзор результатов)")
 async def all_battles(event_id: int, client=Depends(get_current_client), db=Depends(get_db)):
