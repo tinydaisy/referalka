@@ -519,25 +519,56 @@ function AuthGate({ slug, day, rm, pid, utm, onAuthed }: any) {
   const [f, setF] = useState<any>(() => ({ name: '', email: '', phone: '', telegram_username: '', ...readAuthForm() }))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [candidates, setCandidates] = useState<any[] | null>(null) // экран «Это вы?»
+
+  async function send(extra: any = {}) {
+    setBusy(true); setErr('')
+    try {
+      const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...f, pid, utm_source: utm, ...extra }),
+      })
+      const d = await r.json()
+      if (d.need_choice) { setCandidates(d.candidates || []); return }
+      if (r.ok && d.contact_id) onAuthed(d.contact_id, f)
+      else setErr(d.detail || 'Не удалось войти')
+    } catch { setErr('Ошибка сети') }
+    finally { setBusy(false) }
+  }
 
   async function submit() {
-    // проверка обязательных полей
     if (rm.auth_require_name && !f.name.trim()) return setErr('Укажите имя')
     if (rm.auth_require_email && !f.email.trim()) return setErr('Укажите email')
     if (rm.auth_require_phone && !f.phone.trim()) return setErr('Укажите телефон')
     if (rm.auth_require_tg && !f.telegram_username.trim()) return setErr('Укажите ник в Telegram')
     if (!f.name && !f.email && !f.phone && !f.telegram_username) return setErr('Заполните хотя бы одно поле')
-    setBusy(true); setErr('')
-    try {
-      const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}/register`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...f, pid, utm_source: utm }),
-      })
-      const d = await r.json()
-      if (r.ok && d.contact_id) onAuthed(d.contact_id, f)
-      else setErr(d.detail || 'Не удалось войти')
-    } catch { setErr('Ошибка сети') }
-    finally { setBusy(false) }
+    await send()
+  }
+
+  // экран «Это вы?» — нашлось несколько контактов
+  if (candidates) {
+    return (
+      <Centered>
+        <div className="w-full max-w-sm">
+          <h2 className="text-lg font-bold text-center mb-1">Это вы?</h2>
+          <p className="text-sm text-white/60 text-center mb-4">Мы нашли несколько записей. Выберите свою или войдите как новый участник.</p>
+          <div className="space-y-2">
+            {candidates.map((c: any) => (
+              <button key={c.id} disabled={busy} onClick={() => send({ chosen_contact_id: c.id })}
+                className="w-full text-left rounded-lg bg-white/10 hover:bg-white/20 p-3">
+                <div className="font-semibold text-sm">{c.name || 'Без имени'}</div>
+                <div className="text-xs text-white/50">{[c.email, c.phone].filter(Boolean).join(' · ')}</div>
+              </button>
+            ))}
+            <button disabled={busy} onClick={() => send({ force_new: true })}
+              className="w-full py-2.5 rounded-lg font-semibold mt-1" style={{ background: '#FFCFA4', color: '#0a1520' }}>
+              Это новый участник
+            </button>
+            {err && <div className="text-sm text-red-300">{err}</div>}
+          </div>
+        </div>
+      </Centered>
+    )
   }
 
   const field = (key: string, ph: string, req: boolean) => (

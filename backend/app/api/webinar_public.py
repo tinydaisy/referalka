@@ -448,13 +448,63 @@ class RegisterIn(BaseModel):
     tg_id: Optional[int] = None            # из Mini App/бота — опознание без формы
     pid: Optional[str] = None              # реф-код рефовода (как в реф-программе)
     utm_source: Optional[str] = None
+    chosen_contact_id: Optional[int] = None  # зритель выбрал контакт на экране «Это вы?»
+    force_new: Optional[bool] = None         # зритель нажал «Это новый человек»
+
+
+def _mask_email(email: Optional[str]) -> Optional[str]:
+    """ma••••ta@mail.ru — первые/последние буквы до @, домен как есть."""
+    if not email or "@" not in email:
+        return email
+    local, dom = email.split("@", 1)
+    if len(local) <= 2:
+        return local[0] + "•••@" + dom
+    return f"{local[:2]}••••{local[-2:]}@{dom}"
+
+
+def _mask_phone(phone: Optional[str]) -> Optional[str]:
+    """+791••••••234 — первые 4 цифры и 3 последних."""
+    if not phone:
+        return phone
+    digits = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
+    if len(digits) <= 7:
+        return digits
+    return digits[:4] + "•" * max(0, len(digits) - 7) + digits[-3:]
+
+
+async def _find_contact_candidates(conn, client_id: int, email, phone, tg_username):
+    """Все контакты клиента, подходящие по email / телефону / TG-нику. Для экрана «Это вы?»."""
+    from app.services.contact_merge import normalize_email, normalize_phone, find_contact_by_telegram_username
+    ids = set()
+    en = normalize_email(email); pn = normalize_phone(phone)
+    if en:
+        rows = await conn.fetch(
+            "SELECT c.id FROM contacts c WHERE c.client_id=$1 AND c.is_active=TRUE AND EXISTS "
+            "(SELECT 1 FROM platform_users pu WHERE pu.contact_id=c.id AND pu.platform_slug='email' AND pu.platform_user_id=$2)",
+            client_id, en)
+        ids.update(r["id"] for r in rows)
+    if pn:
+        rows = await conn.fetch(
+            "SELECT id FROM contacts WHERE client_id=$1 AND is_active=TRUE AND phone_normalized=$2", client_id, pn)
+        ids.update(r["id"] for r in rows)
+    if tg_username:
+        cid = await find_contact_by_telegram_username(conn, client_id=client_id, telegram_username=tg_username)
+        if cid:
+            ids.add(cid)
+    if not ids:
+        return []
+    rows = await conn.fetch(
+        "SELECT c.id, c.name, c.phone, "
+        "  (SELECT pu.platform_user_id FROM platform_users pu WHERE pu.contact_id=c.id AND pu.platform_slug='email' LIMIT 1) AS email "
+        "FROM contacts c WHERE c.id = ANY($1::int[]) ORDER BY c.id", list(ids))
+    return [{"id": r["id"], "name": r["name"], "email": _mask_email(r["email"]), "phone": _mask_phone(r["phone"])} for r in rows]
 
 
 @router.post("/{slug}/{day}/register", summary="Авторизация зрителя (форма перед эфиром)")
 async def register(slug: str, day: int, body: RegisterIn):
     """Форма авторизации: находит/создаёт контакт по tg_id/email/phone/нику.
-    Учитывает реф-код (pid) и UTM. Помечает контакт «был в эфире».
-    Возвращает contact_id — фронт запоминает его в cookie (без повторного ввода)."""
+    При нескольких совпадениях — возвращает список на выбор («Это вы?»).
+    Учитывает реф-код (pid) и UTM. Помечает контакт «был в эфире»."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
@@ -462,8 +512,14 @@ async def register(slug: str, day: int, body: RegisterIn):
         client_id = ev["client_id"]
 
         contact_id = None
+        # 0) зритель уже выбрал контакт на экране «Это вы?»
+        if body.chosen_contact_id:
+            chk = await conn.fetchval(
+                "SELECT id FROM contacts WHERE id=$1 AND client_id=$2 AND is_active=TRUE",
+                body.chosen_contact_id, client_id)
+            contact_id = chk
         # 1) известный tg_id (Mini App/бот) — опознаём без формы
-        if body.tg_id:
+        if not contact_id and body.tg_id:
             from app.services.contact_merge import upsert_contact_with_identity
             res = await upsert_contact_with_identity(
                 conn, client_id=client_id, platform_slug="telegram",
@@ -471,7 +527,14 @@ async def register(slug: str, day: int, body: RegisterIn):
                 first_name=body.name, utm_source=body.utm_source,
             )
             contact_id = res[0] if isinstance(res, (tuple, list)) else res
-        # 2) иначе — по данным формы
+        # 1.5) если не форсим новый и не выбран — проверяем неоднозначность
+        if not contact_id and not body.force_new and not body.tg_id:
+            cands = await _find_contact_candidates(
+                conn, client_id, body.email, body.phone, body.telegram_username)
+            if len(cands) > 1:
+                # несколько совпадений → пусть зритель выберет («Это вы?»)
+                return {"ok": False, "need_choice": True, "candidates": cands}
+        # 2) иначе — по данным формы (0 или 1 совпадение → авто)
         if not contact_id:
             if not (body.name or body.email or body.phone or body.telegram_username):
                 raise HTTPException(400, "Заполните имя и хотя бы один контакт")
