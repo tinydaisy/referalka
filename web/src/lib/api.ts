@@ -1126,6 +1126,8 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/open-room${opensAt ? `?opens_at=${encodeURIComponent(opensAt)}` : ''}`, { method: 'POST' }),
     closeRoom: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/close-room`, { method: 'POST' }),
+    resetRoom: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/reset-room`, { method: 'POST' }),
     // блоки
     blocks: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/blocks`),
     createBlock: (eventId: number, day: number, data: any) =>

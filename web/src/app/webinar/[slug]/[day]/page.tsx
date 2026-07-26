@@ -199,6 +199,7 @@ export default function WebinarRoomPage() {
         // Плеер появляется только когда ведущий нажал «Начать эфир» → stream_live.
         case 'stream_live': load(); break
         case 'room_opened': load(); break      // комната открыта — появится форма/плеер
+        case 'room_reset': load(); break        // «начать заново» — вернуться к отсчёту
         case 'stream_paused': load(); break     // эфир завершён, но комната открыта — «пауза»
         case 'stream_ended':                    // комната закрыта — редирект
           if (msg.redirect_url) window.location.href = msg.redirect_url

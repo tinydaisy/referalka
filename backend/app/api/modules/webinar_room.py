@@ -785,3 +785,20 @@ async def close_room(event_id: int, day_number: int, client=Depends(get_current_
     from app.services.webinar_hub import publish
     await publish(room["id"], {"type": "stream_ended", "redirect_url": (room.get("redirect_url") or "").strip() or None})
     return {"ok": True, "room_state": "closed"}
+
+
+@router.post("/{day_number}/reset-room", summary="Начать заново — вернуть комнату к отсчёту (created)")
+async def reset_room(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    """room_state='created': снова афиша + название + обратный отсчёт, БЕЗ формы входа.
+    Данные прошлых эфиров (сессии, чат, записи, статистика) НЕ трогаем — только
+    сбрасываем доступ. Для повторного цикла (напр. следующий тест / автовебинар)."""
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    room = await ws.get_room_or_404(db, event_id, day_number)
+    await db.execute(
+        "UPDATE webinar_rooms SET room_state='created', status='idle', "
+        "current_session_id=NULL WHERE id=$1", room["id"])
+    from app.services.webinar_hub import publish
+    await publish(room["id"], {"type": "room_reset"})   # зрителям — вернуться к отсчёту
+    return {"ok": True, "room_state": "created"}
