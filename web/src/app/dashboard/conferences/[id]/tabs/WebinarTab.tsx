@@ -200,11 +200,38 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
     })
   }, [day.day_number, day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [savedMsg, setSavedMsg] = useState(false)
   async function save() {
     setSaving(true)
     try {
-      await api.webinar.upsertRoom(eventId, day.day_number, f)
+      const res = await api.webinar.upsertRoom(eventId, day.day_number, f)
+      // Сразу отражаем сохранённое (чтобы поля не «слетали» на плейсхолдеры).
+      if (res?.room) {
+        const rr = res.room
+        setF((prev: any) => ({
+          ...prev,
+          title: rr.title ?? prev.title,
+          stream_type: rr.stream_type ?? prev.stream_type,
+          external_url: rr.external_url ?? '',
+          hide_viewer_count: rr.hide_viewer_count ?? false,
+          chat_enabled: rr.chat_enabled ?? true,
+          premoderation: rr.premoderation ?? false,
+          redirect_url: rr.redirect_url ?? '',
+          reaction_up_label: rr.reaction_up_label ?? 'Огонь',
+          reaction_down_label: rr.reaction_down_label ?? 'Слабо',
+          show_down_reaction: rr.show_down_reaction ?? true,
+          intro_text: rr.intro_text ?? '',
+          buttons_per_row: rr.buttons_per_row ?? 1,
+          auth_mode: rr.auth_mode ?? 'auto',
+          auth_require_name: rr.auth_require_name ?? true,
+          auth_require_email: rr.auth_require_email ?? false,
+          auth_require_phone: rr.auth_require_phone ?? false,
+          auth_require_tg: rr.auth_require_tg ?? false,
+          auth_intro_text: rr.auth_intro_text ?? '',
+        }))
+      }
       await onSaved()
+      setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2500)
     } finally { setSaving(false) }
   }
 
@@ -346,9 +373,12 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
         )}
       </div>
 
-      <button onClick={save} disabled={saving} className="btn-gold">
-        {saving ? 'Сохраняю…' : r ? 'Сохранить' : 'Создать комнату'}
-      </button>
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saving} className="btn-gold">
+          {saving ? 'Сохраняю…' : r ? 'Сохранить' : 'Создать комнату'}
+        </button>
+        {savedMsg && <span className="text-sm text-green-600">✓ Сохранено</span>}
+      </div>
     </div>
   )
 }
