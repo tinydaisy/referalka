@@ -36,6 +36,7 @@ function readAuthContact(): number | null {
   return c ? Number(c) : null
 }
 function readAuthForm(): any {
+  if (typeof window === 'undefined') return {}
   try { return JSON.parse(localStorage.getItem('webinar_auth_form') || '{}') } catch { return {} }
 }
 
@@ -48,9 +49,16 @@ export default function WebinarRoomPage() {
   const urlContact = search.get('c') ? Number(search.get('c')) : null
   const pid = search.get('pid') || search.get('ref') || undefined
   const utm = search.get('utm_source') || undefined
-  const [authContact, setAuthContact] = useState<number | null>(() => urlContact || readAuthContact())
+  // SSR-безопасно: из useState-инициализатора cookie/localStorage НЕ читаем
+  // (иначе hydration mismatch → страница застревает на «Загрузка»).
+  const [authContact, setAuthContact] = useState<number | null>(urlContact)
+  const [sessionKey, setSessionKey] = useState<string | null>(null)
   const contactId = authContact
-  const [sessionKey] = useState<string | null>(() => (urlContact ? null : getSessionKey()))
+  useEffect(() => {
+    if (urlContact) return
+    setAuthContact(readAuthContact())
+    setSessionKey(getSessionKey())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [room, setRoom] = useState<any>(null)
   const [error, setError] = useState('')

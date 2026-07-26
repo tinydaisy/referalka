@@ -256,6 +256,11 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
 
   return (
     <div className="space-y-5 max-w-2xl">
+      {/* Дата дня — для ориентира, чтобы понимать какой это день (не редактируется здесь) */}
+      <div className="rounded-lg bg-gray-50 border px-3 py-2 text-sm text-gray-600 flex items-center gap-2">
+        <span className="text-gray-400">День {day.day_number}</span>
+        {day.day_date && <span className="font-semibold text-gray-800">· {new Date(day.day_date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })}</span>}
+      </div>
       <div>
         <label className="label">Название вебинара (дня)</label>
         <input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder={day.day_title || `День ${day.day_number}`} />
