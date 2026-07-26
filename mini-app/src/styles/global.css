@@ -37,6 +37,11 @@ body {
   flex-direction: column;
   position: relative;
   background: var(--bg);
+  /* VK Mini App: системная шапка VK (кнопки/статус-бар) перекрывает наш
+     контент. main-vk.tsx подписывается на VKWebAppUpdateInsets и ставит
+     --vk-inset-top. В TG переменная не задаётся → 0, ничего не меняется.
+     Причина модерации VK (2026-07): «кнопки VK перекрывают элементы UI». */
+  padding-top: var(--vk-inset-top, 0px);
 }
 
 /* === Header (тёмный с градиентом) === */
