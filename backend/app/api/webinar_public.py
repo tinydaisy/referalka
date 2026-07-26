@@ -260,10 +260,17 @@ async def chat_send(slug: str, day: int, body: ChatIn):
         if not text:
             raise HTTPException(400, "Пустое сообщение")
         status = "premod" if room.get("premoderation") else "visible"
+        # Имя автора: из формы; если пусто, но зритель опознан — берём имя контакта из БД
+        # (иначе авторизованный человек светился бы «Гостём»).
+        author_name = (body.author_name or "").strip() or None
+        if not author_name and body.contact_id:
+            author_name = await conn.fetchval(
+                "SELECT NULLIF(TRIM(name), '') FROM contacts WHERE id = $1", body.contact_id
+            )
         row = await conn.fetchrow(
             "INSERT INTO webinar_chat_messages (room_id, contact_id, author_name, text, status) "
             "VALUES ($1,$2,$3,$4,$5) RETURNING id, at",
-            rid, body.contact_id, body.author_name, text, status,
+            rid, body.contact_id, author_name, text, status,
         )
         # активность по зрителю
         await conn.execute(
@@ -271,7 +278,7 @@ async def chat_send(slug: str, day: int, body: ChatIn):
             rid, body.contact_id, body.session_key, room.get("current_session_id"),
         )
     msg = {
-        "type": "chat", "id": row["id"], "text": text, "author_name": body.author_name,
+        "type": "chat", "id": row["id"], "text": text, "author_name": author_name,
         "contact_id": body.contact_id, "at": row["at"].isoformat(), "status": status,
     }
     if status == "visible":

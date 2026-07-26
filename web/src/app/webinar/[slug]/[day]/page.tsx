@@ -52,10 +52,12 @@ export default function WebinarRoomPage() {
   // SSR-безопасно: из useState-инициализатора cookie/localStorage НЕ читаем
   // (иначе hydration mismatch → страница застревает на «Загрузка»).
   const [authContact, setAuthContact] = useState<number | null>(urlContact)
+  const [authName, setAuthName] = useState<string>('')  // имя из формы авторизации — подпись в чате
   const [sessionKey, setSessionKey] = useState<string | null>(null)
   const contactId = authContact
   useEffect(() => {
-    if (urlContact) return
+    setAuthName((readAuthForm().name || '').trim())
+    if (urlContact) { setSessionKey(getSessionKey()); return }
     setAuthContact(readAuthContact())
     setSessionKey(getSessionKey())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -264,12 +266,14 @@ export default function WebinarRoomPage() {
   const ended = rm.status === 'ended'
   const live = rm.status === 'live'
 
-  // Форма авторизации перед эфиром (и перед Zoom). auth_mode:
-  //   off    — никогда; auto — только если не опознан; always — всем.
-  const needAuth = rm.auth_mode !== 'off' && !contactId && (rm.auth_mode === 'always' || rm.auth_mode === 'auto')
+  // Анонимов быть не должно: если зритель не опознан (нет contact_id из бота/Mini App
+  // и не авторизовался раньше) — показываем форму ВСЕГДА. Как минимум просим имя,
+  // остальные поля — по настройкам комнаты (auth_require_*). auth_mode влияет только
+  // на набор обязательных полей, но не на сам факт показа формы.
+  const needAuth = !contactId
   if (needAuth) {
     return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm} clientId={room.event?.client_id}
-      onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid) }} />
+      onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid); setAuthName((form?.name || '').trim()) }} />
   }
 
   // Профи: внешняя ссылка
@@ -290,7 +294,8 @@ export default function WebinarRoomPage() {
     const text = chatText.trim()
     if (!text) return
     setChatText('')
-    await api('/chat', { contact_id: contactId, session_key: sessionKey, text })
+    // author_name — имя из формы авторизации; бэк также подставит по contact_id, если пусто
+    await api('/chat', { contact_id: contactId, session_key: sessionKey, text, author_name: authName || undefined })
   }
   async function react(speakerId: number, r: 'up' | 'down') {
     await api('/react', { contact_id: contactId, session_key: sessionKey, speaker_id: speakerId, reaction: r })
@@ -620,11 +625,11 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, onAuthed }: any) {
   }
 
   async function submit() {
-    if (rm.auth_require_name && !f.name.trim()) return setErr('Укажите имя')
+    // Имя обязательно ВСЕГДА — анонимов в эфире быть не должно.
+    if (!f.name.trim()) return setErr('Укажите имя')
     if (rm.auth_require_email && !f.email.trim()) return setErr('Укажите email')
     if (rm.auth_require_phone && !f.phone.trim()) return setErr('Укажите телефон')
     if (rm.auth_require_tg && !f.telegram_username.trim()) return setErr('Укажите ник в Telegram')
-    if (!f.name && !f.email && !f.phone && !f.telegram_username) return setErr('Заполните хотя бы одно поле')
     if (!consentPd) return setErr('Нужно согласие на обработку персональных данных')
     await send()
   }
@@ -668,7 +673,7 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, onAuthed }: any) {
         <h2 className="text-lg font-bold text-center mb-1">Вход в эфир</h2>
         {rm.auth_intro_text && <p className="text-sm text-white/60 text-center mb-4">{rm.auth_intro_text}</p>}
         <div className="space-y-2 mt-4">
-          {field('name', 'Имя', !!rm.auth_require_name)}
+          {field('name', 'Имя', true)}
           {field('phone', 'Телефон', !!rm.auth_require_phone)}
           {field('email', 'Email', !!rm.auth_require_email)}
           {field('telegram_username', 'Ник в Telegram', !!rm.auth_require_tg)}
