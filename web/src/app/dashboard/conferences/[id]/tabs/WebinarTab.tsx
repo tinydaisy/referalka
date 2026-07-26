@@ -39,25 +39,47 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   )
 }
 
+type SubView = 'settings' | 'blocks' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'
+
 export default function WebinarTab({ eventId, event }: { eventId: number; event: any }) {
   const [loading, setLoading] = useState(true)
   const [level, setLevel] = useState<'room' | 'link'>('room')
   const [days, setDays] = useState<DayItem[]>([])
   const [activeDay, setActiveDay] = useState<number | null>(null)
-  const [subView, setSubView] = useState<'settings' | 'blocks' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'>('settings')
+  const [subView, setSubView] = useState<SubView>('settings')
+
+  // Запоминаем выбранную подвкладку и день (по событию) — чтобы после reload
+  // остаться там, где были, а не сбрасываться на «Настройки»/первый день.
+  const svKey = `webinar_sub_${eventId}`
+  const dayKey = `webinar_day_${eventId}`
+  useEffect(() => {
+    try {
+      const sv = localStorage.getItem(svKey) as SubView | null
+      if (sv) setSubView(sv)
+    } catch {}
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const setSub = (v: SubView) => { setSubView(v); try { localStorage.setItem(svKey, v) } catch {} }
+  const setDay = (n: number) => { setActiveDay(n); try { localStorage.setItem(dayKey, String(n)) } catch {} }
 
   const load = useCallback(async () => {
     try {
       const res = await api.webinar.listRooms(eventId)
       setLevel(res.level)
       setDays(res.days || [])
-      setActiveDay(prev => prev ?? (res.days?.[0]?.day_number ?? null))
+      setActiveDay(prev => {
+        if (prev != null) return prev
+        let saved: number | null = null
+        try { const s = localStorage.getItem(dayKey); saved = s ? Number(s) : null } catch {}
+        // берём сохранённый день, если он есть среди дней; иначе первый
+        if (saved != null && (res.days || []).some((d: any) => d.day_number === saved)) return saved
+        return res.days?.[0]?.day_number ?? null
+      })
     } catch (e: any) {
       // 403/пусто обрабатываем ниже
     } finally {
       setLoading(false)
     }
-  }, [eventId])
+  }, [eventId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
@@ -86,7 +108,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           return (
             <button
               key={d.day_number}
-              onClick={() => setActiveDay(d.day_number)}
+              onClick={() => setDay(d.day_number)}
               className={`shrink-0 px-4 py-2.5 rounded-t-xl border border-b-0 text-sm font-medium transition ${
                 on ? 'bg-white border-gray-200 text-gray-900 relative z-10'
                    : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200/70'}`}
@@ -114,7 +136,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           ] as const).map(([k, lbl]) => (
             <button
               key={k}
-              onClick={() => setSubView(k)}
+              onClick={() => setSub(k)}
               className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${
                 subView === k ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               style={subView === k ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}
