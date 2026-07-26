@@ -1537,7 +1537,8 @@ async def speaker_program(
     # дни только видимых этапов (дни без этапа показываем всегда).
     # Галочка show_for_speakers у дня (миграция 204): FALSE → день скрыт от спикера.
     all_days = await db.fetch(
-        "SELECT id, day_number, day_date, stage_id, title, show_for_speakers "
+        "SELECT id, day_number, day_date, stage_id, title, show_for_speakers, "
+        "       COALESCE(has_webinar, TRUE) AS has_webinar "
         "FROM conf_days WHERE event_id = $1 AND show_for_speakers = TRUE ORDER BY day_number",
         e_id,
     )
@@ -1582,8 +1583,17 @@ async def speaker_program(
         se_id,
     )
 
+    # реф-код спикера + slug — для личной реф-ссылки на вебинар дня
+    ref = await db.fetchrow(
+        "SELECT e.slug, c.ref_code "
+        "FROM event_collaborators ec JOIN collaborators col ON col.id=ec.speaker_id "
+        "LEFT JOIN contacts c ON c.id=col.contact_id JOIN events e ON e.id=ec.event_id "
+        "WHERE ec.id=$1", se_id)
+
     return {
         "my_ec_id": se_id,
+        "event_slug": ref["slug"] if ref else None,
+        "my_ref_code": ref["ref_code"] if ref else None,
         "stages": [dict(s) for s in stages],
         "days": [dict(d) for d in days],
         "sessions": vis_sessions,

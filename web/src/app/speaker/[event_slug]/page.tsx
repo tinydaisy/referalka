@@ -2557,34 +2557,43 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         </div>
       )}
 
-      {/* Вкладки этапов (как в программе) */}
+      {/* Вкладки этапов — область-вкладки как дни в программе (загнутый верх) */}
       {(stageTabs.length > 0 || hasOrphanDays) && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap',
-          borderBottom: '1px solid #e1e8ee', paddingBottom: 10 }}>
-          {stageTabs.map(st => (
-            <button key={st.id} type="button"
-              onClick={() => { setActiveStage(st.id); setOpenDays(null); setSelectedId(null) }}
-              style={{
-                padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
-                border: `1px solid ${effStage === st.id ? DARK : '#d4dee5'}`,
-                background: effStage === st.id ? DARK : '#fff',
-                color: effStage === st.id ? '#fff' : DARK, fontWeight: effStage === st.id ? 700 : 500,
-              }}>
-              {st.title}
-            </button>
-          ))}
-          {hasOrphanDays && (
-            <button type="button"
-              onClick={() => { setActiveStage(ORPHAN); setOpenDays(null); setSelectedId(null) }}
-              style={{
-                padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
-                border: `1px solid ${effStage === ORPHAN ? DARK : '#d4dee5'}`,
-                background: effStage === ORPHAN ? DARK : '#fff',
-                color: effStage === ORPHAN ? '#fff' : DARK, fontWeight: effStage === ORPHAN ? 700 : 500,
-              }}>
-              Без этапа
-            </button>
-          )}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', overflowX: 'auto',
+          borderBottom: '1px solid #e1e8ee', marginBottom: 14 }}>
+          {stageTabs.map(st => {
+            const on = effStage === st.id
+            return (
+              <button key={st.id} type="button"
+                onClick={() => { setActiveStage(st.id); setOpenDays(null); setSelectedId(null) }}
+                style={{
+                  flexShrink: 0, padding: '10px 16px', fontSize: 13, cursor: 'pointer',
+                  borderTopLeftRadius: 12, borderTopRightRadius: 12,
+                  border: `1px solid ${on ? '#e1e8ee' : 'transparent'}`, borderBottom: 'none',
+                  marginBottom: -1,
+                  background: on ? '#fff' : '#eef2f5',
+                  color: on ? DARK : '#7a8c9c', fontWeight: on ? 700 : 500,
+                }}>
+                {st.title}
+              </button>
+            )
+          })}
+          {hasOrphanDays && (() => {
+            const on = effStage === ORPHAN
+            return (
+              <button type="button"
+                onClick={() => { setActiveStage(ORPHAN); setOpenDays(null); setSelectedId(null) }}
+                style={{
+                  flexShrink: 0, padding: '10px 16px', fontSize: 13, cursor: 'pointer',
+                  borderTopLeftRadius: 12, borderTopRightRadius: 12,
+                  border: `1px solid ${on ? '#e1e8ee' : 'transparent'}`, borderBottom: 'none',
+                  marginBottom: -1, background: on ? '#fff' : '#eef2f5',
+                  color: on ? DARK : '#7a8c9c', fontWeight: on ? 700 : 500,
+                }}>
+                Без этапа
+              </button>
+            )
+          })()}
         </div>
       )}
 
@@ -2619,6 +2628,23 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
               {/* слоты дня */}
               {opened && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 12px 12px' }}>
+                  {/* Личная реф-ссылка спикера на вебинар этого дня */}
+                  {(d.has_webinar ?? true) && data.event_slug && data.my_ref_code && (() => {
+                    const link = `${typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru'}/webinar/${data.event_slug}/${d.day_number}?pid=${data.my_ref_code}`
+                    return (
+                      <div style={{ background: '#fff7ef', border: `1px solid ${PEACH}`, borderRadius: 12, padding: 12, marginBottom: 4 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: DARK, marginBottom: 4 }}>🔗 Ваша ссылка на эфир этого дня</div>
+                        <div style={{ fontSize: 11, color: '#7a8c9c', marginBottom: 8 }}>Приглашайте зрителей — все, кто придёт по ней, засчитаются вам.</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input readOnly value={link} style={{ flex: 1, fontSize: 11, padding: '8px 10px', border: '1px solid #e1e8ee', borderRadius: 8, background: '#fff', color: DARK }} />
+                          <button type="button" onClick={() => { navigator.clipboard.writeText(link) }}
+                            style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: PEACH, color: DARK, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
+                            Копировать
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {slots.length === 0 && (
                     <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом дне пока нет слотов.</div>
                   )}
