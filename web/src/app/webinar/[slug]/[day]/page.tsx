@@ -154,6 +154,8 @@ export default function WebinarRoomPage() {
         case 'online': setOnline(msg.count); break
         // менеджер показал/убрал продающий блок вживую — перечитываем список
         case 'block_pin': load(); break
+        // ведущий сменил текущего спикера (авто/вручную) — перечитать
+        case 'speaker_changed': load(); break
         // 'ready'/'offline' — спикер настраивается в Zoom, зрителю показывать нечего.
         // Плеер появляется только когда ведущий нажал «Начать эфир» → stream_live.
         case 'stream_live': load(); break
@@ -303,25 +305,45 @@ export default function WebinarRoomPage() {
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
           </div>
 
-          {/* Сейчас выступает + подписка */}
+          {/* Сейчас выступает + подписка на все каналы спикера */}
           {cur && (
-            <div className="mt-3 rounded-xl bg-white/5 p-3 flex items-center gap-3">
+            <div className="mt-3 rounded-xl bg-white/5 p-3 flex items-center gap-3 flex-wrap">
               {cur.photo_url && <img src={cur.photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />}
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-white/50">Сейчас выступает</div>
-                <div className="font-semibold truncate">{cur.name}</div>
+              <div className="min-w-0">
+                <span className="text-white/50 text-sm">Спикер: </span>
+                <span className="font-semibold">{cur.name}</span>
               </div>
-              {cur.channels?.telegram && (
-                <a href={cur.channels.telegram} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Подписаться</a>
+              {(cur.channels?.telegram || cur.channels?.max || cur.channels?.vk) && (
+                <div className="flex flex-wrap gap-2 items-center ml-auto">
+                  <span className="text-xs text-white/50">Подписаться:</span>
+                  {cur.channels?.telegram && (
+                    <a href={cur.channels.telegram} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Канал в ТГ</a>
+                  )}
+                  {cur.channels?.max && (
+                    <a href={cur.channels.max} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Канал в МАХ</a>
+                  )}
+                  {cur.channels?.vk && (
+                    <a href={cur.channels.vk} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Канал в ВК</a>
+                  )}
+                </div>
               )}
             </div>
           )}
 
-          {/* Подарок спикера */}
-          {room.current_gift && (
-            <div className="mt-2 rounded-xl bg-amber-500/15 border border-amber-400/30 p-3 text-sm">
-              🎁 <b>Подарок от спикера</b>
-              {room.current_gift.url && <a href={room.current_gift.url} target="_blank" rel="noreferrer" className="ml-2 underline">получить</a>}
+          {/* Подарки спикера — каждый отдельной кнопкой */}
+          {room.current_gift?.gifts?.length > 0 && (
+            <div className="mt-2 rounded-xl bg-amber-500/15 border border-amber-400/30 p-3">
+              <div className="text-sm font-semibold mb-2">🎁 Подарки {room.current_gift.speaker_name || 'спикера'}:</div>
+              <div className="flex flex-wrap gap-2">
+                {room.current_gift.gifts.map((g: any, i: number) => (
+                  <a key={i} href={g.url} target="_blank" rel="noreferrer"
+                    onClick={() => api('/track', { contact_id: contactId, session_key: sessionKey, kind: 'click' })}
+                    className="px-3 py-2 rounded-lg text-sm font-semibold"
+                    style={{ background: '#FFCFA4', color: '#0a1520' }}>
+                    {g.title || 'Получить'}
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 

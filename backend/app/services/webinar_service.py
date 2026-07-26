@@ -65,8 +65,17 @@ async def current_speaker_ec_id(db, event_id: int, day_number: int) -> Optional[
     conf_sessions.speaker_id = event_collaborators.id (не collaborators.id).
     Ориентир — start_time/end_time слота (TEXT "HH:MM"). Если сейчас между началом
     и концом какого-то слота — его спикер «в эфире». Иначе None.
+
+    ⚠️ Проверяем И ДАТУ дня: текущий спикер показывается ТОЛЬКО если сегодня (МСК)
+    совпадает с датой этого дня программы. Иначе слот 11:20 «сработал бы» в любой
+    день по одному только времени.
     """
     now = datetime.now(MSK)
+    # дата этого дня программы
+    day_date = await db.fetchval(
+        "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2", event_id, day_number)
+    if day_date is None or day_date != now.date():
+        return None
     hhmm = now.strftime("%H:%M")
     row = await db.fetchrow(
         "SELECT speaker_id FROM conf_sessions "
@@ -115,22 +124,48 @@ async def speaker_gift_card(db, event_id: int, ec_id: Optional[int]) -> Optional
     """
     if not ec_id:
         return None
-    row = await db.fetchrow(
-        "SELECT gift_after_speech_title, gift_after_speech_url, "
-        "       gift_lead_magnet_id, gift_package_id "
-        "FROM event_collaborators WHERE id=$1 AND event_id=$2",
-        ec_id, event_id,
-    )
-    if not row:
+    # имя спикера
+    name = await db.fetchval(
+        "SELECT col.name FROM event_collaborators ec JOIN collaborators col ON col.id=ec.speaker_id "
+        "WHERE ec.id=$1 AND ec.event_id=$2", ec_id, event_id)
+
+    gifts = []
+    # 1) СПИСОК подарков (event_collaborator_lead_magnets) — их может быть несколько
+    rows = await db.fetch(
+        "SELECT lead_magnet_id, package_id, manual_title, manual_url "
+        "FROM event_collaborator_lead_magnets WHERE ec_id=$1 ORDER BY sort_order, id", ec_id)
+    for r in rows:
+        if r["manual_title"] and r["manual_url"]:
+            gifts.append({"title": r["manual_title"], "url": r["manual_url"]})
+        elif r["lead_magnet_id"]:
+            lm = await db.fetchrow("SELECT name, slug FROM lead_magnets WHERE id=$1", r["lead_magnet_id"])
+            if lm and lm["slug"]:
+                gifts.append({"title": lm["name"], "url": f"https://pluson.ru/m/{lm['slug']}"})
+        elif r["package_id"]:
+            pk = await db.fetchrow("SELECT name, slug FROM lead_magnet_packages WHERE id=$1", r["package_id"])
+            if pk and pk["slug"]:
+                gifts.append({"title": pk["name"], "url": f"https://pluson.ru/p/{pk['slug']}"})
+
+    # 2) Fallback на старые одиночные поля event_collaborators (если список пуст)
+    if not gifts:
+        old = await db.fetchrow(
+            "SELECT gift_after_speech_title, gift_after_speech_url, gift_lead_magnet_id, gift_package_id "
+            "FROM event_collaborators WHERE id=$1 AND event_id=$2", ec_id, event_id)
+        if old:
+            if old["gift_after_speech_title"] and old["gift_after_speech_url"]:
+                gifts.append({"title": old["gift_after_speech_title"], "url": old["gift_after_speech_url"]})
+            elif old["gift_lead_magnet_id"]:
+                lm = await db.fetchrow("SELECT name, slug FROM lead_magnets WHERE id=$1", old["gift_lead_magnet_id"])
+                if lm and lm["slug"]:
+                    gifts.append({"title": lm["name"], "url": f"https://pluson.ru/m/{lm['slug']}"})
+            elif old["gift_package_id"]:
+                pk = await db.fetchrow("SELECT name, slug FROM lead_magnet_packages WHERE id=$1", old["gift_package_id"])
+                if pk and pk["slug"]:
+                    gifts.append({"title": pk["name"], "url": f"https://pluson.ru/p/{pk['slug']}"})
+
+    if not gifts:
         return None
-    d = dict(row)
-    if d["gift_after_speech_title"] or d["gift_after_speech_url"]:
-        return {"kind": "manual", "title": d["gift_after_speech_title"], "url": d["gift_after_speech_url"]}
-    if d["gift_lead_magnet_id"]:
-        return {"kind": "lead_magnet", "lead_magnet_id": d["gift_lead_magnet_id"]}
-    if d["gift_package_id"]:
-        return {"kind": "package", "package_id": d["gift_package_id"]}
-    return None
+    return {"speaker_name": name, "gifts": gifts}
 
 
 async def tag_contact(db, client_id: int, contact_id: int, tag: str) -> None:

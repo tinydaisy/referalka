@@ -109,7 +109,11 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
             blocks.append(d)
 
         # текущий спикер по слоту (для авто-кнопки/подарка)
-        cur_ec = await ws.current_speaker_ec_id(conn, ev["id"], day)
+        # Текущий спикер: manual → выбранный ведущим; auto → по таймингу программы.
+        if room.get("speaker_mode") == "manual":
+            cur_ec = room.get("manual_speaker_ec_id")
+        else:
+            cur_ec = await ws.current_speaker_ec_id(conn, ev["id"], day)
         follow = await ws.speaker_follow_card(conn, ev["id"], cur_ec)
         gift = await ws.speaker_gift_card(conn, ev["id"], cur_ec)
 

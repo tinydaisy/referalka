@@ -870,6 +870,9 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
       {/* Управление эфиром — главное на пульте */}
       <LiveControl eventId={eventId} day={day} onChanged={onChanged} />
 
+      {/* Текущий спикер: авто по программе или вручную (если программа поехала) */}
+      <CurrentSpeakerControl eventId={eventId} day={day} speakers={speakers} onChanged={onChanged} />
+
       {/* Показ блоков вживую + порядок + сетка — менеджер управляет внешним видом */}
       <BlocksLive eventId={eventId} day={day} onSettingsChanged={onChanged} />
 
@@ -1151,6 +1154,56 @@ function AudienceTab({ eventId, day }: { eventId: number; day: number }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────── управление текущим спикером ───────────────────────────
+function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
+  const [mode, setMode] = useState<'auto' | 'manual'>(day.room?.speaker_mode || 'auto')
+  const [ecId, setEcId] = useState<number | ''>(day.room?.manual_speaker_ec_id || '')
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    setMode(day.room?.speaker_mode || 'auto')
+    setEcId(day.room?.manual_speaker_ec_id || '')
+  }, [day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function apply(m: 'auto' | 'manual', ec?: number) {
+    try {
+      await api.webinar.setCurrentSpeaker(eventId, day.day_number, m, ec)
+      setMsg(m === 'auto' ? 'Спикер определяется по программе ✓' : 'Спикер задан вручную ✓')
+      setTimeout(() => setMsg(''), 2000)
+      onChanged?.()
+    } catch (e: any) { setMsg(e?.message || 'Ошибка') }
+  }
+
+  return (
+    <div className="border rounded-xl p-4">
+      <h4 className="font-semibold mb-1">🎤 Сейчас выступает</h4>
+      <p className="text-xs text-gray-500 mb-3">По умолчанию — по программе. Если программа поехала — задайте спикера вручную.</p>
+      <div className="flex gap-2 mb-3">
+        <button onClick={() => { setMode('auto'); apply('auto') }}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium ${mode === 'auto' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}>
+          Авто (по программе)
+        </button>
+        <button onClick={() => setMode('manual')}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium ${mode === 'manual' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}>
+          Вручную
+        </button>
+      </div>
+      {mode === 'manual' && (
+        <div className="flex gap-2 items-center">
+          <select className="input flex-1" value={ecId} onChange={e => setEcId(Number(e.target.value) || '')}>
+            <option value="">— выберите спикера —</option>
+            {speakers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <button onClick={() => ecId && apply('manual', Number(ecId))} disabled={!ecId} className="btn-gold text-sm disabled:opacity-40">
+            Поставить
+          </button>
+        </div>
+      )}
+      {msg && <div className="text-sm text-green-600 mt-2">{msg}</div>}
     </div>
   )
 }

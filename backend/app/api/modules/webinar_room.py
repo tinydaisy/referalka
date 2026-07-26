@@ -643,6 +643,26 @@ async def stream_unpublish(path: str = Query(...), x_bridge_token: Optional[str]
     return {"ok": True}
 
 
+# ─────────────────────────── текущий спикер (пульт ведущего) ───────────────────────────
+@router.post("/{day_number}/current-speaker", summary="Поставить текущего спикера вручную / вернуть авто")
+async def set_current_speaker(
+    event_id: int, day_number: int,
+    mode: str = Query(...),                       # auto | manual
+    ec_id: Optional[int] = Query(None),           # для manual: event_collaborators.id
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    if mode not in ("auto", "manual"):
+        raise HTTPException(400, "mode: auto|manual")
+    room = await ws.get_room_or_404(db, event_id, day_number)
+    await db.execute(
+        "UPDATE webinar_rooms SET speaker_mode=$2, manual_speaker_ec_id=$3 WHERE id=$1",
+        room["id"], mode, ec_id if mode == "manual" else None)
+    from app.services.webinar_hub import publish
+    await publish(room["id"], {"type": "speaker_changed"})   # зрителям — перечитать
+    return {"ok": True, "mode": mode, "ec_id": ec_id if mode == "manual" else None}
+
+
 # ─────────────────────────── управление эфиром (пульт ведущего) ───────────────────────────
 @router.post("/{day_number}/go-live", summary="Начать эфир — зрители видят поток")
 async def go_live(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):

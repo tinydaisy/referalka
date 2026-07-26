@@ -1114,6 +1114,9 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'DELETE' }),
     regenerateKey: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/regenerate-key`, { method: 'POST' }),
+    // текущий спикер: auto (по программе) или manual (ведущий выбрал)
+    setCurrentSpeaker: (eventId: number, day: number, mode: 'auto' | 'manual', ecId?: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/current-speaker?mode=${mode}${ecId ? `&ec_id=${ecId}` : ''}`, { method: 'POST' }),
     // управление эфиром: поток идёт ≠ эфир начался (спикер настраивается в Zoom)
     goLive: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/go-live`, { method: 'POST' }),
