@@ -324,6 +324,18 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
             event_id, ref_code,
         )
         return float(v or 0)
+    if auto_kind == "webinar_viewers":
+        # Сколько зрителей спикер привёл на вебинары события (по его реф-коду в
+        # webinar_registrations всех комнат события). Даже если люди не в боте.
+        if not ref_code:
+            return 0.0
+        v = await db.fetchval(
+            "SELECT COUNT(*) FROM webinar_registrations reg "
+            "JOIN webinar_rooms wr ON wr.id = reg.room_id "
+            "WHERE wr.event_id = $1 AND reg.referrer_ref_code = $2",
+            event_id, ref_code,
+        )
+        return float(v or 0)
     return 0.0
 
 
@@ -740,7 +752,7 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
     if data.scorer == "auto":
         # пустой auto_kind у 'auto' = referrals (иначе критерий молча считает 0,
         # хотя в UI показывается как «Рефералы (авто)»)
-        auto_kind = data.auto_kind if data.auto_kind in ("referrals", "lead_magnet") else "referrals"
+        auto_kind = data.auto_kind if data.auto_kind in ("referrals", "lead_magnet", "webinar_viewers") else "referrals"
     elif data.scorer == "auto_number":
         auto_kind = data.auto_kind if data.auto_kind in ("replace", "sum") else "replace"
     else:

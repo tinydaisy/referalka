@@ -233,6 +233,7 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
         <option value="auto_number:sum">Тип: Авто-число — суммировать</option>
         <option value="auto:referrals">Тип: Рефералы (авто)</option>
         <option value="auto:lead_magnet">Тип: Лиды в ПЛЮСОН (авто)</option>
+        <option value="auto:webinar_viewers">Тип: Зрителей в вебинаре (авто)</option>
       </select>
       {crit.scorer === 'jury' && (
         <label className="text-xs text-gray-400 flex items-center gap-1" title="Минимальный балл — ниже жюри ставить не сможет. 0 = без ограничения.">мин
