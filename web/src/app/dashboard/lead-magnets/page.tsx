@@ -1317,11 +1317,11 @@ function PlatformShareLinks({ kind, slug, links, name, blocked }: {
       ))}
       {hasVk && (
         <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-0.5 leading-snug">
-          ⚠️ <b>VK-ссылка откроется у людей только если ваше VK Mini App включено «для всех».</b>{' '}
-          Если у клиентов ошибка «доступно только администраторам» или «игра заблокирована» —
-          зайдите в <a href="https://dev.vk.com" target="_blank" rel="noreferrer" className="underline font-medium">dev.vk.com</a> → ваше приложение → Настройки → «Состояние приложения» → включите «видно всем».{' '}
-          <a href="/dashboard/help/vk-setup" target="_blank" rel="noreferrer" className="underline font-medium">Инструкция →</a>{' '}
-          Всегда проверяйте ссылку в режиме инкогнито (у вас-админа она открывается всегда).
+          ⚠️ <b>VK-ссылка работает стабильно только когда ваше Mini App прошло модерацию VK.</b>{' '}
+          Пока приложение «не проверено», при первом переходе человек видит экран «Запустить», и после
+          нажатия открывается список событий вместо подарка (VK теряет ссылку на лид-магнит).
+          Отправьте приложение на модерацию в <a href="https://dev.vk.com" target="_blank" rel="noreferrer" className="underline font-medium">dev.vk.com</a> → Настройки → «Отправить на модерацию».{' '}
+          <a href="/dashboard/help/vk-setup" target="_blank" rel="noreferrer" className="underline font-medium">Как это сделать →</a>
         </div>
       )}
       <div className="mt-1">
