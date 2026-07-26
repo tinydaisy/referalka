@@ -29,9 +29,15 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [packages, setPackages] = useState<any[]>([])
   const [stages, setStages] = useState<any[]>([])
+  const [days, setDays] = useState<any[]>([])
 
   const [stageFilter, setStageFilter] = useState<number | null>(null)
   const [stagesInit, setStagesInit] = useState(false)
+
+  useEffect(() => {
+    // дни программы — для выпадающего списка «День вебинара» в авто-критерии зрителей
+    api.conference.public(eventId).then(r => setDays(r.days || [])).catch(() => {})
+  }, [eventId])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -117,7 +123,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
           </div>
         </div>
       )}
-      {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} defaultStage={stageFilter} onChange={load} />)}
+      {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} days={days} defaultStage={stageFilter} onChange={load} />)}
       <button onClick={addPackage} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90">
         <Plus size={16} /> Добавить пакет
       </button>
@@ -136,7 +142,7 @@ const SCHEMES: { value: string; label: string; hint: string }[] = [
     hint: 'Балл = сумма(значение×вес), без деления. Копилка: сделал задание — капают баллы. Для пакетов с заданиями (как Этап 0).' },
 ]
 
-function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
+function PackageCard({ eventId, pkg, stages, days, defaultStage, onChange }: any) {
   const [weight, setWeight] = useState(String(pkg.weight))
   const scheme = pkg.scheme || (pkg.aggregate === 'sum' ? 's4' : pkg.normalize ? 's2' : 's3')
 
@@ -183,7 +189,7 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
         <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
       <div className="space-y-2">
-        {(pkg.criteria || []).map((c: any) => <CriterionRow key={c.id} eventId={eventId} crit={c} stages={stages} onChange={onChange} />)}
+        {(pkg.criteria || []).map((c: any) => <CriterionRow key={c.id} eventId={eventId} crit={c} stages={stages} days={days} onChange={onChange} />)}
       </div>
       <button onClick={addCrit} className="mt-3 flex items-center gap-1.5 text-sm text-[#25455D] hover:opacity-70">
         <Plus size={14} /> Добавить критерий
@@ -192,7 +198,15 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   )
 }
 
-function CriterionRow({ eventId, crit, stages, onChange }: any) {
+// Дата "YYYY-MM-DD" → "26 июл." без new Date() (UTC-парс уводит на сутки).
+const _CRIT_DM = ['янв.', 'фев.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.']
+function fmtCritDay(d?: string | null): string {
+  if (!d) return ''
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${parseInt(m[3], 10)} ${_CRIT_DM[parseInt(m[2], 10) - 1]}` : ''
+}
+
+function CriterionRow({ eventId, crit, stages, days, onChange }: any) {
   // reload=false: значение уже в uncontrolled-поле, рефетч не нужен (без мигания).
   // reload=true: правка меняет структуру UI (scorer/auto_kind) — нужен перечит.
   const save = async (patch: any, reload = false) => { await api.tournament.updateCriterion(eventId, crit.id, patch); if (reload) onChange() }
@@ -310,17 +324,25 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
       <div className="space-y-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-gray-500 shrink-0">День вебинара</span>
-          <input type="number" min={1} placeholder="все дни"
-            className="w-24 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
-            defaultValue={crit.webinar_day ?? ''}
-            onBlur={(e) => {
+          <select
+            className="min-w-[220px] bg-white border border-amber-200 rounded-md px-2 py-1 text-xs outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+            value={crit.webinar_day ?? ''}
+            onChange={(e) => {
               const v = e.target.value ? Number(e.target.value) : null
               if (v !== (crit.webinar_day ?? null)) save({ webinar_day: v })
-            }} />
+            }}>
+            <option value="">Все дни события</option>
+            {(days || []).map((d: any) => {
+              const dt = fmtCritDay(d.day_date)
+              const ttl = d.title || d.day_title
+              const label = [dt, ttl].filter(Boolean).join(' — ') || `День ${d.day_number}`
+              return <option key={d.day_number} value={d.day_number}>{label}</option>
+            })}
+          </select>
         </div>
         <div className="text-[10px] text-gray-400 leading-tight">
-          Номер дня вебинара, по чьей реф-ссылке считать зрителей. Пусто — по всем вебинарам события.
-          У каждого дня своя ссылка, поэтому обычно указывают конкретный день.
+          День вебинара, по чьей реф-ссылке считать зрителей. У каждого дня своя ссылка —
+          обычно выбирают конкретный день. «Все дни» — суммарно по всем вебинарам события.
         </div>
       </div>
     )}
