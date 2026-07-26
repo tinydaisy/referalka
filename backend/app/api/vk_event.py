@@ -35,6 +35,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class VkDiagLaunchRequest(BaseModel):
+    hash: str = ""
+    bridge_ref: str = ""
+    url_ref: str = ""
+    resolved: str = ""
+    raw_hash: str = ""
+    href: str = ""
+    launch_params: dict = {}
+
+
+@router.post("/vk/diag-launch", summary="Диагностика: что VK прислал при старте Mini App")
+async def vk_diag_launch(body: VkDiagLaunchRequest):
+    """Только лог. Помогает найти, куда VK кладёт payload при «холодном» запуске
+    через экран «Запустить» (одноразовый первый-запуск приложения)."""
+    logger.info(
+        "VK DIAG-LAUNCH: resolved=%r hash=%r bridge_ref=%r url_ref=%r "
+        "app_id=%s user=%s vk_ref=%r ref=%r startapp=%r raw_hash=%r",
+        body.resolved, body.hash, body.bridge_ref, body.url_ref,
+        body.launch_params.get("vk_app_id"), body.launch_params.get("vk_user_id"),
+        body.launch_params.get("vk_ref"), body.launch_params.get("ref"),
+        body.launch_params.get("startapp"), body.raw_hash,
+    )
+    return {"ok": True}
+
+
 class VkEventRequest(BaseModel):
     # Все launch params от VK Bridge — vk_user_id, vk_app_id, vk_ts, vk_platform, sign, ...
     launch_params: dict[str, str]

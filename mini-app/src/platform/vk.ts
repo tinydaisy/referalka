@@ -72,6 +72,22 @@ export async function initPlatform(): Promise<PlatformAdapter> {
     urlRef ||
     undefined
 
+  // ДИАГНОСТИКА (fire-and-forget): что реально прислал VK при старте. Помогает
+  // на ЖИВОМ первом-запуске (экран «Запустить») понять, куда VK кладёт payload,
+  // если фронт его не поймал. Ничего не ломает — просто пишет в лог на бэке.
+  try {
+    fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/diag-launch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({
+        hash, bridge_ref: bridgeRef, url_ref: urlRef,
+        resolved: startParam || '', launch_params: launchParams,
+        raw_hash: window.location.hash, href: window.location.href,
+      }),
+    }).catch(() => {})
+  } catch (_) { /* диагностика не должна ронять старт */ }
+
   let user: PlatformUser | null = null
   try {
     const info: any = await bridge.send('VKWebAppGetUserInfo')
