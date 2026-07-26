@@ -318,19 +318,22 @@ async def chat_history(slug: str, day: int, limit: int = Query(100, le=300)):
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         cur_sid = room.get("current_session_id")
+        cleared = room.get("chat_cleared_at")
         if cur_sid:
-            # только сообщения текущего запуска — после перезапуска чат «чистый»
+            # эфир идёт — сообщения текущего запуска
             rows = await conn.fetch(
                 "SELECT id, contact_id, author_name, text, at FROM webinar_chat_messages "
                 "WHERE room_id=$1 AND status='visible' AND session_id=$2 "
                 "ORDER BY at DESC LIMIT $3", room["id"], cur_sid, limit)
         else:
-            # эфир не запущен / старые данные без session_id — показываем только такие
-            # (без session_id), чтобы прошлые запуски не всплывали
+            # эфир не идёт (состояние b/created) — живой чат = сообщения без session_id,
+            # но только НОВЕЕ момента последнего сброса (reset/close). После «Начать
+            # заново» chat_cleared_at=NOW() → старый чат исчезает, история цела в БД.
             rows = await conn.fetch(
                 "SELECT id, contact_id, author_name, text, at FROM webinar_chat_messages "
                 "WHERE room_id=$1 AND status='visible' AND session_id IS NULL "
-                "ORDER BY at DESC LIMIT $2", room["id"], limit)
+                "  AND ($3::timestamptz IS NULL OR at > $3) "
+                "ORDER BY at DESC LIMIT $2", room["id"], limit, cleared)
         items = [dict(r) for r in reversed(rows)]
     return {"messages": items}
 

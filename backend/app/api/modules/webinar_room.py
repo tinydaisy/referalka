@@ -798,9 +798,11 @@ async def reset_room(event_id: int, day_number: int, client=Depends(get_current_
     await ws.assert_event_owner(db, event_id, cid)
     await _assert_webinar_feature(db, cid, need_room=True)
     room = await ws.get_room_or_404(db, event_id, day_number)
+    # chat_cleared_at=NOW() → живой чат становится чистым (старые сообщения остаются
+    # в БД/записях сессий, но в новом цикле не показываются).
     await db.execute(
         "UPDATE webinar_rooms SET room_state='created', status='idle', "
-        "current_session_id=NULL WHERE id=$1", room["id"])
+        "current_session_id=NULL, chat_cleared_at=NOW() WHERE id=$1", room["id"])
     from app.services.webinar_hub import publish
     await publish(room["id"], {"type": "room_reset"})   # зрителям — вернуться к отсчёту
     return {"ok": True, "room_state": "created"}
