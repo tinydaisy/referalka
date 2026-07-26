@@ -214,7 +214,11 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
       auth_require_tg: rr?.auth_require_tg || false,
       auth_intro_text: rr?.auth_intro_text || '',
     })
-  }, [day.day_number, day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Синхронизируем при любом изменении данных комнаты, а не только смене id —
+    // иначе после сохранения/reload галочки формы не отражают сохранённое.
+  }, [day.day_number, day.room?.id, day.room?.updated_at,
+      day.room?.auth_require_phone, day.room?.auth_require_email, day.room?.auth_require_tg,
+      day.room?.auth_mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [savedMsg, setSavedMsg] = useState(false)
   async function save() {

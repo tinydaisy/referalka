@@ -157,6 +157,7 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "auth_require_phone": r.get("auth_require_phone"),
         "auth_require_tg": r.get("auth_require_tg"),
         "auth_intro_text": r.get("auth_intro_text"),
+        "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
     }
 
 
@@ -199,15 +200,22 @@ async def upsert_room(
         await db.execute(
             "INSERT INTO webinar_rooms (event_id, day_number, title, starts_at, stream_type, "
             " stream_key, hls_url, external_url, hide_viewer_count, chat_enabled, premoderation, "
-            " redirect_url, reaction_up_label, reaction_down_label, show_down_reaction, intro_text) "
+            " redirect_url, reaction_up_label, reaction_down_label, show_down_reaction, intro_text, "
+            " buttons_per_row, auth_mode, auth_require_name, auth_require_email, auth_require_phone, "
+            " auth_require_tg, auth_intro_text) "
             "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,"
             " COALESCE($9,FALSE), COALESCE($10,TRUE), COALESCE($11,FALSE),"
-            " $12, COALESCE($13,'Огонь'), COALESCE($14,'Слабо'), COALESCE($15,TRUE), $16)",
+            " $12, COALESCE($13,'Огонь'), COALESCE($14,'Слабо'), COALESCE($15,TRUE), $16,"
+            " COALESCE($17,1), COALESCE($18,'auto'), COALESCE($19,TRUE), COALESCE($20,FALSE),"
+            " COALESCE($21,FALSE), COALESCE($22,FALSE), $23)",
             event_id, day_number, fields.get("title"), fields.get("starts_at"), stream_type,
             stream_key, hls, fields.get("external_url"), fields.get("hide_viewer_count"),
             fields.get("chat_enabled"), fields.get("premoderation"), fields.get("redirect_url"),
             fields.get("reaction_up_label"), fields.get("reaction_down_label"),
             fields.get("show_down_reaction"), fields.get("intro_text"),
+            fields.get("buttons_per_row"), fields.get("auth_mode"), fields.get("auth_require_name"),
+            fields.get("auth_require_email"), fields.get("auth_require_phone"),
+            fields.get("auth_require_tg"), fields.get("auth_intro_text"),
         )
     room = await db.fetchrow(
         "SELECT * FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day_number)
