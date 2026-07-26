@@ -1015,6 +1015,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         is_program_event = (conf_row["module_slug"] in ("conference", "turnir")) if conf_row else False
         is_conference = (conf_row["module_slug"] == "conference") if conf_row else False
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
+        # ⚠️ Ссылка эфира по ДНЮ: если у этого дня есть вебинарная комната —
+        # {stream_url} = ссылка комнаты дня (pluson.ru/webinar/{slug}/{day}) или её
+        # внешняя ссылка (стороннийвебинар). Общий events.stream_url — только fallback.
+        wr = await conn.fetchrow(
+            "SELECT room_state, stream_type, external_url FROM webinar_rooms "
+            "WHERE event_id=$1 AND day_number=$2", event_id, day)
+        if wr:
+            if wr["stream_type"] == "external_link" and (wr["external_url"] or "").strip():
+                stream_url = wr["external_url"].strip()
+            elif conf_row and conf_row["event_slug"]:
+                stream_url = f"https://pluson.ru/webinar/{conf_row['event_slug']}/{day}"
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         # У мероприятия (нет программы по дням) часто не задан landing_url, но есть
         # stream_url (вебинарная комната). Тогда {landing_url}/{registration_url} и
