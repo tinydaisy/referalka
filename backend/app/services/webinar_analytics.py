@@ -22,9 +22,16 @@ async def compute_analytics(db, room_id: int, step_min: int = 5,
     args2 = (room_id, session_id) if session_id is not None else (room_id,)
 
     # ── всего уникальных ─────────────────────────────────────────────────────
+    # ⚠️ НЕ COALESCE(contact_id, session_key) — иначе один человек, заходивший
+    # анонимно (session_key) и потом авторизовавшийся (contact_id), считается ДВАЖДЫ.
+    # Считаем: distinct contact_id (опознанные) + distinct session_key ТОЛЬКО у
+    # записей без contact_id (не опознанные ни разу).
     total_uniq = await db.fetchval(
-        f"SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
-        f"FROM webinar_presence WHERE room_id=$1{sf2}", *args2) or 0
+        f"SELECT (SELECT COUNT(DISTINCT contact_id) FROM webinar_presence "
+        f"          WHERE room_id=$1{sf2} AND contact_id IS NOT NULL) "
+        f"     + (SELECT COUNT(DISTINCT session_key) FROM webinar_presence "
+        f"          WHERE room_id=$1{sf2} AND contact_id IS NULL AND session_key IS NOT NULL)",
+        *args2) or 0
 
     # ── присутствие по бакетам step_min ──────────────────────────────────────
     # uniq — все онлайн; authorized — известные (contact_id); vg — вовлечённые
