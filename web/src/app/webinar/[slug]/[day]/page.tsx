@@ -115,18 +115,63 @@ export default function WebinarRoomPage() {
     const video = videoRef.current
     if (!video) return
     let hls: any
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = rm.hls_url  // Safari/iOS нативно
+    let retryTimer: any
+    let destroyed = false
+
+    // iOS Safari умеет HLS нативно, но в начале эфира плейлист может быть ещё
+    // пуст (404) — тогда <video> навсегда встаёт в ошибку. Ретраим, пока не пойдёт.
+    const isNative = video.canPlayType('application/vnd.apple.mpegurl')
+
+    const startNative = () => {
+      if (destroyed) return
+      video.src = rm.hls_url
+      video.load()
+      video.play().catch(() => {})
+    }
+    const onNativeError = () => {
+      if (destroyed) return
+      clearTimeout(retryTimer)
+      retryTimer = setTimeout(startNative, 3000)  // поток ещё не поднялся — пробуем снова
+    }
+
+    if (isNative) {
+      video.addEventListener('error', onNativeError)
+      startNative()
     } else {
       import('hls.js').then(({ default: Hls }) => {
+        if (destroyed) return
         if (Hls.isSupported()) {
-          hls = new Hls()
+          hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
           hls.loadSource(rm.hls_url)
           hls.attachMedia(video)
+          hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}))
+          hls.on(Hls.Events.ERROR, (_e: any, data: any) => {
+            if (!data?.fatal) return
+            // fatal — восстанавливаемся: сеть → перезагрузка, медиа → recover,
+            // иначе полный перезапуск через паузу (поток мог ещё не подняться).
+            if (data.type === 'networkError') { try { hls.startLoad() } catch {} }
+            else if (data.type === 'mediaError') { try { hls.recoverMediaError() } catch {} }
+            else {
+              try { hls.destroy() } catch {}
+              retryTimer = setTimeout(() => {
+                if (destroyed) return
+                hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
+                hls.loadSource(rm.hls_url); hls.attachMedia(video)
+              }, 3000)
+            }
+          })
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = rm.hls_url
+          video.play().catch(() => {})
         }
       })
     }
-    return () => { if (hls) hls.destroy() }
+    return () => {
+      destroyed = true
+      clearTimeout(retryTimer)
+      video.removeEventListener('error', onNativeError)
+      if (hls) { try { hls.destroy() } catch {} }
+    }
   }, [room?.room?.hls_url, room?.room?.stream_type])
 
   // WebSocket realtime
@@ -301,7 +346,12 @@ export default function WebinarRoomPage() {
               </div>
             ) : null}
             {/* плеер только в эфире: до «Начать эфир» hls_url с бэка не приходит */}
-            {live && <video ref={videoRef} controls autoPlay playsInline className="w-full h-full" />}
+            {/* muted — иначе iOS/Android блокируют autoPlay; звук зритель включит сам.
+                playsInline + webkit — чтобы на iPhone не открывалось на весь экран. */}
+            {live && <video ref={videoRef} controls autoPlay muted playsInline
+              // @ts-ignore — атрибут для старых iOS
+              webkit-playsinline="true"
+              className="w-full h-full" />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
           </div>
 
