@@ -250,11 +250,15 @@ async def heartbeat(slug: str, day: int, body: Heartbeat):
         room = await _load_room(conn, slug, day)
         rid = room["id"]
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-        await conn.execute(
-            "INSERT INTO webinar_presence (room_id, contact_id, session_key, bucket_at, device, session_id) "
-            "VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
-            rid, body.contact_id, body.session_key, now, body.device, room.get("current_session_id"),
-        )
+        # ⚠️ Пишем присутствие ТОЛЬКО опознанного зрителя (contact_id). Анонимов в
+        # эфире быть не должно — иначе аналитика раздувается «неавторизованными».
+        # Защита от обхода фронта: без contact_id presence не создаётся.
+        if body.contact_id:
+            await conn.execute(
+                "INSERT INTO webinar_presence (room_id, contact_id, session_key, bucket_at, device, session_id) "
+                "VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
+                rid, body.contact_id, body.session_key, now, body.device, room.get("current_session_id"),
+            )
         online = await _online_now(conn, rid)
     # живой счётчик всем в комнате (если не скрыт)
     if not room.get("hide_viewer_count"):

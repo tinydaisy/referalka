@@ -230,9 +230,12 @@ export default function WebinarRoomPage() {
     return () => { clearInterval(ping); ws.close() }
   }, [room?.room?.id, slug, day]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // heartbeat присутствия раз в минуту (только когда вкладка активна)
+  // heartbeat присутствия раз в минуту (только когда вкладка активна).
+  // ⚠️ Пишем ТОЛЬКО опознанного зрителя (contactId есть): анонимов быть не должно,
+  // а до прохождения формы heartbeat раньше писал анонимный session_key → раздувал
+  // «неавторизованных» в аналитике.
   useEffect(() => {
-    if (!room?.room) return
+    if (!room?.room || !contactId) return
     const beat = () => {
       if (document.hidden) return
       const device = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop'
@@ -241,7 +244,7 @@ export default function WebinarRoomPage() {
     beat()
     const t = setInterval(beat, 60000)
     return () => clearInterval(t)
-  }, [room?.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [room?.room?.id, contactId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fallback к WebSocket: раз в 12 сек перечитываем статус комнаты.
   // Если WS не долетел (отвалился, спящая вкладка) — всё равно поймаем
