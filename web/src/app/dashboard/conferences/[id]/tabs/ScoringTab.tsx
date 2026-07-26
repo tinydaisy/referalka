@@ -213,6 +213,13 @@ function CriterionRow({ eventId, crit, stages, days, onChange }: any) {
   const del = async () => { if (confirm('Удалить критерий?')) { await api.tournament.deleteCriterion(eventId, crit.id); onChange() } }
   // Описание скрыто под «?»; редактирование — по клику (раскрывается textarea).
   const [descOpen, setDescOpen] = useState(false)
+  // Локальный выбор дня вебинара: select контролируемый, но save() без reload не
+  // обновляет crit.webinar_day в пропсах → без своего state select откатывался.
+  const [webinarDay, setWebinarDay] = useState<number | ''>(crit.webinar_day ?? '')
+  useEffect(() => { setWebinarDay(crit.webinar_day ?? '') }, [crit.webinar_day])
+  // Дни для селектора — сортируем по дате (в списке они шли по day_number вразнобой).
+  const sortedDays = [...(days || [])].sort((a: any, b: any) =>
+    String(a.day_date || '').localeCompare(String(b.day_date || '')))
   return (
    <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-2">
     <div className="flex flex-wrap items-center gap-2">
@@ -326,13 +333,14 @@ function CriterionRow({ eventId, crit, stages, days, onChange }: any) {
           <span className="text-[11px] text-gray-500 shrink-0">День вебинара</span>
           <select
             className="min-w-[220px] bg-white border border-amber-200 rounded-md px-2 py-1 text-xs outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
-            value={crit.webinar_day ?? ''}
+            value={webinarDay}
             onChange={(e) => {
               const v = e.target.value ? Number(e.target.value) : null
-              if (v !== (crit.webinar_day ?? null)) save({ webinar_day: v })
+              setWebinarDay(v ?? '')          // сразу отражаем выбор (без отката)
+              save({ webinar_day: v })
             }}>
             <option value="">Все дни события</option>
-            {(days || []).map((d: any) => {
+            {sortedDays.map((d: any) => {
               const dt = fmtCritDay(d.day_date)
               const ttl = d.title || d.day_title
               const label = [dt, ttl].filter(Boolean).join(' — ') || `День ${d.day_number}`
