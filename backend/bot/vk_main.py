@@ -130,6 +130,78 @@ def _extract_funnel_run_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "fnl_")
 
 
+def _extract_lead_magnet_ref(message_or_event: dict):
+    """Ищет `ref=m_<slug>` (лид-магнит) или `ref=p_<slug>` (пакет) в полях VK.
+
+    Прямая ссылка в чат vk.me/{group}?ref=m_<slug> — альтернатива Mini App
+    (vk.com/app{id}#m_slug), который при «холодном» запуске теряет payload
+    (VK ставит vk_ref='other'). Возвращает ('m'|'p', slug) или None."""
+    candidates: list[Any] = []
+    msg = message_or_event.get("message") if isinstance(message_or_event, dict) else None
+    if isinstance(msg, dict):
+        candidates.extend([msg.get("ref"), msg.get("ref_source")])
+        payload_raw = msg.get("payload")
+        if payload_raw:
+            try:
+                payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+                if isinstance(payload, dict):
+                    candidates.append(payload.get("ref"))
+            except Exception:
+                pass
+    candidates.extend([message_or_event.get("ref"), message_or_event.get("ref_source")])
+    for c in candidates:
+        if not c:
+            continue
+        s = str(c).strip()
+        for kind in ("m", "p"):
+            if s.startswith(f"{kind}_"):
+                slug = s[len(kind) + 1:]
+                # slug лид-магнита — [a-z0-9] (5 симв). Отсекаем ложные срабатывания
+                # вроде "partner_done_" (начинается на p_? нет — на "partner").
+                if slug and slug.replace("-", "").isalnum():
+                    return (kind, slug)
+    return None
+
+
+async def _start_vk_lead_magnet_by_slug(kind: str, slug: str, user_id: int, db, ctx) -> bool:
+    """Создаёт funnel_run по slug лид-магнита/пакета клиента этого сообщества и
+    запускает VK-воронку (Текст 1). Возвращает True если воронка стартовала."""
+    try:
+        if kind == "m":
+            row = await db.fetchrow(
+                "SELECT id FROM lead_magnets WHERE slug=$1 AND client_id=$2", slug, ctx.client_id)
+            lm_id, pkg_id = (row["id"] if row else None), None
+        else:
+            row = await db.fetchrow(
+                "SELECT id FROM lead_magnet_packages WHERE slug=$1 AND client_id=$2", slug, ctx.client_id)
+            lm_id, pkg_id = None, (row["id"] if row else None)
+        if not row:
+            return False
+        run_id = await db.fetchval(
+            """INSERT INTO funnel_runs
+                  (client_id, type, lead_magnet_id, package_id, contact_id,
+                   referrer_contact_id, utm, stage, landed_at, platform_slug)
+               VALUES ($1,'lead_magnet',$2,$3,NULL,NULL,'{}'::jsonb,'landed',NOW(),'vk')
+               RETURNING id""",
+            ctx.client_id, lm_id, pkg_id,
+        )
+        user_info = await get_user_info(int(user_id))
+        from app.services.funnel_service import run_started_vk
+        await run_started_vk(
+            run_id, str(user_id),
+            username=(user_info or {}).get("screen_name", "") if user_info else "",
+            first_name=(user_info or {}).get("first_name", "") if user_info else "",
+            last_name=(user_info or {}).get("last_name", "") if user_info else "",
+            db=db, channel_id=ctx.channel_id, token=ctx.token,
+        )
+        logger.info("VK lead-magnet by ref: kind=%s slug=%s run=%s client=%s user=%s",
+                    kind, slug, run_id, ctx.client_id, user_id)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK _start_vk_lead_magnet_by_slug failed (%s_%s): %s", kind, slug, e)
+        return False
+
+
 def _extract_event_chat_id(message_or_event: dict) -> int | None:
     """Ищет `ref=evchat_<event_id>` — кнопка «Чат события» с веб-страницы
     /event/{slug}. Ведёт сразу на «вступить в чат» (проверка подписки на
@@ -623,6 +695,13 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_allow funnel start failed: %s", e)
+
+    # Прямая ссылка в чат vk.me/{group}?ref=m_<slug> / p_<slug> — лид-магнит по slug.
+    # Альтернатива Mini App (vk.com/app#m_slug), который теряет payload при
+    # холодном запуске через экран «Запустить».
+    lm_ref = _extract_lead_magnet_ref(event)
+    if lm_ref and await _start_vk_lead_magnet_by_slug(lm_ref[0], lm_ref[1], int(user_id), db, ctx):
+        return
 
     # Регистрация партнёра — прямые ссылки (рефакторинг 24.05.2026)
     partner_direct_ref = _extract_partner_direct_ref(event)
@@ -1277,6 +1356,12 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         db, client_id=ctx.client_id, platform_slug="vk",
         platform_user_id=str(from_id),
     )
+
+    # Прямая ссылка в чат vk.me/{group}?ref=m_<slug> / p_<slug> — лид-магнит по slug.
+    # Альтернатива Mini App (теряет payload при холодном запуске «Запустить»).
+    lm_ref = _extract_lead_magnet_ref(event_obj)
+    if lm_ref and await _start_vk_lead_magnet_by_slug(lm_ref[0], lm_ref[1], int(from_id), db, ctx):
+        return
 
     # Реф-метка лид-магнита (vk.me/group?ref=fnl_xxx) — запускаем воронку.
     # Проверяем до payload-кнопок, чтобы выдача шла даже если пользователь
