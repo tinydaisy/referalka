@@ -149,7 +149,13 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
                 "SELECT day_date, open_time FROM conf_days WHERE event_id=$1 AND day_number=$2",
                 ev["id"], day)
             if drow and drow["day_date"]:
-                t = (drow["open_time"] or "10:00")[:5]
+                # Время старта = начало ПЕРВОГО слота дня (conf_sessions.start_time),
+                # иначе open_time дня, иначе 10:00. Всё трактуем как МСК.
+                first_slot = await conn.fetchval(
+                    "SELECT start_time FROM conf_sessions WHERE event_id=$1 AND day=$2 "
+                    "AND start_time IS NOT NULL AND start_time <> '' "
+                    "ORDER BY start_time, sort_order, id LIMIT 1", ev["id"], day)
+                t = ((first_slot or drow["open_time"] or "10:00") or "10:00")[:5]
                 try:
                     hh, mm = t.split(":")
                     opens_at_iso = f"{drow['day_date'].isoformat()}T{int(hh):02d}:{int(mm):02d}:00+03:00"

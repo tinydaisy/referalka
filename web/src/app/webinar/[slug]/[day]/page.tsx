@@ -750,6 +750,9 @@ function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectU
       style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
       {brand?.logo_url && <img src={brand.logo_url} alt="" className="h-10 mb-4 object-contain" />}
       {title && <h1 className="text-xl sm:text-2xl font-bold mb-2 max-w-xl">{title}</h1>}
+      {opensAt && !redirectUrl && (
+        <p className="text-sm mb-3" style={{ color: '#FFCFA4' }}>📅 {fmtStartMsk(opensAt)}</p>
+      )}
       {poster && (
         <img src={poster} alt="" className="w-full max-w-md rounded-2xl shadow-lg mb-5 object-cover" />
       )}
@@ -761,6 +764,16 @@ function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectU
       )}
     </div>
   )
+}
+
+// Дата+время старта в МСК: «27 июля, 11:00 МСК».
+function fmtStartMsk(iso: string): string {
+  try {
+    const d = new Date(iso)
+    const date = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
+    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+    return `${date}, ${time} МСК`
+  } catch { return '' }
 }
 
 // Обратный отсчёт до opensAt (ISO). После наступления — «Трансляция вот-вот начнётся».
