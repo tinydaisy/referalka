@@ -36,7 +36,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
 
   useEffect(() => {
     // дни программы — для выпадающего списка «День вебинара» в авто-критерии зрителей
-    api.conference.public(eventId).then(r => setDays(r.days || [])).catch(() => {})
+    api.conference.days.list(eventId).then((r: any) => setDays(r.days || r || [])).catch(() => {})
   }, [eventId])
 
   const load = useCallback(async () => {
