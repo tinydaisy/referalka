@@ -194,7 +194,7 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
                 "hide_viewer_count": room.get("hide_viewer_count"),
                 "chat_enabled": room.get("chat_enabled"),
                 "premoderation": room.get("premoderation"),
-                "redirect_url": room.get("redirect_url"),
+                "redirect_url": (room.get("redirect_url") or "").strip() or None,
                 "reaction_up_label": room.get("reaction_up_label"),
                 "reaction_down_label": room.get("reaction_down_label"),
                 "show_down_reaction": room.get("show_down_reaction"),

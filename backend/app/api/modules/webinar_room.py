@@ -783,5 +783,5 @@ async def close_room(event_id: int, day_number: int, client=Depends(get_current_
         "UPDATE webinar_rooms SET room_state='closed', status='ended', ended_at=NOW(), "
         "current_session_id=NULL WHERE id=$1", room["id"])
     from app.services.webinar_hub import publish
-    await publish(room["id"], {"type": "stream_ended", "redirect_url": room.get("redirect_url")})
+    await publish(room["id"], {"type": "stream_ended", "redirect_url": (room.get("redirect_url") or "").strip() or None})
     return {"ok": True, "room_state": "closed"}
