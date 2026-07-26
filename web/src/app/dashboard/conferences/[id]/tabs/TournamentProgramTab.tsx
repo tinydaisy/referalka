@@ -61,6 +61,18 @@ function formatDayDateLabel(d?: string | null): string {
   return `${parseInt(m[3], 10)} ${DAY_MONTHS_SHORT[parseInt(m[2], 10) - 1]}`
 }
 
+// Сортировка слотов дня ПО ВРЕМЕНИ начала (а не по порядку добавления).
+// Слоты без времени — в конец, между собой по sort_order.
+function sortSessionsByTime(list: Sess[]): Sess[] {
+  return [...list].sort((a, b) => {
+    const ta = (a.start_time || '').trim(), tb = (b.start_time || '').trim()
+    if (ta && tb) return ta < tb ? -1 : ta > tb ? 1 : (a.sort_order - b.sort_order)
+    if (ta) return -1        // со временем — выше
+    if (tb) return 1
+    return a.sort_order - b.sort_order
+  })
+}
+
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
@@ -654,7 +666,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                     indexInStage={dIdx + 1}
                     open={openDays.has(day.day_number)}
                     onToggle={() => toggleDayOpen(day.day_number)}
-                    sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
+                    sessions={sortSessionsByTime(sessions.filter(s => s.day === day.day_number))}
                     stages={stagesSorted}
                     busy={busy}
                     onPatchLocal={(patch) => patchDayLocal(day.day_number, patch)}
@@ -703,7 +715,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   indexInStage={dIdx + 1}
                   open={openDays.has(day.day_number)}
                   onToggle={() => toggleDayOpen(day.day_number)}
-                  sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
+                  sessions={sortSessionsByTime(sessions.filter(s => s.day === day.day_number))}
                   stages={stagesSorted}
                   busy={busy}
                   onPatchLocal={(patch) => patchDayLocal(day.day_number, patch)}
