@@ -535,9 +535,12 @@ async def audience(event_id: int, day_number: int, client=Depends(get_current_cl
                reg.referrer_ref_code,
                rc.name AS referrer_name,
                reg.created_at AS registered_at,
-               (SELECT MIN(p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id) AS first_seen,
-               (SELECT MAX(p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id) AS last_seen,
-               (SELECT COUNT(*) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id) AS minutes_online,
+               -- Только присутствие ВО ВРЕМЯ ЭФИРА (session_id IS NOT NULL): иначе
+               -- фоновые heartbeat из состояния ожидания раздували диапазон/минуты
+               -- («12:12–21:41 · 46 мин» вместо реального времени эфира).
+               (SELECT MIN(p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id AND p.session_id IS NOT NULL) AS first_seen,
+               (SELECT MAX(p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id AND p.session_id IS NOT NULL) AS last_seen,
+               (SELECT COUNT(DISTINCT p.bucket_at) FROM webinar_presence p WHERE p.room_id=$1 AND p.contact_id=c.id AND p.session_id IS NOT NULL) AS minutes_online,
                (SELECT COUNT(*) FROM webinar_activity a WHERE a.room_id=$1 AND a.contact_id=c.id AND a.kind='chat_msg') AS messages,
                (SELECT COUNT(*) FROM webinar_activity a WHERE a.room_id=$1 AND a.contact_id=c.id AND a.kind='reaction') AS reactions
           FROM webinar_registrations reg
