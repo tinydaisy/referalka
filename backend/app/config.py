@@ -60,7 +60,12 @@ class Settings(BaseSettings):
     # HLS зрителю:        https://{домен}/hls/{stream_key}/index.m3u8
     webinar_bridge_token: str = ""            # общий секрет с MediaMTX-хуком (X-Bridge-Token)
     webinar_rtmp_host: str = "pluson.ru:1935" # что показываем клиенту как RTMP-адрес
-    webinar_hls_base: str = "https://pluson.ru/hls"  # база HLS-плейлистов для плеера
+    # HLS отдаём НАПРЯМУЮ через /live/ (без /hls/-rewrite): MediaMTX v1.19 ставит
+    # cookie cookieCheck на путь /live/{key}/ и туда же редиректит (302). Если тянуть
+    # через /hls/, cookie окажется на /live/, а сегменты клиент грузит с /hls/ → путь
+    # cookie не совпадает → на мобильных (Safari/webview режут SameSite=None) плеер не
+    # получает плейлист. На /live/ путь cookie и запросов совпадает → работает везде.
+    webinar_hls_base: str = "https://pluson.ru/live"  # база HLS-плейлистов для плеера
 
     class Config:
         env_file = ".env"
