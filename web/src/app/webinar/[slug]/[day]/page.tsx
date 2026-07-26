@@ -75,7 +75,7 @@ export default function WebinarRoomPage() {
   // загрузка комнаты
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}`)
+      const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${contactId ? `?c=${contactId}` : ''}`)
       if (!res.ok) { setError('Комната не найдена'); return }
       const d = await res.json()
       setRoom(d)

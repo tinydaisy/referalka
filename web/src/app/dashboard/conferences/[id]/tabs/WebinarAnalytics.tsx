@@ -130,19 +130,21 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
 
   return (
     <div>
-      {/* селектор запуска */}
-      {sessions.length > 0 && (
-        <div className="mb-4 flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-gray-600">Запуск эфира:</span>
+      {/* селектор запуска эфира (сессии) — показываем всегда */}
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-gray-600">Запуск эфира:</span>
+        {sessions.length > 0 ? (
           <select className="input max-w-md" value={sessionId ?? ''} onChange={e => setSessionId(e.target.value ? Number(e.target.value) : null)}>
             <option value="">Все запуски (весь день)</option>
             {sessions.map((s: any) => {
-              const t = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '…'
+              const t = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : 'идёт'
               return <option key={s.id} value={s.id}>{t(s.started_at)} – {t(s.ended_at)} · {s.unique_viewers} зрит.</option>
             })}
           </select>
-        </div>
-      )}
+        ) : (
+          <span className="text-sm text-gray-400">эфир ещё не запускали — появится после первого «Начать эфир»</span>
+        )}
+      </div>
 
       {/* метрики */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">

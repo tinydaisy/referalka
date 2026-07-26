@@ -39,6 +39,26 @@ async def _load_room(conn, slug: str, day: int) -> dict:
     return r
 
 
+async def _resolve_ref_placeholders(conn, room_id: int, contact_id: Optional[int], url: Optional[str]) -> Optional[str]:
+    """Раскрывает {plsn_ref}/{ext_ref} в URL кнопки — реф-кодами РЕФОВОДА зрителя
+    на этом вебинаре (webinar_registrations.referrer_ref_code). Как в лид-магнитах.
+    Нет рефовода → плейсхолдеры пустеют."""
+    if not url or ("{plsn_ref}" not in url and "{ext_ref}" not in url):
+        return url
+    plsn, ext = "", ""
+    if contact_id:
+        row = await conn.fetchrow(
+            "SELECT rc.ref_code, rc.external_ref_param "
+            "FROM webinar_registrations reg "
+            "JOIN contacts rc ON (rc.ref_code = reg.referrer_ref_code OR rc.merged_ref_codes ? reg.referrer_ref_code) "
+            "WHERE reg.room_id=$1 AND reg.contact_id=$2 AND reg.referrer_ref_code IS NOT NULL LIMIT 1",
+            room_id, contact_id)
+        if row:
+            plsn = row["ref_code"] or ""
+            ext = row["external_ref_param"] or ""
+    return url.replace("{plsn_ref}", plsn).replace("{ext_ref}", ext)
+
+
 async def _is_banned(conn, room_id: int, contact_id: Optional[int], session_key: Optional[str]) -> bool:
     row = await conn.fetchrow(
         "SELECT 1 FROM webinar_banned WHERE room_id=$1 AND "
@@ -50,7 +70,7 @@ async def _is_banned(conn, room_id: int, contact_id: Optional[int], session_key:
 
 # ─────────────────────────── данные комнаты ───────────────────────────
 @router.get("/{slug}/{day}", summary="Данные комнаты дня для зрителя")
-async def room_view(slug: str, day: int):
+async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
@@ -79,7 +99,14 @@ async def room_view(slug: str, day: int):
                 return False
             return True
 
-        blocks = [b for b in all_blocks if _visible(b)]
+        blocks_raw = [b for b in all_blocks if _visible(b)]
+        # Раскрываем {plsn_ref}/{ext_ref} в ссылках кнопок — реф-кодом рефовода зрителя.
+        blocks = []
+        for b in blocks_raw:
+            d = dict(b)
+            if d.get("url"):
+                d["url"] = await _resolve_ref_placeholders(conn, rid, c, d["url"])
+            blocks.append(d)
 
         # текущий спикер по слоту (для авто-кнопки/подарка)
         cur_ec = await ws.current_speaker_ec_id(conn, ev["id"], day)
@@ -160,7 +187,7 @@ async def room_view(slug: str, day: int):
                 "auth_require_tg": room.get("auth_require_tg"),
                 "auth_intro_text": room.get("auth_intro_text"),
             },
-            "blocks": [dict(b) for b in blocks],
+            "blocks": blocks,
             "current_speaker": follow,
             "current_gift": gift,
             "poll": poll_out,
