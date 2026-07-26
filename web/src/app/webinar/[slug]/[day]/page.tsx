@@ -300,6 +300,7 @@ export default function WebinarRoomPage() {
   const needAuth = !contactId
   if (needAuth) {
     return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm} clientId={room.event?.client_id}
+      brand={room.brand} title={webinarTitle} poster={room.poster_url}
       onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid); setAuthName((form?.name || '').trim()) }} />
   }
 
@@ -317,18 +318,10 @@ export default function WebinarRoomPage() {
     )
   }
 
-  // (b) КОМНАТА ОТКРЫТА, но эфир ещё НЕ идёт — авторизованный зритель ждёт:
-  // афиша + название + «трансляция скоро начнётся» + обратный отсчёт.
-  // Как только ведущий нажмёт «Начать эфир» (stream_live) — WS/fallback перечитает
-  // и покажет плеер.
-  if (!live) {
-    return (
-      <PreStartScreen brand={room.brand} poster={room.poster_url} title={webinarTitle}
-        heading={rm.intro_text || 'Трансляция скоро начнётся'}
-        sub="Вы в эфире — как только начнётся трансляция, она появится здесь."
-        opensAt={rm.opens_at} />
-    )
-  }
+  // (b) КОМНАТА ОТКРЫТА, эфир ещё НЕ идёт — НЕ показываем отдельную заглушку.
+  // Зритель попадает В САМУ КОМНАТУ (шапка, афиша-заставка на месте плеера, чат,
+  // блоки). Внутри на месте видео — афиша + «трансляция скоро начнётся» + отсчёт.
+  // Как только ведущий нажмёт «Начать эфир» — заставка сменится плеером (WS load()).
 
   async function sendChat() {
     const text = chatText.trim()
@@ -382,12 +375,13 @@ export default function WebinarRoomPage() {
             )}
             {ended ? (
               <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white/80">Трансляция завершена</div>
-            ) : (!live && rm.intro_text) ? (
-              /* текст до эфира — только если он задан; пусто → показываем чистую афишу */
-              <div className="absolute inset-0 flex items-end justify-center pb-6 px-6 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
-                <span className="text-white/90 text-center font-medium drop-shadow">
-                  {rm.intro_text}
+            ) : !live ? (
+              /* До эфира — поверх афиши: «трансляция скоро начнётся» + отсчёт */
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 bg-gradient-to-t from-black/85 via-black/40 to-black/30 text-center">
+                <span className="text-white font-semibold text-lg drop-shadow">
+                  {rm.intro_text || 'Трансляция скоро начнётся'}
                 </span>
+                {rm.opens_at && <Countdown opensAt={rm.opens_at} />}
               </div>
             ) : null}
             {/* плеер только в эфире: до «Начать эфир» hls_url с бэка не приходит */}
@@ -640,7 +634,7 @@ function RegModal({ slug, day, onClose }: any) {
 }
 
 // Форма авторизации перед эфиром — настраиваемые поля, предзаполнение из cookie.
-function AuthGate({ slug, day, rm, pid, utm, clientId, onAuthed }: any) {
+function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onAuthed }: any) {
   const [f, setF] = useState<any>(() => ({ name: '', email: '', phone: '', telegram_username: '', ...readAuthForm() }))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -709,8 +703,11 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, onAuthed }: any) {
   return (
     <Centered>
       <div className="w-full max-w-sm">
-        {rm.brand?.logo_url && <img src={rm.brand.logo_url} alt="" className="h-9 mx-auto mb-4 object-contain" />}
-        <h2 className="text-lg font-bold text-center mb-1">Вход в эфир</h2>
+        {brand?.logo_url && <img src={brand.logo_url} alt="" className="h-9 mx-auto mb-3 object-contain" />}
+        {/* Название вебинара — чтобы человек видел, куда вводит данные */}
+        {title && <h2 className="text-lg font-bold text-center mb-2 leading-snug">{title}</h2>}
+        {poster && <img src={poster} alt="" className="w-full rounded-xl mb-3 object-cover" />}
+        <p className="text-sm text-white/70 text-center mb-1">Оставьте контакты для входа в эфир</p>
         {rm.auth_intro_text && <p className="text-sm text-white/60 text-center mb-4">{rm.auth_intro_text}</p>}
         <div className="space-y-2 mt-4">
           {/* Показываем только включённые в настройках поля; все показанные обязательны.
