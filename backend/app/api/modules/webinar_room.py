@@ -159,6 +159,8 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "auth_intro_text": r.get("auth_intro_text"),
         "room_state": r.get("room_state") or "created",
         "opens_at": r["opens_at"].isoformat() if r.get("opens_at") else None,
+        "speaker_mode": r.get("speaker_mode") or "auto",
+        "manual_speaker_ec_id": r.get("manual_speaker_ec_id"),
         "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
     }
 

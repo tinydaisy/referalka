@@ -1262,7 +1262,7 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
   useEffect(() => {
     setMode(day.room?.speaker_mode || 'auto')
     setEcId(day.room?.manual_speaker_ec_id || '')
-  }, [day.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [day.room?.id, day.room?.speaker_mode, day.room?.manual_speaker_ec_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function apply(m: 'auto' | 'manual', ec?: number) {
     try {
@@ -1273,10 +1273,27 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
     } catch (e: any) { setMsg(e?.message || 'Ошибка') }
   }
 
+  // Кто реально показан в комнате: при manual — выбранный спикер; при auto — по программе.
+  const curManual = day.room?.manual_speaker_ec_id
+  const curManualName = curManual ? (speakers.find((s: any) => s.id === curManual)?.name || `#${curManual}`) : null
+
   return (
     <div className="border rounded-xl p-4">
       <h4 className="font-semibold mb-1">🎤 Сейчас выступает</h4>
       <p className="text-xs text-gray-500 mb-3">По умолчанию — по программе. Если программа поехала — задайте спикера вручную.</p>
+
+      {/* Явно показываем, чей спикер/подарок сейчас в комнате */}
+      {(day.room?.speaker_mode || 'auto') === 'manual' ? (
+        <div className="mb-3 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          В комнате показан вручную: <b>{curManualName || '— не выбран —'}</b> (его подарок и кнопка подписки).
+          {' '}Чтобы вернуть по программе — нажмите «Авто».
+        </div>
+      ) : (
+        <div className="mb-3 text-sm bg-gray-50 border rounded-lg px-3 py-2 text-gray-600">
+          Спикер и подарок определяются по программе (по времени слота). Сейчас вне слота — ничего не показывается.
+        </div>
+      )}
+
       <div className="flex gap-2 mb-3">
         <button onClick={() => { setMode('auto'); apply('auto') }}
           className={`px-3 py-1.5 rounded-lg text-sm font-medium ${mode === 'auto' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}>
