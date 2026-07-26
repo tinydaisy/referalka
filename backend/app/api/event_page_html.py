@@ -883,29 +883,69 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
                 f'<span class="acc-chev">▾</span></button>'
                 f'<div class="acc-body">{body}</div></div>')
 
-    def _stage_header(st):
+    def _stage_header_inner(st):
         st_title = esc(st.get("title") or "Этап")
         st_sub = esc(st.get("subtitle") or "")
         sub_html = f'<div class="stage-sub">{st_sub}</div>' if st_sub else ""
         # Диапазон дат этапа
         rng = _fmt_date_range_eu(st.get("start_date"), st.get("end_date"))
         date_html = f'<div class="stage-date">{esc(rng)}</div>' if rng else ""
+        return f'{st_title}{sub_html}{date_html}'
+
+    # Активный этап: текущий (start ≤ сегодня ≤ end) → ближайший будущий → последний.
+    # Прошедшие этапы (end < сегодня) свёрнуты и затемнены — как в Mini App.
+    today = _msk_today_iso()
+
+    def _stage_state(st):
+        sd = str(st.get("start_date") or "")[:10]
+        ed = str(st.get("end_date") or "")[:10]
+        past = bool(ed) and ed < today
+        current = bool(sd) and bool(ed) and sd <= today <= ed
+        return past, current
+
+    active_stage_id = None
+    if stages:
+        # 1) текущий
+        for st in stages:
+            _p, cur = _stage_state(dict(st))
+            if cur:
+                active_stage_id = st["id"]; break
+        # 2) ближайший будущий
+        if active_stage_id is None:
+            future = sorted(
+                [st for st in stages if str(st.get("start_date") or "")[:10] > today],
+                key=lambda x: str(x.get("start_date") or "")[:10])
+            if future:
+                active_stage_id = future[0]["id"]
+        # 3) последний (если все прошли)
+        if active_stage_id is None:
+            active_stage_id = stages[-1]["id"]
+
+    def _render_stage(st, inner_days_html):
+        past, _cur = _stage_state(dict(st))
+        is_open = (st["id"] == active_stage_id)
+        cls = "stage acc" if is_open else "stage acc collapsed"
+        if past and not is_open:
+            cls += " stage-past"
         desc = (st.get("description") or "").strip()
         desc_html = f'<div class="stage-desc">{desc}</div>' if desc else ""
-        return (f'<div class="stage-h">{st_title}{sub_html}{date_html}</div>'
-                f'{desc_html}')
+        body = desc_html + inner_days_html
+        return (f'<div class="{cls}">'
+                f'<button class="stage-h acc-h" type="button">'
+                f'<span>{_stage_header_inner(dict(st))}</span>'
+                f'<span class="acc-chev">▾</span></button>'
+                f'<div class="acc-body">{body}</div></div>')
 
     if days or stages:
         days_by_stage = {}
         for d in days:
             days_by_stage.setdefault(d.get("stage_id"), []).append(d)
         prog = ""
-        # Этапы по порядку (все, даже без дней)
+        # Этапы по порядку (все, даже без дней) — аккордеоном
         for st in stages:
-            prog += _stage_header(dict(st))
-            for d in days_by_stage.get(st["id"], []):
-                prog += _render_day(d)
-        # Дни без этапа (stage_id IS NULL) — в конце
+            inner = "".join(_render_day(d) for d in days_by_stage.get(st["id"], []))
+            prog += _render_stage(dict(st), inner)
+        # Дни без этапа (stage_id IS NULL) — в конце, вне этапов
         for d in days_by_stage.get(None, []):
             prog += _render_day(d)
         out += '<h2 class="sec-h">Программа</h2>' + prog
@@ -1610,11 +1650,19 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .desc a {{ color:#0088cc; }}
 
   /* Этапы / дни / сессии */
-  .stage-h {{ background: linear-gradient(45deg,#25455D,#0a1520); color:#fff; border-radius:12px;
-    padding:12px 14px; margin: 14px 0 10px; font-weight:700; font-size:15px; }}
+  .stage {{ margin: 14px 0 10px; }}
+  .stage-h {{ width:100%; display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
+    background: linear-gradient(45deg,#25455D,#0a1520); color:#fff; border:none; text-align:left;
+    border-radius:12px; padding:12px 14px; font-weight:700; font-size:15px; cursor:pointer; }}
+  .stage-h > span:first-child {{ flex:1 1 auto; min-width:0; }}
+  .stage.stage-past .stage-h {{ opacity:.5; }}
+  .stage .acc-chev {{ flex:0 0 auto; font-size:14px; color:#FFCFA4; transition:transform .18s; margin-top:2px; }}
+  .stage.collapsed .acc-chev {{ transform:rotate(-90deg); }}
+  .stage.collapsed .acc-body {{ display:none; }}
+  .stage .acc-body {{ padding-top:10px; }}
   .stage-sub {{ font-size:12px; color:#FFCFA4; margin-top:3px; font-weight:500; }}
   .stage-date {{ font-size:11.5px; color:#FFCFA4; margin-top:4px; opacity:.85; }}
-  .stage-desc {{ font-size:13px; color:#41566a; line-height:1.5; margin:-4px 2px 12px;
+  .stage-desc {{ font-size:13px; color:#41566a; line-height:1.5; margin:0 2px 12px;
     padding:0 2px; white-space:pre-wrap; }}
   .day {{ background:#fff; border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.06); }}
   .day-h {{ font-weight:700; color:#25455D; margin-bottom:10px; font-size:15px;
