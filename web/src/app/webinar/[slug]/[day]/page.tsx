@@ -55,7 +55,20 @@ export default function WebinarRoomPage() {
   const [authName, setAuthName] = useState<string>('')  // имя из формы авторизации — подпись в чате
   const [sessionKey, setSessionKey] = useState<string | null>(null)
   const contactId = authContact
+  // ?new=1 — зайти «как новый»: чистим запомненный вход (cookie+localStorage),
+  // показывается форма. Нужно для теста в том же браузере (вкладки/localStorage
+  // шарятся) и как «Это не вы?» на чужом компе.
+  const forceNew = search.get('new') === '1'
   useEffect(() => {
+    if (forceNew) {
+      try {
+        localStorage.removeItem('webinar_auth_contact')
+        localStorage.removeItem('webinar_auth_form')
+      } catch {}
+      document.cookie = 'wac=; path=/; max-age=0'
+      setAuthContact(null); setAuthName(''); setSessionKey(getSessionKey())
+      return
+    }
     setAuthName((readAuthForm().name || '').trim())
     if (urlContact) { setSessionKey(getSessionKey()); return }
     setAuthContact(readAuthContact())
