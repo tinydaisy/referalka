@@ -53,6 +53,7 @@ export default function WebinarRoomPage() {
   // (иначе hydration mismatch → страница застревает на «Загрузка»).
   const [authContact, setAuthContact] = useState<number | null>(urlContact)
   const [authName, setAuthName] = useState<string>('')  // имя из формы авторизации — подпись в чате
+  const [justAuthed, setJustAuthed] = useState(false)   // только что прошёл форму → регистрация точно есть
   const [sessionKey, setSessionKey] = useState<string | null>(null)
   const contactId = authContact
   // ?new=1 — зайти «как новый»: чистим запомненный вход (cookie+localStorage),
@@ -298,13 +299,15 @@ export default function WebinarRoomPage() {
   }
 
   // Дальше room_state === 'open'.
-  // Анонимов быть не должно: если зритель не опознан — показываем форму ВСЕГДА
-  // (в т.ч. когда эфир уже идёт: авторизовался → сразу в плеер; cookie помнит вход).
-  const needAuth = !contactId
+  // Анонимов быть не должно: форма показывается если зритель не опознан ЛИБО опознан
+  // по куке, но регистрации на этот вебинар нет (её удалили/обнулили статистику) —
+  // иначе кука пускала бы «фантома», которого нет в списке зрителей. justAuthed —
+  // только что прошёл форму в этой сессии, регистрация точно есть → не гоняем повторно.
+  const needAuth = !contactId || (room.has_registration === false && !justAuthed)
   if (needAuth) {
     return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm} clientId={room.event?.client_id}
       brand={room.brand} title={webinarTitle} poster={room.poster_url}
-      onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid); setAuthName((form?.name || '').trim()) }} />
+      onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid); setAuthName((form?.name || '').trim()); setJustAuthed(true) }} />
   }
 
   // Профи: внешняя ссылка

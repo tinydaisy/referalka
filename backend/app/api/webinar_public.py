@@ -183,12 +183,21 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
                 ev["id"],
             )
 
+        # Есть ли регистрация у опознанного (по куке ?c=) зрителя на этот вебинар.
+        # Если статистику обнулили — регистрации нет → фронт покажет форму заново
+        # (иначе кука пускала бы «фантома», которого нет в списке зрителей).
+        has_registration = False
+        if c:
+            has_registration = bool(await conn.fetchval(
+                "SELECT 1 FROM webinar_registrations WHERE room_id=$1 AND contact_id=$2 LIMIT 1", rid, c))
+
         return {
             "event": {"id": ev["id"], "title": ev["title"], "slug": ev["slug"], "client_id": ev["client_id"]},
             "brand": {
                 "name": brand["brand_name"] if brand else None,
                 "logo_url": brand["brand_logo_url"] if brand else None,
             },
+            "has_registration": has_registration,
             "poster_url": poster,   # заставка до начала эфира
             "room": {
                 "id": rid,
