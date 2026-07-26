@@ -85,7 +85,7 @@ export default function WebinarRoomPage() {
   // загрузка комнаты
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${contactId ? `?c=${contactId}` : ''}`)
+      const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${contactId ? `?c=${contactId}` : ''}`, { cache: 'no-store' })
       if (!res.ok) { setError('Комната не найдена'); return }
       const d = await res.json()
       setRoom(d)
@@ -237,7 +237,7 @@ export default function WebinarRoomPage() {
     if (!room?.room) return
     const t = setInterval(async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}`)
+        const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}`, { cache: 'no-store' })
         if (!res.ok) return
         const d = await res.json()
         const st = d.room?.status
@@ -269,7 +269,7 @@ export default function WebinarRoomPage() {
     return (
       <PreStartScreen brand={room.brand} poster={room.poster_url} title={webinarTitle}
         heading="Вебинар завершён" sub={rm.redirect_url ? 'Сейчас переведём вас по ссылке…' : 'Спасибо, что были с нами!'}
-        redirectUrl={rm.redirect_url} />
+        redirectUrl={rm.redirect_url} slug={slug} day={day} isClosed />
     )
   }
 
@@ -739,12 +739,27 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 // Экран до старта / после закрытия: логотип + название вебинара + афиша + отсчёт.
-function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectUrl }: any) {
+// slug/day/isClosed нужны, чтобы closed-экран сам пинговал состояние: если комнату
+// переоткрыли (open/created) — перезагрузиться и показать форму/отсчёт, а не «завершён».
+function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectUrl, slug, day, isClosed }: any) {
   useEffect(() => {
     if (!redirectUrl) return
     const t = setTimeout(() => { window.location.href = redirectUrl }, 4000)
     return () => clearTimeout(t)
   }, [redirectUrl])
+  // closed-экран: раз в 8 сек проверяем — вдруг комнату переоткрыли.
+  useEffect(() => {
+    if (!isClosed || !slug || day == null) return
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}`, { cache: 'no-store' })
+        if (!r.ok) return
+        const d = await r.json()
+        if (d.room?.room_state && d.room.room_state !== 'closed') window.location.reload()
+      } catch {}
+    }, 8000)
+    return () => clearInterval(t)
+  }, [isClosed, slug, day])
   return (
     <div className="min-h-screen flex flex-col items-center justify-center text-white p-6 text-center"
       style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
