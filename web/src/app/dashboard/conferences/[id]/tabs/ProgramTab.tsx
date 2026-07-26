@@ -89,7 +89,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       setSpeakers(spRes.speakers || [])
       const forms: Record<number, any> = {}
       loadedDays.forEach((d: any) => {
-        forms[d.day_number] = { day_date: d.day_date || '', stream_url: d.stream_url || '', show_for_speakers: d.show_for_speakers ?? true }
+        forms[d.day_number] = { day_date: d.day_date || '', stream_url: d.stream_url || '', show_for_speakers: d.show_for_speakers ?? true, has_webinar: d.has_webinar ?? true }
       })
       setDayForms(forms)
     } finally {
@@ -116,6 +116,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
           day_date: f.day_date || null,
           stream_url: f.stream_url || null,
           show_for_speakers: f.show_for_speakers ?? true,
+          has_webinar: f.has_webinar ?? true,
         })
       }
       setDirtyDays(new Set())
@@ -289,6 +290,22 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 <span className="text-xs text-gray-600 leading-snug">
                   Показывать этот день спикерам в их кабинете
                   <span className="block text-gray-400">Выключите для орг-встреч и других дней, которые спикерам видеть не нужно.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer select-none mt-2">
+                <input
+                  type="checkbox"
+                  checked={df.has_webinar ?? true}
+                  onChange={e => {
+                    const v = e.target.checked
+                    setDayForms(prev => ({ ...prev, [dayNum]: { ...(prev[dayNum] || {}), has_webinar: v } }))
+                    setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
+                  }}
+                  className="mt-0.5 accent-[#25455D]"
+                />
+                <span className="text-xs text-gray-600 leading-snug">
+                  Имеет эфир / вебинар
+                  <span className="block text-gray-400">Если стоит — день показывается в разделе «Вебинары». Выключите, если эфира в этот день нет.</span>
                 </span>
               </label>
             </div>

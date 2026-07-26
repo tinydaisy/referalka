@@ -33,6 +33,7 @@ type Day = {
   stage_id: number | null
   title: string | null
   show_for_speakers?: boolean
+  has_webinar?: boolean
 }
 type Sess = {
   id: number
@@ -158,6 +159,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         day_date: d.day_date || '', open_time: d.open_time || '', close_time: d.close_time || '',
         stream_url: d.stream_url || '', stage_id: d.stage_id ?? null, title: d.title || '',
         show_for_speakers: d.show_for_speakers ?? true,
+        has_webinar: d.has_webinar ?? true,
       }))
       setStages(loadedStages)
       setDays(loadedDays)
@@ -335,6 +337,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       stage_id: d.stage_id ?? null,
       title: d.title || null,
       show_for_speakers: d.show_for_speakers ?? true,
+        has_webinar: d.has_webinar ?? true,
     }))
   }
 
@@ -975,6 +978,18 @@ function DayAccordion({
               <span className="text-xs text-gray-600 leading-snug">
                 Показывать этот день спикерам в их кабинете
                 <span className="block text-gray-400">Выключите для орг-встреч и других дней, которые спикерам видеть не нужно.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer select-none mt-2">
+              <input
+                type="checkbox"
+                checked={day.has_webinar ?? true}
+                onChange={e => { onPatchLocal({ has_webinar: e.target.checked }); onCommit({ has_webinar: e.target.checked }) }}
+                className="mt-0.5 accent-[#25455D]"
+              />
+              <span className="text-xs text-gray-600 leading-snug">
+                Имеет эфир / вебинар
+                <span className="block text-gray-400">Если стоит — день показывается в разделе «Вебинары». Выключите, если в этот день эфира нет.</span>
               </span>
             </label>
           </div>

@@ -1816,6 +1816,7 @@ class DayUpdate(BaseModel):
     stage_id: Optional[int] = None  # NULL = день вне этапа
     title: Optional[str] = None     # кастомное имя дня (fallback "День N")
     show_for_speakers: Optional[bool] = None  # показывать день в кабинете спикера
+    has_webinar: Optional[bool] = None  # день имеет эфир/вебинар → показывать в разделе Вебинары
 
 
 @router.get("/days", summary="Дни конференции")
@@ -1880,14 +1881,16 @@ async def upsert_day(
     # show_for_speakers: прислали явно → берём его; не прислали → при INSERT дефолт TRUE,
     # при UPDATE не трогаем текущее значение (правка даты/времени дня не сбрасывает галочку).
     sfs = data.show_for_speakers  # None = не прислали
+    hw = data.has_webinar         # None = не прислали (INSERT дефолт TRUE, UPDATE не трогаем)
     day = await db.fetchrow(
-        """INSERT INTO conf_days (event_id, day_number, day_date, open_time, close_time, stream_url, stage_id, title, show_for_speakers)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE($9, TRUE))
+        """INSERT INTO conf_days (event_id, day_number, day_date, open_time, close_time, stream_url, stage_id, title, show_for_speakers, has_webinar)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE($9, TRUE), COALESCE($10, TRUE))
            ON CONFLICT (event_id, day_number) DO UPDATE
              SET day_date=$3, open_time=$4, close_time=$5, stream_url=$6, stage_id=$7, title=$8,
-                 show_for_speakers=COALESCE($9, conf_days.show_for_speakers)
+                 show_for_speakers=COALESCE($9, conf_days.show_for_speakers),
+                 has_webinar=COALESCE($10, conf_days.has_webinar)
            RETURNING *""",
-        event_id, day_number, day_date, open_time, close_time, data.stream_url, data.stage_id, data.title, sfs
+        event_id, day_number, day_date, open_time, close_time, data.stream_url, data.stage_id, data.title, sfs, hw
     )
     await regenerate_landing_data(event_id, db)
     return {"day": dict(day)}

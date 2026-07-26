@@ -104,9 +104,10 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
 
     # дни программы события (conf_days). Если их нет — событие без программы,
     # комнат по дням тоже нет (фича для событий со слотами).
+    # Только дни с галочкой «Имеет эфир/вебинар» (has_webinar). NULL/старые = TRUE.
     days = await db.fetch(
         "SELECT day_number, day_date, title FROM conf_days "
-        "WHERE event_id=$1 ORDER BY day_number", event_id,
+        "WHERE event_id=$1 AND COALESCE(has_webinar, TRUE)=TRUE ORDER BY day_number", event_id,
     )
     rooms = await db.fetch("SELECT * FROM webinar_rooms WHERE event_id=$1", event_id)
     rooms_by_day = {r["day_number"]: dict(r) for r in rooms}
