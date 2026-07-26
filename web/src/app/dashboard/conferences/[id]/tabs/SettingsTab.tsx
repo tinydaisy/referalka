@@ -215,14 +215,13 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
         <h2 className="block-title">Настройка ссылок</h2>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Ссылка на вебинарную комнату / стрим
-            <span className="text-gray-400 font-normal ml-1">— одна на все дни</span>
-          </label>
-          <input type="url" value={form.stream_url} onChange={set('stream_url')}
-            placeholder="https://us02web.zoom.us/j/... или https://youtube.com/live/..."
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-          <p className="text-xs text-gray-400 mt-1">Если у каждого дня свой стрим — задаётся в редакторе программы по дням.</p>
+          {/* Ссылка эфира теперь ПО ДНЯМ — в разделе «Вебинары» (комната дня или
+              сторонний вебинар). Общее поле stream_url убрано из UI. */}
+          <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-900">
+            <b>Ссылка на эфир теперь настраивается по дням</b> — в разделе <b>«Вебинары»</b>.
+            У каждого дня — своя вебинарная комната или ссылка на сторонний вебинар.
+            Рассылки и кнопка стрима берут ссылку комнаты этого дня.
+          </div>
           <label className="flex items-start gap-2 mt-3 cursor-pointer">
             <input type="checkbox" checked={form.hide_stream_button}
               onChange={e => setForm(f => ({ ...f, hide_stream_button: e.target.checked }))}

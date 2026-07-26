@@ -123,6 +123,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
       </div>
 
       <div className="bg-white rounded-2xl border p-5">
+        {/* Сторонний вебинар этого дня → активна только вкладка «Настройки». */}
         {/* Подтабы дня */}
         <div className="flex gap-2 mb-5 flex-wrap">
           {([
@@ -133,20 +134,30 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             ['referrals', 'Рефералы'],
             ['console', 'Пульт ведущего'],
             ['audience', 'Зрители'],
-          ] as const).map(([k, lbl]) => (
+          ] as const).map(([k, lbl]) => {
+            const ext = active.room?.stream_type === 'external_link'
+            const disabled = ext && k !== 'settings'
+            return (
             <button
               key={k}
-              onClick={() => setSub(k)}
+              disabled={disabled}
+              title={disabled ? 'Недоступно при сторонней комнате — переключите тип на «Видеокодер»' : undefined}
+              onClick={() => !disabled && setSub(k)}
               className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${
-                subView === k ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-              style={subView === k ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}
+                disabled ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                : subView === k ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              style={subView === k && !disabled ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}
             >
               {lbl === 'Аналитика' && <BarChart3 size={14} className="inline mr-1 -mt-0.5" />}
               {lbl}
             </button>
-          ))}
+          )})}
         </div>
 
+        {/* Сторонний вебинар → только настройки (одна ссылка), что бы ни было выбрано. */}
+        {active.room?.stream_type === 'external_link' ? (
+          <RoomSettings eventId={eventId} day={active} level={level} onSaved={load} />
+        ) : (<>
         {subView === 'settings' && (
           <RoomSettings eventId={eventId} day={active} level={level} onSaved={load} />
         )}
@@ -183,6 +194,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
         {subView === 'audience' && !active.room && (
           <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
         )}
+        </>)}
       </div>
     </div>
   )
@@ -343,12 +355,20 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
           )}
         </div>
       ) : (
-        <div>
+        <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
           <label className="label">Ссылка на стороннюю комнату</label>
           <input className="input" value={f.external_url} onChange={e => setF({ ...f, external_url: e.target.value })} placeholder="https://..." />
+          <p className="text-xs text-amber-700">
+            Сторонний вебинар — мы только даём кнопку на вашу внешнюю комнату (Zoom/GetCourse/др.).
+            Наш плеер, чат, продающие блоки, аналитика, записи, пульт и зрители тут недоступны —
+            их предоставляет ваш внешний сервис. Нужна одна ссылка.
+          </p>
         </div>
       )}
 
+      {/* Все настройки нашей комнаты — ТОЛЬКО при видеокодере. У сторонней —
+          одна ссылка выше, остальное недоступно (ведёт внешний сервис). */}
+      {isEncoder && (<>
       <div className="grid sm:grid-cols-2 gap-4">
         <Toggle label="Скрывать число зрителей в эфире" checked={f.hide_viewer_count} onChange={v => setF({ ...f, hide_viewer_count: v })} />
         <Toggle label="Чат включён" checked={f.chat_enabled} onChange={v => setF({ ...f, chat_enabled: v })} />
@@ -420,6 +440,7 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
           </>
         )}
       </div>
+      </>)}
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving} className="btn-gold">
