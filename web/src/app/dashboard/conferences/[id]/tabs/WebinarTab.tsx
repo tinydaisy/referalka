@@ -7,6 +7,15 @@ import WebinarAnalytics from './WebinarAnalytics'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+// Дата дня "YYYY-MM-DD" → "26 июл." БЕЗ new Date() (иначе UTC-парс уедет на сутки).
+const _DM = ['янв.', 'фев.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сен.', 'окт.', 'ноя.', 'дек.']
+function fmtDayDate(d?: string | null): string {
+  if (!d) return ''
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ''
+  return `${parseInt(m[3], 10)} ${_DM[parseInt(m[2], 10) - 1]}`
+}
+
 type DayItem = {
   day_number: number
   day_date: string | null
@@ -84,7 +93,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             >
               <span className="flex items-center gap-2">
                 {live && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
-                {d.day_title?.trim() || `День ${d.day_number}`}
+                {fmtDayDate(d.day_date) || d.day_title?.trim() || `День ${d.day_number}`}
               </span>
             </button>
           )
