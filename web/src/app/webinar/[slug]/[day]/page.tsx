@@ -100,6 +100,19 @@ export default function WebinarRoomPage() {
       body: body ? JSON.stringify(body) : undefined,
     }).then(r => r.json()), [slug, day])
 
+  // Добавить сообщение в ленту с дедупом: если такое id уже есть (пришло и локально,
+  // и по WS/поллингом) — не дублируем; локальное с тем же id обновляем.
+  // ⚠️ Объявлено ДО эффектов чата — они держат его в зависимостях.
+  const pushChatMsg = useCallback((msg: any) => {
+    setChat(c => {
+      if (msg.id != null && c.some(m => m.id === msg.id)) return c
+      // схлопываем локальную копию (совпадение по тексту+автору), если её id ещё не проставлен
+      const idx = c.findIndex(m => m._local && !m.id && m.text === msg.text && (m.contact_id ?? null) === (msg.contact_id ?? null))
+      if (idx >= 0) { const n = [...c]; n[idx] = { ...msg }; return n }
+      return [...c, msg]
+    })
+  }, [])
+
   // загрузка комнаты
   const load = useCallback(async () => {
     try {
@@ -443,17 +456,6 @@ export default function WebinarRoomPage() {
     }
   }
 
-  // Добавить сообщение в ленту с дедупом: если такое id уже есть (пришло и локально,
-  // и по WS/поллингом) — не дублируем; локальное с тем же id обновляем.
-  const pushChatMsg = useCallback((msg: any) => {
-    setChat(c => {
-      if (msg.id != null && c.some(m => m.id === msg.id)) return c
-      // схлопываем локальную копию (совпадение по тексту+автору), если её id ещё не проставлен
-      const idx = c.findIndex(m => m._local && !m.id && m.text === msg.text && (m.contact_id ?? null) === (msg.contact_id ?? null))
-      if (idx >= 0) { const n = [...c]; n[idx] = { ...msg }; return n }
-      return [...c, msg]
-    })
-  }, [])
   async function react(speakerId: number, r: 'up' | 'down') {
     await api('/react', { contact_id: contactId, session_key: sessionKey, speaker_id: speakerId, reaction: r })
   }
