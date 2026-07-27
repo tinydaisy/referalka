@@ -1109,6 +1109,14 @@ API всех эндпоинтов событий ([`backend/app/api/events.py`](
 
 **В превью рассылок** (templates page) спикерская афиша подставляется только для шаблонов со спикером (`speaker_intro`, `5min_before`, `gift`). Дневные/событийные (`day_*`, `pre_conf`, `2h_before_*`, `30min_before`) — горизонтальная афиша события из `event_posters`, не спикерская.
 
+**Тумблер «не использовать индивидуальные афиши» (миграция 237 от 2026-07-28).** `event_collaborators.use_photo_instead_of_poster BOOL DEFAULT FALSE` — **per-event**, на карточке спикера конференции (блок «Индивидуальные афиши»). Зачем: афиши делаются под айдентику конкретного события (например «с кокошниками» у iViSiON-8) и не подходят для другого события, но удалять их из библиотеки нельзя — там они нужны.
+
+TRUE = в ЭТОМ событии афиша не берётся **вообще нигде**, везде вместо неё обычное фото коллаборатора (`collaborators.photo_url`). Библиотека афиш не трогается, в других событиях всё работает как было. FALSE (default) = прежнее поведение.
+
+⚠️ **Реализовано фильтром в самом подзапросе** (`WHERE NOT cse.use_photo_instead_of_poster AND (…)`) — афиша становится NULL, и уже существующие fallback'и на `photo_url` срабатывают сами. Правило: **при новой точке резолва афиши — добавлять это условие**, иначе тумблер её не покроет. Точки: рассылки ([message_builder.py](backend/app/services/message_builder.py) ×3 — произвольная со спикером, `speaker_intro`/`expert_day`, `5min_before`/`gift`), кабинет спикера ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py) — `/me`, `/me/materials` + афиши «для анонсов» не отдаются), виджет лендинга ([landing_widget.py](backend/app/api/landing_widget.py)), дашборд и публичные карточки спикера ([modules/conference.py](backend/app/api/modules/conference.py) ×8, включая `send-to-telegram`), экспорт материалов ZIP ([referral_program.py](backend/app/api/referral_program.py)).
+
+⚠️ В `send-to-telegram` (карточка спикера в TG) в fallback добавлено `sp.photo_url` — без этого при включённом тумблере карточка ушла бы вовсе без фото. **Mini App спикерские афиши не показывает** (`/speakers/public` отдаёт только `photo_url`) — там правок не потребовалось.
+
 ### Сортировка спикеров/жюри/организаторов — единая логика (с 2026-05-23)
 
 Один порядок везде: Mini App (`ProgramTab` — лента вверху и список внизу), Celery (выдача подарков `day_end`, рассылка знакомства `speaker_intro`), дашборд (`SpeakersTab`, список соорганизаторов мероприятий).

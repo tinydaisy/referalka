@@ -878,7 +878,11 @@ async def export_speaker_materials(
     _lm = await resolve_event_link_mode(db, client_id=client_id, event_link_mode=ev["link_mode"])
 
     rows = await db.fetch(
-        f"""SELECT ec.id AS ec_id, ec.role, ec.announcement_poster_ids,
+        f"""SELECT ec.id AS ec_id, ec.role,
+                   -- Миграция 237: тумблер «не использовать индивидуальную афишу»
+                   -- → афиши этого спикера в архив не кладём.
+                   CASE WHEN ec.use_photo_instead_of_poster THEN NULL
+                        ELSE ec.announcement_poster_ids END AS announcement_poster_ids,
                    co.id AS collaborator_id, co.name, ctc.ref_code
               FROM event_collaborators ec
               JOIN collaborators co  ON co.id = ec.speaker_id

@@ -673,9 +673,12 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
     sp = await conn.fetchrow(
         """
         SELECT c.name as speaker_name,
+               -- Миграция 237: тумблер «не использовать индивидуальную афишу» →
+               -- афиша не берётся вовсе, ниже останется только фото коллаба.
                (SELECT url FROM collaborator_posters cp
-                  WHERE cp.id = cse.poster_id OR
-                        (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                  WHERE NOT cse.use_photo_instead_of_poster
+                    AND (cp.id = cse.poster_id OR
+                         (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
                   ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                   LIMIT 1) as speaker_poster,
                c.photo_url AS speaker_photo,
@@ -1220,9 +1223,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             sp = await conn.fetchrow(
                 """
                 SELECT c.name as speaker_name,
+                       -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        (SELECT url FROM collaborator_posters cp
-                          WHERE cp.id = cse.poster_id OR
-                                (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                          WHERE NOT cse.use_photo_instead_of_poster
+                            AND (cp.id = cse.poster_id OR
+                                 (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
                           ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                           LIMIT 1) as speaker_poster,
                        c.photo_url AS speaker_photo,
@@ -1330,9 +1335,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """
                 SELECT cs.title as session_title, cs.start_time, cs.end_time, cs.day,
                        c.name as speaker_name,
+                       -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        (SELECT url FROM collaborator_posters cp
-                          WHERE cp.id = cse.poster_id OR
-                                (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                          WHERE NOT cse.use_photo_instead_of_poster
+                            AND (cp.id = cse.poster_id OR
+                                 (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
                           ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                           LIMIT 1) as speaker_poster,
                        c.photo_url AS speaker_photo,

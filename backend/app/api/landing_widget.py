@@ -228,9 +228,12 @@ async def widget_collaborators(
         f"""SELECT cse.id, cse.speaker_id AS collaborator_id, cse.role,
                    cse.is_commercial, cse.priority, cse.sort_order,
                    cse.speaker_topic AS topic,
+                   -- Миграция 237: тумблер «не использовать индивидуальную афишу»
+                   -- → лендинг получит null и отрисует обычное фото коллаба.
                    (SELECT url FROM collaborator_posters cp
-                      WHERE cp.id = cse.poster_id OR
-                            (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                      WHERE NOT cse.use_photo_instead_of_poster
+                        AND (cp.id = cse.poster_id OR
+                             (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
                       ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                       LIMIT 1) AS poster_url,
                    cse.knowledge_base_title, cse.knowledge_base_url,

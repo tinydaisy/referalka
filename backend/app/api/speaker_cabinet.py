@@ -171,9 +171,13 @@ async def get_me(
                   cse.bot_in_channel,
                   c.id AS collaborator_id, c.name, c.title, c.achievements,
                   c.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
+                  -- Заодно уважаем per-event выбор афиши (cse.poster_id).
                   (SELECT url FROM collaborator_posters cp
-                     WHERE cp.collaborator_id = c.id
-                     ORDER BY cp.sort_order, cp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND (cp.id = cse.poster_id OR
+                            (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
+                     ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                      LIMIT 1) AS poster_url,
                   c.photo_folder_url, c.video_folder_url,
                   c.video_url AS speaker_video_url,
@@ -805,9 +809,13 @@ async def get_me_materials(
                   c.photo_url AS speaker_photo_url,
                   ec.announcement_poster_ids,
                   ec.show_partner_registration_link,
+                  ec.use_photo_instead_of_poster,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу»
+                  -- → афиша не отдаётся, спикер видит только своё фото.
                   (SELECT url FROM collaborator_posters cp
-                     WHERE cp.id = ec.poster_id OR
-                           (ec.poster_id IS NULL AND cp.collaborator_id = c.id)
+                     WHERE NOT ec.use_photo_instead_of_poster
+                       AND (cp.id = ec.poster_id OR
+                            (ec.poster_id IS NULL AND cp.collaborator_id = c.id))
                      ORDER BY (cp.id = ec.poster_id) DESC, cp.sort_order, cp.id
                      LIMIT 1) AS speaker_poster_url,
                   c.video_url AS speaker_video_url,
@@ -828,7 +836,10 @@ async def get_me_materials(
     # Афиши «для анонсов» в этом событии (миграция 122) — те, что клиент
     # отметил на странице спикера конференции. Спикер увидит их в своём
     # кабинете в секции «Афиши для анонсов» и скачает для распространения.
-    announcement_ids = list(base.get("announcement_poster_ids") or [])
+    # Миграция 237: если у спикера в этом событии отключены индивидуальные
+    # афиши — не показываем и «для анонсов» (они из той же библиотеки).
+    announcement_ids = ([] if base.get("use_photo_instead_of_poster")
+                        else list(base.get("announcement_poster_ids") or []))
     if announcement_ids:
         announcement_posters = await db.fetch(
             """SELECT id, url, label, sort_order

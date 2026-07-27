@@ -207,6 +207,9 @@ export default function ConferenceSpeakerPage() {
     is_visible: true,
     poster_id: null as number | null,
     announcement_poster_ids: [] as number[],
+    // Миграция 237: не использовать индивидуальные афиши в этом событии —
+    // везде вместо них берётся обычное фото коллаборатора.
+    use_photo_instead_of_poster: false,
     // Привязка темы к слоту программы (только для показа, не сохраняется).
     bound_topic_index: null as number | null,
     slot_label: null as string | null,
@@ -346,6 +349,7 @@ export default function ConferenceSpeakerPage() {
           is_visible: sp.is_visible !== false,
           // Какая афиша из библиотеки коллаба используется в этой конференции
           // (миграция 121). NULL = первая из библиотеки.
+          use_photo_instead_of_poster: !!sp.use_photo_instead_of_poster,
           poster_id: sp.poster_id ?? null,
           // Афиши «для анонсов» в этой конференции (миграция 122).
           announcement_poster_ids: Array.isArray(sp.announcement_poster_ids) ? sp.announcement_poster_ids : [],
@@ -573,6 +577,7 @@ export default function ConferenceSpeakerPage() {
         is_visible: eventForm.is_visible,
         poster_id: eventForm.poster_id,
         announcement_poster_ids: eventForm.announcement_poster_ids,
+        use_photo_instead_of_poster: eventForm.use_photo_instead_of_poster,
       }
       try {
         await api.conference.speakers.update(confId, speakerEventId, payload)
@@ -1159,6 +1164,22 @@ export default function ConferenceSpeakerPage() {
                 странице коллаба
               </Link>.
             </p>
+            <label className="flex items-start gap-2 mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={eventForm.use_photo_instead_of_poster}
+                onChange={e => setEventForm(f => ({ ...f, use_photo_instead_of_poster: e.target.checked }))}
+              />
+              <span className="text-sm text-gray-800">
+                <b>Не использовать индивидуальные афиши в этом событии</b>
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  Везде — в рассылках бота, на лендинге, в кабинете спикера и в экспорте
+                  материалов — вместо афиши будет обычное «Фото для сайта». Сами афиши
+                  останутся в библиотеке коллаба и будут работать в других событиях.
+                </span>
+              </span>
+            </label>
             {posterUploadError && (
               <div className="text-xs text-red-600 mb-2">{posterUploadError}</div>
             )}
@@ -1167,7 +1188,7 @@ export default function ConferenceSpeakerPage() {
                 Афиш ещё нет. Нажмите «+ Добавить афишу», чтобы загрузить.
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className={`space-y-3 ${eventForm.use_photo_instead_of_poster ? 'opacity-40 pointer-events-none' : ''}`}>
                 {posterLibrary.map((p, idx) => {
                   // Если poster_id явно не выбран — первая афиша подсвечена
                   // как «Для рассылок» (fallback совпадает с показанным выбором).

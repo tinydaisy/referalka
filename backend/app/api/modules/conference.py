@@ -637,6 +637,10 @@ class SpeakerEventUpdate(BaseModel):
     # Видны спикеру в его кабинете в разделе «Афиши для анонсов» —
     # скачивает и постит в своих каналах. Множественный выбор. Миграция 122.
     announcement_poster_ids: Optional[List[int]] = None
+    # TRUE = в этом событии индивидуальные афиши спикера не используются вовсе:
+    # везде (рассылки, лендинг, кабинет спикера, экспорт) берётся обычное фото
+    # коллаборатора. Библиотека афиш при этом сохраняется. Миграция 237.
+    use_photo_instead_of_poster: Optional[bool] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
     notes: Optional[str] = None
@@ -933,15 +937,19 @@ async def list_event_speakers(
                   cse.announcement_poster_ids,
                   (SELECT COALESCE(array_agg(ecs.stage_id), ARRAY[]::int[])
                      FROM event_collaborator_stages ecs WHERE ecs.ec_id = cse.id) AS stage_ids,
-                  cp_cse.url AS cse_poster_url,
+                  CASE WHEN cse.use_photo_instead_of_poster THEN NULL
+                       ELSE cp_cse.url END AS cse_poster_url,
+                  cse.use_photo_instead_of_poster,
                   cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS speaker_poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -1084,12 +1092,16 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.poster_id,
-                  cp_cse.url AS event_poster_url,
+                  cse.use_photo_instead_of_poster,
+                  CASE WHEN cse.use_photo_instead_of_poster THEN NULL
+                       ELSE cp_cse.url END AS event_poster_url,
                   cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -1182,8 +1194,10 @@ async def add_speaker_from_base(
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -1520,8 +1534,10 @@ async def update_speaker_event(
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -2729,8 +2745,10 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
                   cse.is_commercial, c.ref_code, cse.keyword_code,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -2867,8 +2885,10 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -2986,8 +3006,10 @@ async def update_speaker_as_editor(
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
@@ -3357,11 +3379,14 @@ async def send_speaker_to_telegram(
     row = await db.fetchrow(
         """SELECT cse.id, cse.role,
                   cse.gift_after_speech_title, cse.gift_raffle_title,
-                  cp_cse.url AS cse_poster_url,
+                  CASE WHEN cse.use_photo_instead_of_poster THEN NULL
+                       ELSE cp_cse.url END AS cse_poster_url,
                   sp.name, sp.achievements,
                   sp.photo_url,
+                  -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
-                     WHERE cp_g.collaborator_id = sp.id
+                     WHERE NOT cse.use_photo_instead_of_poster
+                       AND cp_g.collaborator_id = sp.id
                      ORDER BY cp_g.sort_order, cp_g.id
                      LIMIT 1) AS poster_url,
                   sp.tg_channel_url, sp.instagram_url
@@ -3378,8 +3403,11 @@ async def send_speaker_to_telegram(
     sp = dict(row)
     topics = topics_map.get(speaker_event_id, [])
 
-    # poster_url: сначала cse.poster_url, потом collaborators.poster_url
-    poster_url = (sp.get("cse_poster_url") or sp.get("poster_url") or "").strip()
+    # poster_url: сначала афиша события, потом первая из библиотеки коллаба.
+    # Миграция 237: если индивидуальные афиши отключены тумблером — обе пустые,
+    # тогда шлём обычное фото коллаба (иначе карточка ушла бы вовсе без фото).
+    poster_url = (sp.get("cse_poster_url") or sp.get("poster_url")
+                  or sp.get("photo_url") or "").strip()
     caption = _build_speaker_caption(sp, topics)
 
     reply_markup = {
