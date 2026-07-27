@@ -418,6 +418,50 @@ export default function WebinarRoomPage() {
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
           </div>
 
+          {/* Продающие блоки (не спикерские) — НАД спикером, отделены чертой.
+              Подряд идущие кнопки собираются в сетку N в ряд; форма разрывает группу
+              и идёт на всю ширину. Порядок = sort_order. */}
+          {(() => {
+            const per = Math.max(1, Math.min(4, room.room?.buttons_per_row || 1))
+            const items = (room.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form' || b.kind === 'event_reg')
+            if (!items.length) return null
+            const out: any[] = []
+            let btnRun: any[] = []
+            const flush = () => {
+              if (!btnRun.length) return
+              const run = btnRun; btnRun = []
+              out.push(
+                <div key={`btns-${run[0].id}`} className="mt-3 grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(${per}, minmax(0, 1fr))` }}>
+                  {run.map((b: any) => (
+                    <button key={b.id} onClick={() => clickBlock(b)} className="btn-gold text-sm">
+                      {b.title || 'Подробнее'}
+                    </button>
+                  ))}
+                </div>
+              )
+            }
+            items.forEach((b: any) => {
+              if (b.kind === 'button' || b.kind === 'event_reg') { btnRun.push(b); return }
+              flush()
+              out.push(
+                <div key={b.id} className="mt-3 rounded-xl bg-white/10 p-3">
+                  {b.title && <div className="font-semibold text-sm mb-1">{b.title}</div>}
+                  {b.body && <div className="text-xs text-white/60 mb-2">{b.body}</div>}
+                  <FormBlock block={b} slug={slug} day={day} contactId={contactId} sessionKey={sessionKey} onNeedReg={() => setNeedReg(true)} />
+                </div>
+              )
+            })
+            flush()
+            return (
+              <div>
+                {out}
+                {/* черта — отделяет продающие блоки от спикера */}
+                <div className="mt-4 border-t border-white/15" />
+              </div>
+            )
+          })()}
+
           {/* Сейчас выступает + подписка на все каналы спикера */}
           {cur && (
             <div className="mt-3 rounded-xl bg-white/5 p-3 flex items-center gap-3 flex-wrap">
@@ -511,42 +555,6 @@ export default function WebinarRoomPage() {
             </div>
           )}
 
-          {/* Продающие блоки — в ЕДИНОМ порядке (как в дашборде).
-              Подряд идущие кнопки собираются в сетку N в ряд; форма разрывает группу
-              и идёт на всю ширину. Порядок = sort_order. */}
-          {(() => {
-            const per = Math.max(1, Math.min(4, room.room?.buttons_per_row || 1))
-            const items = (room.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form' || b.kind === 'event_reg')
-            const out: any[] = []
-            let btnRun: any[] = []
-            const flush = () => {
-              if (!btnRun.length) return
-              const run = btnRun; btnRun = []
-              out.push(
-                <div key={`btns-${run[0].id}`} className="mt-3 grid gap-2"
-                  style={{ gridTemplateColumns: `repeat(${per}, minmax(0, 1fr))` }}>
-                  {run.map((b: any) => (
-                    <button key={b.id} onClick={() => clickBlock(b)} className="btn-gold text-sm">
-                      {b.title || 'Подробнее'}
-                    </button>
-                  ))}
-                </div>
-              )
-            }
-            items.forEach((b: any) => {
-              if (b.kind === 'button' || b.kind === 'event_reg') { btnRun.push(b); return }
-              flush()
-              out.push(
-                <div key={b.id} className="mt-3 rounded-xl bg-white/10 p-3">
-                  {b.title && <div className="font-semibold text-sm mb-1">{b.title}</div>}
-                  {b.body && <div className="text-xs text-white/60 mb-2">{b.body}</div>}
-                  <FormBlock block={b} slug={slug} day={day} contactId={contactId} sessionKey={sessionKey} onNeedReg={() => setNeedReg(true)} />
-                </div>
-              )
-            })
-            flush()
-            return out
-          })()}
         </div>
 
         {/* чат */}
