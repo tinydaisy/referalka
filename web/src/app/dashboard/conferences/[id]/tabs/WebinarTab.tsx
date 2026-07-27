@@ -1201,6 +1201,8 @@ function AudienceTab({ eventId, day }: { eventId: number; day: number }) {
 
   if (loading) return <Spinner />
   const tm = (d: string) => d ? new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '—'
+  // дата + время (для истории входов — важна и дата)
+  const dtm = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) : '—'
 
   return (
     <div>
@@ -1255,7 +1257,7 @@ function AudienceTab({ eventId, day }: { eventId: number; day: number }) {
                             {(timeline[v.contact_id] || []).length ? (
                               <ul className="space-y-0.5">
                                 {(timeline[v.contact_id] || []).map((iv: any, i: number) => (
-                                  <li key={i}>вход {tm(iv.from)} → выход {tm(iv.to)}</li>
+                                  <li key={i}>вход {dtm(iv.from)} → выход {dtm(iv.to)}</li>
                                 ))}
                               </ul>
                             ) : <span className="text-gray-400">нет данных о присутствии</span>}
