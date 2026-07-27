@@ -1108,6 +1108,7 @@ export const api = {
   // Вебинарная комната (миграция 221) — комната на день события
   webinar: {
     listRooms: (eventId: number) => request(`/api/v1/events/${eventId}/webinar`),
+    upcomingEvents: (eventId: number) => request(`/api/v1/events/${eventId}/webinar/upcoming-events`),
     upsertRoom: (eventId: number, day: number, data: any) =>
       request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteRoom: (eventId: number, day: number) =>

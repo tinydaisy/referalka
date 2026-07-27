@@ -221,6 +221,51 @@ def _extract_event_support_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "evsupport_")
 
 
+def _extract_evreg_payload(message_or_event: dict) -> str | None:
+    """Возвращает сырой ref `evreg_<eid>_ct<cid>` (кнопка «Регистрация на событие»
+    из вебинара) — тут нужен полный payload, а не только число, поэтому свой парс."""
+    for key in ("ref", "ref_source"):
+        v = message_or_event.get(key)
+        if isinstance(v, str) and v.startswith("evreg_"):
+            return v
+    payload = message_or_event.get("payload")
+    if isinstance(payload, dict):
+        v = payload.get("ref")
+        if isinstance(v, str) and v.startswith("evreg_"):
+            return v
+    return None
+
+
+async def _vk_handle_evreg(payload: str, vk_user_id: int, username: str | None,
+                           first_name: str | None, db, ctx) -> bool:
+    """Регистрация на событие из вебинара (VK): привязать реальный VK-аккаунт к
+    контакту + зарегистрировать + подтвердить + открыть меню. True если обработано."""
+    from app.services import webinar_service as _ws
+    from app.services.vk_api import send_message as _vk_send
+    parsed = _ws.parse_evreg_payload(payload)
+    if not parsed:
+        return False
+    eid, ct_hint = parsed
+    clid = await db.fetchval(
+        "SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=$1 "
+        "AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1", eid)
+    if not clid or clid != ctx.client_id:
+        return False
+    try:
+        res = await _ws.register_event_from_deeplink(
+            db, client_id=clid, event_id=eid, contact_id_hint=ct_hint,
+            platform="vk", platform_user_id=vk_user_id,
+            username=username, first_name=first_name)
+        await _vk_send(vk_user_id,
+                       f"✅ Вы зарегистрированы на «{res['event_title']}»! "
+                       "Мы сохранили ваше участие.", token=ctx.token)
+        from bot.vk_event_menu import handle_vk_event_menu_back
+        await handle_vk_event_menu_back(eid, int(vk_user_id), db, ctx)
+    except Exception as e:
+        logger.warning(f"VK evreg failed (event={eid}): {e}")
+    return True
+
+
 async def _event_belongs_to_client(db, event_id: int, client_id: int) -> bool:
     """Принадлежит ли событие этому клиенту (через event_owners). Защита от
     deeplink на чужое событие через бот другого клиента."""
@@ -707,6 +752,15 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK evsupport (message_allow) failed: %s", e)
+
+    # Кнопка «Регистрация на событие» из вебинара: ref=evreg_<eid>_ct<cid>.
+    _evreg = _extract_evreg_payload(event)
+    if _evreg:
+        try:
+            if await _vk_handle_evreg(_evreg, int(user_id), None, None, db, ctx):
+                return
+        except Exception as e:
+            logger.warning("VK evreg (message_allow) failed: %s", e)
 
     # Если пришёл с реф-меткой лид-магнита (fnl_<run_id>) — запускаем воронку
     # и НЕ шлём дженерик welcome (приветствие будет от воронки).
@@ -1562,6 +1616,14 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK evsupport (message_new) failed: %s", e)
+
+    _evreg_new = _extract_evreg_payload(event_obj)
+    if _evreg_new:
+        try:
+            if await _vk_handle_evreg(_evreg_new, int(from_id), None, None, db, ctx):
+                return
+        except Exception as e:
+            logger.warning("VK evreg (message_new) failed: %s", e)
 
     # Триггер «ИВЕНТ<id>» — человек написал в личку слово вроде «ИВЕНТ24».
     # Шлём воронку события №24 (незарег → 2 кнопки, зарег → меню кабинета).

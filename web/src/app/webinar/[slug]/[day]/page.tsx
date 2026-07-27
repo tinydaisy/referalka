@@ -85,6 +85,7 @@ export default function WebinarRoomPage() {
   const [poll, setPoll] = useState<any>(null)
   const [battle, setBattle] = useState<any>(null)
   const [needReg, setNeedReg] = useState(false)
+  const [regEventRes, setRegEventRes] = useState<any>(null)  // результат кнопки «Регистрация на событие»
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const chatBoxRef = useRef<HTMLDivElement | null>(null)
@@ -350,6 +351,20 @@ export default function WebinarRoomPage() {
   }
   async function clickBlock(b: any) {
     await api('/track', { contact_id: contactId, session_key: sessionKey, block_id: b.id, kind: 'click' })
+    // Кнопка «Регистрация на событие»: регистрируем сразу (контакт уже есть), затем
+    // либо сообщение в бот, либо экран выбора мессенджера.
+    if (b.kind === 'event_reg') {
+      if (!contactId) { setNeedReg(true); return }
+      try {
+        const r = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}/register-event`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contact_id: contactId, block_id: b.id }),
+        })
+        const data = await r.json()
+        if (data?.ok) setRegEventRes(data)
+      } catch {}
+      return
+    }
     if (b.url) window.open(b.url, '_blank')
   }
 
@@ -501,7 +516,7 @@ export default function WebinarRoomPage() {
               и идёт на всю ширину. Порядок = sort_order. */}
           {(() => {
             const per = Math.max(1, Math.min(4, room.room?.buttons_per_row || 1))
-            const items = (room.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form')
+            const items = (room.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form' || b.kind === 'event_reg')
             const out: any[] = []
             let btnRun: any[] = []
             const flush = () => {
@@ -519,7 +534,7 @@ export default function WebinarRoomPage() {
               )
             }
             items.forEach((b: any) => {
-              if (b.kind === 'button') { btnRun.push(b); return }
+              if (b.kind === 'button' || b.kind === 'event_reg') { btnRun.push(b); return }
               flush()
               out.push(
                 <div key={b.id} className="mt-3 rounded-xl bg-white/10 p-3">
@@ -569,6 +584,56 @@ export default function WebinarRoomPage() {
       </div>
 
       {needReg && <RegModal slug={slug} day={day} onClose={() => setNeedReg(false)} />}
+      {regEventRes && <RegEventModal res={regEventRes} onClose={() => setRegEventRes(null)} />}
+    </div>
+  )
+}
+
+// Результат кнопки «Регистрация на событие»: либо «вы зарегистрированы» (ушло в бот),
+// либо «Выберите удобный мессенджер» с кнопками площадок клиента (deeplink evreg_).
+function RegEventModal({ res, onClose }: any) {
+  const bot = res.delivered === 'bot'
+  const platforms: any[] = res.platforms || []
+  const PLAT_COLOR: Record<string, string> = {
+    telegram: '#229ED9', max: '#7C4DFF', vk: '#0077FF',
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-center" style={{ color: '#0a1520' }}
+           onClick={e => e.stopPropagation()}>
+        {bot ? (
+          <>
+            <div className="text-4xl mb-3">✅</div>
+            <div className="font-bold text-lg mb-1">Вы зарегистрированы!</div>
+            <div className="text-sm text-gray-600 mb-5">
+              На «{res.event_title}». Мы отправили подтверждение и меню события вам в бот.
+            </div>
+            <button onClick={onClose} className="btn-gold w-full">Понятно</button>
+          </>
+        ) : (
+          <>
+            <div className="text-4xl mb-3">📩</div>
+            <div className="font-bold text-lg mb-1">Вы зарегистрированы на «{res.event_title}»!</div>
+            <div className="text-sm text-gray-600 mb-5">
+              Выберите удобный мессенджер, чтобы не потерять информацию о конференции —
+              там мы пришлём программу, подарки и ссылку на эфир.
+            </div>
+            <div className="space-y-2">
+              {platforms.length === 0 && (
+                <div className="text-sm text-gray-500">Мессенджеры организатора пока не подключены.</div>
+              )}
+              {platforms.map((p: any) => (
+                <a key={p.platform} href={p.url} target="_blank" rel="noopener noreferrer"
+                   className="block w-full py-3 rounded-xl font-semibold text-white text-sm"
+                   style={{ background: PLAT_COLOR[p.platform] || '#25455D' }}>
+                  {p.label}
+                </a>
+              ))}
+            </div>
+            <button onClick={onClose} className="mt-4 text-sm text-gray-400 underline">Закрыть</button>
+          </>
+        )}
+      </div>
     </div>
   )
 }

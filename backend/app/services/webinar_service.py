@@ -268,3 +268,49 @@ def rtmp_url(stream_key: str) -> str:
 def hls_url(stream_key: str) -> str:
     from app.config import settings
     return f"{settings.webinar_hls_base}/{stream_key}/index.m3u8"
+
+
+def parse_evreg_payload(payload: str) -> Optional[tuple[int, Optional[int]]]:
+    """Разбирает deeplink `evreg_<event_id>[_ct<contact_id>]` → (event_id, contact_id).
+    Кнопка «Регистрация на событие» из вебинара для тех, кого ещё нет в боте.
+    contact_id опционален (None, если хвоста _ct нет). Не тот формат → None."""
+    import re
+    m = re.match(r"^evreg_(\d+)(?:_ct(\d+))?$", (payload or "").strip())
+    if not m:
+        return None
+    return int(m.group(1)), (int(m.group(2)) if m.group(2) else None)
+
+
+async def register_event_from_deeplink(
+    db, *, client_id: int, event_id: int, contact_id_hint: Optional[int],
+    platform: str, platform_user_id, username: Optional[str] = None,
+    first_name: Optional[str] = None,
+) -> dict:
+    """ЕДИНАЯ точка для 3 ботов: человек пришёл по deeplink «Регистрация на событие»
+    (evreg_<eid>_ct<cid>). Привязывает РЕАЛЬНУЮ идентичность бота (числовой
+    platform_user_id по факту захода) к его контакту и регистрирует на событие.
+
+    contact_id_hint (из ссылки) передаётся как known_contact_id — новая идентичность
+    цепляется к ЭТОМУ контакту, не плодя дубль (важно: ник из формы уже неважен,
+    решает реальный bot user_id). Возвращает {contact_id, event_title, event_slug}.
+    """
+    from app.services.contact_merge import upsert_contact_with_identity
+    cid, _puid, _new = await upsert_contact_with_identity(
+        db, client_id=client_id, platform_slug=platform,
+        platform_user_id=str(platform_user_id), username=username,
+        first_name=first_name, known_contact_id=contact_id_hint,
+    )
+    await db.execute(
+        "INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at) "
+        "VALUES ($1,$2,TRUE,NOW()) ON CONFLICT (event_id, contact_id) "
+        "DO UPDATE SET is_registered=TRUE, registered_at=COALESCE(event_participants.registered_at, NOW())",
+        event_id, cid)
+    try:
+        from app.services.participant_registration import finalize_participant_registration
+        await finalize_participant_registration(db, event_id=event_id, contact_id=cid)
+    except Exception:
+        pass
+    ev = await db.fetchrow("SELECT title, slug FROM events WHERE id=$1", event_id)
+    return {"contact_id": cid,
+            "event_title": ev["title"] if ev else "",
+            "event_slug": ev["slug"] if ev else ""}

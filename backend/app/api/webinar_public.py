@@ -105,7 +105,7 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         # Блок без тайминга и не включённый вручную — зрителю не виден (лежит заготовкой).
         all_blocks = await conn.fetch(
             "SELECT id, kind, title, url, body, form_fields, form_tag, follow_mode, speaker_id, "
-            "       is_pinned, show_at_min, hide_at_min, sort_order "
+            "       is_pinned, show_at_min, hide_at_min, sort_order, reg_event_id "
             "FROM webinar_blocks WHERE room_id=$1 AND is_active=TRUE ORDER BY sort_order, id", rid)
 
         elapsed_min = None
@@ -721,6 +721,118 @@ async def register(slug: str, day: int, body: RegisterIn):
         await conn.execute("UPDATE contacts SET was_in_webinar=TRUE WHERE id=$1", contact_id)
         await ws.tag_contact(conn, client_id, contact_id, f"webinar:{ev['slug']}:{day}")
     return {"ok": True, "contact_id": contact_id}
+
+
+class RegEventIn(BaseModel):
+    contact_id: int
+    block_id: int
+
+
+@router.post("/{slug}/{day}/register-event", summary="Кнопка «Регистрация на событие» в вебинаре")
+async def register_event(slug: str, day: int, body: RegEventIn):
+    """Продающий блок `event_reg`: зритель (у него уже есть contact_id) жмёт кнопку →
+    СРАЗУ регистрируем его на выбранное блоком событие (reg_event_id). Дальше:
+      • есть реальная идентичность в боте клиента (числовой platform_user_id) →
+        бот шлёт «вы зарегистрированы» + меню; ответ {delivered:'bot', platform}.
+      • нет ни одной → страница «Выберите удобный мессенджер» с deeplink-кнопками
+        площадок клиента (evreg_<event_id>_ct<contact_id>) — бот при заходе доцепит
+        platform_users по РЕАЛЬНОМУ bot user_id и подтвердит; ответ {delivered:'choose'}.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        room = await _load_room(conn, slug, day)
+        rid, ev = room["id"], room["_event"]
+        client_id = ev["client_id"]
+
+        # блок и его reg_event_id
+        blk = await conn.fetchrow(
+            "SELECT reg_event_id FROM webinar_blocks WHERE id=$1 AND room_id=$2 AND kind='event_reg'",
+            body.block_id, rid)
+        if not blk or not blk["reg_event_id"]:
+            raise HTTPException(400, "Блок регистрации не настроен")
+        target_event_id = blk["reg_event_id"]
+
+        # контакт принадлежит клиенту события
+        chk = await conn.fetchval(
+            "SELECT id FROM contacts WHERE id=$1 AND client_id=$2 AND is_active=TRUE",
+            body.contact_id, client_id)
+        if not chk:
+            raise HTTPException(400, "Контакт не найден")
+        contact_id = body.contact_id
+
+        # целевое событие — название для сообщений
+        tgt = await conn.fetchrow(
+            "SELECT id, title, slug FROM events WHERE id=$1", target_event_id)
+        if not tgt:
+            raise HTTPException(404, "Событие не найдено")
+
+        # РЕГИСТРАЦИЯ сразу (контакты есть — форма не нужна)
+        await conn.execute(
+            "INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at) "
+            "VALUES ($1,$2,TRUE,NOW()) ON CONFLICT (event_id, contact_id) "
+            "DO UPDATE SET is_registered=TRUE, registered_at=COALESCE(event_participants.registered_at, NOW())",
+            target_event_id, contact_id)
+        from app.services.participant_registration import finalize_participant_registration
+        try:
+            await finalize_participant_registration(conn, event_id=target_event_id, contact_id=contact_id)
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"reg-event finalize failed: {e}")
+
+        # есть ли реальная (числовая) идентичность в боте клиента? Порядок TG→MAX→VK.
+        ident = await conn.fetchrow(
+            """SELECT pu.platform_slug, pu.platform_user_id
+                 FROM platform_users pu
+                WHERE pu.contact_id=$1 AND pu.client_id=$2
+                  AND pu.platform_slug IN ('telegram','max','vk')
+                  AND pu.platform_user_id ~ '^[0-9]+$'
+                ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'max' THEN 2 ELSE 3 END
+                LIMIT 1""",
+            contact_id, client_id)
+
+        # Сразу пушим в бот, если есть реальный TG-аккаунт (у нас polling-бот TG).
+        if ident and ident["platform_slug"] == "telegram":
+            try:
+                from app.services.channels import get_client_telegram_token
+                token = await get_client_telegram_token(client_id, conn)
+                if token:
+                    import httpx
+                    from app.services.message_builder import send_telegram_message
+                    from app.services.share_links import get_client_bot_handles
+                    handles = await get_client_bot_handles(conn, client_id)
+                    tg_handle = (handles.get("telegram") or "").lstrip('@')
+                    menu_url = f"https://t.me/{tg_handle}?start=menu{target_event_id}" if tg_handle else None
+                    txt = (f"✅ Вы зарегистрированы на «{tgt['title']}»!\n\n"
+                           "Мы сохранили ваше участие. Ниже — меню события: программа, "
+                           "подарки и ссылка на эфир.")
+                    btns = [{"text": "Открыть событие", "url": menu_url}] if menu_url else None
+                    async with httpx.AsyncClient(timeout=15) as _hc:
+                        await send_telegram_message(
+                            _hc, token, ident["platform_user_id"], txt,
+                            buttons=btns)
+                    return {"ok": True, "delivered": "bot", "platform": "telegram",
+                            "event_title": tgt["title"]}
+            except Exception as e:
+                import logging; logging.getLogger(__name__).warning(f"reg-event bot send failed: {e}")
+
+        # Нет реального TG (или отправка не удалась) — страница «Выберите мессенджер».
+        from app.services.share_links import get_client_bot_handles, build_support_command_links
+        handles = await get_client_bot_handles(conn, client_id)
+        tg = (handles.get("telegram") or "").lstrip('@')
+        vk = (handles.get("vk") or "").lstrip('@')
+        mx = (handles.get("max") or "").lstrip('@')
+        dl = f"evreg_{target_event_id}_ct{contact_id}"
+        platforms = []
+        if tg:
+            platforms.append({"platform": "telegram", "label": "Telegram",
+                              "url": f"https://t.me/{tg}?start={dl}"})
+        if mx:
+            platforms.append({"platform": "max", "label": "MAX",
+                              "url": f"https://max.ru/{mx}?start={dl}"})
+        if vk:
+            platforms.append({"platform": "vk", "label": "ВКонтакте",
+                              "url": f"https://vk.me/{vk}?ref={dl}"})
+        return {"ok": True, "delivered": "choose", "event_title": tgt["title"],
+                "platforms": platforms}
 
 
 # ─────────────────────────── WebSocket ───────────────────────────

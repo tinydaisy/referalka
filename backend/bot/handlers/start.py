@@ -964,6 +964,31 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("evlive deeplink handler failed: %s", e)
 
+    # Регистрация на событие из вебинара: `/start evreg_<event_id>_ct<contact_id>`.
+    # Кнопка «Регистрация на событие» в вебинаре для тех, кого ещё нет в боте.
+    # Привязываем реальную TG-идентичность к контакту + регистрируем + подтверждаем.
+    if args.startswith("evreg_"):
+        try:
+            from app.services import webinar_service as _ws
+            parsed = _ws.parse_evreg_payload(args)
+            if parsed:
+                _eid, _ct_hint = parsed
+                pool = await get_pool()
+                async with pool.acquire() as _c:
+                    # client_id владельца события
+                    _clid = await _c.fetchval(
+                        "SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=$1 "
+                        "AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1", _eid)
+                    if _clid:
+                        res = await _ws.register_event_from_deeplink(
+                            _c, client_id=_clid, event_id=_eid, contact_id_hint=_ct_hint,
+                            platform="telegram", platform_user_id=user.id,
+                            username=user.username, first_name=user.first_name)
+                        await send_event_menu(message, _eid, res["contact_id"], _c)
+                return
+        except Exception as e:
+            log.exception("evreg deeplink handler failed: %s", e)
+
     # Тех.поддержка: `/start evsupport_<event_id>` — то же сообщение, что кнопка
     # «🆘 Тех. поддержка» в меню события. Используется кнопкой «Тех.поддержка» в
     # рассылках (URL-кнопка-deeplink), чтобы вызвать команду support одним тапом.

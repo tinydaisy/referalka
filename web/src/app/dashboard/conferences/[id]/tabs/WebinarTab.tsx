@@ -542,7 +542,8 @@ function BlocksEditor({ eventId, day, event }: { eventId: number; day: DayItem; 
   }
 
   const KIND_LABEL: Record<string, string> = {
-    button: '🔘 Кнопка', form: '📝 Форма заявки', speaker_follow: '➕ Подписка на спикера', gift: '🎁 Подарок спикера',
+    button: '🔘 Кнопка', form: '📝 Форма заявки', event_reg: '📅 Регистрация на событие',
+    speaker_follow: '➕ Подписка на спикера', gift: '🎁 Подарок спикера',
   }
 
   return (
@@ -598,12 +599,20 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
     form_tag: block.form_tag || '',
     follow_mode: block.follow_mode || 'auto',
     speaker_id: block.speaker_id || null,
+    reg_event_id: block.reg_event_id || null,
     show_at_min: block.show_at_min ?? '',
     hide_at_min: block.hide_at_min ?? '',
   })
   const [saving, setSaving] = useState(false)
+  const [upcoming, setUpcoming] = useState<any[]>([])
+
+  useEffect(() => {
+    if (f.kind !== 'event_reg') return
+    api.webinar.upcomingEvents(eventId).then((r: any) => setUpcoming(r.events || [])).catch(() => {})
+  }, [f.kind, eventId])
 
   async function save() {
+    if (f.kind === 'event_reg' && !f.reg_event_id) { alert('Выберите событие для регистрации'); return }
     setSaving(true)
     try {
       const data = {
@@ -619,6 +628,11 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
 
   const isForm = f.kind === 'form'
   const isSpeaker = f.kind === 'speaker_follow' || f.kind === 'gift'
+  const isEventReg = f.kind === 'event_reg'
+  const fmtDate = (s?: string) => {
+    if (!s) return ''
+    try { return new Date(s).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', timeZone: 'Europe/Moscow' }) } catch { return '' }
+  }
 
   return (
     <Modal title={block.id ? 'Блок' : 'Новый блок'} onClose={onClose}>
@@ -628,6 +642,7 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
           <select className="input" value={f.kind} onChange={e => setF({ ...f, kind: e.target.value })}>
             <option value="button">Кнопка (название + ссылка)</option>
             <option value="form">Форма заявки</option>
+            <option value="event_reg">Регистрация на событие</option>
             <option value="speaker_follow">Подписка на спикера</option>
             <option value="gift">Подарок спикера</option>
           </select>
@@ -635,8 +650,30 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
 
         {!isSpeaker && (
           <div>
-            <label className="label">Заголовок</label>
-            <input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} />
+            <label className="label">{isEventReg ? 'Текст кнопки' : 'Заголовок'}</label>
+            <input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })}
+              placeholder={isEventReg ? 'напр. Зарегистрироваться на конференцию' : ''} />
+          </div>
+        )}
+
+        {isEventReg && (
+          <div className="space-y-2">
+            <div>
+              <label className="label">Событие для регистрации</label>
+              <select className="input" value={f.reg_event_id || ''} onChange={e => setF({ ...f, reg_event_id: Number(e.target.value) || null })}>
+                <option value="">— выберите предстоящее событие —</option>
+                {upcoming.map((ev: any) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.title}{ev.starts_at ? ` · ${fmtDate(ev.starts_at)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-gray-500">
+              Зритель жмёт → регистрируется на это событие сразу (его контакты уже есть).
+              Если он в ваших ботах — бот пришлёт подтверждение; если нет — увидит выбор
+              мессенджера (TG/MAX/VK), чтобы не потерять информацию.
+            </p>
           </div>
         )}
 
@@ -842,7 +879,7 @@ function BlocksLive({ eventId, day, onSettingsChanged }: { eventId: number; day:
     const r = await api.webinar.blocks(eventId, day.day_number)
     // Руками управляем только кнопками и формами. Спикерские блоки
     // (подписка, подарок) идут сами по таймингу слота программы.
-    setBlocks((r.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form'))
+    setBlocks((r.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form' || b.kind === 'event_reg'))
   }, [eventId, day.day_number, day.room])
 
   useEffect(() => { load() }, [load])
@@ -875,7 +912,7 @@ function BlocksLive({ eventId, day, onSettingsChanged }: { eventId: number; day:
   }
 
   const KIND: Record<string, string> = {
-    button: '🔘', form: '📝', speaker_follow: '➕', gift: '🎁',
+    button: '🔘', form: '📝', event_reg: '📅', speaker_follow: '➕', gift: '🎁',
   }
 
   return (

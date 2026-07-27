@@ -68,7 +68,7 @@ class RoomUpsert(BaseModel):
 
 
 class BlockIn(BaseModel):
-    kind: str                                  # button | form | speaker_follow | gift
+    kind: str                                  # button | form | speaker_follow | gift | event_reg
     title: Optional[str] = None
     url: Optional[str] = None
     body: Optional[str] = None
@@ -80,6 +80,7 @@ class BlockIn(BaseModel):
     hide_at_min: Optional[int] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+    reg_event_id: Optional[int] = None         # kind='event_reg': на какое событие регистрировать
 
 
 class PollIn(BaseModel):
@@ -124,6 +125,45 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
         }
         out.append(item)
     return {"level": level, "days": out}
+
+
+@router.get("/upcoming-events", summary="Предстоящие события клиента (для блока «Регистрация на событие»)")
+async def upcoming_events(event_id: int, client=Depends(get_current_client), db=Depends(get_db)):
+    """Список НЕ прошедших опубликованных событий владельца этого события —
+    для селектора в продающем блоке `event_reg`. Дата: конференция/турнир →
+    MAX(conf_days.day_date+close_time), иначе events.end_at/start_at. Прошедшие
+    (дата < сейчас МСК) отсекаются. Текущее событие вебинара тоже показываем
+    (можно регать на этот же ивент). Сортировка — по ближайшей дате."""
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    rows = await db.fetch(
+        """
+        WITH ev AS (
+          SELECT e.id, e.title, e.slug, e.module_slug, e.status, e.start_at, e.end_at,
+                 (SELECT MAX((cd.day_date::timestamp + COALESCE(NULLIF(cd.close_time,''),'23:59')::time))
+                    FROM conf_days cd WHERE cd.event_id = e.id) AS conf_end,
+                 (SELECT MIN((cd.day_date::timestamp + COALESCE(NULLIF(cd.open_time,''),'00:00')::time))
+                    FROM conf_days cd WHERE cd.event_id = e.id) AS conf_start
+            FROM events e
+            JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted' AND eo.client_id = $1
+           WHERE e.status IN ('published','ended')
+        )
+        SELECT id, title, slug, module_slug, status,
+               COALESCE(conf_start, start_at) AS starts_at,
+               COALESCE(conf_end, end_at, start_at) AS ends_at
+          FROM ev
+         WHERE COALESCE(conf_end, end_at, start_at) IS NULL
+            OR COALESCE(conf_end, end_at, start_at) >= (NOW() AT TIME ZONE 'Europe/Moscow')
+         ORDER BY COALESCE(conf_start, start_at) NULLS LAST, id
+        """,
+        cid,
+    )
+    return {"events": [
+        {"id": r["id"], "title": r["title"], "slug": r["slug"],
+         "module_slug": r["module_slug"],
+         "starts_at": r["starts_at"].isoformat() if r["starts_at"] else None}
+        for r in rows
+    ]}
 
 
 def _room_public(room: Optional[dict]) -> Optional[dict]:
@@ -269,11 +309,11 @@ async def create_block(event_id: int, day_number: int, data: BlockIn, client=Dep
     import json
     row = await db.fetchrow(
         "INSERT INTO webinar_blocks (room_id, kind, title, url, body, form_fields, form_tag, "
-        " follow_mode, speaker_id, show_at_min, hide_at_min, sort_order, is_active) "
-        "VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,COALESCE($12,0),COALESCE($13,TRUE)) RETURNING *",
+        " follow_mode, speaker_id, show_at_min, hide_at_min, sort_order, is_active, reg_event_id) "
+        "VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,COALESCE($12,0),COALESCE($13,TRUE),$14) RETURNING *",
         rid, data.kind, data.title, data.url, data.body,
         json.dumps(data.form_fields or []), data.form_tag, data.follow_mode, data.speaker_id,
-        data.show_at_min, data.hide_at_min, data.sort_order, data.is_active,
+        data.show_at_min, data.hide_at_min, data.sort_order, data.is_active, data.reg_event_id,
     )
     return {"block": dict(row)}
 

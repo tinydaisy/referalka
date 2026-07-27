@@ -1079,6 +1079,40 @@ async def _process_start(
                         logger.warning(f"MAX evlive deeplink failed (event={event_id}): {e}")
             return
 
+    # Регистрация на событие из вебинара: `/start evreg_<event_id>_ct<contact_id>`.
+    # Привязываем реальную MAX-идентичность к контакту + регистрируем + подтверждаем.
+    if payload and payload.startswith("evreg_"):
+        from app.services import webinar_service as _ws
+        parsed = _ws.parse_evreg_payload(payload)
+        if parsed:
+            _eid, _ct_hint = parsed
+            _rp = await get_pool()
+            if _rp:
+                async with _rp.acquire() as conn:
+                    _clid = await conn.fetchval(
+                        "SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=$1 "
+                        "AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1", _eid)
+                    if _clid:
+                        try:
+                            res = await _ws.register_event_from_deeplink(
+                                conn, client_id=_clid, event_id=_eid, contact_id_hint=_ct_hint,
+                                platform="max", platform_user_id=user_id,
+                                username=username, first_name=first_name)
+                            await max_send_message(
+                                chat_id,
+                                f"✅ Вы зарегистрированы на «{res['event_title']}»! "
+                                "Мы сохранили ваше участие.",
+                                token=bot_token)
+                            # Открываем меню события штатной веткой.
+                            if res.get("event_slug"):
+                                await _process_start(
+                                    user_id=user_id, chat_id=chat_id, sender=sender,
+                                    payload=f"ref_pg{res['event_slug']}", bot_token=bot_token,
+                                    client_id_override=_clid)
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning(f"MAX evreg deeplink failed (event={_eid}): {e}")
+            return
+
     # Тех.поддержка: `/start evsupport_<event_id>` — то же, что кнопка «Тех.поддержка»
     # в меню события. Кнопка «Тех.поддержка» в рассылках ведёт сюда deeplink-ом.
     if payload and payload.startswith("evsupport_"):
