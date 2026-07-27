@@ -370,29 +370,36 @@ async def _send_broadcast(schedule_id: int):
         # {support_platform} — единое имя плейсхолдера службы заботы по площадке
         # (как в воронках лид-магнитов). {support_link} — старое имя, принимаем его
         # тоже, чтобы не сломать уже настроенные шаблоны.
-        needs_support_link = ("{support_platform}" in (text or "")) or ("{support_link}" in (text or ""))
+        # Два РАЗНЫХ плейсхолдера (как в воронках лид-магнитов, единые функции):
+        #   {support_platform}/{support_link} — ОДИН контакт по площадке получателя;
+        #   {support_links}                   — ВСЯ куча контактов (ВК/ТГ/MAX) списком.
+        needs_support_one = ("{support_platform}" in (text or "")) or ("{support_link}" in (text or ""))
+        needs_support_all = "{support_links}" in (text or "")
+        needs_support_link = needs_support_one or needs_support_all
         support_by_platform: dict[str, str] = {}
+        support_all_block = ""
         if needs_support_link:
-            from app.services.support_message import support_url_for_platform
+            from app.services.support_message import support_url_for_platform, support_links_block
             sup_row = await conn.fetchrow(
                 "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id=$1",
                 schedule["client_id"]
             )
+            _wt = sup_row["work_tg_username"] if sup_row else None
+            _wv = sup_row["work_vk"] if sup_row else None
+            _wm = sup_row["work_max"] if sup_row else None
             for _p in ("telegram", "vk", "max", "email"):
-                support_by_platform[_p] = support_url_for_platform(
-                    _p,
-                    sup_row["work_tg_username"] if sup_row else None,
-                    sup_row["work_vk"] if sup_row else None,
-                    sup_row["work_max"] if sup_row else None,
-                ) if sup_row else ""
+                support_by_platform[_p] = support_url_for_platform(_p, _wt, _wv, _wm) if sup_row else ""
+            if needs_support_all:
+                support_all_block = support_links_block(_wt, _wv, _wm) if sup_row else ""
 
         def _with_support(txt: str | None, platform: str) -> str:
-            """Подставить {support_platform}/{support_link} контактом службы заботы
-            этой площадки (оба имени — синонимы, единый резолв по площадке)."""
+            """{support_platform}/{support_link} → ОДИН контакт по площадке;
+            {support_links} → ВСЯ куча списком. Единый резолв (support_message.py)."""
             if not txt or not needs_support_link:
                 return txt or ""
             val = support_by_platform.get(platform, "")
-            return txt.replace("{support_platform}", val).replace("{support_link}", val)
+            return (txt.replace("{support_links}", support_all_block)
+                       .replace("{support_platform}", val).replace("{support_link}", val))
 
         # ── Ссылки на воронку подарков-лид-магнитов ⟦GF:m|p:slug⟧ ──────────────
         # Подарок-лид-магнит/пакет ПЛЮСОНа в тексте помечен токеном ⟦GF:kind:slug⟧

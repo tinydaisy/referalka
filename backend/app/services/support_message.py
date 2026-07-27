@@ -116,6 +116,14 @@ def support_url_for_platform(platform: str, work_tg=None, work_vk=None, work_max
     return ""
 
 
+def support_links_block(work_tg=None, work_vk=None, work_max=None) -> str:
+    """Плейсхолдер {support_links} — ВСЕ каналы поддержки списком (ВК/ТГ/MAX),
+    по строке на каждый, БЕЗ интро. Единая функция для рассылок/воронок.
+    Пусто → ''. (В отличие от support_url_for_platform — тот даёт ОДИН по площадке.)"""
+    rows = _lines(work_tg, work_vk, work_max)
+    return "\n".join(f"{label}: {url}" for label, url in rows)
+
+
 def build_support_message_plain(work_tg=None, work_vk=None, work_max=None) -> str:
     """Plain-текст (VK / MAX — там разметка не нужна, ссылки кликабельны как есть).
     Пустая строка → возвращаем дефолт без каналов."""
