@@ -111,6 +111,19 @@
 **⚠️ Для выката на прод:** миграция 221 (`sudo -u postgres`, роль plusson не владелец) + установка MediaMTX ([media-server/README.md](media-server/README.md), бинарник + systemd + nginx `/hls/` + `ufw allow 1935` + `WEBINAR_BRIDGE_TOKEN`) + nginx WebSocket-upgrade на `/ws/` + `npm install` (hls.js) в web.
 
 
+### Продающий блок вебинара «Регистрация на событие» (миграция 236 от 2026-07-27, ПРОД)
+
+Новый тип продающего блока вебинарной комнаты `kind='event_reg'` (kind у `webinar_blocks` — свободный TEXT). Клиент в дашборде ([WebinarTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarTab.tsx) `BlockModal`) выбирает предстоящее событие из выпадающего списка + задаёт свой текст кнопки. `webinar_blocks.reg_event_id INT` (миграция 236, FK events ON DELETE SET NULL).
+
+**Клик зрителя** (у него уже есть `contact_id` — он смотрит вебинар) → `POST /public/webinar/{slug}/{day}/register-event {contact_id, block_id}` ([webinar_public.py](backend/app/api/webinar_public.py) `register_event`):
+1. **Сразу регистрирует** на `reg_event_id` (`event_participants.is_registered=TRUE` + `finalize_participant_registration`) — контакты есть, форма не нужна.
+2. Есть **реальная (числовая) TG-идентичность** в боте клиента → бот шлёт «✅ Вы зарегистрированы» + кнопка меню; ответ `{delivered:'bot'}`.
+3. Нет реального TG → ответ `{delivered:'choose', platforms:[...]}` — фронт ([webinar/[slug]/[day]/page.tsx](web/src/app/webinar/%5Bslug%5D/%5Bday%5D/page.tsx) `RegEventModal`) показывает «Выберите удобный мессенджер, чтобы не потерять информацию о конференции» с кнопками площадок клиента (TG/MAX/VK), deeplink `evreg_<event_id>_ct<contact_id>`.
+
+**⚠️ Привязка идентичности по РЕАЛЬНОМУ bot user_id.** Обработчик deeplink `evreg_` во ВСЕХ 3 ботах (TG [start.py](backend/bot/handlers/start.py), MAX `_process_start` [max_webhook.py](backend/app/api/max_webhook.py), VK `_vk_handle_evreg` [vk_main.py](backend/bot/vk_main.py) в `message_allow`/`message_new`). Единая точка — `register_event_from_deeplink` + `parse_evreg_payload` в [webinar_service.py](backend/app/services/webinar_service.py): `upsert_contact_with_identity(known_contact_id=<из ссылки>)` цепляет РЕАЛЬНУЮ идентичность (числовой id по факту захода в бот) к контакту из URL — **ник из формы уже неважен, решает bot user_id** (псевдо-запись `@ник` дорастает). Затем регистрация + подтверждение + меню.
+
+**Селектор событий** — `GET /events/{id}/webinar/upcoming-events` (объявлен ДО `/{day_number}` роутов — не перехватить): непрошедшие published/ended события владельца, дата конференции/турнира из `conf_days`, иначе `start_at`/`end_at`.
+
 ### Афиши ДНЯ события + приоритет фото в дневных рассылках (миграция 215 от 2026-07-13)
 
 У каждого дня программы (конференция/турнир) — своя афиша: **квадратная / горизонтальная / вертикальная**. Живут в той же `event_posters`, новая колонка **`event_posters.day INT NULL`**: `NULL` = общая афиша события (как было всегда), `N` = афиша дня N (`conf_days.day_number`).
