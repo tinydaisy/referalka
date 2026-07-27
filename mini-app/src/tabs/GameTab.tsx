@@ -277,7 +277,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
             </h3>
             {/* Всегда видно минимум 2 подарка (с учётом полученных). Остальные —
                 по кнопке «Развернуть», чтобы было понятно, что подарков больше. */}
-            {(showAllGifts ? locked : locked.slice(0, Math.max(1, 2 - got.length))).map(g => {
+            {(showAllGifts ? locked : locked.slice(0, 2)).map(g => {
               const need = g.points_cost - giftCountValue
               return (
                 <div key={g.id} style={{
@@ -306,7 +306,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               )
             })}
             {/* Кнопка «Развернуть / Свернуть» — если скрытых подарков больше */}
-            {locked.length > Math.max(1, 2 - got.length) && (
+            {locked.length > 2 && (
               <button onClick={() => setShowAllGifts(v => !v)} style={{
                 width: '100%', background: 'white', border: '1px solid #e3e8ee',
                 borderRadius: 12, padding: '12px', marginTop: 4, cursor: 'pointer',

@@ -720,7 +720,10 @@ export default function QueuePage() {
     //  - с прошедшим временем (ушли бы мгновенно / не подхватятся планировщиком).
     const noTime = drafts.filter(s => !s.fire_at_iso)
     const pastTime = drafts.filter(s => s.fire_at_iso && new Date(s.fire_at_iso) <= new Date())
-    const skipIds = new Set([...noTime, ...pastTime].map(s => s.id))
+    // Пустой обязательный плейсхолдер ({stream_url} без комнаты / {support} без контактов)
+    // — не ставим в очередь, пропускаем (как прошедшее время).
+    const emptyPh = drafts.filter(s => s.has_empty_placeholder)
+    const skipIds = new Set([...noTime, ...pastTime, ...emptyPh].map(s => s.id))
     const runnable = drafts.filter(s => !skipIds.has(s.id))
 
     if (runnable.length === 0) {
@@ -732,6 +735,7 @@ export default function QueuePage() {
     const skippedParts: string[] = []
     if (noTime.length > 0) skippedParts.push(`${noTime.length} без времени`)
     if (pastTime.length > 0) skippedParts.push(`${pastTime.length} с прошедшим временем`)
+    if (emptyPh.length > 0) skippedParts.push(`${emptyPh.length} с пустой ссылкой эфира/поддержки`)
     const skippedNote = skippedParts.length
       ? `\n\nБудет пропущено (запускать не будем): ${skippedParts.join(', ')} — задайте им время отдельно.`
       : ''
@@ -1089,6 +1093,14 @@ export default function QueuePage() {
                       <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
                         <AlertCircle size={12} className="shrink-0" />
                         <span>⏳ Время наступило — отправляется в ближайшую минуту.</span>
+                      </div>
+                    )}
+                    {/* Пустой обязательный плейсхолдер ({stream_url}/{support}) — рассылку
+                        нельзя ставить в очередь (запуск заблокирован ниже). */}
+                    {s.has_empty_placeholder && s.status !== 'done' && s.status !== 'running' && (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-300 rounded-lg px-2.5 py-1.5">
+                        <AlertCircle size={12} className="shrink-0" />
+                        <span>⚠️ {s.empty_placeholder_reason}</span>
                       </div>
                     )}
                     {/* Предупреждение если running слишком долго */}
