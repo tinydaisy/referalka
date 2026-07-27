@@ -751,12 +751,17 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         gallery_people = collabs
     out = _gallery_html(gallery_people)
 
-    # Кнопка «Смотреть эфир» — ссылка вебинарной комнаты актуального дня.
+    # Кнопка «Смотреть эфир» — как в Mini App: тёмно-синий градиент (НЕ красная;
+    # красный только у VIP/Чат по accent_button). Ссылка = вебинарная комната дня.
     # Скрывается галочкой hide_stream_button. Пустая ссылка (нет комнаты) → нет кнопки.
     stream_url = (event.get("_stream_url") or "").strip()
     if stream_url and not event.get("hide_stream_button"):
         out += (f'<a class="vip-btn" href="{esc(stream_url)}" '
-                f'target="_blank" rel="noopener" style="background:linear-gradient(45deg,#e11d48,#9f1239)">'
+                f'target="_blank" rel="noopener" '
+                f'style="background:linear-gradient(135deg,#25455D,#0a1520);display:flex;'
+                f'align-items:center;justify-content:center;gap:8px">'
+                f'<span style="background:#d32f2f;color:#fff;font-size:10px;font-weight:900;'
+                f'padding:3px 7px;border-radius:6px;letter-spacing:1px">LIVE</span>'
                 f'📺 Смотреть эфир</a>')
 
     # VIP-кнопка
