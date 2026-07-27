@@ -215,6 +215,12 @@ def _extract_event_live_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "evlive_")
 
 
+def _extract_event_support_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=evsupport_<event_id>` — кнопка «Тех.поддержка» из рассылки.
+    Даёт то же сообщение, что кнопка «Тех.поддержка» в меню события."""
+    return _extract_ref_with_prefix(message_or_event, "evsupport_")
+
+
 async def _event_belongs_to_client(db, event_id: int, client_id: int) -> bool:
     """Принадлежит ли событие этому клиенту (через event_owners). Защита от
     deeplink на чужое событие через бот другого клиента."""
@@ -691,6 +697,16 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK evlive (message_allow) failed: %s", e)
+
+    # Кнопка «Тех.поддержка» из рассылки: ref=evsupport_<event_id>.
+    evsupport_event_id = _extract_event_support_id(event)
+    if evsupport_event_id and await _event_belongs_to_client(db, evsupport_event_id, ctx.client_id):
+        try:
+            from bot.vk_event_menu import handle_vk_event_support
+            await handle_vk_event_support(evsupport_event_id, int(user_id), db, ctx)
+            return
+        except Exception as e:
+            logger.warning("VK evsupport (message_allow) failed: %s", e)
 
     # Если пришёл с реф-меткой лид-магнита (fnl_<run_id>) — запускаем воронку
     # и НЕ шлём дженерик welcome (приветствие будет от воронки).
@@ -1537,6 +1553,15 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK evlive (message_new) failed: %s", e)
+
+    evsupport_event_id = _extract_event_support_id(event_obj)
+    if evsupport_event_id and await _event_belongs_to_client(db, evsupport_event_id, ctx.client_id):
+        try:
+            from bot.vk_event_menu import handle_vk_event_support
+            await handle_vk_event_support(evsupport_event_id, int(from_id), db, ctx)
+            return
+        except Exception as e:
+            logger.warning("VK evsupport (message_new) failed: %s", e)
 
     # Триггер «ИВЕНТ<id>» — человек написал в личку слово вроде «ИВЕНТ24».
     # Шлём воронку события №24 (незарег → 2 кнопки, зарег → меню кабинета).

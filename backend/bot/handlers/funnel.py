@@ -329,13 +329,24 @@ async def handle_event_menu_back(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("evsupport_"))
 async def handle_event_support(callback: CallbackQuery):
-    """«🆘 Тех. поддержка» — единое сообщение с каналами связи клиента-владельца
-    события (ВК / Телеграм / MAX)."""
+    """«🆘 Тех. поддержка» — тонкая обёртка над `run_event_support`.
+
+    Та же логика доступна по внешней ссылке `?start=evsupport_<event_id>`
+    (ветка в handlers/start.py) — используется кнопкой «Тех.поддержка» в рассылках."""
     try:
         event_id = int((callback.data or "").removeprefix("evsupport_"))
     except ValueError:
         await callback.answer("Ошибка кнопки")
         return
+    if callback.message:
+        await run_event_support(callback.message, event_id)
+    await callback.answer()
+
+
+async def run_event_support(message: Message, event_id: int) -> None:
+    """Единое сообщение с каналами связи клиента-владельца события (ВК / ТГ / MAX).
+    Вызывается из callback-кнопки меню (`evsupport_<id>`) и из внешней ссылки
+    `?start=evsupport_<id>` (кнопка «Тех.поддержка» в рассылках)."""
     from app.services.support_message import build_support_message_html
     pool = await get_pool()
     async with pool.acquire() as db:
@@ -352,8 +363,7 @@ async def handle_event_support(callback: CallbackQuery):
     work_vk = row["work_vk"] if row else ""
     work_max = row["work_max"] if row else ""
     text = build_support_message_html(work_tg=work_tg, work_vk=work_vk, work_max=work_max)
-    await callback.message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
-    await callback.answer()
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 
 _RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",

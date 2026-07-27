@@ -964,6 +964,20 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("evlive deeplink handler failed: %s", e)
 
+    # Тех.поддержка: `/start evsupport_<event_id>` — то же сообщение, что кнопка
+    # «🆘 Тех. поддержка» в меню события. Используется кнопкой «Тех.поддержка» в
+    # рассылках (URL-кнопка-deeplink), чтобы вызвать команду support одним тапом.
+    if args.startswith("evsupport_"):
+        try:
+            event_id = int(args.removeprefix("evsupport_"))
+            from bot.handlers.funnel import run_event_support
+            await run_event_support(message, event_id)
+            return
+        except (ValueError, AttributeError):
+            pass
+        except Exception as e:
+            log.exception("evsupport deeplink handler failed: %s", e)
+
     if args.startswith("ref_pg"):
         try:
             if await _handle_ref_event_bot_flow(message, args):

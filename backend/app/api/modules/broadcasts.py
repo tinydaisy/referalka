@@ -972,6 +972,11 @@ async def list_schedules(
         "SELECT day_number FROM webinar_rooms WHERE event_id=$1", event_id)
     _days_with_room = {rr["day_number"] for rr in _rooms_rows}
     _any_room = bool(_days_with_room)
+    # {support_command} (кнопка «Тех.поддержка») работает только если у клиента
+    # есть свой бот хоть на одной площадке (deeplink строится по handle).
+    from app.services.share_links import get_client_bot_handles as _get_handles
+    _handles = await _get_handles(db, client_id)
+    _any_bot = any(_handles.get(_p) for _p in ("telegram", "vk", "max"))
 
     def _empty_placeholder_reason(text, btn, day):
         """Причина, почему рассылку нельзя ставить в очередь (пустой плейсхолдер), или None."""
@@ -979,6 +984,9 @@ async def list_schedules(
         # {support*} — нет ни одного контакта поддержки
         if ("{support_platform}" in blob or "{support_link}" in blob or "{support_links}" in blob) and not _has_support:
             return "Плейсхолдер службы поддержки пуст — не задан ни один контакт (Telegram/VK/MAX) в Настройках → Профиль"
+        # {support_command} — нет своего бота ни на одной площадке
+        if "{support_command}" in blob and not _any_bot:
+            return "Кнопка «Тех.поддержка» ({support_command}) не сработает — не подключён свой бот ни на одной площадке (раздел «Каналы»)"
         # {stream_url} — нет вебинарной комнаты у нужного дня
         if "{stream_url}" in blob:
             if day is not None:

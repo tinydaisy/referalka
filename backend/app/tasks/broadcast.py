@@ -379,8 +379,13 @@ async def _send_broadcast(schedule_id: int):
         needs_support_one = ("{support_platform}" in (text or "")) or ("{support_link}" in (text or ""))
         needs_support_all = "{support_links}" in (text or "")
         needs_support_link = needs_support_one or needs_support_all
+        # {support_command} — URL-плейсхолдер КНОПКИ «Тех.поддержка»: deeplink,
+        # клик по которому вызывает команду support в боте (сообщение со всеми
+        # каналами связи). Резолвится в deeplink ПО ПЛОЩАДКЕ получателя.
+        needs_support_cmd = ("{support_command}" in (text or "")) or ("{support_command}" in (button_url or ""))
         support_by_platform: dict[str, str] = {}
         support_all_block = ""
+        support_cmd_by_platform: dict[str, str] = {}
         if needs_support_link:
             from app.services.support_message import support_url_for_platform, support_links_block
             sup_row = await conn.fetchrow(
@@ -394,15 +399,27 @@ async def _send_broadcast(schedule_id: int):
                 support_by_platform[_p] = support_url_for_platform(_p, _wt, _wv, _wm) if sup_row else ""
             if needs_support_all:
                 support_all_block = support_links_block(_wt, _wv, _wm) if sup_row else ""
+        if needs_support_cmd and schedule.get("event_id"):
+            from app.services.share_links import get_client_bot_handles, build_support_command_links
+            _handles = await get_client_bot_handles(conn, schedule["client_id"])
+            _cmd = build_support_command_links(_handles, schedule["event_id"])
+            support_cmd_by_platform = {
+                "telegram": _cmd["telegram"], "vk": _cmd["vk"], "max": _cmd["max"], "email": _cmd["telegram"],
+            }
 
         def _with_support(txt: str | None, platform: str) -> str:
             """{support_platform}/{support_link} → ОДИН контакт по площадке;
-            {support_links} → ВСЯ куча списком. Единый резолв (support_message.py)."""
-            if not txt or not needs_support_link:
+            {support_links} → ВСЯ куча списком; {support_command} → deeplink-кнопка
+            вызова команды support. Единый резолв (support_message.py / share_links)."""
+            if not txt:
                 return txt or ""
-            val = support_by_platform.get(platform, "")
-            return (txt.replace("{support_links}", support_all_block)
-                       .replace("{support_platform}", val).replace("{support_link}", val))
+            if needs_support_link:
+                val = support_by_platform.get(platform, "")
+                txt = (txt.replace("{support_links}", support_all_block)
+                          .replace("{support_platform}", val).replace("{support_link}", val))
+            if needs_support_cmd:
+                txt = txt.replace("{support_command}", support_cmd_by_platform.get(platform, ""))
+            return txt
 
         # ── Ссылки на воронку подарков-лид-магнитов ⟦GF:m|p:slug⟧ ──────────────
         # Подарок-лид-магнит/пакет ПЛЮСОНа в тексте помечен токеном ⟦GF:kind:slug⟧
@@ -566,7 +583,7 @@ async def _send_broadcast(schedule_id: int):
         async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
                 msg_text = _with_gift_funnel(_with_support(text, "telegram"), "telegram")
-                msg_btn_url = _with_gift_funnel(button_url, "telegram")
+                msg_btn_url = _with_gift_funnel(_with_support(button_url, "telegram"), "telegram")
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 if needs_game_link:
@@ -704,7 +721,7 @@ async def _send_broadcast(schedule_id: int):
                                 http_extra, default_bot_token, cid,
                                 _with_gift_funnel(_with_support(text, "telegram"), "telegram"),
                                 photo_url, button_text,
-                                _with_gift_funnel(button_url, "telegram"),
+                                _with_gift_funnel(_with_support(button_url, "telegram"), "telegram"),
                                 buttons=buttons,
                                 video_url=video_url if media_type == "video" else None,
                                 on_message_id=lambda mid: _chat_mids.append(mid),
@@ -724,7 +741,7 @@ async def _send_broadcast(schedule_id: int):
             vk_sent = await _send_broadcast_vk_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "vk"), "vk"),
-                photo_url, button_text, _with_gift_funnel(button_url, "vk"),
+                photo_url, button_text, _with_gift_funnel(_with_support(button_url, "vk"), "vk"),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -741,7 +758,7 @@ async def _send_broadcast(schedule_id: int):
             max_sent = await _send_broadcast_max_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "max"), "max"),
-                photo_url, button_text, _with_gift_funnel(button_url, "max"),
+                photo_url, button_text, _with_gift_funnel(_with_support(button_url, "max"), "max"),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -757,7 +774,7 @@ async def _send_broadcast(schedule_id: int):
             email_sent = await _send_broadcast_email_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text_for_email, "email"), "email"),
-                photo_url, button_text, _with_gift_funnel(button_url, "email"),
+                photo_url, button_text, _with_gift_funnel(_with_support(button_url, "email"), "email"),
                 buttons=buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,

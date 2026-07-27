@@ -179,6 +179,25 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
     return result
 
 
+def build_support_command_links(handles: dict[str, str | None], event_id: int) -> dict[str, str]:
+    """Deeplink-ссылки «Тех.поддержка» по площадкам: клик → бот вызывает команду
+    support (сообщение со всеми каналами связи клиента-владельца события).
+    Формат — тот же deeplink-паттерн, что evlive_/evchat_:
+      • TG:  telegram.me/{handle}?start=evsupport_{event_id}
+      • VK:  vk.me/{handle}?ref=evsupport_{event_id}
+      • MAX: max.ru/{handle}?start=evsupport_{event_id}
+    Нет своего бота на площадке (handle=None) → пустая строка (ссылка не строится,
+    системный бот не используется — как и во всех share-ссылках проекта)."""
+    tg = (handles.get("telegram") or "").lstrip('@')
+    vk = (handles.get("vk") or "").lstrip('@')
+    mx = (handles.get("max") or "").lstrip('@')
+    return {
+        "telegram": f"https://telegram.me/{tg}?start=evsupport_{event_id}" if tg else "",
+        "vk": f"https://vk.me/{vk}?ref=evsupport_{event_id}" if vk else "",
+        "max": f"https://max.ru/{mx}?start=evsupport_{event_id}" if mx else "",
+    }
+
+
 async def get_client_vk_app_id(db, client_id: int) -> Optional[int]:
     """Возвращает VK App ID клиентского Mini App (из channels.platform_meta).
     Если клиент не подключил своё сообщество — None (фронт/бэк должны

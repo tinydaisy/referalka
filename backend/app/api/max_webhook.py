@@ -864,30 +864,37 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         except ValueError:
             logger.warning(f"MAX evsupport callback bad payload: {payload!r}")
             return
-        from app.services.support_message import build_support_message_plain
-        pool = await get_pool()
-        if not pool:
-            return
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """SELECT c.work_tg_username, c.work_vk, c.work_max
-                     FROM events e
-                     JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
-                     JOIN clients c ON c.id = eo.client_id
-                    WHERE e.id = $1 ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
-                event_id,
-            )
-        wtg = row["work_tg_username"] if row else ""
-        wvk = row["work_vk"] if row else ""
-        wmax = row["work_max"] if row else ""
-        await max_send_message(
-            chat_id,
-            build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
-            token=bot_token,
-        )
+        await _handle_max_support(chat_id, event_id, bot_token)
         return
 
     logger.info(f"MAX message_callback unknown payload={payload!r}")
+
+
+async def _handle_max_support(chat_id, event_id: int, bot_token: str | None) -> None:
+    """Сообщение «Тех.поддержка» — каналы связи клиента-владельца события.
+    Вызывается из callback `evsupport_<id>` и deeplink `/start evsupport_<id>`
+    (кнопка «Тех.поддержка» в рассылках)."""
+    from app.services.support_message import build_support_message_plain
+    pool = await get_pool()
+    if not pool:
+        return
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT c.work_tg_username, c.work_vk, c.work_max
+                 FROM events e
+                 JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
+                 JOIN clients c ON c.id = eo.client_id
+                WHERE e.id = $1 ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
+            event_id,
+        )
+    wtg = row["work_tg_username"] if row else ""
+    wvk = row["work_vk"] if row else ""
+    wmax = row["work_max"] if row else ""
+    await max_send_message(
+        chat_id,
+        build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
+        token=bot_token,
+    )
 
 
 _MERGE_USAGE_MAX = (
@@ -1070,6 +1077,20 @@ async def _process_start(
                         await _handle_max_live(chat_id, event_id, contact_id, bot_token, conn)
                     except Exception as e:  # noqa: BLE001
                         logger.warning(f"MAX evlive deeplink failed (event={event_id}): {e}")
+            return
+
+    # Тех.поддержка: `/start evsupport_<event_id>` — то же, что кнопка «Тех.поддержка»
+    # в меню события. Кнопка «Тех.поддержка» в рассылках ведёт сюда deeplink-ом.
+    if payload and payload.startswith("evsupport_"):
+        try:
+            event_id = int(payload.removeprefix("evsupport_"))
+        except ValueError:
+            event_id = None
+        if event_id:
+            try:
+                await _handle_max_support(chat_id, event_id, bot_token)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"MAX evsupport deeplink failed (event={event_id}): {e}")
             return
 
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>

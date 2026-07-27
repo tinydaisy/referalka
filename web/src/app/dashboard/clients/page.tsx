@@ -563,6 +563,11 @@ export default function ContactsPage() {
                   В ЧС
                 </span>
               )}
+              {(selected as any).was_in_webinar && (
+                <span className={`${(selected.is_unsubscribed || selected.is_blacklisted) ? 'ml-1' : 'ml-auto'} text-xs bg-green-600 text-white font-semibold px-2 py-1 rounded-full shrink-0`}>
+                  📺 Был в эфире
+                </span>
+              )}
               {!isAssistant && (
               <button
                 onClick={async () => {
@@ -978,6 +983,40 @@ export default function ContactsPage() {
                       </div>
                     )
                   })}
+                </div>
+                </div>
+              </details>
+            )}
+
+            {/* Вебинары — где контакт реально был в эфире (webinar_presence) */}
+            {(selected as any).webinar_history && (selected as any).webinar_history.length > 0 && (
+              <details className="mb-3 group rounded-xl border border-[#FFCFA4] bg-[#FFF6EE] overflow-hidden">
+                <summary className="flex items-center justify-between cursor-pointer list-none select-none px-4 py-3 hover:bg-[#FFEFE0]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#25455D]">
+                    Был в эфире
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[#FFCFA4] text-[#25455D] text-[11px] font-bold">{(selected as any).webinar_history.length}</span>
+                  </p>
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#FFCFA4] text-[#25455D] transition-transform group-open:rotate-180">
+                    <ChevronDown size={15} strokeWidth={2.5} />
+                  </span>
+                </summary>
+                <div className="px-4 pb-3 pt-1">
+                <div className="space-y-2">
+                  {(selected as any).webinar_history.map((w: any) => (
+                    <div key={w.room_id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          📺 {w.event_title || '—'} · День {w.day_number}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {w.day_date ? formatDate(w.day_date) : formatDate(w.last_seen_at)}
+                          <span className="ml-2">· ~{w.minutes} мин в эфире</span>
+                          {!w.registered && <span className="ml-2 text-amber-600">· без регистрации</span>}
+                        </p>
+                      </div>
+                      <span className="text-xs px-2 py-1 rounded-full font-medium bg-green-50 text-green-700 whitespace-nowrap">Был в эфире</span>
+                    </div>
+                  ))}
                 </div>
                 </div>
               </details>

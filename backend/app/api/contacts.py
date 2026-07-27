@@ -682,6 +682,7 @@ async def get_contact(
           c.consent_marketing_at,
           c.consent_marketing_ip,
           c.consent_marketing_policy_ver,
+          COALESCE(c.was_in_webinar, FALSE) AS was_in_webinar,
           (SELECT json_build_object('id', ref.id, 'name', ref.name)
              FROM contacts ref
             WHERE ref.id = c.first_referrer_contact_id LIMIT 1) AS referrer,
@@ -762,6 +763,29 @@ async def get_contact(
                 d["utm"] = {}
         lead_magnet_runs_list.append(d)
 
+    # История вебинаров: где контакт реально присутствовал в эфире
+    # (webinar_presence, heartbeat раз в минуту → кол-во bucket'ов ≈ минуты).
+    # Группируем по комнате дня (событие + день). registered — был ли в списке
+    # зарегистрированных (webinar_registrations), а присутствие — по presence.
+    webinar_history = await db.fetch("""
+        SELECT wr.id AS room_id, wr.day_number,
+               e.id AS event_id, e.title AS event_title, e.slug AS event_slug,
+               (SELECT day_date FROM conf_days cd
+                 WHERE cd.event_id = e.id AND cd.day_number = wr.day_number LIMIT 1) AS day_date,
+               COUNT(DISTINCT p.bucket_at) AS minutes,
+               MIN(p.bucket_at) AS first_seen_at,
+               MAX(p.bucket_at) AS last_seen_at,
+               EXISTS (SELECT 1 FROM webinar_registrations reg
+                        WHERE reg.room_id = wr.id AND reg.contact_id = $1) AS registered
+          FROM webinar_presence p
+          JOIN webinar_rooms wr ON wr.id = p.room_id
+          JOIN events e ON e.id = wr.event_id
+         WHERE p.contact_id = $1
+         GROUP BY wr.id, wr.day_number, e.id, e.title, e.slug
+         ORDER BY MAX(p.bucket_at) DESC
+         LIMIT 100
+    """, contact_id)
+
     # Если этот контакт — также коллаборатор, отдадим краткую инфу
     collaborator_row = await db.fetchrow(
         """SELECT id, name, title, photo_url
@@ -805,6 +829,7 @@ async def get_contact(
         "identities": identities_list,
         "events": [dict(e) for e in events],
         "lead_magnet_runs": lead_magnet_runs_list,
+        "webinar_history": [dict(w) for w in webinar_history],
         "collaborator": dict(collaborator_row) if collaborator_row else None,
     }
 
