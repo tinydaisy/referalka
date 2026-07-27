@@ -793,7 +793,13 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                         ORDER BY cd.day_number LIMIT 1""",
                     d["id"],
                 )
-        d["stream_url"] = await day_stream_url(db, d["id"], _day) if _day else ""
+        # Сквозной contact_id зрителя (по tg_id) — чтобы кнопка стрима в Mini App
+        # опознавала зрителя без формы (и рефовод/присутствие писались).
+        _viewer_cid = None
+        if tg_id:
+            from app.services.webinar_service import resolve_event_contact_id
+            _viewer_cid = await resolve_event_contact_id(db, d["id"], "telegram", tg_id)
+        d["stream_url"] = await day_stream_url(db, d["id"], _day, _viewer_cid) if _day else ""
 
     # Афиши события (горизонтальные используем как hero)
     posters = await db.fetch(

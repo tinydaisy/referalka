@@ -330,18 +330,23 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
         # ссылка); NULL → по всем вебинарам события. Даже если люди не в боте.
         if not ref_code:
             return 0.0
+        # Рефовод зрителя — из event_participants.referrer_ref_code (кто привёл на
+        # событие), НЕ из webinar_registrations. Считаем зрителей комнаты дня, чей
+        # реф-код участия = реф-код спикера.
         if webinar_day is not None:
             v = await db.fetchval(
                 "SELECT COUNT(*) FROM webinar_registrations reg "
                 "JOIN webinar_rooms wr ON wr.id = reg.room_id "
-                "WHERE wr.event_id = $1 AND wr.day_number = $3 AND reg.referrer_ref_code = $2",
+                "JOIN event_participants ep ON ep.event_id = wr.event_id AND ep.contact_id = reg.contact_id "
+                "WHERE wr.event_id = $1 AND wr.day_number = $3 AND ep.referrer_ref_code = $2",
                 event_id, ref_code, webinar_day,
             )
         else:
             v = await db.fetchval(
-                "SELECT COUNT(*) FROM webinar_registrations reg "
+                "SELECT COUNT(DISTINCT reg.contact_id) FROM webinar_registrations reg "
                 "JOIN webinar_rooms wr ON wr.id = reg.room_id "
-                "WHERE wr.event_id = $1 AND reg.referrer_ref_code = $2",
+                "JOIN event_participants ep ON ep.event_id = wr.event_id AND ep.contact_id = reg.contact_id "
+                "WHERE wr.event_id = $1 AND ep.referrer_ref_code = $2",
                 event_id, ref_code,
             )
         return float(v or 0)

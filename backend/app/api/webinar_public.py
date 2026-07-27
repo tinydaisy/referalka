@@ -41,17 +41,18 @@ async def _load_room(conn, slug: str, day: int) -> dict:
 
 async def _resolve_ref_placeholders(conn, room_id: int, contact_id: Optional[int], url: Optional[str]) -> Optional[str]:
     """Раскрывает {plsn_ref}/{ext_ref} в URL кнопки — реф-кодами РЕФОВОДА зрителя
-    на этом вебинаре (webinar_registrations.referrer_ref_code). Как в лид-магнитах.
-    Нет рефовода → плейсхолдеры пустеют."""
+    на ЭТОМ СОБЫТИИ (event_participants.referrer_ref_code, единый источник). Как в
+    лид-магнитах. Нет рефовода → плейсхолдеры пустеют."""
     if not url or ("{plsn_ref}" not in url and "{ext_ref}" not in url):
         return url
     plsn, ext = "", ""
     if contact_id:
         row = await conn.fetchrow(
             "SELECT rc.ref_code, rc.external_ref_param "
-            "FROM webinar_registrations reg "
-            "JOIN contacts rc ON (rc.ref_code = reg.referrer_ref_code OR rc.merged_ref_codes ? reg.referrer_ref_code) "
-            "WHERE reg.room_id=$1 AND reg.contact_id=$2 AND reg.referrer_ref_code IS NOT NULL LIMIT 1",
+            "FROM webinar_rooms wroom "
+            "JOIN event_participants ep ON ep.event_id = wroom.event_id AND ep.contact_id = $2 "
+            "JOIN contacts rc ON (rc.ref_code = ep.referrer_ref_code OR rc.merged_ref_codes ? ep.referrer_ref_code) "
+            "WHERE wroom.id=$1 AND ep.referrer_ref_code IS NOT NULL AND ep.referrer_ref_code <> '' LIMIT 1",
             room_id, contact_id)
         if row:
             plsn = row["ref_code"] or ""
@@ -77,30 +78,22 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
 
-        # Вход по куке (?c=): фиксируем рефовода зрителя, даже без формы register.
-        # Рефовод = pid из ссылки; если pid нет — тот, кто ПРИВЁЛ контакт в базу
-        # (contacts.first_referrer_contact_id → его ref_code). Как в реф-программе события.
+        # Вход по куке (?c=): фиксируем зрителя в комнате дня (связка room_id×contact).
+        # Рефовод НЕ хранится здесь — он в event_participants.referrer_ref_code (кто привёл
+        # зрителя на это событие). Если пришёл ?pid= и у участника ещё нет рефовода —
+        # проставим его в event_participants (единый источник реф-кода).
         if c:
             try:
-                _ref = (pid or "").strip() or None
-                if not _ref:
-                    # кто привёл ЗРИТЕЛЯ НА ЭТО СОБЫТИЕ (event_participants.referrer_ref_code)
-                    _ref = await conn.fetchval(
-                        "SELECT referrer_ref_code FROM event_participants "
+                await conn.execute(
+                    "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
+                    "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
+                _pid = (pid or "").strip() or None
+                if _pid:
+                    await conn.execute(
+                        "UPDATE event_participants SET referrer_ref_code = $3 "
                         "WHERE event_id = $1 AND contact_id = $2 "
-                        "  AND referrer_ref_code IS NOT NULL AND referrer_ref_code <> '' LIMIT 1",
-                        ev["id"], c)
-                if _ref:
-                    await conn.execute(
-                        "INSERT INTO webinar_registrations (room_id, contact_id, referrer_ref_code) "
-                        "VALUES ($1,$2,$3) ON CONFLICT (room_id, contact_id) "
-                        "DO UPDATE SET referrer_ref_code = COALESCE(webinar_registrations.referrer_ref_code, EXCLUDED.referrer_ref_code)",
-                        rid, c, _ref)
-                else:
-                    # рефовода нет — но факт присутствия зрителя фиксируем (без реф-кода)
-                    await conn.execute(
-                        "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
-                        "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
+                        "  AND (referrer_ref_code IS NULL OR referrer_ref_code = '')",
+                        ev["id"], c, _pid)
             except Exception:
                 pass
 
@@ -693,13 +686,18 @@ async def register(slug: str, day: int, body: RegisterIn):
             except Exception:
                 pass
 
-        # Реф-регистрация: фиксируем, по чьей ссылке пришёл (referrer_ref_code).
-        # Заслуга рефовода = человек зарегистрировался на вебинар (даже если не в боте).
+        # Зритель = участник события. Заводим/обновляем event_participants (там живёт
+        # реф-код рефовода). pid → referrer_ref_code участия, если ещё не задан.
         await conn.execute(
-            "INSERT INTO webinar_registrations (room_id, contact_id, referrer_ref_code) "
-            "VALUES ($1,$2,$3) ON CONFLICT (room_id, contact_id) "
-            "DO UPDATE SET referrer_ref_code = COALESCE(webinar_registrations.referrer_ref_code, EXCLUDED.referrer_ref_code)",
-            rid, contact_id, body.pid)
+            "INSERT INTO event_participants (event_id, contact_id, referrer_ref_code) "
+            "VALUES ($1,$2,$3) ON CONFLICT (event_id, contact_id) "
+            "DO UPDATE SET referrer_ref_code = COALESCE(NULLIF(event_participants.referrer_ref_code,''), EXCLUDED.referrer_ref_code)",
+            ev["id"], contact_id, (body.pid or None))
+        # Связка зритель × комната дня (без реф-кода — он в event_participants).
+        await conn.execute(
+            "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
+            "ON CONFLICT (room_id, contact_id) DO NOTHING",
+            rid, contact_id)
         await conn.execute("UPDATE contacts SET was_in_webinar=TRUE WHERE id=$1", contact_id)
         await ws.tag_contact(conn, client_id, contact_id, f"webinar:{ev['slug']}:{day}")
     return {"ok": True, "contact_id": contact_id}

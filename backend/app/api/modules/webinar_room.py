@@ -502,17 +502,18 @@ async def webinar_referrals(event_id: int, day_number: int, client=Depends(get_c
     rid = await _room_id(db, event_id, day_number)
     rows = await db.fetch(
         """
-        SELECT wr.referrer_ref_code,
+        SELECT ep.referrer_ref_code,
                c.name AS referrer_name,
                COUNT(*) AS brought,
                COUNT(*) FILTER (WHERE reg.contact_id IN (
                    SELECT DISTINCT contact_id FROM webinar_presence WHERE room_id=$1 AND contact_id IS NOT NULL
                )) AS attended
           FROM webinar_registrations reg
-          JOIN webinar_registrations wr ON wr.id = reg.id
-          LEFT JOIN contacts c ON c.ref_code = wr.referrer_ref_code
-         WHERE reg.room_id=$1 AND wr.referrer_ref_code IS NOT NULL
-         GROUP BY wr.referrer_ref_code, c.name
+          JOIN webinar_rooms wroom ON wroom.id = reg.room_id
+          JOIN event_participants ep ON ep.event_id = wroom.event_id AND ep.contact_id = reg.contact_id
+          LEFT JOIN contacts c ON c.ref_code = ep.referrer_ref_code
+         WHERE reg.room_id=$1 AND ep.referrer_ref_code IS NOT NULL AND ep.referrer_ref_code <> ''
+         GROUP BY ep.referrer_ref_code, c.name
          ORDER BY brought DESC
         """, rid,
     )
@@ -532,7 +533,7 @@ async def audience(event_id: int, day_number: int, client=Depends(get_current_cl
                   WHERE pu.contact_id=c.id AND pu.platform_slug='email' LIMIT 1) AS email,
                (SELECT pu.username FROM platform_users pu
                   WHERE pu.contact_id=c.id AND pu.platform_slug='telegram' LIMIT 1) AS tg_username,
-               reg.referrer_ref_code,
+               ep.referrer_ref_code,
                rc.name AS referrer_name,
                reg.created_at AS registered_at,
                -- Только присутствие ВО ВРЕМЯ ЭФИРА (session_id IS NOT NULL): иначе
@@ -544,8 +545,10 @@ async def audience(event_id: int, day_number: int, client=Depends(get_current_cl
                (SELECT COUNT(*) FROM webinar_activity a WHERE a.room_id=$1 AND a.contact_id=c.id AND a.kind='chat_msg') AS messages,
                (SELECT COUNT(*) FROM webinar_activity a WHERE a.room_id=$1 AND a.contact_id=c.id AND a.kind='reaction') AS reactions
           FROM webinar_registrations reg
+          JOIN webinar_rooms wroom ON wroom.id = reg.room_id
           JOIN contacts c ON c.id = reg.contact_id
-          LEFT JOIN contacts rc ON rc.ref_code = reg.referrer_ref_code
+          LEFT JOIN event_participants ep ON ep.event_id = wroom.event_id AND ep.contact_id = reg.contact_id
+          LEFT JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
          WHERE reg.room_id=$1
          ORDER BY last_seen DESC NULLS LAST, reg.created_at DESC
         """, rid,

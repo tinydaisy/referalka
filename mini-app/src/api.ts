@@ -169,8 +169,8 @@ export const getClientEvents = (
   return req(`/api/v1/public/clients/${clientId}/events${qs ? `?${qs}` : ''}`)
 }
 
-export const getEventLanding = (slug: string) =>
-  req(`/api/v1/public/events/${slug}/landing`)
+export const getEventLanding = (slug: string, tgId?: string | number | null) =>
+  req(`/api/v1/public/events/${slug}/landing${tgId ? `?tg_id=${tgId}` : ''}`)
 
 // Реф-ссылки события для всех активных платформ клиента (TG / VK / MAX).
 // Возвращает {links: {telegram?, vk?, max?}} — пользователь видит все доступные

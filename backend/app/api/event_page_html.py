@@ -36,7 +36,7 @@ RU_MONTHS = ["", "января", "февраля", "марта", "апреля",
 
 async def _resolve_event(db: asyncpg.Connection, ref: str):
     cols = ("id, slug, title, module_slug, status, description, "
-            "description_post_register, vip_url, vip_button_label, "
+            "description_post_register, vip_url, vip_button_label, hide_stream_button, "
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
             "landing_url, start_at, end_at, link_mode, is_collab, "
@@ -750,6 +750,14 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
     if not gallery_people:
         gallery_people = collabs
     out = _gallery_html(gallery_people)
+
+    # Кнопка «Смотреть эфир» — ссылка вебинарной комнаты актуального дня.
+    # Скрывается галочкой hide_stream_button. Пустая ссылка (нет комнаты) → нет кнопки.
+    stream_url = (event.get("_stream_url") or "").strip()
+    if stream_url and not event.get("hide_stream_button"):
+        out += (f'<a class="vip-btn" href="{esc(stream_url)}" '
+                f'target="_blank" rel="noopener" style="background:linear-gradient(45deg,#e11d48,#9f1239)">'
+                f'📺 Смотреть эфир</a>')
 
     # VIP-кнопка
     vip_url = (event.get("vip_url") or "").strip()
@@ -2226,6 +2234,15 @@ async def event_page(slug: str, c: str = "", email: str = "",
             chat_bot_links = await build_event_chat_bot_links(db, ev["client_id"], event_id)
         except Exception:
             chat_bot_links = {}
+
+    # Ссылка эфира = вебинарная комната АКТУАЛЬНОГО дня (+ contact_id зрителя).
+    # Кнопка «Смотреть эфир» на вкладке «Программа». Скрыта галочкой hide_stream_button.
+    try:
+        from app.services.webinar_service import current_event_day, day_stream_url
+        _sd = await current_event_day(db, event_id)
+        ev["_stream_url"] = await day_stream_url(db, event_id, _sd, contact_id) if _sd else ""
+    except Exception:
+        ev["_stream_url"] = ""
 
     html_str = render_page(
         ev, collabs, days, [dict(s) for s in stages], sessions, gifts,
