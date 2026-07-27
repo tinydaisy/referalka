@@ -849,7 +849,7 @@ function TemplateEditor() {
             ['{owner_telegram}', 'личный Telegram основателя — тот, что вы указали при регистрации (Настройки → Профиль). Это не служба заботы'],
             ['{support_platform}', 'служба заботы на той площадке, где человек в воронке: в Telegram — телеграм-контакт, в ВК — ВК, в MAX — MAX'],
             ['{support_links}', 'все каналы службы заботы (ВКонтакте, Telegram, MAX) — по строке на каждый'],
-          ].map(([ph, desc]) => (
+          ].sort((a, b) => a[0].localeCompare(b[0])).map(([ph, desc]) => (
             <div key={ph} className="flex flex-col sm:flex-row sm:gap-2">
               <code className="font-mono text-amber-900 whitespace-nowrap">{ph}</code>
               <span className="text-gray-600">— {desc}</span>

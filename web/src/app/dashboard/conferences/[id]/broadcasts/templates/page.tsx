@@ -1055,7 +1055,7 @@ export default function TemplatesPage() {
         </button>
         {varsOpen && (
           <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-            {ALL_VARIABLES.map(v => (
+            {[...ALL_VARIABLES].sort((a, b) => a.name.localeCompare(b.name)).map(v => (
               <div key={v.name} className="flex items-baseline gap-2">
                 <code className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded px-1.5 py-0.5 font-mono shrink-0">{v.name}</code>
                 <span className="text-xs text-gray-500">{v.desc}</span>
