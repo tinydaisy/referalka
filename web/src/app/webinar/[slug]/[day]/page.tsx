@@ -89,6 +89,7 @@ export default function WebinarRoomPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const chatBoxRef = useRef<HTMLDivElement | null>(null)
+  const roomRef = useRef<any>(null)  // всегда актуальный room — для сравнения в polling (без stale-замыкания)
 
   const api = useCallback((path: string, body?: any) =>
     fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${path}`, {
@@ -121,6 +122,7 @@ export default function WebinarRoomPage() {
   }, [slug, day, contactId, pid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { roomRef.current = room }, [room])  // держим ref в актуальном состоянии
 
   // история чата
   useEffect(() => {
@@ -261,17 +263,30 @@ export default function WebinarRoomPage() {
         const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}`, { cache: 'no-store' })
         if (!res.ok) return
         const d = await res.json()
-        const st = d.room?.status
+        const prev = roomRef.current  // актуальный room (не stale из замыкания)
+        if (!prev?.room) return
         // Редирект — ТОЛЬКО когда комната закрыта (не при паузе эфира).
         if (d.room?.room_state === 'closed') {
           if (d.room?.redirect_url) { window.location.href = d.room.redirect_url; return }
         }
-        // статус или состояние комнаты изменились — обновим страницу
-        if (st !== room.room.status || d.room?.room_state !== room.room.room_state) load()
+        // Что могло измениться на пульте ведущего — сравниваем и обновляем без F5:
+        //  • статус/состояние комнаты
+        //  • текущий спикер (его блоки подписки/подарков переключаются)
+        //  • набор видимых продающих блоков (кнопки/формы включают/выключают в эфире)
+        const curEc = (x: any) => x?.current_speaker?.ec_id ?? null
+        const giftKey = (x: any) => (x?.current_gift?.gifts || []).map((g: any) => g.url).join('|')
+        const blockKey = (x: any) => (x?.blocks || []).map((b: any) => b.id).join('|')
+        if (
+          d.room?.status !== prev.room.status ||
+          d.room?.room_state !== prev.room.room_state ||
+          curEc(d) !== curEc(prev) ||
+          giftKey(d) !== giftKey(prev) ||
+          blockKey(d) !== blockKey(prev)
+        ) load()
       } catch {}
     }, 12000)
     return () => clearInterval(t)
-  }, [room?.room?.id, room?.room?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [room?.room?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // автоскролл чата
   useEffect(() => { chatBoxRef.current?.scrollTo(0, chatBoxRef.current.scrollHeight) }, [chat])
