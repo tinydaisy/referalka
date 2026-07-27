@@ -393,16 +393,9 @@ async def handle_event_live(callback: CallbackQuery):
             await callback.answer("Событие не найдено")
             return
 
-        # ⚠️ contact_id — ТОЛЬКО в базе клиента-владельца события. Один tg_id живёт в
-        # базах разных клиентов разными контактами; без фильтра по client_id брался
-        # чужой contact_id (напр. 13327 из client 74 вместо 12379 из client 1).
-        contact_id = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE platform_slug = 'telegram' AND platform_user_id = $1
-                  AND client_id = $2
-                ORDER BY id DESC LIMIT 1""",
-            str(user_tg_id), ev["client_id"],
-        )
+        # contact_id — строго в базе клиента-владельца события (единый хелпер).
+        from app.services.webinar_service import resolve_event_contact_id
+        contact_id = await resolve_event_contact_id(db, ev["id"], "telegram", user_tg_id)
 
         now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
         live_when = ""   # «3 мая 12:00 МСК»

@@ -25,6 +25,20 @@ def make_stream_key(n: int = 16) -> str:
     return "".join(secrets.choice(_KEY_ALPHABET) for _ in range(n))
 
 
+async def resolve_event_contact_id(db, event_id: int, platform: str, platform_user_id) -> Optional[int]:
+    """contact_id пользователя В БАЗЕ КЛИЕНТА-ВЛАДЕЛЬЦА события. Один tg/vk/max-id
+    живёт у разных клиентов разными контактами — резолвим строго по клиенту события,
+    иначе берётся чужой contact_id. Единая точка для всех ботов/эндпоинтов."""
+    return await db.fetchval(
+        """SELECT pu.contact_id FROM platform_users pu
+            WHERE pu.platform_slug=$1 AND pu.platform_user_id=$2
+              AND pu.client_id = (SELECT eo.client_id FROM event_owners eo
+                                    WHERE eo.event_id=$3 AND eo.status='accepted'
+                                    ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+            ORDER BY pu.id DESC LIMIT 1""",
+        platform, str(platform_user_id), event_id)
+
+
 async def current_event_day(db, event_id: int) -> Optional[int]:
     """День эфира «сейчас»: сегодняшний по МСК (conf_days.day_date=today), иначе
     ближайший будущий, иначе первый день С вебинарной комнатой, иначе 1.

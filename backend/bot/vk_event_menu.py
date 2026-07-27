@@ -315,14 +315,9 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
         await vk_send_message(vk_user_id, "😕 Событие не найдено.", token=ctx.token)
         return
 
-    # contact_id — только в базе клиента-владельца события (один vk_id живёт у разных
-    # клиентов разными контактами).
-    contact_id = await db.fetchval(
-        """SELECT contact_id FROM platform_users
-            WHERE platform_slug = 'vk' AND platform_user_id = $1 AND client_id = $2
-            ORDER BY id DESC LIMIT 1""",
-        str(vk_user_id), ev["client_id"],
-    )
+    # contact_id — строго в базе клиента-владельца события (единый хелпер).
+    from app.services.webinar_service import resolve_event_contact_id
+    contact_id = await resolve_event_contact_id(db, ev["id"], "vk", vk_user_id)
 
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
     live_when = ""
