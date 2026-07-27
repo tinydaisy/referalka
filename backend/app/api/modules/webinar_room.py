@@ -550,7 +550,12 @@ async def audience(event_id: int, day_number: int, client=Depends(get_current_cl
           LEFT JOIN event_participants ep ON ep.event_id = wroom.event_id AND ep.contact_id = reg.contact_id
           LEFT JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
          WHERE reg.room_id=$1
-         ORDER BY last_seen DESC NULLS LAST, reg.created_at DESC
+         -- По дате ВХОДА в комнату (последние вошедшие сверху): первый заход в эфир,
+         -- иначе момент регистрации на вебинар (reg.created_at).
+         ORDER BY COALESCE(
+                    (SELECT MIN(p.bucket_at) FROM webinar_presence p
+                      WHERE p.room_id=$1 AND p.contact_id=c.id AND p.session_id IS NOT NULL),
+                    reg.created_at) DESC NULLS LAST
         """, rid,
     )
     return {"viewers": [dict(r) for r in rows]}

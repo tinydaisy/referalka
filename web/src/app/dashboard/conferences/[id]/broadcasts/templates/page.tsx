@@ -1062,8 +1062,7 @@ export default function TemplatesPage() {
           {varsOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
         </button>
         {varsOpen && (
-          {/* columns (а не grid) — алфавит идёт СВЕРХУ ВНИЗ по левому столбцу,
-              потом продолжается в правом. break-inside-avoid — строка не рвётся. */}
+          /* columns (не grid): алфавит сверху вниз по левому столбцу, потом правый */
           <div className="px-5 py-4 sm:columns-2 gap-x-6">
             {[...ALL_VARIABLES].sort((a, b) => a.name.localeCompare(b.name)).map(v => (
               <div key={v.name} className="flex items-baseline gap-2 mb-2 break-inside-avoid">
