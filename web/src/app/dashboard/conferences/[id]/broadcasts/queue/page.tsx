@@ -2074,6 +2074,7 @@ function CustomBroadcastModal(props: {
   const initFireAt = ed?.fire_at_iso ? utcIsoToTzLocalInput(ed.fire_at_iso) : nowTzLocalInput(10)
   const [fireAt, setFireAt] = useState(initFireAt)
   const [text, setText] = useState(ed?.snapshot_text || '')
+  const [subject, setSubject] = useState(ed?.snapshot_subject || '')   // тема (для email)
   const [photoUrl, setPhotoUrl] = useState(ed?.snapshot_photo || '')
   const [buttons, setButtons] = useState<{text: string; url: string}[]>(
     Array.isArray(ed?.snapshot_buttons) ? ed.snapshot_buttons.map((b: any) => ({ text: b.text || '', url: b.url || '' })) : []
@@ -2140,6 +2141,7 @@ function CustomBroadcastModal(props: {
         target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
         day: dayNum,
+        subject: subject || null,
         enqueue: false,
       }
       let schedId = ed?.id
@@ -2187,6 +2189,7 @@ function CustomBroadcastModal(props: {
         target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
         day: dayNum,
+        subject: subject || null,
         enqueue: enqueue,
         ...(props.isCollab && !ed?.id && reqConfirm ? { request_owner_confirm: true } : {}),
       }
@@ -2288,6 +2291,12 @@ function CustomBroadcastModal(props: {
                 </p>
               </>
             )}
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Тема письма <span className="text-gray-400">— для email (в Telegram/VK/MAX — жирная первая строка)</span></label>
+            <input value={subject} onChange={e => setSubject(e.target.value)}
+              placeholder="Тема — увидят в списке писем email-получатели"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>

@@ -156,10 +156,10 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 
         {/* Сторонний вебинар → только настройки (одна ссылка), что бы ни было выбрано. */}
         {active.room?.stream_type === 'external_link' ? (
-          <RoomSettings eventId={eventId} day={active} level={level} onSaved={load} />
+          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} />
         ) : (<>
         {subView === 'settings' && (
-          <RoomSettings eventId={eventId} day={active} level={level} onSaved={load} />
+          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} />
         )}
         {subView === 'blocks' && (
           <BlocksEditor eventId={eventId} day={active} event={event} />
@@ -201,7 +201,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 }
 
 // ─────────────────────────── настройки комнаты дня ───────────────────────────
-function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: DayItem; level: 'room' | 'link'; onSaved: () => void }) {
+function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void }) {
   const r = day.room
   const [f, setF] = useState<any>({
     title: r?.title || day.day_title || '',
@@ -338,6 +338,22 @@ function RoomSettings({ eventId, day, level, onSaved }: { eventId: number; day: 
           <p className="text-xs text-amber-600 mt-2">Своя комната (видеокодер) доступна на тарифе Экстра. На Профи — только ссылка.</p>
         )}
       </div>
+
+      {/* Ссылка на вебинарную комнату дня — для зрителей (над данными видеокодера). */}
+      {isEncoder && slug && (
+        <div className="rounded-xl border border-brand/30 bg-white p-4">
+          <div className="text-xs text-gray-500 mb-1">Ссылка на комнату дня (для зрителей)</div>
+          <div className="flex gap-2 items-center">
+            <input readOnly className="input flex-1 font-mono text-xs"
+              value={`https://pluson.ru/webinar/${slug}/${day.day_number}`} />
+            <button onClick={() => { navigator.clipboard.writeText(`https://pluson.ru/webinar/${slug}/${day.day_number}`); setCopied('roomlink'); setTimeout(() => setCopied(''), 1500) }}
+              className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50 shrink-0 flex items-center gap-1">
+              <Copy size={13} /> {copied === 'roomlink' ? '✓' : ''}
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1">К ссылке добавляйте <code>?pid=реф-код</code> для реферальных ссылок спикеров.</p>
+        </div>
+      )}
 
       {isEncoder ? (
         <div className="rounded-xl bg-gray-50 border p-4 space-y-3">

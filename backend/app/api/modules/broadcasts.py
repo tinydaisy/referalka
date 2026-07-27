@@ -1943,6 +1943,7 @@ class ButtonItem(BaseModel):
 class AddCustomRequest(BaseModel):
     fire_at: str
     text: str
+    subject: Optional[str] = None               # тема (email Subject + жирная первая строка TG/VK/MAX)
     photo_url: Optional[str] = None
     video_url: Optional[str] = None
     media_type: Optional[str] = None
@@ -2076,14 +2077,14 @@ async def add_custom_schedule(
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
            snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats,
-           send_to_private_chats, client_id, target_channel_ids, day)
-        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $17, $18)
+           send_to_private_chats, client_id, target_channel_ids, day, snapshot_subject)
+        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $17, $18, $19)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id,
-        speaker_ec_id, status_val, data.target_channel_ids, data.day
+        speaker_ec_id, status_val, data.target_channel_ids, data.day, (data.subject or None)
     )
     result = dict(row)
     # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).

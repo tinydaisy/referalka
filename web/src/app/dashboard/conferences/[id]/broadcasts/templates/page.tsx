@@ -614,10 +614,10 @@ export default function TemplatesPage() {
 
   function getStreamUrl(day?: number): string {
     const d = day ?? 1
-    const dayObj = confDaysData.find((x: any) => x.day_number === d)
-    // Без префикса 🔗 — он уже есть в самом тексте шаблона перед {stream_url},
-    // иначе в превью получаем «🔗 🔗 [ссылка на эфир]».
-    return dayObj?.stream_url || '[ссылка на эфир]'
+    // Ссылка эфира = вебинарная комната дня (как при реальной отправке). Общего
+    // conf_days.stream_url больше нет. slug из eventData.
+    const slug = eventData?.slug
+    return slug ? `https://pluson.ru/webinar/${slug}/${d}` : '[ссылка на эфир]'
   }
 
   function getGameLink(): string {
@@ -965,7 +965,9 @@ export default function TemplatesPage() {
       .replace(/\{day_title\}/g, realDayTitle)
       .replace(/\{day_datetime\}/g, realDayDatetime)
       .replace(/\{day_date\}/g, realDayDate)
+      .replace(/\{support_platform\}/g, supportLink)
       .replace(/\{support_link\}/g, supportLink)
+      .replace(/\{support_links\}/g, [me?.work_tg_username, me?.work_vk, me?.work_max].filter((x: any) => x && x.trim()).join('\n') || '[контакты поддержки]')
       // {day_program_with_links} — ДО {day_program} (это его подстрока).
       .replace(/\{day_program_with_links\}/g, dayProgram)
       .replace(/\{day_program\}/g, dayProgram)
@@ -1793,7 +1795,7 @@ export default function TemplatesPage() {
             {confDays.length > 1 && !['pre_conf', 'speaker_intro', 'expert_day', '5min_before', 'gift'].includes(previewModal.def.type) && (
               <div className="mb-3">
                 <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {confDays.map(d => {
                     const _dd = confDaysData.find((x: any) => x.day_number === d)
                     const _lbl = fmtTplDay(_dd?.day_date)
@@ -1893,6 +1895,15 @@ export default function TemplatesPage() {
                   </div>
                 )
               })()}
+              {/* Тема (subject) — как в письме/жирная первая строка. Плейсхолдеры резолвим. */}
+              {previewModal.tpl.subject && (
+                <p className="text-sm font-bold text-gray-900 mb-2"
+                  dangerouslySetInnerHTML={{ __html: renderPreviewText(
+                    previewModal.tpl.subject,
+                    previewModal.def.hasSpeaker ? previewSpeaker : null,
+                    previewModal.def.type, testDay, previewPlatform
+                  )}} />
+              )}
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: renderPreviewText(
                   previewModal.tpl.text,
