@@ -70,11 +70,24 @@ async def _is_banned(conn, room_id: int, contact_id: Optional[int], session_key:
 
 # ─────────────────────────── данные комнаты ───────────────────────────
 @router.get("/{slug}/{day}", summary="Данные комнаты дня для зрителя")
-async def room_view(slug: str, day: int, c: Optional[int] = Query(None)):
+async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
+                    pid: Optional[str] = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
+
+        # Вход по куке (?c=) с реф-ссылки (?pid=): фиксируем рефовода зрителя, даже
+        # если формы register не было (опознан заранее). Как в реф-программе события.
+        if c and pid:
+            try:
+                await conn.execute(
+                    "INSERT INTO webinar_registrations (room_id, contact_id, referrer_ref_code) "
+                    "VALUES ($1,$2,$3) ON CONFLICT (room_id, contact_id) "
+                    "DO UPDATE SET referrer_ref_code = COALESCE(webinar_registrations.referrer_ref_code, EXCLUDED.referrer_ref_code)",
+                    rid, c, pid)
+            except Exception:
+                pass
 
         # Блоки зрителю: показываем только те, что менеджер включил вручную (is_pinned),
         # либо те, у кого задан тайминг и текущая минута эфира в него попала.

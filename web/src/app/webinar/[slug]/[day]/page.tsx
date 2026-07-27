@@ -99,7 +99,10 @@ export default function WebinarRoomPage() {
   // загрузка комнаты
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${contactId ? `?c=${contactId}` : ''}`, { cache: 'no-store' })
+      const _qs = new URLSearchParams()
+      if (contactId) _qs.set('c', String(contactId))
+      if (pid) _qs.set('pid', String(pid))   // рефовод зрителя — зафиксировать при входе по ссылке
+      const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${_qs.toString() ? `?${_qs}` : ''}`, { cache: 'no-store' })
       if (!res.ok) { setError('Комната не найдена'); return }
       const d = await res.json()
       setRoom(d)
@@ -114,7 +117,7 @@ export default function WebinarRoomPage() {
       setPoll(d.poll || null)
       setBattle(d.battle || null)
     } catch { setError('Ошибка загрузки') }
-  }, [slug, day])
+  }, [slug, day, contactId, pid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 

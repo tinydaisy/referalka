@@ -904,6 +904,9 @@ async def list_schedules(
                bt.name as template_name, bt.type as template_type,
                bt.schedule_mode,
                cs.title as session_title,
+               -- Тема выступления (live из conf_speaker_topics по topic_id слота,
+               -- fallback title слота) — чтобы раскрыть {speaker_topic} в заголовке списка.
+               COALESCE(NULLIF(cst.topic,''), cs.title) AS speaker_topic_resolved,
                cs.start_time, cs.end_time,
                CASE
                  WHEN bs.type IN ('speaker_intro', 'expert_day') THEN ci.name
@@ -930,6 +933,7 @@ async def list_schedules(
         -- speaker_intro/expert_day: session_id = event_collaborators.id (спикер),
         -- у остальных session_id = conf_sessions.id (сессия программы).
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type NOT IN ('speaker_intro', 'expert_day')
+        LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
         LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
         LEFT JOIN collaborators c ON c.id = cse.speaker_id
         LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type IN ('speaker_intro', 'expert_day')
@@ -954,6 +958,15 @@ async def list_schedules(
     import json as _json_list
     for r in rows:
         d = dict(r)
+        # Раскрываем {speaker_topic}/{speaker_name} в ЗАГОЛОВКЕ карточки очереди —
+        # чтобы в слепке была тема, а не сырой плейсхолдер (в превью/отправке уже норм).
+        if d.get("eff_subject"):
+            _subj = d["eff_subject"]
+            if "{speaker_topic}" in _subj:
+                _subj = _subj.replace("{speaker_topic}", (d.get("speaker_topic_resolved") or "").strip() or "тема уточняется")
+            if "{speaker_name}" in _subj:
+                _subj = _subj.replace("{speaker_name}", (d.get("speaker_name") or "").strip())
+            d["eff_subject"] = _subj
         # snapshot_buttons приходит из jsonb строкой — парсим в список, чтобы
         # форма правки видела кнопки (Array.isArray на фронте).
         sb = d.get("snapshot_buttons")
