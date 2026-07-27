@@ -835,7 +835,10 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         dn = day.get("day_number")
         dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
         ddate = esc(_fmt_date_eu(day.get("day_date")))
-        day_sessions = [s for s in sessions if s.get("day") == dn]
+        # Сортировка слотов ПО ВРЕМЕНИ начала (слоты без времени — в конец).
+        day_sessions = sorted(
+            [s for s in sessions if s.get("day") == dn],
+            key=lambda s: ((s.get("start_time") or "").strip() or "99:99", s.get("sort_order") or 0))
         rows = ""
         for s in day_sessions:
             tm = _fmt_time_range(s.get("start_time"), s.get("end_time"))

@@ -77,15 +77,30 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
 
-        # Вход по куке (?c=) с реф-ссылки (?pid=): фиксируем рефовода зрителя, даже
-        # если формы register не было (опознан заранее). Как в реф-программе события.
-        if c and pid:
+        # Вход по куке (?c=): фиксируем рефовода зрителя, даже без формы register.
+        # Рефовод = pid из ссылки; если pid нет — тот, кто ПРИВЁЛ контакт в базу
+        # (contacts.first_referrer_contact_id → его ref_code). Как в реф-программе события.
+        if c:
             try:
-                await conn.execute(
-                    "INSERT INTO webinar_registrations (room_id, contact_id, referrer_ref_code) "
-                    "VALUES ($1,$2,$3) ON CONFLICT (room_id, contact_id) "
-                    "DO UPDATE SET referrer_ref_code = COALESCE(webinar_registrations.referrer_ref_code, EXCLUDED.referrer_ref_code)",
-                    rid, c, pid)
+                _ref = (pid or "").strip() or None
+                if not _ref:
+                    # кто привёл ЗРИТЕЛЯ НА ЭТО СОБЫТИЕ (event_participants.referrer_ref_code)
+                    _ref = await conn.fetchval(
+                        "SELECT referrer_ref_code FROM event_participants "
+                        "WHERE event_id = $1 AND contact_id = $2 "
+                        "  AND referrer_ref_code IS NOT NULL AND referrer_ref_code <> '' LIMIT 1",
+                        ev["id"], c)
+                if _ref:
+                    await conn.execute(
+                        "INSERT INTO webinar_registrations (room_id, contact_id, referrer_ref_code) "
+                        "VALUES ($1,$2,$3) ON CONFLICT (room_id, contact_id) "
+                        "DO UPDATE SET referrer_ref_code = COALESCE(webinar_registrations.referrer_ref_code, EXCLUDED.referrer_ref_code)",
+                        rid, c, _ref)
+                else:
+                    # рефовода нет — но факт присутствия зрителя фиксируем (без реф-кода)
+                    await conn.execute(
+                        "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
+                        "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
             except Exception:
                 pass
 
