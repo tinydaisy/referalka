@@ -86,6 +86,8 @@ export default function WebinarRoomPage() {
   const [battle, setBattle] = useState<any>(null)
   const [needReg, setNeedReg] = useState(false)
   const [regEventRes, setRegEventRes] = useState<any>(null)  // результат кнопки «Регистрация на событие»
+  const [playerStuck, setPlayerStuck] = useState(false)      // плеер завис/чёрный экран → показать кнопку «Обновить видео»
+  const hlsInstRef = useRef<any>(null)                       // текущий hls.js — для ручного перезапуска кнопкой
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const chatBoxRef = useRef<HTMLDivElement | null>(null)
@@ -129,6 +131,21 @@ export default function WebinarRoomPage() {
     api('/chat').then(r => setChat(r.messages || [])).catch(() => {})
   }, [api])
 
+  // Фоллбэк-поллинг чата раз в 4 сек. Даже если WebSocket совсем не работает
+  // (Cloudflare/сеть зрителя) — новые сообщения всё равно появятся. Дедуп по id
+  // не даёт дублей с WS. Не льём, пока вкладка скрыта.
+  useEffect(() => {
+    if (!room?.room) return
+    const t = setInterval(async () => {
+      if (document.hidden) return
+      try {
+        const r = await api('/chat')
+        for (const m of (r.messages || [])) pushChatMsg(m)
+      } catch {}
+    }, 4000)
+    return () => clearInterval(t)
+  }, [room?.room?.id, api, pushChatMsg])
+
   // HLS-плеер
   useEffect(() => {
     if (!room?.room) return
@@ -154,51 +171,100 @@ export default function WebinarRoomPage() {
       }, 3000)
     }
 
+    let netErrCount = 0
     import('hls.js').then(({ default: Hls }) => {
       if (destroyed) return
       if (Hls.isSupported()) {
-        hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
-        hls.loadSource(rm.hls_url)
-        hls.attachMedia(video)
-        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}))
-        hls.on(Hls.Events.ERROR, (_e: any, data: any) => {
-          if (!data?.fatal) return
-          if (data.type === 'networkError') { try { hls.startLoad() } catch {} }
-          else if (data.type === 'mediaError') { try { hls.recoverMediaError() } catch {} }
-          else {
-            try { hls.destroy() } catch {}
-            retryTimer = setTimeout(() => {
-              if (destroyed) return
-              hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
-              hls.loadSource(rm.hls_url); hls.attachMedia(video)
-            }, 3000)
-          }
-        })
+        const mk = () => {
+          const h = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
+          hlsInstRef.current = h
+          h.loadSource(rm.hls_url); h.attachMedia(video)
+          h.on(Hls.Events.MANIFEST_PARSED, () => video.play().then(() => setPlayerStuck(false)).catch(() => setPlayerStuck(true)))
+          h.on(Hls.Events.FRAG_BUFFERED, () => { netErrCount = 0; setPlayerStuck(false) })
+          h.on(Hls.Events.ERROR, (_e: any, data: any) => {
+            if (!data?.fatal) return
+            if (data.type === 'networkError') {
+              netErrCount++
+              try { h.startLoad() } catch {}
+              // поток не поднимается несколько раз подряд → показать кнопку «Обновить видео»
+              if (netErrCount >= 3) setPlayerStuck(true)
+            } else if (data.type === 'mediaError') {
+              try { h.recoverMediaError() } catch { setPlayerStuck(true) }
+            } else {
+              try { h.destroy() } catch {}
+              setPlayerStuck(true)
+              retryTimer = setTimeout(() => { if (!destroyed) mk() }, 3000)
+            }
+          })
+        }
+        hls = { destroy: () => { try { hlsInstRef.current?.destroy() } catch {} } } as any
+        mk()
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // iOS Safari — нативный HLS
         video.addEventListener('error', nativeError)
-        video.src = rm.hls_url; video.load(); video.play().catch(() => {})
+        video.addEventListener('playing', () => setPlayerStuck(false))
+        video.src = rm.hls_url; video.load(); video.play().catch(() => setPlayerStuck(true))
       }
     })
     return () => {
       destroyed = true
       clearTimeout(retryTimer)
       video.removeEventListener('error', nativeError)
+      hlsInstRef.current = null
       if (hls) { try { hls.destroy() } catch {} }
     }
   }, [room?.room?.hls_url, room?.room?.stream_type])
 
-  // WebSocket realtime
+  // Ручной перезапуск плеера (кнопка «Обновить видео»): пере-инициализируем hls.js
+  // или перезагружаем нативный src. Это то, что раньше делал только F5.
+  const reloadPlayer = useCallback(() => {
+    const rm = roomRef.current?.room
+    const video = videoRef.current
+    if (!rm?.hls_url || !video) return
+    setPlayerStuck(false)
+    const inst = hlsInstRef.current
+    if (inst) {
+      try { inst.stopLoad(); inst.startLoad(); } catch {}
+      video.play().catch(() => {})
+    } else {
+      // нативный (iOS) — просто перезагружаем источник
+      video.src = rm.hls_url; video.load(); video.play().catch(() => {})
+    }
+  }, [])
+
+  // WebSocket realtime — с АВТО-ПЕРЕПОДКЛЮЧЕНИЕМ. Cloudflare рвёт неактивные WS,
+  // на слабой сети зрителя соединение отваливается молча → чат «замирал». Теперь
+  // при обрыве переподключаемся (с backoff) и дотягиваем пропущенный чат.
   useEffect(() => {
     if (!room?.room) return
-    const ws = new WebSocket(`${WS_URL}/ws/webinar/${slug}/${day}`)
-    wsRef.current = ws
-    ws.onmessage = (ev) => {
+    let closed = false
+    let ws: WebSocket | null = null
+    let ping: any = null
+    let reconnectTimer: any = null
+    let attempt = 0
+
+    const connect = () => {
+      if (closed) return
+      ws = new WebSocket(`${WS_URL}/ws/webinar/${slug}/${day}`)
+      wsRef.current = ws
+      ws.onopen = () => {
+        attempt = 0
+        // после (пере)подключения дотягиваем историю чата — на случай пропущенных
+        api('/chat').then(r => { for (const m of (r.messages || [])) pushChatMsg(m) }).catch(() => {})
+      }
+      ws.onclose = () => {
+        if (closed) return
+        // экспоненциальный backoff: 1с, 2с, 4с … максимум 10с
+        const delay = Math.min(10000, 1000 * Math.pow(2, attempt++))
+        reconnectTimer = setTimeout(connect, delay)
+      }
+      ws.onerror = () => { try { ws?.close() } catch {} }
+      ws.onmessage = (ev) => {
       let msg: any
       try { msg = JSON.parse(ev.data) } catch { return }
       switch (msg.type) {
         case 'chat':
-          setChat(c => [...c, msg]); break
+          pushChatMsg(msg); break
         case 'chat_moderate':
           if (msg.status === 'hidden') setChat(c => c.filter(m => m.id !== msg.msg_id)); break
         case 'reaction':
@@ -231,10 +297,18 @@ export default function WebinarRoomPage() {
           }
           break
       }
+      }
     }
-    // keepalive пинг
-    const ping = setInterval(() => { try { ws.send('ping') } catch {} }, 25000)
-    return () => { clearInterval(ping); ws.close() }
+
+    connect()
+    // keepalive пинг (шлём только по открытому сокету)
+    ping = setInterval(() => { try { if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping') } catch {} }, 25000)
+    return () => {
+      closed = true
+      clearInterval(ping)
+      clearTimeout(reconnectTimer)
+      try { ws?.close() } catch {}
+    }
   }, [room?.room?.id, slug, day]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // heartbeat присутствия раз в минуту (только когда вкладка активна).
@@ -352,9 +426,34 @@ export default function WebinarRoomPage() {
     const text = chatText.trim()
     if (!text) return
     setChatText('')
-    // author_name — имя из формы авторизации; бэк также подставит по contact_id, если пусто
-    await api('/chat', { contact_id: contactId, session_key: sessionKey, text, author_name: authName || undefined })
+    // Оптимистично показываем СВОЁ сообщение сразу — не ждём, пока оно вернётся по
+    // WebSocket (WS может подвиснуть / оборваться через Cloudflare). Помечаем _local
+    // + _tmpId; когда придёт настоящее (по WS или поллингом) — дедуп его схлопнет.
+    const tmpId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const mine = { _tmpId: tmpId, _local: true, text, author_name: authName || 'Вы', contact_id: contactId, at: new Date().toISOString() }
+    setChat(c => [...c, mine])
+    try {
+      // author_name — имя из формы авторизации; бэк также подставит по contact_id, если пусто
+      const r = await api('/chat', { contact_id: contactId, session_key: sessionKey, text, author_name: authName || undefined })
+      // если бэк вернул id — проставим его локальному сообщению (дедуп по id ниже уберёт дубль из WS)
+      if (r?.id) setChat(c => c.map(m => m._tmpId === tmpId ? { ...m, id: r.id, _local: false } : m))
+    } catch {
+      // не удалось отправить — помечаем ошибкой, не удаляем (человек видит, что не ушло)
+      setChat(c => c.map(m => m._tmpId === tmpId ? { ...m, _failed: true } : m))
+    }
   }
+
+  // Добавить сообщение в ленту с дедупом: если такое id уже есть (пришло и локально,
+  // и по WS/поллингом) — не дублируем; локальное с тем же id обновляем.
+  const pushChatMsg = useCallback((msg: any) => {
+    setChat(c => {
+      if (msg.id != null && c.some(m => m.id === msg.id)) return c
+      // схлопываем локальную копию (совпадение по тексту+автору), если её id ещё не проставлен
+      const idx = c.findIndex(m => m._local && !m.id && m.text === msg.text && (m.contact_id ?? null) === (msg.contact_id ?? null))
+      if (idx >= 0) { const n = [...c]; n[idx] = { ...msg }; return n }
+      return [...c, msg]
+    })
+  }, [])
   async function react(speakerId: number, r: 'up' | 'down') {
     await api('/react', { contact_id: contactId, session_key: sessionKey, speaker_id: speakerId, reaction: r })
   }
@@ -431,6 +530,26 @@ export default function WebinarRoomPage() {
               webkit-playsinline="true"
               className="w-full h-full" />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
+            {/* Кнопка перезапуска — всегда доступна в эфире (правый верх), на случай
+                «тихого» чёрного экрана без fatal-ошибки (заблокированный autoplay). */}
+            {live && !playerStuck && (
+              <button onClick={reloadPlayer} title="Обновить видео"
+                className="absolute top-3 right-3 bg-black/50 hover:bg-black/70 text-white/90 text-xs px-2.5 py-1 rounded-lg">
+                ↻ Видео
+              </button>
+            )}
+            {/* Плеер завис/чёрный экран → кнопка «Обновить видео» (без F5). */}
+            {live && playerStuck && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 text-center px-6">
+                <span className="text-white/80 text-sm">Видео не загрузилось или зависло?</span>
+                <button onClick={reloadPlayer}
+                  className="px-5 py-2.5 rounded-xl font-semibold text-sm"
+                  style={{ background: '#FFCFA4', color: '#0a1520' }}>
+                  ↻ Обновить видео
+                </button>
+                <span className="text-white/40 text-xs">Если не помогло — обновите страницу</span>
+              </div>
+            )}
           </div>
 
           {/* Продающие блоки (не спикерские) — НАД спикером, отделены чертой.
@@ -572,34 +691,40 @@ export default function WebinarRoomPage() {
 
         </div>
 
-        {/* чат */}
-        <div className="rounded-xl bg-white/5 flex flex-col h-[70vh] md:h-auto">
-          <div className="p-3 border-b border-white/10 font-semibold text-sm">Чат</div>
-          <div ref={chatBoxRef} className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
+        {/* чат — ФИКСИРОВАННАЯ высота: лента скроллится ВНУТРИ, поле ввода залипает
+            внизу и всегда в экране (и на мобиле, и на десктопе). На десктопе колонка
+            sticky, чтобы при длинной странице ввод не уезжал. min-h-0 обязателен —
+            иначе flex-ребёнок не даёт ленте скроллиться и распирает контейнер. */}
+        <div className="rounded-xl bg-white/5 flex flex-col overflow-hidden h-[70vh] md:h-[calc(100vh-2.5rem)] md:sticky md:top-4">
+          <div className="p-3 border-b border-white/10 font-semibold text-sm shrink-0">Чат</div>
+          <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm">
             {chat.map((m, i) => (
-              <div key={m.id || i}>
+              <div key={m.id ?? m._tmpId ?? i} className={m._failed ? 'opacity-50' : ''}>
                 <span className="text-white/50 mr-1">{m.author_name || 'Гость'}:</span>
-                <span>{m.text}</span>
+                <span className="break-words">{m.text}</span>
+                {m._failed && <span className="text-red-400 text-xs ml-1">· не отправлено</span>}
               </div>
             ))}
             {!chat.length && <div className="text-white/40 text-center py-8">Сообщений пока нет</div>}
           </div>
           {rm.chat_enabled ? (
-            <div className="p-3 border-t border-white/10 flex gap-2">
+            <div className="p-3 border-t border-white/10 flex gap-2 shrink-0">
               <input
                 value={chatText} onChange={e => setChatText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && sendChat()}
                 placeholder="Написать…"
-                className="flex-1 bg-white/10 rounded-lg px-3 py-2 text-sm outline-none"
+                className="flex-1 min-w-0 bg-white/10 rounded-lg px-3 py-2 text-sm outline-none"
               />
-              <button onClick={sendChat} className="px-3 rounded-lg text-sm font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</button>
+              <button onClick={sendChat} aria-label="Отправить"
+                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-lg text-base font-semibold"
+                style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</button>
             </div>
           ) : (
-            <div className="p-3 border-t border-white/10 text-xs text-white/40 text-center">Чат отключён</div>
+            <div className="p-3 border-t border-white/10 text-xs text-white/40 text-center shrink-0">Чат отключён</div>
           )}
           {/* счётчик зрителей — внизу чата, а не на видео */}
           {online != null && (
-            <div className="px-3 py-2 border-t border-white/10 text-xs text-white/50 flex items-center gap-1.5">
+            <div className="px-3 py-2 border-t border-white/10 text-xs text-white/50 flex items-center gap-1.5 shrink-0">
               <span>👁</span> Сейчас смотрят: <b className="text-white/80">{online}</b>
             </div>
           )}
