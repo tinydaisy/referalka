@@ -78,12 +78,15 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
 
-        # ⚠️ room_view НЕ создаёт регистрацию зрителя — только форма (register).
-        # Иначе заход по куке (?c=) моментально вписывал бы в зрители без формы, и
-        # очистка списка была бы бесполезна. Здесь только фиксируем рефовода из ?pid=
-        # у УЖЕ зарегистрированного участника события (если реф-код ещё пуст).
-        if c:
+        # Заход по куке (?c=): опознанный зритель попадает в зрители (без формы) —
+        # но ТОЛЬКО когда комната ОТКРЫТА (room_state='open'). В created (ждёт эфир,
+        # афиша+отсчёт) и closed (завершён) — не пишем: смотреть ещё/уже нечего.
+        # Рефовод из ?pid= пишем в event_participants (единый источник реф-кода), если пуст.
+        if c and (room.get("room_state") or "created") == "open":
             try:
+                await conn.execute(
+                    "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
+                    "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
                 _pid = (pid or "").strip() or None
                 if _pid:
                     await conn.execute(
