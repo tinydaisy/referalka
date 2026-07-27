@@ -78,15 +78,12 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
 
-        # Вход по куке (?c=): фиксируем зрителя в комнате дня (связка room_id×contact).
-        # Рефовод НЕ хранится здесь — он в event_participants.referrer_ref_code (кто привёл
-        # зрителя на это событие). Если пришёл ?pid= и у участника ещё нет рефовода —
-        # проставим его в event_participants (единый источник реф-кода).
+        # ⚠️ room_view НЕ создаёт регистрацию зрителя — только форма (register).
+        # Иначе заход по куке (?c=) моментально вписывал бы в зрители без формы, и
+        # очистка списка была бы бесполезна. Здесь только фиксируем рефовода из ?pid=
+        # у УЖЕ зарегистрированного участника события (если реф-код ещё пуст).
         if c:
             try:
-                await conn.execute(
-                    "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
-                    "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
                 _pid = (pid or "").strip() or None
                 if _pid:
                     await conn.execute(
