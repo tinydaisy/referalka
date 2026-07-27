@@ -1923,6 +1923,9 @@ class AddCustomRequest(BaseModel):
     # Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
     # спикерские плейсхолдеры и подставляется его фото. None = обычное сообщение.
     speaker_ec_id: Optional[int] = None
+    # Привязка ко ДНЮ программы — тогда работают дневные плейсхолдеры
+    # ({day_program}, {day_date}, {stream_url} комнаты дня и т.д.). None = без дня.
+    day: Optional[int] = None
     # Поставить сразу в очередь (pending) или оставить черновиком (draft).
     enqueue: bool = True
 
@@ -2036,14 +2039,14 @@ async def add_custom_schedule(
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
            snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats,
-           send_to_private_chats, client_id, target_channel_ids)
-        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $17)
+           send_to_private_chats, client_id, target_channel_ids, day)
+        VALUES ($1, NULL, 'custom', $15, $2, $16, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $17, $18)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id,
-        speaker_ec_id, status_val, data.target_channel_ids
+        speaker_ec_id, status_val, data.target_channel_ids, data.day
     )
     result = dict(row)
     # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).
@@ -2111,14 +2114,14 @@ async def edit_custom_schedule(
             snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
             snapshot_video = $8, snapshot_media_type = $9,
             send_to_event_chats = $12, send_to_client_chats = $13, send_to_private_chats = $14,
-            session_id = $15, target_channel_ids = $16
+            session_id = $15, target_channel_ids = $16, day = $17
         WHERE id = $10 AND event_id = $11 AND type = 'custom'
         RETURNING id, type, fire_at, status, is_test
         """,
         dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         schedule_id, event_id, data.send_to_event_chats, data.send_to_client_chats,
-        data.send_to_private_chats, speaker_ec_id, data.target_channel_ids,
+        data.send_to_private_chats, speaker_ec_id, data.target_channel_ids, data.day,
     )
     return dict(row)
 

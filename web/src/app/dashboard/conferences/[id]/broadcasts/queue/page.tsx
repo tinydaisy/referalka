@@ -2083,13 +2083,21 @@ function CustomBroadcastModal(props: {
   // Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
   // спикерские плейсхолдеры и подставляется фото. null = обычное сообщение.
   const [speakerEcId, setSpeakerEcId] = useState<number | null>(ed?.session_id ?? null)
+  const [dayNum, setDayNum] = useState<number | null>(ed?.day ?? null)   // привязка ко дню программы
   const [collabs, setCollabs] = useState<any[]>([])
+  const [days, setDays] = useState<any[]>([])
   const [enqueue, setEnqueue] = useState(true)
   useEffect(() => {
     api.events.listCollaborators(props.eventId)
       .then((r: any) => setCollabs(Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : [])))
       .catch(() => setCollabs([]))
+    api.conference.days.list(props.eventId)
+      .then((r: any) => setDays(r?.days || []))
+      .catch(() => setDays([]))
   }, [props.eventId])
+  // Привязка ко дню/спикеру → фото берётся по нашим правилам (афиша дня/спикера),
+  // ручная загрузка недоступна.
+  const photoLocked = !!speakerEcId || dayNum != null
 
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
@@ -2109,7 +2117,7 @@ function CustomBroadcastModal(props: {
       const payload = {
         fire_at: fireAt || nowMoscowMinus1MinLocal(),
         text,
-        photo_url: photoUrl || null,
+        photo_url: photoLocked ? null : (photoUrl || null),
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
         audience_include: audIn,
@@ -2119,6 +2127,7 @@ function CustomBroadcastModal(props: {
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
         target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
+        day: dayNum,
         enqueue: false,
       }
       let schedId = ed?.id
@@ -2155,7 +2164,7 @@ function CustomBroadcastModal(props: {
       const payload = {
         fire_at: fireAt,
         text: text,
-        photo_url: photoUrl || null,
+        photo_url: photoLocked ? null : (photoUrl || null),
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
         audience_include: audIn,
@@ -2165,6 +2174,7 @@ function CustomBroadcastModal(props: {
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
         target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
+        day: dayNum,
         enqueue: enqueue,
         ...(props.isCollab && !ed?.id && reqConfirm ? { request_owner_confirm: true } : {}),
       }
@@ -2216,21 +2226,56 @@ function CustomBroadcastModal(props: {
             )}
           </div>
 
+          {/* Привязка ко ДНЮ программы — работают дневные плейсхолдеры. Показываем,
+              только если у события есть дни. */}
+          {days.length > 0 && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">День программы (для дневных плейсхолдеров) — необязательно</label>
+              <select
+                value={dayNum ?? ''}
+                onChange={e => setDayNum(e.target.value ? Number(e.target.value) : null)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="">Без привязки ко дню</option>
+                {days.map((d: any) => {
+                  const dt = d.day_date ? new Date(d.day_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' }) : ''
+                  const ttl = d.title || `День ${d.day_number}`
+                  return <option key={d.day_number} value={d.day_number}>{[dt, ttl].filter(Boolean).join(' — ')}</option>
+                })}
+              </select>
+              {dayNum != null && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Работают {'{day_program}'}, {'{day_date}'}, {'{day_datetime}'}, {'{stream_url}'} (комната этого дня) и др.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Фото (опционально)</label>
-            <FileUploader
-              mode="single"
-              value={photoUrl || null}
-              onChange={(url) => setPhotoUrl(url || '')}
-              kind="broadcast_photo"
-              accept="image/*"
-              aspectClass="aspect-video"
-              emptyText="Перетащите фото или нажмите «Загрузить»"
-              buttonLabel="Загрузить фото"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">
-              Фото авто-удалится через 10 минут после отправки рассылки — хранилище не засоряется.
-            </p>
+            {photoLocked ? (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500">
+                Фото берётся автоматически — {speakerEcId ? 'афиша/фото спикера' : 'афиша этого дня события'} (по нашим правилам). Ручная загрузка недоступна при привязке к {speakerEcId ? 'спикеру' : 'дню'}.
+                {photoUrl && (
+                  <img src={photoUrl} alt="" className="mt-2 max-h-28 rounded-lg object-cover" />
+                )}
+              </div>
+            ) : (
+              <>
+                <FileUploader
+                  mode="single"
+                  value={photoUrl || null}
+                  onChange={(url) => setPhotoUrl(url || '')}
+                  kind="broadcast_photo"
+                  accept="image/*"
+                  aspectClass="aspect-video"
+                  emptyText="Перетащите фото или нажмите «Загрузить»"
+                  buttonLabel="Загрузить фото"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Фото авто-удалится через 10 минут после отправки рассылки — хранилище не засоряется.
+                </p>
+              </>
+            )}
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>
