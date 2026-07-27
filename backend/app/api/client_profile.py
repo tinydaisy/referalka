@@ -658,7 +658,8 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
 
 
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
-async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_db)):
+async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
+                               db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
         """WITH cd AS (
               -- start/end события = MIN/MAX между датами программы (conf_days)
