@@ -309,7 +309,7 @@ export default function WebinarRoomPage() {
   const needAuth = !contactId || (room.has_registration === false && !justAuthed)
   if (needAuth) {
     return <AuthGate slug={slug} day={day} rm={rm} pid={pid} utm={utm} clientId={room.event?.client_id}
-      brand={room.brand} title={webinarTitle} poster={room.poster_url}
+      brand={room.brand} title={webinarTitle}
       onAuthed={(cid: number, form: any) => { saveAuth(cid, form); setAuthContact(cid); setAuthName((form?.name || '').trim()); setJustAuthed(true) }} />
   }
 
@@ -713,9 +713,8 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
     <Centered>
       <div className="w-full max-w-sm">
         {brand?.logo_url && <img src={brand.logo_url} alt="" className="h-9 mx-auto mb-3 object-contain" />}
-        {/* Название вебинара — чтобы человек видел, куда вводит данные */}
+        {/* Только логотип + НАЗВАНИЕ вебинара (афишу в форму не пихаем). */}
         {title && <h2 className="text-lg font-bold text-center mb-2 leading-snug">{title}</h2>}
-        {poster && <img src={poster} alt="" className="w-full rounded-xl mb-3 object-cover" />}
         <p className="text-sm text-white/70 text-center mb-1">Оставьте контакты для входа в эфир</p>
         {rm.auth_intro_text && <p className="text-sm text-white/60 text-center mb-4">{rm.auth_intro_text}</p>}
         <div className="space-y-2 mt-4">

@@ -89,10 +89,13 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                     "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
                 _pid = (pid or "").strip() or None
                 if _pid:
+                    # upsert: у нового зрителя (пришёл по вебинар-ссылке) участия может
+                    # ещё не быть — создаём с рефкодом; у существующего дополняем, только
+                    # если рефовод пуст (первый привёл — в приоритете, не перезатираем).
                     await conn.execute(
-                        "UPDATE event_participants SET referrer_ref_code = $3 "
-                        "WHERE event_id = $1 AND contact_id = $2 "
-                        "  AND (referrer_ref_code IS NULL OR referrer_ref_code = '')",
+                        "INSERT INTO event_participants (event_id, contact_id, referrer_ref_code) "
+                        "VALUES ($1,$2,$3) ON CONFLICT (event_id, contact_id) "
+                        "DO UPDATE SET referrer_ref_code = COALESCE(NULLIF(event_participants.referrer_ref_code,''), EXCLUDED.referrer_ref_code)",
                         ev["id"], c, _pid)
             except Exception:
                 pass
@@ -280,10 +283,11 @@ async def heartbeat(slug: str, day: int, body: Heartbeat):
         room = await _load_room(conn, slug, day)
         rid = room["id"]
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-        # ⚠️ Пишем присутствие ТОЛЬКО опознанного зрителя (contact_id). Анонимов в
-        # эфире быть не должно — иначе аналитика раздувается «неавторизованными».
-        # Защита от обхода фронта: без contact_id presence не создаётся.
-        if body.contact_id:
+        # ⚠️ Присутствие пишем ТОЛЬКО: (1) опознанного зрителя (contact_id — анонимов
+        # нет) И (2) когда комната ОТКРЫТА (room_state='open'). До открытия (created)
+        # и после закрытия (closed) heartbeat не пишем — иначе аналитика «уникальных»
+        # расходится со списком зрителей (тот пишется тоже только при open).
+        if body.contact_id and (room.get("room_state") or "created") == "open":
             await conn.execute(
                 "INSERT INTO webinar_presence (room_id, contact_id, session_key, bucket_at, device, session_id) "
                 "VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
@@ -661,6 +665,22 @@ async def register(slug: str, day: int, body: RegisterIn):
             )
         if not contact_id:
             raise HTTPException(400, "Заполните имя и хотя бы один контакт")
+
+        # TG-ник из формы → сохраняем идентичность (иначе ник терялся). Единый механизм
+        # коллабов (_upsert_personal_identity): резолвит @ник→числовой id через getChat
+        # ботом клиента; не вышло (в бот не заходил) → псевдо-запись platform_user_id='@ник',
+        # которая дорастёт до реального id при первом заходе в бот. contact_id есть всегда.
+        _tgun = (body.telegram_username or "").strip().lstrip("@")
+        if _tgun and not body.tg_id:
+            try:
+                has_tg = await conn.fetchval(
+                    "SELECT 1 FROM platform_users WHERE contact_id=$1 AND platform_slug='telegram' LIMIT 1",
+                    contact_id)
+                if not has_tg:
+                    from app.api.collaborators import _upsert_personal_identity
+                    await _upsert_personal_identity(conn, client_id, contact_id, "telegram", None, _tgun)
+            except Exception:
+                pass
 
         # Согласия (152-ФЗ) — фиксируем дату/версию политики на контакте.
         # consent_pd обязательна на фронте; тут просто пишем факт, если пришла.
