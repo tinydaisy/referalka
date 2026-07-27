@@ -393,11 +393,15 @@ async def handle_event_live(callback: CallbackQuery):
             await callback.answer("Событие не найдено")
             return
 
+        # ⚠️ contact_id — ТОЛЬКО в базе клиента-владельца события. Один tg_id живёт в
+        # базах разных клиентов разными контактами; без фильтра по client_id брался
+        # чужой contact_id (напр. 13327 из client 74 вместо 12379 из client 1).
         contact_id = await db.fetchval(
             """SELECT contact_id FROM platform_users
                 WHERE platform_slug = 'telegram' AND platform_user_id = $1
+                  AND client_id = $2
                 ORDER BY id DESC LIMIT 1""",
-            str(user_tg_id),
+            str(user_tg_id), ev["client_id"],
         )
 
         now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
@@ -459,10 +463,9 @@ async def handle_event_live(callback: CallbackQuery):
         else:
             text = "<b>Ближайший эфир</b>"
 
-        # Кнопка/заглушка стрима — ссылка эфира = вебинарная комната дня (+ contact_id).
-        from app.services.webinar_service import day_stream_url as _day_stream_url
-        _sd = await db.fetchval(
-            "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", ev["id"])
+        # Кнопка/заглушка стрима — ссылка эфира = комната АКТУАЛЬНОГО дня (+ contact_id).
+        from app.services.webinar_service import day_stream_url as _day_stream_url, current_event_day
+        _sd = await current_event_day(db, ev["id"])
         stream_url = await _day_stream_url(db, ev["id"], _sd, contact_id) if _sd else ""
         hide = bool(ev["hide_stream_button"])
         rows = []

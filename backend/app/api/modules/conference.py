@@ -145,7 +145,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
-           WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_time""",
+           WHERE s.event_id = $1 ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id
     )
     # Афиши — единый источник истины event_posters

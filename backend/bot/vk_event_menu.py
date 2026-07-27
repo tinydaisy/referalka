@@ -315,11 +315,13 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
         await vk_send_message(vk_user_id, "😕 Событие не найдено.", token=ctx.token)
         return
 
+    # contact_id — только в базе клиента-владельца события (один vk_id живёт у разных
+    # клиентов разными контактами).
     contact_id = await db.fetchval(
         """SELECT contact_id FROM platform_users
-            WHERE platform_slug = 'vk' AND platform_user_id = $1
+            WHERE platform_slug = 'vk' AND platform_user_id = $1 AND client_id = $2
             ORDER BY id DESC LIMIT 1""",
-        str(vk_user_id),
+        str(vk_user_id), ev["client_id"],
     )
 
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
@@ -375,10 +377,8 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     else:
         text = "Ближайший эфир"
 
-    _sd = await db.fetchval(
-        "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1",
-        ev["id"],
-    )
+    from app.services.webinar_service import current_event_day
+    _sd = await current_event_day(db, ev["id"])
     stream_url = (await day_stream_url(db, ev["id"], _sd, contact_id)) if _sd else ""
     hide = bool(ev["hide_stream_button"])
     rows: list[list[dict]] = []

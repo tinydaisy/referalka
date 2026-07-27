@@ -25,6 +25,29 @@ def make_stream_key(n: int = 16) -> str:
     return "".join(secrets.choice(_KEY_ALPHABET) for _ in range(n))
 
 
+async def current_event_day(db, event_id: int) -> Optional[int]:
+    """День эфира «сейчас»: сегодняшний по МСК (conf_days.day_date=today), иначе
+    ближайший будущий, иначе первый день С вебинарной комнатой, иначе 1.
+    Для мероприятия (нет conf_days) вернёт первый day_number из webinar_rooms или 1."""
+    today = datetime.now(MSK).date()
+    # среди дней программы: сегодня → ближайший будущий → первый
+    d = await db.fetchval(
+        "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_date=$2 LIMIT 1",
+        event_id, today)
+    if d:
+        return d
+    d = await db.fetchval(
+        "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_date>=$2 "
+        "ORDER BY day_date LIMIT 1", event_id, today)
+    if d:
+        return d
+    # нет подходящего дня программы → первый день с комнатой
+    d = await db.fetchval(
+        "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1",
+        event_id)
+    return d or 1
+
+
 async def day_stream_url(db, event_id: int, day: Optional[int],
                          contact_id: Optional[int] = None) -> str:
     """Единая ссылка на эфир ДНЯ (после удаления events.stream_url).

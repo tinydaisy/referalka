@@ -1635,13 +1635,8 @@ async def _handle_max_live(
     if module_slug == "contest":
         stream_url = (ev["landing_url"] or "").strip()
     else:
-        if module_slug in ("conference", "turnir"):
-            _sd = await conn.fetchval(
-                "SELECT MIN(day_number) FROM webinar_rooms WHERE event_id = $1",
-                event_id,
-            ) or 1
-        else:
-            _sd = 1
+        from ..services.webinar_service import current_event_day
+        _sd = await current_event_day(conn, event_id)
         stream_url = await day_stream_url(conn, event_id, _sd, contact_id=contact_id)
     hide = bool(ev["hide_stream_button"])
     rows = []

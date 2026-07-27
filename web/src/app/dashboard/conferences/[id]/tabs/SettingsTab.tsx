@@ -215,14 +215,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
         <h2 className="block-title">Настройка ссылок</h2>
         <div>
-          {/* Ссылка эфира теперь ПО ДНЯМ — в разделе «Вебинары» (комната дня или
-              сторонний вебинар). Общее поле stream_url убрано из UI. */}
-          <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-900">
-            <b>Ссылка на эфир теперь настраивается по дням</b> — в разделе <b>«Вебинары»</b>.
-            У каждого дня — своя вебинарная комната или ссылка на сторонний вебинар.
-            Рассылки и кнопка стрима берут ссылку комнаты этого дня.
-          </div>
-          <label className="flex items-start gap-2 mt-3 cursor-pointer">
+          {/* Ссылка эфира — ПО ДНЯМ в разделе «Вебинары» (комната дня/сторонняя). */}
+          <label className="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" checked={form.hide_stream_button}
               onChange={e => setForm(f => ({ ...f, hide_stream_button: e.target.checked }))}
               className="mt-0.5 accent-[#25455D]" />
@@ -230,6 +224,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
               Скрыть кнопку стрима
               <span className="block text-xs text-gray-400 mt-0.5">
                 Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
+                {' '}Ссылки на эфир настраиваются в разделе{' '}
+                <a href={`/dashboard/tournaments/${eventId}?tab=webinar`} className="text-[#25455D] underline hover:opacity-70">Вебинары</a>
+                {' '}(у каждого дня своя).
               </span>
             </span>
           </label>

@@ -805,7 +805,7 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
           LEFT JOIN collaborators c ON c.id = cse.speaker_id
           LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
          WHERE cs.event_id=$1 AND cs.day=$2
-         ORDER BY cs.sort_order, cs.start_time
+         ORDER BY NULLIF(cs.start_time,'') NULLS LAST, cs.sort_order
         """,
         event_id, row["day_number"],
     )
@@ -1065,7 +1065,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
             LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
             WHERE cs.event_id=$1 AND cs.day=$2
-            ORDER BY cs.sort_order, cs.start_time
+            ORDER BY NULLIF(cs.start_time,'') NULLS LAST, cs.sort_order
             """,
             event_id, day
         ) if is_program_event else []
@@ -1599,7 +1599,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
                 WHERE cs.event_id=$1 AND cs.day=$2
-                ORDER BY cs.sort_order, cs.start_time
+                ORDER BY NULLIF(cs.start_time,'') NULLS LAST, cs.sort_order
                 """,
                 event_id, target_day_num
             )
