@@ -590,6 +590,41 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         )}
       </div>
 
+      {/* Первые 2 подарка сразу видны + кнопка «Все подарки» — чтобы было понятно,
+          что подарков больше (не только цифра в сводке). */}
+      {sortedGifts.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          {sortedGifts.slice(0, 2).map(g => {
+            const unlocked = giftCountValue >= g.points_cost
+            return (
+              <div key={g.id} style={{
+                background: 'white', borderRadius: 12, padding: '10px 12px', marginBottom: 8,
+                display: 'flex', gap: 10, alignItems: 'center', opacity: unlocked ? 1 : 0.75,
+                boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+              }}>
+                <div style={{ fontSize: 20, flexShrink: 0 }}>{unlocked ? '🎁' : '🔒'}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a',
+                    overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                    WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{g.title}</div>
+                  <div style={{ fontSize: 11, color: unlocked ? '#2e7d32' : '#b86b00', fontWeight: 700, marginTop: 2 }}>
+                    {unlocked ? '✓ получен' : `за ${g.points_cost} чел`}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          <button onClick={() => setView('gifts')} style={{
+            width: '100%', background: 'white', border: '1px solid #e3e8ee',
+            borderRadius: 12, padding: '11px', cursor: 'pointer',
+            color: '#25455D', fontSize: 13, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            Все подарки ({sortedGifts.length}) <span style={{ fontSize: 15 }}>▼</span>
+          </button>
+        </div>
+      )}
+
       {/* ТОП — expander (скрыт, если клиент отключил рейтинг для события) */}
       {!participant?.hide_rating && (
       <div style={{

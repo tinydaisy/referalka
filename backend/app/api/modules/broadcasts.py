@@ -2692,9 +2692,9 @@ async def preview_schedule(
     # В превью ссылка эфира несёт хвост ?c=__CT__ (сквозной contact_id получателя) —
     # показываем читаемой меткой, при реальной отправке Celery подставит id.
     if content.get("text"):
-        content["text"] = content["text"].replace("?c=__CT__", "?c=<ваш_id>")
+        content["text"] = content["text"].replace("?c=__CT__", "?c=ВАШ_ID")
     if content.get("button_url"):
-        content["button_url"] = content["button_url"].replace("?c=__CT__", "?c=<ваш_id>")
+        content["button_url"] = content["button_url"].replace("?c=__CT__", "?c=ВАШ_ID")
     base_text = content["text"] or ""
     base_btn = content.get("button_url") or ""
     # Подключённая площадка = у клиента есть ЛЮБОЙ свой канал на ней (то, что он

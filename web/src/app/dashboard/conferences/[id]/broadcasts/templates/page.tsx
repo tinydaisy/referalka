@@ -292,6 +292,14 @@ const CUSTOM_PLACEHOLDERS = [
   '{first_name}', '{vip_url}', '{support_platform}',
 ]
 
+// Дата дня "YYYY-MM-DD" → "6 июля" без new Date() (UTC-парс уводит на сутки).
+const _TPL_DM = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
+function fmtTplDay(d?: string | null): string {
+  if (!d) return ''
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${parseInt(m[3], 10)} ${_TPL_DM[parseInt(m[2], 10) - 1]}` : ''
+}
+
 function customDayRefLabel(ref: string, confDays: number[]): string {
   if (!ref) return ''
   if (ref.startsWith('before_')) return `За ${ref.split('_')[1]} дня до конференции`
@@ -1054,9 +1062,11 @@ export default function TemplatesPage() {
           {varsOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
         </button>
         {varsOpen && (
-          <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+          {/* columns (а не grid) — алфавит идёт СВЕРХУ ВНИЗ по левому столбцу,
+              потом продолжается в правом. break-inside-avoid — строка не рвётся. */}
+          <div className="px-5 py-4 sm:columns-2 gap-x-6">
             {[...ALL_VARIABLES].sort((a, b) => a.name.localeCompare(b.name)).map(v => (
-              <div key={v.name} className="flex items-baseline gap-2">
+              <div key={v.name} className="flex items-baseline gap-2 mb-2 break-inside-avoid">
                 <code className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded px-1.5 py-0.5 font-mono shrink-0">{v.name}</code>
                 <span className="text-xs text-gray-500">{v.desc}</span>
               </div>
@@ -1784,13 +1794,16 @@ export default function TemplatesPage() {
               <div className="mb-3">
                 <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                 <div className="flex gap-2">
-                  {confDays.map(d => (
+                  {confDays.map(d => {
+                    const _dd = confDaysData.find((x: any) => x.day_number === d)
+                    const _lbl = fmtTplDay(_dd?.day_date)
+                    return (
                     <button key={d} onClick={() => setTestDay(d)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${testDay === d ? 'text-white border-transparent' : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'}`}
                       style={testDay === d ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}>
-                      День {d}
+                      {_lbl ? `День · ${_lbl}` : `День ${d}`}
                     </button>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}
