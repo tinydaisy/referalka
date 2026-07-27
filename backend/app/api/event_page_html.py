@@ -36,7 +36,7 @@ RU_MONTHS = ["", "января", "февраля", "марта", "апреля",
 
 async def _resolve_event(db: asyncpg.Connection, ref: str):
     cols = ("id, slug, title, module_slug, status, description, "
-            "description_post_register, vip_url, vip_button_label, hide_stream_button, "
+            "description_post_register, vip_url, vip_button_label, hide_stream_button, accent_button, "
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
             "landing_url, start_at, end_at, link_mode, is_collab, "
@@ -751,24 +751,24 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         gallery_people = collabs
     out = _gallery_html(gallery_people)
 
-    # Кнопка «Смотреть эфир» — как в Mini App: тёмно-синий градиент (НЕ красная;
-    # красный только у VIP/Чат по accent_button). Ссылка = вебинарная комната дня.
-    # Скрывается галочкой hide_stream_button. Пустая ссылка (нет комнаты) → нет кнопки.
+    # accent_button (как в Mini App): какая кнопка КРАСНАЯ — vip | chat | none. Default vip.
+    accent = event.get("accent_button") or "vip"
+
+    # Кнопка «Смотреть эфир» — ВСЕГДА синяя (тёмная), как в Mini App (стрим на accent
+    # не реагирует; красный — только VIP/Чат). LIVE-бейдж внутри. Скрыта hide_stream_button.
     stream_url = (event.get("_stream_url") or "").strip()
     if stream_url and not event.get("hide_stream_button"):
-        out += (f'<a class="vip-btn" href="{esc(stream_url)}" '
-                f'target="_blank" rel="noopener" '
-                f'style="background:linear-gradient(135deg,#25455D,#0a1520);display:flex;'
-                f'align-items:center;justify-content:center;gap:8px">'
+        out += (f'<a class="vip-btn btn-blue" href="{esc(stream_url)}" target="_blank" rel="noopener">'
                 f'<span style="background:#d32f2f;color:#fff;font-size:10px;font-weight:900;'
                 f'padding:3px 7px;border-radius:6px;letter-spacing:1px">LIVE</span>'
                 f'📺 Смотреть эфир</a>')
 
-    # VIP-кнопка
+    # VIP-кнопка — красная если accent='vip', иначе синяя. Текст заглавными (CSS).
     vip_url = (event.get("vip_url") or "").strip()
     if vip_url:
         vip_label = esc(event.get("vip_button_label") or "Расшириться до VIP-тарифа")
-        out += (f'<a class="vip-btn" href="{esc(vip_url)}" '
+        _vip_cls = "btn-red" if accent == "vip" else "btn-blue"
+        out += (f'<a class="vip-btn {_vip_cls}" href="{esc(vip_url)}" '
                 f'target="_blank" rel="noopener">{vip_label}</a>')
 
     # Чат события: ОДНА кнопка с названием из настроек (chat_button_label).
@@ -824,8 +824,9 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
                 f'<span class="chat-opt-ico">💬</span>'
                 f'<span class="chat-opt-name">{esc(plat_name)}{main}</span></a>'
             )
+        _chat_cls = "btn-red" if accent == "chat" else "btn-blue"
         out += (
-            f'<button class="chat-btn" type="button" data-chatopen>💬 {base_label}</button>'
+            f'<button class="chat-btn {_chat_cls}" type="button" data-chatopen>💬 {base_label}</button>'
             '<div class="chat-sheet" id="chat-sheet" hidden>'
             '<div class="chat-sheet-bg" data-chatclose></div>'
             '<div class="chat-sheet-card">'
@@ -1622,18 +1623,22 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .ava-logo img {{ max-width:100%; height:100%; width:auto; object-fit:contain; display:block; }}
 
   /* VIP-кнопка */
-  .vip-btn {{ display:block; width:100%; text-align:center; text-decoration:none;
-    margin: 8px 0 14px; padding: 14px 16px; border-radius: 14px; font-size:15px; font-weight:800;
-    color:#fff; background: linear-gradient(135deg, #7f1d1d, #ef4444);
+  /* Единый стиль кнопок эфир/VIP/чат: ЗАГЛАВНЫЕ, один шрифт/размер/радиус.
+     .btn-red — белый текст на красном градиенте; .btn-blue — персиковый на тёмно-синем.
+     Красность выбирается по events.accent_button (как в Mini App). */
+  .vip-btn, .chat-btn {{ display:flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; text-align:center; text-decoration:none;
+    margin: 8px 0 14px; padding: 14px 16px; border-radius: 14px;
+    font-size:14.5px; font-weight:800; text-transform:uppercase; letter-spacing:.3px;
+    border:none; cursor:pointer; font-family:inherit; }}
+  .chat-btn {{ margin: 8px 0 14px; }}
+  .btn-red {{ color:#fff; background: linear-gradient(135deg, #7f1d1d, #ef4444);
     box-shadow: 0 4px 14px rgba(239,68,68,.3); }}
+  .btn-blue {{ color:#FFCFA4; background: linear-gradient(135deg, #25455D, #0a1520);
+    box-shadow: 0 2px 8px rgba(37,69,93,.2); }}
 
   /* Чаты события */
   .chats {{ display:flex; flex-direction:column; gap:8px; margin: 8px 0 14px; }}
-  .chat-btn {{ display:block; width:100%; text-align:center; text-decoration:none;
-    padding: 13px 16px; border-radius: 12px; font-size:14.5px; font-weight:700;
-    color:#FFCFA4; background: linear-gradient(135deg, #25455D, #0a1520);
-    box-shadow: 0 2px 8px rgba(37,69,93,.2);
-    border:none; cursor:pointer; font-family:inherit; }}
   .chat-main {{ font-weight:600; color:rgba(255,207,164,.7); font-size:12px; }}
 
   /* Экран выбора площадки для входа в чат (bottom-sheet) */
