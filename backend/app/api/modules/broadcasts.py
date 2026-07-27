@@ -924,11 +924,14 @@ async def list_schedules(
                COALESCE(NULLIF(bs.snapshot_subject, ''), bt.subject) AS eff_subject,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
                bs.send_to_client_chats, bs.send_to_private_chats, bs.target_channel_ids,
+               bs.chats_overridden,
                -- Эффективные каналы/флаги: schedule → иначе значения шаблона (как при отправке).
+               -- ⚠️ Если chats_overridden=TRUE — берём СТРОГО из рассылки (шаблон не
+               -- подмешиваем, как в движке tasks/broadcast.py), иначе OR с шаблоном.
                COALESCE(bs.target_channel_ids, bt.target_channel_ids) AS eff_target_channel_ids,
-               (bs.send_to_event_chats OR COALESCE(bt.send_to_event_chats, FALSE)) AS eff_send_to_event_chats,
-               (bs.send_to_client_chats OR COALESCE(bt.send_to_client_chats, FALSE)) AS eff_send_to_client_chats,
-               (bs.send_to_private_chats OR COALESCE(bt.send_to_private_chats, FALSE)) AS eff_send_to_private_chats
+               (bs.send_to_event_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_event_chats, FALSE))) AS eff_send_to_event_chats,
+               (bs.send_to_client_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_client_chats, FALSE))) AS eff_send_to_client_chats,
+               (bs.send_to_private_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_private_chats, FALSE))) AS eff_send_to_private_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         -- speaker_intro/expert_day: session_id = event_collaborators.id (спикер),
@@ -1796,6 +1799,9 @@ class SetFireAtRequest(BaseModel):
     send_to_event_chats: Optional[bool] = None
     send_to_client_chats: Optional[bool] = None
     send_to_private_chats: Optional[bool] = None
+    # Пометка «галочки чатов переопределены вручную» (миграция 235): при TRUE
+    # движок берёт send_to_* строго из рассылки, не подмешивая шаблон.
+    chats_overridden: Optional[bool] = None
 
 
 @router.put("/schedules/{schedule_id}/fire-at", summary="Установить время отправки (для custom_datetime)")
@@ -1844,6 +1850,8 @@ async def set_schedule_fire_at(
         _add("send_to_client_chats", data.send_to_client_chats)
     if data.send_to_private_chats is not None:
         _add("send_to_private_chats", data.send_to_private_chats)
+    if data.chats_overridden is not None:
+        _add("chats_overridden", data.chats_overridden)
 
     vals.append(schedule_id)
     vals.append(event_id)

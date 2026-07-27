@@ -950,6 +950,20 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("evchat deeplink handler failed: %s", e)
 
+    # Внешняя ссылка на эфир: `/start evlive_<event_id>`. Даёт то же сообщение,
+    # что кнопка «📺 Ссылка на эфир» в меню события (ближайший эфир + кнопка
+    # «ВОЙТИ В ЭФИР»), но открывается сразу — без прохода через меню.
+    if args.startswith("evlive_"):
+        try:
+            event_id = int(args.removeprefix("evlive_"))
+            from bot.handlers.funnel import run_event_live
+            await run_event_live(message, event_id, user.id)
+            return
+        except (ValueError, AttributeError):
+            pass
+        except Exception as e:
+            log.exception("evlive deeplink handler failed: %s", e)
+
     if args.startswith("ref_pg"):
         try:
             if await _handle_ref_event_bot_flow(message, args):

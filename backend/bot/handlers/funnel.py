@@ -6,7 +6,7 @@ Callback-handlers воронки лид-магнита.
 """
 from aiogram import Router, F
 from aiogram.types import (
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
 from app.database import get_pool
 import html as _html
@@ -362,18 +362,30 @@ _RU_MONTHS = ["", "января", "февраля", "марта", "апреля"
 
 @router.callback_query(F.data.startswith("evlive_"))
 async def handle_event_live(callback: CallbackQuery):
-    """«📺 Ссылка на эфир» — ближайший эфир (ближайшая будущая сессия / старт
-    события) + кнопка «ВОЙТИ В ЭФИР» (если есть stream_url и не скрыт). Внизу —
-    кнопки «Программа» и «⬅️ Вернуться в меню»."""
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
+    """«📺 Ссылка на эфир» — тонкая обёртка над `run_event_live`.
+
+    Та же логика доступна по внешней ссылке `?start=evlive_<event_id>`
+    (ветка в handlers/start.py) — поэтому тело вынесено в отдельную функцию."""
     try:
         event_id = int((callback.data or "").removeprefix("evlive_"))
     except ValueError:
         await callback.answer("Ошибка кнопки")
         return
+    if callback.message:
+        await run_event_live(callback.message, event_id, callback.from_user.id)
+    await callback.answer()
 
-    user_tg_id = callback.from_user.id
+
+async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> None:
+    """Сообщение «Ближайший эфир» — ближайшая будущая сессия / старт события +
+    кнопка «ВОЙТИ В ЭФИР» (если есть stream_url и не скрыт). Внизу — кнопки
+    «Программа» и «⬅️ Вернуться в меню».
+
+    Вызывается из callback-кнопки меню (`evlive_<id>`) и из внешней ссылки
+    `telegram.me/{бот}?start=evlive_<id>` — одна логика на обе точки входа."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
@@ -390,7 +402,7 @@ async def handle_event_live(callback: CallbackQuery):
             event_id,
         )
         if not ev:
-            await callback.answer("Событие не найдено")
+            await message.answer("Событие не найдено.")
             return
 
         # contact_id — строго в базе клиента-владельца события (единый хелпер).
@@ -486,9 +498,8 @@ async def handle_event_live(callback: CallbackQuery):
             text="⬅️ Вернуться в меню", callback_data=f"evmenu_{event_id}")])
 
         kb = InlineKeyboardMarkup(inline_keyboard=rows)
-        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML",
-                                      disable_web_page_preview=True)
-    await callback.answer()
+        await message.answer(text, reply_markup=kb, parse_mode="HTML",
+                             disable_web_page_preview=True)
 
 
 @router.callback_query(F.data.startswith("fnl_check_"))

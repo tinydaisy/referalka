@@ -542,9 +542,19 @@ export default function QueuePage() {
     const effCh = Array.isArray(schedule.eff_target_channel_ids) ? schedule.eff_target_channel_ids
       : (Array.isArray(schedule.target_channel_ids) ? schedule.target_channel_ids : null)
     setEditChannelIds(effCh)
-    setEditEventChats(!!(schedule.eff_send_to_event_chats ?? schedule.send_to_event_chats))
-    setEditClientChats(!!(schedule.eff_send_to_client_chats ?? schedule.send_to_client_chats))
-    setEditPrivateChats(!!(schedule.eff_send_to_private_chats ?? schedule.send_to_private_chats))
+    // Галочки чатов. Если рассылку УЖЕ редактировали (chats_overridden=TRUE,
+    // миграция 235) — показываем ФАКТИЧЕСКИЕ настройки самой рассылки (не eff-,
+    // иначе снятая галочка возвращалась бы значением шаблона). Не редактировали —
+    // показываем эффективные (что реально уйдёт: своё + наследие шаблона).
+    if (schedule.chats_overridden) {
+      setEditEventChats(!!schedule.send_to_event_chats)
+      setEditClientChats(!!schedule.send_to_client_chats)
+      setEditPrivateChats(!!schedule.send_to_private_chats)
+    } else {
+      setEditEventChats(!!(schedule.eff_send_to_event_chats ?? schedule.send_to_event_chats))
+      setEditClientChats(!!(schedule.eff_send_to_client_chats ?? schedule.send_to_client_chats))
+      setEditPrivateChats(!!(schedule.eff_send_to_private_chats ?? schedule.send_to_private_chats))
+    }
   }
 
   const [testingFireAt, setTestingFireAt] = useState(false)
@@ -585,6 +595,9 @@ export default function QueuePage() {
         send_to_event_chats: editEventChats,
         send_to_client_chats: hasChatsFeature ? editClientChats : false,
         send_to_private_chats: hasChatsFeature ? editPrivateChats : false,
+        // Пометка «галочки чатов переопределены вручную» — движок больше не
+        // подмешивает шаблон, шлёт строго по настройкам этой рассылки (миграция 235).
+        chats_overridden: true,
       })
       setFireAtModal(null)
       await load()
@@ -1345,32 +1358,33 @@ export default function QueuePage() {
                 onChange={(next) => setEditChannelIds(next)}
               />
 
-              {/* Три независимые галочки: чаты события / общие чаты / личные каналы */}
+              {/* Три независимые галочки: чаты события / общие чаты / личные каналы.
+                  Выбранная — синяя рамка+фон (чтобы сразу видеть что реально уйдёт). */}
               <div className="space-y-2">
-                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editEventChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
                   <input type="checkbox" checked={editEventChats}
                     onChange={e => setEditEventChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
                   <span>
-                    <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события {editEventChats && <span className="text-[#25455D]">✓</span>}</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В групповые чаты этого события (заданы в настройках события).</span>
                   </span>
                 </label>
-                {hasChatsFeature && (<label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                {hasChatsFeature && (<label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editClientChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
                   <input type="checkbox" checked={editClientChats}
                     onChange={e => setEditClientChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
                   <span>
-                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты {editClientChats && <span className="text-[#25455D]">✓</span>}</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок»).</span>
                   </span>
                 </label>)}
-                {hasChatsFeature && (<label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                {hasChatsFeature && (<label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editPrivateChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
                   <input type="checkbox" checked={editPrivateChats}
                     onChange={e => setEditPrivateChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
                   <span>
-                    <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы</span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы {editPrivateChats && <span className="text-[#25455D]">✓</span>}</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В каналы из базы чатов, помеченные галочкой «Личный».</span>
                   </span>
                 </label>)}

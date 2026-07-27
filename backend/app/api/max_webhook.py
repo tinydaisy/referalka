@@ -1054,6 +1054,24 @@ async def _process_start(
                         logger.warning(f"MAX evchat deeplink failed (event={event_id}): {e}")
             return
 
+    # Внешняя ссылка на эфир: `/start evlive_<event_id>` — то же сообщение,
+    # что кнопка «Ссылка на эфир» в меню события, но сразу, без прохода по меню.
+    if payload and payload.startswith("evlive_"):
+        try:
+            event_id = int(payload.removeprefix("evlive_"))
+        except ValueError:
+            event_id = None
+        if event_id:
+            _elp = await get_pool()
+            if _elp:
+                async with _elp.acquire() as conn:
+                    contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
+                    try:
+                        await _handle_max_live(chat_id, event_id, contact_id, bot_token, conn)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"MAX evlive deeplink failed (event={event_id}): {e}")
+            return
+
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>
     if payload and payload.startswith("spkinv_"):
         access_code = payload.removeprefix("spkinv_").strip()

@@ -136,7 +136,10 @@ async def _send_broadcast(schedule_id: int):
         # Флаги «слать в чаты» наследуются от шаблона, если в schedule не заданы
         # явно (как target_channel_ids). Так авто-сгенерированные schedule
         # подхватывают актуальное значение шаблона в момент отправки.
-        if tmpl is not None:
+        # ⚠️ НО: если рассылку РЕДАКТИРОВАЛИ вручную (chats_overridden=TRUE,
+        # миграция 235) — берём галочки СТРОГО из рассылки, шаблон НЕ подмешиваем.
+        # Иначе снятую в рассылке галочку возвращал бы шаблон (был баг).
+        if tmpl is not None and not schedule.get("chats_overridden"):
             if not schedule.get("send_to_event_chats") and tmpl["send_to_event_chats"]:
                 schedule = dict(schedule); schedule["send_to_event_chats"] = True
             if not schedule.get("send_to_client_chats") and tmpl["send_to_client_chats"]:
