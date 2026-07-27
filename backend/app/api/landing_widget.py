@@ -337,7 +337,7 @@ async def widget_program(
              LEFT JOIN collaborators col ON col.id = cse.speaker_id
              LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
             WHERE s.event_id = $1
-            ORDER BY s.day, s.sort_order, s.start_time, s.id""",
+            ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order, s.id""",
         event_id,
     )
 

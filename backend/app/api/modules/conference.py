@@ -1798,7 +1798,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_time""",
+           ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id,
     )
     return {
@@ -1981,7 +1981,7 @@ async def list_sessions(
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = col.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_time""",
+           ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id
     )
     return {"sessions": [dict(s) for s in sessions]}
@@ -2003,7 +2003,7 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1 AND s.day = $2
-           ORDER BY s.sort_order, s.start_time""",
+           ORDER BY NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id, day
     )
     return {"sessions": [dict(s) for s in sessions], "day": day}
@@ -3069,7 +3069,7 @@ async def export_salebot(
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_time""",
+           ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id
     )
 
@@ -3564,7 +3564,7 @@ async def send_schedule_to_telegram(
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_time""",
+           ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id
     )
 

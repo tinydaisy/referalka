@@ -903,6 +903,7 @@ async def list_schedules(
                   AND bl.external_message_id IS NOT NULL AND bl.external_message_id <> '') as recallable_count,
                bt.name as template_name, bt.type as template_type,
                bt.schedule_mode,
+               bt.text AS tmpl_text, bt.button_url AS tmpl_btn_url,   -- для проверки пустых плейсхолдеров
                cs.title as session_title,
                -- Тема выступления (live из conf_speaker_topics по topic_id слота,
                -- fallback title слота) — чтобы раскрыть {speaker_topic} в заголовке списка.
@@ -954,10 +955,46 @@ async def list_schedules(
     tz = ZoneInfo(tz_str)
 
     now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+
+    # Для проверки «пустых» плейсхолдеров ({stream_url}/{support}) в рассылке:
+    # есть ли у клиента хоть один контакт поддержки + у каких дней есть вебинар-комната.
+    from app.services.support_message import has_support
+    _sup_row = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id=$1", client_id)
+    _has_support = has_support(
+        _sup_row["work_tg_username"] if _sup_row else None,
+        _sup_row["work_vk"] if _sup_row else None,
+        _sup_row["work_max"] if _sup_row else None)
+    _rooms_rows = await db.fetch(
+        "SELECT day_number FROM webinar_rooms WHERE event_id=$1", event_id)
+    _days_with_room = {rr["day_number"] for rr in _rooms_rows}
+    _any_room = bool(_days_with_room)
+
+    def _empty_placeholder_reason(text, btn, day):
+        """Причина, почему рассылку нельзя ставить в очередь (пустой плейсхолдер), или None."""
+        blob = f"{text or ''} {btn or ''}"
+        # {support*} — нет ни одного контакта поддержки
+        if ("{support_platform}" in blob or "{support_link}" in blob or "{support_links}" in blob) and not _has_support:
+            return "Плейсхолдер службы поддержки пуст — не задан ни один контакт (Telegram/VK/MAX) в Настройках → Профиль"
+        # {stream_url} — нет вебинарной комнаты у нужного дня
+        if "{stream_url}" in blob:
+            if day is not None:
+                if day not in _days_with_room:
+                    return f"{{stream_url}} пуст — у дня {day} нет вебинарной комнаты (создайте в разделе «Вебинары»)"
+            elif not _any_room:
+                return "{stream_url} пуст — у события нет ни одной вебинарной комнаты"
+        return None
+
     result = []
     import json as _json_list
     for r in rows:
         d = dict(r)
+        # Проверка пустых обязательных плейсхолдеров → фронт красит + блокирует запуск.
+        _txt = r.get("snapshot_text") or r.get("tmpl_text") or ""
+        _btn = r.get("snapshot_btn_url") if "snapshot_btn_url" in r else r.get("tmpl_btn_url")
+        _reason = _empty_placeholder_reason(_txt, _btn or "", r.get("day"))
+        d["empty_placeholder_reason"] = _reason
+        d["has_empty_placeholder"] = bool(_reason)
         # Раскрываем {speaker_topic}/{speaker_name} в ЗАГОЛОВКЕ карточки очереди —
         # чтобы в слепке была тема, а не сырой плейсхолдер (в превью/отправке уже норм).
         if d.get("eff_subject"):

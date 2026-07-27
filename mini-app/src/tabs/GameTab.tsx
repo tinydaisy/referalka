@@ -79,6 +79,7 @@ function formatEventDates(startAt?: string | null, endAt?: string | null): strin
 export default function GameTab({ event, participant, tgUser, botClientId }: Props) {
   const [gifts, setGifts] = useState<Gift[]>([])
   const [view, setView] = useState<'game' | 'gifts' | 'materials'>('game')
+  const [showAllGifts, setShowAllGifts] = useState(false)   // «Развернуть подарки» в окне подарков
   const [topOpen, setTopOpen] = useState(false)
   const [peopleOpen, setPeopleOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -274,7 +275,9 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                          color: '#6b7c8e', margin: '14px 4px 10px' }}>
               🔒 Заблокировано · {locked.length}
             </h3>
-            {locked.map(g => {
+            {/* Всегда видно минимум 2 подарка (с учётом полученных). Остальные —
+                по кнопке «Развернуть», чтобы было понятно, что подарков больше. */}
+            {(showAllGifts ? locked : locked.slice(0, Math.max(1, 2 - got.length))).map(g => {
               const need = g.points_cost - giftCountValue
               return (
                 <div key={g.id} style={{
@@ -302,6 +305,19 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                 </div>
               )
             })}
+            {/* Кнопка «Развернуть / Свернуть» — если скрытых подарков больше */}
+            {locked.length > Math.max(1, 2 - got.length) && (
+              <button onClick={() => setShowAllGifts(v => !v)} style={{
+                width: '100%', background: 'white', border: '1px solid #e3e8ee',
+                borderRadius: 12, padding: '12px', marginTop: 4, cursor: 'pointer',
+                color: '#25455D', fontSize: 13, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+                {showAllGifts
+                  ? <>Свернуть подарки <span style={{ fontSize: 15 }}>▲</span></>
+                  : <>Развернуть подарки <span style={{ fontSize: 15 }}>▼</span></>}
+              </button>
+            )}
           </>
         )}
       </div>
