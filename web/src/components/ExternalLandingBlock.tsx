@@ -28,17 +28,17 @@ export default function ExternalLandingBlock({ value, onChange }: Props) {
       <div className="flex items-center gap-2 mb-1.5">
         <Globe size={16} className="text-gray-500" />
         <h3 className="text-sm font-semibold text-gray-800">
-          Подключение стороннего лендинга
+          Сторонний лендинг
         </h3>
       </div>
       <p className="text-xs text-gray-500 mb-3 leading-relaxed">
         Если у вас уже есть лендинг события на Tilda, GetCourse, Taplink или
-        другом конструкторе — вставьте сюда его адрес. Mini App будет
-        открывать ваш лендинг для участников вместо встроенной страницы.
+        другом конструкторе — вставьте сюда его адрес. Участники будут
+        попадать на него вместо простой страницы события.
       </p>
 
       <label className="block text-sm font-medium text-gray-700 mb-1.5">
-        URL вашего лендинга
+        Адрес стороннего лендинга
       </label>
       <input
         type="url"
