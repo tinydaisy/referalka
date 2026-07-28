@@ -105,17 +105,17 @@ export default function LandingRenderer({ data, slug }: Props) {
   //   screen — повторяется на каждом экране (по умолчанию — читается везде);
   //   block  — свой градиент у каждой секции.
   const bgMode = page.bg_mode || 'screen'
+  // ⚠️ Никакого повторения фона: любой повтор даёт горизонтальный стык
+  // посреди страницы. Градиент — ОДИН на всю высоту, зафиксирован
+  // (background-attachment: fixed), поэтому при прокрутке цвет плавно
+  // меняется и переход виден на каждом экране без швов.
   const rootBg: React.CSSProperties = page.bg_image_url
     ? {}
-    : bgMode === 'screen'
-      // ⚠️ Именно `repeat-y` НЕЛЬЗЯ: конец градиента (тёмный) упирается в
-      // начало следующего (светлый) — на стыке видна резкая полоса.
-      // `repeat: round` + зеркальный градиент дают бесшовный перелив.
-      ? { background: page.bg_css_screen || page.bg_css,
-          backgroundSize: '100% 200vh', backgroundRepeat: 'repeat-y' }
-      : bgMode === 'block'
-        // Фон рисует каждая секция; здесь только базовый цвет под ними.
-        ? { background: page.bg_color || '#25455D' }
+    : bgMode === 'block'
+      // Фон рисует каждая секция; здесь только базовый цвет под ними.
+      ? { background: page.bg_color || '#25455D' }
+      : bgMode === 'screen'
+        ? { background: page.bg_css, backgroundAttachment: 'fixed' }
         : { background: page.bg_css }
 
   return (
@@ -517,7 +517,7 @@ function BlockBody({
           {list.map((t, i) => (
             <div key={i} className="flex items-start gap-4 p-4" style={cardStyle}>
               <span
-                className="shrink-0 text-2xl font-bold tabular-nums"
+                className="shrink-0 text-[1.6em] font-bold tabular-nums"
                 style={{ color: iconColor }}
               >
                 {String(i + 1).padStart(2, '0')}
@@ -553,12 +553,12 @@ function BlockBody({
                   />
                 </div>
               )}
-              <h3 className="text-base font-bold uppercase tracking-wider"
+              <h3 className="text-[1.05em] font-bold uppercase tracking-wider"
                   style={{ color: page.color_heading || '#FFCFA4' }}>
                 {c.title}
               </h3>
               {c.text && (
-                <p className="mt-3 text-sm leading-relaxed opacity-90">{c.text}</p>
+                <p className="mt-3 text-[.9em] leading-relaxed opacity-90">{c.text}</p>
               )}
             </div>
           ))}
@@ -586,7 +586,7 @@ function BlockBody({
               <div className="text-5xl font-bold sm:text-6xl" style={metalNum}>
                 {n.value}
               </div>
-              <div className="mt-3 text-sm opacity-85">{n.label}</div>
+              <div className="mt-3 text-[.9em] opacity-85">{n.label}</div>
             </div>
           ))}
         </div>
@@ -619,7 +619,7 @@ function BlockBody({
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {(t.items || []).map((x: any) => (
               <div key={x.id} className="flex flex-col p-6" style={cardStyle}>
-                <div className="text-xl font-bold uppercase" style={{ color: page.color_heading }}>
+                <div className="text-[1.3em] font-bold uppercase" style={{ color: page.color_heading }}>
                   {x.title}
                 </div>
                 {x.price != null && (
@@ -628,7 +628,7 @@ function BlockBody({
                   </div>
                 )}
                 {x.description && (
-                  <ul className="mt-4 flex-1 list-none space-y-2 p-0 text-sm leading-relaxed opacity-90">
+                  <ul className="mt-4 flex-1 list-none space-y-2 p-0 text-[.9em] leading-relaxed opacity-90">
                     {String(x.description).split('\n').map((r: string) => r.trim()).filter(Boolean)
                       .map((row: string, k: number) => (
                         <li key={k} className="flex gap-2">
@@ -651,7 +651,7 @@ function BlockBody({
             ))}
           </div>
           {t.offer_url && (
-            <p className="mt-4 text-center text-sm opacity-70">
+            <p className="mt-4 text-center text-[.9em] opacity-70">
               Покупая, вы соглашаетесь с{' '}
               <a href={t.offer_url} target="_blank" rel="noreferrer" className="lp-link">
                 офертой
@@ -728,7 +728,7 @@ function BlockBody({
               {o.owner_name}
             </div>
             {o.owner_positioning && (
-              <p className="mt-3 text-lg font-bold leading-snug" style={{ color: iconColor }}>
+              <p className="mt-3 text-[1.15em] font-bold leading-snug" style={{ color: iconColor }}>
                 {o.owner_positioning}
               </p>
             )}
@@ -782,7 +782,7 @@ function BlockBody({
             />
           )}
           {x.caption && (
-            <figcaption className="p-3 text-sm opacity-80">{x.caption}</figcaption>
+            <figcaption className="p-3 text-[.9em] opacity-80">{x.caption}</figcaption>
           )}
         </figure>
       ))
@@ -828,7 +828,7 @@ function BlockBody({
         f.legal_address,
       ].filter(Boolean)
       return (
-        <div className="space-y-3 text-sm opacity-75">
+        <div className="space-y-3 text-[.9em] opacity-75">
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             {f.privacy_url && (
               <a href={f.privacy_url} className="lp-link">Политика конфиденциальности</a>
@@ -960,22 +960,22 @@ function SpeakerCard({
         />
       )}
       <div className="flex flex-1 flex-col gap-2 p-4">
-        <div className="text-lg font-bold uppercase leading-tight tracking-wide"
+        <div className="text-[1.15em] font-bold uppercase leading-tight tracking-wide"
              style={{ color: page.color_heading || '#FFCFA4' }}>
           {s.name}
         </div>
         {s.title && (
-          <div className="text-sm font-semibold leading-snug opacity-90">{s.title}</div>
+          <div className="text-[.9em] font-semibold leading-snug opacity-90">{s.title}</div>
         )}
         {s.topic && (
-          <div className="pl-3 text-[15px] font-semibold leading-snug"
+          <div className="pl-3 text-[.95em] font-semibold leading-snug"
                style={{ borderLeft: `1px solid ${iconColor}` }}>
             {s.topic}
           </div>
         )}
 
         {open && !!ach.length && (
-          <ul className="mt-1 list-disc pl-5 text-sm leading-relaxed opacity-80">
+          <ul className="mt-1 list-disc pl-5 text-[.9em] leading-relaxed opacity-80">
             {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
           </ul>
         )}
@@ -1051,7 +1051,7 @@ function ProgramBlock({
               // цифры липнут к линии.
               // Линия отбита от цифр отступом с ОБЕИХ сторон — вплотную
               // к тексту она смотрится грязно.
-              <div className="shrink-0 pl-5 text-sm font-bold leading-snug sm:ml-1 sm:w-[130px] sm:border-l-0 sm:border-r sm:pl-0 sm:pr-6"
+              <div className="shrink-0 pl-5 text-[.9em] font-bold leading-snug sm:ml-1 sm:w-[130px] sm:border-l-0 sm:border-r sm:pl-0 sm:pr-6"
                    style={{ borderLeft: `1px solid ${iconColor}66`, borderRightColor: `${iconColor}66` }}>
                 {s.start_time}{s.end_time ? `–${s.end_time}` : ''}
                 <span className="mt-0.5 block text-[11px] font-normal opacity-60">МСК</span>
@@ -1071,12 +1071,12 @@ function ProgramBlock({
             <div className="min-w-0 flex-1 basis-full sm:basis-auto">
               <div className="font-bold leading-snug">{s.title}</div>
               {s.speaker_name && (
-                <div className="mt-1 text-sm font-semibold" style={{ color: iconColor }}>
+                <div className="mt-1 text-[.9em] font-semibold" style={{ color: iconColor }}>
                   {s.speaker_name}
                 </div>
               )}
               {s.speaker_position && (
-                <div className="mt-0.5 text-[13px] leading-snug opacity-70">
+                <div className="mt-0.5 text-[.82em] leading-snug opacity-70">
                   {s.speaker_position}
                 </div>
               )}
