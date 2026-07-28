@@ -172,9 +172,12 @@ async def handle_max_event(body: MaxEventRequest):
                         f"Вы открыли событие «{event_title}». Жмите кнопку ниже, чтобы вернуться "
                         f"в приложение — там программа, друзья и подарки за приглашения."
                     )
+                    # link_mode='bot' — в MAX Mini App не используется (человек
+                    # через него не подписывается на бота), ссылка ведёт в бота.
                     buttons = tg_inline_to_max_keyboard([[
                         {"text": f"Войти в «{event_title[:30]}»",
-                         "url": build_max_link(body.event_slug, bot_handle=bot_handle)},
+                         "url": build_max_link(body.event_slug, bot_handle=bot_handle,
+                                               link_mode='bot')},
                     ]])
                     # Афиша события вложением (как в TG/webhook welcome).
                     attachments = None

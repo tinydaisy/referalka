@@ -46,7 +46,18 @@ async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | 
     ⚠️ Mini App может быть подключён в Telegram и не подключён во ВКонтакте —
     поэтому режим задаётся на каждую площадку отдельно (миграция 200). Без
     `platform` поведение прежнее (общий флаг) — обратная совместимость.
+
+    ⚠️ MAX — ВСЕГДА 'bot' (2026-07-28), настройки клиента игнорируются. В MAX
+    нет запроса «разрешить боту писать» (в Telegram это requestWriteAccess, во
+    ВКонтакте — разрешение сообщений от сообщества), поэтому человек, зашедший
+    через Mini App, на бота НЕ подписывается: рассылки, напоминания и подарки
+    до него не дойдут. Веб-ссылка ведёт в бота (`?start=…`) — подписка
+    возникает сама. Переключатель «Mini App» для MAX заблокирован и в дашборде
+    (mini-app/page.tsx), но форсим и здесь: UI можно обойти, а старые записи
+    клиентов могут хранить 'miniapp' с прежних времён.
     """
+    if platform == 'max':
+        return 'bot'
     if client_id:
         col = _PLATFORM_MODE_COL.get(platform or "")
         cols = f"{col}, default_link_mode" if col else "default_link_mode"
@@ -56,7 +67,7 @@ async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | 
                 return row[col]
             if row["default_link_mode"] in ('miniapp', 'bot'):
                 return row["default_link_mode"]
-    return 'miniapp'
+    return 'bot'
 
 
 PLUSON_TG_HANDLE = "pluson_bot"
@@ -269,6 +280,10 @@ async def build_share_links(
     ) if client_id else None
 
     def _mode(col: str) -> str:
+        # MAX — всегда веб-версия (в Mini App человек не подписывается на бота,
+        # см. resolve_event_link_mode). Настройки клиента для max игнорируем.
+        if col == "link_mode_max":
+            return 'bot'
         v = per[col] if per else None
         return v if v in ('miniapp', 'bot') else link_mode
 
