@@ -158,6 +158,8 @@ class BlockPatch(BaseModel):
     pad_y: Optional[int] = None
     title_size: Optional[int] = None
     title_align: Optional[str] = None
+    subtitle_size: Optional[int] = None
+    text_size: Optional[int] = None
     title_color: Optional[str] = None
     title_metallic: Optional[bool] = None
     cards_bordered: Optional[bool] = None
@@ -461,7 +463,8 @@ async def patch_block(
     for field in (
         "title", "subtitle", "body", "button_label", "button_url", "is_active",
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
-        "title_size", "title_align", "title_color", "title_metallic",
+        "title_size", "title_align", "subtitle_size", "text_size",
+        "title_color", "title_metallic",
         "cards_bordered", "card_style", "columns", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -490,6 +493,10 @@ async def patch_block(
             val = "left"
         if field == "title_size" and val is not None:
             val = max(16, min(140, int(val)))
+        if field == "subtitle_size" and val is not None:
+            val = max(10, min(64, int(val)))
+        if field == "text_size" and val is not None:
+            val = max(10, min(48, int(val)))
         if field == "card_style" and val not in ("border", "divider", "plain"):
             val = "border"
         if field == "columns" and val is not None:

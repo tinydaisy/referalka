@@ -268,6 +268,12 @@ function Section({
     </div>
   ) : null
 
+  // Размер содержимого секции: списки, карточки, подарки, тарифы. Не задан —
+  // берётся размер основного текста страницы.
+  const textSizeStyle: React.CSSProperties = block.text_size
+    ? { fontSize: `${block.text_size}px` }
+    : {}
+
   const sideways = pic && (block.image_position === 'left' || block.image_position === 'right')
   const centered = pic && block.image_position === 'center'
   const inner = !pic ? blockBody : centered ? (
@@ -306,8 +312,11 @@ function Section({
   ) : null
 
   const subtitle = block.subtitle ? (
-    <p className="mt-3 text-base opacity-80 sm:text-lg"
-       style={{ textAlign: (block.title_align || 'left') as any }}>
+    <p className="mt-3 opacity-80"
+       style={{
+         textAlign: (block.title_align || 'left') as any,
+         fontSize: block.subtitle_size ? `${block.subtitle_size}px` : undefined,
+       }}>
       {block.subtitle}
     </p>
   ) : null
@@ -364,8 +373,9 @@ function Section({
               {subtitle}
             </div>
             <div className={block.layout === 'right' ? 'md:order-1' : ''}>
-              {body && <p className="mb-6 whitespace-pre-wrap opacity-90">{body}</p>}
-              {inner}
+              {body && <p className="mb-6 whitespace-pre-wrap opacity-90"
+                          style={textSizeStyle}>{body}</p>}
+              <div style={textSizeStyle}>{inner}</div>
               {ownButton}
             </div>
           </div>
@@ -373,8 +383,9 @@ function Section({
           <>
             {heading}
             {subtitle}
-            {body && <p className="mt-4 whitespace-pre-wrap opacity-90">{body}</p>}
-            <div className="mt-8">{inner}</div>
+            {body && <p className="mt-4 whitespace-pre-wrap opacity-90"
+                        style={textSizeStyle}>{body}</p>}
+            <div className="mt-8" style={textSizeStyle}>{inner}</div>
             {ownButton}
           </>
         )}
@@ -666,12 +677,7 @@ function BlockBody({
                 {g.description && (
                   <span className="opacity-85"> — {g.description}</span>
                 )}
-                {!!g.threshold_count && (
-                  <span className="ml-2 whitespace-nowrap text-sm font-semibold"
-                        style={{ color: iconColor }}>
-                    за {g.threshold_count} {plural(g.threshold_count)}
-                  </span>
-                )}
+
               </div>
             </li>
           ))}
@@ -1106,14 +1112,6 @@ function GiftIcon({ color, id }: { color: string; id: string }) {
       <path d="M32 17C32 17 39 4 47 7c6 2 4 10-3 10H32z" fill={`url(#${gid})`} />
     </svg>
   )
-}
-
-/** Склонение слова «друг» по числу: 1 друг, 3 друга, 5 друзей. */
-function plural(n: number): string {
-  const mod10 = n % 10, mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return 'друга'          // «за 1 друга»
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'друга'
-  return 'друзей'
 }
 
 /** Ссылка на видео → embed. Поддержаны YouTube, VK Видео, Rutube. */

@@ -344,6 +344,49 @@ export default function BlockCard({
                 </Field>
               </div>
 
+              {/* Размеры остального текста секции — отдельно от заголовка. */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={`Размер подзаголовка: ${block.subtitle_size ? `${block.subtitle_size} px` : 'обычный'}`}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range" min={10} max={64} step={1}
+                      value={block.subtitle_size ?? 18}
+                      onChange={e => onPatch({ subtitle_size: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    {block.subtitle_size != null && (
+                      <button
+                        onClick={() => onPatch({ subtitle_size: null })}
+                        className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                      >
+                        сбросить
+                      </button>
+                    )}
+                  </div>
+                </Field>
+                <Field label={`Размер текста секции: ${block.text_size ? `${block.text_size} px` : 'как на странице'}`}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range" min={10} max={48} step={1}
+                      value={block.text_size ?? 16}
+                      onChange={e => onPatch({ text_size: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    {block.text_size != null && (
+                      <button
+                        onClick={() => onPatch({ text_size: null })}
+                        className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                      >
+                        сбросить
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Пункты списков, карточки, подарки, тарифы — всё содержимое секции.
+                  </p>
+                </Field>
+              </div>
+
               <div className="rounded-lg border border-gray-200 p-3">
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
