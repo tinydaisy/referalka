@@ -154,6 +154,9 @@ class BlockPatch(BaseModel):
     pad_y: Optional[int] = None
     title_size: Optional[int] = None
     title_align: Optional[str] = None
+    title_color: Optional[str] = None
+    title_metallic: Optional[bool] = None
+    cards_bordered: Optional[bool] = None
     columns: Optional[int] = None
     show_seats: Optional[bool] = None
     seats_position: Optional[str] = None
@@ -452,7 +455,8 @@ async def patch_block(
     for field in (
         "title", "subtitle", "body", "button_label", "button_url", "is_active",
         "layout", "image_url", "image_position", "split_ratio", "pad_y",
-        "title_size", "title_align", "columns", "show_seats", "seats_position",
+        "title_size", "title_align", "title_color", "title_metallic",
+        "cards_bordered", "columns", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):

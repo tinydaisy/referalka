@@ -176,6 +176,42 @@ export default function BlockCard({
                       </div>
                     </Field>
                   </div>
+
+                  {/* Свой цвет заголовка — например, белый вместо фирменного. */}
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.title_color}
+                        onChange={e => onPatch({
+                          title_color: e.target.checked ? '#FFFFFF' : null,
+                          title_metallic: e.target.checked ? false : null,
+                        })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Свой цвет заголовка (не как в теме)
+                      </span>
+                    </label>
+                    {block.title_color && (
+                      <div className="mt-3 space-y-3">
+                        <ColorField
+                          label="Цвет заголовка этой секции"
+                          value={block.title_color}
+                          onChange={v => onPatch({ title_color: v })}
+                        />
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={!!block.title_metallic}
+                            onChange={e => onPatch({ title_metallic: e.target.checked })}
+                            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                          />
+                          <span className="text-sm text-gray-700">Металлический перелив</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -259,19 +295,30 @@ export default function BlockCard({
                 </div>
               )}
 
-              {/* Сколько карточек в ряд — для блоков с сеткой. */}
-              {['speakers', 'values', 'difference', 'gallery'].includes(block.kind) && (
-                <Field label={`Карточек в ряд: ${block.columns || 3}`}>
-                  <input
-                    type="range" min={1} max={6}
-                    value={block.columns || 3}
-                    onChange={e => onPatch({ columns: Number(e.target.value) })}
-                    className="w-full"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    На узком экране колонок будет меньше — вёрстка подстроится сама.
-                  </p>
-                </Field>
+              {/* Сколько карточек в ряд + рамка — для блоков с сеткой. */}
+              {['speakers', 'values', 'difference', 'gallery', 'numbers'].includes(block.kind) && (
+                <>
+                  <Field label={`Карточек в ряд: ${block.columns || (block.kind === 'numbers' ? 4 : 3)}`}>
+                    <input
+                      type="range" min={1} max={6}
+                      value={block.columns || (block.kind === 'numbers' ? 4 : 3)}
+                      onChange={e => onPatch({ columns: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      На узком экране колонок будет меньше — вёрстка подстроится сама.
+                    </p>
+                  </Field>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={block.cards_bordered !== false}
+                      onChange={e => onPatch({ cards_bordered: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                    />
+                    <span className="text-sm text-gray-700">Рамка вокруг карточек</span>
+                  </label>
+                </>
               )}
 
               {block.kind === 'hero' && (

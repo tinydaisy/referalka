@@ -191,6 +191,20 @@ function Section({
   // В режиме «градиент по блокам» каждая секция получает полный градиент —
   // переход виден внутри каждой, а не размазан по всей странице.
   const blockGradient = page.bg_mode === 'block' && !block.bg_color ? page.bg_css : undefined
+  // Рамку карточек можно снять у секции — например, у цифр она лишняя.
+  const cards: React.CSSProperties = block.cards_bordered === false
+    ? { borderRadius: radius, border: 'none', background: 'transparent' }
+    : cardStyle
+
+  // Секция может переопределить цвет заголовка (например, белым вместо
+  // фирменного) и признак металлика — не трогая тему всей страницы.
+  const ownColor = block.title_color || page.color_heading || '#FFCFA4'
+  const ownMetal = block.title_metallic == null ? !!page.heading_metallic : !!block.title_metallic
+  const ownHeading: React.CSSProperties = ownMetal
+    ? { fontFamily: page.font_heading_css, lineHeight: 1.05,
+        background: metallic(ownColor), WebkitBackgroundClip: 'text',
+        backgroundClip: 'text', color: 'transparent' }
+    : { fontFamily: page.font_heading_css, lineHeight: 1.05, color: ownColor }
   const sectionStyle: React.CSSProperties = {
     background: block.bg_image_url ? undefined : (block.bg_color || blockGradient || undefined),
     borderRadius: block.border_radius || undefined,
@@ -205,7 +219,7 @@ function Section({
   /* Содержимое блока — своё для каждого типа. */
   const blockBody = <BlockBody
     block={block} page={page} radius={radius} btnStyle={btnStyle}
-    cardStyle={cardStyle} iconColor={iconColor} headingStyle={headingStyle}
+    cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
     event={event} content={content} slug={slug}
   />
 
@@ -242,7 +256,7 @@ function Section({
     <h2
       className="font-bold uppercase"
       style={{
-        ...headingStyle,
+        ...ownHeading,
         textAlign: align as any,
         fontSize: `clamp(${Math.round(tSize * 0.55)}px, ${(tSize / 12).toFixed(1)}vw, ${tSize}px)`,
       }}
@@ -495,14 +509,24 @@ function BlockBody({
     /* ── Цифры ─────────────────────────────────────────────────────────── */
     case 'numbers': {
       const list = Array.isArray(items) ? items.filter((n: any) => n && (n.value || n.label)) : []
+      // Цифры — крупным металликом из цвета иконок; число колонок настраивается.
+      const metalNum: React.CSSProperties = {
+        fontFamily: page.font_heading_css,
+        background: metallic(iconColor),
+        WebkitBackgroundClip: 'text',
+        backgroundClip: 'text',
+        color: 'transparent',
+        lineHeight: 1,
+      }
       return (
-        <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
+        <div className="lp-grid grid gap-8"
+             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 4)) }}>
           {list.map((n: any, i: number) => (
             <div key={i} className="p-5 text-center" style={cardStyle}>
-              <div className="text-3xl font-bold sm:text-4xl" style={headingStyle}>
+              <div className="text-5xl font-bold sm:text-6xl" style={metalNum}>
                 {n.value}
               </div>
-              <div className="mt-1 text-sm opacity-80">{n.label}</div>
+              <div className="mt-3 text-sm opacity-85">{n.label}</div>
             </div>
           ))}
         </div>
@@ -512,22 +536,11 @@ function BlockBody({
     /* ── Спикеры ───────────────────────────────────────────────────────── */
     // Раскладка проверена на боевом лендинге (GetCourse): квадратное фото,
     // имя капсом, должность, тема с акцентной полосой слева, регалии списком.
-    case 'speakers': {
-      const list = content.speakers || []
-      if (!list.length) return null
-      // Сколько карточек в ряд — настройка блока (по умолчанию 3).
-      // На узких экранах колонок всегда меньше, независимо от настройки.
-      const cols = Math.max(1, Math.min(6, block.columns || 3))
-      return (
-        <div className="lp-grid grid gap-5"
-             style={{ ['--lp-cols-lg' as any]: cols }}>
-          {list.map((s: any) => (
-            <SpeakerCard key={s.id} s={s} page={page}
-                         cardStyle={cardStyle} iconColor={iconColor} radius={radius} />
-          ))}
-        </div>
-      )
-    }
+    case 'speakers':
+      return <SpeakersBlock
+        list={content.speakers || []} block={block} page={page}
+        cardStyle={cardStyle} iconColor={iconColor} btnStyle={btnStyle}
+      />
 
     /* ── Программа ─────────────────────────────────────────────────────── */
     // Дни — кнопками-табами (как на боевом лендинге), слоты — карточками:
@@ -823,14 +836,56 @@ function SeatsBadge({
 }
 
 /**
- * Карточка спикера: фото, имя, должность и тема видны всегда, регалии
- * раскрываются по стрелке. Иначе при 15 спикерах страница становится
- * бесконечной — а регалии интересны не всем и не сразу.
+ * Секция спикеров. Регалии разворачиваются СРАЗУ У ВСЕХ карточек одной
+ * кнопкой: если раскрывать по одной, ряд растягивается по самой высокой
+ * карточке, а соседние выглядят пустыми коробками.
+ */
+function SpeakersBlock({ list, block, page, cardStyle, iconColor, btnStyle }: any) {
+  const [open, setOpen] = useState(false)
+  if (!list.length) return null
+
+  const cols = Math.max(1, Math.min(6, block.columns || 3))
+  const hasAch = list.some((s: any) => Array.isArray(s.achievements) && s.achievements.length)
+
+  return (
+    <div>
+      <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
+        {list.map((s: any) => (
+          <SpeakerCard key={s.id} s={s} page={page}
+                       cardStyle={cardStyle} iconColor={iconColor} open={open} />
+        ))}
+      </div>
+
+      {hasAch && (
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            className="inline-flex items-center gap-2 px-7 py-3 text-sm font-bold uppercase"
+            style={btnStyle}
+          >
+            {open ? 'Свернуть' : 'Подробнее о спикерах'}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+                 strokeLinejoin="round" aria-hidden="true"
+                 style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }}>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Карточка спикера: фото, имя, должность и тема видны всегда. Регалии
+ * показываются, когда раскрыта вся секция (проп `open`) — своего состояния
+ * у карточки нет специально, чтобы ряд не «прыгал».
  */
 function SpeakerCard({
-  s, page, cardStyle, iconColor, radius,
+  s, page, cardStyle, iconColor, open,
 }: any) {
-  const [open, setOpen] = useState(false)
   const ach: string[] = Array.isArray(s.achievements)
     ? s.achievements
         .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
@@ -865,28 +920,10 @@ function SpeakerCard({
           </div>
         )}
 
-        {!!ach.length && (
-          <>
-            {open && (
-              <ul className="mt-1 list-disc pl-5 text-sm leading-relaxed opacity-80">
-                {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
-              </ul>
-            )}
-            <button
-              type="button"
-              onClick={() => setOpen(o => !o)}
-              className="mt-auto flex items-center gap-1.5 pt-2 text-sm font-semibold"
-              style={{ color: iconColor }}
-            >
-              {open ? 'Свернуть' : 'Подробнее'}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-                   strokeLinejoin="round" aria-hidden="true"
-                   style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }}>
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            </button>
-          </>
+        {open && !!ach.length && (
+          <ul className="mt-1 list-disc pl-5 text-sm leading-relaxed opacity-80">
+            {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
+          </ul>
         )}
       </div>
     </div>
