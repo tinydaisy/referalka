@@ -215,6 +215,22 @@ def _ser_block(r: asyncpg.Record) -> dict:
     return d
 
 
+def _ser_page(r) -> dict:
+    """⚠️ JSONB из asyncpg приходит СТРОКОЙ. Без разбора фронт получает
+    `nav_items` строкой и падает на `.map` — страница настроек лендинга
+    выбрасывает Application error."""
+    d = dict(r)
+    nav = d.get("nav_items")
+    if isinstance(nav, str):
+        try:
+            d["nav_items"] = json.loads(nav)
+        except (ValueError, TypeError):
+            d["nav_items"] = []
+    if not isinstance(d.get("nav_items"), list):
+        d["nav_items"] = []
+    return d
+
+
 async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
     """Страница создаётся лениво — при первом заходе в раздел, с дефолтным
     набором блоков. Так у клиента сразу есть что редактировать, а у событий,
@@ -359,7 +375,7 @@ async def get_landing(
             "SELECT * FROM event_landing_blocks WHERE page_id = $1 ORDER BY sort_order, id",
             page["id"],
         )
-        pages.append({**dict(page), "blocks": [_ser_block(b) for b in blocks]})
+        pages.append({**_ser_page(page), "blocks": [_ser_block(b) for b in blocks]})
 
     # Сколько мест занято — считаем на лету, в базе не храним (иначе разъедется).
     taken = await db.fetchval(
@@ -481,7 +497,7 @@ async def patch_page(
         f"WHERE id = ${len(vals)} RETURNING *",
         *vals,
     )
-    return dict(row)
+    return _ser_page(row)
 
 
 @router.post("/pages/{page_id}/blocks", summary="Добавить блок")
@@ -714,7 +730,7 @@ async def apply_theme(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Страница не найдена")
-    return dict(row)
+    return _ser_page(row)
 
 
 @router.patch("/seats", summary="Всего мест на событии")

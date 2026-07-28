@@ -59,6 +59,9 @@ export default function LandingTab({ eventId, event }: Props) {
   useEffect(() => { load() }, [eventId])
 
   const page = useMemo(() => pages.find(p => p.kind === kind), [pages, kind])
+  // Защита от неверных данных: если nav_items придёт не массивом, .map ниже
+  // уронил бы всю вкладку (Application error).
+  const navItems: any[] = Array.isArray(page?.nav_items) ? page!.nav_items : []
 
   /* ── правка настроек страницы ─────────────────────────────────────────── */
   const patchPage = (patch: any) => {
@@ -308,13 +311,13 @@ export default function LandingTab({ eventId, event }: Props) {
                     Пункты меню
                   </label>
                   <div className="space-y-2">
-                    {(page.nav_items || []).map((it: any, i: number) => (
+                    {navItems.map((it: any, i: number) => (
                       <div key={i} className="flex gap-2">
                         <input
                           type="text"
                           value={it.label || ''}
                           onChange={e => {
-                            const next = [...(page.nav_items || [])]
+                            const next = [...navItems]
                             next[i] = { ...next[i], label: e.target.value }
                             patchPage({ nav_items: next })
                           }}
@@ -324,14 +327,14 @@ export default function LandingTab({ eventId, event }: Props) {
                         <select
                           value={it.block_kind || ''}
                           onChange={e => {
-                            const next = [...(page.nav_items || [])]
+                            const next = [...navItems]
                             next[i] = { ...next[i], block_kind: e.target.value }
                             patchPage({ nav_items: next })
                           }}
                           className="input w-56 shrink-0 bg-white"
                         >
                           <option value="">— секция —</option>
-                          {page.blocks.map((b: any) => (
+                          {(page.blocks || []).map((b: any) => (
                             <option key={b.id} value={b.kind}>
                               {metaFor(b.kind).label}
                             </option>
@@ -339,7 +342,7 @@ export default function LandingTab({ eventId, event }: Props) {
                         </select>
                         <button
                           onClick={() => patchPage({
-                            nav_items: (page.nav_items || []).filter((_: any, j: number) => j !== i),
+                            nav_items: navItems.filter((_: any, j: number) => j !== i),
                           })}
                           className="shrink-0 rounded px-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
                         >
@@ -348,10 +351,10 @@ export default function LandingTab({ eventId, event }: Props) {
                       </div>
                     ))}
                   </div>
-                  {(page.nav_items || []).length < 8 && (
+                  {navItems.length < 8 && (
                     <button
                       onClick={() => patchPage({
-                        nav_items: [...(page.nav_items || []), { label: '', block_kind: '' }],
+                        nav_items: [...navItems, { label: '', block_kind: '' }],
                       })}
                       className="mt-2 text-sm font-medium text-brand hover:underline"
                     >
