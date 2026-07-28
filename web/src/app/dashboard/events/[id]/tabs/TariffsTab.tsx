@@ -287,11 +287,11 @@ export default function TariffsTab({
         )}
       </div>
 
-      {/* Модалка формы */}
+      {/* Модалка формы.
+          ⚠️ Форма прокручивается: полей стало больше, и на невысоком экране
+          низ вместе с кнопкой «Сохранить» уходил за край — окно выглядело
+          зависшим. Прокрутка на подложке + ограничение высоты у окна. */}
       {showForm && (
-        {/* ⚠️ Форма прокручивается: полей стало больше, и на невысоком экране
-            низ вместе с кнопкой «Сохранить» уходил за край — окно выглядело
-            зависшим. Прокрутка на подложке + ограничение высоты у окна. */}
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-10">
           <div className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5"
                onClick={e => e.stopPropagation()}>
