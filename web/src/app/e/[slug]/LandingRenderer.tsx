@@ -548,9 +548,8 @@ function BlockBody({
           {list.map((g: any, i: number) => (
             <div key={i} className="p-5" style={cardStyle}>
               <div className="text-sm font-bold uppercase" style={{ color: iconColor }}>
-                {g.threshold_count === 1
-                  ? 'За регистрацию'
-                  : `За ${g.threshold_count} друзей`}
+                {/* Порог 0 = подарок всем за сам факт регистрации. */}
+                {!g.threshold_count ? 'За регистрацию' : `За ${g.threshold_count} ${plural(g.threshold_count)}`}
               </div>
               <div className="mt-2 font-medium">{g.title || 'Подарок'}</div>
               {g.description && (
@@ -714,6 +713,14 @@ function BlockBody({
 }
 
 /* ── Утилиты ────────────────────────────────────────────────────────────── */
+
+/** Склонение слова «друг» по числу: 1 друг, 3 друга, 5 друзей. */
+function plural(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'друга'          // «за 1 друга»
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'друга'
+  return 'друзей'
+}
 
 /** Ссылка на видео → embed. Поддержаны YouTube, VK Видео, Rutube. */
 function embedUrl(url: string): string {
