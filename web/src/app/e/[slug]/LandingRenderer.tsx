@@ -426,31 +426,58 @@ function BlockBody({
     }
 
     /* ── Спикеры ───────────────────────────────────────────────────────── */
+    // Раскладка проверена на боевом лендинге (GetCourse): квадратное фото,
+    // имя капсом, должность, тема с акцентной полосой слева, регалии списком.
     case 'speakers': {
       const list = content.speakers || []
+      if (!list.length) return null
       return (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {list.map((s: any) => (
-            <div key={s.id} className="overflow-hidden" style={cardStyle}>
-              {s.photo_url && (
-                <img
-                  src={s.photo_url}
-                  alt={s.name}
-                  className="aspect-[4/5] w-full object-cover"
-                  style={{ borderRadius: `${radius}px ${radius}px 0 0` }}
-                />
-              )}
-              <div className="p-4">
-                <div className="font-bold uppercase" style={{ color: page.color_heading }}>
-                  {s.name}
-                </div>
-                {(s.position || s.title) && (
-                  <div className="mt-1 text-sm opacity-80">{s.position || s.title}</div>
+        <div className="grid gap-5" style={{
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+        }}>
+          {list.map((s: any) => {
+            const ach: string[] = Array.isArray(s.achievements)
+              ? s.achievements
+                  .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
+                  // Часть регалий заведена с дефисом в начале — убираем, маркер свой.
+                  .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
+                  .filter(Boolean)
+                  .slice(0, 5)
+              : []
+            return (
+              <div key={s.id} className="flex flex-col overflow-hidden" style={cardStyle}>
+                {s.photo_url && (
+                  <img
+                    src={s.photo_url}
+                    alt={s.name}
+                    loading="lazy"
+                    className="block w-full object-cover"
+                    style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }}
+                  />
                 )}
-                {s.topic && <div className="mt-2 text-sm opacity-70">{s.topic}</div>}
+                <div className="flex flex-1 flex-col gap-2 p-4">
+                  <div className="text-lg font-bold uppercase leading-tight tracking-wide"
+                       style={{ color: page.color_heading || '#FFCFA4' }}>
+                    {s.name}
+                  </div>
+                  {s.title && (
+                    <div className="text-sm font-semibold leading-snug opacity-90">{s.title}</div>
+                  )}
+                  {s.topic && (
+                    <div className="pl-3 text-[15px] font-semibold leading-snug"
+                         style={{ borderLeft: `3px solid ${iconColor}` }}>
+                      {s.topic}
+                    </div>
+                  )}
+                  {!!ach.length && (
+                    <ul className="mt-1 list-disc pl-5 text-sm leading-relaxed opacity-80">
+                      {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
+                    </ul>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )
     }

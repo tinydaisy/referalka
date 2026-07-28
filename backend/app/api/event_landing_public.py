@@ -139,20 +139,15 @@ async def get_public_landing(
         # дашборде и рассылках. Своя сортировка дала бы другой порядок спикеров
         # на лендинге, чем везде — это путает клиента.
         rows = await db.fetch(
+            # ⚠️ В карточке спикера — ФОТО (`collaborators.photo_url`), не афиша.
+            # Афиша — вертикальный баннер под анонс, в сетке карточек она ломает
+            # раскладку. Афиши остаются в рассылках и материалах спикера.
+            #
             # ⚠️ Связь с карточкой коллаба — `event_collaborators.speaker_id`
             # (не collaborator_id), тема — `speaker_topic`. Проверено по схеме.
             f"""SELECT cse.id, cse.role, cse.speaker_topic AS topic,
-                      c.name, c.title, c.achievements,
-                      c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
-                      COALESCE(
-                        (SELECT cp.url FROM collaborator_posters cp
-                          WHERE NOT cse.use_photo_instead_of_poster
-                            AND (cp.id = cse.poster_id
-                                 OR (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
-                          ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
-                          LIMIT 1),
-                        c.photo_url
-                      ) AS photo_url
+                      c.name, c.title, c.achievements, c.photo_url,
+                      c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cse.event_id = $1
@@ -193,15 +188,7 @@ async def get_public_landing(
             """SELECT s.id, s.day, s.start_time, s.end_time, s.speaker_id,
                       COALESCE(cst.topic, s.title) AS title,
                       c.name AS speaker_name, c.title AS speaker_position,
-                      COALESCE(
-                        (SELECT cp.url FROM collaborator_posters cp
-                          WHERE NOT ec.use_photo_instead_of_poster
-                            AND (cp.id = ec.poster_id
-                                 OR (ec.poster_id IS NULL AND cp.collaborator_id = c.id))
-                          ORDER BY (cp.id = ec.poster_id) DESC, cp.sort_order, cp.id
-                          LIMIT 1),
-                        c.photo_url
-                      ) AS speaker_photo_url
+                      c.photo_url AS speaker_photo_url
                  FROM conf_sessions s
                  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
                  LEFT JOIN event_collaborators ec ON ec.id = s.speaker_id
