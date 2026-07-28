@@ -72,7 +72,6 @@ async def get_public_landing(
     event = await db.fetchrow(
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
                   e.status, e.module_slug, e.seats_total, e.offer_url,
-                  e.chat_url_tg, e.chat_url_vk, e.chat_url_max,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -140,8 +139,10 @@ async def get_public_landing(
         # дашборде и рассылках. Своя сортировка дала бы другой порядок спикеров
         # на лендинге, чем везде — это путает клиента.
         rows = await db.fetch(
-            f"""SELECT cse.id, cse.role, cse.topic,
-                      c.name, c.title, c.position, c.achievements,
+            # ⚠️ Связь с карточкой коллаба — `event_collaborators.speaker_id`
+            # (не collaborator_id), тема — `speaker_topic`. Проверено по схеме.
+            f"""SELECT cse.id, cse.role, cse.speaker_topic AS topic,
+                      c.name, c.title, c.achievements,
                       c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
                       COALESCE(
                         (SELECT cp.url FROM collaborator_posters cp
@@ -153,7 +154,7 @@ async def get_public_landing(
                         c.photo_url
                       ) AS photo_url
                  FROM event_collaborators cse
-                 JOIN collaborators c ON c.id = cse.collaborator_id
+                 JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cse.event_id = $1
                   AND cse.role IN ('speaker', 'headliner')
                 ORDER BY {order_by_sql('cse')}""",
@@ -191,7 +192,7 @@ async def get_public_landing(
         sessions = await db.fetch(
             """SELECT s.id, s.day, s.start_time, s.end_time, s.speaker_id,
                       COALESCE(cst.topic, s.title) AS title,
-                      c.name AS speaker_name, c.position AS speaker_position,
+                      c.name AS speaker_name, c.title AS speaker_position,
                       COALESCE(
                         (SELECT cp.url FROM collaborator_posters cp
                           WHERE NOT ec.use_photo_instead_of_poster
@@ -204,7 +205,7 @@ async def get_public_landing(
                  FROM conf_sessions s
                  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
                  LEFT JOIN event_collaborators ec ON ec.id = s.speaker_id
-                 LEFT JOIN collaborators c ON c.id = ec.collaborator_id
+                 LEFT JOIN collaborators c ON c.id = ec.speaker_id
                 WHERE s.event_id = $1
                 ORDER BY s.day, s.start_time NULLS LAST, s.id""",
             event["id"],
