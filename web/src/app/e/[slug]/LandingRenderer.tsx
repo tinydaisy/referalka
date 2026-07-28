@@ -266,11 +266,12 @@ export default function LandingRenderer({ data, slug }: Props) {
         }
         .lp-glow > * { animation: lp-glow var(--lp-cycle, 10s) ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .lp-glow > * { animation: none; } }
-        /* ⚠️ overflow-x на .lp-root ставить НЕЛЬЗЯ: любой overflow, кроме
-           visible, создаёт новый контейнер прокрутки, и position: sticky у
-           шапки перестаёт работать — она уезжает вместе со страницей.
-           Горизонтальную прокрутку гасим на уровне документа. */
-        html, body { overflow-x: hidden; }
+        /* ⚠️ overflow-x: hidden НЕЛЬЗЯ ставить ни на .lp-root, ни на html/body:
+           он создаёт контейнер прокрутки, и position: sticky у шапки
+           перестаёт работать — она уезжает вместе со страницей.
+           От горизонтальной прокрутки защищаемся иначе: ограничиваем ширину
+           содержимого (max-width на картинках, перенос длинных слов). */
+        .lp-root { max-width: 100vw; }
         .lp-root img { max-width: 100%; }
         .lp-root h1, .lp-root h2, .lp-root h3 { overflow-wrap: anywhere; }
       `}</style>
@@ -341,10 +342,11 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
               </span>}
         </a>
 
-        {/* Пункты меню: на широком экране в строку, на телефоне — в раскрывашке.
+        {/* Пункты меню — ПО ЦЕНТРУ шапки, между логотипом и кнопкой.
             Цвет — основного текста страницы (у нас белый): на тёмной шапке
-            он читается, а фирменный акцент оставлен кнопке. */}
-        <nav className="ml-auto hidden items-center gap-6 md:flex">
+            он читается, а фирменный акцент оставлен кнопке.
+            На телефоне пункты уезжают в раскрывашку, кнопка остаётся. */}
+        <nav className="mx-auto hidden items-center gap-6 md:flex">
           {links.map(i => (
             <a key={i.block_kind} href={`#lp-${i.block_kind}`}
                className="text-[.9em] font-medium uppercase tracking-wide transition-opacity hover:opacity-70"
@@ -354,11 +356,12 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
           ))}
         </nav>
 
+        {/* ⚠️ Кнопка видна ВСЕГДА, включая телефон: это главное действие
+            страницы. Гамбургер лишь прячет пункты, которые не помещаются. */}
         {page.nav_button_label && (
-          // Цель кнопки: регистрация или якорь на секцию (например, тарифы).
           <a href={navTarget}
-             className="ml-auto hidden shrink-0 px-5 py-2.5 text-[.85em] font-bold uppercase md:ml-0 md:inline-block"
-             style={btnStyle}>
+             className="ml-auto shrink-0 truncate px-3 py-2 text-[.75em] font-bold uppercase sm:px-5 sm:py-2.5 sm:text-[.85em] md:ml-0"
+             style={{ ...btnStyle, maxWidth: '52vw' }}>
             {page.nav_button_label}
           </a>
         )}
@@ -368,7 +371,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
             type="button"
             onClick={() => setOpen(o => !o)}
             aria-label="Меню"
-            className="ml-auto md:hidden"
+            className={`shrink-0 md:hidden ${page.nav_button_label ? 'ml-2' : 'ml-auto'}`}
             style={{ color: page.color_heading || '#FFCFA4' }}
           >
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
