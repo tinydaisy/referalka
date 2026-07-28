@@ -393,8 +393,13 @@ function Section({
   // Свечение карточек: класс на контейнер сетки + переменные цвета.
   // Задержку каждой карточке проставляем инлайном (--i), чтобы огонёк бежал.
   const glowCls = block.cards_glow ? 'lp-glow' : ''
+  // Длительность цикла = 2.2с на карточку: подсветка успевает загореться и
+  // погаснуть до перехода к следующей.
+  const glowCount = Array.isArray(block.items) ? Math.max(1, block.items.length) : 4
   const glowVars: React.CSSProperties = block.cards_glow
     ? ({
+        ['--lp-cycle' as any]: `${(glowCount * 2.2).toFixed(1)}s`,
+        ['--lp-count' as any]: String(glowCount),
         ['--lp-glow' as any]: page.icon_color || '#FFCFA4',
         // Полупрозрачная заливка тем же акцентом — «подсвеченная» карточка.
         ['--lp-glow-soft' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.14),
@@ -697,7 +702,7 @@ function BlockBody({
              style={{ ['--lp-cols-lg' as any]: cols, ...glowVars }}>
           {list.map((c: any, i: number) => (
             <div key={i} className="flex flex-col overflow-hidden"
-                 style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
+                 style={{ ...cardStyle, animationDelay: `calc(var(--lp-cycle, 10s) / var(--lp-count, 5) * ${i})` }}>
               {c.image && (
                 // Форма фото: скругление по ширине/высоте в % даёт круг,
                 // овал или квадрат; пропорция — чтобы фото не обрезалось
@@ -741,7 +746,7 @@ function BlockBody({
         <div className={`space-y-3 ${glowCls}`} style={glowVars}>
           {list.map((t, i) => (
             <div key={i} className="flex items-start gap-4 p-4"
-                 style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
+                 style={{ ...cardStyle, animationDelay: `calc(var(--lp-cycle, 10s) / var(--lp-count, 5) * ${i})` }}>
               <span
                 className="shrink-0 text-[1.6em] font-bold tabular-nums"
                 style={{ color: iconColor }}
@@ -768,7 +773,7 @@ function BlockBody({
           {list.map((c: any, i: number) => (
             <div key={i}
                  className="flex flex-col items-center px-6 pb-7 pt-8 text-center"
-                 style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
+                 style={{ ...cardStyle, animationDelay: `calc(var(--lp-cycle, 10s) / var(--lp-count, 5) * ${i})` }}>
               {c.icon && (
                 <div className="mb-5">
                   <CardIcon
@@ -874,7 +879,7 @@ function BlockBody({
               <div key={x.id} className="relative flex flex-col p-6"
                    style={{
                      ...cardStyle,
-                     animationDelay: `${i * 1.2}s`,
+                     animationDelay: `calc(var(--lp-cycle, 10s) / var(--lp-count, 5) * ${i})`,
                      ...(x.is_featured ? {
                        borderColor: iconColor,
                        borderWidth: 2,
