@@ -386,7 +386,8 @@ async def get_landing(
     await _assert_feature(db, client_id)
 
     ev = await db.fetchrow(
-        "SELECT slug, title, seats_total, seats_label, seats_label_position, seats_size "
+        "SELECT slug, title, seats_total, seats_label, seats_label_position, seats_size, "
+        "seats_count_mode, seats_base "
         "FROM events WHERE id = $1", event_id
     )
 
