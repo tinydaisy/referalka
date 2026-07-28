@@ -204,6 +204,15 @@ async def recall_broadcast(db, schedule_id: int) -> dict:
         f"(tg={by_platform['telegram']}, vk={by_platform['vk']}, max={by_platform['max']}), "
         f"не удалось {failed}, без message_id {skipped_no_msgid}, email {skipped_email}"
     )
+
+    # Хоть что-то удалили — помечаем рассылку отозванной, чтобы в очереди она
+    # не выглядела как обычная «Отправлено». Статус отдельный от 'cancelled'
+    # (та = снятая с очереди ДО отправки, её можно запустить снова).
+    if deleted:
+        await db.execute(
+            "UPDATE broadcast_schedules SET status='recalled' WHERE id=$1 AND status='done'",
+            schedule_id,
+        )
     return {
         "ok": True,
         "deleted": deleted,

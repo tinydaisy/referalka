@@ -667,6 +667,21 @@ export default function MiniAppSettingsPage() {
               </div>
             )}
 
+            {/* MAX: Mini App отключён намеренно. В MAX нет запроса «разрешить
+                боту писать» (в Telegram это requestWriteAccess, во ВКонтакте —
+                разрешение сообщений от сообщества). Человек, зашедший через
+                Mini App, на бота НЕ подписывается — рассылки, напоминания и
+                подарки до него не дойдут. Веб-версия ведёт в бота (?start=),
+                и подписка возникает сама. */}
+            {linkTab === 'max' && (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <b>В MAX ссылки всегда открывают веб-версию.</b> В MAX нет запроса
+                «разрешить боту писать», поэтому через Mini App человек не подписывается
+                на бота — рассылки и подарки до него не дойдут. Веб-версия ведёт в бота,
+                и подписка происходит сама.
+              </div>
+            )}
+
             <div className="space-y-2">
               {([
                 { v: 'miniapp', t: 'Mini App',   d: 'Ссылки открывают приложение внутри Telegram/VK (Mini App).' },
@@ -675,15 +690,23 @@ export default function MiniAppSettingsPage() {
                 const field = linkTab === 'telegram' ? 'link_mode_telegram'
                             : linkTab === 'vk'       ? 'link_mode_vk'
                             : 'link_mode_max'
-                // Пусто → наследуем общий режим кабинета.
-                const current = ((profile as any)[field] || profile.default_link_mode || 'miniapp')
+                // Пусто → наследуем общий режим кабинета. Для MAX режим всегда
+                // 'bot' — Mini App там отключён (нет подписки на бота, см. выше).
+                const current = linkTab === 'max'
+                  ? 'bot'
+                  : ((profile as any)[field] || profile.default_link_mode || 'miniapp')
                 const active = current === opt.v
                 // Mini App в Telegram недоступен, если приложение не привязано к боту.
-                const blocked = linkTab === 'telegram' && opt.v === 'miniapp' && tgMiniApp?.has_mini_app === false
+                // Mini App в MAX недоступен всегда — человек не подписывается на бота.
+                const blockedMax = linkTab === 'max' && opt.v === 'miniapp'
+                const blocked = blockedMax
+                  || (linkTab === 'telegram' && opt.v === 'miniapp' && tgMiniApp?.has_mini_app === false)
                 return (
                   <button key={opt.v} type="button" disabled={blocked}
                           onClick={() => update(field as any, opt.v)}
-                          title={blocked ? tgMiniApp?.reason : undefined}
+                          title={blockedMax
+                            ? 'В MAX Mini App не используется: через него человек не подписывается на бота.'
+                            : blocked ? tgMiniApp?.reason : undefined}
                           className={`w-full text-left rounded-xl border p-3 transition ${
                             blocked ? 'border-gray-200 opacity-50 cursor-not-allowed'
                             : active ? 'border-amber-300 bg-amber-50'

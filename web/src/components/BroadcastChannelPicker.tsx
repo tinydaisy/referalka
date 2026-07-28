@@ -80,8 +80,11 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
       })
       setChannels(items)
       // Первая инициализация: NULL → выбрать все каналы (поведение по умолчанию).
+      // ⚠️ Email — ИСКЛЮЧЕНИЕ: по умолчанию галочка всегда СНЯТА, даже когда фича
+      // есть и площадка показывается. Отправка по почте — осознанный выбор
+      // клиента на каждую рассылку, сама собой не включается.
       if (value === null) {
-        onChange(items.map(c => c.id))
+        onChange(items.filter(c => c.platform_slug !== 'email').map(c => c.id))
       }
     }).catch((e: any) => {
       if (cancelled) return

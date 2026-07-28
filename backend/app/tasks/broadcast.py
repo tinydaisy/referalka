@@ -1766,14 +1766,22 @@ async def _send_broadcast_email_part(
 
     Возвращает количество успешно отправленных писем.
     """
-    # Клиентские email-рассылки временно ОТКЛЮЧЕНЫ (2026-07-07): Gmail рейтлимитит
-    # весь домен pluson.ru (421-4.7.28), письма застревают в очереди Postfix.
-    # Пока email-рассылки не разрешены — уходят только СИСТЕМНЫЕ письма ПЛЮСОНа
-    # (подтверждение почты, сброс пароля, письма ассистенту — они идут мимо этой
-    # функции, напрямую через EmailSender). Флаг вернуть: settings.email_broadcasts_enabled=True.
-    from app.config import settings as _cfg
-    if not getattr(_cfg, "email_broadcasts_enabled", False):
-        logger.info("Email-рассылки отключены (email_broadcasts_enabled=False) — пропускаю email-часть")
+    # ⚠️ Гейт email-рассылок — ПО ФИЧЕ `email_broadcasts` (не по глобальному флагу
+    # и не по tariff_slug). Нет фичи → email-часть пропускается молча.
+    #
+    # История: с 2026-07-07 клиентские email-рассылки были отключены глобальным
+    # флагом settings.email_broadcasts_enabled — Gmail рейтлимитил весь домен
+    # pluson.ru (421-4.7.28), письма застревали в очереди Postfix. С 2026-07-28
+    # вместо общего рубильника — фича: выдаётся точечно (сейчас тарифу admin),
+    # владелец сам решает, кому включать. Системные письма ПЛЮСОНа (подтверждение
+    # почты, сброс пароля, письма ассистенту) идут мимо этой функции — напрямую
+    # через EmailSender, они гейтом не затрагиваются.
+    from app.services.features import client_has_feature
+    if not await client_has_feature(conn, schedule["client_id"], "email_broadcasts"):
+        logger.info(
+            "Email-рассылки недоступны клиенту %s (нет фичи email_broadcasts) — "
+            "пропускаю email-часть", schedule["client_id"],
+        )
         return 0
 
     from app.services.email_sender import EmailSender, EmailSendError

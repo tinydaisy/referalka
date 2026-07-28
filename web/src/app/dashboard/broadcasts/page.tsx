@@ -19,6 +19,7 @@ const STATUS_COLOR: Record<string, string> = {
   running: 'bg-blue-50 border-blue-200',
   done: 'bg-green-50 border-green-200',
   cancelled: 'bg-gray-50 border-gray-200',
+  recalled: 'bg-purple-50 border-purple-200',
 }
 const STATUS_ICON: Record<string, React.ReactNode> = {
   draft: <Edit2 size={13} className="text-gray-400" />,
@@ -26,10 +27,11 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   running: <Loader2 size={13} className="text-blue-500 animate-spin" />,
   done: <CheckCircle size={13} className="text-green-500" />,
   cancelled: <XCircle size={13} className="text-gray-400" />,
+  recalled: <Undo2 size={13} className="text-purple-500" />,
 }
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Черновик', pending: 'Ожидает', running: 'Отправляется',
-  done: 'Отправлено', cancelled: 'Отменена',
+  done: 'Отправлено', cancelled: 'Отменена', recalled: 'Отозвана',
 }
 
 function formatTimeLeft(sec: number): string {

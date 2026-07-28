@@ -29,17 +29,24 @@ async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | 
     """Итоговый режим открытия публичных ссылок события.
 
     Приоритет:
-      1. явный режим события (events.link_mode);
-      2. режим клиента ДЛЯ ЭТОЙ ПЛОЩАДКИ (clients.link_mode_{telegram|vk|max});
-      3. общий режим клиента (clients.default_link_mode);
-      4. 'miniapp'.
+      1. режим клиента ДЛЯ ЭТОЙ ПЛОЩАДКИ (clients.link_mode_{telegram|vk|max});
+      2. общий режим клиента (clients.default_link_mode);
+      3. 'miniapp'.
+
+    ⚠️ Режим события (`events.link_mode`) БОЛЬШЕ НЕ УЧАСТВУЕТ (2026-07-28).
+    Переключателя для него в дашборде нет — клиент это значение не задаёт, оно
+    проставляется само при создании события (колонка NOT NULL DEFAULT
+    'miniapp'). Пока оно было в приоритете, переключатель «Веб-версия / Mini
+    App» в настройках кабинета не действовал на уже созданные события: у них
+    навсегда оставался зашитый 'miniapp', и в Материалах спикера уезжали
+    ссылки на Mini App при настройке «Веб-версия». Единственный источник
+    истины — настройки кабинета. Параметр `event_link_mode` оставлен в
+    сигнатуре, чтобы не переписывать ~20 вызовов, но игнорируется.
 
     ⚠️ Mini App может быть подключён в Telegram и не подключён во ВКонтакте —
     поэтому режим задаётся на каждую площадку отдельно (миграция 200). Без
     `platform` поведение прежнее (общий флаг) — обратная совместимость.
     """
-    if event_link_mode in ('miniapp', 'bot'):
-        return event_link_mode
     if client_id:
         col = _PLATFORM_MODE_COL.get(platform or "")
         cols = f"{col}, default_link_mode" if col else "default_link_mode"

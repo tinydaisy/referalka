@@ -46,8 +46,11 @@ class Settings(BaseSettings):
     max_system_bot_username: str = "id890306512862_1_bot"
     max_api_base: str = "https://botapi.max.ru"
 
-    # Клиентские email-рассылки. False (default) — рассылки по email отключены
-    # (Gmail рейтлимитит домен), уходят только системные письма ПЛЮСОНа.
+    # ⚠️ Устарело (с 2026-07-28). Общий рубильник клиентских email-рассылок
+    # заменён на фичу `email_broadcasts` (гейт в tasks/broadcast.py). Значение
+    # больше нигде не читается — оставлено, чтобы EMAIL_BROADCASTS_ENABLED в .env
+    # на серверах не ронял старт приложения (pydantic-settings ругается на
+    # неизвестные поля). Удалить, когда переменная уйдёт из окружений.
     email_broadcasts_enabled: bool = False
 
     # WhatsApp-мост (whatsapp-web.js, отдельный Node-сервис на 127.0.0.1).
