@@ -34,6 +34,8 @@ _FIELDS = {
     "color_body": "lp_color_body",
     "color_link": "lp_color_link",
     "price_color": "lp_price_color",
+    "day_tab_color": "lp_day_tab_color",
+    "day_tab_text_color": "lp_day_tab_text_color",
     "btn_color": "lp_btn_color",
     "btn_text_color": "lp_btn_text_color",
     "btn_metallic": "lp_btn_metallic",
@@ -71,6 +73,8 @@ class ThemeUpdate(BaseModel):
     color_body: Optional[str] = None
     color_link: Optional[str] = None
     price_color: Optional[str] = None
+    day_tab_color: Optional[str] = None
+    day_tab_text_color: Optional[str] = None
     btn_color: Optional[str] = None
     btn_text_color: Optional[str] = None
     btn_metallic: Optional[bool] = None

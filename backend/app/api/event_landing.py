@@ -117,6 +117,8 @@ class PagePatch(BaseModel):
     color_body: Optional[str] = None
     color_link: Optional[str] = None
     price_color: Optional[str] = None
+    day_tab_color: Optional[str] = None
+    day_tab_text_color: Optional[str] = None
     btn_color: Optional[str] = None
     btn_text_color: Optional[str] = None
     btn_metallic: Optional[bool] = None
@@ -148,6 +150,7 @@ class PagePatch(BaseModel):
 
 class BlockIn(BaseModel):
     kind: str
+    admin_name: Optional[str] = None
     title: Optional[str] = None
     subtitle: Optional[str] = None
     body: Optional[str] = None
@@ -258,6 +261,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
         """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient, cl.lp_bg_mode,
                   cl.lp_font_heading, cl.lp_color_heading, cl.lp_heading_metallic,
                   cl.lp_font_body, cl.lp_color_body, cl.lp_color_link, cl.lp_price_color,
+                  cl.lp_day_tab_color, cl.lp_day_tab_text_color,
                   cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
                   cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_border_color,
                   cl.lp_btn_border_width, cl.lp_btn_border_metallic, cl.lp_btn_radius,
@@ -279,13 +283,14 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                  (event_id, kind, bg_color, bg_color_2, bg_angle, bg_gradient, bg_mode,
                   font_heading, color_heading, heading_metallic,
                   font_body, color_body, color_link, price_color,
+                  day_tab_color, day_tab_text_color,
                   btn_color, btn_text_color, btn_metallic,
                   btn_color_2, btn_angle, btn_border_color,
                   btn_border_width, btn_border_metallic, btn_radius,
                   border_color, border_metallic, border_style, card_bg, card_bg_opacity,
                   icon_color, icon_metallic, radius, body_size,
                   content_width, pad_x, section_gap)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
                ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
@@ -301,6 +306,8 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             t.get("lp_color_body") or "#FFFFFF",
             t.get("lp_color_link") or "#FFCFA4",
             t.get("lp_price_color"),
+            t.get("lp_day_tab_color"),
+            t.get("lp_day_tab_text_color"),
             t.get("lp_btn_color") or "#FFCFA4",
             t.get("lp_btn_text_color") or "#0a1520",
             bool(t.get("lp_btn_metallic", True)),
@@ -426,6 +433,7 @@ async def patch_page(
         "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "font_heading", "font_body", "color_heading", "heading_metallic",
         "color_body", "color_link", "price_color",
+        "day_tab_color", "day_tab_text_color",
         "btn_color", "btn_text_color", "btn_metallic",
         "btn_color_2", "btn_angle", "btn_border_color",
         "btn_border_width", "btn_border_metallic", "btn_radius",
@@ -534,10 +542,10 @@ async def create_block(
     )
     row = await db.fetchrow(
         """INSERT INTO event_landing_blocks
-             (page_id, kind, title, subtitle, body, button_label, button_url, items,
-              sort_order, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) RETURNING *""",
-        page_id, data.kind, data.title, data.subtitle, data.body,
+             (page_id, kind, admin_name, title, subtitle, body, button_label, button_url,
+              items, sort_order, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING *""",
+        page_id, data.kind, data.admin_name, data.title, data.subtitle, data.body,
         data.button_label, data.button_url, json.dumps(data.items or []),
         last + 10, data.is_active,
     )
@@ -730,6 +738,8 @@ async def apply_theme(
              font_body = c.lp_font_body, color_body = c.lp_color_body,
              color_link = c.lp_color_link,
              price_color = c.lp_price_color,
+             day_tab_color = c.lp_day_tab_color,
+             day_tab_text_color = c.lp_day_tab_text_color,
              btn_color = c.lp_btn_color, btn_text_color = c.lp_btn_text_color,
              btn_metallic = c.lp_btn_metallic,
              btn_color_2 = c.lp_btn_color_2,

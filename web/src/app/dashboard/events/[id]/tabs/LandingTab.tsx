@@ -124,7 +124,9 @@ export default function LandingTab({ eventId, event }: Props) {
     try {
       const created = await api.eventLanding.createBlock(eventId, page.id, {
         kind: blockKind,
-        title: metaFor(blockKind).label,
+        // ⚠️ Заголовок НЕ подставляем: иначе на лендинге появится текст
+        // «Элемент: кнопка», которого клиент нигде не задавал.
+        admin_name: metaFor(blockKind).label,
         items: blockKind === 'gallery'
           ? { mode: 'carousel', media: 'image', list: [] }
           : [],

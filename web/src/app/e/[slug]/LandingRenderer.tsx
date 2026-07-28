@@ -485,7 +485,8 @@ function Section({
   // Размер заголовка задаётся в блоке (px на широком экране). clamp даёт
   // плавное уменьшение на телефоне — фиксированный размер вылезал бы за экран.
   const tSize = block.title_size || 48
-  const heading = title ? (
+  // У элемента-кнопки заголовка нет вовсе — он и не настраивается.
+  const heading = (title && block.kind !== 'el_button') ? (
     <h2
       className="font-bold uppercase"
       style={{
@@ -1403,6 +1404,10 @@ function SpeakerCard({
 function ProgramBlock({
   program, page, cardStyle, iconColor, radius, btnStyle,
 }: any) {
+  // Цвета переключателя дней — из настроек. По умолчанию заливка акцентная,
+  // текст цветом фона страницы: тёмный на светлой плашке читается всегда.
+  const dayFill = page.day_tab_color || iconColor
+  const dayText = page.day_tab_text_color || page.bg_color || '#0a1520'
   const p = program || { days: [], sessions: [] }
   const days = useMemo(
     () => [...(p.days || [])]
@@ -1438,13 +1443,13 @@ function ProgramBlock({
                 style={on
                   ? {
                       borderRadius: 40,
-                      background: iconColor,
-                      color: page.btn_text_color || '#0a1520',
+                      background: dayFill,
+                      color: dayText,
                       fontFamily: btnStyle.fontFamily,
                     }
                   : {
                       borderRadius: 40,
-                      background: hexToRgba(iconColor, 0.12),
+                      background: hexToRgba(dayFill, 0.12),
                       color: 'inherit',
                       fontFamily: btnStyle.fontFamily,
                     }}

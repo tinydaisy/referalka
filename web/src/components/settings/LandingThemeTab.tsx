@@ -199,6 +199,12 @@ export default function LandingThemeTab() {
               <ColorField label="Цвет цены в тарифах" value={theme.price_color}
                 onChange={v => set({ price_color: v })}
                 hint="Пусто — как у заголовков." />
+              <ColorField label="Заливка выбранного дня программы" value={theme.day_tab_color}
+                onChange={v => set({ day_tab_color: v })}
+                hint="Пусто — цвет иконок." />
+              <ColorField label="Текст на выбранном дне" value={theme.day_tab_text_color}
+                onChange={v => set({ day_tab_text_color: v })}
+                hint="Пусто — цвет фона страницы (контраст к заливке)." />
             </div>
             <div className="mt-4">
               <label className="mb-1 block text-sm font-medium text-gray-700">
