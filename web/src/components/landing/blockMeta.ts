@@ -10,7 +10,7 @@
  */
 
 export type BlockKind =
-  | 'hero' | 'seats' | 'gifts' | 'benefits' | 'values' | 'mission'
+  | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer'
 
@@ -45,6 +45,12 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     hint: 'Берутся из реф-программы события.',
     live: true,
     fields: ['title', 'body'],
+  },
+  audience: {
+    kind: 'audience',
+    label: 'Для кого',
+    hint: 'Кому подойдёт событие: «это для вас, если…». Список пунктов.',
+    fields: ['title', 'subtitle', 'list'],
   },
   benefits: {
     kind: 'benefits',

@@ -172,7 +172,13 @@ export default function BlockCard({
                 </p>
               )}
 
-              {has('list') && <ListEditor items={items} onChange={setList} />}
+              {has('list') && (
+                <ListEditor
+                  items={items}
+                  onChange={setList}
+                  label={block.kind === 'audience' ? 'Кому подойдёт' : 'Пункты списка'}
+                />
+              )}
               {has('numbers') && <NumbersEditor items={numbers} onChange={setNumbers} />}
 
               {has('gallery') && (
@@ -216,6 +222,84 @@ export default function BlockCard({
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Раскладка: где стоит заголовок относительно содержимого.
+                  На телефоне всегда одна колонка — заголовок сверху. */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Расположение заголовка
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ['top', 'Сверху'],
+                    ['left', 'Слева, текст справа'],
+                    ['right', 'Справа, текст слева'],
+                  ] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => onPatch({ layout: val })}
+                      className={`rounded-lg border px-3 py-2 text-sm ${
+                        (block.layout || 'top') === val
+                          ? 'border-brand bg-brand/5 font-medium text-brand'
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  На телефоне колонки всегда складываются в одну.
+                </p>
+              </div>
+
+              {block.layout && block.layout !== 'top' && (
+                <Field label={`Ширина колонки с заголовком: ${block.split_ratio || 50}%`}>
+                  <input
+                    type="range" min={20} max={80} step={5}
+                    value={block.split_ratio || 50}
+                    onChange={e => onPatch({ split_ratio: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                </Field>
+              )}
+
+              <div className="border-t border-gray-100 pt-4">
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Картинка в секции
+                </label>
+                <p className="mb-2 text-xs text-gray-500">
+                  Не фон, а изображение рядом с текстом — фото, скриншот, коллаж.
+                </p>
+                <FileUploader
+                  mode="single"
+                  kind="landing_media"
+                  eventId={eventId}
+                  value={block.image_url || null}
+                  onChange={url => onPatch({ image_url: url })}
+                  emptyText="Загрузите картинку"
+                />
+                {block.image_url && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {([
+                      ['left', 'Слева'], ['right', 'Справа'],
+                      ['top', 'Сверху'], ['bottom', 'Снизу'],
+                    ] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => onPatch({ image_position: val })}
+                        className={`rounded-lg border px-3 py-1.5 text-sm ${
+                          (block.image_position || 'right') === val
+                            ? 'border-brand bg-brand/5 font-medium text-brand'
+                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <BackgroundFields
                 eventId={eventId}
                 bgColor={block.bg_color}
@@ -272,12 +356,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-/** Список простых строк — «что вы получите». */
-function ListEditor({ items, onChange }: { items: any[]; onChange: (v: string[]) => void }) {
+/** Список простых строк — «что вы получите» / «для кого». */
+function ListEditor({
+  items, onChange, label = 'Пункты списка',
+}: {
+  items: any[]
+  onChange: (v: string[]) => void
+  label?: string
+}) {
   const list: string[] = items.filter(i => typeof i === 'string')
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">Пункты списка</label>
+      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
       <div className="space-y-2">
         {list.map((v, i) => (
           <div key={i} className="flex gap-2">

@@ -321,6 +321,15 @@ async def get_public_landing(
     page_d["font_body_css"] = font_family_css(page["font_body"])
     page_d["font_heading"] = normalize_font(page["font_heading"])
     page_d["font_body"] = normalize_font(page["font_body"])
+    # Готовая заливка фона: градиент под заданным углом либо сплошной цвет.
+    # Считаем на бэке, чтобы страница не собирала CSS в трёх местах.
+    if page_d.get("bg_gradient") and page_d.get("bg_color_2"):
+        page_d["bg_css"] = (
+            f"linear-gradient({page_d.get('bg_angle', 45)}deg, "
+            f"{page_d.get('bg_color') or '#25455D'}, {page_d['bg_color_2']})"
+        )
+    else:
+        page_d["bg_css"] = page_d.get("bg_color") or "#25455D"
 
     return {
         "event": {

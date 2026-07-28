@@ -527,6 +527,16 @@ export const api = {
       request(`/api/v1/events/nurture-reg/steps/${stepId}`, { method: 'DELETE' }),
   },
   // Тарифы мероприятия (миграция 157) — только для тарифа клиента vip
+  // Фирменная тема лендингов клиента (миграция 241) — подставляется в новые
+  // страницы лендинга как оформление по умолчанию.
+  landingTheme: {
+    get: () => request('/api/v1/clients/me/landing-theme'),
+    update: (data: any) =>
+      request('/api/v1/clients/me/landing-theme', {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+  },
+
   // Конструктор лендинга события (миграция 240). Гейт — фича event_landing.
   eventLanding: {
     get: (eventId: number) => request(`/api/v1/events/${eventId}/landing`),

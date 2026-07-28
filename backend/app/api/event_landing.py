@@ -36,6 +36,7 @@ router = APIRouter(prefix="/events/{event_id}/landing", tags=["Конструк�
 # Клиент дальше двигает перетаскиванием и выключает лишнее.
 DEFAULT_MAIN_BLOCKS: list[dict] = [
     {"kind": "hero",       "title": None,                       "is_active": True},
+    {"kind": "audience",   "title": "Это для вас, если",        "is_active": True},
     {"kind": "benefits",   "title": "Что вы получите",          "is_active": True},
     {"kind": "seats",      "title": "Осталось мест",            "is_active": False},
     {"kind": "gifts",      "title": "Подарки за регистрацию",   "is_active": True},
