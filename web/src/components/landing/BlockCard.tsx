@@ -448,7 +448,10 @@ export default function BlockCard({
                 </Field>
               )}
 
-              {['speakers', 'partners', 'values', 'difference', 'gallery', 'numbers'].includes(block.kind) && (
+              {/* ⚠️ audience обязателен в списке: внутри лежат настройки фото
+                  карточек «Для кого». Без него весь блок не рисовался, и
+                  размер фото было негде задать. */}
+              {['speakers', 'partners', 'values', 'difference', 'gallery', 'numbers', 'audience'].includes(block.kind) && (
                 <>
                   <Field label={`Карточек в ряд: ${block.columns || (block.kind === 'numbers' ? 4 : 3)}`}>
                     <input

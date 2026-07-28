@@ -289,8 +289,12 @@ export default function TariffsTab({
 
       {/* Модалка формы */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3" onClick={e => e.stopPropagation()}>
+        {/* ⚠️ Форма прокручивается: полей стало больше, и на невысоком экране
+            низ вместе с кнопкой «Сохранить» уходил за край — окно выглядело
+            зависшим. Прокрутка на подложке + ограничение высоты у окна. */}
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-10">
+          <div className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5"
+               onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-800">{editing ? 'Изменить тариф' : 'Новый тариф'}</h3>
               <button onClick={() => setShowForm(false)} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
