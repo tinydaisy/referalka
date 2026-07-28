@@ -55,6 +55,8 @@ class TariffIn(BaseModel):
     code: str
     title: str
     description: Optional[str] = None
+    # Что в тариф НЕ входит — на лендинге показывается зачёркнутым с крестиком.
+    excluded_description: Optional[str] = None
     price: Optional[int] = None
     pay_url: Optional[str] = None
     sort_order: int = 0
@@ -66,6 +68,7 @@ class TariffPatch(BaseModel):
     code: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
+    excluded_description: Optional[str] = None
     price: Optional[int] = None
     pay_url: Optional[str] = None
     sort_order: Optional[int] = None
@@ -85,7 +88,8 @@ async def list_tariffs(
 ):
     await _check_event_access(db, int(client["sub"]), event_id)
     rows = await db.fetch(
-        """SELECT t.id, t.code, t.title, t.description, t.price, t.pay_url,
+        """SELECT t.id, t.code, t.title, t.description, t.excluded_description,
+                  t.price, t.pay_url,
                   t.sort_order, t.is_active, t.is_featured,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
@@ -169,11 +173,13 @@ async def create_tariff(
     if exists:
         raise HTTPException(status_code=409, detail=f"Тариф с кодом «{code}» уже есть у события")
     row = await db.fetchrow(
-        """INSERT INTO event_tariffs (event_id, code, title, description, price, pay_url, sort_order, is_active, is_featured)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING id, code, title, description, price, pay_url, sort_order, is_active, is_featured""",
-        event_id, code, data.title.strip(), data.description, data.price,
-        data.pay_url, data.sort_order, data.is_active, data.is_featured,
+        """INSERT INTO event_tariffs (event_id, code, title, description, excluded_description,
+                                     price, pay_url, sort_order, is_active, is_featured)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING id, code, title, description, excluded_description, price, pay_url,
+                     sort_order, is_active, is_featured""",
+        event_id, code, data.title.strip(), data.description, data.excluded_description,
+        data.price, data.pay_url, data.sort_order, data.is_active, data.is_featured,
     )
     return dict(row)
 
@@ -219,7 +225,8 @@ async def update_tariff(
     row = await db.fetchrow(
         f"""UPDATE event_tariffs SET {sets}, updated_at = NOW()
              WHERE id = $1 AND event_id = $2
-         RETURNING id, code, title, description, price, pay_url, sort_order, is_active""",
+         RETURNING id, code, title, description, excluded_description, price, pay_url,
+                   sort_order, is_active""",
         tariff_id, event_id, *fields.values(),
     )
     return dict(row)

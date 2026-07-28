@@ -964,29 +964,38 @@ function BlockBody({
                     {Number(x.price).toLocaleString('ru-RU')} ₽
                   </div>
                 )}
-                {x.description && (
-                  // Строка, начинающаяся с «-», означает «в тариф НЕ входит»:
-                  // такие показываем крестиком и зачёркнутыми, остальные —
-                  // галочкой. Клиенту достаточно поставить минус в описании.
+                {/* Два списка: что входит (галочка) и чего нет (зачёркнуто).
+                    «Не входит» задаётся отдельным полем в форме тарифа.
+                    Минус в начале строки основного описания тоже работает —
+                    так было раньше, у кого уже заполнено, не сломается. */}
+                {(x.description || x.excluded_description) && (
                   <ul className="mt-4 flex-1 list-none space-y-2.5 p-0 text-[.9em] leading-relaxed">
-                    {String(x.description).split('\n').map((r: string) => r.trim()).filter(Boolean)
-                      .map((row: string, k: number) => {
-                        const excluded = /^[-–—]\s*/.test(row)
-                        const text = row.replace(/^[-–—]\s*/, '')
-                        return (
-                          <li key={k} className="flex gap-2.5">
-                            <svg viewBox="0 0 24 24" className="mt-[.35em] h-4 w-4 shrink-0"
-                                 fill="none" stroke={excluded ? 'currentColor' : iconColor}
-                                 strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                                 style={excluded ? { opacity: .45 } : undefined} aria-hidden="true">
-                              {excluded ? <path d="M18 6 6 18M6 6l12 12" /> : <path d="M20 6 9 17l-5-5" />}
-                            </svg>
-                            <span className={excluded ? 'line-through opacity-50' : 'opacity-90'}>
-                              {text}
-                            </span>
-                          </li>
-                        )
-                      })}
+                    {[
+                      ...String(x.description || '').split('\n')
+                        .map((r: string) => r.trim()).filter(Boolean)
+                        .map((row: string) => ({
+                          excluded: /^[-–—]\s*/.test(row),
+                          text: row.replace(/^[-–—]\s*/, ''),
+                        })),
+                      ...String(x.excluded_description || '').split('\n')
+                        .map((r: string) => r.trim()).filter(Boolean)
+                        .map((row: string) => ({
+                          excluded: true,
+                          text: row.replace(/^[-–—]\s*/, ''),
+                        })),
+                    ].map(({ excluded, text }, k: number) => (
+                      <li key={k} className="flex gap-2.5">
+                        <svg viewBox="0 0 24 24" className="mt-[.35em] h-4 w-4 shrink-0"
+                             fill="none" stroke={excluded ? 'currentColor' : iconColor}
+                             strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                             style={excluded ? { opacity: .45 } : undefined} aria-hidden="true">
+                          {excluded ? <path d="M18 6 6 18M6 6l12 12" /> : <path d="M20 6 9 17l-5-5" />}
+                        </svg>
+                        <span className={excluded ? 'line-through opacity-50' : 'opacity-90'}>
+                          {text}
+                        </span>
+                      </li>
+                    ))}
                   </ul>
                 )}
                 {/* Ссылка оплаты не задана — ведём на регистрацию (бесплатный
@@ -1001,14 +1010,9 @@ function BlockBody({
               </div>
             ))}
           </div>
-          {t.offer_url && (
-            <p className="mt-4 text-center text-[.9em] opacity-70">
-              Покупая, вы соглашаетесь с{' '}
-              <a href={t.offer_url} target="_blank" rel="noreferrer" className="lp-link">
-                офертой
-              </a>
-            </p>
-          )}
+          {/* ⚠️ Строку «Покупая, вы соглашаетесь с офертой» здесь не выводим:
+              ссылка на оферту есть в подвале, дублировать её под тарифами
+              не нужно. Согласие фиксируется на странице заказа. */}
         </>
       )
     }

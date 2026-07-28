@@ -14,6 +14,7 @@ interface Tariff {
   code: string
   title: string
   description: string | null
+  excluded_description: string | null
   price: number | null
   pay_url: string | null
   sort_order: number
@@ -46,7 +47,7 @@ interface Buyer {
 }
 
 const emptyForm = {
-  code: '', title: '', description: '', price: '', pay_url: '', is_active: true, is_featured: false,
+  code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', is_active: true, is_featured: false,
 }
 
 export default function TariffsTab({
@@ -109,6 +110,7 @@ export default function TariffsTab({
       code: t.code,
       title: t.title,
       description: t.description || '',
+      excluded_description: t.excluded_description || '',
       price: t.price != null ? String(t.price) : '',
       pay_url: t.pay_url || '',
       is_active: t.is_active,
@@ -126,6 +128,7 @@ export default function TariffsTab({
       code,
       title,
       description: form.description.trim() || null,
+      excluded_description: form.excluded_description.trim() || null,
       price: form.price.trim() ? parseInt(form.price.trim(), 10) : null,
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
@@ -304,9 +307,14 @@ export default function TariffsTab({
               <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value.replace(/[^0-9]/g, '') })}
                      className="input-tar" placeholder="29000" inputMode="numeric" />
             </Field>
-            <Field label="Описание">
+            <Field label="Что входит" hint="По пункту в строке — на лендинге станут галочками">
               <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
-                        rows={3} className="input-tar resize-none" placeholder="Что входит в тариф" />
+                        rows={4} className="input-tar resize-none" />
+            </Field>
+            <Field label="Что НЕ входит" hint="По пункту в строке — на лендинге будут зачёркнуты крестиком">
+              <textarea value={form.excluded_description}
+                        onChange={e => setForm({ ...form, excluded_description: e.target.value })}
+                        rows={3} className="input-tar resize-none" />
             </Field>
             <Field label="Ссылка на оплату" hint="Продамус / ЮKassa / GetCourse — любая">
               <input value={form.pay_url} onChange={e => setForm({ ...form, pay_url: e.target.value })}
