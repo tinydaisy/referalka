@@ -231,7 +231,12 @@ export default function LandingRenderer({ data, slug }: Props) {
            ⚠️ На телефоне системный скроллбар скрыт (overlay-режим), поэтому
            понять, что ленту можно листать, было невозможно. Задаём дорожку и
            бегунок явно — работает и на мобильных, и на десктопе. */
+        /* ⚠️ min-width:0 + max-width:100% обязательны: flex-контейнер без них
+           растягивается по содержимому и распирает страницу — появлялась
+           горизонтальная прокрутка ВСЕЙ страницы вместо прокрутки ленты. */
         .lp-scroll {
+          min-width: 0;
+          max-width: 100%;
           scrollbar-width: thin;
           scrollbar-color: ${iconColor} ${hexToRgba(iconColor, 0.18)};
         }
@@ -1413,11 +1418,11 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
   }
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0 max-w-full">
       <div
         ref={scroller}
         onScroll={sync}
-        className="lp-scroll flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3"
+        className="lp-scroll flex min-w-0 max-w-full snap-x snap-mandatory gap-4 overflow-x-auto pb-3"
       >
         {cards}
       </div>
@@ -1437,8 +1442,11 @@ function GalleryArrow({
       type="button"
       onClick={onClick}
       aria-label={dir === 'left' ? 'Назад' : 'Вперёд'}
+      // ⚠️ Стрелки держим ВНУТРИ ленты (left-1/right-1): вынос за край
+      // (-left-4) на телефоне вылезал за экран и добавлял горизонтальную
+      // прокрутку всей странице.
       className={`absolute top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 ${
-        dir === 'left' ? 'left-0 sm:-left-4' : 'right-0 sm:-right-4'
+        dir === 'left' ? 'left-1' : 'right-1'
       }`}
       style={{ background: color, color: '#0a1520' }}
     >
@@ -1473,7 +1481,7 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
   ))
 
   return scroll ? (
-    <div className="lp-scroll flex snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
+    <div className="lp-scroll flex min-w-0 max-w-full snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
       {cards}
     </div>
   ) : (
@@ -1517,7 +1525,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   })
 
   return scroll ? (
-    <div className="lp-scroll flex snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
+    <div className="lp-scroll flex min-w-0 max-w-full snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
       {cards}
     </div>
   ) : (
