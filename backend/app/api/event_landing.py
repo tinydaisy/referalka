@@ -31,32 +31,35 @@ from app.services.landing_fonts import FONTS, normalize_font
 router = APIRouter(prefix="/events/{event_id}/landing", tags=["Конструктор лендинга"])
 
 
-# Набор блоков, который создаётся у новой страницы. Порядок = разумный дефолт
-# продающей страницы: сначала обещание, потом доказательства, потом цена.
-# Клиент дальше двигает перетаскиванием и выключает лишнее.
+# Набор блоков новой страницы. Порядок = разумный дефолт продающей страницы:
+# сначала обещание, потом доказательства, потом цена.
+#
+# ⚠️ ЗАГОЛОВКИ ЗДЕСЬ НЕ ЗАДАЮТСЯ. Никакого текста по умолчанию в коде: клиент
+# вписывает свои формулировки в конструкторе, и они лежат в базе. Иначе на
+# лендинге появлялся бы текст, которого нет в настройках, и править его негде.
 DEFAULT_MAIN_BLOCKS: list[dict] = [
-    {"kind": "hero",       "title": None,                       "is_active": True},
-    {"kind": "audience",   "title": "Это для вас, если",        "is_active": True},
-    {"kind": "benefits",   "title": "Что вы получите",          "is_active": True},
-    {"kind": "seats",      "title": "Осталось мест",            "is_active": False},
-    {"kind": "gifts",      "title": "Подарки за регистрацию",   "is_active": True},
-    {"kind": "numbers",    "title": "Коротко о нас в цифрах",   "is_active": False},
-    {"kind": "difference", "title": "Чем мы отличаемся",        "is_active": False},
-    {"kind": "speakers",   "title": "Спикеры",                  "is_active": True},
-    {"kind": "program",    "title": "Программа",                "is_active": True},
-    {"kind": "gallery",    "title": "Отзывы",                   "is_active": False},
-    {"kind": "values",     "title": "Наши ценности",            "is_active": False},
-    {"kind": "mission",    "title": "Наша миссия",              "is_active": False},
-    {"kind": "organizer",  "title": "Организатор",              "is_active": True},
-    {"kind": "tariffs",    "title": "Участие",                  "is_active": True},
-    {"kind": "support",    "title": "Есть вопросы?",            "is_active": True},
-    {"kind": "footer",     "title": None,                       "is_active": True},
+    {"kind": "hero",       "is_active": True},
+    {"kind": "audience",   "is_active": True},
+    {"kind": "benefits",   "is_active": True},
+    {"kind": "seats",      "is_active": False},
+    {"kind": "gifts",      "is_active": True},
+    {"kind": "numbers",    "is_active": False},
+    {"kind": "difference", "is_active": False},
+    {"kind": "speakers",   "is_active": True},
+    {"kind": "program",    "is_active": True},
+    {"kind": "gallery",    "is_active": False},
+    {"kind": "values",     "is_active": False},
+    {"kind": "mission",    "is_active": False},
+    {"kind": "organizer",  "is_active": True},
+    {"kind": "tariffs",    "is_active": True},
+    {"kind": "support",    "is_active": True},
+    {"kind": "footer",     "is_active": True},
 ]
 
 DEFAULT_POST_PAY_BLOCKS: list[dict] = [
-    {"kind": "hero",    "title": None, "is_active": True},
-    {"kind": "support", "title": "Есть вопросы?", "is_active": True},
-    {"kind": "footer",  "title": None, "is_active": True},
+    {"kind": "hero",    "is_active": True},
+    {"kind": "support", "is_active": True},
+    {"kind": "footer",  "is_active": True},
 ]
 
 # Блоки, которые сами тянут данные события — руками у них правится только
@@ -267,9 +270,9 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
         if not has_blocks:
             for i, b in enumerate(preset):
                 await db.execute(
-                    "INSERT INTO event_landing_blocks (page_id, kind, title, sort_order, is_active) "
-                    "VALUES ($1, $2, $3, $4, $5)",
-                    page["id"], b["kind"], b["title"], i * 10, b["is_active"],
+                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active) "
+                    "VALUES ($1, $2, $3, $4)",
+                    page["id"], b["kind"], i * 10, b["is_active"],
                 )
     return page
 

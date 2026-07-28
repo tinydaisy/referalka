@@ -251,6 +251,23 @@ function Section({
     />
   ) : null
 
+  const align = block.title_align || 'left'
+
+  // Кнопка секции: доступна у ЛЮБОГО блока, текст и ссылка — из настроек.
+  // hero и speakers рисуют свою кнопку внутри (регистрация / разворот регалий).
+  const ownButton = block.button_label && !['hero', 'speakers'].includes(block.kind) ? (
+    <div className={`mt-8 ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : ''}`}>
+      <a
+        href={block.button_url || `/event/${slug}/register`}
+        {...(block.button_url ? { target: '_blank', rel: 'noreferrer' } : {})}
+        className="inline-block px-8 py-4 font-bold uppercase"
+        style={btnStyle}
+      >
+        {block.button_label}
+      </a>
+    </div>
+  ) : null
+
   const sideways = pic && (block.image_position === 'left' || block.image_position === 'right')
   const centered = pic && block.image_position === 'center'
   const inner = !pic ? blockBody : centered ? (
@@ -275,7 +292,6 @@ function Section({
   // Размер заголовка задаётся в блоке (px на широком экране). clamp даёт
   // плавное уменьшение на телефоне — фиксированный размер вылезал бы за экран.
   const tSize = block.title_size || 48
-  const align = block.title_align || 'left'
   const heading = title ? (
     <h2
       className="font-bold uppercase"
@@ -350,6 +366,7 @@ function Section({
             <div className={block.layout === 'right' ? 'md:order-1' : ''}>
               {body && <p className="mb-6 whitespace-pre-wrap opacity-90">{body}</p>}
               {inner}
+              {ownButton}
             </div>
           </div>
         ) : (
@@ -358,6 +375,7 @@ function Section({
             {subtitle}
             {body && <p className="mt-4 whitespace-pre-wrap opacity-90">{body}</p>}
             <div className="mt-8">{inner}</div>
+            {ownButton}
           </>
         )}
       </div>
@@ -389,7 +407,7 @@ function BlockBody({
             className="text-4xl font-bold uppercase sm:text-6xl md:text-7xl"
             style={headingStyle}
           >
-            {isThanks ? (page.post_pay_title || 'Спасибо за оплату!') : event.title}
+            {isThanks ? page.post_pay_title : event.title}
           </h1>
 
           {isThanks ? (
@@ -430,13 +448,17 @@ function BlockBody({
                   <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius}
                               label={block.title} />
                 )}
-                <a
-                  href={`/event/${slug}/register`}
-                  className="inline-block px-8 py-4 text-base font-bold uppercase tracking-wide transition-transform hover:scale-105"
-                  style={btnStyle}
-                >
-                  {block.button_label || 'Участвовать'}
-                </a>
+                {/* Подпись кнопки — только из настроек блока. Значений по
+                    умолчанию в коде нет: не задана — кнопки не будет. */}
+                {block.button_label && (
+                  <a
+                    href={`/event/${slug}/register`}
+                    className="inline-block px-8 py-4 text-base font-bold uppercase tracking-wide transition-transform hover:scale-105"
+                    style={btnStyle}
+                  >
+                    {block.button_label}
+                  </a>
+                )}
               </div>
             </>
           )}
@@ -820,14 +842,10 @@ function BlockBody({
 
     /* ── Своя секция и всё остальное (values, mission, difference) ─────── */
     // Текст этих блоков уже выведен секцией выше — здесь только кнопка, если есть.
+    // Текст этих блоков выводит сама секция, кнопку — тоже (ownButton).
     case 'text':
     default:
-      return block.button_label && block.button_url ? (
-        <a href={block.button_url} target="_blank" rel="noreferrer"
-           className="inline-block px-8 py-4 font-bold uppercase" style={btnStyle}>
-          {block.button_label}
-        </a>
-      ) : null
+      return null
   }
 }
 
@@ -854,7 +872,7 @@ function SeatsBadge({
          style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
                   background: 'rgba(255,255,255,.05)' }}>
       <span className="text-[13px] font-semibold uppercase tracking-widest opacity-90">
-        {label || (seats.left != null ? 'Осталось мест:' : 'Уже с нами:')}
+        {label}
       </span>
       <span className="text-4xl font-bold leading-none" style={metalText}>
         {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
@@ -885,7 +903,7 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor, btnStyle }: an
         ))}
       </div>
 
-      {hasAch && (
+      {hasAch && block.button_label && (
         <div className="mt-6 text-center">
           <button
             type="button"
@@ -893,7 +911,7 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor, btnStyle }: an
             className="inline-flex items-center gap-2 px-7 py-3 text-sm font-bold uppercase"
             style={btnStyle}
           >
-            {open ? 'Свернуть' : (block.button_label || 'Подробнее о спикерах')}
+            {open ? 'Свернуть' : block.button_label}
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" strokeWidth="3" strokeLinecap="round"
                  strokeLinejoin="round" aria-hidden="true"
