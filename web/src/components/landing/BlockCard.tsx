@@ -14,6 +14,7 @@ import { GripVertical, ChevronDown, ChevronRight, Trash2, Zap } from 'lucide-rea
 import FileUploader from '@/components/FileUploader'
 import { metaFor } from './blockMeta'
 import { ColorField, BackgroundFields } from './StyleControls'
+import { CARD_ICONS, CardIcon } from './icons'
 
 interface Props {
   block: any
@@ -443,6 +444,34 @@ function CardsEditor({
               placeholder="Короткое описание"
               className="input mt-2"
             />
+
+            {/* Иконка карточки — рисуется цветом иконок из вашей темы. */}
+            <div className="mt-3">
+              <div className="mb-1.5 text-xs font-medium text-gray-600">Иконка</div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => upd(i, { icon: null })}
+                  title="Без иконки"
+                  className={`flex h-11 w-11 items-center justify-center rounded-lg border text-xs ${
+                    !c.icon ? 'border-brand bg-brand/5 text-brand' : 'border-gray-200 text-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  нет
+                </button>
+                {CARD_ICONS.map(ic => (
+                  <button
+                    key={ic.key}
+                    onClick={() => upd(i, { icon: ic.key })}
+                    title={ic.label}
+                    className={`flex h-11 w-11 items-center justify-center rounded-lg border p-1 ${
+                      c.icon === ic.key ? 'border-brand bg-brand/5' : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <CardIcon iconKey={ic.key} color="#FFCFA4" size={32} id={`pick-${i}-${ic.key}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         ))}
       </div>

@@ -118,6 +118,9 @@ class PagePatch(BaseModel):
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
+    content_width: Optional[int] = None
+    pad_x: Optional[int] = None
+    section_gap: Optional[int] = None
     post_pay_title: Optional[str] = None
     post_pay_text: Optional[str] = None
 
@@ -146,6 +149,7 @@ class BlockPatch(BaseModel):
     image_url: Optional[str] = None
     image_position: Optional[str] = None
     split_ratio: Optional[int] = None
+    pad_y: Optional[int] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
     bg_overlay: Optional[str] = None
@@ -195,7 +199,8 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   cl.lp_font_body, cl.lp_color_body, cl.lp_color_link,
                   cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
                   cl.lp_border_color, cl.lp_border_metallic,
-                  cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius
+                  cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius,
+                  cl.lp_content_width, cl.lp_pad_x, cl.lp_section_gap
              FROM event_owners eo
              JOIN clients cl ON cl.id = eo.client_id
             WHERE eo.event_id = $1 AND eo.status = 'accepted'
@@ -211,8 +216,9 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   font_heading, color_heading, heading_metallic,
                   font_body, color_body, color_link,
                   btn_color, btn_text_color, btn_metallic,
-                  border_color, border_metallic, icon_color, icon_metallic, radius)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                  border_color, border_metallic, icon_color, icon_metallic, radius,
+                  content_width, pad_x, section_gap)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
                ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
@@ -234,6 +240,9 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             t.get("lp_icon_color") or "#FFCFA4",
             bool(t.get("lp_icon_metallic", True)),
             t.get("lp_radius") if t.get("lp_radius") is not None else 5,
+            t.get("lp_content_width") if t.get("lp_content_width") is not None else 1120,
+            t.get("lp_pad_x") if t.get("lp_pad_x") is not None else 24,
+            t.get("lp_section_gap") if t.get("lp_section_gap") is not None else 64,
         )
         preset = DEFAULT_MAIN_BLOCKS if kind == "main" else DEFAULT_POST_PAY_BLOCKS
         # ON CONFLICT выше мог отдать уже существующую страницу (гонка двух
@@ -336,6 +345,7 @@ async def patch_page(
         "color_body", "color_link",
         "btn_color", "btn_text_color", "btn_metallic",
         "border_color", "border_metallic", "icon_color", "icon_metallic", "radius",
+        "content_width", "pad_x", "section_gap",
         "post_pay_title", "post_pay_text",
     ):
         if field not in fs:
@@ -350,6 +360,13 @@ async def patch_page(
             val = max(0, min(360, int(val)))
         if field == "radius" and val is not None:
             val = max(0, min(64, int(val)))
+        if field == "content_width" and val is not None:
+            # 0 = во всю ширину; иначе разумный коридор.
+            val = 0 if int(val) == 0 else max(480, min(2000, int(val)))
+        if field == "pad_x" and val is not None:
+            val = max(0, min(160, int(val)))
+        if field == "section_gap" and val is not None:
+            val = max(0, min(200, int(val)))
         vals.append(val)
         sets.append(f"{field} = ${len(vals)}")
 
@@ -421,7 +438,7 @@ async def patch_block(
     sets, vals = [], []
     for field in (
         "title", "subtitle", "body", "button_label", "button_url", "is_active",
-        "layout", "image_url", "image_position", "split_ratio",
+        "layout", "image_url", "image_position", "split_ratio", "pad_y",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
@@ -436,6 +453,8 @@ async def patch_block(
             val = "right"
         if field == "split_ratio" and val is not None:
             val = max(20, min(80, int(val)))
+        if field == "pad_y" and val is not None:
+            val = max(0, min(200, int(val)))
         if field == "bg_overlay_opacity" and val is not None:
             val = max(0, min(100, int(val)))
         if field == "border_width" and val is not None:

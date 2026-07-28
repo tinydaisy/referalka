@@ -14,17 +14,23 @@ import { Loader2, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ColorField, MetallicToggle, FontSelect } from '@/components/landing/StyleControls'
 
-/** Металлический перелив из цвета — тот же расчёт, что на самом лендинге. */
+/** Металлический перелив — расчёт совпадает с лендингом (вертикаль, 5 стопов). */
 function metallic(color: string): string {
-  return `linear-gradient(135deg, ${color} 0%, #ffffff 22%, ${color} 45%, ${shade(color, -18)} 70%, ${color} 100%)`
+  return `linear-gradient(180deg, ${shade(color, -45)}, ${color}, ${shade(color, 30)}, ${color}, ${shade(color, -45)})`
 }
+function metallicButton(color: string): string {
+  return `linear-gradient(180deg, ${shade(color, -22)}, ${color}, ${shade(color, 42)}, ${color}, ${shade(color, -22)})`
+}
+/** Минус — темнее, плюс — светлее (к белому). */
 function shade(hex: string, pct: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
   if (!m) return hex || '#000000'
   const n = parseInt(m[1], 16)
-  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v + (v * pct) / 100)))
+  const f = (v: number) => pct >= 0
+    ? Math.round(v + (255 - v) * (pct / 100))
+    : Math.round(v * (1 + pct / 100))
   return `#${[f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]
-    .map(v => v.toString(16).padStart(2, '0')).join('')}`
+    .map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`
 }
 
 const FONT_CSS: Record<string, string> = {
@@ -195,6 +201,44 @@ export default function LandingThemeTab() {
             </div>
           </Card>
 
+          <Card title="Отступы и ширина">
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Ширина контента: {theme.content_width ? `${theme.content_width} px` : 'во всю ширину'}
+                </label>
+                <input type="range" min={0} max={2000} step={40}
+                  value={theme.content_width ?? 1120}
+                  onChange={e => set({ content_width: Number(e.target.value) })}
+                  className="w-full" />
+                <p className="mt-1 text-xs text-gray-500">
+                  Полоса, в которой живёт текст. 0 — контент растянется на весь экран.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Отступы по бокам: {theme.pad_x ?? 24} px
+                </label>
+                <input type="range" min={0} max={160} step={4}
+                  value={theme.pad_x ?? 24}
+                  onChange={e => set({ pad_x: Number(e.target.value) })}
+                  className="w-full" />
+                <p className="mt-1 text-xs text-gray-500">
+                  На телефоне всегда остаётся минимум 16 px, чтобы текст не липнул к краю.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Отступ между блоками: {theme.section_gap ?? 64} px
+                </label>
+                <input type="range" min={0} max={200} step={4}
+                  value={theme.section_gap ?? 64}
+                  onChange={e => set({ section_gap: Number(e.target.value) })}
+                  className="w-full" />
+              </div>
+            </div>
+          </Card>
+
           <div className="flex items-center gap-3">
             <button onClick={save} disabled={saving}
               className="btn-primary inline-flex items-center gap-2 disabled:opacity-60">
@@ -246,10 +290,9 @@ export default function LandingThemeTab() {
               style={{
                 borderRadius: radius,
                 color: theme.color_body || '#fff',
-                border: theme.border_metallic ? '1px solid transparent' : `1px solid ${theme.border_color || '#FFCFA4'}`,
-                background: theme.border_metallic
-                  ? `linear-gradient(rgba(255,255,255,.04), rgba(255,255,255,.04)) padding-box, ${metallic(theme.border_color || '#FFCFA4')} border-box`
-                  : 'rgba(255,255,255,.04)',
+                // Металл только в рамке — фон карточки прозрачный, иначе текст не читается.
+                border: `1px solid ${theme.border_color || '#FFCFA4'}`,
+                background: 'rgba(255,255,255,.02)',
               }}
             >
               <span className="font-bold" style={{ color: theme.icon_color || '#FFCFA4' }}>01</span>
@@ -261,9 +304,12 @@ export default function LandingThemeTab() {
               style={{
                 borderRadius: radius,
                 background: theme.btn_metallic
-                  ? metallic(theme.btn_color || '#FFCFA4')
+                  ? metallicButton(theme.btn_color || '#FFCFA4')
                   : (theme.btn_color || '#FFCFA4'),
                 color: theme.btn_text_color || '#0a1520',
+                boxShadow: theme.btn_metallic
+                  ? 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 18px rgba(0,0,0,.35)'
+                  : undefined,
               }}
             >
               Участвовать

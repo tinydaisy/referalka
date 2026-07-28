@@ -28,9 +28,9 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   hero: {
     kind: 'hero',
     label: 'Шапка',
-    hint: 'Название, подзаголовок и даты берутся из события. Здесь — только подпись кнопки.',
+    hint: 'Название, описание и даты берутся из настроек события. Здесь — только подпись кнопки.',
     live: true,
-    fields: ['subtitle', 'button'],
+    fields: ['button'],
   },
   seats: {
     kind: 'seats',

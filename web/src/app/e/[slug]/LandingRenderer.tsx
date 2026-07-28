@@ -11,25 +11,46 @@
  * схлопывается в одну колонку (правило проекта — проверять на 375px).
  */
 import { useMemo, useState } from 'react'
+import { CardIcon } from '@/components/landing/icons'
 
 interface Props {
   data: any
   slug: string
 }
 
-/** Металлический градиент — «перелив» из заданного цвета. */
+/**
+ * Металлический градиент — вертикальный перелив из цвета темы.
+ * Формула снята с боевого лендинга: тёмный → цвет → светлый блик → цвет →
+ * тёмный. Именно вертикаль (180deg) и симметрия дают ощущение металла;
+ * диагональный блик выглядит как обычная заливка.
+ */
 function metallic(color: string): string {
-  return `linear-gradient(135deg, ${color} 0%, #ffffff 22%, ${color} 45%, ${shade(color, -18)} 70%, ${color} 100%)`
+  const dark = shade(color, -45)   // #FFCFA4 → примерно #8A5628
+  const light = shade(color, 30)   // #FFCFA4 → примерно #FFE4C9
+  return `linear-gradient(180deg, ${dark}, ${color}, ${light}, ${color}, ${dark})`
 }
 
-/** Затемнение/осветление HEX на процент — для градиентов и рамок. */
+/** Заливка кнопки — тот же металл, но мягче по краям (как .gold-btn). */
+function metallicButton(color: string): string {
+  const edge = shade(color, -22)   // #FFCFA4 → примерно #C99A6E
+  const light = shade(color, 42)   // → #FFF0DE
+  return `linear-gradient(180deg, ${edge}, ${color}, ${light}, ${color}, ${edge})`
+}
+
+/**
+ * Оттенок HEX: минус — темнее (умножение), плюс — светлее (к белому).
+ * Осветление именно «к белому», иначе светлый персик упирается в потолок 255
+ * и блик не виден.
+ */
 function shade(hex: string, pct: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
   if (!m) return hex || '#000000'
   const n = parseInt(m[1], 16)
-  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v + (v * pct) / 100)))
+  const f = (v: number) => pct >= 0
+    ? Math.round(v + (255 - v) * (pct / 100))
+    : Math.round(v * (1 + pct / 100))
   return `#${[f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]
-    .map(v => v.toString(16).padStart(2, '0')).join('')}`
+    .map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`
 }
 
 export default function LandingRenderer({ data, slug }: Props) {
@@ -56,20 +77,24 @@ export default function LandingRenderer({ data, slug }: Props) {
 
   const btnStyle: React.CSSProperties = {
     background: page.btn_metallic
-      ? metallic(page.btn_color || '#FFCFA4')
+      ? metallicButton(page.btn_color || '#FFCFA4')
       : (page.btn_color || '#FFCFA4'),
     color: page.btn_text_color || '#0a1520',
     borderRadius: radius,
     fontFamily: page.font_body_css,
+    letterSpacing: '.04em',
+    // Внутренний блик сверху + мягкая тень — объём, как у боевой кнопки.
+    boxShadow: page.btn_metallic
+      ? 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 18px rgba(0,0,0,.35)'
+      : undefined,
   }
 
+  // ⚠️ Металл — только В РАМКЕ, фон карточки остаётся прозрачным. Заливать
+  // карточку градиентом нельзя: текст поверх становится нечитаемым.
   const cardStyle: React.CSSProperties = {
     borderRadius: radius,
-    border: `1px solid transparent`,
-    background: page.border_metallic
-      ? `linear-gradient(rgba(255,255,255,.04), rgba(255,255,255,.04)) padding-box, ${metallic(page.border_color || '#FFCFA4')} border-box`
-      : `rgba(255,255,255,.04)`,
-    borderColor: page.border_metallic ? undefined : (page.border_color || '#FFCFA4'),
+    border: `1px solid ${page.border_color || '#FFCFA4'}`,
+    background: 'rgba(255,255,255,.02)',
   }
 
   const iconColor = page.icon_color || '#FFCFA4'
@@ -194,8 +219,21 @@ function Section({
   const twoCol = block.layout === 'left' || block.layout === 'right'
   const ratio = block.split_ratio || 50
 
+  // Отступы — из настроек страницы. Боковые не меньше 16px на телефоне,
+  // иначе текст упирается в край экрана.
+  const padX = Math.max(16, page.pad_x ?? 24)
+  const padY = block.pad_y ?? page.section_gap ?? 64
+  const maxW = page.content_width ?? 1120
+
   return (
-    <section className="relative px-4 py-12 sm:px-6 sm:py-16" style={sectionStyle}>
+    <section
+      className="relative"
+      style={{
+        ...sectionStyle,
+        paddingLeft: padX, paddingRight: padX,
+        paddingTop: padY, paddingBottom: padY,
+      }}
+    >
       {block.bg_image_url && (
         <div className="absolute inset-0 -z-10 overflow-hidden"
              style={{ borderRadius: block.border_radius || undefined }}>
@@ -210,7 +248,7 @@ function Section({
         </div>
       )}
 
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto w-full" style={{ maxWidth: maxW ? maxW : undefined }}>
         {twoCol ? (
           /* Две колонки: заголовок в одной, содержимое в другой.
              Пропорция динамическая (split_ratio), поэтому колонки задаются
@@ -262,6 +300,10 @@ function BlockBody({
       const isThanks = Array.isArray(bots)
       return (
         <div className="text-center">
+          {/* Дата — над заголовком, как на боевом лендинге. */}
+          {!isThanks && event.start_at && (
+            <p className="mb-4 text-base opacity-80">{formatDate(event.start_at)}</p>
+          )}
           <h1
             className="text-4xl font-bold uppercase sm:text-6xl md:text-7xl"
             style={headingStyle}
@@ -290,13 +332,13 @@ function BlockBody({
             </>
           ) : (
             <>
-              {block.subtitle && (
+              {/* Подзаголовок — «Описание для лендинга» из настроек события.
+                  Отдельного поля в конструкторе нет: название и описание
+                  правятся в одном месте, на лендинге не дублируются. */}
+              {event.description && (
                 <p className="mx-auto mt-5 max-w-3xl text-lg opacity-90 sm:text-xl">
-                  {block.subtitle}
+                  {event.description}
                 </p>
-              )}
-              {event.start_at && (
-                <p className="mt-4 text-base opacity-75">{formatDate(event.start_at)}</p>
               )}
               <a
                 href={`/event/${slug}/register`}
@@ -312,34 +354,28 @@ function BlockBody({
     }
 
     /* ── Осталось мест ─────────────────────────────────────────────────── */
+    // Компактный бейдж с металлической цифрой (вёрстка с боевого лендинга).
+    // Цифры — из базы: всего мест задаётся в конструкторе, занятые считаются.
     case 'seats': {
       const s = content.seats || {}
+      const metalText: React.CSSProperties = {
+        background: `linear-gradient(180deg, ${shade(iconColor, -45)}, ${iconColor}, ${shade(iconColor, 30)}, ${iconColor}, ${shade(iconColor, -45)})`,
+        WebkitBackgroundClip: 'text',
+        backgroundClip: 'text',
+        color: 'transparent',
+      }
       return (
         <div className="text-center">
-          {s.left != null ? (
-            <>
-              <div className="text-5xl font-bold sm:text-6xl" style={headingStyle}>
-                {s.left}
-              </div>
-              <p className="mt-2 opacity-80">
-                свободных мест из {s.total}
-              </p>
-              <div className="mx-auto mt-4 h-2 max-w-md overflow-hidden rounded-full bg-white/15">
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${Math.min(100, ((s.taken || 0) / (s.total || 1)) * 100)}%`,
-                    background: iconColor,
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="text-5xl font-bold" style={headingStyle}>
-              {s.taken || 0}
-              <span className="ml-2 text-lg font-normal opacity-80">уже с нами</span>
-            </div>
-          )}
+          <div className="inline-flex flex-col items-center gap-1 px-6 py-3"
+               style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
+                        background: 'rgba(255,255,255,.05)' }}>
+            <span className="text-[13px] font-semibold uppercase tracking-widest opacity-90">
+              {s.left != null ? 'Осталось мест:' : 'Уже с нами:'}
+            </span>
+            <span className="text-4xl font-bold leading-none" style={metalText}>
+              {s.left != null ? `${s.left}/${s.total}` : (s.taken || 0)}
+            </span>
+          </div>
         </div>
       )
     }
@@ -392,15 +428,28 @@ function BlockBody({
         : []
       if (!list.length) return null
       return (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {list.map((c: any, i: number) => (
-            <div key={i} className="p-6 text-center" style={cardStyle}>
-              <div className="font-bold uppercase tracking-wide"
-                   style={{ color: page.color_heading || '#FFCFA4' }}>
+            <div key={i}
+                 className="flex flex-col items-center px-6 pb-7 pt-8 text-center"
+                 style={cardStyle}>
+              {c.icon && (
+                <div className="mb-5">
+                  <CardIcon
+                    iconKey={c.icon}
+                    color={iconColor}
+                    metallic={!!page.icon_metallic}
+                    size={88}
+                    id={`${block.id}-${i}`}
+                  />
+                </div>
+              )}
+              <h3 className="text-base font-bold uppercase tracking-wider"
+                  style={{ color: page.color_heading || '#FFCFA4' }}>
                 {c.title}
-              </div>
+              </h3>
               {c.text && (
-                <p className="mt-3 text-sm leading-relaxed opacity-85">{c.text}</p>
+                <p className="mt-3 text-sm leading-relaxed opacity-90">{c.text}</p>
               )}
             </div>
           ))}
@@ -483,44 +532,13 @@ function BlockBody({
     }
 
     /* ── Программа ─────────────────────────────────────────────────────── */
-    case 'program': {
-      const p = content.program || { days: [], sessions: [] }
-      return (
-        <div className="space-y-8">
-          {(p.days || []).map((d: any) => {
-            const sess = (p.sessions || []).filter((s: any) => s.day === d.day_number)
-            if (!sess.length) return null
-            return (
-              <div key={d.id}>
-                <h3 className="mb-3 text-xl font-bold uppercase" style={{ color: page.color_heading }}>
-                  {d.title || `День ${d.day_number}`}
-                  {d.day_date && (
-                    <span className="ml-2 text-sm font-normal opacity-70">
-                      {formatDay(d.day_date)}
-                    </span>
-                  )}
-                </h3>
-                <div className="space-y-2">
-                  {sess.map((s: any) => (
-                    <div key={s.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 p-4" style={cardStyle}>
-                      {s.start_time && (
-                        <span className="shrink-0 font-mono font-bold" style={{ color: iconColor }}>
-                          {s.start_time}{s.end_time ? `–${s.end_time}` : ''} МСК
-                        </span>
-                      )}
-                      <span className="flex-1 font-medium">{s.title}</span>
-                      {s.speaker_name && (
-                        <span className="text-sm opacity-75">{s.speaker_name}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )
-    }
+    // Дни — кнопками-табами (как на боевом лендинге), слоты — карточками:
+    // время слева с акцентной полосой, круглое фото спикера, тема, должность.
+    case 'program':
+      return <ProgramBlock
+        program={content.program} page={page} cardStyle={cardStyle}
+        iconColor={iconColor} radius={radius} btnStyle={btnStyle}
+      />
 
     /* ── Тарифы ────────────────────────────────────────────────────────── */
     case 'tariffs': {
@@ -539,19 +557,25 @@ function BlockBody({
                   </div>
                 )}
                 {x.description && (
-                  <p className="mt-3 flex-1 whitespace-pre-wrap text-sm opacity-85">
-                    {x.description}
-                  </p>
+                  <ul className="mt-4 flex-1 list-none space-y-2 p-0 text-sm leading-relaxed opacity-90">
+                    {String(x.description).split('\n').map((r: string) => r.trim()).filter(Boolean)
+                      .map((row: string, k: number) => (
+                        <li key={k} className="flex gap-2">
+                          <span style={{ color: iconColor }}>—</span>
+                          <span>{row}</span>
+                        </li>
+                      ))}
+                  </ul>
                 )}
-                {x.pay_url && (
-                  <a
-                    href={x.pay_url}
-                    className="mt-5 block px-5 py-3 text-center font-bold uppercase"
-                    style={btnStyle}
-                  >
-                    Купить
-                  </a>
-                )}
+                {/* Ссылка оплаты не задана — ведём на регистрацию (бесплатный
+                    тариф или оплата настраивается позже). */}
+                <a
+                  href={x.pay_url || `/event/${slug}/register`}
+                  className="mt-6 block px-5 py-3.5 text-center font-bold uppercase"
+                  style={btnStyle}
+                >
+                  Выбрать
+                </a>
               </div>
             ))}
           </div>
@@ -568,59 +592,90 @@ function BlockBody({
     }
 
     /* ── Подарки ───────────────────────────────────────────────────────── */
+    // Список с иконкой-подарком (вёрстка с боевого лендинга). Названия и
+    // пороги — из реф-программы события, здесь ничего не дублируется.
     case 'gifts': {
       const list = content.gifts || []
+      if (!list.length) return null
       return (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mx-auto flex max-w-3xl list-none flex-col gap-5 p-0">
           {list.map((g: any, i: number) => (
-            <div key={i} className="p-5" style={cardStyle}>
-              <div className="text-sm font-bold uppercase" style={{ color: iconColor }}>
-                {/* Порог 0 = подарок всем за сам факт регистрации. */}
-                {!g.threshold_count ? 'За регистрацию' : `За ${g.threshold_count} ${plural(g.threshold_count)}`}
+            <li key={i} className="flex items-start gap-4">
+              <GiftIcon color={iconColor} id={`g${i}`} />
+              <div className="min-w-0 flex-1 pt-1">
+                <span className="font-bold">{g.title || 'Подарок'}</span>
+                {g.description && (
+                  <span className="opacity-85"> — {g.description}</span>
+                )}
+                {!!g.threshold_count && (
+                  <span className="ml-2 whitespace-nowrap text-sm font-semibold"
+                        style={{ color: iconColor }}>
+                    за {g.threshold_count} {plural(g.threshold_count)}
+                  </span>
+                )}
               </div>
-              <div className="mt-2 font-medium">{g.title || 'Подарок'}</div>
-              {g.description && (
-                <p className="mt-1 text-sm opacity-75">{g.description}</p>
-              )}
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )
     }
 
     /* ── Организатор ───────────────────────────────────────────────────── */
+    // Вёрстка с боевого лендинга: крупное фото слева, справа имя,
+    // позиционирование и биография точками. Рамка золотая, фон прозрачный.
     case 'organizer': {
       const o = content.organizer
       if (!o) return null
+      const photo = o.owner_photo_url || o.brand_photo_url
+      // Биография — построчно; ведущие маркеры из текста срезаем, точка своя.
+      const bio: string[] = String(o.bio || '')
+        .split('\n')
+        .map((x: string) => x.replace(/^[•\-–—\s]+/, '').trim())
+        .filter(Boolean)
+
       return (
-        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-          {(o.owner_photo_url || o.brand_photo_url) && (
+        <div
+          className="flex flex-col items-center gap-8 p-7 text-center md:flex-row md:gap-11 md:p-10 md:text-left"
+          style={{
+            border: `3px solid ${page.border_color || '#FFCFA4'}`,
+            borderRadius: Math.max(radius, 16),
+            background: 'transparent',
+          }}
+        >
+          {photo && (
             <img
-              src={o.owner_photo_url || o.brand_photo_url}
+              src={photo}
               alt={o.owner_name}
-              className="h-40 w-40 shrink-0 object-cover"
-              style={{ borderRadius: radius }}
+              loading="lazy"
+              className="w-full shrink-0 object-cover md:w-[360px]"
+              style={{
+                aspectRatio: '4 / 5',
+                borderRadius: Math.max(radius, 12),
+                background: 'rgba(255,255,255,.06)',
+                boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+              }}
             />
           )}
-          <div className="text-center sm:text-left">
-            <div className="text-2xl font-bold uppercase" style={{ color: page.color_heading }}>
+
+          <div className="min-w-0 flex-1">
+            <div className="text-3xl font-bold uppercase leading-tight tracking-wide md:text-4xl">
               {o.owner_name}
             </div>
             {o.owner_positioning && (
-              <p className="mt-1 opacity-85">{o.owner_positioning}</p>
+              <p className="mt-3 text-lg font-bold leading-snug" style={{ color: iconColor }}>
+                {o.owner_positioning}
+              </p>
             )}
-            {o.bio && <p className="mt-3 whitespace-pre-wrap opacity-80">{o.bio}</p>}
-            {!!(o.owner_achievements || []).length && (
-              <div className="mt-5 flex flex-wrap justify-center gap-5 sm:justify-start">
-                {o.owner_achievements.map((a: any, i: number) => (
-                  <div key={i}>
-                    <div className="text-2xl font-bold" style={{ color: iconColor }}>
-                      {a.value}
-                    </div>
-                    <div className="text-xs opacity-75">{a.label}</div>
-                  </div>
+            {!!bio.length && (
+              <ul className="mt-6 list-none space-y-3 p-0 text-left">
+                {bio.map((x, i) => (
+                  <li key={i} className="flex gap-3 font-semibold leading-relaxed">
+                    <span className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: iconColor }} />
+                    <span>{x}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         </div>
@@ -740,6 +795,133 @@ function BlockBody({
 }
 
 /* ── Утилиты ────────────────────────────────────────────────────────────── */
+
+/**
+ * Программа: дни — кнопками-табами, слоты — карточками.
+ * Вынесена в отдельный компонент, потому что нужен свой стейт (активный день),
+ * а хук нельзя объявлять внутри switch в BlockBody.
+ */
+function ProgramBlock({
+  program, page, cardStyle, iconColor, radius, btnStyle,
+}: any) {
+  const p = program || { days: [], sessions: [] }
+  const days = useMemo(
+    () => [...(p.days || [])]
+      .filter((d: any) => (p.sessions || []).some((s: any) => s.day === d.day_number))
+      .sort((a: any, b: any) => a.day_number - b.day_number),
+    [p],
+  )
+  const [active, setActive] = useState<number | null>(null)
+  const current = active ?? days[0]?.day_number ?? null
+
+  if (!days.length) return null
+
+  const sessions = (p.sessions || [])
+    .filter((s: any) => s.day === current)
+    .sort((a: any, b: any) => String(a.start_time || '').localeCompare(String(b.start_time || '')))
+
+  return (
+    <div>
+      {/* Дни — крупные кнопки. Активный выделен цветом кнопки темы. */}
+      {days.length > 1 && (
+        <div className="mb-7 flex flex-wrap justify-center gap-3">
+          {days.map((d: any) => {
+            const on = d.day_number === current
+            return (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => setActive(d.day_number)}
+                className="px-8 py-4 text-lg font-bold leading-tight transition-transform hover:scale-[1.02] sm:text-xl"
+                style={on
+                  ? { ...btnStyle, borderRadius: 40 }
+                  : {
+                      borderRadius: 40,
+                      background: 'rgba(255,255,255,.08)',
+                      color: 'inherit',
+                      fontFamily: btnStyle.fontFamily,
+                    }}
+              >
+                {d.title || `День ${d.day_number}`}
+                {d.day_date && (
+                  <small className="mt-1 block text-xs font-medium opacity-80">
+                    {formatDay(d.day_date)}
+                  </small>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {sessions.map((s: any) => (
+          <div key={s.id} className="flex flex-wrap items-start gap-4 p-4 sm:flex-nowrap"
+               style={cardStyle}>
+            {s.start_time && (
+              <div className="shrink-0 pl-3 text-sm font-bold leading-snug sm:w-[104px] sm:border-l-0 sm:border-r-[3px] sm:pl-0 sm:pr-4"
+                   style={{ borderLeft: `3px solid ${iconColor}`, borderRightColor: iconColor }}>
+                {s.start_time}{s.end_time ? `–${s.end_time}` : ''}
+                <span className="mt-0.5 block text-[11px] font-normal opacity-60">МСК</span>
+              </div>
+            )}
+
+            {s.speaker_photo_url && (
+              <img
+                src={s.speaker_photo_url}
+                alt={s.speaker_name || ''}
+                loading="lazy"
+                className="h-14 w-14 shrink-0 rounded-full object-cover sm:h-16 sm:w-16"
+                style={{ background: 'rgba(255,255,255,.06)' }}
+              />
+            )}
+
+            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+              <div className="font-bold leading-snug">{s.title}</div>
+              {s.speaker_name && (
+                <div className="mt-1 text-sm font-semibold" style={{ color: iconColor }}>
+                  {s.speaker_name}
+                </div>
+              )}
+              {s.speaker_position && (
+                <div className="mt-0.5 text-[13px] leading-snug opacity-70">
+                  {s.speaker_position}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Иконка подарка с металлической заливкой из цвета иконок темы.
+ * `id` уникален на страницу — иначе градиенты SVG перетрут друг друга.
+ */
+function GiftIcon({ color, id }: { color: string; id: string }) {
+  const gid = `lp-gift-${id}`
+  return (
+    <svg viewBox="0 0 64 64" width={38} height={38} aria-hidden="true"
+         className="shrink-0" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0.35" y2="1">
+          <stop offset="0%" stopColor={shade(color, -45)} />
+          <stop offset="30%" stopColor={color} />
+          <stop offset="50%" stopColor={shade(color, 30)} />
+          <stop offset="70%" stopColor={color} />
+          <stop offset="100%" stopColor={shade(color, -45)} />
+        </linearGradient>
+      </defs>
+      <rect x="6" y="26" width="52" height="32" rx="3" fill={`url(#${gid})`} />
+      <rect x="4" y="17" width="56" height="12" rx="3" fill={`url(#${gid})`} />
+      <rect x="27" y="17" width="10" height="41" fill="#25455D" opacity=".28" />
+      <path d="M32 17C32 17 25 4 17 7c-6 2-4 10 3 10h12z" fill={`url(#${gid})`} />
+      <path d="M32 17C32 17 39 4 47 7c6 2 4 10-3 10H32z" fill={`url(#${gid})`} />
+    </svg>
+  )
+}
 
 /** Склонение слова «друг» по числу: 1 друг, 3 друга, 5 друзей. */
 function plural(n: number): string {

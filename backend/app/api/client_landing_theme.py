@@ -40,6 +40,9 @@ _FIELDS = {
     "icon_color": "lp_icon_color",
     "icon_metallic": "lp_icon_metallic",
     "radius": "lp_radius",
+    "content_width": "lp_content_width",
+    "pad_x": "lp_pad_x",
+    "section_gap": "lp_section_gap",
 }
 
 
@@ -62,6 +65,9 @@ class ThemeUpdate(BaseModel):
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
+    content_width: Optional[int] = None
+    pad_x: Optional[int] = None
+    section_gap: Optional[int] = None
 
 
 @router.get("", summary="Тема лендинга клиента")
@@ -92,6 +98,12 @@ async def patch_theme(
             val = max(0, min(360, int(val)))
         if api_field == "radius" and val is not None:
             val = max(0, min(64, int(val)))
+        if api_field == "content_width" and val is not None:
+            val = 0 if int(val) == 0 else max(480, min(2000, int(val)))
+        if api_field == "pad_x" and val is not None:
+            val = max(0, min(160, int(val)))
+        if api_field == "section_gap" and val is not None:
+            val = max(0, min(200, int(val)))
         vals.append(val)
         sets.append(f"{col} = ${len(vals)}")
 
