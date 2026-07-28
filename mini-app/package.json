@@ -6,10 +6,12 @@
     "dev": "vite --config vite.config.tg.ts",
     "dev:vk": "vite --config vite.config.vk.ts",
     "dev:web": "vite --config vite.config.web.ts",
+    "dev:max": "vite --config vite.config.max.ts",
     "build:tg": "vite build --config vite.config.tg.ts && mv dist/index_tg.html dist/index.html",
     "build:vk": "vite build --config vite.config.vk.ts && mv dist-vk/index_vk.html dist-vk/index.html",
     "build:web": "vite build --config vite.config.web.ts && mv dist-web/index_web.html dist-web/index.html",
-    "build": "npm run build:tg && npm run build:vk && npm run build:web",
+    "build:max": "vite build --config vite.config.max.ts && mv dist-max/index_max.html dist-max/index.html",
+    "build": "npm run build:tg && npm run build:vk && npm run build:web && npm run build:max",
     "preview": "vite preview"
   },
   "dependencies": {
