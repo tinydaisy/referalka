@@ -44,7 +44,8 @@ function metallicButton(color: string): string {
  */
 function shade(hex: string, pct: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
-  if (!m) return hex || '#000000'
+  // Мусор в поле цвета (недописанный HEX) не должен ронять страницу.
+  if (!m) return '#000000'
   const n = parseInt(m[1], 16)
   const f = (v: number) => pct >= 0
     ? Math.round(v + (255 - v) * (pct / 100))

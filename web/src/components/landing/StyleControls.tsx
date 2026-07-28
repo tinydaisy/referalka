@@ -131,6 +131,9 @@ export function FontSelect({
   onChange: (v: string) => void
   fonts: Array<{ key: string; label: string; category: string }>
 }) {
+  // Список шрифтов может не прийти (сбой запроса) — без защиты .filter
+  // роняет всю страницу настроек.
+  const list0 = Array.isArray(fonts) ? fonts : []
   const groups: Array<[string, string]> = [
     ['sans', 'Без засечек'],
     ['serif', 'С засечками'],
@@ -145,7 +148,7 @@ export function FontSelect({
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white"
       >
         {groups.map(([cat, title]) => {
-          const list = fonts.filter(f => f.category === cat)
+          const list = list0.filter(f => f.category === cat)
           if (!list.length) return null
           return (
             <optgroup key={cat} label={title}>

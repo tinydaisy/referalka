@@ -50,8 +50,8 @@ export default function LandingThemeTab() {
     (async () => {
       try {
         const res = await api.landingTheme.get()
-        setTheme(res.theme || {})
-        setFonts(res.fonts || [])
+        setTheme(res?.theme || {})
+        setFonts(Array.isArray(res?.fonts) ? res.fonts : [])
       } catch (e: any) {
         alert(e?.message || 'Не удалось загрузить стили')
       } finally { setLoading(false) }
@@ -82,6 +82,8 @@ export default function LandingThemeTab() {
 
   const headFont = fonts.find(f => f.key === theme.font_heading)
   const bodyFont = fonts.find(f => f.key === theme.font_body)
+  // shade() ждёт корректный HEX: мусор из поля не должен ронять превью.
+  const safe = (v: any, d: string) => (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : d)
 
   const bg = theme.bg_gradient && theme.bg_color_2
     ? `linear-gradient(${theme.bg_angle ?? 45}deg, ${theme.bg_color || '#25455D'}, ${theme.bg_color_2})`
@@ -296,7 +298,7 @@ export default function LandingThemeTab() {
                 theme.heading_metallic
                   ? {
                       fontFamily: fontCss(theme.font_heading, headFont?.label),
-                      background: metallic(theme.color_heading || '#FFCFA4'),
+                      background: metallic(safe(theme.color_heading, '#FFCFA4')),
                       WebkitBackgroundClip: 'text',
                       backgroundClip: 'text',
                       color: 'transparent',
@@ -336,7 +338,7 @@ export default function LandingThemeTab() {
               style={{
                 borderRadius: radius,
                 background: theme.btn_metallic
-                  ? metallicButton(theme.btn_color || '#FFCFA4')
+                  ? metallicButton(safe(theme.btn_color, '#FFCFA4'))
                   : (theme.btn_color || '#FFCFA4'),
                 color: theme.btn_text_color || '#0a1520',
                 boxShadow: theme.btn_metallic
