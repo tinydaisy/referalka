@@ -161,8 +161,10 @@ export default function LandingRenderer({ data, slug }: Props) {
         /* Сетка карточек: число колонок задаётся в блоке (--lp-cols-lg),
            но на узких экранах их всегда меньше — иначе карточки схлопнутся
            в нечитаемые полоски. */
+        /* ⚠️ min() везде: если клиент выбрал 1 или 2 колонки, промежуточные
+           брейкпоинты не должны навязывать больше — настройка всегда потолок. */
         .lp-grid { grid-template-columns: 1fr; }
-        @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
         .lp-root { overflow-x: hidden; }
@@ -538,7 +540,8 @@ function BlockBody({
         : []
       if (!list.length) return null
       return (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="lp-grid grid gap-6"
+             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>
           {list.map((c: any, i: number) => (
             <div key={i}
                  className="flex flex-col items-center px-6 pb-7 pt-8 text-center"
@@ -793,7 +796,8 @@ function BlockBody({
           {cards}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{cards}</div>
+        <div className="lp-grid grid gap-4"
+             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>{cards}</div>
       )
     }
 
