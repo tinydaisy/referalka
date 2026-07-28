@@ -263,12 +263,21 @@ async def get_public_landing(
 
     # ── Есть вопросы → каналы поддержки клиента ───────────────────────────
     if "support" in kinds and owner:
-        tg = (owner["work_tg_username"] or "").lstrip("@")
+        # В поля поддержки клиент вписывает и голый ник, и готовую ссылку —
+        # нормализуем, иначе получается «https://telegram.me/https://…».
+        def _link(val: str | None, base: str) -> str | None:
+            v = (val or "").strip()
+            if not v:
+                return None
+            if v.startswith("http://") or v.startswith("https://"):
+                return v
+            return base + v.lstrip("@")
+
         data["support"] = {
             # ⚠️ telegram.me, не t.me — правило проекта
-            "telegram": f"https://telegram.me/{tg}" if tg else None,
-            "vk": owner["work_vk"] or None,
-            "max": owner["work_max"] or None,
+            "telegram": _link(owner["work_tg_username"], "https://telegram.me/"),
+            "vk": _link(owner["work_vk"], "https://vk.com/"),
+            "max": _link(owner["work_max"], "https://max.ru/"),
         }
 
     # ── Футер: реквизиты + политика + оферта ──────────────────────────────
