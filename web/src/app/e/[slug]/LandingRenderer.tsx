@@ -227,7 +227,23 @@ export default function LandingRenderer({ data, slug }: Props) {
       <style>{`
         .lp-link { color: ${page.color_link || '#FFCFA4'}; }
         .lp-link:hover { text-decoration: underline; }
-        .lp-scroll::-webkit-scrollbar { height: 6px; }
+        /* Полоса прокрутки карусели — своя, акцентного цвета и ВСЕГДА видимая.
+           ⚠️ На телефоне системный скроллбар скрыт (overlay-режим), поэтому
+           понять, что ленту можно листать, было невозможно. Задаём дорожку и
+           бегунок явно — работает и на мобильных, и на десктопе. */
+        .lp-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: ${iconColor} ${hexToRgba(iconColor, 0.18)};
+        }
+        .lp-scroll::-webkit-scrollbar {
+          height: 6px;
+          -webkit-appearance: none;
+          display: block;
+        }
+        .lp-scroll::-webkit-scrollbar-track {
+          background: ${hexToRgba(iconColor, 0.18)};
+          border-radius: 3px;
+        }
         .lp-scroll::-webkit-scrollbar-thumb { background: ${iconColor}; border-radius: 3px; }
         /* Двухколоночные секции: на телефоне одна колонка, с 768px — заданная
            пропорция из --lp-md-cols (её ставит сама секция инлайном). */
