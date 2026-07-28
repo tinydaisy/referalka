@@ -71,13 +71,15 @@ export default function BlockCard({
     >
       {/* Шапка карточки */}
       <div className="flex items-center gap-2 p-3">
-        <GripVertical
+        <span
           onMouseDown={() => setCanDrag(true)}
           onMouseUp={() => setCanDrag(false)}
           onMouseLeave={() => setCanDrag(false)}
           title="Перетащите, чтобы поменять порядок"
-          className="h-5 w-5 shrink-0 cursor-grab text-gray-400 active:cursor-grabbing"
-        />
+          className="shrink-0 cursor-grab active:cursor-grabbing"
+        >
+          <GripVertical className="h-5 w-5 text-gray-400" />
+        </span>
 
         <button
           onClick={() => setOpen(o => !o)}
@@ -87,10 +89,12 @@ export default function BlockCard({
             ? <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
             : <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />}
           <span className={`font-medium truncate ${block.is_active ? 'text-gray-900' : 'text-gray-400'}`}>
-            {meta.label}
+            {block.admin_name || meta.label}
           </span>
-          {block.title && (
-            <span className="truncate text-sm text-gray-400">— {block.title}</span>
+          {(block.admin_name || block.title) && (
+            <span className="truncate text-sm text-gray-400">
+              — {block.admin_name ? meta.label : block.title}
+            </span>
           )}
           {meta.live && (
             <span
@@ -144,6 +148,22 @@ export default function BlockCard({
 
           {tab === 'content' ? (
             <div className="space-y-4">
+              {/* Внутреннее имя — только для списка в конструкторе. */}
+              {meta.repeatable && (
+                <Field label="Название секции (только для вас)">
+                  <input
+                    type="text"
+                    value={block.admin_name || ''}
+                    onChange={e => onPatch({ admin_name: e.target.value })}
+                    className="input"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Видно только в этом списке — помогает отличать секции.
+                    На лендинге не показывается.
+                  </p>
+                </Field>
+              )}
+
               {has('title') && (
                 <>
                   <Field label="Заголовок секции">

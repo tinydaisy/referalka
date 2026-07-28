@@ -147,6 +147,7 @@ class BlockIn(BaseModel):
 
 
 class BlockPatch(BaseModel):
+    admin_name: Optional[str] = None
     title: Optional[str] = None
     subtitle: Optional[str] = None
     body: Optional[str] = None
@@ -480,7 +481,7 @@ async def patch_block(
     fs = data.model_fields_set
     sets, vals = [], []
     for field in (
-        "title", "subtitle", "body", "button_label", "button_url", "is_active",
+        "admin_name", "title", "subtitle", "body", "button_label", "button_url", "is_active",
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",

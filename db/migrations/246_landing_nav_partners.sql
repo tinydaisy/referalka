@@ -34,3 +34,11 @@ ALTER TABLE event_landing_blocks
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages  TO plusson;
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
+
+-- Внутреннее имя секции — чтобы в списке конструктора отличать несколько
+-- «Своих секций» друг от друга. На лендинге НЕ показывается: заголовок
+-- секции для посетителя — это `title`.
+ALTER TABLE event_landing_blocks
+  ADD COLUMN IF NOT EXISTS admin_name TEXT;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
