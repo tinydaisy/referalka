@@ -632,10 +632,13 @@ function BlockBody({
                 </p>
               )}
               {!!bots.length && (
-                <div className="mt-8 flex flex-wrap justify-center gap-3">
+                {/* На странице после оплаты выбор мессенджера — это и есть
+                    целевое действие, поэтому кнопки полноценные. На телефоне
+                    держим в одну строку, сжимая по ширине. */}
+                <div className="mt-8 flex flex-nowrap justify-center gap-2 sm:gap-3">
                   {bots.map((b: any) => (
                     <a key={b.platform} href={b.url} target="_blank" rel="noreferrer"
-                       className="px-7 py-4 font-bold uppercase transition-transform hover:scale-105"
+                       className="min-w-0 truncate px-4 py-3 text-[.85em] font-bold uppercase transition-transform hover:scale-105 sm:px-7 sm:py-4 sm:text-[1em]"
                        style={btnStyle}>
                       {b.label}
                     </a>
@@ -1101,11 +1104,20 @@ function BlockBody({
         ['MAX', s.max],
       ].filter(([, url]) => !!url)
       if (!links.length) return null
+      // ⚠️ Это не призыв к действию, а способы связи: кнопки мельче и
+      // акцентного цвета, чтобы не спорить с настоящей CTA. На телефоне
+      // держим их в ОДНУ строку — сжимаются, но не переносятся.
       return (
-        <div className="flex flex-wrap justify-center gap-3">
+        <div className="flex flex-nowrap items-center justify-center gap-2 sm:gap-3">
           {links.map(([label, url]: any) => (
             <a key={label} href={url} target="_blank" rel="noreferrer"
-               className="px-6 py-3 font-bold uppercase" style={btnStyle}>
+               className="min-w-0 truncate px-3 py-2 text-[.8em] font-bold uppercase transition-opacity hover:opacity-85 sm:px-5 sm:py-2.5 sm:text-[.85em]"
+               style={{
+                 borderRadius: page.btn_radius ?? radius,
+                 background: iconColor,
+                 color: page.day_tab_text_color || page.bg_color || '#0a1520',
+                 fontFamily: page.font_body_css,
+               }}>
               {label}
             </a>
           ))}
