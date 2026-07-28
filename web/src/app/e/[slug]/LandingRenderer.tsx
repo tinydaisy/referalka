@@ -549,7 +549,10 @@ function Section({
              инлайновой переменной — Tailwind классы на лету не собирает.
              До 768px переменная = 1fr, то есть одна колонка (правило: 375px). */
           <div
-            className="lp-cols grid items-start gap-8 md:gap-12"
+            // ⚠️ Заголовок сбоку центрируем ПО ВЕРТИКАЛИ: прижатый к верху, он
+            // «висит» напротив пустоты, когда содержимое длинное.
+            // По горизонтали — как задано настройкой title_align.
+            className="lp-cols grid items-center gap-8 md:gap-12"
             style={{
               ['--lp-md-cols' as any]: block.layout === 'right'
                 ? `${100 - ratio}% ${ratio}%`
