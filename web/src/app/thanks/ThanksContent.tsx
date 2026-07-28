@@ -10,6 +10,12 @@
  */
 import { useEffect, useState } from 'react'
 
+const SUPPORT_LABEL: Record<string, string> = {
+  telegram: 'Telegram',
+  vk: 'ВКонтакте',
+  max: 'MAX',
+}
+
 const BOT_LABEL: Record<string, string> = {
   telegram: 'Бот в Telegram',
   vk: 'Сообщество ВКонтакте',
@@ -108,21 +114,6 @@ export default function ThanksContent({
         </>
       )}
 
-      {!!order?.support?.length && (
-        <p className="mt-8 text-sm text-white/60">
-          Что-то не открылось?{' '}
-          {order.support.map((s: any, i: number) => (
-            <span key={s.platform}>
-              {i > 0 && ' · '}
-              <a href={s.url} target="_blank" rel="noreferrer"
-                 className="underline hover:text-white">
-                {(BOT_LABEL[s.platform] || '').replace('Бот в ', '')
-                  .replace('Сообщество ', '') || 'Написать нам'}
-              </a>
-            </span>
-          ))}
-        </p>
-      )}
 
     </>
   )
