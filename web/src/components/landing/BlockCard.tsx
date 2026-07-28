@@ -32,6 +32,10 @@ export default function BlockCard({
   onDragStart, onDragOver, onDrop, isDragging,
 }: Props) {
   const [open, setOpen] = useState(false)
+  // ⚠️ draggable включается ТОЛЬКО когда мышь на ручке ⠿. Если он висит на
+  // всей карточке, браузер начинает тащить её при выделении текста в поле и
+  // при перетаскивании ползунков — карточка «уезжает» прямо во время правки.
+  const [canDrag, setCanDrag] = useState(false)
   const [tab, setTab] = useState<'content' | 'style'>('content')
   const meta = metaFor(block.kind)
   const has = (f: string) => meta.fields.includes(f as any)
@@ -56,8 +60,9 @@ export default function BlockCard({
 
   return (
     <div
-      draggable
+      draggable={canDrag}
       onDragStart={onDragStart}
+      onDragEnd={() => setCanDrag(false)}
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={`rounded-xl border bg-white transition-shadow ${
@@ -66,7 +71,13 @@ export default function BlockCard({
     >
       {/* Шапка карточки */}
       <div className="flex items-center gap-2 p-3">
-        <GripVertical className="h-5 w-5 shrink-0 cursor-grab text-gray-400 active:cursor-grabbing" />
+        <GripVertical
+          onMouseDown={() => setCanDrag(true)}
+          onMouseUp={() => setCanDrag(false)}
+          onMouseLeave={() => setCanDrag(false)}
+          title="Перетащите, чтобы поменять порядок"
+          className="h-5 w-5 shrink-0 cursor-grab text-gray-400 active:cursor-grabbing"
+        />
 
         <button
           onClick={() => setOpen(o => !o)}
@@ -228,7 +239,30 @@ export default function BlockCard({
               )}
 
               {/* Сколько карточек в ряд + рамка — для блоков с сеткой. */}
-              {['speakers', 'values', 'difference', 'gallery', 'numbers'].includes(block.kind) && (
+              {['speakers', 'partners'].includes(block.kind) && (
+                <Field label="Как показывать карточки">
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ['grid', 'Сеткой — несколько в ряд'],
+                      ['scroll', 'Лентой — прокрутка вбок'],
+                    ] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => onPatch({ display_mode: val })}
+                        className={`rounded-lg border px-3 py-1.5 text-sm ${
+                          (block.display_mode || 'grid') === val
+                            ? 'border-brand bg-brand/5 font-medium text-brand'
+                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              )}
+
+              {['speakers', 'partners', 'values', 'difference', 'gallery', 'numbers'].includes(block.kind) && (
                 <>
                   <Field label={`Карточек в ряд: ${block.columns || (block.kind === 'numbers' ? 4 : 3)}`}>
                     <input

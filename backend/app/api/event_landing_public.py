@@ -162,6 +162,23 @@ async def get_public_landing(
             {**dict(r), "achievements": _jsonb(r["achievements"])} for r in rows
         ]
 
+    # ── Партнёры ──────────────────────────────────────────────────────────
+    # Те же карточки коллабораторов, что и спикеры, но роли партнёрские.
+    # Порядок — общая order_by_sql, как везде в проекте.
+    if "partners" in kinds:
+        rows = await db.fetch(
+            f"""SELECT cse.id, cse.role, cse.partner_url,
+                      c.name, c.title, c.photo_url,
+                      c.tg_channel_url, c.vk_url, c.max_url, c.website_url
+                 FROM event_collaborators cse
+                 JOIN collaborators c ON c.id = cse.speaker_id
+                WHERE cse.event_id = $1
+                  AND cse.role IN ('general_partner', 'partner')
+                ORDER BY {order_by_sql('cse')}""",
+            event["id"],
+        )
+        data["partners"] = [dict(r) for r in rows]
+
     # ── Организатор ───────────────────────────────────────────────────────
     if "organizer" in kinds and owner:
         social = _jsonb(owner["social_links"])
@@ -285,6 +302,7 @@ async def get_public_landing(
             ),
             "offer_url": event["offer_url"],
             "brand_name": owner["brand_name"] or owner["name"],
+            "brand_logo_url": owner["brand_logo_url"],
         }
 
     # ── Кнопки ботов на странице «после оплаты» ───────────────────────────
@@ -313,6 +331,14 @@ async def get_public_landing(
                     "url": url,
                 })
         data["bots"] = bots
+
+    # Логотип и имя бренда нужны шапке-меню независимо от того, включён
+    # ли блок подвала.
+    if owner:
+        data.setdefault("brand", {
+            "name": owner["brand_name"] or owner["name"],
+            "logo_url": owner["brand_logo_url"],
+        })
 
     page_d = dict(page)
     page_d["font_heading_css"] = font_family_css(page["font_heading"])

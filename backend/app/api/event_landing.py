@@ -46,6 +46,7 @@ DEFAULT_MAIN_BLOCKS: list[dict] = [
     {"kind": "numbers",    "is_active": False},
     {"kind": "difference", "is_active": False},
     {"kind": "speakers",   "is_active": True},
+    {"kind": "partners",   "is_active": False},
     {"kind": "program",    "is_active": True},
     {"kind": "gallery",    "is_active": False},
     {"kind": "values",     "is_active": False},
@@ -64,11 +65,12 @@ DEFAULT_POST_PAY_BLOCKS: list[dict] = [
 
 # Блоки, которые сами тянут данные события — руками у них правится только
 # заголовок и оформление, содержимое приходит из базы.
-LIVE_KINDS = {"speakers", "program", "tariffs", "organizer", "gifts", "seats", "support", "footer"}
+LIVE_KINDS = {"speakers", "partners", "program", "tariffs", "organizer",
+              "gifts", "seats", "support", "footer"}
 
 # `text` и `gallery` можно добавлять по кнопке сколько угодно раз — их нет
 # в дефолтном наборе (gallery там есть, но выключенный) или он единичный.
-VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery"}
+VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "partners"}
 
 # Блоки, которых на странице может быть много (кнопка «Добавить секцию»).
 REPEATABLE_KINDS = {"text", "gallery"}
@@ -126,6 +128,9 @@ class PagePatch(BaseModel):
     content_width: Optional[int] = None
     pad_x: Optional[int] = None
     section_gap: Optional[int] = None
+    nav_enabled: Optional[bool] = None
+    nav_button_label: Optional[str] = None
+    nav_items: Optional[Any] = None
     post_pay_title: Optional[str] = None
     post_pay_text: Optional[str] = None
 
@@ -165,6 +170,7 @@ class BlockPatch(BaseModel):
     cards_bordered: Optional[bool] = None
     card_style: Optional[str] = None
     columns: Optional[int] = None
+    display_mode: Optional[str] = None
     show_seats: Optional[bool] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
@@ -365,6 +371,7 @@ async def patch_page(
         "btn_color", "btn_text_color", "btn_metallic",
         "border_color", "border_metallic", "icon_color", "icon_metallic", "radius",
         "body_size", "content_width", "pad_x", "section_gap",
+        "nav_enabled", "nav_button_label",
         "post_pay_title", "post_pay_text",
     ):
         if field not in fs:
@@ -392,6 +399,18 @@ async def patch_page(
             val = max(0, min(200, int(val)))
         vals.append(val)
         sets.append(f"{field} = ${len(vals)}")
+
+    # nav_items — JSONB, пишем отдельно (как items у блока).
+    if "nav_items" in fs:
+        items = data.nav_items if isinstance(data.nav_items, list) else []
+        clean = [
+            {"label": str(i.get("label") or "")[:40],
+             "block_kind": str(i.get("block_kind") or "")[:32]}
+            for i in items
+            if isinstance(i, dict) and i.get("label") and i.get("block_kind")
+        ][:8]
+        vals.append(json.dumps(clean, ensure_ascii=False))
+        sets.append(f"nav_items = ${len(vals)}::jsonb")
 
     if not sets:
         return {"ok": True}
@@ -465,7 +484,7 @@ async def patch_block(
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
-        "cards_bordered", "card_style", "columns", "show_seats", "seats_position",
+        "cards_bordered", "card_style", "columns", "display_mode", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
@@ -499,6 +518,8 @@ async def patch_block(
             val = max(10, min(48, int(val)))
         if field == "card_style" and val not in ("border", "divider", "plain"):
             val = "border"
+        if field == "display_mode" and val not in ("grid", "scroll"):
+            val = "grid"
         if field == "columns" and val is not None:
             val = max(1, min(6, int(val)))
         if field == "seats_position" and val not in ("above", "side"):

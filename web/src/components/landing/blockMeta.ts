@@ -12,7 +12,7 @@
 export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'speakers' | 'organizer' | 'program'
-  | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer'
+  | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
 
 export interface BlockMeta {
   kind: BlockKind
@@ -88,6 +88,13 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     hint: 'Подтягиваются из события. Поправили карточку спикера — на лендинге обновилось.',
     live: true,
     // button — подпись кнопки, раскрывающей регалии («Подробнее о спикерах»).
+    fields: ['title', 'subtitle', 'button'],
+  },
+  partners: {
+    kind: 'partners',
+    label: 'Партнёры',
+    hint: 'Карточки партнёров события — из раздела «Люди», роли «Партнёр» и «Генеральный партнёр».',
+    live: true,
     fields: ['title', 'subtitle', 'button'],
   },
   organizer: {

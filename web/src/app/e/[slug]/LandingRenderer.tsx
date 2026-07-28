@@ -172,6 +172,12 @@ export default function LandingRenderer({ data, slug }: Props) {
         .lp-root h1, .lp-root h2, .lp-root h3 { overflow-wrap: anywhere; }
       `}</style>
 
+      {/* Липкая шапка: логотип + якоря на секции + кнопка регистрации. */}
+      {page.nav_enabled && (
+        <LandingNav page={page} blocks={blocks} content={content}
+                    btnStyle={btnStyle} slug={slug} />
+      )}
+
       {blocks.map((b: any) => (
         <Section
           key={b.id}
@@ -192,6 +198,98 @@ export default function LandingRenderer({ data, slug }: Props) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Липкая шапка лендинга: логотип бренда слева, пункты меню и кнопка справа.
+ *
+ * Пункты — якоря на секции ЭТОЙ же страницы: у каждой секции автоматически
+ * есть id вида `lp-<тип блока>` (см. Section), поэтому расставлять якоря
+ * руками не нужно — клиент выбирает секцию из списка.
+ */
+function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
+  const [open, setOpen] = useState(false)
+  const items: Array<{ label: string; block_kind: string }> =
+    Array.isArray(page.nav_items) ? page.nav_items : []
+  // Показываем только пункты, чья секция реально есть и включена.
+  const present = new Set(blocks.map((b: any) => b.kind))
+  const links = items.filter(i => present.has(i.block_kind))
+  const logo = content?.brand?.logo_url
+
+  return (
+    <header
+      className="sticky top-0 z-40 border-b backdrop-blur"
+      style={{
+        borderColor: `${page.border_color || '#FFCFA4'}33`,
+        background: 'rgba(10,21,32,.72)',
+      }}
+    >
+      <div className="mx-auto flex items-center gap-4 px-4 py-3 sm:px-6"
+           style={{ maxWidth: page.content_width || 1120 }}>
+        <a href="#top" className="shrink-0">
+          {logo
+            ? <img src={logo} alt="" className="h-9 w-auto object-contain" />
+            : <span className="font-bold uppercase tracking-wide"
+                    style={{ color: page.color_heading || '#FFCFA4' }}>
+                {content?.brand?.name || ''}
+              </span>}
+        </a>
+
+        {/* Пункты меню: на широком экране в строку, на телефоне — в раскрывашке */}
+        <nav className="ml-auto hidden items-center gap-6 md:flex">
+          {links.map(i => (
+            <a key={i.block_kind} href={`#lp-${i.block_kind}`}
+               className="text-[.9em] font-medium uppercase tracking-wide opacity-85 hover:opacity-100">
+              {i.label}
+            </a>
+          ))}
+        </nav>
+
+        {page.nav_button_label && (
+          <a href={`/event/${slug}/register`}
+             className="ml-auto hidden shrink-0 px-5 py-2.5 text-[.85em] font-bold uppercase md:ml-0 md:inline-block"
+             style={btnStyle}>
+            {page.nav_button_label}
+          </a>
+        )}
+
+        {!!links.length && (
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            aria-label="Меню"
+            className="ml-auto md:hidden"
+            style={{ color: page.color_heading || '#FFCFA4' }}
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="flex flex-col gap-1 border-t px-4 pb-4 pt-2 md:hidden"
+             style={{ borderColor: `${page.border_color || '#FFCFA4'}22` }}>
+          {links.map(i => (
+            <a key={i.block_kind} href={`#lp-${i.block_kind}`}
+               onClick={() => setOpen(false)}
+               className="py-2 text-[.95em] font-medium uppercase tracking-wide opacity-90">
+              {i.label}
+            </a>
+          ))}
+          {page.nav_button_label && (
+            <a href={`/event/${slug}/register`}
+               className="mt-2 px-5 py-3 text-center text-[.9em] font-bold uppercase"
+               style={btnStyle}>
+              {page.nav_button_label}
+            </a>
+          )}
+        </div>
+      )}
+    </header>
+  )
+}
 
 function Section({
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
@@ -337,7 +435,8 @@ function Section({
 
   return (
     <section
-      className="relative"
+      id={`lp-${block.kind}`}
+      className="relative scroll-mt-20"
       style={{
         ...sectionStyle,
         paddingLeft: padX, paddingRight: padX,
@@ -600,6 +699,12 @@ function BlockBody({
     /* ── Спикеры ───────────────────────────────────────────────────────── */
     // Раскладка проверена на боевом лендинге (GetCourse): квадратное фото,
     // имя капсом, должность, тема с акцентной полосой слева, регалии списком.
+    case 'partners':
+      return <PartnersBlock
+        list={content.partners || []} block={block} page={page}
+        cardStyle={cardStyle} iconColor={iconColor}
+      />
+
     case 'speakers':
       return <SpeakersBlock
         list={content.speakers || []} block={block} page={page}
@@ -895,52 +1000,86 @@ function SeatsBadge({
  * кнопкой: если раскрывать по одной, ряд растягивается по самой высокой
  * карточке, а соседние выглядят пустыми коробками.
  */
-function SpeakersBlock({ list, block, page, cardStyle, iconColor, btnStyle }: any) {
-  // Подпись кнопки задаётся в блоке (button_label).
+function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
+  // Раскрытие общее на ряд: стрелка есть у каждой карточки, но жмёшь любую —
+  // разворачиваются все. Иначе ряд растягивается по самой высокой карточке,
+  // а соседние выглядят пустыми коробками.
   const [open, setOpen] = useState(false)
   if (!list.length) return null
 
   const cols = Math.max(1, Math.min(6, block.columns || 3))
-  const hasAch = list.some((s: any) => Array.isArray(s.achievements) && s.achievements.length)
+  const scroll = block.display_mode === 'scroll'
 
-  return (
-    <div>
-      <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
-        {list.map((s: any) => (
-          <SpeakerCard key={s.id} s={s} page={page}
-                       cardStyle={cardStyle} iconColor={iconColor} open={open} />
-        ))}
-      </div>
+  const cards = list.map((s: any) => (
+    <SpeakerCard key={s.id} s={s} page={page} cardStyle={cardStyle}
+                 iconColor={iconColor} open={open}
+                 onToggle={() => setOpen(o => !o)}
+                 className={scroll ? 'w-[min(280px,75vw)] shrink-0 snap-start' : ''} />
+  ))
 
-      {hasAch && block.button_label && (
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={() => setOpen(o => !o)}
-            className="inline-flex items-center gap-2 px-7 py-3 text-sm font-bold uppercase"
-            style={btnStyle}
-          >
-            {open ? 'Свернуть' : block.button_label}
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-                 strokeLinejoin="round" aria-hidden="true"
-                 style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }}>
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
+  return scroll ? (
+    <div className="lp-scroll flex snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
+      {cards}
+    </div>
+  ) : (
+    <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
+      {cards}
+    </div>
+  )
+}
+
+/** Партнёры события — те же карточки, но роли general_partner/partner. */
+function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
+  if (!list.length) return null
+  const cols = Math.max(1, Math.min(6, block.columns || 4))
+  const scroll = block.display_mode === 'scroll'
+
+  const cards = list.map((p: any) => {
+    const inner = (
+      <>
+        {p.photo_url && (
+          <img src={p.photo_url} alt={p.name} loading="lazy"
+               className="block w-full object-cover"
+               style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }} />
+        )}
+        <div className="p-4 text-center">
+          <div className="font-bold uppercase leading-tight"
+               style={{ color: page.color_heading || '#FFCFA4' }}>
+            {p.name}
+          </div>
+          {p.title && (
+            <div className="mt-1 text-[.85em] leading-snug opacity-80">{p.title}</div>
+          )}
         </div>
-      )}
+      </>
+    )
+    const url = p.partner_url || p.website_url
+    const cls = `flex flex-col overflow-hidden ${scroll ? 'w-[min(240px,70vw)] shrink-0 snap-start' : ''}`
+    return url
+      ? <a key={p.id} href={url} target="_blank" rel="noreferrer"
+           className={`${cls} transition-transform hover:scale-[1.02]`} style={cardStyle}>{inner}</a>
+      : <div key={p.id} className={cls} style={cardStyle}>{inner}</div>
+  })
+
+  return scroll ? (
+    <div className="lp-scroll flex snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
+      {cards}
+    </div>
+  ) : (
+    <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
+      {cards}
     </div>
   )
 }
 
 /**
- * Карточка спикера: фото, имя, должность и тема видны всегда. Регалии
- * показываются, когда раскрыта вся секция (проп `open`) — своего состояния
- * у карточки нет специально, чтобы ряд не «прыгал».
+ * Карточка спикера: фото, имя, должность и регалии тонким шрифтом.
+ * Тему выступления не показываем — она есть в программе, в карточке это
+ * дублирование. Стрелка есть у каждой карточки, но раскрывает весь ряд
+ * (проп `open` общий на секцию) — иначе соседние карточки выглядят пустыми.
  */
 function SpeakerCard({
-  s, page, cardStyle, iconColor, open,
+  s, page, cardStyle, iconColor, open, onToggle, className = '',
 }: any) {
   const ach: string[] = Array.isArray(s.achievements)
     ? s.achievements
@@ -949,9 +1088,11 @@ function SpeakerCard({
         .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
         .filter(Boolean)
     : []
+  // Свёрнутая карточка показывает первые две регалии, остальные — по стрелке.
+  const visible = open ? ach : ach.slice(0, 2)
 
   return (
-    <div className="flex flex-col overflow-hidden" style={cardStyle}>
+    <div className={`flex flex-col overflow-hidden ${className}`} style={cardStyle}>
       {s.photo_url && (
         <img
           src={s.photo_url}
@@ -969,17 +1110,34 @@ function SpeakerCard({
         {s.title && (
           <div className="text-[.9em] font-semibold leading-snug opacity-90">{s.title}</div>
         )}
-        {s.topic && (
-          <div className="pl-3 text-[.95em] font-semibold leading-snug"
-               style={{ borderLeft: `1px solid ${iconColor}` }}>
-            {s.topic}
-          </div>
+
+        {!!visible.length && (
+          <ul className="mt-1 list-none space-y-1.5 p-0 text-[.85em] font-light leading-relaxed opacity-80">
+            {visible.map((a, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="mt-[.55em] h-1 w-1 shrink-0 rounded-full"
+                      style={{ background: iconColor }} />
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
         )}
 
-        {open && !!ach.length && (
-          <ul className="mt-1 list-disc pl-5 text-[.9em] leading-relaxed opacity-80">
-            {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
-          </ul>
+        {ach.length > 2 && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={open ? 'Свернуть' : 'Показать все регалии'}
+            className="mt-auto flex items-center justify-center pt-3"
+            style={{ color: iconColor }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                 strokeLinejoin="round" aria-hidden="true"
+                 style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }}>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
         )}
       </div>
     </div>

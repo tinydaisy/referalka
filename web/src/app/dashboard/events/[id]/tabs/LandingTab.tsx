@@ -263,6 +263,108 @@ export default function LandingTab({ eventId, event }: Props) {
         </div>
       )}
 
+      {/* Шапка-меню */}
+      {kind === 'main' && (
+        <details className="rounded-xl border border-gray-200 bg-white">
+          <summary className="cursor-pointer p-4 font-medium text-gray-900">
+            Шапка с меню {page.nav_enabled ? '· включена' : '· выключена'}
+          </summary>
+          <div className="space-y-4 border-t border-gray-100 p-4">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!page.nav_enabled}
+                onChange={e => patchPage({ nav_enabled: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+              />
+              <span className="font-medium text-gray-900">
+                Показывать шапку с логотипом и меню
+              </span>
+            </label>
+            <p className="text-sm text-gray-500">
+              Логотип берётся из визитки бренда (Настройки → Mini App → Бренд).
+              Пункты меню прокручивают страницу к нужной секции.
+            </p>
+
+            {page.nav_enabled && (
+              <>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Подпись кнопки в шапке
+                  </label>
+                  <input
+                    type="text"
+                    value={page.nav_button_label || ''}
+                    onChange={e => patchPage({ nav_button_label: e.target.value })}
+                    className="input"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Пусто — кнопки в шапке не будет. Ведёт на регистрацию.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Пункты меню
+                  </label>
+                  <div className="space-y-2">
+                    {(page.nav_items || []).map((it: any, i: number) => (
+                      <div key={i} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={it.label || ''}
+                          onChange={e => {
+                            const next = [...(page.nav_items || [])]
+                            next[i] = { ...next[i], label: e.target.value }
+                            patchPage({ nav_items: next })
+                          }}
+                          placeholder="Название пункта"
+                          className="input"
+                        />
+                        <select
+                          value={it.block_kind || ''}
+                          onChange={e => {
+                            const next = [...(page.nav_items || [])]
+                            next[i] = { ...next[i], block_kind: e.target.value }
+                            patchPage({ nav_items: next })
+                          }}
+                          className="input w-56 shrink-0 bg-white"
+                        >
+                          <option value="">— секция —</option>
+                          {page.blocks.map((b: any) => (
+                            <option key={b.id} value={b.kind}>
+                              {metaFor(b.kind).label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => patchPage({
+                            nav_items: (page.nav_items || []).filter((_: any, j: number) => j !== i),
+                          })}
+                          className="shrink-0 rounded px-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {(page.nav_items || []).length < 8 && (
+                    <button
+                      onClick={() => patchPage({
+                        nav_items: [...(page.nav_items || []), { label: '', block_kind: '' }],
+                      })}
+                      className="mt-2 text-sm font-medium text-brand hover:underline"
+                    >
+                      + Добавить пункт
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </details>
+      )}
+
       {/* Оформление страницы */}
       <details className="rounded-xl border border-gray-200 bg-white">
         <summary className="cursor-pointer p-4 font-medium text-gray-900">
