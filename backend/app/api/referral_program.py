@@ -858,7 +858,7 @@ async def export_speaker_materials(
 ):
     client_id = int(client["sub"])
     ev = await db.fetchrow(
-        """SELECT id, slug, title, $2::int AS client_id, module_slug, start_at, link_mode
+        """SELECT id, slug, title, $2::int AS client_id, module_slug, start_at
              FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')""",
         event_id, client_id,
     )
@@ -875,7 +875,7 @@ async def export_speaker_materials(
     from app.services import collaborator_sort
     from app.api.modules.conference import ensure_collaborator_contact
     from app.services.share_links import build_share_links, resolve_event_link_mode
-    _lm = await resolve_event_link_mode(db, client_id=client_id, event_link_mode=ev["link_mode"])
+    _lm = await resolve_event_link_mode(db, client_id=client_id)
 
     rows = await db.fetch(
         f"""SELECT ec.id AS ec_id, ec.role,

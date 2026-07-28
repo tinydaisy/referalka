@@ -43,7 +43,7 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "description_post_register, vip_url, vip_button_label, hide_stream_button, accent_button, "
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
-            "landing_url, start_at, end_at, link_mode, is_collab, skip_contact_form, "
+            "landing_url, start_at, end_at, is_collab, skip_contact_form, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
             "WHEN 'vk' THEN events.vk_chat_ref WHEN 'max' THEN events.max_chat_ref ELSE events.tg_chat_ref END) AS chat_url, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg, "
@@ -340,8 +340,7 @@ async def _load_ref_cabinet(db, event, contact_id):
                     _cid = _src
             except Exception:
                 pass
-        _ev_lm = event["link_mode"] if "link_mode" in event else None
-        _lm = await resolve_event_link_mode(db, client_id=_cid, event_link_mode=_ev_lm)
+        _lm = await resolve_event_link_mode(db, client_id=_cid)
         links = await build_share_links(
             db, event_slug=event["slug"], client_id=_cid,
             partner_id=ref_code,

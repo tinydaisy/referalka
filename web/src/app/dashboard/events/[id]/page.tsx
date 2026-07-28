@@ -11,12 +11,13 @@ import CollabOrganizersTab from './tabs/CollabOrganizersTab'
 import NurtureTab from './tabs/NurtureTab'
 import WelcomeTab from './tabs/WelcomeTab'
 import TariffsTab from './tabs/TariffsTab'
+import LandingTab from './tabs/LandingTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -28,6 +29,7 @@ export default function EventPage() {
   const { me } = useMe()
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
+  const hasLanding = (me?.features || []).includes('event_landing')
   // Несколько организаторов у событий — по фиче event_organizers (vip + admin).
   const hasEventOrganizers = (me?.features || []).includes('event_organizers')
 
@@ -62,6 +64,9 @@ export default function EventPage() {
       tabs: [
         { key: 'overview', label: 'Описание' },
         { key: 'posters',  label: 'Афиши' },
+        // Конструктор лендинга — по фиче event_landing (миграция 240).
+        // У КОЛЛАБ-события скрыт: страница собирается для одного организатора.
+        ...((hasLanding && !event.is_collab) ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
         { key: 'referral', label: 'Реф-программа' },
         { key: 'nurture',  label: 'Воронка догрева' },
         // «Приветствие» (welcome-email) — у КОЛЛАБ-события не показываем.
@@ -165,6 +170,7 @@ export default function EventPage() {
       {/* Tab content */}
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
+      {activeTab === 'landing' && hasLanding && !event.is_collab && <LandingTab eventId={eventId} event={event} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}

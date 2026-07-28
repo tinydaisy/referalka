@@ -151,9 +151,11 @@ class UpdateEventRequest(BaseModel):
     # Общее видео события (миграция 113). Для скачивания спикерами на странице
     # самоправки → вкладка «Материалы».
     video_url: Optional[str] = None
-    # Тип реф-ссылок события (миграция 131): 'miniapp' (открытие через Mini App)
-    # или 'bot' (бот шлёт воронку события в ЛС). Влияет на ссылки в кабинетах
-    # спикеров/рефералов и в материалах. Дефолт 'miniapp'.
+    # ⚠️ link_mode у события УДАЛЁН (миграция 240). Режим открытия ссылок
+    # (Mini App / веб-версия) задаётся только в настройках кабинета
+    # (clients.link_mode_{telegram|vk|max} / default_link_mode). Поле оставлено
+    # в модели как no-op — старые клиенты могут его слать, update_event его
+    # молча выбрасывает.
     link_mode: Optional[str] = None
 
 
@@ -391,15 +393,14 @@ async def get_event_share_links_by_slug(
     db: asyncpg.Connection = Depends(get_db),
 ):
     from ..services.share_links import build_share_links, resolve_event_link_mode
-    ev = await db.fetchrow("SELECT id, slug, is_collab, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE slug = $1", slug)
+    ev = await db.fetchrow("SELECT id, slug, is_collab, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", slug)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     # ⚠️ КОЛЛАБ: реф-ссылку участника строим через бота ТОГО организатора, от которого
     # человек пришёл (у каждого свой бот и своя база), а не владельца события.
     owner_cid = await _collab_share_client_id(db, ev, pid=pid, cid=cid)
-    # mode из query (для дашборда — оба набора) или общий клиентский режим
-    # (event.link_mode пока всегда NULL — radio в UI скрыт).
-    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid, event_link_mode=ev["link_mode"])
+    # mode из query (для дашборда — оба набора) или режим из настроек кабинета.
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid)
     links = await build_share_links(
         db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
@@ -420,15 +421,15 @@ async def get_event_share_links(
     Используется в дашборде (карточка события, страница соорганизатора/спикера)
     и в Mini App (вкладка «Игра» — показывает только ссылку текущей платформы).
     `mode` ('miniapp'|'bot') — для дашборда (оба набора); без mode берётся
-    актуальный режим события `events.link_mode`.
+    режим из настроек кабинета клиента.
     """
     from ..services.share_links import build_share_links, resolve_event_link_mode
-    ev = await db.fetchrow("SELECT id, slug, is_collab, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE id = $1", event_id)
+    ev = await db.fetchrow("SELECT id, slug, is_collab, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE id = $1", event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     # ⚠️ КОЛЛАБ: ссылка строится через бота организатора, от которого пришёл человек.
     owner_cid = await _collab_share_client_id(db, ev, pid=pid, cid=cid)
-    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid, event_link_mode=ev["link_mode"])
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid)
     links = await build_share_links(
         db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
@@ -485,13 +486,9 @@ async def update_event(
         if v is not None and v not in ("vip", "chat", "none"):
             raise HTTPException(status_code=400, detail="accent_button должен быть 'vip', 'chat' или 'none'")
 
-    # link_mode: 'miniapp' | 'bot' (миграция 131). None → не трогаем.
-    if "link_mode" in updates:
-        v = updates["link_mode"]
-        if v is None:
-            del updates["link_mode"]  # null не пишем — оставляем дефолт/текущее
-        elif v not in ("miniapp", "bot"):
-            raise HTTPException(status_code=400, detail="link_mode должен быть 'miniapp' или 'bot'")
+    # link_mode у события удалён (миграция 240) — режим только из настроек
+    # кабинета. Поле в payload молча игнорируем (старые клиенты могут слать).
+    updates.pop("link_mode", None)
 
     # end_action (миграция 195): 'next_event' | 'gift'. Подарок взаимоисключающий —
     # лид-магнит ИЛИ пакет: заполнение одного обнуляет другой. 0 → снять оба.

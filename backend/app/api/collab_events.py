@@ -272,7 +272,7 @@ async def collab_organizers_with_links(event_id: int, mode: Optional[str] = None
         "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, me)
     if not iam:
         raise HTTPException(403, "Вы не организатор этого события")
-    ev = await db.fetchrow("SELECT slug, link_mode FROM events WHERE id=$1", event_id)
+    ev = await db.fetchrow("SELECT slug FROM events WHERE id=$1", event_id)
     if not ev:
         raise HTTPException(404, "Событие не найдено")
 
@@ -387,7 +387,7 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
     me = int(client["sub"])
     ec_id, collab_id, can_edit = await _organizer_ctx(db, event_id, client_id, me)
 
-    ev = await db.fetchrow("SELECT slug, link_mode, status FROM events WHERE id=$1", event_id)
+    ev = await db.fetchrow("SELECT slug, status FROM events WHERE id=$1", event_id)
     row = await db.fetchrow(
         """SELECT c.id AS client_id, c.name, c.brand_name,
                   COALESCE(c.owner_photo_url, c.profile_photo_url) AS photo_url,
@@ -432,7 +432,7 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
     link_modes: dict[str, str] = {}
     for _p in ("telegram", "vk", "max"):
         link_modes[_p] = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(
-            db, client_id=client_id, event_link_mode=ev["link_mode"], platform=_p)
+            db, client_id=client_id, platform=_p)
     links = await build_share_links(
         db, client_id=client_id, event_slug=ev["slug"],
         partner_id=row["ref_code"] if row else None, link_mode=link_modes["telegram"])

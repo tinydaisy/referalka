@@ -32,7 +32,11 @@ FONTS: list[dict] = [
     {"key": "Lora",           "label": "Lora",            "category": "serif",   "weights": [400, 600, 700]},
 
     # ── Акцидентные: только заголовки, для текста не годятся ───────────────
-    {"key": "BebasNeue",      "label": "Bebas Neue",      "category": "display", "weights": [400]},
+    # ⚠️ У Bebas Neue НЕТ кириллицы (Google отдаёт только латиницу). Русские
+    # буквы подставляются из Oswald — ближайший узкий гротеск с заглавными,
+    # внешне разница минимальна. Цепочка задаётся в `_FALLBACK_BY_KEY`.
+    {"key": "BebasNeue",      "label": "Bebas Neue",      "category": "display", "weights": [400],
+     "note": "Латиница — Bebas, кириллица — Oswald (у Bebas нет русских букв)"},
     {"key": "Oswald",         "label": "Oswald",          "category": "display", "weights": [400, 600, 700]},
     {"key": "Unbounded",      "label": "Unbounded",       "category": "display", "weights": [400, 700, 900]},
     {"key": "AlumniSans",     "label": "Alumni Sans",     "category": "display", "weights": [400, 700]},
@@ -57,8 +61,21 @@ def normalize_font(key: str | None) -> str:
     return key if key in FONT_KEYS else DEFAULT_FONT
 
 
+# Шрифты без кириллицы: подставляем следом похожий с русскими буквами.
+# Браузер берёт из первого шрифта те символы, что в нём есть, остальные — из
+# следующего. Так латиница остаётся фирменной, а русский текст не «слетает»
+# в системный шрифт.
+_FALLBACK_BY_KEY = {
+    "BebasNeue": "'Oswald'",
+}
+
+
 def font_family_css(key: str | None) -> str:
-    """CSS-значение font-family с запасной цепочкой: "Bebas Neue", Impact, ..."""
+    """CSS-значение font-family с запасной цепочкой: 'Bebas Neue', 'Oswald', ..."""
     key = normalize_font(key)
     font = next(f for f in FONTS if f["key"] == key)
-    return f"'{font['label']}', {_FALLBACK[font['category']]}"
+    chain = [f"'{font['label']}'"]
+    if key in _FALLBACK_BY_KEY:
+        chain.append(_FALLBACK_BY_KEY[key])
+    chain.append(_FALLBACK[font["category"]])
+    return ", ".join(chain)

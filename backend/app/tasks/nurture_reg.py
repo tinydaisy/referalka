@@ -154,9 +154,7 @@ async def build_section_urls(
         get_client_bot_handles, resolve_event_link_mode, telegram_link,
     )
 
-    event_link_mode = await db.fetchval("SELECT link_mode FROM events WHERE id = $1", event_id)
-    tg_mode = await resolve_event_link_mode(
-        db, client_id=client_id, event_link_mode=event_link_mode, platform="telegram")
+    tg_mode = await resolve_event_link_mode(db, client_id=client_id, platform="telegram")
     tg_handle = (await get_client_bot_handles(db, client_id)).get("telegram")
 
     def with_tab(tab: str) -> str:

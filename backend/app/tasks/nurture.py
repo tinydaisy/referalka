@@ -115,7 +115,7 @@ async def _build_app_url(
     ⚠️ Раньше тут всегда собирался Mini App (`?startapp=…`), из-за чего клиент с
     настройкой «Веб-версия» («Бот и ссылки») всё равно получал кнопку в Mini App.
     Режим задаётся ОТДЕЛЬНО НА КАЖДУЮ ПЛОЩАДКУ (clients.link_mode_{telegram|vk|max},
-    миграция 200) и может быть переопределён самим событием (events.link_mode),
+    миграция 200). Режима у самого события больше нет (миграция 240),
     поэтому строим ссылку общими билдерами share_links — там режим уже учтён:
       • miniapp → t.me/{бот}?startapp=… / vk.com/app{id}#ref_pg… / max.ru/{h}?startapp=…
       • bot     → t.me/{бот}?start=…    / vk.com/app{id}#evl_…   / max.ru/{h}?start=…
@@ -129,11 +129,8 @@ async def _build_app_url(
     if not client_id:
         return ""
 
-    # events.link_mode (если задан у события) важнее клиентского — resolve сам это учитывает.
-    event_link_mode = await db.fetchval(
-        "SELECT link_mode FROM events WHERE slug = $1", slug)
-    mode = await resolve_event_link_mode(
-        db, client_id=client_id, event_link_mode=event_link_mode, platform=platform)
+    # Режим — только из настроек кабинета (у события своего режима больше нет).
+    mode = await resolve_event_link_mode(db, client_id=client_id, platform=platform)
 
     if platform == "telegram":
         handles = await get_client_bot_handles(db, client_id)

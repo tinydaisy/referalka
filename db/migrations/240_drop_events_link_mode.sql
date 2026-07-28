@@ -1,0 +1,22 @@
+-- 240: удалить events.link_mode — режим открытия ссылок только из настроек кабинета.
+--
+-- Зачем. Колонка (миграция 131) хранила у КАЖДОГО события «Mini App» или
+-- «Веб-версия» и была ГЛАВНЕЕ настроек кабинета клиента. При этом
+-- переключателя для неё в дашборде никогда не было — значение проставлялось
+-- само при создании события (NOT NULL DEFAULT 'miniapp').
+--
+-- Из-за этого переключатель «Веб-версия / Mini App» в настройках кабинета не
+-- действовал на уже созданные события: у них навсегда оставался зашитый
+-- 'miniapp'. Клиент с настройкой «Веб-версия» получал в Материалах спикера
+-- ссылки на Mini App (событие iViSiON-8, 2026-07-28) и не мог это исправить.
+--
+-- Теперь единственный источник истины — настройки кабинета:
+--   clients.link_mode_{telegram|vk|max} → clients.default_link_mode → 'bot'.
+-- См. share_links.resolve_event_link_mode.
+--
+-- Код колонку больше не читает (events.py, collab_events.py, event_page_html.py,
+-- modules/conference.py, speaker_cabinet.py, referral_program.py, nurture.py,
+-- nurture_reg.py). Поле link_mode в payload PATCH /events/{id} молча
+-- игнорируется — старые клиенты могут его слать.
+
+ALTER TABLE events DROP COLUMN IF EXISTS link_mode;

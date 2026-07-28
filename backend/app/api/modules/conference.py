@@ -268,7 +268,6 @@ class ConferenceUpdate(BaseModel):
     end_action: Optional[str] = None               # 'next_event' | 'gift' (миграция 195)
     end_gift_lead_magnet_id: Optional[int] = None
     end_gift_package_id: Optional[int] = None
-    link_mode: Optional[str] = None                # 'miniapp' | 'bot' (миграция 131)
     getcourse_form_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
@@ -317,8 +316,7 @@ async def get_conference(
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
                e.end_action AS event_end_action,
                e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
-               e.end_gift_package_id AS event_end_gift_package_id,
-               e.link_mode AS event_link_mode
+               e.end_gift_package_id AS event_end_gift_package_id
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -348,7 +346,6 @@ async def get_conference(
     d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
     d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
     d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
-    d["link_mode"] = d.pop("event_link_mode") or "miniapp"
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
     d["event_landing_url"] = d.pop("event_landing_url") or ""
@@ -392,7 +389,6 @@ async def update_conference(
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
-        "link_mode",
         # Что показывать на «Итогах» при завершении (миграция 195)
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)
@@ -473,8 +469,7 @@ async def update_conference(
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
                e.end_action AS event_end_action,
                e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
-               e.end_gift_package_id AS event_end_gift_package_id,
-               e.link_mode AS event_link_mode
+               e.end_gift_package_id AS event_end_gift_package_id
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -502,7 +497,6 @@ async def update_conference(
     d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
     d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
     d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
-    d["link_mode"] = d.pop("event_link_mode") or "miniapp"
     return {"conference": d}
 
 

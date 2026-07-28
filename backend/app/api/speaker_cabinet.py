@@ -287,10 +287,7 @@ async def get_me(
             d.get("collaborator_id"),
         )
         if coll_client_id and d.get("event_slug") and d.get("ref_code"):
-            _ev_lm = await db.fetchval(
-                "SELECT link_mode FROM events WHERE slug = $1", d["event_slug"]
-            )
-            _lm = await resolve_event_link_mode(db, client_id=int(coll_client_id), event_link_mode=_ev_lm)
+            _lm = await resolve_event_link_mode(db, client_id=int(coll_client_id))
             d["ref_links"] = await build_share_links(
                 db,
                 client_id=int(coll_client_id),
@@ -799,7 +796,6 @@ async def get_me_materials(
         """SELECT e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
                   e.start_at,
                   (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
-                  e.link_mode,
                   e.video_url AS event_video_url,
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url, cl.partner_dashboard_url,
@@ -896,7 +892,7 @@ async def get_me_materials(
 
     # Реф-ссылки спикера (та же логика, что в get_me)
     from app.services.share_links import build_share_links, resolve_event_link_mode
-    _base_lm = await resolve_event_link_mode(db, client_id=int(base["client_id"]), event_link_mode=base["link_mode"])
+    _base_lm = await resolve_event_link_mode(db, client_id=int(base["client_id"]))
     try:
         ref_links = await build_share_links(
             db,
