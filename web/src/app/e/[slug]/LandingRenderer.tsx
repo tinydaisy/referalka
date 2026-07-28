@@ -76,18 +76,38 @@ export default function LandingRenderer({ data, slug }: Props) {
     return { ...base, color: page.color_heading || '#FFCFA4' }
   }, [page])
 
-  const btnStyle: React.CSSProperties = {
-    background: page.btn_metallic
+  // Заливка кнопки: свой градиент из двух цветов → металлик → сплошной цвет.
+  // Для padding-box слой должен быть именно фоном-картинкой: сплошной цвет
+  // оборачиваем в градиент, готовый градиент берём как есть.
+  const asLayer = (v: string) =>
+    v.startsWith('linear-gradient') ? v : `linear-gradient(${v}, ${v})`
+
+  const btnFill = page.btn_color_2
+    ? `linear-gradient(${page.btn_angle ?? 180}deg, ${page.btn_color || '#FFCFA4'}, ${page.btn_color_2})`
+    : page.btn_metallic
       ? metallicButton(page.btn_color || '#FFCFA4')
-      : (page.btn_color || '#FFCFA4'),
+      : (page.btn_color || '#FFCFA4')
+
+  const btnStyle: React.CSSProperties = {
     color: page.btn_text_color || '#0a1520',
     borderRadius: radius,
     fontFamily: page.font_body_css,
     letterSpacing: '.04em',
     // Внутренний блик сверху + мягкая тень — объём, как у боевой кнопки.
-    boxShadow: page.btn_metallic
+    boxShadow: page.btn_metallic || page.btn_color_2
       ? 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 18px rgba(0,0,0,.35)'
       : undefined,
+    // Рамка вокруг кнопки. Градиентная рамка делается двумя фонами:
+    // заливка в padding-box, рамка — в border-box. Обычным border градиент
+    // не задать, поэтому цвет границы ставим прозрачным.
+    ...(page.btn_border_width
+      ? {
+          border: `${page.btn_border_width}px solid transparent`,
+          background: page.btn_border_metallic
+            ? `${asLayer(btnFill)} padding-box, ${metallic(page.btn_border_color || '#FFCFA4')} border-box`
+            : `${asLayer(btnFill)} padding-box, linear-gradient(${page.btn_border_color || '#FFCFA4'}, ${page.btn_border_color || '#FFCFA4'}) border-box`,
+        }
+      : { background: btnFill }),
   }
 
   // ⚠️ Металл — только В РАМКЕ, фон карточки остаётся прозрачным. Заливать
@@ -583,7 +603,7 @@ function BlockBody({
                 {block.button_label && (
                   <a
                     href={`/event/${slug}/register`}
-                    className="inline-block px-8 py-4 text-base font-bold uppercase tracking-wide transition-transform hover:scale-105"
+                    className="inline-block px-8 py-4 text-[1em] font-bold uppercase tracking-wide transition-transform hover:scale-105"
                     style={btnStyle}
                   >
                     {block.button_label}
@@ -762,7 +782,7 @@ function BlockBody({
                   {x.title}
                 </div>
                 {x.price != null && (
-                  <div className="mt-2 text-3xl font-bold" style={headingStyle}>
+                  <div className="mt-2 text-[2em] font-bold" style={headingStyle}>
                     {Number(x.price).toLocaleString('ru-RU')} ₽
                   </div>
                 )}
@@ -863,7 +883,7 @@ function BlockBody({
           )}
 
           <div className="min-w-0 flex-1">
-            <div className="text-3xl font-bold uppercase leading-tight tracking-wide md:text-4xl">
+            <div className="text-[1.9em] font-bold uppercase leading-tight tracking-wide md:text-[2.4em]">
               {o.owner_name}
             </div>
             {o.owner_positioning && (
@@ -1018,7 +1038,7 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
     <span className="inline-flex items-center justify-center px-6 py-3"
           style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
                    background: 'rgba(255,255,255,.05)' }}>
-      <span className="text-4xl font-bold leading-none" style={metalText}>
+      <span className="text-[2.4em] font-bold leading-none" style={metalText}>
         {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
       </span>
     </span>
@@ -1217,7 +1237,7 @@ function ProgramBlock({
                 key={d.id}
                 type="button"
                 onClick={() => setActive(d.day_number)}
-                className="px-8 py-4 text-lg font-bold leading-tight transition-transform hover:scale-[1.02] sm:text-xl"
+                className="px-8 py-4 text-[1.15em] font-bold leading-tight transition-transform hover:scale-[1.02] sm:text-[1.3em]"
                 style={on
                   ? { ...btnStyle, borderRadius: 40 }
                   : {
@@ -1229,7 +1249,7 @@ function ProgramBlock({
               >
                 {d.title || `День ${d.day_number}`}
                 {d.day_date && (
-                  <small className="mt-1 block text-xs font-medium opacity-80">
+                  <small className="mt-1 block text-[.75em] font-medium opacity-80">
                     {formatDay(d.day_date)}
                   </small>
                 )}
@@ -1251,7 +1271,7 @@ function ProgramBlock({
               <div className="shrink-0 pl-5 text-[.9em] font-bold leading-snug sm:ml-1 sm:w-[130px] sm:border-l-0 sm:border-r sm:pl-0 sm:pr-6"
                    style={{ borderLeft: `1px solid ${iconColor}66`, borderRightColor: `${iconColor}66` }}>
                 {s.start_time}{s.end_time ? `–${s.end_time}` : ''}
-                <span className="mt-0.5 block text-[11px] font-normal opacity-60">МСК</span>
+                <span className="mt-0.5 block text-[.7em] font-normal opacity-60">МСК</span>
               </div>
             )}
 

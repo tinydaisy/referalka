@@ -91,6 +91,15 @@ export default function LandingThemeTab() {
 
   const radius = theme.radius ?? 5
 
+  // Заливка кнопки в превью — та же логика, что на лендинге.
+  const asLayer = (v: string) =>
+    v.startsWith('linear-gradient') ? v : `linear-gradient(${v}, ${v})`
+  const btnFillPreview = theme.btn_color_2
+    ? `linear-gradient(${theme.btn_angle ?? 180}deg, ${safe(theme.btn_color, '#FFCFA4')}, ${safe(theme.btn_color_2, '#FFCFA4')})`
+    : theme.btn_metallic
+      ? metallicButton(safe(theme.btn_color, '#FFCFA4'))
+      : (theme.btn_color || '#FFCFA4')
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
@@ -200,9 +209,49 @@ export default function LandingThemeTab() {
               <ColorField label="Цвет текста на кнопке" value={theme.btn_text_color}
                 onChange={v => set({ btn_text_color: v })} />
             </div>
-            <div className="mt-3">
+            <div className="mt-3 space-y-3">
               <MetallicToggle label="Металлический градиент на кнопках"
                 checked={!!theme.btn_metallic} onChange={v => set({ btn_metallic: v })} />
+
+              <ColorField label="Второй цвет заливки (градиент)"
+                value={theme.btn_color_2}
+                onChange={v => set({ btn_color_2: v })}
+                hint="Пусто — заливка одним цветом или металликом." />
+
+              {theme.btn_color_2 && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Направление заливки: {theme.btn_angle ?? 180}°
+                  </label>
+                  <input type="range" min={0} max={360} step={15}
+                    value={theme.btn_angle ?? 180}
+                    onChange={e => set({ btn_angle: Number(e.target.value) })}
+                    className="w-full" />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+              <h4 className="font-medium text-gray-900">Рамка кнопки</h4>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Толщина: {theme.btn_border_width ?? 0} px
+                </label>
+                <input type="range" min={0} max={12}
+                  value={theme.btn_border_width ?? 0}
+                  onChange={e => set({ btn_border_width: Number(e.target.value) })}
+                  className="w-full" />
+                <p className="mt-1 text-xs text-gray-500">0 — рамки нет.</p>
+              </div>
+              {!!theme.btn_border_width && (
+                <>
+                  <ColorField label="Цвет рамки" value={theme.btn_border_color}
+                    onChange={v => set({ btn_border_color: v })} />
+                  <MetallicToggle label="Металлический перелив на рамке"
+                    checked={!!theme.btn_border_metallic}
+                    onChange={v => set({ btn_border_metallic: v })} />
+                </>
+              )}
             </div>
           </Card>
 
@@ -337,9 +386,16 @@ export default function LandingThemeTab() {
               className="mt-4 w-full px-6 py-3 text-sm font-bold uppercase"
               style={{
                 borderRadius: radius,
-                background: theme.btn_metallic
-                  ? metallicButton(safe(theme.btn_color, '#FFCFA4'))
-                  : (theme.btn_color || '#FFCFA4'),
+                background: theme.btn_border_width
+                  ? `${asLayer(btnFillPreview)} padding-box, ${
+                      theme.btn_border_metallic
+                        ? metallic(safe(theme.btn_border_color, '#FFCFA4'))
+                        : `linear-gradient(${safe(theme.btn_border_color, '#FFCFA4')}, ${safe(theme.btn_border_color, '#FFCFA4')})`
+                    } border-box`
+                  : btnFillPreview,
+                border: theme.btn_border_width
+                  ? `${theme.btn_border_width}px solid transparent`
+                  : undefined,
                 color: theme.btn_text_color || '#0a1520',
                 boxShadow: theme.btn_metallic
                   ? 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 18px rgba(0,0,0,.35)'

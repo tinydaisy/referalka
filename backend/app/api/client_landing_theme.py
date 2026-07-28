@@ -36,6 +36,11 @@ _FIELDS = {
     "btn_color": "lp_btn_color",
     "btn_text_color": "lp_btn_text_color",
     "btn_metallic": "lp_btn_metallic",
+    "btn_color_2": "lp_btn_color_2",
+    "btn_angle": "lp_btn_angle",
+    "btn_border_color": "lp_btn_border_color",
+    "btn_border_width": "lp_btn_border_width",
+    "btn_border_metallic": "lp_btn_border_metallic",
     "border_color": "lp_border_color",
     "border_metallic": "lp_border_metallic",
     "icon_color": "lp_icon_color",
@@ -63,6 +68,11 @@ class ThemeUpdate(BaseModel):
     btn_color: Optional[str] = None
     btn_text_color: Optional[str] = None
     btn_metallic: Optional[bool] = None
+    btn_color_2: Optional[str] = None
+    btn_angle: Optional[int] = None
+    btn_border_color: Optional[str] = None
+    btn_border_width: Optional[int] = None
+    btn_border_metallic: Optional[bool] = None
     border_color: Optional[str] = None
     border_metallic: Optional[bool] = None
     icon_color: Optional[str] = None
@@ -100,6 +110,10 @@ async def patch_theme(
             val = normalize_font(val)
         if api_field == "bg_mode" and val not in ("page", "screen", "block"):
             val = "screen"
+        if api_field == "btn_angle" and val is not None:
+            val = max(0, min(360, int(val)))
+        if api_field == "btn_border_width" and val is not None:
+            val = max(0, min(12, int(val)))
         if api_field == "bg_angle" and val is not None:
             val = max(0, min(360, int(val)))
         if api_field == "radius" and val is not None:
