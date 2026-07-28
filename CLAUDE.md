@@ -111,6 +111,35 @@
 **⚠️ Для выката на прод:** миграция 221 (`sudo -u postgres`, роль plusson не владелец) + установка MediaMTX ([media-server/README.md](media-server/README.md), бинарник + systemd + nginx `/hls/` + `ufw allow 1935` + `WEBINAR_BRIDGE_TOKEN`) + nginx WebSocket-upgrade на `/ws/` + `npm install` (hls.js) в web.
 
 
+### Конструктор лендинга события (миграции 240-244 от 2026-07-28, ПРОД)
+
+Раздел **«Лендинг»** в карточке события (все типы: мероприятие, конференция, турнир, конкурс) — продающая страница собирается из блоков, без Tilda/GetCourse. Гейт — фича **`event_landing`** (тариф `admin`), у КОЛЛАБ-события скрыт.
+
+**⚠️ Живые блоки не хранят копию контента.** Спикеры, программа, тарифы, организатор, подарки, места и реквизиты читаются из тех же таблиц, что и кабинет — поправил спикера или сдвинул тайминг, на лендинге обновилось само. Правится руками только то, чего в базе нет.
+
+**Публичные страницы:** `pluson.ru/e/{slug}` и `/e/{slug}/thanks` (return-url платёжки — там текст + кнопки на подключённых ботов клиента). Черновик (`is_published=FALSE`) → 404. Рендер — [LandingRenderer.tsx](web/src/app/e/%5Bslug%5D/LandingRenderer.tsx), данные одним запросом из [event_landing_public.py](backend/app/api/event_landing_public.py).
+
+**Блоки** (`event_landing_blocks.kind`, свободный TEXT — новый тип добавляется кодом): `hero`, `audience`, `benefits`, `seats`, `gifts`, `numbers`, `values`, `mission`, `difference`, `speakers`, `program`, `organizer`, `tariffs`, `gallery`, `text`, `support`, `footer`. Порядок — перетаскиванием (`sort_order`), каждый выключается галочкой. `text`/`gallery` можно добавлять много раз.
+
+- **Шапка** — название, описание и даты берутся из настроек события (`events.title`/`description`/`start_at`), своих полей НЕТ. Галочка `show_seats` встраивает счётчик мест рядом с кнопкой (`seats_position` = above|side).
+- **Осталось мест** — `events.seats_total` задаёт клиент, занятые считаются по `event_participants(is_registered)`. ⚠️ Данные собираются и когда счётчик только в шапке (см. `seats_in_hero`).
+- **Ценности / чем отличаемся** — карточки `[{title, text, icon}]`, иконка выбирается из 16 ([icons.tsx](web/src/components/landing/icons.tsx)), красится цветом иконок темы.
+- **Цифры** — формат регалий основателя `[{value, label}]`, крупный металлик.
+- **Галерея/отзывы** — `{mode: carousel|grid, media: image|video, list:[{url,caption}]}`, видео по ссылке (YouTube/VK/Rutube → embed).
+
+**Оформление.** Тема клиента (миграция 241, `clients.lp_*`) задаётся ОДИН раз в **Настройки → «Стили лендингов»** ([LandingThemeTab.tsx](web/src/components/settings/LandingThemeTab.tsx)) и **копируется** в новую страницу при создании (`_get_or_create_page`). Это дефолт, а не привязка: правка темы задним числом уже собранные лендинги не трогает.
+
+- Фон: два цвета + угол + `bg_mode` (`screen` — градиент повторяется на каждом экране, дефолт; `block` — свой у каждой секции; `page` — на всю страницу). ⚠️ Растянутый на всю длину градиент не читается — сверху один край, снизу другой.
+- Шрифты — 20 семейств ЛОКАЛЬНО в `web/public/fonts` (скрипт [fetch_landing_fonts.sh](web/scripts/fetch_landing_fonts.sh), справочник [landing_fonts.py](backend/app/services/landing_fonts.py)), не с Google: внешний CDN у части пользователей в РФ режется. **⚠️ У Bebas Neue НЕТ кириллицы** — русские буквы подставляются из Oswald (`_FALLBACK_BY_KEY`).
+- **⚠️ Металлический градиент — вертикаль 180deg, 5 стопов** (тёмный → цвет → блик → цвет → тёмный). Применяется к заголовкам, кнопкам, иконкам и цифрам. **В карточках металл только в РАМКЕ** — заливать фон нельзя, текст становится нечитаем.
+- У страницы: размер основного текста, ширина контента, боковые отступы, промежуток между блоками, скругление. У секции: свой фон с перекрытием, граница, отступ, раскладка (`layout` = top|left|right + `split_ratio`), картинка-контент (`image_position`), число колонок (`columns`), рамка карточек (`cards_bordered`), размер/выравнивание/цвет заголовка (`title_size`/`title_align`/`title_color`/`title_metallic`).
+
+**⚠️ Порядок спикеров — общая `order_by_sql`** ([collaborator_sort.py](backend/app/services/collaborator_sort.py)), как в Mini App и дашборде. **⚠️ В карточках — ФОТО (`collaborators.photo_url`), не афиша** (афиша вертикальная, ломает сетку). Регалии разворачиваются одной кнопкой СРАЗУ У ВСЕХ карточек — иначе ряд растягивается по самой высокой, а соседние выглядят пустыми.
+
+**⚠️ Имена колонок сверять со схемой БД, а не с миграциями:** связь карточки коллаба — `event_collaborators.speaker_id` (не `collaborator_id`), тема — `speaker_topic`, должность — `collaborators.title` (колонки `position` нет), чаты события — `tg_chat_ref`/`vk_chat_ref`/`max_chat_ref`.
+
+**API:** клиентский `/api/v1/events/{id}/landing` ([event_landing.py](backend/app/api/event_landing.py)), тема `/api/v1/clients/me/landing-theme` ([client_landing_theme.py](backend/app/api/client_landing_theme.py)), публичный `/api/v1/public/event-landing/{slug}?kind=main|post_pay`. Загрузка картинок — kinds `landing_bg` (фон, 1920px) и `landing_media` (галерея, 1200px). Фронт-группы `api.eventLanding.*` / `api.landingTheme.*`.
+
 ### Продающий блок вебинара «Регистрация на событие» (миграция 236 от 2026-07-27, ПРОД)
 
 Новый тип продающего блока вебинарной комнаты `kind='event_reg'` (kind у `webinar_blocks` — свободный TEXT). Клиент в дашборде ([WebinarTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarTab.tsx) `BlockModal`) выбирает предстоящее событие из выпадающего списка + задаёт свой текст кнопки. `webinar_blocks.reg_event_id INT` (миграция 236, FK events ON DELETE SET NULL).

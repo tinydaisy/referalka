@@ -150,6 +150,7 @@ class BlockPatch(BaseModel):
     layout: Optional[str] = None
     image_url: Optional[str] = None
     image_position: Optional[str] = None
+    image_width: Optional[int] = None
     split_ratio: Optional[int] = None
     pad_y: Optional[int] = None
     title_size: Optional[int] = None
@@ -157,6 +158,7 @@ class BlockPatch(BaseModel):
     title_color: Optional[str] = None
     title_metallic: Optional[bool] = None
     cards_bordered: Optional[bool] = None
+    card_style: Optional[str] = None
     columns: Optional[int] = None
     show_seats: Optional[bool] = None
     seats_position: Optional[str] = None
@@ -454,9 +456,9 @@ async def patch_block(
     sets, vals = [], []
     for field in (
         "title", "subtitle", "body", "button_label", "button_url", "is_active",
-        "layout", "image_url", "image_position", "split_ratio", "pad_y",
+        "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "title_color", "title_metallic",
-        "cards_bordered", "columns", "show_seats", "seats_position",
+        "cards_bordered", "card_style", "columns", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
@@ -467,8 +469,10 @@ async def patch_block(
         # понятной реакции; молча приводим к разумному значению.
         if field == "layout" and val not in ("top", "left", "right"):
             val = "top"
-        if field == "image_position" and val not in ("left", "right", "top", "bottom"):
+        if field == "image_position" and val not in ("left", "right", "top", "bottom", "center"):
             val = "right"
+        if field == "image_width" and val is not None:
+            val = max(20, min(100, int(val)))
         if field == "split_ratio" and val is not None:
             val = max(20, min(80, int(val)))
         if field == "pad_y" and val is not None:
@@ -477,6 +481,8 @@ async def patch_block(
             val = "left"
         if field == "title_size" and val is not None:
             val = max(16, min(140, int(val)))
+        if field == "card_style" and val not in ("border", "divider", "plain"):
+            val = "border"
         if field == "columns" and val is not None:
             val = max(1, min(6, int(val)))
         if field == "seats_position" and val not in ("above", "side"):

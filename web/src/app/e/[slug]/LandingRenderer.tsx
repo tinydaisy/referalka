@@ -192,9 +192,16 @@ function Section({
   // переход виден внутри каждой, а не размазан по всей странице.
   const blockGradient = page.bg_mode === 'block' && !block.bg_color ? page.bg_css : undefined
   // Рамку карточек можно снять у секции — например, у цифр она лишняя.
-  const cards: React.CSSProperties = block.cards_bordered === false
-    ? { borderRadius: radius, border: 'none', background: 'transparent' }
-    : cardStyle
+  // Стиль карточек: рамка вокруг каждой / линия-разделитель снизу / без всего.
+  const cs = block.card_style || (block.cards_bordered === false ? 'plain' : 'border')
+  const cards: React.CSSProperties =
+    cs === 'divider'
+      ? { borderRadius: 0, border: 'none',
+          borderBottom: `1px solid ${page.border_color || '#FFCFA4'}40`,
+          background: 'transparent' }
+      : cs === 'plain'
+        ? { borderRadius: radius, border: 'none', background: 'transparent' }
+        : cardStyle
 
   // Секция может переопределить цвет заголовка (например, белым вместо
   // фирменного) и признак металлика — не трогая тему всей страницы.
@@ -229,13 +236,26 @@ function Section({
       src={block.image_url}
       alt=""
       loading="lazy"
-      className="w-full object-cover"
-      style={{ borderRadius: radius }}
+      className="object-cover"
+      style={{
+        borderRadius: radius,
+        width: `${block.image_width || 100}%`,
+        // По центру — картинка сама центрируется в колонке.
+        margin: block.image_position === 'center' ? '0 auto' : undefined,
+        display: 'block',
+      }}
     />
   ) : null
 
   const sideways = pic && (block.image_position === 'left' || block.image_position === 'right')
-  const inner = !pic ? blockBody : sideways ? (
+  const centered = pic && block.image_position === 'center'
+  const inner = !pic ? blockBody : centered ? (
+    // По центру: содержимое сверху, картинка под ним по середине колонки.
+    <div className="space-y-8">
+      {blockBody}
+      <div className="text-center">{pic}</div>
+    </div>
+  ) : sideways ? (
     <div className="grid items-center gap-6 sm:grid-cols-2">
       <div className={block.image_position === 'right' ? 'sm:order-2' : ''}>{pic}</div>
       <div className={block.image_position === 'right' ? 'sm:order-1' : ''}>{blockBody}</div>
@@ -995,8 +1015,10 @@ function ProgramBlock({
             {s.start_time && (
               // Полоска тонкая (1px), время отбито от неё отступом — иначе
               // цифры липнут к линии.
-              <div className="shrink-0 pl-4 text-sm font-bold leading-snug sm:w-[120px] sm:border-l-0 sm:border-r sm:pl-0 sm:pr-5"
-                   style={{ borderLeft: `1px solid ${iconColor}`, borderRightColor: iconColor }}>
+              // Линия отбита от цифр отступом с ОБЕИХ сторон — вплотную
+              // к тексту она смотрится грязно.
+              <div className="shrink-0 pl-5 text-sm font-bold leading-snug sm:ml-1 sm:w-[130px] sm:border-l-0 sm:border-r sm:pl-0 sm:pr-6"
+                   style={{ borderLeft: `1px solid ${iconColor}66`, borderRightColor: `${iconColor}66` }}>
                 {s.start_time}{s.end_time ? `–${s.end_time}` : ''}
                 <span className="mt-0.5 block text-[11px] font-normal opacity-60">МСК</span>
               </div>

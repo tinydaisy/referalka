@@ -1,135 +1,174 @@
 'use client'
 
 /**
- * Набор иконок для карточек лендинга (ценности, «чем отличаемся»).
+ * Иконки для карточек лендинга (ценности, «чем отличаемся»).
  *
- * Каждая иконка — круг с металлической заливкой из цвета иконок темы плюс
- * тёмный символ поверх. Символ рисуется на сетке 80×80, чтобы все иконки
- * смотрелись одинаково по весу линий.
+ * Берём готовый набор lucide-react — он уже в проекте (используется во всём
+ * дашборде). Свои SVG рисовать не нужно: там больше тысячи иконок, единые по
+ * толщине линий и сетке. Здесь отобраны ~60 подходящих для продающих страниц
+ * и сгруппированы по смыслу, чтобы клиент не листал весь каталог.
+ *
+ * Иконка рисуется в круге с металлической заливкой из цвета иконок темы —
+ * так она совпадает по стилю с кнопками и заголовками.
  *
  * Ключ (`key`) хранится в карточке блока: items[i].icon. Пусто — иконки нет.
  */
+import {
+  Handshake, Users, Share2, Network, MessagesSquare, HeartHandshake,
+  TrendingUp, BarChart3, Rocket, Target, Trophy, Award, Medal, Crown,
+  Lightbulb, Sparkles, Brain, Zap, Flame, Star, Gem, Wand2,
+  BookOpen, GraduationCap, Library, ScrollText, FileText, Presentation,
+  Shield, ShieldCheck, Lock, BadgeCheck, CircleCheck, ThumbsUp,
+  Gift, Wallet, Banknote, CreditCard, PiggyBank, ShoppingBag,
+  Clock, CalendarDays, Timer, Hourglass,
+  Mic, Video, Radio, Headphones, Camera, Podcast,
+  Globe, MapPin, Compass, Map, Plane,
+  Heart, Smile, Sun, Eye, Infinity as InfinityIcon, Anchor, Mountain, Leaf,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 export interface IconDef {
   key: string
   label: string
-  /** Символ поверх круга. Цвет задаётся через `currentColor` родителя. */
-  path: React.ReactNode
+  group: string
+  Icon: LucideIcon
 }
 
-const S = { fill: 'none', strokeWidth: 4, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
-
 export const CARD_ICONS: IconDef[] = [
-  { key: 'handshake', label: 'Коллаборации', path: (
-    <path d="M40 24v32M28 32l12-8 12 8M28 48l12 8 12-8" {...S} /> ) },
-  { key: 'smile', label: 'Улыбка', path: (
-    <>
-      <circle cx="30" cy="33" r="4" fill="currentColor" stroke="none" />
-      <circle cx="50" cy="33" r="4" fill="currentColor" stroke="none" />
-      <path d="M26 46c3 7 9 11 14 11s11-4 14-11" {...S} strokeWidth={4.5} />
-    </> ) },
-  { key: 'chart', label: 'Рост / лидерство', path: (
-    <>
-      <path d="M24 52V38M40 52V26M56 52V32" {...S} strokeWidth={6} />
-      <path d="M40 20l4 6h-8z" fill="currentColor" stroke="none" />
-    </> ) },
-  { key: 'bulb', label: 'Идея', path: (
-    <>
-      <path d="M40 22c-8 0-14 6-14 13 0 5 3 8 5 11v5h18v-5c2-3 5-6 5-11 0-7-6-13-14-13z"
-            fill="currentColor" stroke="none" />
-      <path d="M34 56h12M36 60h8" {...S} strokeWidth={3} />
-    </> ) },
-  { key: 'book', label: 'Наследие / книга', path: (
-    <path d="M28 56V30c0-4 3-7 7-7h17v33H35c-4 0-7 3-7 7" {...S} /> ) },
-  { key: 'wave', label: 'Нелинейность', path: (
-    <>
-      <path d="M22 54c6 0 8-24 18-24s12 24 18 24" {...S} />
-      <circle cx="22" cy="54" r="4" fill="currentColor" stroke="none" />
-      <circle cx="58" cy="54" r="4" fill="currentColor" stroke="none" />
-    </> ) },
-  { key: 'star', label: 'Звезда', path: (
-    <path d="M40 22l5.5 11.5L58 35l-9 9 2 12.5L40 51l-11 5.5 2-12.5-9-9 12.5-1.5z" {...S} /> ) },
-  { key: 'target', label: 'Цель', path: (
-    <>
-      <circle cx="40" cy="40" r="16" {...S} />
-      <circle cx="40" cy="40" r="6" fill="currentColor" stroke="none" />
-    </> ) },
-  { key: 'rocket', label: 'Запуск', path: (
-    <>
-      <path d="M40 20c8 6 12 15 12 24l-6 6H34l-6-6c0-9 4-18 12-24z" {...S} />
-      <path d="M34 50l-6 10 10-4M46 50l6 10-10-4" {...S} strokeWidth={3.5} />
-    </> ) },
-  { key: 'shield', label: 'Надёжность', path: (
-    <path d="M40 20l16 6v14c0 10-7 17-16 20-9-3-16-10-16-20V26z" {...S} /> ) },
-  { key: 'people', label: 'Сообщество', path: (
-    <>
-      <circle cx="30" cy="31" r="7" {...S} />
-      <circle cx="52" cy="33" r="6" {...S} />
-      <path d="M18 56c0-7 5-12 12-12s12 5 12 12M44 56c0-6 4-10 9-10s9 4 9 10" {...S} strokeWidth={3.5} />
-    </> ) },
-  { key: 'crown', label: 'Статус', path: (
-    <path d="M22 50l-4-22 12 8 10-14 10 14 12-8-4 22z" {...S} /> ) },
-  { key: 'gift', label: 'Подарок', path: (
-    <>
-      <path d="M24 38h32v20H24zM22 30h36v8H22zM40 30v28" {...S} strokeWidth={3.5} />
-      <path d="M40 30c-6-10-16-4-8 0M40 30c6-10 16-4 8 0" {...S} strokeWidth={3.5} />
-    </> ) },
-  { key: 'check', label: 'Галочка', path: (
-    <path d="M26 41l10 10 20-22" {...S} strokeWidth={6} /> ) },
-  { key: 'fire', label: 'Энергия', path: (
-    <path d="M42 20c2 8-6 10-6 18 0-4-3-6-4-9-4 5-8 9-8 16 0 8 7 14 16 14s16-6 16-14c0-12-8-19-14-25z" {...S} /> ) },
-  { key: 'clock', label: 'Время', path: (
-    <>
-      <circle cx="40" cy="40" r="17" {...S} />
-      <path d="M40 30v11l7 5" {...S} />
-    </> ) },
+  // ── Люди и связи ──────────────────────────────────────────────────────
+  { key: 'handshake',     label: 'Рукопожатие',   group: 'Люди и связи', Icon: Handshake },
+  { key: 'heart-hands',   label: 'Забота',        group: 'Люди и связи', Icon: HeartHandshake },
+  { key: 'users',         label: 'Сообщество',    group: 'Люди и связи', Icon: Users },
+  { key: 'share',         label: 'Обмен',         group: 'Люди и связи', Icon: Share2 },
+  { key: 'network',       label: 'Сеть',          group: 'Люди и связи', Icon: Network },
+  { key: 'chats',         label: 'Общение',       group: 'Люди и связи', Icon: MessagesSquare },
+
+  // ── Рост и результат ──────────────────────────────────────────────────
+  { key: 'trending',      label: 'Рост',          group: 'Рост и результат', Icon: TrendingUp },
+  { key: 'chart',         label: 'Показатели',    group: 'Рост и результат', Icon: BarChart3 },
+  { key: 'rocket',        label: 'Запуск',        group: 'Рост и результат', Icon: Rocket },
+  { key: 'target',        label: 'Цель',          group: 'Рост и результат', Icon: Target },
+  { key: 'trophy',        label: 'Победа',        group: 'Рост и результат', Icon: Trophy },
+  { key: 'award',         label: 'Награда',       group: 'Рост и результат', Icon: Award },
+  { key: 'medal',         label: 'Медаль',        group: 'Рост и результат', Icon: Medal },
+  { key: 'crown',         label: 'Статус',        group: 'Рост и результат', Icon: Crown },
+
+  // ── Идеи и энергия ────────────────────────────────────────────────────
+  { key: 'bulb',          label: 'Идея',          group: 'Идеи и энергия', Icon: Lightbulb },
+  { key: 'sparkles',      label: 'Вдохновение',   group: 'Идеи и энергия', Icon: Sparkles },
+  { key: 'brain',         label: 'Мышление',      group: 'Идеи и энергия', Icon: Brain },
+  { key: 'zap',           label: 'Энергия',       group: 'Идеи и энергия', Icon: Zap },
+  { key: 'flame',         label: 'Драйв',         group: 'Идеи и энергия', Icon: Flame },
+  { key: 'star',          label: 'Звезда',        group: 'Идеи и энергия', Icon: Star },
+  { key: 'gem',           label: 'Ценность',      group: 'Идеи и энергия', Icon: Gem },
+  { key: 'wand',          label: 'Магия',         group: 'Идеи и энергия', Icon: Wand2 },
+
+  // ── Знания ────────────────────────────────────────────────────────────
+  { key: 'book',          label: 'Книга',         group: 'Знания', Icon: BookOpen },
+  { key: 'graduation',    label: 'Обучение',      group: 'Знания', Icon: GraduationCap },
+  { key: 'library',       label: 'База знаний',   group: 'Знания', Icon: Library },
+  { key: 'scroll',        label: 'Наследие',      group: 'Знания', Icon: ScrollText },
+  { key: 'file',          label: 'Материалы',     group: 'Знания', Icon: FileText },
+  { key: 'presentation',  label: 'Выступление',   group: 'Знания', Icon: Presentation },
+
+  // ── Доверие ───────────────────────────────────────────────────────────
+  { key: 'shield',        label: 'Защита',        group: 'Доверие', Icon: Shield },
+  { key: 'shield-check',  label: 'Надёжность',    group: 'Доверие', Icon: ShieldCheck },
+  { key: 'lock',          label: 'Приватность',   group: 'Доверие', Icon: Lock },
+  { key: 'badge-check',   label: 'Проверено',     group: 'Доверие', Icon: BadgeCheck },
+  { key: 'check',         label: 'Галочка',       group: 'Доверие', Icon: CircleCheck },
+  { key: 'thumbs-up',     label: 'Одобрение',     group: 'Доверие', Icon: ThumbsUp },
+
+  // ── Деньги и подарки ──────────────────────────────────────────────────
+  { key: 'gift',          label: 'Подарок',       group: 'Деньги и подарки', Icon: Gift },
+  { key: 'wallet',        label: 'Кошелёк',       group: 'Деньги и подарки', Icon: Wallet },
+  { key: 'banknote',      label: 'Доход',         group: 'Деньги и подарки', Icon: Banknote },
+  { key: 'card',          label: 'Оплата',        group: 'Деньги и подарки', Icon: CreditCard },
+  { key: 'piggy',         label: 'Накопления',    group: 'Деньги и подарки', Icon: PiggyBank },
+  { key: 'bag',           label: 'Продажи',       group: 'Деньги и подарки', Icon: ShoppingBag },
+
+  // ── Время ─────────────────────────────────────────────────────────────
+  { key: 'clock',         label: 'Время',         group: 'Время', Icon: Clock },
+  { key: 'calendar',      label: 'Расписание',    group: 'Время', Icon: CalendarDays },
+  { key: 'timer',         label: 'Скорость',      group: 'Время', Icon: Timer },
+  { key: 'hourglass',     label: 'Срок',          group: 'Время', Icon: Hourglass },
+
+  // ── Медиа ─────────────────────────────────────────────────────────────
+  { key: 'mic',           label: 'Микрофон',      group: 'Медиа', Icon: Mic },
+  { key: 'video',         label: 'Видео',         group: 'Медиа', Icon: Video },
+  { key: 'radio',         label: 'Эфир',          group: 'Медиа', Icon: Radio },
+  { key: 'podcast',       label: 'Подкаст',       group: 'Медиа', Icon: Podcast },
+  { key: 'headphones',    label: 'Наушники',      group: 'Медиа', Icon: Headphones },
+  { key: 'camera',        label: 'Съёмка',        group: 'Медиа', Icon: Camera },
+
+  // ── Масштаб ───────────────────────────────────────────────────────────
+  { key: 'globe',         label: 'Мир',           group: 'Масштаб', Icon: Globe },
+  { key: 'map-pin',       label: 'Место',         group: 'Масштаб', Icon: MapPin },
+  { key: 'compass',       label: 'Направление',   group: 'Масштаб', Icon: Compass },
+  { key: 'map',           label: 'Маршрут',       group: 'Масштаб', Icon: Map },
+  { key: 'plane',         label: 'Путешествие',   group: 'Масштаб', Icon: Plane },
+  { key: 'mountain',      label: 'Вершина',       group: 'Масштаб', Icon: Mountain },
+
+  // ── Характер ──────────────────────────────────────────────────────────
+  { key: 'heart',         label: 'Сердце',        group: 'Характер', Icon: Heart },
+  { key: 'smile',         label: 'Лёгкость',      group: 'Характер', Icon: Smile },
+  { key: 'sun',           label: 'Оптимизм',      group: 'Характер', Icon: Sun },
+  { key: 'eye',           label: 'Видение',       group: 'Характер', Icon: Eye },
+  { key: 'infinity',      label: 'Бесконечность', group: 'Характер', Icon: InfinityIcon },
+  { key: 'anchor',        label: 'Опора',         group: 'Характер', Icon: Anchor },
+  { key: 'leaf',          label: 'Рост природы',  group: 'Характер', Icon: Leaf },
 ]
 
 export const ICON_KEYS = new Set(CARD_ICONS.map(i => i.key))
 
+/** Группы в порядке появления — для выпадающего выбора в конструкторе. */
+export const ICON_GROUPS: string[] = CARD_ICONS.reduce((acc: string[], i) => {
+  if (!acc.includes(i.group)) acc.push(i.group)
+  return acc
+}, [])
+
 /**
- * Круглая иконка с металлической (или сплошной) заливкой.
- * `id` обязателен и уникален — иначе градиенты на странице перетрут друг друга.
+ * Иконка в круге с металлической (или сплошной) заливкой.
+ * Символ — тёмный, чтобы читался на светлом металле.
  */
 export function CardIcon({
-  iconKey, color, metallic = true, size = 96, symbolColor = '#25455D', id,
+  iconKey, color, metallic = true, size = 88, symbolColor = '#25455D',
 }: {
   iconKey: string
   color: string
   metallic?: boolean
   size?: number
   symbolColor?: string
-  id: string
+  /** Больше не нужен — оставлен, чтобы не ломать существующие вызовы. */
+  id?: string
 }) {
   const def = CARD_ICONS.find(i => i.key === iconKey)
   if (!def) return null
-  const gid = `lp-ic-${id}`
+  const Icon = def.Icon
   return (
-    <svg viewBox="0 0 80 80" width={size} height={size} style={{ display: 'block' }}
-         xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      {metallic && (
-        <linearGradient id={gid} x1="0.2" y1="0" x2="0.8" y2="1">
-          <stop offset="0%" stopColor={shade(color, -32)} />
-          <stop offset="35%" stopColor={color} />
-          <stop offset="50%" stopColor={shade(color, 28)} />
-          <stop offset="65%" stopColor={color} />
-          <stop offset="100%" stopColor={shade(color, -32)} />
-        </linearGradient>
-      )}
-      <circle cx="40" cy="40" r="40" fill={metallic ? `url(#${gid})` : color} />
-      <g stroke={symbolColor} color={symbolColor}>{def.path}</g>
-    </svg>
+    <span
+      className="inline-flex items-center justify-center rounded-full"
+      style={{
+        width: size,
+        height: size,
+        background: metallic
+          ? `linear-gradient(180deg, ${shade(color, -45)}, ${color}, ${shade(color, 30)}, ${color}, ${shade(color, -45)})`
+          : color,
+      }}
+    >
+      <Icon size={Math.round(size * 0.46)} strokeWidth={2} color={symbolColor} />
+    </span>
   )
 }
 
-/** Осветление/затемнение HEX на процент — для металлического перелива. */
+/** Минус — темнее, плюс — светлее (к белому). */
 function shade(hex: string, pct: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
   if (!m) return hex || '#FFCFA4'
   const n = parseInt(m[1], 16)
-  const f = (v: number) => Math.max(0, Math.min(255, Math.round(v + (255 - v) * (pct / 100))))
-  const g = (v: number) => Math.max(0, Math.min(255, Math.round(v * (1 + pct / 100))))
-  const fn = pct >= 0 ? f : g
-  return `#${[fn((n >> 16) & 255), fn((n >> 8) & 255), fn(n & 255)]
-    .map(v => v.toString(16).padStart(2, '0')).join('')}`
+  const f = (v: number) => pct >= 0
+    ? Math.round(v + (255 - v) * (pct / 100))
+    : Math.round(v * (1 + pct / 100))
+  return `#${[f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]
+    .map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`
 }

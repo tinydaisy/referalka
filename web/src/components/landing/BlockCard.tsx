@@ -10,11 +10,11 @@
  * тянут данные события. У них правится только заголовок и оформление.
  */
 import { useState } from 'react'
-import { GripVertical, ChevronDown, ChevronRight, Trash2, Zap } from 'lucide-react'
+import { GripVertical, ChevronDown, ChevronRight, Trash2, Zap, X } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import { metaFor } from './blockMeta'
 import { ColorField, BackgroundFields } from './StyleControls'
-import { CARD_ICONS, CardIcon } from './icons'
+import { CARD_ICONS, CardIcon, ICON_GROUPS } from './icons'
 
 interface Props {
   block: any
@@ -309,15 +309,27 @@ export default function BlockCard({
                       На узком экране колонок будет меньше — вёрстка подстроится сама.
                     </p>
                   </Field>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={block.cards_bordered !== false}
-                      onChange={e => onPatch({ cards_bordered: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
-                    />
-                    <span className="text-sm text-gray-700">Рамка вокруг карточек</span>
-                  </label>
+                  <Field label="Вид карточек">
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ['border', 'В рамках'],
+                        ['divider', 'С разделителями'],
+                        ['plain', 'Без оформления'],
+                      ] as const).map(([val, label]) => (
+                        <button
+                          key={val}
+                          onClick={() => onPatch({ card_style: val })}
+                          className={`rounded-lg border px-3 py-1.5 text-sm ${
+                            (block.card_style || (block.cards_bordered === false ? 'plain' : 'border')) === val
+                              ? 'border-brand bg-brand/5 font-medium text-brand'
+                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
                 </>
               )}
 
@@ -539,6 +551,119 @@ function ListEditor({
   )
 }
 
+/**
+ * Выбор иконки: сначала показываем текущую и кнопку «Выбрать», список
+ * раскрывается по клику и сгруппирован по смыслу. Длинная лента из 60 иконок
+ * в каждой карточке была бы нечитаемой.
+ */
+function IconPicker({
+  value, onChange,
+}: {
+  value?: string | null
+  onChange: (v: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const current = CARD_ICONS.find(i => i.key === value)
+
+  return (
+    <div className="mt-3">
+      <div className="mb-1.5 text-xs font-medium text-gray-600">Иконка</div>
+
+      <div className="flex items-center gap-2">
+        {current
+          ? <CardIcon iconKey={current.key} color="#FFCFA4" size={40} />
+          : <span className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-gray-300 text-[10px] text-gray-400">
+              нет
+            </span>}
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+        >
+          {open ? 'Закрыть' : (current ? `${current.label} — сменить` : 'Выбрать иконку')}
+        </button>
+        {current && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="rounded px-2 py-1 text-sm text-gray-400 hover:bg-red-50 hover:text-red-600"
+          >
+            убрать
+          </button>
+        )}
+      </div>
+
+      {/* Модалка выбора. Закрывается только крестиком/«Отмена» — правило
+          проекта: клик по фону не закрывает форму. */}
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 p-4">
+              <h3 className="font-semibold text-gray-900">Выберите иконку</h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Закрыть"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-5 overflow-y-auto p-4">
+              {ICON_GROUPS.map(group => (
+                <div key={group}>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    {group}
+                  </div>
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(76px,1fr))] gap-2">
+                    {CARD_ICONS.filter(i => i.group === group).map(ic => (
+                      <button
+                        key={ic.key}
+                        type="button"
+                        onClick={() => { onChange(ic.key); setOpen(false) }}
+                        title={ic.label}
+                        className={`flex flex-col items-center gap-1 rounded-lg border p-2 ${
+                          value === ic.key ? 'border-brand bg-brand/5' : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <CardIcon iconKey={ic.key} color="#FFCFA4" size={38} />
+                        <span className="w-full truncate text-center text-[10px] text-gray-500">
+                          {ic.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-gray-200 p-4">
+              <button
+                type="button"
+                onClick={() => { onChange(null); setOpen(false) }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Без иконки
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Карточки «название + описание» — ценности, особенности. */
 function CardsEditor({
   items, onChange,
@@ -576,33 +701,8 @@ function CardsEditor({
               className="input mt-2"
             />
 
-            {/* Иконка карточки — рисуется цветом иконок из вашей темы. */}
-            <div className="mt-3">
-              <div className="mb-1.5 text-xs font-medium text-gray-600">Иконка</div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => upd(i, { icon: null })}
-                  title="Без иконки"
-                  className={`flex h-11 w-11 items-center justify-center rounded-lg border text-xs ${
-                    !c.icon ? 'border-brand bg-brand/5 text-brand' : 'border-gray-200 text-gray-400 hover:bg-gray-50'
-                  }`}
-                >
-                  нет
-                </button>
-                {CARD_ICONS.map(ic => (
-                  <button
-                    key={ic.key}
-                    onClick={() => upd(i, { icon: ic.key })}
-                    title={ic.label}
-                    className={`flex h-11 w-11 items-center justify-center rounded-lg border p-1 ${
-                      c.icon === ic.key ? 'border-brand bg-brand/5' : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <CardIcon iconKey={ic.key} color="#FFCFA4" size={32} id={`pick-${i}-${ic.key}`} />
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Иконка карточки — из набора lucide, цветом иконок вашей темы. */}
+            <IconPicker value={c.icon} onChange={v => upd(i, { icon: v })} />
           </div>
         ))}
       </div>
