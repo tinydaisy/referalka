@@ -10,12 +10,6 @@
  */
 import { useEffect, useState } from 'react'
 
-const CHAT_LABEL: Record<string, string> = {
-  telegram: 'Чат в Telegram',
-  vk: 'Чат во ВКонтакте',
-  max: 'Чат в MAX',
-}
-
 const BOT_LABEL: Record<string, string> = {
   telegram: 'Бот в Telegram',
   vk: 'Сообщество ВКонтакте',
@@ -95,28 +89,13 @@ export default function ThanksContent({
         </p>
       )}
 
-      {/* Чаты события — чтобы человек не потерялся после оплаты. */}
-      {!!order?.chats?.length && (
-        <>
-          <p className="mt-8 text-sm uppercase tracking-wide text-white/60">
-            Заходите в чат, там всё самое важное
-          </p>
-          <div className="mt-3 flex flex-col gap-2.5">
-            {order.chats.map((c: any) => (
-              <a key={c.platform} href={c.url} target="_blank" rel="noreferrer"
-                 className="rounded-lg bg-[#FFCFA4] px-6 py-3.5 font-bold uppercase text-[#0a1520] transition-transform hover:scale-[1.02]">
-                {CHAT_LABEL[c.platform] || 'Чат события'}
-              </a>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Боты: без подписки человек не получит напоминания и ссылку на эфир. */}
+      {/* ⚠️ Ни чатов, ни страницы события — только бот со слагом события:
+          он открывает МЕНЮ события, где уже есть и чат, и программа, и
+          подарки. Одна кнопка вместо россыпи ссылок. */}
       {!!order?.bots?.length && (
         <>
           <p className="mt-8 text-sm uppercase tracking-wide text-white/60">
-            Откройте бота — там напоминания, подарки и ссылка на эфир
+            Откройте бота — там меню события: чат, программа, подарки и эфир
           </p>
           <div className="mt-3 flex flex-col gap-2.5">
             {order.bots.map((b: any) => (
@@ -145,12 +124,6 @@ export default function ThanksContent({
         </p>
       )}
 
-      {order?.event_slug && (
-        <a href={`/event/${order.event_slug}${order.contact_id ? `?c=${order.contact_id}` : ''}`}
-           className="mt-6 inline-block text-sm text-white/70 underline hover:text-white">
-          Открыть страницу события
-        </a>
-      )}
     </>
   )
 }

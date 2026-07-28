@@ -131,11 +131,9 @@ async def send_order_paid_email(db, order_id: int) -> bool:
         return False
     o = ctx["order"]
 
-    chats = [u for u in (o["tg_chat_url"], o["vk_chat_url"], o["max_chat_url"]) if u]
-    chats_block = ("\n".join(f"• {u}" for u in chats)) if chats else ""
-
-    # Боты клиента: через них человек получит напоминания, подарки и доступ
-    # в день эфира. Без подписки на бота он всё это пропустит.
+    # ⚠️ Ни чатов, ни страницы события в письме НЕТ — только бот со слагом
+    # события (ref_pg{slug}): он открывает МЕНЮ события, где и чат, и
+    # программа, и подарки. Одна кнопка вместо россыпи ссылок.
     bots = await db.fetch(
         """SELECT ch.platform_slug, ch.handle, ch.display_name
              FROM client_channels cc
@@ -174,11 +172,10 @@ async def send_order_paid_email(db, order_id: int) -> bool:
         f"{'Здравствуйте, ' + name + '!' if name else 'Здравствуйте!'}\n\n"
         f"Оплата получена — вы участник «{o['event_title']}».\n"
         f"Тариф: {o['tariff_title']}\n\n"
-        + (f"Заходите в чат события, там всё самое важное:\n{chats_block}\n\n"
-           if chats_block else "")
-        + (f"Обязательно откройте нашего бота — через него придут напоминания, "
-           f"подарки и ссылка на эфир:\n{bots_block}\n\n" if bots_block else "")
-        + f"Страница события: https://pluson.ru/event/{o['event_slug']}\n\n"
+        f"По условиям опций вашего тарифа с вами свяжется менеджер.\n\n"
+        + (f"Откройте нашего бота — там меню события: чат, программа, подарки "
+           f"и ссылка на эфир. Выберите удобную площадку:\n{bots_block}\n\n"
+           if bots_block else "")
         + (f"Если что-то не открылось или есть вопросы — напишите нам:\n"
            f"{support_block}\n\n" if support_block else "")
         + f"До встречи!"
