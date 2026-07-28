@@ -338,6 +338,9 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
   // Показываем только пункты, чья секция реально есть и включена.
   const present = new Set(blocks.map((b: any) => b.kind))
   const links = items.filter(i => present.has(i.block_kind))
+  // На телефоне показываем только отмеченные галочкой пункты. Ключа нет —
+  // считаем видимым (так было до появления настройки).
+  const mobileLinks = links.filter((i: any) => i.mobile !== false)
   // 'register' → форма регистрации; иначе — якорь на секцию страницы.
   const navTarget = (!page.nav_button_target || page.nav_button_target === 'register')
     ? `/event/${slug}/register`
@@ -387,7 +390,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
           </a>
         )}
 
-        {!!links.length && (
+        {!!mobileLinks.length && (
           <button
             type="button"
             onClick={() => setOpen(o => !o)}
@@ -406,7 +409,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
       {open && (
         <div className="flex flex-col gap-1 border-t px-4 pb-4 pt-2 md:hidden"
              style={{ borderColor: `${page.border_color || '#FFCFA4'}22` }}>
-          {links.map(i => (
+          {mobileLinks.map((i: any) => (
             <a key={i.block_kind} href={`#lp-${i.block_kind}`}
                onClick={() => setOpen(false)}
                className="py-2 text-[.95em] font-medium uppercase tracking-wide"
@@ -982,10 +985,13 @@ function BlockBody({
                    style={{
                      ...cardStyle,
                      animationDelay: `calc(var(--lp-cycle, 10s) / var(--lp-count, 5) * ${i})`,
+                     // Выделенный тариф: яркий ореол + подсвеченная заливка.
+                     // Ширина ореола настраивается в блоке (featured_glow).
                      ...(x.is_featured ? {
                        borderColor: iconColor,
                        borderWidth: 2,
-                       boxShadow: `0 0 24px -2px ${iconColor}80`,
+                       boxShadow: `0 0 ${block.featured_glow ?? 24}px ${Math.round((block.featured_glow ?? 24) / 6)}px ${hexToRgba(iconColor, 0.75)}, `
+                         + `inset 0 0 ${Math.round((block.featured_glow ?? 24) * 1.2)}px ${hexToRgba(iconColor, 0.18)}`,
                      } : {}),
                    }}>
                 <div className="text-[1.3em] font-bold uppercase" style={{ color: page.color_heading }}>

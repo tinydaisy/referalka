@@ -204,6 +204,7 @@ class BlockPatch(BaseModel):
     date_position: Optional[str] = None
     date_size: Optional[int] = None
     kicker: Optional[str] = None
+    featured_glow: Optional[int] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
@@ -593,6 +594,7 @@ async def patch_block(
         "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source",
         "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
         "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
+        "featured_glow",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -639,6 +641,8 @@ async def patch_block(
             val = max(160, min(900, int(val)))
         if field == "date_size" and val is not None:
             val = max(10, min(80, int(val)))
+        if field == "featured_glow" and val is not None:
+            val = max(0, min(90, int(val)))
         if field == "icon_size" and val is not None:
             val = max(24, min(200, int(val)))
         if field in ("card_img_radius_x", "card_img_radius_y") and val is not None:

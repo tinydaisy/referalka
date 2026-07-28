@@ -525,6 +525,21 @@ export default function LandingTab({ eventId, event }: Props) {
                             ))}
                           </select>
                         </div>
+                        {/* На узком экране пунктов помещается мало — клиент
+                            сам решает, какие из них показать в раскрывашке. */}
+                        <label className="mb-2 flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={it.mobile !== false}
+                            onChange={e => {
+                              const next = [...navItems]
+                              next[i] = { ...next[i], mobile: e.target.checked }
+                              patchPage({ nav_items: next })
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                          />
+                          на телефоне
+                        </label>
                         <button
                           onClick={() => patchPage({
                             nav_items: navItems.filter((_: any, j: number) => j !== i),

@@ -348,8 +348,22 @@ export default function BlockCard({
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-gray-500">
-                    У выделенного тарифа рамка акцентного цвета и мягкое свечение.
+                    У выделенного тарифа рамка акцентного цвета и свечение.
                   </p>
+                  {!!block.featured_tariff_id && (
+                    <div className="mt-3">
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Сила свечения: {block.featured_glow ?? 24} px
+                      </label>
+                      <input type="range" min={0} max={90} step={2}
+                        value={block.featured_glow ?? 24}
+                        onChange={e => onPatch({ featured_glow: Number(e.target.value) })}
+                        className="w-full" />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Ширина ореола вокруг карточки. 0 — только рамка, без свечения.
+                      </p>
+                    </div>
+                  )}
                 </Field>
               )}
 
