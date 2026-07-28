@@ -205,6 +205,20 @@ class EmailSender:
         """
         if not to_email or "@" not in to_email:
             raise EmailSendError(f"Невалидный email получателя: {to_email!r}")
+        # ⚠️ Не-ASCII в самом АДРЕСЕ (напр. кириллическая «м» в «м@mail.ru»).
+        # smtplib.send_message для таких адресов уходит в SMTPUTF8-ветку и делает
+        # msg.policy.clone(utf8=True) — а у писем, собранных старым API
+        # (MIMEMultipart), политика Compat32, которая аргумент utf8 не принимает:
+        # TypeError «'utf8' is an invalid keyword argument for Compat32».
+        # Раньше это роняло ВСЮ email-часть рассылки (один битый адрес → 0 писем
+        # всем 3400 получателям). Теперь такой адрес пропускаем поштучно.
+        # Не-ASCII в ИМЕНИ отправителя/теме — безопасно, их кодирует сам email-пакет.
+        try:
+            to_email.encode("ascii")
+        except UnicodeEncodeError:
+            raise EmailSendError(
+                f"Адрес содержит не-ASCII символы (нужен SMTPUTF8): {to_email!r}"
+            )
         if not subject:
             subject = "(без темы)"
 
