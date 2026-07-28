@@ -661,9 +661,13 @@ function BlockBody({
         <div className="text-center">
           {/* Дата: включается галочкой, ставится над заголовком или под
               подзаголовком. Цвет — основного текста страницы, не акцент. */}
-          {!isThanks && event.start_at && block.show_date !== false
+          {!isThanks && event.start_at
             && (block.date_position || 'above') === 'above' && (
-            <p className="mb-4 opacity-85" style={{ color: page.color_body || '#FFFFFF' }}>
+            <p className="mb-4 opacity-85"
+               style={{
+                 color: page.color_body || '#FFFFFF',
+                 fontSize: block.date_size ? `${block.date_size}px` : undefined,
+               }}>
               {formatDate(event.start_at, event.end_at, event.dates_from_program)}
             </p>
           )}
@@ -713,9 +717,12 @@ function BlockBody({
                   {event.description}
                 </p>
               )}
-              {event.start_at && block.show_date !== false
-                && block.date_position === 'below' && (
-                <p className="mt-4 opacity-85" style={{ color: page.color_body || '#FFFFFF' }}>
+              {event.start_at && block.date_position === 'below' && (
+                <p className="mt-4 opacity-85"
+                   style={{
+                     color: page.color_body || '#FFFFFF',
+                     fontSize: block.date_size ? `${block.date_size}px` : undefined,
+                   }}>
                   {formatDate(event.start_at, event.end_at, event.dates_from_program)}
                 </p>
               )}

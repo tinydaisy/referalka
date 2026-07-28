@@ -592,6 +592,51 @@ export default function BlockCard({
                       </div>
                     )}
                   </div>
+                  {/* Дата события. Показывается всегда — галочки нет:
+                      без даты продающая шапка не работает. Настраиваются
+                      только размер и место. */}
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <div className="mb-2 text-sm font-medium text-gray-700">Дата события</div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field label={`Размер даты: ${block.date_size ? `${block.date_size} px` : 'как основной текст'}`}>
+                        <div className="flex items-center gap-3">
+                          <input type="range" min={10} max={80} step={1}
+                            value={block.date_size ?? 18}
+                            onChange={e => onPatch({ date_size: Number(e.target.value) })}
+                            className="w-full" />
+                          {block.date_size != null && (
+                            <button
+                              onClick={() => onPatch({ date_size: null })}
+                              className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                            >
+                              сбросить
+                            </button>
+                          )}
+                        </div>
+                      </Field>
+                      <Field label="Где показывать">
+                        <div className="flex gap-2">
+                          {([
+                            ['above', 'Над названием'],
+                            ['below', 'Под описанием'],
+                          ] as const).map(([val, label]) => (
+                            <button
+                              key={val}
+                              onClick={() => onPatch({ date_position: val })}
+                              className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                                (block.date_position || 'above') === val
+                                  ? 'border-brand bg-brand/5 font-medium text-brand'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </Field>
+                    </div>
+                  </div>
+
                   <p className="text-sm text-gray-500">
                     Название, описание и даты берутся из настроек события.
                   </p>
