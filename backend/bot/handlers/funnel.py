@@ -301,6 +301,53 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         )
 
 
+@router.callback_query(F.data.startswith("evsignup_"))
+async def handle_event_signup(callback: CallbackQuery):
+    """«ЗАРЕГИСТРИРОВАТЬСЯ» у события со `skip_contact_form` — регистрируем прямо
+    в боте по нажатию кнопки и присылаем меню события. Формы нет: человек уже в
+    боте, контактные данные не спрашиваем."""
+    try:
+        event_id = int((callback.data or "").removeprefix("evsignup_"))
+    except ValueError:
+        await callback.answer("Ошибка кнопки")
+        return
+
+    user_tg_id = callback.from_user.id
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        client_id = await db.fetchval(
+            """SELECT eo.client_id FROM event_owners eo
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
+            event_id,
+        )
+        # contact_id — строго в базе клиента-владельца события (у человека может
+        # быть несколько tg-идентичностей на разных клиентов).
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE platform_slug = 'telegram' AND platform_user_id = $1
+                  AND client_id = $2
+                ORDER BY id DESC LIMIT 1""",
+            str(user_tg_id), client_id,
+        )
+        if not contact_id:
+            await callback.answer("Не нашли ваш профиль — напишите в поддержку",
+                                  show_alert=True)
+            return
+
+        from app.services.event_signup import signup_participant_in_bot
+        ok = await signup_participant_in_bot(
+            db, event_id=event_id, contact_id=contact_id)
+        if not ok:
+            await callback.answer("Не удалось зарегистрировать — попробуйте ещё раз",
+                                  show_alert=True)
+            return
+
+        from bot.handlers.start import send_event_menu
+        await send_event_menu(callback.message, event_id, contact_id, db)
+    await callback.answer("Вы зарегистрированы 🎉")
+
+
 @router.callback_query(F.data.startswith("evmenu_"))
 async def handle_event_menu_back(callback: CallbackQuery):
     """«⬅️ Меню события» — возврат в меню кабинета зарегистрированного участника."""

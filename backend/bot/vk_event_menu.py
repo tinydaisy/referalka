@@ -250,6 +250,33 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
     await vk_send_message(vk_user_id, text, keyboard=keyboard, token=ctx.token)
 
 
+async def handle_vk_event_signup(event_id: int, vk_user_id: int, db, ctx) -> None:
+    """«ЗАРЕГИСТРИРОВАТЬСЯ» (VK) у события со `skip_contact_form` — регистрируем
+    прямо в боте по нажатию кнопки и присылаем меню события. Зеркало TG
+    `handle_event_signup` и MAX-ветки `evsignup_`."""
+    client_id = await db.fetchval(
+        """SELECT eo.client_id FROM event_owners eo
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
+        event_id,
+    )
+    # contact_id — строго в базе клиента-владельца события (см. пояснение ниже,
+    # в handle_vk_event_menu_back: у человека может быть несколько vk-идентичностей).
+    contact_id = await db.fetchval(
+        """SELECT contact_id FROM platform_users
+            WHERE platform_slug = 'vk' AND platform_user_id = $1 AND client_id = $2
+            ORDER BY id DESC LIMIT 1""",
+        str(vk_user_id), client_id,
+    )
+    if contact_id:
+        from app.services.event_signup import signup_participant_in_bot
+        await signup_participant_in_bot(
+            db, event_id=event_id, contact_id=contact_id)
+    # Меню собираем той же функцией, что и «⬅️ Меню события» — она перечитает
+    # is_registered из БД (уже TRUE) и отдаст меню кабинета.
+    await handle_vk_event_menu_back(event_id, vk_user_id, db, ctx)
+
+
 async def handle_vk_event_menu_back(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«⬅️ Меню события» (VK) — пересобрать меню кабинета зарегистрированного.
     Порт funnel.py:handle_event_menu_back."""

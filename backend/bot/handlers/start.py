@@ -1190,28 +1190,16 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             await send_event_menu(message, ev["id"], contact_id, db)
             return True
 
-        # ── «Регистрировать без ввода контактных данных» → регистрируем ПРЯМО
-        # В БОТЕ и сразу шлём меню события. Человек уже в боте — имя/ник у нас
-        # есть, спрашивать нечего, и гонять его на веб-форму (или на страницу,
-        # которая всё равно сама зарегистрирует и вернёт) незачем.
-        # Сторонний лендинг главнее: если клиент его задал, ведём туда — там своя
-        # форма и свой webhook регистрации.
-        if (ev["skip_contact_form"] and contact_id
-                and not (ev["landing_url"] or "").strip()):
-            from app.services.participant_registration import (
-                finalize_participant_registration,
-            )
-            await db.execute(
-                """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                     VALUES ($1, $2, TRUE)
-                     ON CONFLICT (event_id, contact_id)
-                     DO UPDATE SET is_registered = TRUE""",
-                ev["id"], contact_id,
-            )
-            await finalize_participant_registration(
-                db, event_id=ev["id"], contact_id=contact_id)
-            await send_event_menu(message, ev["id"], contact_id, db)
-            return True
+        # ── «Регистрировать без ввода контактных данных»: кнопка
+        # «ЗАРЕГИСТРИРОВАТЬСЯ» ОСТАЁТСЯ (человек должен её нажать), но ведёт не на
+        # веб-форму, а на callback `evsignup_<id>` — по нажатию регистрируем прямо в
+        # боте и присылаем меню события. Спрашивать нечего: человек уже в боте.
+        # ⚠️ Меню НЕ шлём само, без нажатия — это осознанное действие пользователя.
+        # Сторонний лендинг главнее: задан → ведём туда (своя форма + свой webhook).
+        reg_in_bot = bool(
+            ev["skip_contact_form"] and contact_id
+            and not (ev["landing_url"] or "").strip()
+        )
 
         # ── НЕ зарегистрирован → три кнопки (Mini App / Веб / Регистрация) ────
         text = (
@@ -1256,11 +1244,20 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             web_url = internal_web
             reg_url = internal_web
 
-    # Одна кнопка «Зарегистрироваться» → сторонний лендинг (если задан и
-    # опубликован) ЛИБО встроенный веб pluson.ru/event/{slug} — с передачей
-    # contact_id, pid, utm, external_ref_param рефовода и полей контакта.
+    # Одна кнопка «Зарегистрироваться»:
+    #  • skip_contact_form (без лендинга) → CALLBACK `evsignup_<id>`: по нажатию
+    #    регистрируем прямо в боте и присылаем меню (форма не нужна — человек уже
+    #    в боте). Кнопка остаётся: меню приходит по НАЖАТИЮ, а не само собой;
+    #  • иначе → URL: сторонний лендинг (если задан и опубликован) ЛИБО встроенный
+    #    веб pluson.ru/event/{slug} — с передачей contact_id, pid, utm,
+    #    external_ref_param рефовода и полей контакта.
+    if reg_in_bot:
+        reg_btn = InlineKeyboardButton(
+            text="ЗАРЕГИСТРИРОВАТЬСЯ", callback_data=f"evsignup_{ev['id']}")
+    else:
+        reg_btn = InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=web_url)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=web_url)],
+        [reg_btn],
         [InlineKeyboardButton(text="🆘 Тех. поддержка", callback_data=f"evsupport_{ev['id']}")],
     ])
 

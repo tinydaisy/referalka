@@ -1276,29 +1276,15 @@ async def send_vk_event_funnel(
         except Exception as e:
             logger.warning(f"VK event-funnel poster upload failed ({poster_url}): {e}")
 
-    # ── «Регистрировать без ввода контактных данных» → регистрируем ПРЯМО В БОТЕ
-    # и дальше идём по ветке зарегистрированного (меню). Как в TG
-    # (bot/handlers/start.py) и MAX (max_webhook.py). Сторонний лендинг главнее —
-    # там своя форма и свой webhook регистрации.
-    if (not is_registered and contact_id
-            and event_row["skip_contact_form"]
-            and not (event_row["landing_url"] or "").strip()):
-        from app.services.participant_registration import (
-            finalize_participant_registration,
-        )
-        try:
-            await conn.execute(
-                """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                     VALUES ($1, $2, TRUE)
-                     ON CONFLICT (event_id, contact_id)
-                     DO UPDATE SET is_registered = TRUE""",
-                event_id, contact_id,
-            )
-            await finalize_participant_registration(
-                conn, event_id=event_id, contact_id=contact_id)
-            is_registered = True
-        except Exception as e:
-            logger.warning(f"VK skip_contact_form auto-register failed: {e}")
+    # ── «Регистрировать без ввода контактных данных»: кнопка «ЗАРЕГИСТРИРОВАТЬСЯ»
+    # ОСТАЁТСЯ, но ведёт на callback `evsignup_<id>` — регистрируем по НАЖАТИЮ и
+    # присылаем меню (как в TG и MAX). Меню само, без нажатия, НЕ шлём.
+    # Сторонний лендинг главнее — там своя форма и свой webhook.
+    reg_in_bot = bool(
+        not is_registered and contact_id
+        and event_row["skip_contact_form"]
+        and not (event_row["landing_url"] or "").strip()
+    )
 
     # ── Зарегистрирован → меню кабинета (порт send_event_menu) ────────────────
     if is_registered:
@@ -1390,8 +1376,12 @@ async def send_vk_event_funnel(
     else:
         web_url = internal_web
 
+    # skip_contact_form → callback (регистрируем по нажатию), иначе URL.
+    _reg_btn = ({"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "callback_data": f"evsignup_{event_id}"}
+                if reg_in_bot
+                else {"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url})
     keyboard = tg_inline_to_vk_keyboard([
-        [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
+        [_reg_btn],
         [{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}],
     ])
     mid = await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)

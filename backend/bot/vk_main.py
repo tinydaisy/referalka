@@ -977,7 +977,8 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
 
     # Меню события (порт TG evchat_/evmenu_/evlive_/evsupport_ из handlers/funnel.py).
     if (cb.startswith("evchat_") or cb.startswith("evmenu_")
-            or cb.startswith("evlive_") or cb.startswith("evsupport_")):
+            or cb.startswith("evlive_") or cb.startswith("evsupport_")
+            or cb.startswith("evsignup_")):
         prefix, _, id_raw = cb.partition("_")
         try:
             ev_id = int(id_raw)
@@ -986,11 +987,13 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         from bot.vk_event_menu import (
             handle_vk_event_chat, handle_vk_event_menu_back, handle_vk_event_live,
-            handle_vk_event_support,
+            handle_vk_event_support, handle_vk_event_signup,
         )
         try:
             if prefix == "evchat":
                 await handle_vk_event_chat(ev_id, int(user_id), db, ctx)
+            elif prefix == "evsignup":
+                await handle_vk_event_signup(ev_id, int(user_id), db, ctx)
             elif prefix == "evmenu":
                 await handle_vk_event_menu_back(ev_id, int(user_id), db, ctx)
             elif prefix == "evlive":

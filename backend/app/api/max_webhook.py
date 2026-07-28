@@ -858,6 +858,31 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                 logger.warning(f"MAX evmenu failed (event={event_id}, user={user_id}): {e}")
         return
 
+    # «ЗАРЕГИСТРИРОВАТЬСЯ» у события со skip_contact_form — регистрируем по
+    # НАЖАТИЮ прямо в боте и присылаем меню (зеркало TG handle_event_signup).
+    if payload.startswith("evsignup_"):
+        try:
+            event_id = int(payload.removeprefix("evsignup_"))
+        except ValueError:
+            logger.warning(f"MAX evsignup callback bad payload: {payload!r}")
+            return
+        pool = await get_pool()
+        if not pool:
+            return
+        async with pool.acquire() as conn:
+            contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
+            if not contact_id:
+                logger.warning(f"MAX evsignup: contact not found (event={event_id}, user={user_id})")
+                return
+            from app.services.event_signup import signup_participant_in_bot
+            await signup_participant_in_bot(
+                conn, event_id=event_id, contact_id=contact_id)
+            try:
+                await _send_max_event_menu(chat_id, event_id, contact_id, bot_token, conn)
+            except Exception as e:
+                logger.warning(f"MAX evsignup menu failed (event={event_id}): {e}")
+        return
+
     if payload.startswith("evsupport_"):
         try:
             event_id = int(payload.removeprefix("evsupport_"))
@@ -1401,30 +1426,14 @@ async def _process_start(
                 except Exception as e:
                     logger.warning(f"MAX event menu failed for user={user_id}: {e}")
                 return
-            # «Регистрировать без ввода контактных данных» → регистрируем ПРЯМО В
-            # БОТЕ и сразу шлём меню события (как в TG: bot/handlers/start.py).
-            # Сторонний лендинг главнее — там своя форма и свой webhook.
-            if (event_skip_contact_form and contact_id and event_id
-                    and not event_landing_url):
-                from app.services.participant_registration import (
-                    finalize_participant_registration,
-                )
-                await conn.execute(
-                    """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                         VALUES ($1, $2, TRUE)
-                         ON CONFLICT (event_id, contact_id)
-                         DO UPDATE SET is_registered = TRUE""",
-                    event_id, contact_id,
-                )
-                await finalize_participant_registration(
-                    conn, event_id=event_id, contact_id=contact_id)
-                try:
-                    await _send_max_event_menu(
-                        chat_id, event_id, contact_id, bot_token, conn,
-                    )
-                except Exception as e:
-                    logger.warning(f"MAX event menu (skip_contact_form) failed: {e}")
-                return
+            # «Регистрировать без ввода контактных данных»: кнопка
+            # «ЗАРЕГИСТРИРОВАТЬСЯ» ОСТАЁТСЯ, но ведёт на callback `evsignup_<id>` —
+            # регистрируем по НАЖАТИЮ и присылаем меню (как в TG). Меню само, без
+            # нажатия, НЕ шлём. Сторонний лендинг главнее — там своя форма.
+            reg_in_bot = bool(
+                event_skip_contact_form and contact_id and event_id
+                and not event_landing_url
+            )
 
             # НЕ зарегистрирован → 1 кнопка «ЗАРЕГИСТРИРОВАТЬСЯ» + афиша (как в TG).
             # Веб-ссылка: сторонний лендинг (если задан и опубликован) с ПОЛНЫМ
@@ -1472,8 +1481,12 @@ async def _process_start(
                 "Нажмите на кнопку ниже.\n\n"
                 "Если проблемы с регистрацией — нажмите кнопку «Тех. поддержка»."
             )
+            # skip_contact_form → callback (регистрируем по нажатию), иначе URL.
+            _reg_btn = ({"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "callback_data": f"evsignup_{event_id}"}
+                        if reg_in_bot
+                        else {"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url})
             buttons = tg_inline_to_max_keyboard([
-                [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
+                [_reg_btn],
                 [{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}],
             ])
             # Афиша события — грузим в MAX и шлём вложением (как фото с подписью в TG).
