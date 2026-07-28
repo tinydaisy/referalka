@@ -39,7 +39,7 @@ export default async function OrderPage({
   params, searchParams,
 }: {
   params: { slug: string; tariffId: string }
-  searchParams: { c?: string }
+  searchParams: { c?: string; pid?: string; utm_source?: string }
 }) {
   const data = await getLanding(params.slug)
 
@@ -84,6 +84,8 @@ export default async function OrderPage({
         ownerName={data.data?.tariffs?.owner_name || null}
         slug={params.slug}
         contactId={searchParams.c || null}
+        pid={searchParams.pid || null}
+        utmSource={searchParams.utm_source || null}
       />
     </>
   )

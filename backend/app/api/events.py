@@ -443,8 +443,17 @@ async def get_event(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
+    # landing_published — собран ли и опубликован Плюсоновский лендинг
+    # (миграция 240). По нему в «Ссылках» показывается ссылка на /e/{slug}.
     event = await db.fetchrow(
-        f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted')",
+        f"""SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ},
+                   COALESCE((SELECT p.is_published FROM event_landing_pages p
+                              WHERE p.event_id = e.id AND p.kind = 'main'), FALSE)
+                     AS landing_published
+              FROM events e
+             WHERE e.id = $1 AND EXISTS(SELECT 1 FROM event_owners eo
+                    WHERE eo.event_id = e.id AND eo.client_id = $2
+                      AND eo.status='accepted')""",
         event_id, client_id
     )
     if not event:

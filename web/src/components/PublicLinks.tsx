@@ -24,6 +24,7 @@ export default function PublicLinks({
   eventStatus,
   linkMode,
   onLinkModeChange,
+  hasLanding,
 }: {
   slug: string | null | undefined
   eventId?: number
@@ -32,6 +33,8 @@ export default function PublicLinks({
   eventStatus?: 'draft' | 'published' | 'ended' | null
   /** Текущий тип ссылок события: 'miniapp' (Mini App) | 'bot' (через ботов). */
   linkMode?: 'miniapp' | 'bot' | null
+  /** Плюсоновский лендинг собран и опубликован — показываем ссылку на него. */
+  hasLanding?: boolean
   /** Если передан — управляемый режим: радио НЕ сохраняет сразу, а зовёт callback
    *  (сохранение делает общая кнопка «Сохранить» на странице). Иначе — авто-сохранение. */
   onLinkModeChange?: (mode: 'miniapp' | 'bot') => void
@@ -95,10 +98,20 @@ export default function PublicLinks({
     const rows: LinkRow[] = []
     if (kind === 'miniapp') {
       rows.push({
-        key: 'web', label: 'Веб-страница', badge: 'WEB', color: '#25455D',
+        key: 'web', label: 'Простая страница события', badge: 'WEB', color: '#25455D',
         url: `${APP_URL}/l/${slug}`,
-        hint: 'Лендинг события — публикуй в соцсетях, рассылках, на сайте',
+        hint: 'Афиша, описание и кнопка записаться — есть у любого события',
       })
+      // Плюсоновский лендинг — продающая страница, собранная в конструкторе.
+      // ⚠️ Понимает ?pid= — можно вести рекламу прямо на него, минуя бота,
+      // и рефералы всё равно засчитаются.
+      if (hasLanding) {
+        rows.push({
+          key: 'landing', label: 'Плюсоновский лендинг', badge: 'LP', color: '#FFCFA4',
+          url: `${APP_URL}/e/${slug}`,
+          hint: 'Продающая страница из конструктора. Для реферальной ссылки допишите ?pid=КОД',
+        })
+      }
     }
     if (pl.telegram) rows.push({
       key: `${kind}-tg`, label: 'Telegram', badge: 'TG', color: '#229ED9', url: pl.telegram,

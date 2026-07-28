@@ -274,6 +274,7 @@ export default function OverviewTab({
           eventId={eventId}
           onSlugSaved={onReload}
           eventStatus={event?.status}
+          hasLanding={!!event?.landing_published}
         />
       )}
 

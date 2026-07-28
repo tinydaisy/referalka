@@ -16,6 +16,10 @@ import { CardIcon } from '@/components/landing/icons'
 interface Props {
   data: any
   slug: string
+  /** Кто привёл (?pid=) — прокидываем во все ссылки заказа и регистрации. */
+  pid?: string | null
+  contactId?: string | null
+  utmSource?: string | null
 }
 
 /**
@@ -69,7 +73,18 @@ function shade(hex: string, pct: number): string {
     .map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`
 }
 
-export default function LandingRenderer({ data, slug }: Props) {
+export default function LandingRenderer({
+  data, slug, pid = null, contactId = null, utmSource = null,
+}: Props) {
+  // Хвост с метками: подставляем в каждую ссылку, чтобы реф-код не терялся
+  // при переходе на форму заказа или регистрацию.
+  const track = [
+    pid && `pid=${encodeURIComponent(pid)}`,
+    contactId && `c=${encodeURIComponent(contactId)}`,
+    utmSource && `utm_source=${encodeURIComponent(utmSource)}`,
+  ].filter(Boolean).join('&')
+  const withTrack = (url: string) =>
+    track ? `${url}${url.includes('?') ? '&' : '?'}${track}` : url
   const { event, page, blocks, data: content } = data
   const radius = page.radius ?? 5
 
@@ -300,7 +315,7 @@ export default function LandingRenderer({ data, slug }: Props) {
       {/* Липкая шапка: логотип + якоря на секции + кнопка регистрации. */}
       {page.nav_enabled && (
         <LandingNav page={page} blocks={blocks} content={content}
-                    btnStyle={btnStyle} slug={slug} />
+                    btnStyle={btnStyle} slug={slug} withTrack={withTrack} />
       )}
 
       {blocks.map((b: any) => (
@@ -316,6 +331,7 @@ export default function LandingRenderer({ data, slug }: Props) {
           event={event}
           content={content}
           slug={slug}
+          withTrack={withTrack}
         />
       ))}
     </div>
@@ -331,7 +347,7 @@ export default function LandingRenderer({ data, slug }: Props) {
  * есть id вида `lp-<тип блока>` (см. Section), поэтому расставлять якоря
  * руками не нужно — клиент выбирает секцию из списка.
  */
-function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
+function LandingNav({ page, blocks, content, btnStyle, slug, withTrack }: any) {
   const [open, setOpen] = useState(false)
   const items: Array<{ label: string; block_kind: string }> =
     Array.isArray(page.nav_items) ? page.nav_items : []
@@ -343,7 +359,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
   const mobileLinks = links.filter((i: any) => i.mobile !== false)
   // 'register' → форма регистрации; иначе — якорь на секцию страницы.
   const navTarget = (!page.nav_button_target || page.nav_button_target === 'register')
-    ? `/event/${slug}/register`
+    ? withTrack(`/event/${slug}/register`)
     : `#lp-${page.nav_button_target}`
   const logo = content?.brand?.logo_url
 
@@ -432,6 +448,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
 
 function Section({
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
+  withTrack,
 }: any) {
   // В режиме «градиент по блокам» каждая секция получает полный градиент —
   // переход виден внутри каждой, а не размазан по всей странице.
@@ -492,7 +509,7 @@ function Section({
     block={block} page={page} radius={radius} btnStyle={btnStyle}
     cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
     glowCls={glowCls} glowVars={glowVars}
-    event={event} content={content} slug={slug}
+    event={event} content={content} slug={slug} withTrack={withTrack}
   />
 
   /* Картинка-контент секции (не фон): встаёт рядом с содержимым или над ним. */
@@ -522,7 +539,7 @@ function Section({
     <div className={`${block.kind === 'el_button' ? '' : 'mt-8'} ${
       align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : ''}`}>
       <a
-        href={block.button_url || `/event/${slug}/register`}
+        href={block.button_url || withTrack(`/event/${slug}/register`)}
         {...(block.button_url ? { target: '_blank', rel: 'noreferrer' } : {})}
         className="inline-block px-8 py-4 font-bold uppercase"
         style={btnStyle}
@@ -670,7 +687,7 @@ function Section({
 
 function BlockBody({
   block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
-  glowCls = '', glowVars = {},
+  glowCls = '', glowVars = {}, withTrack = (u: string) => u,
 }: any) {
   const items = block.items
 
@@ -768,7 +785,7 @@ function BlockBody({
                   // Куда ведёт — настраивается, как у любой другой кнопки:
                   // на регистрацию, к секции страницы (#lp-…) или на свой URL.
                   <a
-                    href={(block.button_url || '').trim() || `/event/${slug}/register`}
+                    href={(block.button_url || '').trim() || withTrack(`/event/${slug}/register`)}
                     {...((block.button_url || '').trim().startsWith('http')
                       ? { target: '_blank', rel: 'noreferrer' } : {})}
                     className="inline-block px-8 py-4 text-[1em] font-bold uppercase tracking-wide transition-transform hover:scale-105"
@@ -1043,7 +1060,7 @@ function BlockBody({
                     по email/телефону, создаёт заказ и уводит на оплату.
                     Бесплатный тариф форма регистрирует сразу. */}
                 <a
-                  href={`/e/${slug}/order/${x.id}`}
+                  href={withTrack(`/e/${slug}/order/${x.id}`)}
                   className="mt-6 block px-5 py-3.5 text-center font-bold uppercase"
                   style={btnStyle}
                 >

@@ -22,7 +22,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services import client_payments
-from app.services.contact_merge import find_or_create_contact
+from app.services.contact_merge import find_or_create_contact, resolve_ref_code
 from app.services.participant_registration import finalize_participant_registration
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,10 @@ class OrderIn(BaseModel):
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     contact_id: Optional[int] = None
+    # Реф-код того, кто привёл (?pid= в адресе лендинга). Позволяет вести
+    # рекламу прямо на лендинг, без прохода через бота.
+    ref_code: Optional[str] = None
+    utm_source: Optional[str] = None
     consent_pd: bool = False
     consent_marketing: bool = False
 
@@ -126,16 +130,28 @@ async def create_order(
             lookup_telegram_username=tg,
         )
 
+    # Кто привёл. Код может быть старым (merged_ref_codes) — резолвер это
+    # учитывает. Свой собственный код игнорируем: сам себя не приводил.
+    resolved_ref, referrer_contact_id = await resolve_ref_code(
+        db, (data.ref_code or "").strip() or None, t["client_id"])
+    if referrer_contact_id and referrer_contact_id == contact_id:
+        resolved_ref, referrer_contact_id = None, None
+
     price = int(t["price"] or 0)
 
     # ── Бесплатный тариф: заказа нет, сразу регистрируем ─────────────────
     if price <= 0:
+        # ⚠️ Рефовода записываем только если его ещё нет: первый, кто привёл,
+        # и остаётся — иначе повторный заход по чужой ссылке перепишет.
         await db.execute(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered)
-               VALUES ($1, $2, TRUE)
+            """INSERT INTO event_participants
+                   (event_id, contact_id, is_registered, referrer_ref_code)
+               VALUES ($1, $2, TRUE, $3)
                ON CONFLICT (event_id, contact_id)
-               DO UPDATE SET is_registered = TRUE""",
-            t["event_id"], contact_id,
+               DO UPDATE SET is_registered = TRUE,
+                             referrer_ref_code =
+                               COALESCE(event_participants.referrer_ref_code, $3)""",
+            t["event_id"], contact_id, resolved_ref,
         )
         await finalize_participant_registration(
             db, event_id=t["event_id"], contact_id=contact_id)
@@ -147,11 +163,13 @@ async def create_order(
 
     # ── Платный тариф: заказ + ссылка на оплату ──────────────────────────
     participant_id = await db.fetchval(
-        """INSERT INTO event_participants (event_id, contact_id)
-           VALUES ($1, $2)
-           ON CONFLICT (event_id, contact_id) DO UPDATE SET contact_id = EXCLUDED.contact_id
+        """INSERT INTO event_participants (event_id, contact_id, referrer_ref_code)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (event_id, contact_id)
+           DO UPDATE SET referrer_ref_code =
+                           COALESCE(event_participants.referrer_ref_code, $3)
            RETURNING id""",
-        t["event_id"], contact_id,
+        t["event_id"], contact_id, resolved_ref,
     )
 
     order_id = await db.fetchval(

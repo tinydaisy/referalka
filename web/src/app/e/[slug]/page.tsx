@@ -49,7 +49,10 @@ export async function generateMetadata(
 }
 
 export default async function EventLandingPage(
-  { params }: { params: { slug: string } },
+  { params, searchParams }: {
+    params: { slug: string }
+    searchParams: { pid?: string; c?: string; utm_source?: string }
+  },
 ) {
   const data = await getLanding(params.slug, 'main')
 
@@ -72,7 +75,10 @@ export default async function EventLandingPage(
           подтягиваются с Google, чтобы не мигали и не резались у части
           пользователей в РФ. */}
       <link rel="stylesheet" href="/fonts/landing-fonts.css" />
-      <LandingRenderer data={data} slug={params.slug} />
+      <LandingRenderer data={data} slug={params.slug}
+                       pid={searchParams.pid || null}
+                       contactId={searchParams.c || null}
+                       utmSource={searchParams.utm_source || null} />
     </>
   )
 }

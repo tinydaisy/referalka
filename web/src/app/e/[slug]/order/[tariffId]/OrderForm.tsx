@@ -21,10 +21,13 @@ interface Props {
   ownerName: string | null
   slug: string
   contactId: string | null
+  pid: string | null
+  utmSource: string | null
 }
 
 export default function OrderForm({
   page, event, tariff, offerUrl, privacyUrl, brandName, ownerName, slug, contactId,
+  pid, utmSource,
 }: Props) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -115,6 +118,10 @@ export default function OrderForm({
           phone: phone.trim() || null,
           telegram_username: tg.trim() || null,
           contact_id: contactId ? Number(contactId) : null,
+          // Кто привёл: ?pid= в адресе лендинга. Позволяет вести рекламу
+          // прямо на лендинг, минуя бота, и всё равно считать рефералов.
+          ref_code: pid || null,
+          utm_source: utmSource || null,
           consent_pd: true,
           consent_marketing: mkt,
         }),
@@ -252,7 +259,8 @@ export default function OrderForm({
         </div>
 
         <div className="mt-5 text-center">
-          <a href={`/e/${slug}`} className="text-[.9em] underline opacity-70 hover:opacity-100">
+          <a href={`/e/${slug}${pid ? `?pid=${encodeURIComponent(pid)}` : ''}`}
+             className="text-[.9em] underline opacity-70 hover:opacity-100">
             Вернуться к тарифам
           </a>
         </div>
