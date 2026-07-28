@@ -14,6 +14,9 @@ interface Participant {
   referrer_ref_code: string | null
   referrer_contact_id: number | null
   referrer_name: string | null
+  // Оплаты по тарифам события (миграция 257): сумма и названия тарифов.
+  paid_amount?: number | null
+  paid_tariffs?: string | null
   // ⚠️ КОЛЛАБ: организатор, в чьей базе лежит контакт (contacts.client_id).
   organizer_name?: string | null
   organizer_client_id?: number | null
