@@ -7,7 +7,7 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
 from app.api import webinar_public
@@ -110,6 +110,7 @@ app.include_router(assistants.router,   prefix="/api/v1")                      #
 app.include_router(speaker_cabinet.router)                                     # /api/v1/public/speaker-cabinet — мини-кабинет спикера (миграция 108)
 app.include_router(landing_widget.router)                                      # /api/v1/public/landing-widget — JSON для сторонних лендингов (миграция 111)
 app.include_router(event_landing.router,            prefix="/api/v1")  # /api/v1/events/{id}/landing — конструктор лендинга события (миграция 240)
+app.include_router(client_landing_theme.router,     prefix="/api/v1")  # /api/v1/clients/me/landing-theme — фирменная тема лендингов (миграция 241)
 app.include_router(event_landing_public.router)                                # /api/v1/public/event-landing/{slug} — собранный лендинг для pluson.ru/e/{slug}
 app.include_router(event_page_html.router)                                     # GET /event/{slug} — простая серверная HTML-страница события (витрина + реф-кабинет)
 app.include_router(medialift_cabinet_html.router)                              # GET /medialift/me — веб-кабинет участника МедиаЛифта

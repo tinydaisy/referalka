@@ -97,18 +97,26 @@ async def _assert_feature(db, client_id: int) -> None:
 class PagePatch(BaseModel):
     is_published: Optional[bool] = None
     bg_color: Optional[str] = None
+    bg_color_2: Optional[str] = None
+    bg_angle: Optional[int] = None
+    bg_gradient: Optional[bool] = None
     bg_image_url: Optional[str] = None
     bg_overlay: Optional[str] = None
     bg_overlay_opacity: Optional[int] = None
     font_heading: Optional[str] = None
     font_body: Optional[str] = None
     color_heading: Optional[str] = None
+    heading_metallic: Optional[bool] = None
     color_body: Optional[str] = None
+    color_link: Optional[str] = None
     btn_color: Optional[str] = None
     btn_text_color: Optional[str] = None
     btn_metallic: Optional[bool] = None
+    border_color: Optional[str] = None
+    border_metallic: Optional[bool] = None
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
+    radius: Optional[int] = None
     post_pay_title: Optional[str] = None
     post_pay_text: Optional[str] = None
 
@@ -132,6 +140,11 @@ class BlockPatch(BaseModel):
     button_url: Optional[str] = None
     items: Optional[Any] = None
     is_active: Optional[bool] = None
+    # Раскладка секции: заголовок сверху / слева / справа + картинка-контент.
+    layout: Optional[str] = None
+    image_url: Optional[str] = None
+    image_position: Optional[str] = None
+    split_ratio: Optional[int] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
     bg_overlay: Optional[str] = None
@@ -171,11 +184,55 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
     if page:
         return page
 
+    # Оформление берём из ТЕМЫ КЛИЕНТА (миграция 241) — фирменный стиль
+    # подставляется сам, клиенту не надо заново выставлять цвета под каждое
+    # событие. Это именно копия-дефолт: дальше страница живёт своей жизнью,
+    # правка темы задним числом уже созданные лендинги не трогает.
+    theme = await db.fetchrow(
+        """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient,
+                  cl.lp_font_heading, cl.lp_color_heading, cl.lp_heading_metallic,
+                  cl.lp_font_body, cl.lp_color_body, cl.lp_color_link,
+                  cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
+                  cl.lp_border_color, cl.lp_border_metallic,
+                  cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius
+             FROM event_owners eo
+             JOIN clients cl ON cl.id = eo.client_id
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY eo.id LIMIT 1""",
+        event_id,
+    )
+    t = dict(theme) if theme else {}
+
     async with db.transaction():
         page = await db.fetchrow(
-            "INSERT INTO event_landing_pages (event_id, kind) VALUES ($1, $2) "
-            "ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW() RETURNING *",
+            """INSERT INTO event_landing_pages
+                 (event_id, kind, bg_color, bg_color_2, bg_angle, bg_gradient,
+                  font_heading, color_heading, heading_metallic,
+                  font_body, color_body, color_link,
+                  btn_color, btn_text_color, btn_metallic,
+                  border_color, border_metallic, icon_color, icon_metallic, radius)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+               ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
+               RETURNING *""",
             event_id, kind,
+            t.get("lp_bg_color") or "#25455D",
+            t.get("lp_bg_color_2") or "#0a1520",
+            t.get("lp_bg_angle") if t.get("lp_bg_angle") is not None else 45,
+            t.get("lp_bg_gradient") if t.get("lp_bg_gradient") is not None else True,
+            normalize_font(t.get("lp_font_heading")),
+            t.get("lp_color_heading") or "#FFCFA4",
+            bool(t.get("lp_heading_metallic", True)),
+            normalize_font(t.get("lp_font_body")),
+            t.get("lp_color_body") or "#FFFFFF",
+            t.get("lp_color_link") or "#FFCFA4",
+            t.get("lp_btn_color") or "#FFCFA4",
+            t.get("lp_btn_text_color") or "#0a1520",
+            bool(t.get("lp_btn_metallic", True)),
+            t.get("lp_border_color") or "#FFCFA4",
+            bool(t.get("lp_border_metallic", True)),
+            t.get("lp_icon_color") or "#FFCFA4",
+            bool(t.get("lp_icon_metallic", True)),
+            t.get("lp_radius") if t.get("lp_radius") is not None else 5,
         )
         preset = DEFAULT_MAIN_BLOCKS if kind == "main" else DEFAULT_POST_PAY_BLOCKS
         # ON CONFLICT выше мог отдать уже существующую страницу (гонка двух
@@ -272,10 +329,13 @@ async def patch_page(
     fs = data.model_fields_set
     sets, vals = [], []
     for field in (
-        "is_published", "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
-        "font_heading", "font_body", "color_heading", "color_body",
+        "is_published", "bg_color", "bg_color_2", "bg_angle", "bg_gradient",
+        "bg_image_url", "bg_overlay", "bg_overlay_opacity",
+        "font_heading", "font_body", "color_heading", "heading_metallic",
+        "color_body", "color_link",
         "btn_color", "btn_text_color", "btn_metallic",
-        "icon_color", "icon_metallic", "post_pay_title", "post_pay_text",
+        "border_color", "border_metallic", "icon_color", "icon_metallic", "radius",
+        "post_pay_title", "post_pay_text",
     ):
         if field not in fs:
             continue
@@ -285,6 +345,10 @@ async def patch_page(
             val = normalize_font(val)
         if field == "bg_overlay_opacity" and val is not None:
             val = max(0, min(100, int(val)))
+        if field == "bg_angle" and val is not None:
+            val = max(0, min(360, int(val)))
+        if field == "radius" and val is not None:
+            val = max(0, min(64, int(val)))
         vals.append(val)
         sets.append(f"{field} = ${len(vals)}")
 
@@ -356,12 +420,21 @@ async def patch_block(
     sets, vals = [], []
     for field in (
         "title", "subtitle", "body", "button_label", "button_url", "is_active",
+        "layout", "image_url", "image_position", "split_ratio",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
         if field not in fs:
             continue
         val = getattr(data, field)
+        # Мусор в раскладке не пишем — CHECK в БД иначе отдаст 500 вместо
+        # понятной реакции; молча приводим к разумному значению.
+        if field == "layout" and val not in ("top", "left", "right"):
+            val = "top"
+        if field == "image_position" and val not in ("left", "right", "top", "bottom"):
+            val = "right"
+        if field == "split_ratio" and val is not None:
+            val = max(20, min(80, int(val)))
         if field == "bg_overlay_opacity" and val is not None:
             val = max(0, min(100, int(val)))
         if field == "border_width" and val is not None:
