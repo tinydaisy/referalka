@@ -203,9 +203,7 @@ async def notify_organizer_new_order(db, order_id: int, *, paid: bool = False) -
                   (SELECT pe.platform_user_id FROM platform_users pe
                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
                     LIMIT 1) AS email,
-                  (SELECT pt.username FROM platform_users pt
-                    WHERE pt.contact_id = c.id AND pt.platform_slug = 'telegram'
-                      AND pt.username IS NOT NULL LIMIT 1) AS tg_username,
+                  c.ref_code, c.utm_source,
                   eo.client_id
              FROM event_participant_tariffs o
              JOIN event_tariffs t ON t.id = o.tariff_id
@@ -219,9 +217,26 @@ async def notify_organizer_new_order(db, order_id: int, *, paid: bool = False) -
     if not row:
         return
 
+    # ВСЕ известные аккаунты человека: чтобы связаться, не заходя в кабинет.
+    # Ссылку строим через общий хелпер — он знает форматы всех площадок.
+    from app.services.profile_links import nick_html
+    idents = await db.fetch(
+        """SELECT platform_slug, platform_user_id, username
+             FROM platform_users
+            WHERE contact_id = $1 AND platform_slug <> 'email'
+            ORDER BY platform_slug""",
+        row["contact_id"],
+    )
+    LABEL = {"telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX"}
+    ident_lines = []
+    for i in idents:
+        label = LABEL.get(i["platform_slug"], i["platform_slug"])
+        link = nick_html(i["platform_slug"],
+                         user_id=i["platform_user_id"], username=i["username"])
+        ident_lines.append(f"{label}: {link}")
+
     amount = f"{int(row['amount'] or 0):,}".replace(",", " ")
     head = "💰 ОПЛАЧЕНО" if paid else "🧾 Новый заказ"
-    tg_nick = (row["tg_username"] or "").lstrip("@")
 
     lines = [
         f"<b>{head}</b> · {amount} ₽",
@@ -233,8 +248,9 @@ async def notify_organizer_new_order(db, order_id: int, *, paid: bool = False) -
         f"Email: {row['email'] or '—'}",
         f"Телефон: {row['phone'] or '—'}",
     ]
-    if tg_nick:
-        lines.append(f'Telegram: <a href="https://t.me/{tg_nick}">@{tg_nick}</a>')
+    lines += ident_lines
+    if row["utm_source"]:
+        lines.append(f"Источник: {row['utm_source']}")
     lines += [
         "",
         f'<a href="https://pluson.ru/dashboard/clients?contact_id={row["contact_id"]}">'
