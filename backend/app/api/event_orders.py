@@ -225,6 +225,15 @@ async def create_order(
         "WHERE id = $2",
         pay_url, order_id,
     )
+
+    # Письмо со ссылкой на оплату: человек часто уходит подумать и теряет
+    # вкладку. Ошибка отправки не должна ронять заказ — ссылка уже готова.
+    try:
+        from app.services.order_email import send_order_created_email
+        await send_order_created_email(db, order_id)
+    except Exception as e:
+        logger.warning("Письмо о заказе %s не отправлено: %s", order_id, e)
+
     return {"ok": True, "order_id": order_id, "payment_url": pay_url}
 
 
@@ -377,6 +386,12 @@ async def leadpay_order_webhook(
         )
         await finalize_participant_registration(
             db, event_id=order["event_id"], contact_id=order["contact_id"])
+
+    try:
+        from app.services.order_email import send_order_paid_email
+        await send_order_paid_email(db, order_id)
+    except Exception as e:
+        logger.warning("Письмо об оплате заказа %s не отправлено: %s", order_id, e)
 
     logger.info("Заказ %s оплачен", order_id)
     return {"ok": True, "paid": True}
