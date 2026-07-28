@@ -25,7 +25,9 @@ async def _load_context(db, order_id: int) -> Optional[dict]:
         """SELECT o.id, o.status, o.amount, o.payment_url, o.contact_id,
                   t.title AS tariff_title,
                   e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
-                  e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_url,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_url,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_url,
                   c.name AS contact_name,
                   cl.id AS client_id, cl.name AS client_name, cl.brand_name,
                   cl.work_tg_username, cl.work_vk, cl.work_max,
@@ -129,7 +131,7 @@ async def send_order_paid_email(db, order_id: int) -> bool:
         return False
     o = ctx["order"]
 
-    chats = [u for u in (o["tg_chat_ref"], o["vk_chat_ref"], o["max_chat_ref"]) if u]
+    chats = [u for u in (o["tg_chat_url"], o["vk_chat_url"], o["max_chat_url"]) if u]
     chats_block = ("\n".join(f"• {u}" for u in chats)) if chats else ""
 
     # Боты клиента: через них человек получит напоминания, подарки и доступ

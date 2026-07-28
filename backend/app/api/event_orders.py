@@ -294,7 +294,10 @@ async def thanks_by_tariff(
         raise HTTPException(status_code=404, detail="Тариф не найден")
 
     ev = await db.fetchrow(
-        """SELECT e.slug, e.title, e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+        """SELECT e.slug, e.title,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_url,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_url,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_url,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -345,9 +348,9 @@ async def thanks_by_tariff(
         "poster_url": ev["poster_url"],
         "chats": [
             {"platform": p, "url": u}
-            for p, u in (("telegram", ev["tg_chat_ref"]),
-                         ("vk", ev["vk_chat_ref"]),
-                         ("max", ev["max_chat_ref"]))
+            for p, u in (("telegram", ev["tg_chat_url"]),
+                         ("vk", ev["vk_chat_url"]),
+                         ("max", ev["max_chat_url"]))
             if u
         ],
         "bots": bots,
@@ -368,7 +371,9 @@ async def get_order(
         """SELECT o.id, o.status, o.amount, o.contact_id,
                   t.title AS tariff_title,
                   e.slug AS event_slug, e.title AS event_title,
-                  e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_url,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_url,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_url,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -386,9 +391,9 @@ async def get_order(
     d = dict(row)
     d["chats"] = [
         {"platform": p, "url": u}
-        for p, u in (("telegram", d.pop("tg_chat_ref", None)),
-                     ("vk", d.pop("vk_chat_ref", None)),
-                     ("max", d.pop("max_chat_ref", None)))
+        for p, u in (("telegram", d.pop("tg_chat_url", None)),
+                     ("vk", d.pop("vk_chat_url", None)),
+                     ("max", d.pop("max_chat_url", None)))
         if u
     ]
     return d
