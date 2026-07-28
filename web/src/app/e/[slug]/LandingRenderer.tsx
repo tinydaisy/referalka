@@ -360,6 +360,16 @@ function Section({
   const title = block.title
   const body = block.body
 
+  // Свечение карточек: класс на контейнер сетки + переменные цвета.
+  // Задержку каждой карточке проставляем инлайном (--i), чтобы огонёк бежал.
+  const glowCls = block.cards_glow ? 'lp-glow' : ''
+  const glowVars: React.CSSProperties = block.cards_glow
+    ? ({
+        ['--lp-glow' as any]: page.icon_color || '#FFCFA4',
+        ['--lp-brd' as any]: page.border_color || '#FFCFA4',
+      } as React.CSSProperties)
+    : {}
+
   /* Содержимое блока — своё для каждого типа. */
   const blockBody = <BlockBody
     block={block} page={page} radius={radius} btnStyle={btnStyle}
@@ -404,16 +414,6 @@ function Section({
 
   // Размер содержимого секции: списки, карточки, подарки, тарифы. Не задан —
   // берётся размер основного текста страницы.
-  // Свечение карточек: класс на контейнер сетки + переменные цвета.
-  // Задержку каждой карточке проставляем инлайном (--i), чтобы огонёк бежал.
-  const glowCls = block.cards_glow ? 'lp-glow' : ''
-  const glowVars: React.CSSProperties = block.cards_glow
-    ? ({
-        ['--lp-glow' as any]: page.icon_color || '#FFCFA4',
-        ['--lp-brd' as any]: page.border_color || '#FFCFA4',
-      } as React.CSSProperties)
-    : {}
-
   const textSizeStyle: React.CSSProperties = block.text_size
     ? { fontSize: `${block.text_size}px` }
     : {}
