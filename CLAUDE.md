@@ -2179,7 +2179,9 @@ cd mini-app && npm run build
 
 **Правило:** любая фича в Mini App пишется один раз в `mini-app/src/` — попадает во все платформы автоматически. Платформо-специфичное (init SDK, обработка funnel-ссылок VK, диалоги VK Bridge на email/phone) — внутри `if (getPlatformName() === 'vk')` в App.tsx или в `platform/vk.ts`.
 
-**MAX-фронт:** ещё не задеплоен (пока работает только бэк — миграция 090 + max_api/max_auth/max_event/max_webhook). Когда будет нужен — добавить `main-max.tsx` + `index_max.html` + `vite.config.max.ts` + nginx-блок `/max/`. Адаптер `platform/max.ts` уже готов (SDK почти идентичен Telegram WebApp).
+**MAX-фронт задеплоен (2026-07-28).** `main-max.tsx` + `index_max.html` (подключает `https://st.max.ru/js/max-web-app.js`) + `vite.config.max.ts` (base `/max/`, outDir `dist-max`) + nginx-блок `/max/` → `dist-max/`. Сборка — `npm run build:max` (входит в общий `npm run build`).
+
+⚠️ **В настройках бота MAX (business.max.ru → Чат-боты → Расширенные настройки → Мини-приложение) указывается адрес С НОМЕРОМ КЛИЕНТА:** `https://pluson.ru/c/{client_id}/max/` (напр. `/c/1/max/` — кабинет Марго). Ровно как у Telegram (`/c/{N}/tg/`): nginx делает internal rewrite `^/c/\d+/(.*)$ → /$1` (правило `location ~ ^/c/\d+/(tg|vk|max)`), поэтому одна сборка обслуживает ботов всех клиентов, а приложение узнаёт клиента из пути. Адрес БЕЗ `/c/{N}/` (просто `pluson.ru/max/`) откроет приложение без контекста клиента — в бота его вписывать нельзя.
 
 См. `memory/project_mini_app_unification_plan.md` и `memory/feedback_check_duplicated_packages.md`.
 - Клиент: margarita.vl2011@gmail.com / Playball8013!
