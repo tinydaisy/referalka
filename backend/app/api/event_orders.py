@@ -208,10 +208,12 @@ async def create_order(
             order_id=order_id,
             product_id=t["pay_product_id"],
             notification_url=f"{base}/api/v1/integrations/client-pay/leadpay",
-            # ⚠️ Страница благодарности ОДНА на все события: она сама находит
-            # заказ по номеру и показывает чаты нужного события.
-            redirect_url_ok=f"{base}/thanks?order={order_id}",
-            redirect_url_error=f"{base}/thanks?order={order_id}&fail=1",
+            # ⚠️ Номер ТАРИФА в самом адресе, а не параметром: параметр
+            # терялся по дороге, и страница не знала, чьи чаты показывать.
+            # Чаты и боты у всех покупателей тарифа одинаковые, поэтому
+            # различать людей не нужно — одновременные покупки не мешают.
+            redirect_url_ok=f"{base}/thanks/{t['id']}",
+            redirect_url_error=f"{base}/thanks/{t['id']}?fail=1",
             email=email,
             phone=phone,
             fio=name or None,
@@ -271,6 +273,86 @@ async def prefill(
     if not row:
         return {}
     return dict(row)
+
+
+@router.get("/tariff/{tariff_id}", summary="Данные для страницы после оплаты")
+async def thanks_by_tariff(
+    tariff_id: int,
+    response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Событие, чаты, боты и поддержка — по номеру ТАРИФА.
+
+    ⚠️ Номер тарифа стоит прямо в адресе страницы, поэтому не теряется по
+    дороге, в отличие от номера заказа в параметре. Различать покупателей
+    между собой здесь не нужно: чаты и боты у всех одинаковые, а
+    одновременные покупки друг другу не мешают.
+    """
+    _cors(response)
+    t = await _load_tariff(db, tariff_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    ev = await db.fetchrow(
+        """SELECT e.slug, e.title, e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+                  (SELECT url FROM event_posters
+                    WHERE event_id = e.id AND day IS NULL
+                    ORDER BY CASE orientation
+                               WHEN 'horizontal' THEN 1
+                               WHEN 'square' THEN 2 ELSE 3 END, sort, id
+                    LIMIT 1) AS poster_url
+             FROM events e WHERE e.id = $1""",
+        t["event_id"],
+    )
+
+    chans = await db.fetch(
+        """SELECT ch.platform_slug, ch.handle
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.handle IS NOT NULL AND ch.handle <> ''
+              AND ch.platform_slug IN ('telegram', 'vk', 'max')""",
+        t["client_id"],
+    )
+    bots = []
+    for c in chans:
+        h = c["handle"].lstrip("@")
+        url = {
+            "telegram": f"https://telegram.me/{h}?start=ref_pg{ev['slug']}",
+            "vk": f"https://vk.me/{h}",
+            "max": f"https://max.ru/{h}?start=ref_pg{ev['slug']}",
+        }.get(c["platform_slug"])
+        if url:
+            bots.append({"platform": c["platform_slug"], "url": url})
+
+    cl = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+        t["client_id"],
+    )
+    support = []
+    if cl and cl["work_tg_username"]:
+        support.append({"platform": "telegram",
+                        "url": f"https://t.me/{str(cl['work_tg_username']).lstrip('@')}"})
+    if cl and cl["work_vk"]:
+        support.append({"platform": "vk", "url": cl["work_vk"]})
+    if cl and cl["work_max"]:
+        support.append({"platform": "max", "url": cl["work_max"]})
+
+    return {
+        "tariff_title": t["title"],
+        "event_slug": ev["slug"],
+        "event_title": ev["title"],
+        "poster_url": ev["poster_url"],
+        "chats": [
+            {"platform": p, "url": u}
+            for p, u in (("telegram", ev["tg_chat_ref"]),
+                         ("vk", ev["vk_chat_ref"]),
+                         ("max", ev["max_chat_ref"]))
+            if u
+        ],
+        "bots": bots,
+        "support": support,
+    }
 
 
 @router.get("/{order_id}", summary="Заказ для страницы благодарности")
