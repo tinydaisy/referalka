@@ -134,14 +134,49 @@ export default function BlockCard({
           {tab === 'content' ? (
             <div className="space-y-4">
               {has('title') && (
-                <Field label="Заголовок секции">
-                  <input
-                    type="text"
-                    value={block.title || ''}
-                    onChange={e => onPatch({ title: e.target.value })}
-                    className="input"
-                  />
-                </Field>
+                <>
+                  <Field label="Заголовок секции">
+                    <input
+                      type="text"
+                      value={block.title || ''}
+                      onChange={e => onPatch({ title: e.target.value })}
+                      className="input"
+                    />
+                  </Field>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label={`Размер заголовка: ${block.title_size || 48} px`}>
+                      <input
+                        type="range" min={16} max={140} step={2}
+                        value={block.title_size || 48}
+                        onChange={e => onPatch({ title_size: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        На телефоне уменьшится сам, чтобы не вылезал за экран.
+                      </p>
+                    </Field>
+                    <Field label="Выравнивание">
+                      <div className="flex gap-2">
+                        {([
+                          ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа'],
+                        ] as const).map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => onPatch({ title_align: val })}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                              (block.title_align || 'left') === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                  </div>
+                </>
               )}
 
               {has('subtitle') && (
@@ -224,10 +259,59 @@ export default function BlockCard({
                 </div>
               )}
 
+              {/* Сколько карточек в ряд — для блоков с сеткой. */}
+              {['speakers', 'values', 'difference', 'gallery'].includes(block.kind) && (
+                <Field label={`Карточек в ряд: ${block.columns || 3}`}>
+                  <input
+                    type="range" min={1} max={6}
+                    value={block.columns || 3}
+                    onChange={e => onPatch({ columns: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    На узком экране колонок будет меньше — вёрстка подстроится сама.
+                  </p>
+                </Field>
+              )}
+
               {block.kind === 'hero' && (
-                <p className="text-sm text-gray-500">
-                  Кнопка ведёт на регистрацию. Название, подзаголовок и даты берутся из события.
-                </p>
+                <>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.show_seats}
+                        onChange={e => onPatch({ show_seats: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Показывать «осталось мест» рядом с кнопкой
+                      </span>
+                    </label>
+                    {block.show_seats && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {([['above', 'Над кнопкой'], ['side', 'Сбоку от кнопки']] as const).map(
+                          ([val, label]) => (
+                            <button
+                              key={val}
+                              onClick={() => onPatch({ seats_position: val })}
+                              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                (block.seats_position || 'above') === val
+                                  ? 'border-brand bg-brand/5 font-medium text-brand'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    Кнопка ведёт на регистрацию. Название, описание и даты берутся
+                    из настроек события.
+                  </p>
+                </>
               )}
             </div>
           ) : (

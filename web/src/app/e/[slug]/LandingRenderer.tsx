@@ -99,12 +99,28 @@ export default function LandingRenderer({ data, slug }: Props) {
 
   const iconColor = page.icon_color || '#FFCFA4'
 
+  // Режим градиента:
+  //   page   — растянут на всю страницу (на длинном лендинге переход не виден);
+  //   screen — повторяется на каждом экране (по умолчанию — читается везде);
+  //   block  — свой градиент у каждой секции.
+  const bgMode = page.bg_mode || 'screen'
+  const rootBg: React.CSSProperties = page.bg_image_url
+    ? {}
+    : bgMode === 'screen'
+      ? { background: page.bg_css, backgroundSize: '100% 100vh', backgroundRepeat: 'repeat-y' }
+      : bgMode === 'block'
+        // Фон рисует каждая секция; здесь только базовый цвет под ними.
+        ? { background: page.bg_color || '#25455D' }
+        : { background: page.bg_css }
+
   return (
     <div
+      className="lp-root"
       style={{
-        background: page.bg_image_url ? undefined : page.bg_css,
+        ...rootBg,
         color: page.color_body || '#FFFFFF',
         fontFamily: page.font_body_css,
+        fontSize: page.body_size ? `${page.body_size}px` : undefined,
         minHeight: '100vh',
       }}
     >
@@ -133,6 +149,19 @@ export default function LandingRenderer({ data, slug }: Props) {
         @media (min-width: 768px) {
           .lp-cols { grid-template-columns: var(--lp-md-cols, 1fr); }
         }
+        /* Страховка от горизонтальной прокрутки: страница не должна ездить
+           вбок ни на одном экране (правило проекта — проверять на 375px).
+           Длинные ссылки и заголовки переносим, картинки не шире родителя. */
+        /* Сетка карточек: число колонок задаётся в блоке (--lp-cols-lg),
+           но на узких экранах их всегда меньше — иначе карточки схлопнутся
+           в нечитаемые полоски. */
+        .lp-grid { grid-template-columns: 1fr; }
+        @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
+        @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
+        .lp-root { overflow-x: hidden; }
+        .lp-root img { max-width: 100%; }
+        .lp-root h1, .lp-root h2, .lp-root h3 { overflow-wrap: anywhere; }
       `}</style>
 
       {blocks.map((b: any) => (
@@ -159,8 +188,11 @@ export default function LandingRenderer({ data, slug }: Props) {
 function Section({
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
 }: any) {
+  // В режиме «градиент по блокам» каждая секция получает полный градиент —
+  // переход виден внутри каждой, а не размазан по всей странице.
+  const blockGradient = page.bg_mode === 'block' && !block.bg_color ? page.bg_css : undefined
   const sectionStyle: React.CSSProperties = {
-    background: block.bg_image_url ? undefined : (block.bg_color || undefined),
+    background: block.bg_image_url ? undefined : (block.bg_color || blockGradient || undefined),
     borderRadius: block.border_radius || undefined,
     border: block.border_width
       ? `${block.border_width}px solid ${block.border_color || '#FFCFA4'}`
@@ -202,17 +234,28 @@ function Section({
     </div>
   )
 
+  // Размер заголовка задаётся в блоке (px на широком экране). clamp даёт
+  // плавное уменьшение на телефоне — фиксированный размер вылезал бы за экран.
+  const tSize = block.title_size || 48
+  const align = block.title_align || 'left'
   const heading = title ? (
     <h2
-      className="text-3xl font-bold uppercase sm:text-4xl md:text-5xl"
-      style={headingStyle}
+      className="font-bold uppercase"
+      style={{
+        ...headingStyle,
+        textAlign: align as any,
+        fontSize: `clamp(${Math.round(tSize * 0.55)}px, ${(tSize / 12).toFixed(1)}vw, ${tSize}px)`,
+      }}
     >
       {title}
     </h2>
   ) : null
 
   const subtitle = block.subtitle ? (
-    <p className="mt-3 text-base opacity-80 sm:text-lg">{block.subtitle}</p>
+    <p className="mt-3 text-base opacity-80 sm:text-lg"
+       style={{ textAlign: (block.title_align || 'left') as any }}>
+      {block.subtitle}
+    </p>
   ) : null
 
   /* Раскладка: заголовок сверху / слева / справа. На мобильном — всегда сверху. */
@@ -340,45 +383,37 @@ function BlockBody({
                   {event.description}
                 </p>
               )}
-              <a
-                href={`/event/${slug}/register`}
-                className="mt-8 inline-block px-8 py-4 text-base font-bold uppercase tracking-wide transition-transform hover:scale-105"
-                style={btnStyle}
-              >
-                {block.button_label || 'Участвовать'}
-              </a>
+              {/* Счётчик мест — рядом с кнопкой, а не отдельной секцией.
+                  Положение задаётся в блоке «Шапка»: над кнопкой или сбоку. */}
+              <div className={`mt-8 flex flex-wrap items-center justify-center gap-5 ${
+                block.seats_position === 'side' ? 'flex-row' : 'flex-col'
+              }`}>
+                {block.show_seats && content.seats && (
+                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
+                )}
+                <a
+                  href={`/event/${slug}/register`}
+                  className="inline-block px-8 py-4 text-base font-bold uppercase tracking-wide transition-transform hover:scale-105"
+                  style={btnStyle}
+                >
+                  {block.button_label || 'Участвовать'}
+                </a>
+              </div>
             </>
           )}
         </div>
       )
     }
 
-    /* ── Осталось мест ─────────────────────────────────────────────────── */
-    // Компактный бейдж с металлической цифрой (вёрстка с боевого лендинга).
-    // Цифры — из базы: всего мест задаётся в конструкторе, занятые считаются.
-    case 'seats': {
-      const s = content.seats || {}
-      const metalText: React.CSSProperties = {
-        background: `linear-gradient(180deg, ${shade(iconColor, -45)}, ${iconColor}, ${shade(iconColor, 30)}, ${iconColor}, ${shade(iconColor, -45)})`,
-        WebkitBackgroundClip: 'text',
-        backgroundClip: 'text',
-        color: 'transparent',
-      }
-      return (
-        <div className="text-center">
-          <div className="inline-flex flex-col items-center gap-1 px-6 py-3"
-               style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
-                        background: 'rgba(255,255,255,.05)' }}>
-            <span className="text-[13px] font-semibold uppercase tracking-widest opacity-90">
-              {s.left != null ? 'Осталось мест:' : 'Уже с нами:'}
-            </span>
-            <span className="text-4xl font-bold leading-none" style={metalText}>
-              {s.left != null ? `${s.left}/${s.total}` : (s.taken || 0)}
-            </span>
+    /* ── Осталось мест (отдельной секцией) ─────────────────────────────── */
+    // Обычно счётчик встраивают в шапку рядом с кнопкой (галочка в блоке
+    // «Шапка»), но при желании его можно вывести и самостоятельной секцией.
+    case 'seats':
+      return content.seats
+        ? <div className="text-center">
+            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
           </div>
-        </div>
-      )
-    }
+        : null
 
     /* ── Для кого ──────────────────────────────────────────────────────── */
     case 'audience': {
@@ -480,53 +515,16 @@ function BlockBody({
     case 'speakers': {
       const list = content.speakers || []
       if (!list.length) return null
+      // Сколько карточек в ряд — настройка блока (по умолчанию 3).
+      // На узких экранах колонок всегда меньше, независимо от настройки.
+      const cols = Math.max(1, Math.min(6, block.columns || 3))
       return (
-        <div className="grid gap-5" style={{
-          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-        }}>
-          {list.map((s: any) => {
-            const ach: string[] = Array.isArray(s.achievements)
-              ? s.achievements
-                  .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
-                  // Часть регалий заведена с дефисом в начале — убираем, маркер свой.
-                  .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
-                  .filter(Boolean)
-                  .slice(0, 5)
-              : []
-            return (
-              <div key={s.id} className="flex flex-col overflow-hidden" style={cardStyle}>
-                {s.photo_url && (
-                  <img
-                    src={s.photo_url}
-                    alt={s.name}
-                    loading="lazy"
-                    className="block w-full object-cover"
-                    style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }}
-                  />
-                )}
-                <div className="flex flex-1 flex-col gap-2 p-4">
-                  <div className="text-lg font-bold uppercase leading-tight tracking-wide"
-                       style={{ color: page.color_heading || '#FFCFA4' }}>
-                    {s.name}
-                  </div>
-                  {s.title && (
-                    <div className="text-sm font-semibold leading-snug opacity-90">{s.title}</div>
-                  )}
-                  {s.topic && (
-                    <div className="pl-3 text-[15px] font-semibold leading-snug"
-                         style={{ borderLeft: `3px solid ${iconColor}` }}>
-                      {s.topic}
-                    </div>
-                  )}
-                  {!!ach.length && (
-                    <ul className="mt-1 list-disc pl-5 text-sm leading-relaxed opacity-80">
-                      {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+        <div className="lp-grid grid gap-5"
+             style={{ ['--lp-cols-lg' as any]: cols }}>
+          {list.map((s: any) => (
+            <SpeakerCard key={s.id} s={s} page={page}
+                         cardStyle={cardStyle} iconColor={iconColor} radius={radius} />
+          ))}
         </div>
       )
     }
@@ -637,7 +635,7 @@ function BlockBody({
         <div
           className="flex flex-col items-center gap-8 p-7 text-center md:flex-row md:gap-11 md:p-10 md:text-left"
           style={{
-            border: `3px solid ${page.border_color || '#FFCFA4'}`,
+            border: `1px solid ${page.border_color || '#FFCFA4'}`,
             borderRadius: Math.max(radius, 16),
             background: 'transparent',
           }}
@@ -693,7 +691,7 @@ function BlockBody({
       const cards = list.map((x: any, i: number) => (
         <figure
           key={i}
-          className={carousel ? 'w-72 shrink-0 snap-start sm:w-96' : ''}
+          className={carousel ? 'w-[min(288px,80vw)] shrink-0 snap-start sm:w-96' : ''}
           style={cardStyle}
         >
           {isVideo ? (
@@ -796,6 +794,105 @@ function BlockBody({
 
 /* ── Утилиты ────────────────────────────────────────────────────────────── */
 
+/** Бейдж «осталось мест» — цифра металликом из цвета иконок темы. */
+function SeatsBadge({
+  seats, iconColor, radius,
+}: {
+  seats: any
+  iconColor: string
+  radius: number
+}) {
+  const metalText: React.CSSProperties = {
+    background: metallic(iconColor),
+    WebkitBackgroundClip: 'text',
+    backgroundClip: 'text',
+    color: 'transparent',
+  }
+  return (
+    <div className="inline-flex flex-col items-center gap-1 px-6 py-3"
+         style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
+                  background: 'rgba(255,255,255,.05)' }}>
+      <span className="text-[13px] font-semibold uppercase tracking-widest opacity-90">
+        {seats.left != null ? 'Осталось мест:' : 'Уже с нами:'}
+      </span>
+      <span className="text-4xl font-bold leading-none" style={metalText}>
+        {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Карточка спикера: фото, имя, должность и тема видны всегда, регалии
+ * раскрываются по стрелке. Иначе при 15 спикерах страница становится
+ * бесконечной — а регалии интересны не всем и не сразу.
+ */
+function SpeakerCard({
+  s, page, cardStyle, iconColor, radius,
+}: any) {
+  const [open, setOpen] = useState(false)
+  const ach: string[] = Array.isArray(s.achievements)
+    ? s.achievements
+        .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
+        // Часть регалий заведена с дефисом в начале — маркер свой.
+        .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
+        .filter(Boolean)
+    : []
+
+  return (
+    <div className="flex flex-col overflow-hidden" style={cardStyle}>
+      {s.photo_url && (
+        <img
+          src={s.photo_url}
+          alt={s.name}
+          loading="lazy"
+          className="block w-full object-cover"
+          style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }}
+        />
+      )}
+      <div className="flex flex-1 flex-col gap-2 p-4">
+        <div className="text-lg font-bold uppercase leading-tight tracking-wide"
+             style={{ color: page.color_heading || '#FFCFA4' }}>
+          {s.name}
+        </div>
+        {s.title && (
+          <div className="text-sm font-semibold leading-snug opacity-90">{s.title}</div>
+        )}
+        {s.topic && (
+          <div className="pl-3 text-[15px] font-semibold leading-snug"
+               style={{ borderLeft: `1px solid ${iconColor}` }}>
+            {s.topic}
+          </div>
+        )}
+
+        {!!ach.length && (
+          <>
+            {open && (
+              <ul className="mt-1 list-disc pl-5 text-sm leading-relaxed opacity-80">
+                {ach.map((a, i) => <li key={i} className="mb-1">{a}</li>)}
+              </ul>
+            )}
+            <button
+              type="button"
+              onClick={() => setOpen(o => !o)}
+              className="mt-auto flex items-center gap-1.5 pt-2 text-sm font-semibold"
+              style={{ color: iconColor }}
+            >
+              {open ? 'Свернуть' : 'Подробнее'}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+                   strokeLinejoin="round" aria-hidden="true"
+                   style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }}>
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * Программа: дни — кнопками-табами, слоты — карточками.
  * Вынесена в отдельный компонент, потому что нужен свой стейт (активный день),
@@ -859,8 +956,10 @@ function ProgramBlock({
           <div key={s.id} className="flex flex-wrap items-start gap-4 p-4 sm:flex-nowrap"
                style={cardStyle}>
             {s.start_time && (
-              <div className="shrink-0 pl-3 text-sm font-bold leading-snug sm:w-[104px] sm:border-l-0 sm:border-r-[3px] sm:pl-0 sm:pr-4"
-                   style={{ borderLeft: `3px solid ${iconColor}`, borderRightColor: iconColor }}>
+              // Полоска тонкая (1px), время отбито от неё отступом — иначе
+              // цифры липнут к линии.
+              <div className="shrink-0 pl-4 text-sm font-bold leading-snug sm:w-[120px] sm:border-l-0 sm:border-r sm:pl-0 sm:pr-5"
+                   style={{ borderLeft: `1px solid ${iconColor}`, borderRightColor: iconColor }}>
                 {s.start_time}{s.end_time ? `–${s.end_time}` : ''}
                 <span className="mt-0.5 block text-[11px] font-normal opacity-60">МСК</span>
               </div>

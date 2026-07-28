@@ -101,6 +101,7 @@ class PagePatch(BaseModel):
     bg_color_2: Optional[str] = None
     bg_angle: Optional[int] = None
     bg_gradient: Optional[bool] = None
+    bg_mode: Optional[str] = None
     bg_image_url: Optional[str] = None
     bg_overlay: Optional[str] = None
     bg_overlay_opacity: Optional[int] = None
@@ -118,6 +119,7 @@ class PagePatch(BaseModel):
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
+    body_size: Optional[int] = None
     content_width: Optional[int] = None
     pad_x: Optional[int] = None
     section_gap: Optional[int] = None
@@ -150,6 +152,11 @@ class BlockPatch(BaseModel):
     image_position: Optional[str] = None
     split_ratio: Optional[int] = None
     pad_y: Optional[int] = None
+    title_size: Optional[int] = None
+    title_align: Optional[str] = None
+    columns: Optional[int] = None
+    show_seats: Optional[bool] = None
+    seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
     bg_overlay: Optional[str] = None
@@ -194,12 +201,12 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
     # событие. Это именно копия-дефолт: дальше страница живёт своей жизнью,
     # правка темы задним числом уже созданные лендинги не трогает.
     theme = await db.fetchrow(
-        """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient,
+        """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient, cl.lp_bg_mode,
                   cl.lp_font_heading, cl.lp_color_heading, cl.lp_heading_metallic,
                   cl.lp_font_body, cl.lp_color_body, cl.lp_color_link,
                   cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
                   cl.lp_border_color, cl.lp_border_metallic,
-                  cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius,
+                  cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius, cl.lp_body_size,
                   cl.lp_content_width, cl.lp_pad_x, cl.lp_section_gap
              FROM event_owners eo
              JOIN clients cl ON cl.id = eo.client_id
@@ -212,13 +219,13 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
     async with db.transaction():
         page = await db.fetchrow(
             """INSERT INTO event_landing_pages
-                 (event_id, kind, bg_color, bg_color_2, bg_angle, bg_gradient,
+                 (event_id, kind, bg_color, bg_color_2, bg_angle, bg_gradient, bg_mode,
                   font_heading, color_heading, heading_metallic,
                   font_body, color_body, color_link,
                   btn_color, btn_text_color, btn_metallic,
-                  border_color, border_metallic, icon_color, icon_metallic, radius,
+                  border_color, border_metallic, icon_color, icon_metallic, radius, body_size,
                   content_width, pad_x, section_gap)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
                ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
@@ -226,6 +233,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             t.get("lp_bg_color_2") or "#0a1520",
             t.get("lp_bg_angle") if t.get("lp_bg_angle") is not None else 45,
             t.get("lp_bg_gradient") if t.get("lp_bg_gradient") is not None else True,
+            t.get("lp_bg_mode") or "screen",
             normalize_font(t.get("lp_font_heading")),
             t.get("lp_color_heading") or "#FFCFA4",
             bool(t.get("lp_heading_metallic", True)),
@@ -240,6 +248,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             t.get("lp_icon_color") or "#FFCFA4",
             bool(t.get("lp_icon_metallic", True)),
             t.get("lp_radius") if t.get("lp_radius") is not None else 5,
+            t.get("lp_body_size") if t.get("lp_body_size") is not None else 16,
             t.get("lp_content_width") if t.get("lp_content_width") is not None else 1120,
             t.get("lp_pad_x") if t.get("lp_pad_x") is not None else 24,
             t.get("lp_section_gap") if t.get("lp_section_gap") is not None else 64,
@@ -339,13 +348,13 @@ async def patch_page(
     fs = data.model_fields_set
     sets, vals = [], []
     for field in (
-        "is_published", "bg_color", "bg_color_2", "bg_angle", "bg_gradient",
+        "is_published", "bg_color", "bg_color_2", "bg_angle", "bg_gradient", "bg_mode",
         "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "font_heading", "font_body", "color_heading", "heading_metallic",
         "color_body", "color_link",
         "btn_color", "btn_text_color", "btn_metallic",
         "border_color", "border_metallic", "icon_color", "icon_metallic", "radius",
-        "content_width", "pad_x", "section_gap",
+        "body_size", "content_width", "pad_x", "section_gap",
         "post_pay_title", "post_pay_text",
     ):
         if field not in fs:
@@ -356,10 +365,14 @@ async def patch_page(
             val = normalize_font(val)
         if field == "bg_overlay_opacity" and val is not None:
             val = max(0, min(100, int(val)))
+        if field == "bg_mode" and val not in ("page", "screen", "block"):
+            val = "screen"
         if field == "bg_angle" and val is not None:
             val = max(0, min(360, int(val)))
         if field == "radius" and val is not None:
             val = max(0, min(64, int(val)))
+        if field == "body_size" and val is not None:
+            val = max(12, min(28, int(val)))
         if field == "content_width" and val is not None:
             # 0 = во всю ширину; иначе разумный коридор.
             val = 0 if int(val) == 0 else max(480, min(2000, int(val)))
@@ -439,6 +452,7 @@ async def patch_block(
     for field in (
         "title", "subtitle", "body", "button_label", "button_url", "is_active",
         "layout", "image_url", "image_position", "split_ratio", "pad_y",
+        "title_size", "title_align", "columns", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
@@ -455,6 +469,14 @@ async def patch_block(
             val = max(20, min(80, int(val)))
         if field == "pad_y" and val is not None:
             val = max(0, min(200, int(val)))
+        if field == "title_align" and val not in ("left", "center", "right"):
+            val = "left"
+        if field == "title_size" and val is not None:
+            val = max(16, min(140, int(val)))
+        if field == "columns" and val is not None:
+            val = max(1, min(6, int(val)))
+        if field == "seats_position" and val not in ("above", "side"):
+            val = "above"
         if field == "bg_overlay_opacity" and val is not None:
             val = max(0, min(100, int(val)))
         if field == "border_width" and val is not None:

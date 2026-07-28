@@ -112,6 +112,26 @@ export default function LandingThemeTab() {
               {theme.bg_gradient && (
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Как располагать градиент
+                  </label>
+                  <select
+                    value={theme.bg_mode || 'screen'}
+                    onChange={e => set({ bg_mode: e.target.value })}
+                    className="input bg-white"
+                  >
+                    <option value="screen">Повторять на каждом экране — переход виден везде</option>
+                    <option value="block">Свой градиент в каждом блоке</option>
+                    <option value="page">Растянуть на всю страницу целиком</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    На длинной странице растянутый градиент почти не виден — сверху
+                    один цвет, снизу другой. Обычно лучше «на каждом экране».
+                  </p>
+                </div>
+              )}
+              {theme.bg_gradient && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
                     Направление: {theme.bg_angle ?? 45}°
                   </label>
                   <input type="range" min={0} max={360} step={15}
@@ -156,6 +176,18 @@ export default function LandingThemeTab() {
                 onChange={v => set({ color_body: v })} />
               <ColorField label="Цвет ссылок" value={theme.color_link}
                 onChange={v => set({ color_link: v })} />
+            </div>
+            <div className="mt-4">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Размер основного текста: {theme.body_size ?? 16} px
+              </label>
+              <input type="range" min={12} max={28}
+                value={theme.body_size ?? 16}
+                onChange={e => set({ body_size: Number(e.target.value) })}
+                className="w-full" />
+              <p className="mt-1 text-xs text-gray-500">
+                Размер заголовков задаётся у каждого блока отдельно.
+              </p>
             </div>
           </Card>
 

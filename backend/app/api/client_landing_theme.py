@@ -26,6 +26,7 @@ _FIELDS = {
     "bg_color_2": "lp_bg_color_2",
     "bg_angle": "lp_bg_angle",
     "bg_gradient": "lp_bg_gradient",
+    "bg_mode": "lp_bg_mode",
     "font_heading": "lp_font_heading",
     "color_heading": "lp_color_heading",
     "heading_metallic": "lp_heading_metallic",
@@ -40,6 +41,7 @@ _FIELDS = {
     "icon_color": "lp_icon_color",
     "icon_metallic": "lp_icon_metallic",
     "radius": "lp_radius",
+    "body_size": "lp_body_size",
     "content_width": "lp_content_width",
     "pad_x": "lp_pad_x",
     "section_gap": "lp_section_gap",
@@ -51,6 +53,7 @@ class ThemeUpdate(BaseModel):
     bg_color_2: Optional[str] = None
     bg_angle: Optional[int] = None
     bg_gradient: Optional[bool] = None
+    bg_mode: Optional[str] = None
     font_heading: Optional[str] = None
     color_heading: Optional[str] = None
     heading_metallic: Optional[bool] = None
@@ -65,6 +68,7 @@ class ThemeUpdate(BaseModel):
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
+    body_size: Optional[int] = None
     content_width: Optional[int] = None
     pad_x: Optional[int] = None
     section_gap: Optional[int] = None
@@ -94,10 +98,14 @@ async def patch_theme(
         val = getattr(data, api_field)
         if api_field in ("font_heading", "font_body"):
             val = normalize_font(val)
+        if api_field == "bg_mode" and val not in ("page", "screen", "block"):
+            val = "screen"
         if api_field == "bg_angle" and val is not None:
             val = max(0, min(360, int(val)))
         if api_field == "radius" and val is not None:
             val = max(0, min(64, int(val)))
+        if api_field == "body_size" and val is not None:
+            val = max(12, min(28, int(val)))
         if api_field == "content_width" and val is not None:
             val = 0 if int(val) == 0 else max(480, min(2000, int(val)))
         if api_field == "pad_x" and val is not None:
