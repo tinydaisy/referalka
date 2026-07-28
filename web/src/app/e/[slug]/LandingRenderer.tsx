@@ -105,17 +105,18 @@ export default function LandingRenderer({ data, slug }: Props) {
   //   screen — повторяется на каждом экране (по умолчанию — читается везде);
   //   block  — свой градиент у каждой секции.
   const bgMode = page.bg_mode || 'screen'
-  // ⚠️ Никакого повторения фона: любой повтор даёт горизонтальный стык
-  // посреди страницы. Градиент — ОДИН на всю высоту, зафиксирован
-  // (background-attachment: fixed), поэтому при прокрутке цвет плавно
-  // меняется и переход виден на каждом экране без швов.
+  // ⚠️ Фон — ОДИН градиент на всю высоту страницы, без повторов и без
+  // background-attachment: fixed. Оба приёма давали видимую горизонтальную
+  // границу: повтор — на стыке плиток, fixed — на краю окна (фон стоит,
+  // а секции едут поверх). Режим «на каждом экране» отличается только тем,
+  // что градиент зеркальный — переход читается на любом участке страницы.
   const rootBg: React.CSSProperties = page.bg_image_url
     ? {}
     : bgMode === 'block'
       // Фон рисует каждая секция; здесь только базовый цвет под ними.
       ? { background: page.bg_color || '#25455D' }
       : bgMode === 'screen'
-        ? { background: page.bg_css, backgroundAttachment: 'fixed' }
+        ? { background: page.bg_css_screen || page.bg_css }
         : { background: page.bg_css }
 
   return (
