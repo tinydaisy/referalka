@@ -384,6 +384,30 @@ function BlockBody({
       )
     }
 
+    /* ── Карточки: ценности, чем отличаемся ────────────────────────────── */
+    case 'values':
+    case 'difference': {
+      const list = Array.isArray(items)
+        ? items.filter((c: any) => c && typeof c === 'object' && (c.title || c.text))
+        : []
+      if (!list.length) return null
+      return (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {list.map((c: any, i: number) => (
+            <div key={i} className="p-6 text-center" style={cardStyle}>
+              <div className="font-bold uppercase tracking-wide"
+                   style={{ color: page.color_heading || '#FFCFA4' }}>
+                {c.title}
+              </div>
+              {c.text && (
+                <p className="mt-3 text-sm leading-relaxed opacity-85">{c.text}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )
+    }
+
     /* ── Цифры ─────────────────────────────────────────────────────────── */
     case 'numbers': {
       const list = Array.isArray(items) ? items.filter((n: any) => n && (n.value || n.label)) : []

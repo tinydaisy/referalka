@@ -179,6 +179,15 @@ export default function BlockCard({
                   label={block.kind === 'audience' ? 'Кому подойдёт' : 'Пункты списка'}
                 />
               )}
+              {has('cards') && (
+                <CardsEditor
+                  items={Array.isArray(items)
+                    ? items.filter((i: any) => i && typeof i === 'object' && 'title' in i)
+                    : []}
+                  onChange={next => onPatch({ items: next })}
+                />
+              )}
+
               {has('numbers') && <NumbersEditor items={numbers} onChange={setNumbers} />}
 
               {has('gallery') && (
@@ -393,6 +402,55 @@ function ListEditor({
         className="mt-2 text-sm font-medium text-brand hover:underline"
       >
         + Добавить пункт
+      </button>
+    </div>
+  )
+}
+
+/** Карточки «название + описание» — ценности, особенности. */
+function CardsEditor({
+  items, onChange,
+}: {
+  items: Array<{ title: string; text?: string }>
+  onChange: (v: any[]) => void
+}) {
+  const upd = (i: number, patch: any) => {
+    const next = [...items]; next[i] = { ...next[i], ...patch }; onChange(next)
+  }
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">Карточки</label>
+      <div className="space-y-3">
+        {items.map((c, i) => (
+          <div key={i} className="rounded-lg border border-gray-200 p-3">
+            <div className="flex gap-2">
+              <input
+                type="text" value={c.title || ''}
+                onChange={e => upd(i, { title: e.target.value })}
+                placeholder="Название"
+                className="input font-semibold"
+              />
+              <button
+                onClick={() => onChange(items.filter((_, j) => j !== i))}
+                className="shrink-0 rounded px-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              rows={2} value={c.text || ''}
+              onChange={e => upd(i, { text: e.target.value })}
+              placeholder="Короткое описание"
+              className="input mt-2"
+            />
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => onChange([...items, { title: '', text: '' }])}
+        className="mt-2 text-sm font-medium text-brand hover:underline"
+      >
+        + Добавить карточку
       </button>
     </div>
   )

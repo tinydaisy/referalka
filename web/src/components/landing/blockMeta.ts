@@ -21,7 +21,7 @@ export interface BlockMeta {
   live?: boolean
   repeatable?: boolean
   /** Какие поля показывать в редакторе блока. */
-  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'numbers' | 'seats' | 'gallery'>
+  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'numbers' | 'seats' | 'gallery'>
 }
 
 export const BLOCK_META: Record<BlockKind, BlockMeta> = {
@@ -61,8 +61,8 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   values: {
     kind: 'values',
     label: 'Наши ценности',
-    hint: 'Заголовок и текст.',
-    fields: ['title', 'body'],
+    hint: 'Карточки: у каждой ценности своё название и короткое описание.',
+    fields: ['title', 'subtitle', 'cards'],
   },
   mission: {
     kind: 'mission',
@@ -79,8 +79,8 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   difference: {
     kind: 'difference',
     label: 'Чем отличаемся',
-    hint: 'Чем это событие отличается от других.',
-    fields: ['title', 'body'],
+    hint: 'Карточки: у каждой особенности своё название и короткое описание.',
+    fields: ['title', 'subtitle', 'cards'],
   },
   speakers: {
     kind: 'speakers',
