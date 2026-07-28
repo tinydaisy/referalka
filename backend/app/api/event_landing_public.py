@@ -120,7 +120,10 @@ async def get_public_landing(
     data: dict = {}
 
     # ── Осталось мест ─────────────────────────────────────────────────────
-    if "seats" in kinds:
+    # Считаем и для отдельной секции `seats`, и когда счётчик встроен в шапку
+    # (галочка show_seats у блока hero) — иначе в шапке показывать нечего.
+    seats_in_hero = any(b["kind"] == "hero" and b["show_seats"] for b in blocks)
+    if "seats" in kinds or seats_in_hero:
         taken = await db.fetchval(
             "SELECT COUNT(*) FROM event_participants "
             "WHERE event_id = $1 AND is_registered = TRUE",
