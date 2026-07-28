@@ -113,6 +113,19 @@ def build_key(
         # отправки (но не трогает видео, на которое ссылается шаблон).
         return f"{base}/broadcast_videos/{fname}"
 
+    # Конструктор лендинга (миграция 240): landing_bg — фоны страницы и секций,
+    # landing_media — картинки галереи/отзывов. Разные папки, чтобы фоны и
+    # контент галереи не смешивались.
+    if kind == "landing_bg":
+        if not event_id:
+            raise ValueError("landing_bg требует event_id")
+        return f"{base}/events/{event_id}/landing/bg/{fname}"
+
+    if kind == "landing_media":
+        if not event_id:
+            raise ValueError("landing_media требует event_id")
+        return f"{base}/events/{event_id}/landing/media/{fname}"
+
     if kind == "event_video":
         if not event_id:
             raise ValueError("event_video требует event_id")

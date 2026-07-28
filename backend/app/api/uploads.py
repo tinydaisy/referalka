@@ -91,10 +91,12 @@ async def upload_file(
         "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
         "broadcast_video",
         "event_video", "speaker_video", "referral_video",
+        "landing_bg", "landing_media",
     }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
-    if kind in ("event_poster", "certificate", "referral_material", "event_video", "referral_video"):
+    if kind in ("event_poster", "certificate", "referral_material", "event_video",
+                "referral_video", "landing_bg", "landing_media"):
         if not event_id:
             raise HTTPException(400, detail=f"{kind} требует event_id")
         await _check_event_belongs(event_id, client_id, db)

@@ -527,6 +527,33 @@ export const api = {
       request(`/api/v1/events/nurture-reg/steps/${stepId}`, { method: 'DELETE' }),
   },
   // Тарифы мероприятия (миграция 157) — только для тарифа клиента vip
+  // Конструктор лендинга события (миграция 240). Гейт — фича event_landing.
+  eventLanding: {
+    get: (eventId: number) => request(`/api/v1/events/${eventId}/landing`),
+    patchPage: (eventId: number, pageId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/landing/pages/${pageId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    createBlock: (eventId: number, pageId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/landing/pages/${pageId}/blocks`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    patchBlock: (eventId: number, blockId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/landing/blocks/${blockId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    removeBlock: (eventId: number, blockId: number) =>
+      request(`/api/v1/events/${eventId}/landing/blocks/${blockId}`, { method: 'DELETE' }),
+    reorder: (eventId: number, pageId: number, ids: number[]) =>
+      request(`/api/v1/events/${eventId}/landing/pages/${pageId}/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
+    setSeats: (eventId: number, seats_total: number | null) =>
+      request(`/api/v1/events/${eventId}/landing/seats`, {
+        method: 'PATCH', body: JSON.stringify({ seats_total }),
+      }),
+  },
+
   eventTariffs: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs`),
     allOrders: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs-orders`),

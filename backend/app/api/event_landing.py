@@ -1,0 +1,452 @@
+"""
+Конструктор лендинга события — клиентский API (кабинет).
+
+Клиент собирает продающую страницу из блоков: часть блоков он заполняет руками
+(миссия, ценности, цифры), часть — тянет живые данные события (спикеры,
+программа, тарифы, организатор). Копий контента не держим: поправил спикера в
+кабинете → на лендинге обновилось само.
+
+Две страницы на событие:
+  main      → pluson.ru/e/{slug}
+  post_pay  → pluson.ru/e/{slug}/thanks   (return-url платёжки)
+
+Публичная отдача данных — в `event_landing_public.py`, вёрстка — в Next.js.
+
+Гейт — фича `event_landing` (никогда по tariff_slug). Ассистент: чтение можно,
+запись — по общим правилам middleware.
+
+Миграция 240.
+"""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Optional, Any
+import json
+import asyncpg
+
+from app.database import get_db
+from app.auth import get_current_client
+from app.services.features import client_has_feature
+from app.services.landing_fonts import FONTS, normalize_font
+
+router = APIRouter(prefix="/events/{event_id}/landing", tags=["Конструктор лендинга"])
+
+
+# Набор блоков, который создаётся у новой страницы. Порядок = разумный дефолт
+# продающей страницы: сначала обещание, потом доказательства, потом цена.
+# Клиент дальше двигает перетаскиванием и выключает лишнее.
+DEFAULT_MAIN_BLOCKS: list[dict] = [
+    {"kind": "hero",       "title": None,                       "is_active": True},
+    {"kind": "benefits",   "title": "Что вы получите",          "is_active": True},
+    {"kind": "seats",      "title": "Осталось мест",            "is_active": False},
+    {"kind": "gifts",      "title": "Подарки за регистрацию",   "is_active": True},
+    {"kind": "numbers",    "title": "Коротко о нас в цифрах",   "is_active": False},
+    {"kind": "difference", "title": "Чем мы отличаемся",        "is_active": False},
+    {"kind": "speakers",   "title": "Спикеры",                  "is_active": True},
+    {"kind": "program",    "title": "Программа",                "is_active": True},
+    {"kind": "gallery",    "title": "Отзывы",                   "is_active": False},
+    {"kind": "values",     "title": "Наши ценности",            "is_active": False},
+    {"kind": "mission",    "title": "Наша миссия",              "is_active": False},
+    {"kind": "organizer",  "title": "Организатор",              "is_active": True},
+    {"kind": "tariffs",    "title": "Участие",                  "is_active": True},
+    {"kind": "support",    "title": "Есть вопросы?",            "is_active": True},
+    {"kind": "footer",     "title": None,                       "is_active": True},
+]
+
+DEFAULT_POST_PAY_BLOCKS: list[dict] = [
+    {"kind": "hero",    "title": None, "is_active": True},
+    {"kind": "support", "title": "Есть вопросы?", "is_active": True},
+    {"kind": "footer",  "title": None, "is_active": True},
+]
+
+# Блоки, которые сами тянут данные события — руками у них правится только
+# заголовок и оформление, содержимое приходит из базы.
+LIVE_KINDS = {"speakers", "program", "tariffs", "organizer", "gifts", "seats", "support", "footer"}
+
+# `text` и `gallery` можно добавлять по кнопке сколько угодно раз — их нет
+# в дефолтном наборе (gallery там есть, но выключенный) или он единичный.
+VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery"}
+
+# Блоки, которых на странице может быть много (кнопка «Добавить секцию»).
+REPEATABLE_KINDS = {"text", "gallery"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Доступ
+# ─────────────────────────────────────────────────────────────────────────────
+async def _check_event_access(db, client_id: int, event_id: int) -> None:
+    row = await db.fetchrow(
+        "SELECT id FROM events WHERE id = $1 AND id IN "
+        "(SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        event_id, client_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Событие не найдено или нет доступа")
+
+
+async def _assert_feature(db, client_id: int) -> None:
+    if not await client_has_feature(db, client_id, "event_landing"):
+        raise HTTPException(
+            status_code=403,
+            detail="Раздел «Лендинг» недоступен на вашем тарифе.",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Модели
+# ─────────────────────────────────────────────────────────────────────────────
+class PagePatch(BaseModel):
+    is_published: Optional[bool] = None
+    bg_color: Optional[str] = None
+    bg_image_url: Optional[str] = None
+    bg_overlay: Optional[str] = None
+    bg_overlay_opacity: Optional[int] = None
+    font_heading: Optional[str] = None
+    font_body: Optional[str] = None
+    color_heading: Optional[str] = None
+    color_body: Optional[str] = None
+    btn_color: Optional[str] = None
+    btn_text_color: Optional[str] = None
+    btn_metallic: Optional[bool] = None
+    icon_color: Optional[str] = None
+    icon_metallic: Optional[bool] = None
+    post_pay_title: Optional[str] = None
+    post_pay_text: Optional[str] = None
+
+
+class BlockIn(BaseModel):
+    kind: str
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    body: Optional[str] = None
+    button_label: Optional[str] = None
+    button_url: Optional[str] = None
+    items: Optional[Any] = None
+    is_active: bool = True
+
+
+class BlockPatch(BaseModel):
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    body: Optional[str] = None
+    button_label: Optional[str] = None
+    button_url: Optional[str] = None
+    items: Optional[Any] = None
+    is_active: Optional[bool] = None
+    bg_color: Optional[str] = None
+    bg_image_url: Optional[str] = None
+    bg_overlay: Optional[str] = None
+    bg_overlay_opacity: Optional[int] = None
+    border_color: Optional[str] = None
+    border_width: Optional[int] = None
+    border_radius: Optional[int] = None
+
+
+class ReorderIn(BaseModel):
+    ids: list[int]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Хелперы
+# ─────────────────────────────────────────────────────────────────────────────
+def _ser_block(r: asyncpg.Record) -> dict:
+    d = dict(r)
+    items = d.get("items")
+    if isinstance(items, str):
+        try:
+            d["items"] = json.loads(items)
+        except (ValueError, TypeError):
+            d["items"] = []
+    d["is_live"] = d["kind"] in LIVE_KINDS
+    return d
+
+
+async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
+    """Страница создаётся лениво — при первом заходе в раздел, с дефолтным
+    набором блоков. Так у клиента сразу есть что редактировать, а у событий,
+    где лендинг не нужен, лишних строк не появляется."""
+    page = await db.fetchrow(
+        "SELECT * FROM event_landing_pages WHERE event_id = $1 AND kind = $2",
+        event_id, kind,
+    )
+    if page:
+        return page
+
+    async with db.transaction():
+        page = await db.fetchrow(
+            "INSERT INTO event_landing_pages (event_id, kind) VALUES ($1, $2) "
+            "ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW() RETURNING *",
+            event_id, kind,
+        )
+        preset = DEFAULT_MAIN_BLOCKS if kind == "main" else DEFAULT_POST_PAY_BLOCKS
+        # ON CONFLICT выше мог отдать уже существующую страницу (гонка двух
+        # вкладок) — тогда блоки второй раз не создаём.
+        has_blocks = await db.fetchval(
+            "SELECT 1 FROM event_landing_blocks WHERE page_id = $1 LIMIT 1", page["id"]
+        )
+        if not has_blocks:
+            for i, b in enumerate(preset):
+                await db.execute(
+                    "INSERT INTO event_landing_blocks (page_id, kind, title, sort_order, is_active) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    page["id"], b["kind"], b["title"], i * 10, b["is_active"],
+                )
+    return page
+
+
+async def _page_for_write(db, event_id: int, page_id: int) -> asyncpg.Record:
+    page = await db.fetchrow(
+        "SELECT * FROM event_landing_pages WHERE id = $1 AND event_id = $2",
+        page_id, event_id,
+    )
+    if not page:
+        raise HTTPException(status_code=404, detail="Страница лендинга не найдена")
+    return page
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Эндпоинты
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/fonts", summary="Справочник доступных шрифтов")
+async def list_fonts(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    await _check_event_access(db, int(client["sub"]), event_id)
+    return {"fonts": FONTS}
+
+
+@router.get("", summary="Страницы лендинга события со всеми блоками")
+async def get_landing(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+
+    ev = await db.fetchrow(
+        "SELECT slug, title, seats_total FROM events WHERE id = $1", event_id
+    )
+
+    pages = []
+    for kind in ("main", "post_pay"):
+        page = await _get_or_create_page(db, event_id, kind)
+        blocks = await db.fetch(
+            "SELECT * FROM event_landing_blocks WHERE page_id = $1 ORDER BY sort_order, id",
+            page["id"],
+        )
+        pages.append({**dict(page), "blocks": [_ser_block(b) for b in blocks]})
+
+    # Сколько мест занято — считаем на лету, в базе не храним (иначе разъедется).
+    taken = await db.fetchval(
+        "SELECT COUNT(*) FROM event_participants WHERE event_id = $1 AND is_registered = TRUE",
+        event_id,
+    )
+    return {
+        "pages": pages,
+        "event": {
+            "slug": ev["slug"],
+            "title": ev["title"],
+            "seats_total": ev["seats_total"],
+            "seats_taken": taken or 0,
+        },
+        "fonts": FONTS,
+    }
+
+
+@router.patch("/pages/{page_id}", summary="Настройки оформления страницы")
+async def patch_page(
+    event_id: int,
+    page_id: int,
+    data: PagePatch,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+    await _page_for_write(db, event_id, page_id)
+
+    fs = data.model_fields_set
+    sets, vals = [], []
+    for field in (
+        "is_published", "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
+        "font_heading", "font_body", "color_heading", "color_body",
+        "btn_color", "btn_text_color", "btn_metallic",
+        "icon_color", "icon_metallic", "post_pay_title", "post_pay_text",
+    ):
+        if field not in fs:
+            continue
+        val = getattr(data, field)
+        # Неизвестный шрифт молча заменяем дефолтным — не роняем сохранение.
+        if field in ("font_heading", "font_body"):
+            val = normalize_font(val)
+        if field == "bg_overlay_opacity" and val is not None:
+            val = max(0, min(100, int(val)))
+        vals.append(val)
+        sets.append(f"{field} = ${len(vals)}")
+
+    if not sets:
+        return {"ok": True}
+
+    vals.append(page_id)
+    row = await db.fetchrow(
+        f"UPDATE event_landing_pages SET {', '.join(sets)}, updated_at = NOW() "
+        f"WHERE id = ${len(vals)} RETURNING *",
+        *vals,
+    )
+    return dict(row)
+
+
+@router.post("/pages/{page_id}/blocks", summary="Добавить блок")
+async def create_block(
+    event_id: int,
+    page_id: int,
+    data: BlockIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+    await _page_for_write(db, event_id, page_id)
+
+    if data.kind not in VALID_KINDS:
+        raise HTTPException(status_code=400, detail=f"Неизвестный тип блока: {data.kind}")
+
+    last = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), 0) FROM event_landing_blocks WHERE page_id = $1",
+        page_id,
+    )
+    row = await db.fetchrow(
+        """INSERT INTO event_landing_blocks
+             (page_id, kind, title, subtitle, body, button_label, button_url, items,
+              sort_order, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) RETURNING *""",
+        page_id, data.kind, data.title, data.subtitle, data.body,
+        data.button_label, data.button_url, json.dumps(data.items or []),
+        last + 10, data.is_active,
+    )
+    return _ser_block(row)
+
+
+@router.patch("/blocks/{block_id}", summary="Изменить блок")
+async def patch_block(
+    event_id: int,
+    block_id: int,
+    data: BlockPatch,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+
+    owns = await db.fetchval(
+        "SELECT 1 FROM event_landing_blocks b JOIN event_landing_pages p ON p.id = b.page_id "
+        "WHERE b.id = $1 AND p.event_id = $2",
+        block_id, event_id,
+    )
+    if not owns:
+        raise HTTPException(status_code=404, detail="Блок не найден")
+
+    fs = data.model_fields_set
+    sets, vals = [], []
+    for field in (
+        "title", "subtitle", "body", "button_label", "button_url", "is_active",
+        "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
+        "border_color", "border_width", "border_radius",
+    ):
+        if field not in fs:
+            continue
+        val = getattr(data, field)
+        if field == "bg_overlay_opacity" and val is not None:
+            val = max(0, min(100, int(val)))
+        if field == "border_width" and val is not None:
+            val = max(0, min(12, int(val)))
+        if field == "border_radius" and val is not None:
+            val = max(0, min(64, int(val)))
+        vals.append(val)
+        sets.append(f"{field} = ${len(vals)}")
+
+    if "items" in fs:
+        vals.append(json.dumps(data.items or []))
+        sets.append(f"items = ${len(vals)}::jsonb")
+
+    if not sets:
+        return {"ok": True}
+
+    vals.append(block_id)
+    row = await db.fetchrow(
+        f"UPDATE event_landing_blocks SET {', '.join(sets)}, updated_at = NOW() "
+        f"WHERE id = ${len(vals)} RETURNING *",
+        *vals,
+    )
+    return _ser_block(row)
+
+
+@router.post("/pages/{page_id}/reorder", summary="Порядок блоков (перетаскивание)")
+async def reorder_blocks(
+    event_id: int,
+    page_id: int,
+    data: ReorderIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+    await _page_for_write(db, event_id, page_id)
+
+    async with db.transaction():
+        for i, block_id in enumerate(data.ids):
+            await db.execute(
+                "UPDATE event_landing_blocks SET sort_order = $1, updated_at = NOW() "
+                "WHERE id = $2 AND page_id = $3",
+                i * 10, block_id, page_id,
+            )
+    rows = await db.fetch(
+        "SELECT * FROM event_landing_blocks WHERE page_id = $1 ORDER BY sort_order, id",
+        page_id,
+    )
+    return {"blocks": [_ser_block(r) for r in rows]}
+
+
+@router.delete("/blocks/{block_id}", summary="Удалить блок")
+async def delete_block(
+    event_id: int,
+    block_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+
+    deleted = await db.fetchval(
+        "DELETE FROM event_landing_blocks b USING event_landing_pages p "
+        "WHERE b.page_id = p.id AND b.id = $1 AND p.event_id = $2 RETURNING b.id",
+        block_id, event_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Блок не найден")
+    return {"ok": True}
+
+
+@router.patch("/seats", summary="Всего мест на событии")
+async def set_seats(
+    event_id: int,
+    data: dict,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+    total = data.get("seats_total")
+    if total is not None:
+        total = max(0, int(total))
+    await db.execute("UPDATE events SET seats_total = $1 WHERE id = $2", total, event_id)
+    return {"ok": True, "seats_total": total}

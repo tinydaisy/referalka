@@ -1937,6 +1937,28 @@ async def _send_broadcast_email_part(
         if not rows:
             return 0
 
+    # ⚠️ Идемпотентность: не шлём повторно тем, кому письмо этой рассылки уже
+    # ушло успешно. Нужно при ПЕРЕЗАПУСКЕ рассылки, которая упала на середине
+    # (напр. 2026-07-28: #2363 отправила 623 письма и споткнулась на битом
+    # адресе — без этого фильтра повторный запуск задублировал бы их).
+    # Зеркало already_sent_set из TG-части выше.
+    _em_sent_rows = await conn.fetch(
+        """SELECT DISTINCT platform_user_id FROM broadcast_log
+            WHERE schedule_id = $1 AND status = 'sent'
+              AND platform_user_id IS NOT NULL""",
+        schedule["id"],
+    )
+    _em_sent = {r["platform_user_id"] for r in _em_sent_rows}
+    if _em_sent:
+        before = len(rows)
+        rows = [r for r in rows if r["pu_id"] not in _em_sent]
+        logger.info(
+            "Email-часть рассылки %s: пропускаем %s уже отправленных получателей",
+            schedule["id"], before - len(rows),
+        )
+        if not rows:
+            return 0
+
     # Готовим текст письма. Subject из шаблона рассылок появится в следующей
     # итерации (поле broadcast_templates.subject — отдельная миграция). Пока
     # тема собирается из первой строки текста, если она короткая.
