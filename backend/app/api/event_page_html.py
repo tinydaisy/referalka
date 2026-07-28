@@ -22,6 +22,10 @@ import asyncpg
 import html as _html
 import re as _re
 import json
+from datetime import datetime, timezone, timedelta
+
+# Всё время программы — МСК (см. правило «Время программы — строки HH:MM МСК»).
+MSK_TZ = timezone(timedelta(hours=3))
 
 router = APIRouter(tags=["Публичная HTML-страница события"])
 
@@ -54,6 +58,11 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             return ev
     return await db.fetchrow(
         f"SELECT {cols} FROM events WHERE slug = $1", ref)
+
+
+def _now_msk_hhmm() -> str:
+    """Текущее время МСК как 'HH:MM' — сравнивается со start_time программы."""
+    return datetime.now(MSK_TZ).strftime("%H:%M")
 
 
 def _parse_jsonb(value):
@@ -756,12 +765,35 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
 
     # Кнопка «Смотреть эфир» — ВСЕГДА синяя (тёмная), как в Mini App (стрим на accent
     # не реагирует; красный — только VIP/Чат). LIVE-бейдж внутри. Скрыта hide_stream_button.
+    # ⚠️ Три состояния — ровно как в Mini App (ProgramTab.tsx):
+    #   1) сегодня день эфира и время старта прошло → LIVE, кликабельно;
+    #   2) сегодня день эфира, но ещё не началось → кликабельно, «начнётся в HH:MM МСК»,
+    #      БЕЗ красного LIVE (можно зайти заранее);
+    #   3) не день эфира → серая НЕкликабельная заглушка (раньше тут ложно горел LIVE).
     stream_url = (event.get("_stream_url") or "").strip()
     if stream_url and not event.get("hide_stream_button"):
-        out += (f'<a class="vip-btn btn-blue" href="{esc(stream_url)}" target="_blank" rel="noopener">'
-                f'<span style="background:#d32f2f;color:#fff;font-size:10px;font-weight:900;'
-                f'padding:3px 7px;border-radius:6px;letter-spacing:1px">LIVE</span>'
-                f'📺 Смотреть эфир</a>')
+        _s_today = bool(event.get("_stream_today"))
+        _s_start = (event.get("_stream_start") or "").strip()
+        # Времени старта нет → считаем, что идёт весь день (как в Mini App).
+        _started = _s_today and (not _s_start or _now_msk_hhmm() >= _s_start)
+        if _started:
+            out += (f'<a class="vip-btn btn-blue" href="{esc(stream_url)}" target="_blank" rel="noopener">'
+                    f'<span style="background:#d32f2f;color:#fff;font-size:10px;font-weight:900;'
+                    f'padding:3px 7px;border-radius:6px;letter-spacing:1px">LIVE</span>'
+                    f'📺 Смотреть эфир</a>')
+        elif _s_today:
+            out += (f'<a class="vip-btn btn-blue btn-2line" href="{esc(stream_url)}" '
+                    f'target="_blank" rel="noopener">'
+                    f'<span>📺 Смотреть эфир</span>'
+                    f'<span style="font-size:11px;font-weight:600;opacity:.85;'
+                    f'text-transform:none;letter-spacing:0">'
+                    f'Эфир начнётся в {esc(_s_start)} МСК</span></a>')
+        else:
+            out += ('<div class="vip-btn btn-off btn-2line">'
+                    '<span>📺 Смотреть эфир</span>'
+                    '<span style="font-size:11px;font-weight:600;opacity:.9;'
+                    'text-transform:none;letter-spacing:0">'
+                    'Ссылка появится в день эфира</span></div>')
 
     # VIP-кнопка — красная если accent='vip', иначе синяя. Текст заглавными (CSS).
     vip_url = (event.get("vip_url") or "").strip()
@@ -1636,6 +1668,11 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     box-shadow: 0 4px 14px rgba(239,68,68,.3); }}
   .btn-blue {{ color:#FFCFA4; background: linear-gradient(135deg, #25455D, #0a1520);
     box-shadow: 0 2px 8px rgba(37,69,93,.2); }}
+  /* Эфир НЕ в день эфира — серая некликабельная заглушка (как в Mini App). */
+  .btn-off {{ color:#fff; background:#7a8a9a; cursor:default; }}
+  /* Двухстрочный вариант: название + подпись («начнётся в HH:MM МСК» /
+     «появится в день эфира»). Без :has() — старые браузеры его не знают. */
+  .btn-2line {{ flex-direction:column; gap:3px; }}
 
   /* Чаты события */
   .chats {{ display:flex; flex-direction:column; gap:8px; margin: 8px 0 14px; }}
@@ -2247,12 +2284,45 @@ async def event_page(slug: str, c: str = "", email: str = "",
 
     # Ссылка эфира = вебинарная комната АКТУАЛЬНОГО дня (+ contact_id зрителя).
     # Кнопка «Смотреть эфир» на вкладке «Программа». Скрыта галочкой hide_stream_button.
+    # ⚠️ Состояние эфира считаем как в Mini App (ProgramTab.tsx): LIVE только если
+    # СЕГОДНЯ день эфира И время старта наступило. Раньше веб рисовал красный LIVE
+    # всегда, когда есть ссылка — а current_event_day отдаёт ближайший БУДУЩИЙ день,
+    # поэтому карточка «идёт эфир» висела за дни до конференции.
     try:
         from app.services.webinar_service import current_event_day, day_stream_url
         _sd = await current_event_day(db, event_id)
         ev["_stream_url"] = await day_stream_url(db, event_id, _sd, contact_id) if _sd else ""
+
+        _today = datetime.now(MSK_TZ).date()
+        # Сегодня — день программы? (для мероприятия без conf_days — дата start_at)
+        _today_day = await db.fetchval(
+            "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_date=$2 LIMIT 1",
+            event_id, _today)
+        if _today_day:
+            # Время старта = самая ранняя сессия этого дня (open_time не используем —
+            # он часто не заполнен, как и в Mini App).
+            _start = await db.fetchval(
+                "SELECT MIN(start_time) FROM conf_sessions "
+                "WHERE event_id=$1 AND day=$2 AND start_time IS NOT NULL AND start_time <> ''",
+                event_id, _today_day)
+            ev["_stream_today"] = True
+            ev["_stream_start"] = (str(_start)[:5] if _start else "")
+        else:
+            _has_days = await db.fetchval(
+                "SELECT TRUE FROM conf_days WHERE event_id=$1 LIMIT 1", event_id)
+            if not _has_days and ev.get("start_at"):
+                _sa = ev["start_at"]
+                _sa_msk = _sa.astimezone(MSK_TZ) if _sa.tzinfo else _sa.replace(
+                    tzinfo=timezone.utc).astimezone(MSK_TZ)
+                ev["_stream_today"] = (_sa_msk.date() == _today)
+                ev["_stream_start"] = _sa_msk.strftime("%H:%M") if _sa_msk.date() == _today else ""
+            else:
+                ev["_stream_today"] = False
+                ev["_stream_start"] = ""
     except Exception:
         ev["_stream_url"] = ""
+        ev["_stream_today"] = False
+        ev["_stream_start"] = ""
 
     html_str = render_page(
         ev, collabs, days, [dict(s) for s in stages], sessions, gifts,

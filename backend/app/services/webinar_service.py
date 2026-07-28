@@ -71,22 +71,25 @@ async def day_stream_url(db, event_id: int, day: Optional[int],
       • наша комната (encoder) → https://pluson.ru/webinar/{slug}/{day}
         (+ ?c={contact_id} для сквозной идентификации зрителя).
     Нет дня / нет комнаты / пусто → ''. Общей events.stream_url больше нет.
+
+    ⚠️ НИКАКИХ ЗАХАРДКОЖЕННЫХ ССЫЛОК-ЗАТЫЧЕК. Ссылка эфира берётся ТОЛЬКО из
+    настроек события (вебинарная комната дня). Нет комнаты → пустая строка,
+    кнопка эфира не рисуется, плейсхолдер в рассылке пустой. Подставлять
+    постороннюю ссылку (которую клиент нигде не задавал и не может изменить в
+    кабинете) нельзя — так уже было с legacy-Zoom, больше не повторять.
     """
-    # Fallback для старых событий, где рассылки уже были, а вебинарной комнаты нет:
-    # общая Zoom-ссылка (medialift). Возвращается, когда комнаты дня нет.
-    LEGACY_ZOOM = "https://medialift.margoforbs.ru/zoom_network"
     if not day:
-        return LEGACY_ZOOM
+        return ""
     wr = await db.fetchrow(
         "SELECT stream_type, external_url FROM webinar_rooms "
         "WHERE event_id=$1 AND day_number=$2", event_id, day)
     if not wr:
-        return LEGACY_ZOOM
+        return ""
     if wr["stream_type"] == "external_link":
-        return (wr["external_url"] or "").strip() or LEGACY_ZOOM
+        return (wr["external_url"] or "").strip()
     slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
     if not slug:
-        return LEGACY_ZOOM
+        return ""
     url = f"https://pluson.ru/webinar/{slug}/{day}"
     if contact_id:
         url += f"?c={contact_id}"
