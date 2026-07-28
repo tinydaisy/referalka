@@ -562,9 +562,14 @@ export const api = {
       request(`/api/v1/events/${eventId}/landing/pages/${pageId}/apply-theme`, {
         method: 'POST',
       }),
-    setSeats: (eventId: number, seats_total: number | null) =>
+    setSeats: (eventId: number, data: {
+      seats_total: number | null
+      seats_label?: string | null
+      seats_label_position?: string
+      seats_size?: number | null
+    }) =>
       request(`/api/v1/events/${eventId}/landing/seats`, {
-        method: 'PATCH', body: JSON.stringify({ seats_total }),
+        method: 'PATCH', body: JSON.stringify(data),
       }),
   },
 

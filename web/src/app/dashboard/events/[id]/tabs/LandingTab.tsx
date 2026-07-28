@@ -161,11 +161,18 @@ export default function LandingTab({ eventId, event }: Props) {
     } catch (e: any) { alert(e?.message || 'Не удалось применить тему') }
   }
 
-  const saveSeats = async () => {
+  const saveSeats = async (patch: any = {}) => {
     const v = seats.trim() === '' ? null : Math.max(0, parseInt(seats, 10) || 0)
+    const body = {
+      seats_total: v,
+      seats_label: meta?.seats_label ?? null,
+      seats_label_position: meta?.seats_label_position || 'top',
+      seats_size: meta?.seats_size ?? null,
+      ...patch,
+    }
     try {
-      await api.eventLanding.setSeats(eventId, v)
-      setMeta((m: any) => ({ ...m, seats_total: v }))
+      await api.eventLanding.setSeats(eventId, body)
+      setMeta((m: any) => ({ ...m, ...body }))
     } catch (e: any) { alert(e?.message || 'Не удалось сохранить') }
   }
 
@@ -266,7 +273,7 @@ export default function LandingTab({ eventId, event }: Props) {
               type="number" min={0}
               value={seats}
               onChange={e => setSeats(e.target.value)}
-              onBlur={saveSeats}
+              onBlur={() => saveSeats()}
               placeholder="без лимита"
               className="input w-40"
             />
@@ -280,6 +287,66 @@ export default function LandingTab({ eventId, event }: Props) {
           <p className="mt-1 text-xs text-gray-500">
             Пусто — блок «Осталось мест» покажет только число записавшихся.
           </p>
+
+          <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Подпись у счётчика
+              </label>
+              <input
+                type="text"
+                value={meta?.seats_label ?? ''}
+                onChange={e => setMeta((m: any) => ({ ...m, seats_label: e.target.value }))}
+                onBlur={e => saveSeats({ seats_label: e.target.value || null })}
+                placeholder="ОСТАЛОСЬ МЕСТ:"
+                className="input"
+              />
+              <p className="mt-1 text-xs text-gray-500">Пусто — только цифра.</p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Где подпись
+              </label>
+              <div className="flex gap-2">
+                {([['top', 'Сверху'], ['left', 'Слева'], ['right', 'Справа']] as const)
+                  .map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => saveSeats({ seats_label_position: val })}
+                      className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                        (meta?.seats_label_position || 'top') === val
+                          ? 'border-brand bg-brand/5 font-medium text-brand'
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Размер цифры: {meta?.seats_size ? `${meta.seats_size} px` : 'обычный'}
+              </label>
+              <div className="flex items-center gap-3">
+                <input type="range" min={12} max={120} step={2}
+                  value={meta?.seats_size ?? 38}
+                  onChange={e => setMeta((m: any) => ({ ...m, seats_size: Number(e.target.value) }))}
+                  onMouseUp={e => saveSeats({ seats_size: Number((e.target as HTMLInputElement).value) })}
+                  className="w-full" />
+                {meta?.seats_size != null && (
+                  <button
+                    onClick={() => saveSeats({ seats_size: null })}
+                    className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                  >
+                    сбросить
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

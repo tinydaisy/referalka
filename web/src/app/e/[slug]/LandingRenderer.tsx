@@ -699,9 +699,18 @@ function BlockBody({
             <div key={i} className="flex flex-col overflow-hidden"
                  style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
               {c.image && (
-                <img src={c.image} alt="" loading="lazy"
-                     className="block w-full object-cover"
-                     style={{ aspectRatio: '16 / 10', background: 'rgba(255,255,255,.06)' }} />
+                // Форма фото: скругление по ширине/высоте в % даёт круг,
+                // овал или квадрат; пропорция — чтобы фото не обрезалось
+                // случайной рамкой.
+                <div className="p-4 pb-0">
+                  <img src={c.image} alt="" loading="lazy"
+                       className="mx-auto block w-full object-cover"
+                       style={{
+                         aspectRatio: String(block.card_img_ratio || 1.6),
+                         borderRadius: `${block.card_img_radius_x || 0}% / ${block.card_img_radius_y || 0}%`,
+                         background: 'rgba(255,255,255,.06)',
+                       }} />
+                </div>
               )}
               <div className="flex flex-1 flex-col gap-2 p-5">
                 <div className="flex items-start gap-3">
@@ -855,8 +864,10 @@ function BlockBody({
       const t = content.tariffs || { items: [] }
       return (
         <>
-          <div className={`lp-grid grid gap-5 ${glowCls}`}
-               style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)), ...glowVars }}>
+          {/* ⚠️ У тарифов бегущая подсветка не нужна: выделен ОДИН тариф,
+              отмеченный галочкой «Выделить на лендинге». */}
+          <div className="lp-grid grid gap-5"
+               style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>
             {(t.items || []).map((x: any, i: number) => (
               // Выделенный тариф (галочка «рекомендуемый» в разделе Тарифы) —
               // подсвеченная рамка и мягкое свечение, чтобы взгляд цеплялся.
@@ -1138,7 +1149,8 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
   }
   const pos = seats.label_position || 'top'
   const label = seats.label
-    ? <span className="text-[.85em] font-semibold uppercase tracking-widest opacity-90">
+    ? <span className="font-semibold uppercase tracking-widest opacity-90"
+            style={{ fontSize: seats.size ? `${Math.round(seats.size * 0.32)}px` : '.85em' }}>
         {seats.label}
       </span>
     : null
@@ -1147,7 +1159,8 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
     <span className="inline-flex items-center justify-center px-6 py-3"
           style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
                    background: 'rgba(255,255,255,.05)' }}>
-      <span className="text-[2.4em] font-bold leading-none" style={metalText}>
+      <span className="font-bold leading-none"
+            style={{ ...metalText, fontSize: seats.size ? `${seats.size}px` : '2.4em' }}>
         {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
       </span>
     </span>

@@ -72,7 +72,7 @@ async def get_public_landing(
     event = await db.fetchrow(
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
                   e.status, e.module_slug, e.seats_total, e.offer_url,
-                  e.seats_label, e.seats_label_position,
+                  e.seats_label, e.seats_label_position, e.seats_size,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -149,6 +149,7 @@ async def get_public_landing(
         data["seats"] = {
             "label": event["seats_label"],
             "label_position": event["seats_label_position"] or "top",
+            "size": event["seats_size"],
             "total": total,
             "taken": taken,
             "left": max(0, total - taken) if total is not None else None,

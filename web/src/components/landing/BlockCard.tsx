@@ -306,6 +306,37 @@ export default function BlockCard({
                       На узком экране колонок будет меньше — вёрстка подстроится сама.
                     </p>
                   </Field>
+                  {block.kind === 'audience' && (
+                    <div className="rounded-lg border border-gray-200 p-3">
+                      <div className="mb-2 text-sm font-medium text-gray-700">Фото в карточках</div>
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <Field label={`Скругление по ширине: ${block.card_img_radius_x || 0}%`}>
+                          <input type="range" min={0} max={50}
+                            value={block.card_img_radius_x || 0}
+                            onChange={e => onPatch({ card_img_radius_x: Number(e.target.value) })}
+                            className="w-full" />
+                        </Field>
+                        <Field label={`Скругление по высоте: ${block.card_img_radius_y || 0}%`}>
+                          <input type="range" min={0} max={50}
+                            value={block.card_img_radius_y || 0}
+                            onChange={e => onPatch({ card_img_radius_y: Number(e.target.value) })}
+                            className="w-full" />
+                        </Field>
+                        <Field label={`Пропорция: ${Number(block.card_img_ratio || 1.6).toFixed(2)}`}>
+                          <input type="range" min={0.4} max={3} step={0.1}
+                            value={Number(block.card_img_ratio || 1.6)}
+                            onChange={e => onPatch({ card_img_ratio: Number(e.target.value) })}
+                            className="w-full" />
+                        </Field>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">
+                        50% и 50% при пропорции 1 — круг. Разные значения дают овал
+                        («яйцо»), нули — прямоугольник. Пропорция задаёт форму области,
+                        чтобы фото не обрезалось лишним.
+                      </p>
+                    </div>
+                  )}
+
                   {block.kind === 'numbers' && (
                     <label className="flex cursor-pointer items-center gap-2">
                       <input

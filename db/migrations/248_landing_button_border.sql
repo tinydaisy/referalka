@@ -89,3 +89,21 @@ ALTER TABLE event_landing_pages
   ADD COLUMN IF NOT EXISTS nav_button_target TEXT NOT NULL DEFAULT 'register';
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;
+
+-- Размер счётчика мест и форма фото в карточках «Для кого».
+--   seats_size          — размер цифры счётчика, px
+--   card_img_radius_x/y — скругление фото по горизонтали и вертикали, %
+--                         (50/50 = круг, 50/30 = овал-«яйцо», 0 = квадрат)
+--   card_img_ratio      — пропорция области фото (ширина/высота), напр. 1.0
+ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS seats_size SMALLINT;
+
+ALTER TABLE event_landing_blocks
+  ADD COLUMN IF NOT EXISTS card_img_radius_x SMALLINT NOT NULL DEFAULT 0
+        CHECK (card_img_radius_x BETWEEN 0 AND 50),
+  ADD COLUMN IF NOT EXISTS card_img_radius_y SMALLINT NOT NULL DEFAULT 0
+        CHECK (card_img_radius_y BETWEEN 0 AND 50),
+  ADD COLUMN IF NOT EXISTS card_img_ratio NUMERIC(4,2) NOT NULL DEFAULT 1.60
+        CHECK (card_img_ratio BETWEEN 0.4 AND 3.0);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
