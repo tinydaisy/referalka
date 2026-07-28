@@ -238,6 +238,12 @@ export default function TestimonialsPage() {
               <div className="relative">
                 {it.kind === 'photo' ? (
                   <img src={it.url} alt="" className="aspect-[4/3] w-full object-cover" />
+                ) : /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(it.url || '') ? (
+                  // Свой видеофайл показываем плеером — иконка-заглушка не
+                  // давала понять, что именно загружено.
+                  <video src={it.url} controls preload="metadata"
+                         poster={it.preview_url || undefined}
+                         className="aspect-[4/3] w-full bg-black object-contain" />
                 ) : (
                   <div className="flex aspect-[4/3] w-full items-center justify-center bg-gray-100">
                     <Video className="h-8 w-8 text-gray-400" />

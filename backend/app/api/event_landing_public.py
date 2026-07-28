@@ -298,10 +298,18 @@ async def get_public_landing(
             )
             if o:
                 offer_url = o["external_url"] or f"/o/{o['slug']}"
-        data["tariffs"] = {
-            "items": [dict(r) for r in rows],
-            "offer_url": offer_url,
-        }
+        # Какой тариф подсветить — выбирается в самом блоке лендинга.
+        # Не задан → как раньше, признак из карточки тарифа (is_featured).
+        featured = next(
+            (b["featured_tariff_id"] for b in blocks if b["kind"] == "tariffs"), None
+        )
+        items = []
+        for r in rows:
+            d = dict(r)
+            if featured:
+                d["is_featured"] = d["id"] == featured
+            items.append(d)
+        data["tariffs"] = {"items": items, "offer_url": offer_url}
 
     # ── Подарки за регистрацию ────────────────────────────────────────────
     if "gifts" in kinds:
@@ -337,6 +345,20 @@ async def get_public_landing(
 
     # ── Футер: реквизиты + политика + оферта ──────────────────────────────
     if "footer" in kinds and owner:
+        # Оферта подвала: выбранная в самом блоке (база оферт) → привязанная
+        # к событию → старая ссылка events.offer_url. Раньше был только
+        # последний вариант, и при пустом поле оферты в подвале не было вовсе.
+        footer_block = next((b for b in blocks if b["kind"] == "footer"), None)
+        footer_offer_url = event["offer_url"]
+        offer_ref = (footer_block["offer_id"] if footer_block else None) or event["offer_id"]
+        if offer_ref:
+            o = await db.fetchrow(
+                "SELECT slug, external_url FROM client_offers WHERE id = $1 AND is_active",
+                offer_ref,
+            )
+            if o:
+                footer_offer_url = o["external_url"] or f"/o/{o['slug']}"
+
         # ⚠️ В подвале лендинга — только «кто продаёт» (ИП с ФИО + ИНН) и
         # документы. Адрес, ОГРНИП, email и телефон не выносим: они есть в
         # оферте и политике, на продающей странице это лишний шум.
@@ -348,7 +370,7 @@ async def get_public_landing(
             "privacy_url": (
                 f"/c/{owner['id']}/privacy" if owner["privacy_policy_version"] else None
             ),
-            "offer_url": event["offer_url"],
+            "offer_url": footer_offer_url,
             "brand_name": owner["brand_name"] or owner["name"],
             "brand_logo_url": owner["brand_logo_url"],
         }
@@ -389,6 +411,10 @@ async def get_public_landing(
         })
 
     page_d = dict(page)
+    # ⚠️ JSONB из asyncpg приходит СТРОКОЙ. Без разбора фронт получал
+    # nav_items текстом, Array.isArray давал false — и пункты меню молча
+    # пропадали, оставалась одна кнопка.
+    page_d["nav_items"] = _jsonb(page_d.get("nav_items"))
     page_d["font_heading_css"] = font_family_css(page["font_heading"])
     page_d["font_body_css"] = font_family_css(page["font_body"])
     page_d["font_heading"] = normalize_font(page["font_heading"])

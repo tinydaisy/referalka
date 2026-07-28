@@ -27,11 +27,15 @@ interface Props {
   isDragging: boolean
   /** Все блоки страницы — для выбора якоря у кнопки. */
   pageBlocks?: any[]
+  /** Тарифы события — чтобы выбрать, какой подсветить. */
+  tariffs?: any[]
+  /** Оферты клиента — для ссылки в подвале. */
+  offers?: any[]
 }
 
 export default function BlockCard({
   block, eventId, onPatch, onRemove,
-  onDragStart, onDragOver, onDrop, isDragging, pageBlocks,
+  onDragStart, onDragOver, onDrop, isDragging, pageBlocks, tariffs, offers,
 }: Props) {
   const [open, setOpen] = useState(false)
   // ⚠️ draggable включается ТОЛЬКО когда мышь на ручке ⠿. Если он висит на
@@ -284,6 +288,93 @@ export default function BlockCard({
                 />
               )}
 
+              {/* Размер карточек и подписи — общие для обоих источников. */}
+              {has('gallery') && (
+                <div className="rounded-lg border border-gray-200 p-3">
+                  {/* Когда содержимое берётся из базы, режим показа задаётся
+                      здесь: у блока нет своего списка с этими переключателями. */}
+                  {block.gallery_source === 'testimonials' && (
+                    <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                      <Field label="Как показываем">
+                        <select
+                          value={gal.mode || 'carousel'}
+                          onChange={e => setGal({ mode: e.target.value })}
+                          className="input bg-white"
+                        >
+                          <option value="carousel">Каруселью — листается вбок</option>
+                          <option value="grid">Сеткой — всё сразу</option>
+                        </select>
+                      </Field>
+                    </div>
+                  )}
+                  <Field label={`Ширина карточки: ${block.media_size || 320} px`}>
+                    <input type="range" min={160} max={900} step={20}
+                      value={block.media_size || 320}
+                      onChange={e => onPatch({ media_size: Number(e.target.value) })}
+                      className="w-full" />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Работает в режиме карусели. На узком экране карточка
+                      сожмётся по ширине экрана.
+                    </p>
+                  </Field>
+                  <label className="mt-3 flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={block.show_captions !== false}
+                      onChange={e => onPatch({ show_captions: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                    />
+                    <span className="text-sm text-gray-700">Показывать подписи под карточками</span>
+                  </label>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Подписи берутся из названия отзыва в разделе «Отзывы и кейсы».
+                  </p>
+                </div>
+              )}
+
+              {/* Какой тариф подсветить — выбирается здесь, а не в разделе «Тарифы». */}
+              {block.kind === 'tariffs' && (
+                <Field label="Выделить тариф">
+                  <select
+                    value={block.featured_tariff_id ?? ''}
+                    onChange={e => onPatch({
+                      featured_tariff_id: e.target.value ? Number(e.target.value) : null,
+                    })}
+                    className="input bg-white"
+                  >
+                    <option value="">Никакой не выделять</option>
+                    {(tariffs || []).map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.title}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    У выделенного тарифа рамка акцентного цвета и мягкое свечение.
+                  </p>
+                </Field>
+              )}
+
+              {/* Оферта подвала — из общей базы оферт. */}
+              {block.kind === 'footer' && (
+                <Field label="Оферта в подвале">
+                  <select
+                    value={block.offer_id ?? ''}
+                    onChange={e => onPatch({
+                      offer_id: e.target.value ? Number(e.target.value) : null,
+                    })}
+                    className="input bg-white"
+                  >
+                    <option value="">Как задано в событии</option>
+                    {(offers || []).map((o: any) => (
+                      <option key={o.id} value={o.id}>{o.title}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Список берётся из раздела «Оферты». Ссылка появится внизу
+                    страницы рядом с политикой.
+                  </p>
+                </Field>
+              )}
+
               {has('button') && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Подпись кнопки">
@@ -294,7 +385,10 @@ export default function BlockCard({
                       className="input"
                     />
                   </Field>
-                  {block.kind !== 'hero' && (
+                  {/* Цель кнопки настраивается у ВСЕХ блоков, включая шапку:
+                      «Получить билет» может вести и к тарифам, а не только
+                      на форму регистрации. */}
+                  {(
                     <Field label="Куда ведёт кнопка">
                       <select
                         value={
@@ -379,7 +473,13 @@ export default function BlockCard({
                   {block.kind === 'audience' && (
                     <div className="rounded-lg border border-gray-200 p-3">
                       <div className="mb-2 text-sm font-medium text-gray-700">Фото в карточках</div>
-                      <div className="grid gap-4 sm:grid-cols-3">
+                      <Field label={`Размер фото: ${block.card_img_size || 100}% ширины карточки`}>
+                        <input type="range" min={20} max={100} step={5}
+                          value={block.card_img_size || 100}
+                          onChange={e => onPatch({ card_img_size: Number(e.target.value) })}
+                          className="w-full" />
+                      </Field>
+                      <div className="mt-3 grid gap-4 sm:grid-cols-3">
                         <Field label={`Скругление по ширине: ${block.card_img_radius_x || 0}%`}>
                           <input type="range" min={0} max={50}
                             value={block.card_img_radius_x || 0}
@@ -493,8 +593,7 @@ export default function BlockCard({
                     )}
                   </div>
                   <p className="text-sm text-gray-500">
-                    Кнопка ведёт на регистрацию. Название, описание и даты берутся
-                    из настроек события.
+                    Название, описание и даты берутся из настроек события.
                   </p>
                 </>
               )}

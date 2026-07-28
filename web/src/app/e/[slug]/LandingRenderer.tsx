@@ -36,9 +36,12 @@ function metallic(color: string): string {
  * «съедает» текст и выглядит грязно.
  */
 function metallicButton(color: string): string {
-  const edge = shade(color, -12)   // мягкая граница, без черноты
-  const light = shade(color, 55)   // широкий светлый блик
-  return `linear-gradient(180deg, ${edge}, ${color} 22%, ${light} 50%, ${color} 78%, ${edge})`
+  // Края почти не затемняем: даже -12% на персике давали грязный тёмный
+  // ободок. Блик широкий и яркий — металл читается как светлый, а не как
+  // тёмная полоса сверху и снизу.
+  const edge = shade(color, -4)
+  const light = shade(color, 75)
+  return `linear-gradient(180deg, ${edge}, ${color} 18%, ${light} 48%, ${light} 56%, ${color} 82%, ${edge})`
 }
 
 /** HEX + прозрачность → rgba(). Мусорный цвет не роняет страницу. */
@@ -69,6 +72,33 @@ function shade(hex: string, pct: number): string {
 export default function LandingRenderer({ data, slug }: Props) {
   const { event, page, blocks, data: content } = data
   const radius = page.radius ?? 5
+
+  /**
+   * Плавная прокрутка по якорям.
+   *
+   * ⚠️ Обычный `href="#lp-tariffs"` внутри Next.js перехватывается роутером:
+   * страница ПЕРЕЗАГРУЖАЕТСЯ и только потом прыгает к секции. Нам нужен
+   * скролл на месте, поэтому клики по якорным ссылкам обрабатываем сами.
+   * Один слушатель на всю страницу — работает и для кнопок, и для меню,
+   * и для тех, что появятся позже.
+   */
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement)?.closest?.('a')
+      const href = a?.getAttribute('href')
+      if (!href || !href.startsWith('#')) return
+      const el = document.getElementById(href.slice(1))
+      if (!el) return
+      e.preventDefault()
+      el.scrollIntoView({
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          ? 'auto' : 'smooth',
+        block: 'start',
+      })
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [])
 
   /* Заголовок: сплошной цвет или металлический перелив по тексту. */
   const headingStyle = useMemo(() => {
@@ -116,8 +146,11 @@ export default function LandingRenderer({ data, slug }: Props) {
     ...(page.btn_border_width
       ? {
           border: `${page.btn_border_width}px solid transparent`,
+          // ⚠️ Рамка берёт СВЕТЛЫЙ металл (metallicButton), а не тёмный
+          // заголовочный: на тонкой рамке тёмные края читаются как грязь,
+          // нужен именно яркий блик.
           background: page.btn_border_metallic
-            ? `${asLayer(btnFill)} padding-box, ${metallic(page.btn_border_color || '#FFCFA4')} border-box`
+            ? `${asLayer(btnFill)} padding-box, ${metallicButton(page.btn_border_color || '#FFCFA4')} border-box`
             : `${asLayer(btnFill)} padding-box, linear-gradient(${page.btn_border_color || '#FFCFA4'}, ${page.btn_border_color || '#FFCFA4'}) border-box`,
         }
       : { background: btnFill }),
@@ -211,6 +244,9 @@ export default function LandingRenderer({ data, slug }: Props) {
         /* ⚠️ min() везде: если клиент выбрал 1 или 2 колонки, промежуточные
            брейкпоинты не должны навязывать больше — настройка всегда потолок. */
         .lp-grid { grid-template-columns: 1fr; }
+        /* Цифры на телефоне — всегда 2 в ряд: по одной они растягивают
+           секцию в бесконечную колонку, а цифра узкая и вполне помещается. */
+        .lp-grid-2sm { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 4)), 1fr); }
         @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
@@ -221,14 +257,20 @@ export default function LandingRenderer({ data, slug }: Props) {
         @keyframes lp-glow {
           0%, 100% { background-color: transparent; box-shadow: none; border-color: var(--lp-brd); }
           4%  { background-color: var(--lp-glow-soft);
-                box-shadow: 0 0 26px 2px var(--lp-glow-dim); border-color: var(--lp-glow); }
+                box-shadow: 0 0 42px 6px var(--lp-glow-dim), inset 0 0 26px var(--lp-glow-soft);
+                border-color: var(--lp-glow); }
           14% { background-color: var(--lp-glow-soft);
-                box-shadow: 0 0 26px 2px var(--lp-glow-dim); border-color: var(--lp-glow); }
+                box-shadow: 0 0 42px 6px var(--lp-glow-dim), inset 0 0 26px var(--lp-glow-soft);
+                border-color: var(--lp-glow); }
           20%, 99% { background-color: transparent; box-shadow: none; border-color: var(--lp-brd); }
         }
         .lp-glow > * { animation: lp-glow var(--lp-cycle, 10s) ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .lp-glow > * { animation: none; } }
-        .lp-root { overflow-x: hidden; }
+        /* ⚠️ overflow-x на .lp-root ставить НЕЛЬЗЯ: любой overflow, кроме
+           visible, создаёт новый контейнер прокрутки, и position: sticky у
+           шапки перестаёт работать — она уезжает вместе со страницей.
+           Горизонтальную прокрутку гасим на уровне документа. */
+        html, body { overflow-x: hidden; }
         .lp-root img { max-width: 100%; }
         .lp-root h1, .lp-root h2, .lp-root h3 { overflow-wrap: anywhere; }
       `}</style>
@@ -299,11 +341,14 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
               </span>}
         </a>
 
-        {/* Пункты меню: на широком экране в строку, на телефоне — в раскрывашке */}
+        {/* Пункты меню: на широком экране в строку, на телефоне — в раскрывашке.
+            Цвет — основного текста страницы (у нас белый): на тёмной шапке
+            он читается, а фирменный акцент оставлен кнопке. */}
         <nav className="ml-auto hidden items-center gap-6 md:flex">
           {links.map(i => (
             <a key={i.block_kind} href={`#lp-${i.block_kind}`}
-               className="text-[.9em] font-medium uppercase tracking-wide opacity-85 hover:opacity-100">
+               className="text-[.9em] font-medium uppercase tracking-wide transition-opacity hover:opacity-70"
+               style={{ color: page.color_body || '#FFFFFF' }}>
               {i.label}
             </a>
           ))}
@@ -340,7 +385,8 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
           {links.map(i => (
             <a key={i.block_kind} href={`#lp-${i.block_kind}`}
                onClick={() => setOpen(false)}
-               className="py-2 text-[.95em] font-medium uppercase tracking-wide opacity-90">
+               className="py-2 text-[.95em] font-medium uppercase tracking-wide"
+               style={{ color: page.color_body || '#FFFFFF' }}>
               {i.label}
             </a>
           ))}
@@ -407,8 +453,9 @@ function Section({
         ['--lp-count' as any]: String(glowCount),
         ['--lp-glow' as any]: page.icon_color || '#FFCFA4',
         // Полупрозрачная заливка тем же акцентом — «подсвеченная» карточка.
-        ['--lp-glow-soft' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.14),
-        ['--lp-glow-dim' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.45),
+        // Значения подняты: 14% заливки почти не читались на тёмном фоне.
+        ['--lp-glow-soft' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.3),
+        ['--lp-glow-dim' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.75),
         ['--lp-brd' as any]: page.border_color || '#FFCFA4',
       } as React.CSSProperties)
     : {}
@@ -442,8 +489,11 @@ function Section({
 
   // Кнопка секции: доступна у ЛЮБОГО блока, текст и ссылка — из настроек.
   // hero и speakers рисуют свою кнопку внутри (регистрация / разворот регалий).
+  // ⚠️ У отдельного элемента-кнопки отступа сверху нет: он сам себе секция,
+  // и её отступ уже задан настройкой pad_y. Двойной зазор смотрелся дырой.
   const ownButton = block.button_label && !['hero', 'speakers'].includes(block.kind) ? (
-    <div className={`mt-8 ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : ''}`}>
+    <div className={`${block.kind === 'el_button' ? '' : 'mt-8'} ${
+      align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : ''}`}>
       <a
         href={block.button_url || `/event/${slug}/register`}
         {...(block.button_url ? { target: '_blank', rel: 'noreferrer' } : {})}
@@ -577,7 +627,10 @@ function Section({
             {subtitle}
             {body && <p className="mt-4 whitespace-pre-wrap opacity-90"
                         style={textSizeStyle}>{body}</p>}
-            <div className="mt-8" style={textSizeStyle}>{inner}</div>
+            {/* Отступ нужен, только когда выше реально что-то есть: у голого
+                элемента-кнопки заголовка и текста нет, и mt-8 давал дыру. */}
+            <div className={heading || subtitle || body ? 'mt-8' : ''}
+                 style={textSizeStyle}>{inner}</div>
             {ownButton}
           </>
         )}
@@ -674,8 +727,12 @@ function BlockBody({
                 {/* Подпись кнопки — только из настроек блока. Значений по
                     умолчанию в коде нет: не задана — кнопки не будет. */}
                 {block.button_label && (
+                  // Куда ведёт — настраивается, как у любой другой кнопки:
+                  // на регистрацию, к секции страницы (#lp-…) или на свой URL.
                   <a
-                    href={`/event/${slug}/register`}
+                    href={(block.button_url || '').trim() || `/event/${slug}/register`}
+                    {...((block.button_url || '').trim().startsWith('http')
+                      ? { target: '_blank', rel: 'noreferrer' } : {})}
                     className="inline-block px-8 py-4 text-[1em] font-bold uppercase tracking-wide transition-transform hover:scale-105"
                     style={btnStyle}
                   >
@@ -721,8 +778,11 @@ function BlockBody({
                 // случайной рамкой.
                 <div className="p-4 pb-0">
                   <img src={c.image} alt="" loading="lazy"
-                       className="mx-auto block w-full object-cover"
+                       className="mx-auto block object-cover"
                        style={{
+                         // Ширина фото в % от карточки — иначе фото всегда
+                         // занимало её целиком и выглядело громоздким.
+                         width: `${block.card_img_size || 100}%`,
                          aspectRatio: String(block.card_img_ratio || 1.6),
                          borderRadius: `${block.card_img_radius_x || 0}% / ${block.card_img_radius_y || 0}%`,
                          background: 'rgba(255,255,255,.06)',
@@ -828,7 +888,7 @@ function BlockBody({
       // игнорировал её на широком экране. На узких экранах колонок всегда
       // меньше (см. .lp-grid), но потолок задаёт клиент.
       return (
-        <div className="lp-grid grid gap-x-6 gap-y-10"
+        <div className="lp-grid lp-grid-2sm grid gap-x-6 gap-y-10"
              style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 4)) }}>
           {list.map((n: any, i: number) => (
             <div key={i} className="p-5 text-center" style={cardStyle}>
@@ -1040,60 +1100,13 @@ function BlockBody({
     }
 
     /* ── Галерея / отзывы ──────────────────────────────────────────────── */
-    case 'gallery': {
-      const g = items && !Array.isArray(items) ? items : {}
-      // Источник: свои картинки в блоке либо общая база отзывов по тегам.
-      const fromBase = block.gallery_source === 'testimonials'
-        ? (content.testimonials?.[String(block.id)] || [])
-        : null
-      const list = fromBase
-        ? fromBase.map((t: any) => ({ url: t.url, caption: t.caption || t.title, kind: t.kind }))
-        : (Array.isArray(g.list) ? g.list.filter((x: any) => x?.url) : [])
-      if (!list.length) return null
-      // При выборе из базы тип берём у самого отзыва (фото/видео).
-      const isVideo = fromBase ? undefined : g.media === 'video'
-      const carousel = (g.mode || 'carousel') === 'carousel'
-
-      const cards = list.map((x: any, i: number) => (
-        <figure
-          key={i}
-          className={carousel ? 'w-[min(288px,80vw)] shrink-0 snap-start sm:w-96' : ''}
-          style={cardStyle}
-        >
-          {(isVideo ?? x.kind === 'video') ? (
-            <div className="aspect-video w-full overflow-hidden" style={{ borderRadius: radius }}>
-              <iframe
-                src={embedUrl(x.url)}
-                className="h-full w-full"
-                allowFullScreen
-                loading="lazy"
-                title={x.caption || `Видео ${i + 1}`}
-              />
-            </div>
-          ) : (
-            <img
-              src={x.url}
-              alt={x.caption || ''}
-              loading="lazy"
-              className="w-full object-cover"
-              style={{ borderRadius: radius }}
-            />
-          )}
-          {x.caption && (
-            <figcaption className="p-3 text-[.9em] opacity-80">{x.caption}</figcaption>
-          )}
-        </figure>
-      ))
-
-      return carousel ? (
-        <div className="lp-scroll flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3">
-          {cards}
-        </div>
-      ) : (
-        <div className="lp-grid grid gap-4"
-             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>{cards}</div>
-      )
-    }
+    // Вынесена в отдельный компонент: карусели нужен свой стейт (стрелки
+    // прокрутки), а хук нельзя объявлять внутри switch.
+    case 'gallery':
+      return <GalleryBlock
+        block={block} content={content} cardStyle={cardStyle}
+        radius={radius} iconColor={iconColor}
+      />
 
     /* ── Есть вопросы ──────────────────────────────────────────────────── */
     case 'support': {
@@ -1229,12 +1242,15 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
     color: 'transparent',
   }
   const pos = seats.label_position || 'top'
+  // ⚠️ Подпись — ТОГО ЖЕ размера, что и цифра: это одна надпись «Осталось
+  // мест 30/100», просто из двух частей. Мельчить её нельзя — было в 3 раза
+  // меньше цифры и выглядело сноской.
   const label = seats.label
-    ? <span className="font-semibold uppercase tracking-widest"
+    ? <span className="font-bold uppercase leading-none tracking-wide"
             style={{
               // Подпись — тем же акцентным цветом, что и цифра (цвет иконок темы).
               color: iconColor,
-              fontSize: seats.size ? `${Math.round(seats.size * 0.34)}px` : '.9em',
+              fontSize: seats.size ? `${seats.size}px` : '2.6em',
             }}>
         {seats.label}
       </span>
@@ -1257,6 +1273,151 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
     : <span className="inline-flex items-center gap-3">
         {pos === 'left' ? <>{label}{box}</> : <>{box}{label}</>}
       </span>
+}
+
+/**
+ * Галерея отзывов и кейсов: фото и видео, каруселью или сеткой.
+ *
+ * Карусель со стрелками по бокам — и на компьютере, и на телефоне: без них
+ * непонятно, что ленту вообще можно листать. Стрелки акцентного цвета,
+ * прячутся, когда листать больше некуда.
+ */
+function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
+  const scroller = useRef<HTMLDivElement>(null)
+  const [atStart, setAtStart] = useState(true)
+  const [atEnd, setAtEnd] = useState(false)
+
+  const g = block.items && !Array.isArray(block.items) ? block.items : {}
+  // Источник: свои картинки в блоке либо общая база отзывов по меткам.
+  const fromBase = block.gallery_source === 'testimonials'
+    ? (content.testimonials?.[String(block.id)] || [])
+    : null
+  const list = fromBase
+    ? fromBase.map((t: any) => ({
+        url: t.url,
+        caption: t.caption || t.title,
+        kind: t.kind,
+        preview_url: t.preview_url,
+      }))
+    : (Array.isArray(g.list) ? g.list.filter((x: any) => x?.url) : [])
+
+  // ⚠️ Хуки объявляем ДО любых return — иначе при пустом списке порядок
+  // хуков поменяется и React упадёт (правило проекта).
+  const sync = () => {
+    const el = scroller.current
+    if (!el) return
+    setAtStart(el.scrollLeft <= 4)
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4)
+  }
+  useEffect(() => { sync() }, [list.length])
+
+  if (!list.length) return null
+
+  // При выборе из базы тип берём у самого отзыва (фото/видео).
+  const isVideo = fromBase ? undefined : g.media === 'video'
+  const carousel = (g.mode || 'carousel') === 'carousel'
+  // Ширина карточки в карусели — настройка блока. Видео по умолчанию шире
+  // фото: мелкое видео не рассмотреть.
+  const cardW = block.media_size || ((isVideo ?? false) ? 420 : 320)
+  const showCaptions = block.show_captions !== false
+
+  const scrollBy = (dir: 1 | -1) => {
+    const el = scroller.current
+    if (!el) return
+    el.scrollBy({ left: dir * (cardW + 16), behavior: 'smooth' })
+  }
+
+  const cards = list.map((x: any, i: number) => (
+    <figure
+      key={i}
+      className={carousel ? 'shrink-0 snap-start' : ''}
+      style={{ ...cardStyle, ...(carousel ? { width: `min(${cardW}px, 82vw)` } : {}) }}
+    >
+      {(isVideo ?? x.kind === 'video') ? (
+        // ⚠️ Видео бывает двух видов: наш файл в хранилище (mp4/webm) и
+        // ссылка на YouTube/VK/Rutube. Файл нужно проигрывать тегом <video>
+        // — в <iframe> он не открывается, получался пустой чёрный кадр.
+        isFileVideo(x.url) ? (
+          <video
+            src={x.url}
+            poster={x.preview_url || undefined}
+            controls
+            playsInline
+            preload="metadata"
+            className="w-full"
+            style={{ borderRadius: radius, background: '#000', aspectRatio: '9 / 16' }}
+          />
+        ) : (
+          <div className="aspect-video w-full overflow-hidden" style={{ borderRadius: radius }}>
+            <iframe
+              src={embedUrl(x.url)}
+              className="h-full w-full"
+              allowFullScreen
+              loading="lazy"
+              title={x.caption || `Видео ${i + 1}`}
+            />
+          </div>
+        )
+      ) : (
+        <img
+          src={x.url}
+          alt={x.caption || ''}
+          loading="lazy"
+          className="w-full object-cover"
+          style={{ borderRadius: radius }}
+        />
+      )}
+      {showCaptions && x.caption && (
+        <figcaption className="p-3 text-[.9em] opacity-80">{x.caption}</figcaption>
+      )}
+    </figure>
+  ))
+
+  if (!carousel) {
+    return (
+      <div className="lp-grid grid gap-4"
+           style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>
+        {cards}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <div
+        ref={scroller}
+        onScroll={sync}
+        className="lp-scroll flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3"
+      >
+        {cards}
+      </div>
+
+      {/* Стрелки поверх ленты. Круглые, акцентного цвета — видно и на фото. */}
+      {!atStart && <GalleryArrow dir="left" color={iconColor} onClick={() => scrollBy(-1)} />}
+      {!atEnd && <GalleryArrow dir="right" color={iconColor} onClick={() => scrollBy(1)} />}
+    </div>
+  )
+}
+
+function GalleryArrow({
+  dir, color, onClick,
+}: { dir: 'left' | 'right'; color: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={dir === 'left' ? 'Назад' : 'Вперёд'}
+      className={`absolute top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 ${
+        dir === 'left' ? 'left-0 sm:-left-4' : 'right-0 sm:-right-4'
+      }`}
+      style={{ background: color, color: '#0a1520' }}
+    >
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d={dir === 'left' ? 'M15 18l-6-6 6-6' : 'M9 18l6-6-6-6'} />
+      </svg>
+    </button>
+  )
 }
 
 /**
@@ -1549,6 +1710,14 @@ function GiftIcon({ color, id }: { color: string; id: string }) {
       <path d="M32 17C32 17 39 4 47 7c6 2 4 10-3 10H32z" fill={`url(#${gid})`} />
     </svg>
   )
+}
+
+/**
+ * Наш ли это видеофайл (лежит в хранилище), а не ссылка на видеохостинг.
+ * Файл проигрывается тегом <video>, ссылка — встраивается iframe-ом.
+ */
+function isFileVideo(url: string): boolean {
+  return /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url || '')
 }
 
 /** Ссылка на видео → embed. Поддержаны YouTube, VK Видео, Rutube. */

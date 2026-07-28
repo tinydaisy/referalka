@@ -94,8 +94,10 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   partners: {
     kind: 'partners',
     label: 'Партнёры',
-    hint: 'Карточки партнёров события — из раздела «Люди», роли «Партнёр» и «Генеральный партнёр».',
+    hint: 'Карточки партнёров события — из раздела «Люди», роли «Партнёр» и «Генеральный партнёр». Пока партнёров нет, секция на лендинге не показывается.',
     live: true,
+    // Добавляется вручную — значит, должна и удаляться (крестик у секции).
+    repeatable: true,
     fields: ['title', 'subtitle', 'button'],
   },
   organizer: {
@@ -179,9 +181,11 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   },
 }
 
-/** Блоки, которые можно добавить кнопкой «Добавить секцию». */
+/** Блоки, которые можно добавить кнопкой «Добавить секцию».
+ *  ⚠️ «Партнёры» сюда входят: на старых лендингах этой секции нет вовсе
+ *  (её не было в наборе по умолчанию), и без кнопки добавить её было нечем. */
 export const ADDABLE: BlockKind[] = [
-  'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
+  'partners', 'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
 ]
 
 export function metaFor(kind: string): BlockMeta {

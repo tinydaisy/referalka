@@ -36,6 +36,11 @@ export default function LandingTab({ eventId, event }: Props) {
   const [dragId, setDragId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [seats, setSeats] = useState<string>('')
+  // Списки для выпадающих настроек блоков: какой тариф подсветить и какую
+  // оферту показать в подвале. Оба необязательны — раздел может быть закрыт
+  // тарифом, тогда список просто пустой.
+  const [tariffs, setTariffs] = useState<any[]>([])
+  const [offers, setOffers] = useState<any[]>([])
 
   // Отложенное сохранение: пока клиент печатает — копим правки, шлём одним PATCH.
   const timers = useRef<Record<string, any>>({})
@@ -57,6 +62,17 @@ export default function LandingTab({ eventId, event }: Props) {
   }
 
   useEffect(() => { load() }, [eventId])
+
+  // Тарифы и оферты грузим отдельно и молча: если раздел недоступен на
+  // тарифе клиента, выпадающий список просто останется пустым.
+  useEffect(() => {
+    api.eventTariffs.list(eventId)
+      .then(r => setTariffs(r.items || r || []))
+      .catch(() => {})
+    api.offers.list()
+      .then(r => setOffers(r.items || []))
+      .catch(() => {})
+  }, [eventId])
 
   const page = useMemo(() => pages.find(p => p.kind === kind), [pages, kind])
   // Защита от неверных данных: если nav_items придёт не массивом, .map ниже
@@ -621,6 +637,8 @@ export default function LandingTab({ eventId, event }: Props) {
               eventId={eventId}
               isDragging={dragId === b.id}
               pageBlocks={page.blocks}
+              tariffs={tariffs}
+              offers={offers}
               onPatch={patch => patchBlock(b.id, patch)}
               onRemove={() => removeBlock(b.id)}
               onDragStart={() => setDragId(b.id)}
