@@ -412,7 +412,7 @@ function ListEditor({
 function CardsEditor({
   items, onChange,
 }: {
-  items: Array<{ title: string; text?: string }>
+  items: Array<{ title: string; text?: string; icon?: string | null }>
   onChange: (v: any[]) => void
 }) {
   const upd = (i: number, patch: any) => {
