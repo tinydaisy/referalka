@@ -13,6 +13,7 @@ export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
+  | 'el_button' | 'el_heading' | 'el_text' | 'el_image'
 
 export interface BlockMeta {
   kind: BlockKind
@@ -125,6 +126,36 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     repeatable: true,
     fields: ['title', 'subtitle', 'gallery', 'button'],
   },
+  // ── Отдельные элементы: собрать секцию по кусочкам ──────────────────
+  el_heading: {
+    kind: 'el_heading',
+    label: 'Элемент: заголовок',
+    hint: 'Только заголовок. Размер, цвет и выравнивание — во вкладке «Оформление».',
+    repeatable: true,
+    fields: ['title'],
+  },
+  el_text: {
+    kind: 'el_text',
+    label: 'Элемент: текст',
+    hint: 'Только текст, без заголовка.',
+    repeatable: true,
+    fields: ['body'],
+  },
+  el_button: {
+    kind: 'el_button',
+    label: 'Элемент: кнопка',
+    hint: 'Только кнопка. Можно вести на регистрацию, на секцию страницы (тарифы) или на свою ссылку.',
+    repeatable: true,
+    fields: ['button'],
+  },
+  el_image: {
+    kind: 'el_image',
+    label: 'Элемент: изображение',
+    hint: 'Только картинка. Ширина и положение — во вкладке «Оформление».',
+    repeatable: true,
+    fields: [],
+  },
+
   text: {
     kind: 'text',
     label: 'Своя секция',
@@ -149,7 +180,9 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
 }
 
 /** Блоки, которые можно добавить кнопкой «Добавить секцию». */
-export const ADDABLE: BlockKind[] = ['text', 'gallery']
+export const ADDABLE: BlockKind[] = [
+  'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
+]
 
 export function metaFor(kind: string): BlockMeta {
   return BLOCK_META[kind as BlockKind] || {

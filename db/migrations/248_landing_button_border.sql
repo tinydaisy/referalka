@@ -114,3 +114,12 @@ ALTER TABLE event_landing_blocks
         CHECK (icon_size BETWEEN 24 AND 200);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
+
+-- Скругление кнопок — отдельно от карточек (у кнопки часто нужна «пилюля»).
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS lp_btn_radius SMALLINT;
+ALTER TABLE event_landing_pages
+  ADD COLUMN IF NOT EXISTS btn_radius SMALLINT
+        CHECK (btn_radius IS NULL OR btn_radius BETWEEN 0 AND 64);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;

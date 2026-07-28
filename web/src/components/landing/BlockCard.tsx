@@ -25,11 +25,13 @@ interface Props {
   onDragOver: (e: React.DragEvent) => void
   onDrop: () => void
   isDragging: boolean
+  /** Все блоки страницы — для выбора якоря у кнопки. */
+  pageBlocks?: any[]
 }
 
 export default function BlockCard({
   block, eventId, onPatch, onRemove,
-  onDragStart, onDragOver, onDrop, isDragging,
+  onDragStart, onDragOver, onDrop, isDragging, pageBlocks,
 }: Props) {
   const [open, setOpen] = useState(false)
   // ⚠️ draggable включается ТОЛЬКО когда мышь на ручке ⠿. Если он висит на
@@ -257,13 +259,36 @@ export default function BlockCard({
                     />
                   </Field>
                   {block.kind !== 'hero' && (
-                    <Field label="Ссылка кнопки">
-                      <input
-                        type="text"
-                        value={block.button_url || ''}
-                        onChange={e => onPatch({ button_url: e.target.value })}
-                        className="input"
-                      />
+                    <Field label="Куда ведёт кнопка">
+                      <select
+                        value={
+                          !block.button_url ? 'register'
+                            : block.button_url.startsWith('#lp-') ? block.button_url
+                            : 'custom'
+                        }
+                        onChange={e => {
+                          const v = e.target.value
+                          onPatch({ button_url: v === 'register' ? null : v === 'custom' ? ' ' : v })
+                        }}
+                        className="input bg-white"
+                      >
+                        <option value="register">На регистрацию</option>
+                        {(pageBlocks || []).map((b: any) => (
+                          <option key={b.id} value={`#lp-${b.kind}`}>
+                            К секции «{b.admin_name || metaFor(b.kind).label}»
+                          </option>
+                        ))}
+                        <option value="custom">Своя ссылка</option>
+                      </select>
+                      {block.button_url && !block.button_url.startsWith('#lp-') && (
+                        <input
+                          type="text"
+                          value={block.button_url.trim()}
+                          onChange={e => onPatch({ button_url: e.target.value })}
+                          placeholder="https://…"
+                          className="input mt-2"
+                        />
+                      )}
                     </Field>
                   )}
                 </div>

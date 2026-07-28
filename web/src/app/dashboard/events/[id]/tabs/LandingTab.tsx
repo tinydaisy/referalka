@@ -618,6 +618,7 @@ export default function LandingTab({ eventId, event }: Props) {
               block={b}
               eventId={eventId}
               isDragging={dragId === b.id}
+              pageBlocks={page.blocks}
               onPatch={patch => patchBlock(b.id, patch)}
               onRemove={() => removeBlock(b.id)}
               onDragStart={() => setDragId(b.id)}

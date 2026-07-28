@@ -42,6 +42,7 @@ _FIELDS = {
     "btn_border_color": "lp_btn_border_color",
     "btn_border_width": "lp_btn_border_width",
     "btn_border_metallic": "lp_btn_border_metallic",
+    "btn_radius": "lp_btn_radius",
     "border_color": "lp_border_color",
     "border_metallic": "lp_border_metallic",
     "border_style": "lp_border_style",
@@ -78,6 +79,7 @@ class ThemeUpdate(BaseModel):
     btn_border_color: Optional[str] = None
     btn_border_width: Optional[int] = None
     btn_border_metallic: Optional[bool] = None
+    btn_radius: Optional[int] = None
     border_color: Optional[str] = None
     border_metallic: Optional[bool] = None
     border_style: Optional[str] = None
@@ -166,6 +168,7 @@ async def patch_theme(
              btn_border_color = c.lp_btn_border_color,
              btn_border_width = COALESCE(c.lp_btn_border_width, 0),
              btn_border_metallic = COALESCE(c.lp_btn_border_metallic, FALSE),
+             btn_radius = c.lp_btn_radius,
              border_color = c.lp_border_color, border_metallic = c.lp_border_metallic,
              icon_color = c.lp_icon_color, icon_metallic = c.lp_icon_metallic,
              radius = COALESCE(c.lp_radius, 5),

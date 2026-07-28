@@ -19,7 +19,8 @@ function metallic(color: string): string {
   return `linear-gradient(180deg, ${shade(color, -45)}, ${color}, ${shade(color, 30)}, ${color}, ${shade(color, -45)})`
 }
 function metallicButton(color: string): string {
-  return `linear-gradient(180deg, ${shade(color, -22)}, ${color}, ${shade(color, 42)}, ${color}, ${shade(color, -22)})`
+  // Светлее, чем металлик заголовков: тёмные края лишь притемнены, блик шире.
+  return `linear-gradient(180deg, ${shade(color, -12)}, ${color} 22%, ${shade(color, 55)} 50%, ${color} 78%, ${shade(color, -12)})`
 }
 /** Минус — темнее, плюс — светлее (к белому). */
 function shade(hex: string, pct: number): string {
@@ -242,6 +243,24 @@ export default function LandingThemeTab() {
               )}
             </div>
 
+            <div className="mt-4 border-t border-gray-100 pt-4">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Скругление кнопок: {theme.btn_radius ?? (theme.radius ?? 5)} px
+              </label>
+              <div className="flex items-center gap-3">
+                <input type="range" min={0} max={64}
+                  value={theme.btn_radius ?? (theme.radius ?? 5)}
+                  onChange={e => set({ btn_radius: Number(e.target.value) })}
+                  className="w-full" />
+                {theme.btn_radius != null && (
+                  <button onClick={() => set({ btn_radius: null })}
+                    className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100">
+                    как у карточек
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
               <h4 className="font-medium text-gray-900">Рамка кнопки</h4>
               <div>
@@ -431,7 +450,7 @@ export default function LandingThemeTab() {
             <button
               className="mt-4 w-full px-6 py-3 text-sm font-bold uppercase"
               style={{
-                borderRadius: radius,
+                borderRadius: theme.btn_radius ?? radius,
                 background: theme.btn_border_width
                   ? `${asLayer(btnFillPreview)} padding-box, ${
                       theme.btn_border_metallic

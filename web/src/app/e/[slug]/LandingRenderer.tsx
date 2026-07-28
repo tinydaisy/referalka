@@ -30,11 +30,15 @@ function metallic(color: string): string {
   return `linear-gradient(180deg, ${dark}, ${color}, ${light}, ${color}, ${dark})`
 }
 
-/** Заливка кнопки — тот же металл, но мягче по краям (как .gold-btn). */
+/**
+ * Заливка кнопки — металл посветлее, чем у заголовков: тёмные края лишь
+ * слегка притемнены, а блик в середине шире. Тёмный металл на кнопке
+ * «съедает» текст и выглядит грязно.
+ */
 function metallicButton(color: string): string {
-  const edge = shade(color, -22)   // #FFCFA4 → примерно #C99A6E
-  const light = shade(color, 42)   // → #FFF0DE
-  return `linear-gradient(180deg, ${edge}, ${color}, ${light}, ${color}, ${edge})`
+  const edge = shade(color, -12)   // мягкая граница, без черноты
+  const light = shade(color, 55)   // широкий светлый блик
+  return `linear-gradient(180deg, ${edge}, ${color} 22%, ${light} 50%, ${color} 78%, ${edge})`
 }
 
 /** HEX + прозрачность → rgba(). Мусорный цвет не роняет страницу. */
@@ -98,7 +102,8 @@ export default function LandingRenderer({ data, slug }: Props) {
 
   const btnStyle: React.CSSProperties = {
     color: page.btn_text_color || '#0a1520',
-    borderRadius: radius,
+    // Скругление кнопок задаётся отдельно от карточек.
+    borderRadius: page.btn_radius ?? radius,
     fontFamily: page.font_body_css,
     letterSpacing: '.04em',
     // Внутренний блик сверху + мягкая тень — объём, как у боевой кнопки.
@@ -816,15 +821,11 @@ function BlockBody({
       // в ряд. auto-fit сам решает, сколько влезло; настройка колонок остаётся
       // потолком для широкого экрана.
       return (
-        <div
-          className="grid gap-x-6 gap-y-8"
-          style={{
-            gridTemplateColumns:
-              `repeat(auto-fit, minmax(min(140px, 45%), 1fr))`,
-            maxWidth: `calc(${Math.max(1, Math.min(6, block.columns || 4))} * 260px)`,
-            marginInline: 'auto',
-          }}
-        >
+        {/* ⚠️ Число колонок — это НАСТРОЙКА, а не «сколько влезло»: auto-fit
+            игнорировал её на широком экране. На узких экранах колонок всегда
+            меньше (см. .lp-grid), но потолок задаёт клиент. */}
+        <div className="lp-grid grid gap-x-6 gap-y-10"
+             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 4)) }}>
           {list.map((n: any, i: number) => (
             <div key={i} className="p-5 text-center" style={cardStyle}>
               <div className="text-[2.6em] font-bold leading-none sm:text-[3.2em]"
@@ -1130,6 +1131,15 @@ function BlockBody({
         </div>
       )
     }
+
+    /* ── Отдельные элементы: заголовок, текст, кнопка, картинка ────────── */
+    // Заголовок/текст/кнопку рисует сама секция (heading, body, ownButton),
+    // картинку — блок image_url. Здесь дополнительного содержимого нет.
+    case 'el_heading':
+    case 'el_text':
+    case 'el_button':
+    case 'el_image':
+      return null
 
     /* ── Своя секция и всё остальное (values, mission, difference) ─────── */
     // Текст этих блоков уже выведен секцией выше — здесь только кнопка, если есть.

@@ -70,10 +70,10 @@ LIVE_KINDS = {"speakers", "partners", "program", "tariffs", "organizer",
 
 # `text` и `gallery` можно добавлять по кнопке сколько угодно раз — их нет
 # в дефолтном наборе (gallery там есть, но выключенный) или он единичный.
-VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "partners"}
+VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "partners", "el_button", "el_heading", "el_text", "el_image"}
 
 # Блоки, которых на странице может быть много (кнопка «Добавить секцию»).
-REPEATABLE_KINDS = {"text", "gallery"}
+REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text", "el_image"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,6 +125,7 @@ class PagePatch(BaseModel):
     btn_border_color: Optional[str] = None
     btn_border_width: Optional[int] = None
     btn_border_metallic: Optional[bool] = None
+    btn_radius: Optional[int] = None
     border_color: Optional[str] = None
     border_metallic: Optional[bool] = None
     border_style: Optional[str] = None
@@ -257,7 +258,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   cl.lp_font_body, cl.lp_color_body, cl.lp_color_link, cl.lp_price_color,
                   cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
                   cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_border_color,
-                  cl.lp_btn_border_width, cl.lp_btn_border_metallic,
+                  cl.lp_btn_border_width, cl.lp_btn_border_metallic, cl.lp_btn_radius,
                   cl.lp_border_color, cl.lp_border_metallic, cl.lp_border_style,
                   cl.lp_card_bg, cl.lp_card_bg_opacity,
                   cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius, cl.lp_body_size,
@@ -278,11 +279,11 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   font_body, color_body, color_link, price_color,
                   btn_color, btn_text_color, btn_metallic,
                   btn_color_2, btn_angle, btn_border_color,
-                  btn_border_width, btn_border_metallic,
+                  btn_border_width, btn_border_metallic, btn_radius,
                   border_color, border_metallic, border_style, card_bg, card_bg_opacity,
                   icon_color, icon_metallic, radius, body_size,
                   content_width, pad_x, section_gap)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
                ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
@@ -306,6 +307,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             t.get("lp_btn_border_color"),
             t.get("lp_btn_border_width") if t.get("lp_btn_border_width") is not None else 0,
             bool(t.get("lp_btn_border_metallic", False)),
+            t.get("lp_btn_radius"),
             t.get("lp_border_color") or "#FFCFA4",
             bool(t.get("lp_border_metallic", True)),
             t.get("lp_border_style") or "solid",
@@ -424,7 +426,7 @@ async def patch_page(
         "color_body", "color_link", "price_color",
         "btn_color", "btn_text_color", "btn_metallic",
         "btn_color_2", "btn_angle", "btn_border_color",
-        "btn_border_width", "btn_border_metallic",
+        "btn_border_width", "btn_border_metallic", "btn_radius",
         "border_color", "border_metallic", "border_style",
         "card_bg", "card_bg_opacity",
         "icon_color", "icon_metallic", "radius",
@@ -444,6 +446,8 @@ async def patch_page(
             val = "screen"
         if field == "btn_angle" and val is not None:
             val = max(0, min(360, int(val)))
+        if field == "btn_radius" and val is not None:
+            val = max(0, min(64, int(val)))
         if field == "btn_border_width" and val is not None:
             val = max(0, min(12, int(val)))
         if field == "bg_angle" and val is not None:
@@ -724,6 +728,7 @@ async def apply_theme(
              btn_border_color = c.lp_btn_border_color,
              btn_border_width = COALESCE(c.lp_btn_border_width, 0),
              btn_border_metallic = COALESCE(c.lp_btn_border_metallic, FALSE),
+             btn_radius = c.lp_btn_radius,
              border_color = c.lp_border_color, border_metallic = c.lp_border_metallic,
              border_style = COALESCE(c.lp_border_style, 'solid'),
              card_bg = c.lp_card_bg,
