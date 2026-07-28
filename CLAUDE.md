@@ -316,10 +316,16 @@
 
 ⚠️ **`skip_contact_form` работает ОДИНАКОВО во всех точках входа: TG + MAX + VK + веб + Mini App (2026-07-28, ПРОД).** Раньше флаг читал только Mini App ([EventPage.tsx](mini-app/src/pages/EventPage.tsx) `handleWantParticipate`) — остальные пути его не знали вовсе и всегда показывали форму.
 
-**В БОТАХ — регистрируем ПРЯМО В БОТЕ и сразу шлём меню события.** Человек уже в боте, имя/ник у нас есть — спрашивать нечего и уводить на веб незачем. Условие одно на все три площадки: `skip_contact_form=TRUE` + известен `contact_id` + **сторонний лендинг НЕ задан** (лендинг главнее: там своя форма и свой webhook регистрации). Действие: UPSERT `event_participants(is_registered=TRUE)` + `finalize_participant_registration` → меню события.
-- **TG** — [start.py](backend/bot/handlers/start.py), ветка перед блоком «НЕ зарегистрирован → кнопка ЗАРЕГИСТРИРОВАТЬСЯ». ⚠️ `ev` там `asyncpg.Record` — только `ev["skip_contact_form"]`, не `.get()` (упадёт `AttributeError`).
-- **MAX** — [max_webhook.py](backend/app/api/max_webhook.py), поле в SELECT события + `event_skip_contact_form`, ветка перед кнопкой.
-- **VK** — [vk_event.py](backend/app/api/vk_event.py) `send_vk_event_funnel`, ветка ДО ветвления по `is_registered` (ставит `is_registered=True` → дальше идёт обычная ветка меню). Поле добавлено в **общую константу `_EVENT_FUNNEL_FIELDS`** → покрывает все 5 точек вызова разом.
+**В БОТАХ — кнопка «ЗАРЕГИСТРИРОВАТЬСЯ» ОСТАЁТСЯ, регистрация и меню происходят ПО ЕЁ НАЖАТИЮ.** ⚠️ Меню НЕ приходит само: человек должен нажать кнопку — это осознанное действие. Кнопка при `skip_contact_form` (и без стороннего лендинга) вместо URL на веб-форму получает **callback `evsignup_<event_id>`**; по нажатию регистрируем прямо в боте (форма не нужна — человек уже в боте, имя/ник есть) и присылаем меню события. Иначе кнопка остаётся URL-ссылкой, как была.
+
+Условие одно на три площадки: `skip_contact_form=TRUE` + известен `contact_id` + **сторонний лендинг НЕ задан** (лендинг главнее: там своя форма и свой webhook).
+
+**Логика регистрации — ОДИН общий сервис** [event_signup.py](backend/app/services/event_signup.py) `signup_participant_in_bot` (UPSERT + `finalize_participant_registration`, идемпотентный). Не копия на каждый мессенджер — при правках менять только его.
+- **TG** — хендлер `handle_event_signup` в [funnel.py](backend/bot/handlers/funnel.py) + callback-кнопка в [start.py](backend/bot/handlers/start.py). ⚠️ `ev` там `asyncpg.Record` — только `ev["skip_contact_form"]`, не `.get()` (упадёт `AttributeError`).
+- **MAX** — ветка `evsignup_` в `_handle_message_callback` + callback-кнопка ([max_webhook.py](backend/app/api/max_webhook.py), поле в SELECT события).
+- **VK** — `handle_vk_event_signup` в [vk_event_menu.py](backend/bot/vk_event_menu.py) (меню переиспользует `handle_vk_event_menu_back` — та сама перечитает `is_registered`), `evsignup_` в роутинге callback'ов [vk_main.py](backend/bot/vk_main.py), callback-кнопка в [vk_event.py](backend/app/api/vk_event.py). Поле — в **общей константе `_EVENT_FUNNEL_FIELDS`** → покрывает все 5 точек вызова `send_vk_event_funnel`.
+
+⚠️ **Префикс `evsignup_`, а НЕ `evreg_`** — `evreg_` уже занят deeplink'ом регистрации на событие из вебинарной комнаты (`evreg_<eid>_ct<cid>`, см. раздел про продающий блок `event_reg`).
 
 **В ВЕБЕ** (`/event/{slug}/register`, [event_page_html.py](backend/app/api/event_page_html.py) `event_register_page`) — та же логика: флаг + контакт из `?c=` принадлежит клиенту события → регистрируем и 302 на `/event/{slug}?c={contact_id}` (кабинет). Поле добавлено в SELECT `_resolve_event`. Без `?c=` (открыли не из бота, контакт неизвестен) форма остаётся — регистрировать некого. Согласия при таком входе не фиксируются — как и в Mini App.
 
