@@ -25,3 +25,11 @@ ALTER TABLE event_landing_blocks
         CHECK (date_position IN ('above', 'below'));
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
+
+-- Разделитель между цифрой и подписью в блоке «Цифры» — тонкая линия.
+-- Опция: без неё цифра и подпись смотрятся как единый блок, с ней —
+-- как в печатной инфографике.
+ALTER TABLE event_landing_blocks
+  ADD COLUMN IF NOT EXISTS show_divider BOOLEAN NOT NULL DEFAULT FALSE;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;

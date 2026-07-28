@@ -697,13 +697,28 @@ function BlockBody({
         lineHeight: 1,
       }
       return (
-        <div className="lp-grid grid gap-8"
-             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 4)) }}>
+        {/* ⚠️ Не lp-grid: цифры узкие, на телефоне их спокойно помещается
+            2–3 в ряд. auto-fit сам решает, сколько влезло, а настройка
+            «карточек в ряд» остаётся потолком для широкого экрана. */}
+        <div
+          className="grid gap-x-6 gap-y-8"
+          style={{
+            gridTemplateColumns:
+              `repeat(auto-fit, minmax(min(140px, 45%), 1fr))`,
+            maxWidth: `calc(${Math.max(1, Math.min(6, block.columns || 4))} * 260px)`,
+            marginInline: 'auto',
+          }}
+        >
           {list.map((n: any, i: number) => (
             <div key={i} className="p-5 text-center" style={cardStyle}>
-              <div className="text-5xl font-bold sm:text-6xl" style={metalNum}>
+              <div className="text-[2.6em] font-bold leading-none sm:text-[3.2em]"
+                   style={metalNum}>
                 {n.value}
               </div>
+              {block.show_divider && (
+                <div className="mx-auto mt-3 h-px w-10"
+                     style={{ background: page.color_body || '#FFFFFF', opacity: .6 }} />
+              )}
               <div className="mt-3 text-[.9em] opacity-85">{n.label}</div>
             </div>
           ))}

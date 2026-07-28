@@ -295,6 +295,20 @@ export default function BlockCard({
                       На узком экране колонок будет меньше — вёрстка подстроится сама.
                     </p>
                   </Field>
+                  {block.kind === 'numbers' && (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.show_divider}
+                        onChange={e => onPatch({ show_divider: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm text-gray-700">
+                        Линия-разделитель между цифрой и подписью
+                      </span>
+                    </label>
+                  )}
+
                   <Field label="Вид карточек">
                     <div className="flex flex-wrap gap-2">
                       {([
