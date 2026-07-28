@@ -73,6 +73,7 @@ async def get_public_landing(
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
                   e.status, e.module_slug, e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
+                  e.seats_count_mode, e.seats_base,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -140,11 +141,22 @@ async def get_public_landing(
     # (галочка show_seats у блока hero) — иначе в шапке показывать нечего.
     seats_in_hero = any(b["kind"] == "hero" and b["show_seats"] for b in blocks)
     if "seats" in kinds or seats_in_hero:
-        taken = await db.fetchval(
-            "SELECT COUNT(*) FROM event_participants "
-            "WHERE event_id = $1 AND is_registered = TRUE",
-            event["id"],
-        ) or 0
+        # Что считать: подтверждённые регистрации (по умолчанию) или всех, кто
+        # открыл событие — второе показывает интерес, а не только записи.
+        if (event["seats_count_mode"] or "registered") == "visited":
+            taken = await db.fetchval(
+                "SELECT COUNT(*) FROM event_participants WHERE event_id = $1",
+                event["id"],
+            ) or 0
+        else:
+            taken = await db.fetchval(
+                "SELECT COUNT(*) FROM event_participants "
+                "WHERE event_id = $1 AND is_registered = TRUE",
+                event["id"],
+            ) or 0
+        # Стартовое смещение: у клиента уже есть аудитория (например, чат на
+        # 1100 человек), и счётчик идёт от неё, а не с нуля.
+        taken += event["seats_base"] or 0
         total = event["seats_total"]
         data["seats"] = {
             "label": event["seats_label"],

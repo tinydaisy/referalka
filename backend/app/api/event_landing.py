@@ -412,6 +412,8 @@ async def get_landing(
             "seats_label": ev["seats_label"],
             "seats_label_position": ev["seats_label_position"],
             "seats_size": ev["seats_size"],
+            "seats_count_mode": ev["seats_count_mode"],
+            "seats_base": ev["seats_base"],
             "seats_taken": taken or 0,
         },
         "fonts": FONTS,
@@ -801,10 +803,19 @@ async def set_seats(
     pos = data.get("seats_label_position")
     if pos not in ("top", "left", "right"):
         pos = "top"
+    # Что считать занятыми: подтверждённые регистрации или всех зашедших.
+    mode = data.get("seats_count_mode")
+    if mode not in ("registered", "visited"):
+        mode = "registered"
+    # Стартовое смещение: счётчик идёт от уже имеющейся аудитории клиента.
+    base = data.get("seats_base")
+    if base is not None:
+        base = max(0, int(base))
     await db.execute(
         "UPDATE events SET seats_total = $1, seats_label = $2, seats_label_position = $3, "
-        "seats_size = $4 WHERE id = $5",
-        total, (label or None), pos, size, event_id,
+        "seats_size = $4, seats_count_mode = $5, seats_base = $6 WHERE id = $7",
+        total, (label or None), pos, size, mode, base, event_id,
     )
     return {"ok": True, "seats_total": total, "seats_label": label,
-            "seats_label_position": pos, "seats_size": size}
+            "seats_label_position": pos, "seats_size": size,
+            "seats_count_mode": mode, "seats_base": base}

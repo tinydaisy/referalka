@@ -186,6 +186,8 @@ export default function LandingTab({ eventId, event }: Props) {
       seats_label: meta?.seats_label ?? null,
       seats_label_position: meta?.seats_label_position || 'top',
       seats_size: meta?.seats_size ?? null,
+      seats_count_mode: meta?.seats_count_mode || 'registered',
+      seats_base: meta?.seats_base ?? null,
       ...patch,
     }
     try {
@@ -342,6 +344,55 @@ export default function LandingTab({ eventId, event }: Props) {
                     </button>
                   ))}
               </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Что считать занятым
+              </label>
+              <div className="flex gap-2">
+                {([
+                  ['registered', 'Записались'],
+                  ['visited', 'Зашли'],
+                ] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => saveSeats({ seats_count_mode: val })}
+                    className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                      (meta?.seats_count_mode || 'registered') === val
+                        ? 'border-brand bg-brand/5 font-medium text-brand'
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                «Зашли» — все, кто открыл событие, даже если не дошли до записи.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Прибавить к счётчику
+              </label>
+              <input
+                type="number" min={0}
+                value={meta?.seats_base ?? ''}
+                onChange={e => setMeta((m: any) => ({
+                  ...m, seats_base: e.target.value === '' ? null : Number(e.target.value),
+                }))}
+                onBlur={e => saveSeats({
+                  seats_base: e.target.value === '' ? null : Number(e.target.value),
+                })}
+                placeholder="0"
+                className="input"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Если у вас уже есть аудитория — например, 1100 человек в чате.
+                Счётчик пойдёт от этого числа.
+              </p>
             </div>
 
             <div className="sm:col-span-2">
