@@ -23,6 +23,15 @@ export default function PaymentSettingsTab() {
   const [login, setLogin] = useState('')
   const [token, setToken] = useState('')
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+  // Куда слать уведомления об оплатах: у каждой площадки свой канал.
+  const [me, setMe] = useState<any>(null)
+  const [notifyTab, setNotifyTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
+  const [notify, setNotify] = useState({
+    payments_telegram_chat_id: '',
+    payments_max_chat_id: '',
+    payments_vk_peer_id: '',
+  })
+  const [notifySaving, setNotifySaving] = useState(false)
 
   const load = async () => {
     try {
@@ -35,6 +44,26 @@ export default function PaymentSettingsTab() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    api.auth.me().then((m: any) => {
+      setMe(m)
+      setNotify({
+        payments_telegram_chat_id: m?.payments_telegram_chat_id || '',
+        payments_max_chat_id: m?.payments_max_chat_id || '',
+        payments_vk_peer_id: m?.payments_vk_peer_id || '',
+      })
+    }).catch(() => {})
+  }, [])
+
+  const saveNotify = async () => {
+    setNotifySaving(true)
+    try {
+      await api.auth.updateMe(notify)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить')
+    } finally { setNotifySaving(false) }
+  }
 
   const save = async (patch: any) => {
     setSaving(true)
@@ -218,6 +247,75 @@ export default function PaymentSettingsTab() {
         </div>
       )}
 
+      {/* Куда сообщать об оплатах. Отдельно от общего канала уведомлений:
+          там оплаты теряются среди «новых интересов» и вопросов. */}
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-1 font-medium text-gray-800">Куда сообщать об оплатах</div>
+        <p className="mb-3 text-sm text-gray-500">
+          Ваш бот пришлёт сюда каждый новый заказ и каждую оплату: событие,
+          тариф, сумма и контакты покупателя. Не заполните — уведомления пойдут
+          в общий канал из «Технических» настроек.
+        </p>
+
+        <div className="mb-3 flex gap-1 border-b border-gray-200">
+          {([
+            ['telegram', 'Telegram'], ['vk', 'ВКонтакте'], ['max', 'MAX'],
+          ] as const).map(([k, label]) => {
+            const filled = k === 'telegram' ? notify.payments_telegram_chat_id
+              : k === 'vk' ? notify.payments_vk_peer_id : notify.payments_max_chat_id
+            return (
+              <button
+                key={k}
+                onClick={() => setNotifyTab(k as any)}
+                className={`-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium ${
+                  notifyTab === k ? 'border-brand text-brand'
+                                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {label}
+                {!!filled && <span className="h-1.5 w-1.5 rounded-full bg-green-500" />}
+              </button>
+            )
+          })}
+        </div>
+
+        {notifyTab === 'telegram' && (
+          <NotifyField
+            label="ID канала или чата в Telegram"
+            value={notify.payments_telegram_chat_id}
+            onChange={v => setNotify(n => ({ ...n, payments_telegram_chat_id: v }))}
+            placeholder="-1001234567890"
+          />
+        )}
+        {notifyTab === 'vk' && (
+          <NotifyField
+            label="ID беседы во ВКонтакте"
+            value={notify.payments_vk_peer_id}
+            onChange={v => setNotify(n => ({ ...n, payments_vk_peer_id: v }))}
+            placeholder="2000000001"
+          />
+        )}
+        {notifyTab === 'max' && (
+          <NotifyField
+            label="ID чата в MAX"
+            value={notify.payments_max_chat_id}
+            onChange={v => setNotify(n => ({ ...n, payments_max_chat_id: v }))}
+            placeholder="-70123456789"
+          />
+        )}
+
+        <div className="mt-3 flex items-center gap-3">
+          <button onClick={saveNotify} disabled={notifySaving}
+                  className="btn-primary disabled:opacity-60">
+            {notifySaving ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+          <span className="text-xs text-gray-500">
+            Добавьте своего бота в канал и отправьте там команду /getmyid — он
+            покажет нужный ID.
+          </span>
+        </div>
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
         <div className="mb-1 font-medium text-gray-800">Как это работает</div>
         Человек выбирает тариф на лендинге → заполняет короткую форму →
@@ -225,6 +323,27 @@ export default function PaymentSettingsTab() {
         этом, участник отмечается оплатившим, а сумма видна в списке
         участников. Ничего отмечать вручную не нужно.
       </div>
+    </div>
+  )
+}
+
+function NotifyField({
+  label, value, onChange, placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
+      <input
+        type="text" value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="input font-mono text-[13px]"
+      />
     </div>
   )
 }
