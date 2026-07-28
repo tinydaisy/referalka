@@ -107,7 +107,11 @@ export default function LandingRenderer({ data, slug }: Props) {
   const rootBg: React.CSSProperties = page.bg_image_url
     ? {}
     : bgMode === 'screen'
-      ? { background: page.bg_css, backgroundSize: '100% 100vh', backgroundRepeat: 'repeat-y' }
+      // ⚠️ Именно `repeat-y` НЕЛЬЗЯ: конец градиента (тёмный) упирается в
+      // начало следующего (светлый) — на стыке видна резкая полоса.
+      // `repeat: round` + зеркальный градиент дают бесшовный перелив.
+      ? { background: page.bg_css_screen || page.bg_css,
+          backgroundSize: '100% 200vh', backgroundRepeat: 'repeat-y' }
       : bgMode === 'block'
         // Фон рисует каждая секция; здесь только базовый цвет под ними.
         ? { background: page.bg_color || '#25455D' }

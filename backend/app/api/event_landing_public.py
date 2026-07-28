@@ -324,12 +324,19 @@ async def get_public_landing(
     # Готовая заливка фона: градиент под заданным углом либо сплошной цвет.
     # Считаем на бэке, чтобы страница не собирала CSS в трёх местах.
     if page_d.get("bg_gradient") and page_d.get("bg_color_2"):
-        page_d["bg_css"] = (
-            f"linear-gradient({page_d.get('bg_angle', 45)}deg, "
-            f"{page_d.get('bg_color') or '#25455D'}, {page_d['bg_color_2']})"
+        c1 = page_d.get("bg_color") or "#25455D"
+        c2 = page_d["bg_color_2"]
+        angle = page_d.get("bg_angle", 45)
+        page_d["bg_css"] = f"linear-gradient({angle}deg, {c1}, {c2})"
+        # Для режима «повторять на каждом экране» — ЗЕРКАЛЬНЫЙ градиент
+        # (цвет1 → цвет2 → цвет1). Обычный при повторении даёт резкую полосу
+        # на стыке: тёмный конец упирается в светлое начало следующего.
+        page_d["bg_css_screen"] = (
+            f"linear-gradient({angle}deg, {c1} 0%, {c2} 50%, {c1} 100%)"
         )
     else:
         page_d["bg_css"] = page_d.get("bg_color") or "#25455D"
+        page_d["bg_css_screen"] = page_d["bg_css"]
 
     return {
         "event": {
