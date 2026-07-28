@@ -144,74 +144,6 @@ export default function BlockCard({
                     />
                   </Field>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label={`Размер заголовка: ${block.title_size || 48} px`}>
-                      <input
-                        type="range" min={16} max={140} step={2}
-                        value={block.title_size || 48}
-                        onChange={e => onPatch({ title_size: Number(e.target.value) })}
-                        className="w-full"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        На телефоне уменьшится сам, чтобы не вылезал за экран.
-                      </p>
-                    </Field>
-                    <Field label="Выравнивание">
-                      <div className="flex gap-2">
-                        {([
-                          ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа'],
-                        ] as const).map(([val, label]) => (
-                          <button
-                            key={val}
-                            onClick={() => onPatch({ title_align: val })}
-                            className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
-                              (block.title_align || 'left') === val
-                                ? 'border-brand bg-brand/5 font-medium text-brand'
-                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </Field>
-                  </div>
-
-                  {/* Свой цвет заголовка — например, белый вместо фирменного. */}
-                  <div className="rounded-lg border border-gray-200 p-3">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={!!block.title_color}
-                        onChange={e => onPatch({
-                          title_color: e.target.checked ? '#FFFFFF' : null,
-                          title_metallic: e.target.checked ? false : null,
-                        })}
-                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
-                      />
-                      <span className="text-sm font-medium text-gray-700">
-                        Свой цвет заголовка (не как в теме)
-                      </span>
-                    </label>
-                    {block.title_color && (
-                      <div className="mt-3 space-y-3">
-                        <ColorField
-                          label="Цвет заголовка этой секции"
-                          value={block.title_color}
-                          onChange={v => onPatch({ title_color: v })}
-                        />
-                        <label className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={!!block.title_metallic}
-                            onChange={e => onPatch({ title_metallic: e.target.checked })}
-                            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
-                          />
-                          <span className="text-sm text-gray-700">Металлический перелив</span>
-                        </label>
-                      </div>
-                    )}
-                  </div>
                 </>
               )}
 
@@ -377,6 +309,76 @@ export default function BlockCard({
             <div className="space-y-4">
               {/* Раскладка: где стоит заголовок относительно содержимого.
                   На телефоне всегда одна колонка — заголовок сверху. */}
+              {/* Заголовок: размер, выравнивание, свой цвет — доступно у ВСЕХ
+                  блоков, а не только у тех, где правится текст заголовка. */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={`Размер заголовка: ${block.title_size || 48} px`}>
+                  <input
+                    type="range" min={16} max={140} step={2}
+                    value={block.title_size || 48}
+                    onChange={e => onPatch({ title_size: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    На телефоне уменьшится сам, чтобы не вылезал за экран.
+                  </p>
+                </Field>
+                <Field label="Выравнивание заголовка">
+                  <div className="flex gap-2">
+                    {([
+                      ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа'],
+                    ] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => onPatch({ title_align: val })}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                          (block.title_align || 'left') === val
+                            ? 'border-brand bg-brand/5 font-medium text-brand'
+                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 p-3">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!block.title_color}
+                    onChange={e => onPatch({
+                      title_color: e.target.checked ? '#FFFFFF' : null,
+                      title_metallic: e.target.checked ? false : null,
+                    })}
+                    className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Свой цвет заголовка (не как в теме)
+                  </span>
+                </label>
+                {block.title_color && (
+                  <div className="mt-3 space-y-3">
+                    <ColorField
+                      label="Цвет заголовка этой секции"
+                      value={block.title_color}
+                      onChange={v => onPatch({ title_color: v })}
+                    />
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.title_metallic}
+                        onChange={e => onPatch({ title_metallic: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm text-gray-700">Металлический перелив</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Расположение заголовка
@@ -435,6 +437,7 @@ export default function BlockCard({
                   <div className="mt-2 flex flex-wrap gap-2">
                     {([
                       ['left', 'Слева'], ['right', 'Справа'],
+                      ['center', 'По центру'],
                       ['top', 'Сверху'], ['bottom', 'Снизу'],
                     ] as const).map(([val, label]) => (
                       <button
@@ -449,6 +452,19 @@ export default function BlockCard({
                         {label}
                       </button>
                     ))}
+                  </div>
+                )}
+                {block.image_url && (
+                  <div className="mt-3">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      Ширина картинки: {block.image_width || 100}%
+                    </label>
+                    <input
+                      type="range" min={20} max={100} step={5}
+                      value={block.image_width || 100}
+                      onChange={e => onPatch({ image_width: Number(e.target.value) })}
+                      className="w-full"
+                    />
                   </div>
                 )}
               </div>
@@ -487,6 +503,32 @@ export default function BlockCard({
                     className="w-full"
                   />
                 </Field>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Отступ сверху и снизу: {block.pad_y != null ? `${block.pad_y} px` : 'как у страницы'}
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range" min={0} max={200} step={4}
+                    value={block.pad_y ?? 64}
+                    onChange={e => onPatch({ pad_y: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                  {block.pad_y != null && (
+                    <button
+                      onClick={() => onPatch({ pad_y: null })}
+                      className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                    >
+                      сбросить
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Насколько «воздушной» будет эта секция. Не задан — берётся общий
+                  отступ из стилей лендинга.
+                </p>
               </div>
 
               <p className="text-xs text-gray-500">

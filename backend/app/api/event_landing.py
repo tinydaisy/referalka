@@ -444,13 +444,14 @@ async def patch_block(
     await _check_event_access(db, client_id, event_id)
     await _assert_feature(db, client_id)
 
-    owns = await db.fetchval(
-        "SELECT 1 FROM event_landing_blocks b JOIN event_landing_pages p ON p.id = b.page_id "
+    owns = await db.fetchrow(
+        "SELECT b.kind FROM event_landing_blocks b JOIN event_landing_pages p ON p.id = b.page_id "
         "WHERE b.id = $1 AND p.event_id = $2",
         block_id, event_id,
     )
     if not owns:
         raise HTTPException(status_code=404, detail="Блок не найден")
+    block_kind = owns["kind"]
 
     fs = data.model_fields_set
     sets, vals = [], []
@@ -465,6 +466,11 @@ async def patch_block(
         if field not in fs:
             continue
         val = getattr(data, field)
+        # ⚠️ У ШАПКИ подзаголовка нет: там показывается «Описание для лендинга»
+        # из настроек события. Отдельное поле дублировало бы его — клиент правил
+        # бы текст в двух местах и не понимал, какое сработает.
+        if field == "subtitle" and block_kind == "hero":
+            val = None
         # Мусор в раскладке не пишем — CHECK в БД иначе отдаст 500 вместо
         # понятной реакции; молча приводим к разумному значению.
         if field == "layout" and val not in ("top", "left", "right"):
