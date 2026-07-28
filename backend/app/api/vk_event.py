@@ -1197,7 +1197,7 @@ async def handle_vk_event(body: VkEventRequest):
 # Поля события, нужные для порта ЛС-воронки (зеркало SELECT'ов в TG-боте).
 _EVENT_FUNNEL_FIELDS = """
     e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
-    e.landing_url, e.vip_url, e.vip_button_label,
+    e.landing_url, e.vip_url, e.vip_button_label, e.skip_contact_form,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
@@ -1275,6 +1275,30 @@ async def send_vk_event_funnel(
             attachment = await upload_photo_to_messages(poster_url, peer_id=vk_user_id, token=token)
         except Exception as e:
             logger.warning(f"VK event-funnel poster upload failed ({poster_url}): {e}")
+
+    # ── «Регистрировать без ввода контактных данных» → регистрируем ПРЯМО В БОТЕ
+    # и дальше идём по ветке зарегистрированного (меню). Как в TG
+    # (bot/handlers/start.py) и MAX (max_webhook.py). Сторонний лендинг главнее —
+    # там своя форма и свой webhook регистрации.
+    if (not is_registered and contact_id
+            and event_row["skip_contact_form"]
+            and not (event_row["landing_url"] or "").strip()):
+        from app.services.participant_registration import (
+            finalize_participant_registration,
+        )
+        try:
+            await conn.execute(
+                """INSERT INTO event_participants (event_id, contact_id, is_registered)
+                     VALUES ($1, $2, TRUE)
+                     ON CONFLICT (event_id, contact_id)
+                     DO UPDATE SET is_registered = TRUE""",
+                event_id, contact_id,
+            )
+            await finalize_participant_registration(
+                conn, event_id=event_id, contact_id=contact_id)
+            is_registered = True
+        except Exception as e:
+            logger.warning(f"VK skip_contact_form auto-register failed: {e}")
 
     # ── Зарегистрирован → меню кабинета (порт send_event_menu) ────────────────
     if is_registered:

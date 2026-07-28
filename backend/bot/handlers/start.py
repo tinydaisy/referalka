@@ -1122,6 +1122,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     async with pool.acquire() as db:
         ev = await db.fetchrow(
             """SELECT id, title, landing_url, status, module_slug,
+                      skip_contact_form,
                       (SELECT eo.client_id FROM event_owners eo
                          WHERE eo.event_id = e.id AND eo.status = 'accepted'
                          ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -1186,6 +1187,29 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
 
         # ── Зарегистрированный участник → меню кабинета ───────────────────────
         if is_registered:
+            await send_event_menu(message, ev["id"], contact_id, db)
+            return True
+
+        # ── «Регистрировать без ввода контактных данных» → регистрируем ПРЯМО
+        # В БОТЕ и сразу шлём меню события. Человек уже в боте — имя/ник у нас
+        # есть, спрашивать нечего, и гонять его на веб-форму (или на страницу,
+        # которая всё равно сама зарегистрирует и вернёт) незачем.
+        # Сторонний лендинг главнее: если клиент его задал, ведём туда — там своя
+        # форма и свой webhook регистрации.
+        if (ev["skip_contact_form"] and contact_id
+                and not (ev["landing_url"] or "").strip()):
+            from app.services.participant_registration import (
+                finalize_participant_registration,
+            )
+            await db.execute(
+                """INSERT INTO event_participants (event_id, contact_id, is_registered)
+                     VALUES ($1, $2, TRUE)
+                     ON CONFLICT (event_id, contact_id)
+                     DO UPDATE SET is_registered = TRUE""",
+                ev["id"], contact_id,
+            )
+            await finalize_participant_registration(
+                db, event_id=ev["id"], contact_id=contact_id)
             await send_event_menu(message, ev["id"], contact_id, db)
             return True
 

@@ -1325,11 +1325,12 @@ async def _process_start(
         event_id = None
         event_status = None
         event_landing_url = ""
+        event_skip_contact_form = False
         is_registered = False
         event_poster_url = ""
         if event_slug:
             ev = await conn.fetchrow(
-                """SELECT id, title, status, landing_url,
+                """SELECT id, title, status, landing_url, skip_contact_form,
                           (SELECT url FROM event_posters
                              WHERE event_id = events.id AND day IS NULL
                              ORDER BY CASE orientation
@@ -1349,6 +1350,7 @@ async def _process_start(
                 event_id = ev["id"]
                 event_status = ev["status"]
                 event_landing_url = (ev["landing_url"] or "").strip()
+                event_skip_contact_form = bool(ev["skip_contact_form"])
                 event_poster_url = (ev["poster_url"] or "").strip()
                 referrer_participant_id = None
                 if referrer_contact_id:
@@ -1399,6 +1401,31 @@ async def _process_start(
                 except Exception as e:
                     logger.warning(f"MAX event menu failed for user={user_id}: {e}")
                 return
+            # «Регистрировать без ввода контактных данных» → регистрируем ПРЯМО В
+            # БОТЕ и сразу шлём меню события (как в TG: bot/handlers/start.py).
+            # Сторонний лендинг главнее — там своя форма и свой webhook.
+            if (event_skip_contact_form and contact_id and event_id
+                    and not event_landing_url):
+                from app.services.participant_registration import (
+                    finalize_participant_registration,
+                )
+                await conn.execute(
+                    """INSERT INTO event_participants (event_id, contact_id, is_registered)
+                         VALUES ($1, $2, TRUE)
+                         ON CONFLICT (event_id, contact_id)
+                         DO UPDATE SET is_registered = TRUE""",
+                    event_id, contact_id,
+                )
+                await finalize_participant_registration(
+                    conn, event_id=event_id, contact_id=contact_id)
+                try:
+                    await _send_max_event_menu(
+                        chat_id, event_id, contact_id, bot_token, conn,
+                    )
+                except Exception as e:
+                    logger.warning(f"MAX event menu (skip_contact_form) failed: {e}")
+                return
+
             # НЕ зарегистрирован → 1 кнопка «ЗАРЕГИСТРИРОВАТЬСЯ» + афиша (как в TG).
             # Веб-ссылка: сторонний лендинг (если задан и опубликован) с ПОЛНЫМ
             # набором параметров (pluson_contact_id, pluson_participant_id, pid,
