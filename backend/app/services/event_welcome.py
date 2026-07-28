@@ -254,6 +254,113 @@ def _fmt_event_period(start_at, end_at, is_conference: bool) -> str:
     return f"{_fmt_date(s)} {s_time} МСК"
 
 
+async def resolve_event_finish_state(conn, event_id: int) -> dict:
+    """Завершилось ли событие и какое у клиента следующее предстоящее.
+
+    Единая точка расчёта для всех мест, где нужно поведение «событие
+    закончилось» (меню бота `/menu{id}`, приветствие при открытии события).
+    Даты конференций/турниров берутся из программы (`conf_days`) и этапов
+    (`conf_stages`) — так же, как в календаре Mini App; `events.start_at/end_at`
+    для этих модулей игнорируются.
+
+    Возвращает:
+        {
+          "is_ended": bool,            # событие уже прошло
+          "title": str,                # название текущего события
+          "start_at" / "end_at",       # эффективные даты текущего
+          "is_conference": bool,
+          "successor": dict | None,    # ближайшее предстоящее событие клиента
+        }
+    Событие не найдено → `{"is_ended": False, "successor": None, ...}`.
+    """
+    ev = await conn.fetchrow(
+        """SELECT e.id, e.slug, e.title, e.status, e.module_slug,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
+                  CASE WHEN e.module_slug IN ('conference','turnir') THEN LEAST(
+                      (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
+                                AT TIME ZONE 'Europe/Moscow'
+                         FROM conf_days d
+                        WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                        ORDER BY d.day_date ASC LIMIT 1),
+                      (SELECT MIN(st.start_date::timestamp AT TIME ZONE 'Europe/Moscow')
+                         FROM conf_stages st
+                        WHERE st.event_id = e.id AND st.start_date IS NOT NULL)
+                  ) ELSE e.start_at END AS effective_start_at,
+                  CASE WHEN e.module_slug IN ('conference','turnir') THEN GREATEST(
+                      (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
+                                AT TIME ZONE 'Europe/Moscow'
+                         FROM conf_days d
+                        WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                        ORDER BY d.day_date DESC LIMIT 1),
+                      (SELECT MAX((st.end_date + '23:59'::time) AT TIME ZONE 'Europe/Moscow')
+                         FROM conf_stages st
+                        WHERE st.event_id = e.id AND st.end_date IS NOT NULL)
+                  ) ELSE e.end_at END AS effective_end_at
+             FROM events e WHERE e.id = $1 LIMIT 1""",
+        event_id,
+    )
+    if not ev:
+        return {"is_ended": False, "title": "", "start_at": None, "end_at": None,
+                "is_conference": False, "successor": None}
+
+    now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+    is_ended = (ev["status"] == "ended") or (
+        ev["effective_end_at"] is not None and ev["effective_end_at"] < now_msk
+    )
+
+    successor = None
+    if is_ended and ev["client_id"]:
+        successor = await conn.fetchrow(
+            """
+            SELECT * FROM (
+                SELECT e.id, e.slug, e.title, e.module_slug,
+                       CASE WHEN e.module_slug IN ('conference','turnir') THEN LEAST(
+                           (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
+                                     AT TIME ZONE 'Europe/Moscow'
+                              FROM conf_days d
+                             WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                             ORDER BY d.day_date ASC LIMIT 1),
+                           (SELECT MIN(st.start_date::timestamp AT TIME ZONE 'Europe/Moscow')
+                              FROM conf_stages st
+                             WHERE st.event_id = e.id AND st.start_date IS NOT NULL)
+                       ) ELSE e.start_at END AS effective_start_at,
+                       CASE WHEN e.module_slug IN ('conference','turnir') THEN GREATEST(
+                           (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
+                                     AT TIME ZONE 'Europe/Moscow'
+                              FROM conf_days d
+                             WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                             ORDER BY d.day_date DESC LIMIT 1),
+                           (SELECT MAX((st.end_date + '23:59'::time) AT TIME ZONE 'Europe/Moscow')
+                              FROM conf_stages st
+                             WHERE st.event_id = e.id AND st.end_date IS NOT NULL)
+                       ) ELSE e.end_at END AS effective_end_at
+                  FROM events e
+                 WHERE EXISTS(SELECT 1 FROM event_owners eo
+                               WHERE eo.event_id = e.id AND eo.client_id = $1
+                                 AND eo.status = 'accepted')
+                   AND e.status = 'published'
+                   AND e.id <> $2
+            ) t
+            WHERE t.effective_start_at IS NOT NULL
+              AND t.effective_start_at > NOW()
+            ORDER BY t.effective_start_at ASC
+            LIMIT 1
+            """,
+            ev["client_id"], ev["id"],
+        )
+
+    return {
+        "is_ended": is_ended,
+        "title": ev["title"] or "",
+        "start_at": ev["effective_start_at"],
+        "end_at": ev["effective_end_at"],
+        "is_conference": ev["module_slug"] in ("conference", "turnir"),
+        "successor": dict(successor) if successor else None,
+    }
+
+
 async def send_event_open_message(
     pool,
     *,

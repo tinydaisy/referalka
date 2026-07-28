@@ -311,10 +311,26 @@ async def public_client_events(
               LEFT JOIN conf_dates cd        ON cd.event_id = e.id
               LEFT JOIN user_participation up ON up.event_id = e.id
              WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted') AND e.status IN ('published','ended')
-             ORDER BY COALESCE(
+             -- Порядок: «идёт сейчас» и «скоро» — по возрастанию даты старта
+             -- (ближайшее сверху). Архив прошедших — по УБЫВАНИЮ даты
+             -- окончания (самое свежее сверху), иначе в календаре наверху
+             -- архива висели бы события двухлетней давности.
+             ORDER BY CASE WHEN COALESCE(
+                        CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END,
+                        e.end_at
+                      ) < NOW() THEN 1 ELSE 0 END,
+                      CASE WHEN COALESCE(
+                        CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END,
+                        e.end_at
+                      ) < NOW() THEN NULL
+                      ELSE COALESCE(
                         CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END,
                         e.start_at
-                      ) NULLS LAST""",
+                      ) END NULLS LAST,
+                      COALESCE(
+                        CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END,
+                        e.end_at
+                      ) DESC NULLS LAST""",
         client_id,
         str(tg_id) if tg_id else None,
     )

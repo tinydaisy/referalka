@@ -1254,8 +1254,75 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     return True
 
 
+async def _send_finished_event_menu(message: Message, ev, contact_id: int | None, db) -> bool:
+    """Если событие завершилось — вместо меню кабинета шлёт «событие прошло».
+
+    Вернёт True, если сообщение отправлено (вызывающий должен выйти), и False,
+    если событие ещё идёт/впереди (нужно обычное меню).
+
+    Признак завершения и ближайшее предстоящее событие организатора берутся из
+    общего хелпера `resolve_event_finish_state` — того же, на котором работает
+    приветствие при открытии события (kind `next_event_cta`/`ecosystem_thanks`).
+    Есть предстоящее событие → кнопка-ссылка прямо на него (Mini App или
+    бот-флоу — по `clients.default_link_mode`, как у «Кабинет·Подарки»).
+    Нет предстоящих → только текст, без кнопок.
+    """
+    from app.services.event_welcome import resolve_event_finish_state, _fmt_event_period
+
+    try:
+        state = await resolve_event_finish_state(db, ev["id"])
+    except Exception as e:
+        log.warning("resolve_event_finish_state failed for event=%s: %s", ev["id"], e)
+        return False
+
+    if not state["is_ended"]:
+        return False
+
+    title = _html.escape(ev["title"] or "")
+    text = (f"Событие <b>{title}</b> завершилось — спасибо за ваш интерес!")
+
+    succ = state["successor"]
+    rows: list[list[InlineKeyboardButton]] = []
+
+    if succ:
+        succ_title = _html.escape(succ["title"] or "следующее событие")
+        succ_date = _fmt_event_period(
+            succ["effective_start_at"], succ["effective_end_at"],
+            succ["module_slug"] in ("conference", "turnir"),
+        )
+        text += f"\n\nСледующее событие: <b>{succ_title}</b>"
+        if succ_date:
+            text += f"\n🗓 {succ_date}"
+
+        # Ссылка на следующее событие — тем же способом, что «Кабинет·Подарки»:
+        # Mini App клиента, если default_link_mode='miniapp' и есть свой бот,
+        # иначе веб-страница события.
+        succ_url = f"https://pluson.ru/event/{succ['slug']}"
+        if (ev["default_link_mode"] or "miniapp") == "miniapp" and ev["client_id"]:
+            from app.services.share_links import get_client_bot_handles, telegram_link
+            handles = await get_client_bot_handles(db, ev["client_id"])
+            tg_handle = handles.get("telegram")
+            if tg_handle:
+                ma = telegram_link(succ["slug"], bot_handle=tg_handle,
+                                   contact_id=contact_id, link_mode="miniapp")
+                if ma:
+                    succ_url = ma
+        rows.append([InlineKeyboardButton(text="Записаться на следующее", url=succ_url)])
+    else:
+        text += "\n\nСледите за анонсами — скоро расскажем о новых событиях."
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    await message.answer(text, reply_markup=kb, parse_mode="HTML",
+                         disable_web_page_preview=True)
+    return True
+
+
 async def send_event_menu(message: Message, event_id: int, contact_id: int | None, db) -> None:
     """Меню кабинета зарегистрированного участника события.
+
+    ⚠️ Если событие уже завершилось — меню не показывается вовсе: уходит
+    сообщение «событие завершилось» + кнопка на ближайшее предстоящее событие
+    организатора (см. `_send_finished_event_menu`).
 
     Вызывается из ветки «зареган» в `_handle_ref_event_bot_flow` и из команды
     `/menu{event_id}`. Кнопки строятся в зависимости от настроек события:
@@ -1297,6 +1364,13 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
     slug = ev["slug"]
     title = _html.escape(ev["title"] or "")
     cid_q = f"?c={contact_id}" if contact_id else ""
+
+    # Событие уже прошло → меню кабинета не нужно (эфиров/чата/подарков там
+    # больше нет). Вместо него — «событие завершилось» + приглашение на
+    # ближайшее предстоящее событие организатора кнопкой-ссылкой. Если
+    # предстоящих событий нет — только текст благодарности, без кнопок.
+    if await _send_finished_event_menu(message, ev, contact_id, db):
+        return
 
     # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
     # (clients.default_link_mode). miniapp → Mini App клиента; иначе → веб события.
