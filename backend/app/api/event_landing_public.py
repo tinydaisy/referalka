@@ -272,15 +272,13 @@ async def get_public_landing(
 
     # ── Футер: реквизиты + политика + оферта ──────────────────────────────
     if "footer" in kinds and owner:
+        # ⚠️ В подвале лендинга — только «кто продаёт» (ИП с ФИО + ИНН) и
+        # документы. Адрес, ОГРНИП, email и телефон не выносим: они есть в
+        # оферте и политике, на продающей странице это лишний шум.
         data["footer"] = {
-            "legal_form": owner["legal_form"],
             "legal_name": owner["legal_name"],
             "legal_inn": owner["legal_inn"],
             "legal_inn_label": owner["legal_inn_label"] or "ИНН",
-            "legal_ogrn": owner["legal_ogrn"],
-            "legal_address": owner["legal_address"],
-            "email": owner["legal_operator_email"],
-            "phone": owner["legal_operator_phone"],
             # Публичная страница политики появляется только после публикации версии.
             "privacy_url": (
                 f"/c/{owner['id']}/privacy" if owner["privacy_policy_version"] else None

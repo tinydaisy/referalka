@@ -826,12 +826,11 @@ function BlockBody({
     case 'footer': {
       const f = content.footer
       if (!f) return null
-      const legal = [
-        f.legal_name,
-        f.legal_inn && `${f.legal_inn_label} ${f.legal_inn}`,
-        f.legal_ogrn && `ОГРН ${f.legal_ogrn}`,
-        f.legal_address,
-      ].filter(Boolean)
+      // Состав подвала: только ИП с ФИО и ИНН + документы. Адрес, ОГРНИП,
+      // email и телефон в подвал лендинга не выносим — они есть в оферте
+      // и в политике, дублировать их на продающей странице незачем.
+      const legal = [f.legal_name, f.legal_inn && `${f.legal_inn_label} ${f.legal_inn}`]
+        .filter(Boolean)
       return (
         <div className="space-y-3 text-[.9em] opacity-75">
           <div className="flex flex-wrap gap-x-5 gap-y-2">
@@ -841,8 +840,6 @@ function BlockBody({
             {f.offer_url && (
               <a href={f.offer_url} target="_blank" rel="noreferrer" className="lp-link">Оферта</a>
             )}
-            {f.email && <a href={`mailto:${f.email}`} className="lp-link">{f.email}</a>}
-            {f.phone && <a href={`tel:${f.phone}`} className="lp-link">{f.phone}</a>}
           </div>
           {!!legal.length && <div>{legal.join(' · ')}</div>}
           <div className="opacity-60">
