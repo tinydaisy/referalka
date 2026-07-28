@@ -1432,11 +1432,19 @@ function ProgramBlock({
                 type="button"
                 onClick={() => setActive(d.day_number)}
                 className="px-8 py-4 text-[1.15em] font-bold leading-tight transition-transform hover:scale-[1.02] sm:text-[1.3em]"
+                // ⚠️ Это переключатель дней, а не кнопка призыва: красим
+                // акцентным цветом из настроек, без градиента, рамки и тени
+                // фирменной кнопки.
                 style={on
-                  ? { ...btnStyle, borderRadius: 40 }
+                  ? {
+                      borderRadius: 40,
+                      background: iconColor,
+                      color: page.btn_text_color || '#0a1520',
+                      fontFamily: btnStyle.fontFamily,
+                    }
                   : {
                       borderRadius: 40,
-                      background: 'rgba(255,255,255,.08)',
+                      background: hexToRgba(iconColor, 0.12),
                       color: 'inherit',
                       fontFamily: btnStyle.fontFamily,
                     }}
