@@ -79,6 +79,9 @@ export default async function OrderPage({
         event={data.event}
         tariff={tariff}
         offerUrl={data.data?.tariffs?.offer_url || null}
+        privacyUrl={data.data?.tariffs?.privacy_url || null}
+        brandName={data.data?.tariffs?.brand_name || null}
+        ownerName={data.data?.tariffs?.owner_name || null}
         slug={params.slug}
         contactId={searchParams.c || null}
       />

@@ -325,7 +325,18 @@ async def get_public_landing(
             if featured:
                 d["is_featured"] = d["id"] == featured
             items.append(d)
-        data["tariffs"] = {"items": items, "offer_url": offer_url}
+        # Данные для согласий на странице заказа: чья политика и от чьего
+        # имени рассылки. Формулировки те же, что на странице регистрации.
+        data["tariffs"] = {
+            "items": items,
+            "offer_url": offer_url,
+            "privacy_url": (
+                f"/c/{owner['id']}/privacy"
+                if owner and owner["privacy_policy_version"] else None
+            ),
+            "brand_name": (owner["brand_name"] or owner["name"]) if owner else None,
+            "owner_name": owner["name"] if owner else None,
+        }
 
     # ── Подарки за регистрацию ────────────────────────────────────────────
     if "gifts" in kinds:
