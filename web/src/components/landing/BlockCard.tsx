@@ -366,10 +366,10 @@ export default function BlockCard({
               {/* Заголовок: размер, выравнивание, свой цвет — доступно у ВСЕХ
                   блоков, а не только у тех, где правится текст заголовка. */}
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={`Размер заголовка: ${block.title_size || 48} px`}>
+                <Field label={`Размер заголовка: ${block.title_size || (block.kind === 'hero' ? 72 : 48)} px`}>
                   <input
                     type="range" min={16} max={140} step={2}
-                    value={block.title_size || 48}
+                    value={block.title_size || (block.kind === 'hero' ? 72 : 48)}
                     onChange={e => onPatch({ title_size: Number(e.target.value) })}
                     className="w-full"
                   />
@@ -400,7 +400,7 @@ export default function BlockCard({
 
               {/* Размеры остального текста секции — отдельно от заголовка. */}
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={`Размер подзаголовка: ${block.subtitle_size ? `${block.subtitle_size} px` : 'обычный'}`}>
+                <Field label={`Размер ${block.kind === 'hero' ? 'описания' : 'подзаголовка'}: ${block.subtitle_size ? `${block.subtitle_size} px` : 'обычный'}`}>
                   <div className="flex items-center gap-3">
                     <input
                       type="range" min={10} max={64} step={1}

@@ -513,13 +513,22 @@ function BlockBody({
       const isThanks = Array.isArray(bots)
       return (
         <div className="text-center">
-          {/* Дата — над заголовком, как на боевом лендинге. */}
-          {!isThanks && event.start_at && (
-            <p className="mb-4 text-base opacity-80">{formatDate(event.start_at)}</p>
+          {/* Дата: включается галочкой, ставится над заголовком или под
+              подзаголовком. Цвет — основного текста страницы, не акцент. */}
+          {!isThanks && event.start_at && block.show_date !== false
+            && (block.date_position || 'above') === 'above' && (
+            <p className="mb-4 opacity-85" style={{ color: page.color_body || '#FFFFFF' }}>
+              {formatDate(event.start_at)}
+            </p>
           )}
+          {/* Размер задаётся в блоке «Шапка» (title_size). Дефолт крупнее,
+              чем у обычных секций; clamp — чтобы не вылезал на телефоне. */}
           <h1
-            className="text-4xl font-bold uppercase sm:text-6xl md:text-7xl"
-            style={headingStyle}
+            className="font-bold uppercase"
+            style={{
+              ...headingStyle,
+              fontSize: `clamp(${Math.round((block.title_size || 72) * 0.45)}px, ${((block.title_size || 72) / 11).toFixed(1)}vw, ${block.title_size || 72}px)`,
+            }}
           >
             {isThanks ? page.post_pay_title : event.title}
           </h1>
@@ -527,7 +536,8 @@ function BlockBody({
           {isThanks ? (
             <>
               {page.post_pay_text && (
-                <p className="mx-auto mt-5 max-w-2xl whitespace-pre-wrap text-lg opacity-90">
+                <p className="mx-auto mt-5 max-w-2xl whitespace-pre-wrap opacity-90"
+                   style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}>
                   {page.post_pay_text}
                 </p>
               )}
@@ -549,8 +559,15 @@ function BlockBody({
                   Отдельного поля в конструкторе нет: название и описание
                   правятся в одном месте, на лендинге не дублируются. */}
               {event.description && (
-                <p className="mx-auto mt-5 max-w-3xl text-lg opacity-90 sm:text-xl">
+                <p className="mx-auto mt-5 max-w-3xl opacity-90"
+                   style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}>
                   {event.description}
+                </p>
+              )}
+              {event.start_at && block.show_date !== false
+                && block.date_position === 'below' && (
+                <p className="mt-4 opacity-85" style={{ color: page.color_body || '#FFFFFF' }}>
+                  {formatDate(event.start_at)}
                 </p>
               )}
               {/* Счётчик мест — рядом с кнопкой, а не отдельной секцией.
@@ -559,8 +576,7 @@ function BlockBody({
                 block.seats_position === 'side' ? 'flex-row' : 'flex-col'
               }`}>
                 {block.show_seats && content.seats && (
-                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius}
-                              label={block.title} />
+                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
                 )}
                 {/* Подпись кнопки — только из настроек блока. Значений по
                     умолчанию в коде нет: не задана — кнопки не будет. */}
@@ -586,8 +602,7 @@ function BlockBody({
     case 'seats':
       return content.seats
         ? <div className="text-center">
-            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius}
-                        label={block.title} />
+            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
           </div>
         : null
 
@@ -965,34 +980,41 @@ function BlockBody({
 
 /* ── Утилиты ────────────────────────────────────────────────────────────── */
 
-/** Бейдж «осталось мест» — цифра металликом из цвета иконок темы. */
-function SeatsBadge({
-  seats, iconColor, radius, label,
-}: {
-  seats: any
-  iconColor: string
-  radius: number
-  /** Подпись задаётся в блоке; пусто — понятный текст по смыслу. */
-  label?: string | null
-}) {
+/**
+ * Бейдж «осталось мест»: цифра металликом из цвета иконок.
+ * Подпись и её положение (сверху / слева / справа от рамки) задаются рядом
+ * с числом мест — в настройках события, а не в двух разных местах.
+ */
+function SeatsBadge({ seats, iconColor, radius }: any) {
   const metalText: React.CSSProperties = {
     background: metallic(iconColor),
     WebkitBackgroundClip: 'text',
     backgroundClip: 'text',
     color: 'transparent',
   }
-  return (
-    <div className="inline-flex flex-col items-center gap-1 px-6 py-3"
-         style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
-                  background: 'rgba(255,255,255,.05)' }}>
-      <span className="text-[13px] font-semibold uppercase tracking-widest opacity-90">
-        {label}
+  const pos = seats.label_position || 'top'
+  const label = seats.label
+    ? <span className="text-[.85em] font-semibold uppercase tracking-widest opacity-90">
+        {seats.label}
       </span>
+    : null
+
+  const box = (
+    <span className="inline-flex items-center justify-center px-6 py-3"
+          style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
+                   background: 'rgba(255,255,255,.05)' }}>
       <span className="text-4xl font-bold leading-none" style={metalText}>
         {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
       </span>
-    </div>
+    </span>
   )
+
+  if (!label) return box
+  return pos === 'top'
+    ? <span className="inline-flex flex-col items-center gap-2">{label}{box}</span>
+    : <span className="inline-flex items-center gap-3">
+        {pos === 'left' ? <>{label}{box}</> : <>{box}{label}</>}
+      </span>
 }
 
 /**

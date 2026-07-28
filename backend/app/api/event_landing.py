@@ -173,6 +173,8 @@ class BlockPatch(BaseModel):
     columns: Optional[int] = None
     display_mode: Optional[str] = None
     show_seats: Optional[bool] = None
+    show_date: Optional[bool] = None
+    date_position: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
@@ -320,7 +322,8 @@ async def get_landing(
     await _assert_feature(db, client_id)
 
     ev = await db.fetchrow(
-        "SELECT slug, title, seats_total FROM events WHERE id = $1", event_id
+        "SELECT slug, title, seats_total, seats_label, seats_label_position "
+        "FROM events WHERE id = $1", event_id
     )
 
     pages = []
@@ -343,6 +346,8 @@ async def get_landing(
             "slug": ev["slug"],
             "title": ev["title"],
             "seats_total": ev["seats_total"],
+            "seats_label": ev["seats_label"],
+            "seats_label_position": ev["seats_label_position"],
             "seats_taken": taken or 0,
         },
         "fonts": FONTS,
@@ -485,7 +490,7 @@ async def patch_block(
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
-        "cards_bordered", "card_style", "columns", "display_mode", "show_seats", "seats_position",
+        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
@@ -521,6 +526,8 @@ async def patch_block(
             val = "border"
         if field == "display_mode" and val not in ("grid", "scroll"):
             val = "grid"
+        if field == "date_position" and val not in ("above", "below"):
+            val = "above"
         if field == "columns" and val is not None:
             val = max(1, min(6, int(val)))
         if field == "seats_position" and val not in ("above", "side"):
@@ -659,5 +666,14 @@ async def set_seats(
     total = data.get("seats_total")
     if total is not None:
         total = max(0, int(total))
-    await db.execute("UPDATE events SET seats_total = $1 WHERE id = $2", total, event_id)
-    return {"ok": True, "seats_total": total}
+    label = data.get("seats_label")
+    pos = data.get("seats_label_position")
+    if pos not in ("top", "left", "right"):
+        pos = "top"
+    await db.execute(
+        "UPDATE events SET seats_total = $1, seats_label = $2, seats_label_position = $3 "
+        "WHERE id = $4",
+        total, (label or None), pos, event_id,
+    )
+    return {"ok": True, "seats_total": total, "seats_label": label,
+            "seats_label_position": pos}
