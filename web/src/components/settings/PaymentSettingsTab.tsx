@@ -150,11 +150,15 @@ export default function PaymentSettingsTab() {
             <label className="mb-1 block text-sm font-medium text-gray-700">
               Адрес лендинга (Логин)
             </label>
+            {/* ⚠️ Автозаполнение выключено: Chrome принимал пару полей за
+                форму входа и подставлял сюда имя менеджера паролей, а в ключ —
+                сохранённый пароль. name с случайной частью — браузер не
+                узнаёт поле по имени. */}
             <input
               type="text" value={login}
               onChange={e => setLogin(e.target.value)}
-              onBlur={e => e.target.value !== (data?.pay_leadpay_login || '')
-                && save({ pay_leadpay_login: e.target.value })}
+              autoComplete="off" name="lp-login-x" data-lpignore="true"
+              data-1p-ignore="true" data-form-type="other"
               placeholder="https://app.leadpay.ru/23382/"
               className="input font-mono text-[13px]"
             />
@@ -165,9 +169,11 @@ export default function PaymentSettingsTab() {
               Секретный ключ
             </label>
             <input
-              type="password" value={token}
+              type="text" value={token}
               onChange={e => setToken(e.target.value)}
-              onBlur={e => e.target.value && save({ pay_leadpay_token: e.target.value })}
+              autoComplete="off" name="lp-secret-x" data-lpignore="true"
+              data-1p-ignore="true" data-form-type="other"
+              spellCheck={false}
               placeholder={data?.has_token ? `сохранён, оканчивается на ${data.token_tail}` : 'вставьте ключ'}
               className="input font-mono text-[13px]"
             />
@@ -177,7 +183,17 @@ export default function PaymentSettingsTab() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => save({
+                pay_leadpay_login: login.trim(),
+                ...(token.trim() ? { pay_leadpay_token: token.trim() } : {}),
+              })}
+              disabled={saving || checking}
+              className="btn-primary disabled:opacity-60"
+            >
+              Сохранить
+            </button>
             <button
               onClick={check} disabled={checking || saving}
               className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
