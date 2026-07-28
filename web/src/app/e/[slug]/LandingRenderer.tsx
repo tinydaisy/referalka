@@ -1035,9 +1035,16 @@ function BlockBody({
     /* ── Галерея / отзывы ──────────────────────────────────────────────── */
     case 'gallery': {
       const g = items && !Array.isArray(items) ? items : {}
-      const list = Array.isArray(g.list) ? g.list.filter((x: any) => x?.url) : []
+      // Источник: свои картинки в блоке либо общая база отзывов по тегам.
+      const fromBase = block.gallery_source === 'testimonials'
+        ? (content.testimonials?.[String(block.id)] || [])
+        : null
+      const list = fromBase
+        ? fromBase.map((t: any) => ({ url: t.url, caption: t.caption || t.title, kind: t.kind }))
+        : (Array.isArray(g.list) ? g.list.filter((x: any) => x?.url) : [])
       if (!list.length) return null
-      const isVideo = g.media === 'video'
+      // При выборе из базы тип берём у самого отзыва (фото/видео).
+      const isVideo = fromBase ? undefined : g.media === 'video'
       const carousel = (g.mode || 'carousel') === 'carousel'
 
       const cards = list.map((x: any, i: number) => (
@@ -1046,7 +1053,7 @@ function BlockBody({
           className={carousel ? 'w-[min(288px,80vw)] shrink-0 snap-start sm:w-96' : ''}
           style={cardStyle}
         >
-          {isVideo ? (
+          {(isVideo ?? x.kind === 'video') ? (
             <div className="aspect-video w-full overflow-hidden" style={{ borderRadius: radius }}>
               <iframe
                 src={embedUrl(x.url)}
@@ -1207,8 +1214,12 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
   }
   const pos = seats.label_position || 'top'
   const label = seats.label
-    ? <span className="font-semibold uppercase tracking-widest opacity-90"
-            style={{ fontSize: seats.size ? `${Math.round(seats.size * 0.32)}px` : '.85em' }}>
+    ? <span className="font-semibold uppercase tracking-widest"
+            style={{
+              // Подпись — тем же акцентным цветом, что и цифра (цвет иконок темы).
+              color: iconColor,
+              fontSize: seats.size ? `${Math.round(seats.size * 0.34)}px` : '.9em',
+            }}>
         {seats.label}
       </span>
     : null
@@ -1218,7 +1229,7 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
           style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
                    background: 'rgba(255,255,255,.05)' }}>
       <span className="font-bold leading-none"
-            style={{ ...metalText, fontSize: seats.size ? `${seats.size}px` : '2.4em' }}>
+            style={{ ...metalText, fontSize: seats.size ? `${seats.size}px` : '2.6em' }}>
         {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
       </span>
     </span>

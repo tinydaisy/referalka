@@ -239,6 +239,42 @@ export default function BlockCard({
               {has('numbers') && <NumbersEditor items={numbers} onChange={setNumbers} />}
 
               {has('gallery') && (
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Откуда брать содержимое
+                  </label>
+                  <select
+                    value={block.gallery_source || 'manual'}
+                    onChange={e => onPatch({ gallery_source: e.target.value })}
+                    className="input bg-white"
+                  >
+                    <option value="manual">Загрузить прямо сюда</option>
+                    <option value="testimonials">Из базы «Отзывы и кейсы» по меткам</option>
+                  </select>
+                  {block.gallery_source === 'testimonials' && (
+                    <div className="mt-3">
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Метки (через запятую)
+                      </label>
+                      <input
+                        type="text"
+                        defaultValue={(block.gallery_tags || []).join(', ')}
+                        onBlur={e => onPatch({
+                          gallery_tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean),
+                        })}
+                        placeholder="конференция, частушки"
+                        className="input"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Пусто — попадут все отзывы. Метки задаются в разделе
+                        «Отзывы и кейсы».
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {has('gallery') && (block.gallery_source || 'manual') === 'manual' && (
                 <GalleryEditor
                   eventId={eventId}
                   mode={gal.mode || 'carousel'}

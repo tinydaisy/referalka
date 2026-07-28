@@ -537,6 +537,37 @@ export const api = {
       }),
   },
 
+  // База оферт клиента (миграция 249). Гейт — фича offers.
+  offers: {
+    list: () => request('/api/v1/clients/me/offers'),
+    get: (id: number) => request(`/api/v1/clients/me/offers/${id}`),
+    create: (data: any) =>
+      request('/api/v1/clients/me/offers', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/clients/me/offers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: number) =>
+      request(`/api/v1/clients/me/offers/${id}`, { method: 'DELETE' }),
+  },
+
+  // База отзывов и кейсов (миграция 249). Гейт — фича testimonials.
+  testimonials: {
+    list: (params?: { kind?: string; tag?: string }) => {
+      const q = new URLSearchParams()
+      if (params?.kind) q.set('kind', params.kind)
+      if (params?.tag) q.set('tag', params.tag)
+      const qs = q.toString()
+      return request(`/api/v1/clients/me/testimonials${qs ? `?${qs}` : ''}`)
+    },
+    create: (data: any) =>
+      request('/api/v1/clients/me/testimonials', { method: 'POST', body: JSON.stringify(data) }),
+    bulk: (data: any) =>
+      request('/api/v1/clients/me/testimonials/bulk', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/clients/me/testimonials/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: number) =>
+      request(`/api/v1/clients/me/testimonials/${id}`, { method: 'DELETE' }),
+  },
+
   // Конструктор лендинга события (миграция 240). Гейт — фича event_landing.
   eventLanding: {
     get: (eventId: number) => request(`/api/v1/events/${eventId}/landing`),

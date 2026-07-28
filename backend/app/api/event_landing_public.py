@@ -71,7 +71,7 @@ async def get_public_landing(
 
     event = await db.fetchrow(
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
-                  e.status, e.module_slug, e.seats_total, e.offer_url,
+                  e.status, e.module_slug, e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
@@ -181,6 +181,26 @@ async def get_public_landing(
             {**dict(r), "achievements": _jsonb(r["achievements"])} for r in rows
         ]
 
+    # ── Галереи из базы отзывов ───────────────────────────────────────────
+    # Блок галереи может брать содержимое не из своих items, а из общей базы
+    # отзывов по тегам — тогда один и тот же отзыв переиспользуется на разных
+    # лендингах и правится в одном месте.
+    gal_blocks = [b for b in blocks
+                  if b["kind"] == "gallery" and b["gallery_source"] == "testimonials"]
+    if gal_blocks and owner:
+        data["testimonials"] = {}
+        for b in gal_blocks:
+            tags = list(b["gallery_tags"] or [])
+            rows = await db.fetch(
+                """SELECT kind, url, preview_url, title, caption
+                     FROM client_testimonials
+                    WHERE client_id = $1 AND is_active
+                      AND ($2::text[] = '{}' OR tags && $2::text[])
+                    ORDER BY sort_order, id""",
+                owner["id"], tags,
+            )
+            data["testimonials"][str(b["id"])] = [dict(r) for r in rows]
+
     # ── Партнёры ──────────────────────────────────────────────────────────
     # Те же карточки коллабораторов, что и спикеры, но роли партнёрские.
     # Порядок — общая order_by_sql, как везде в проекте.
@@ -269,9 +289,18 @@ async def get_public_landing(
             "ORDER BY sort_order, id",
             event["id"],
         )
+        # Оферта: привязанный документ из базы приоритетнее старой ссылки.
+        offer_url = event["offer_url"]
+        if event["offer_id"]:
+            o = await db.fetchrow(
+                "SELECT slug, external_url FROM client_offers WHERE id = $1 AND is_active",
+                event["offer_id"],
+            )
+            if o:
+                offer_url = o["external_url"] or f"/o/{o['slug']}"
         data["tariffs"] = {
             "items": [dict(r) for r in rows],
-            "offer_url": event["offer_url"],
+            "offer_url": offer_url,
         }
 
     # ── Подарки за регистрацию ────────────────────────────────────────────

@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -43,6 +43,8 @@ export default function Sidebar() {
   // Одно-единственное событие, не список: пункт ведёт сразу внутрь него.
   const isSystemService = !!me?.is_system_service
   // «Партнёры» (collaborations) — по фиче event_organizers (vip + admin).
+  const hasTestimonials = features.includes('testimonials')
+  const hasOffers = features.includes('offers')
   const hasEventOrganizers = features.includes('event_organizers')
 
   // Коллаб-событие открывается по тому же пути /dashboard/events/{id}, что и обычное
@@ -102,6 +104,9 @@ export default function Sidebar() {
         // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
         ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
+        // Отзывы/кейсы и оферты — по своим фичам (миграция 249).
+        ...(hasTestimonials ? [{ href: '/dashboard/testimonials', label: 'Отзывы и кейсы', icon: MessageSquareQuote }] : []),
+        ...(hasOffers ? [{ href: '/dashboard/offers', label: 'Оферты', icon: FileText }] : []),
         { href: '/dashboard/analytics', label: t.nav.analytics, icon: BarChart3 },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),
