@@ -131,7 +131,15 @@ export default function OrderForm({
 
       // Бесплатный тариф — сразу в кабинет; платный — на оплату.
       if (data.redirect) { location.href = data.redirect; return }
-      if (data.payment_url) { location.href = data.payment_url; return }
+      if (data.payment_url) {
+        // ⚠️ Запоминаем номер заказа В БРАУЗЕРЕ: платёжная система может
+        // вернуть на адрес из СВОИХ настроек, без нашего ?order=. Тогда
+        // страница благодарности возьмёт номер отсюда и всё равно покажет
+        // нужное событие и его чаты.
+        try { localStorage.setItem('lastOrderId', String(data.order_id)) } catch {}
+        location.href = data.payment_url
+        return
+      }
       location.href = `/thanks?order=${data.order_id}`
     } catch (e: any) {
       setError(e?.message || 'Не удалось оформить заказ')

@@ -23,11 +23,19 @@ export default function ThanksContent({
   failed: boolean
 }) {
   const [order, setOrder] = useState<any>(null)
-  const [loading, setLoading] = useState(!!orderId)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!orderId) { setLoading(false); return }
-    fetch(`/api/v1/public/event-orders/${encodeURIComponent(orderId)}`)
+    // ⚠️ Номер заказа берём из адреса, а если его там нет — из памяти
+    // браузера: платёжная система возвращает на адрес из своих настроек и
+    // наш ?order= теряется. Без этого страница показывала общий текст
+    // вместо события и чатов.
+    let id = orderId
+    if (!id) {
+      try { id = localStorage.getItem('lastOrderId') } catch {}
+    }
+    if (!id) { setLoading(false); return }
+    fetch(`/api/v1/public/event-orders/${encodeURIComponent(id)}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => setOrder(d))
       .catch(() => {})
