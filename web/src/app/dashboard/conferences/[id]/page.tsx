@@ -20,6 +20,7 @@ import ReportTab from './tabs/ReportTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
+import LandingTab from '@/app/dashboard/events/[id]/tabs/LandingTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
 import BroadcastTemplatesView from './broadcasts/templates/page'
 import BroadcastQueueView from './broadcasts/queue/page'
@@ -29,8 +30,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -48,6 +49,8 @@ export default function ConferencePage() {
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
   // Раздел «Вебинары» — по фиче webinar_room (Экстра, своя комната) или webinar_link (Профи, ссылка).
+  // Конструктор лендинга — по фиче event_landing (миграция 240).
+  const hasLanding = (me?.features || []).includes('event_landing')
   const hasWebinar = (me?.features || []).includes('webinar_room') || (me?.features || []).includes('webinar_link')
 
   async function handleSalebotExport() {
@@ -86,6 +89,7 @@ export default function ConferencePage() {
         { id: 'settings', label: 'Описание' },
         { id: 'program',  label: t.conferences.tabs.program },
         { id: 'posters',  label: t.conferences.tabs.posters },
+        ...(hasLanding ? [{ id: 'landing' as Tab, label: 'Лендинг' }] : []),
         { id: 'referral', label: 'Реф-программа' },
         { id: 'raffle',   label: t.conferences.tabs.raffle },
         { id: 'nurture',  label: 'Воронка догрева' },
@@ -249,6 +253,7 @@ export default function ConferencePage() {
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
+      {tab === 'landing'      && hasLanding && <LandingTab eventId={eventId} event={event} />}
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}

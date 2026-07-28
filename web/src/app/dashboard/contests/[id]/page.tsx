@@ -10,8 +10,10 @@ import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import ContestOverviewTab from './tabs/ContestOverviewTab'
 import ContestReportTab from './tabs/ContestReportTab'
+import LandingTab from '../../events/[id]/tabs/LandingTab'
+import { useMe } from '@/hooks/useMe'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'voters' | 'welcome' | 'report'
+type TabKey = 'overview' | 'posters' | 'landing' | 'referral' | 'voters' | 'welcome' | 'report'
 
 export default function ContestPage() {
   const { id } = useParams()
@@ -50,12 +52,17 @@ export default function ContestPage() {
 
   // Группировка вкладок: Настройки / Люди / Отслеживания / Рассылки.
   type GroupKey = 'settings_grp' | 'people' | 'tracking'
+  // Конструктор лендинга — по фиче event_landing (миграция 240).
+  const { me } = useMe()
+  const hasLanding = (me?.features || []).includes('event_landing')
+
   const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
       tabs: [
         { key: 'overview', label: 'Описание' },
         { key: 'posters',  label: 'Афиши' },
+        ...(hasLanding ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
         { key: 'referral', label: 'Реф-программа' },
         { key: 'welcome',  label: 'Приветствие' },
       ],
@@ -133,6 +140,7 @@ export default function ContestPage() {
       {/* Tab content */}
       {activeTab === 'overview' && <ContestOverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'  && <PostersTab eventId={eventId} />}
+      {activeTab === 'landing'  && hasLanding && <LandingTab eventId={eventId} event={event} />}
       {activeTab === 'referral' && <ReferralProgramTab eventId={eventId} moduleSlug="contest" />}
       {activeTab === 'voters'   && <EventParticipants eventId={eventId} moduleSlug="contest" />}
       {activeTab === 'welcome'  && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
