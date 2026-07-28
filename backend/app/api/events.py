@@ -904,6 +904,7 @@ async def check_chats(
 async def event_participants(
     event_id: int,
     registered: str = "all",  # all | yes | no
+    paid: str = "all",        # all | yes | no — оплатил ли хоть один тариф
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
@@ -920,6 +921,16 @@ async def event_participants(
     elif registered == "no":
         where_extra = " AND ep.is_registered = FALSE"
 
+    # Оплатившие — те, у кого есть хоть один тариф со статусом paid.
+    _PAID_EXISTS = (
+        "EXISTS (SELECT 1 FROM event_participant_tariffs pt "
+        "WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
+    )
+    if paid == "yes":
+        where_extra += f" AND {_PAID_EXISTS}"
+    elif paid == "no":
+        where_extra += f" AND NOT {_PAID_EXISTS}"
+
     rows = await db.fetch(
         f"""SELECT ep.id,
                   c.id AS contact_id,
@@ -930,6 +941,13 @@ async def event_participants(
                   (SELECT COALESCE(NULLIF(cl.brand_name, ''), cl.name)
                      FROM clients cl WHERE cl.id = c.client_id) AS organizer_name,
                   c.ref_code, ep.referrer_ref_code,
+                  -- Сколько человек заплатил за это событие и за что именно.
+                  (SELECT COALESCE(SUM(pt.amount), 0) FROM event_participant_tariffs pt
+                    WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_amount,
+                  (SELECT STRING_AGG(t.title, ', ' ORDER BY t.sort_order)
+                     FROM event_participant_tariffs pt
+                     JOIN event_tariffs t ON t.id = pt.tariff_id
+                    WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_tariffs,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
                   ep.link_clicked_at, ep.chat_check_at,
                   c.name AS contact_name,

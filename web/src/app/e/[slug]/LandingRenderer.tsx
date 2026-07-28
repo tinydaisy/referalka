@@ -249,6 +249,9 @@ export default function LandingRenderer({
         /* ⚠️ min-width:0 + max-width:100% обязательны: flex-контейнер без них
            растягивается по содержимому и распирает страницу — появлялась
            горизонтальная прокрутка ВСЕЙ страницы вместо прокрутки ленты. */
+        /* Лента: пока карточки помещаются — стоят по центру, дальше
+           обычная прокрутка от левого края. */
+        .lp-scroll { justify-content: safe center; }
         .lp-scroll {
           min-width: 0;
           max-width: 100%;
@@ -279,7 +282,9 @@ export default function LandingRenderer({
            в нечитаемые полоски. */
         /* ⚠️ min() везде: если клиент выбрал 1 или 2 колонки, промежуточные
            брейкпоинты не должны навязывать больше — настройка всегда потолок. */
-        .lp-grid { grid-template-columns: 1fr; }
+        /* ⚠️ justify-content: center — когда карточек меньше, чем колонок,
+           ряд не липнет к левому краю, а стоит по центру. */
+        .lp-grid { grid-template-columns: 1fr; justify-content: center; }
         /* Цифры на телефоне — всегда 2 в ряд: по одной они растягивают
            секцию в бесконечную колонку, а цифра узкая и вполне помещается. */
         .lp-grid-2sm { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 4)), 1fr); }

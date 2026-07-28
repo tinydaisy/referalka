@@ -457,6 +457,18 @@ function ContactCard({
           )}
         </div>
 
+        {/* Колонка «Оплатил» — сумма по всем оплаченным тарифам события. */}
+        <div className="w-24 shrink-0 text-center">
+          {Number(p.paid_amount) > 0 ? (
+            <span title={p.paid_tariffs || ''}
+                  className="inline-block rounded-md bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
+              {Number(p.paid_amount).toLocaleString('ru-RU')} ₽
+            </span>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          )}
+        </div>
+
         {/* Колонка «Зарегистрирован» — чекбокс */}
         <div className="w-24 flex justify-center shrink-0">
           <button
@@ -623,6 +635,7 @@ function ListHeader({ isCollab }: { isCollab?: boolean }) {
       {isCollab && <div className="w-40 shrink-0">Организатор</div>}
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
+      <div className="w-24 text-center">Оплатил</div>
       <div className="w-24 text-center">Зарегистр.</div>
       <div className="w-24 text-center">В чате ТГ</div>
       <div className="w-24 text-center">Подписка</div>
@@ -913,6 +926,8 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  // Фильтр по оплате: показать только оплативших или только без оплаты.
+  const [paidFilter, setPaidFilter] = useState<'all' | 'yes' | 'no'>('all')
   // Фильтр по площадке × этапу (управляется кликами по таблице статистики)
   const [pFilter, setPFilter] = useState<ParticipantFilter>({ platform: 'all', stage: 'landed' })
   const [showAdd, setShowAdd] = useState(false)
@@ -1016,6 +1031,9 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
       // Фильтр по площадке × этапу (клик в таблице статистики)
       if (!hasPlatform(p, pFilter.platform)) return false
       if (!matchStage(p, pFilter.stage)) return false
+      // Оплатившие — у кого сумма по оплаченным тарифам больше нуля.
+      if (paidFilter === 'yes' && !(Number(p.paid_amount) > 0)) return false
+      if (paidFilter === 'no' && Number(p.paid_amount) > 0) return false
       if (!q) return true
       const name = [p.first_name, p.last_name].filter(Boolean).join(' ').toLowerCase()
       const username = (p.username || '').toLowerCase().replace(/^@+/, '')
@@ -1030,7 +1048,7 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
         (p.salebot_id || '').includes(q)
       )
     })
-  }, [participants, search, pFilter])
+  }, [participants, search, pFilter, paidFilter])
 
   if (loading && participants.length === 0) {
     return <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
@@ -1133,6 +1151,34 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
           <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
             <X size={14} />
           </button>
+        )}
+      </div>
+
+      {/* Фильтр по оплате — рядом с поиском, чтобы быстро вытащить платящих. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {([
+          ['all', 'Все'], ['yes', 'Оплатили'], ['no', 'Без оплаты'],
+        ] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setPaidFilter(k as any)}
+            className={`rounded-lg border px-3 py-1.5 text-sm ${
+              paidFilter === k
+                ? 'border-brand bg-brand/5 font-medium text-brand'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        {paidFilter === 'yes' && (
+          <span className="text-sm text-gray-500">
+            на сумму{' '}
+            <b className="text-gray-800">
+              {filtered.reduce((sum, p) => sum + Number(p.paid_amount || 0), 0)
+                .toLocaleString('ru-RU')} ₽
+            </b>
+          </span>
         )}
       </div>
 
