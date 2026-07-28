@@ -18,6 +18,7 @@ interface Tariff {
   pay_url: string | null
   sort_order: number
   is_active: boolean
+  is_featured?: boolean
   buyers_count: number
   unpaid_count: number
 }
@@ -45,7 +46,7 @@ interface Buyer {
 }
 
 const emptyForm = {
-  code: '', title: '', description: '', price: '', pay_url: '', is_active: true,
+  code: '', title: '', description: '', price: '', pay_url: '', is_active: true, is_featured: false,
 }
 
 export default function TariffsTab({
@@ -111,6 +112,7 @@ export default function TariffsTab({
       price: t.price != null ? String(t.price) : '',
       pay_url: t.pay_url || '',
       is_active: t.is_active,
+      is_featured: !!t.is_featured,
     })
     setShowForm(true)
   }
@@ -127,6 +129,7 @@ export default function TariffsTab({
       price: form.price.trim() ? parseInt(form.price.trim(), 10) : null,
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
+      is_featured: form.is_featured,
     }
     setSaving(true)
     try {
@@ -313,6 +316,11 @@ export default function TariffsTab({
               <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />
               Тариф активен
             </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={!!form.is_featured}
+                  onChange={e => setForm({ ...form, is_featured: e.target.checked })} />
+                <span className="text-sm text-gray-700">Выделить на лендинге (светящаяся рамка)</span>
+              </label>
             <p className="text-xs text-gray-400 -mt-2">Выключенный тариф остаётся в кабинете, оплаты по нему засчитываются. Влияет только на отдачу в API для стороннего лендинга.</p>
             <div className="flex gap-2 pt-1">
               <button onClick={submitForm} disabled={saving}

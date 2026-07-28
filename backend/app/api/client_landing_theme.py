@@ -33,6 +33,7 @@ _FIELDS = {
     "font_body": "lp_font_body",
     "color_body": "lp_color_body",
     "color_link": "lp_color_link",
+    "price_color": "lp_price_color",
     "btn_color": "lp_btn_color",
     "btn_text_color": "lp_btn_text_color",
     "btn_metallic": "lp_btn_metallic",
@@ -65,6 +66,7 @@ class ThemeUpdate(BaseModel):
     font_body: Optional[str] = None
     color_body: Optional[str] = None
     color_link: Optional[str] = None
+    price_color: Optional[str] = None
     btn_color: Optional[str] = None
     btn_text_color: Optional[str] = None
     btn_metallic: Optional[bool] = None
@@ -132,8 +134,45 @@ async def patch_theme(
     if not sets:
         return await get_theme(client=client, db=db)
 
-    vals.append(int(client["sub"]))
+    client_id = int(client["sub"])
+    vals.append(client_id)
     await db.execute(
         f"UPDATE clients SET {', '.join(sets)} WHERE id = ${len(vals)}", *vals
+    )
+
+    # ⚠️ Тема применяется к лендингам СРАЗУ при сохранении.
+    # Раньше значения только копировались в момент создания страницы, и клиент
+    # правил стиль в Настройках, а на своём лендинге ничего не видел. Ручную
+    # правку стиля в самом событии не затираем — такие страницы помечены
+    # `style_customized` и живут своей жизнью.
+    await db.execute(
+        """UPDATE event_landing_pages p SET
+             bg_color = c.lp_bg_color, bg_color_2 = c.lp_bg_color_2,
+             bg_angle = c.lp_bg_angle, bg_gradient = c.lp_bg_gradient,
+             bg_mode = COALESCE(c.lp_bg_mode, 'screen'),
+             font_heading = c.lp_font_heading, color_heading = c.lp_color_heading,
+             heading_metallic = c.lp_heading_metallic,
+             font_body = c.lp_font_body, color_body = c.lp_color_body,
+             color_link = c.lp_color_link,
+             btn_color = c.lp_btn_color, btn_text_color = c.lp_btn_text_color,
+             btn_metallic = c.lp_btn_metallic, btn_color_2 = c.lp_btn_color_2,
+             btn_angle = COALESCE(c.lp_btn_angle, 180),
+             btn_border_color = c.lp_btn_border_color,
+             btn_border_width = COALESCE(c.lp_btn_border_width, 0),
+             btn_border_metallic = COALESCE(c.lp_btn_border_metallic, FALSE),
+             border_color = c.lp_border_color, border_metallic = c.lp_border_metallic,
+             icon_color = c.lp_icon_color, icon_metallic = c.lp_icon_metallic,
+             radius = COALESCE(c.lp_radius, 5),
+             body_size = COALESCE(c.lp_body_size, 16),
+             content_width = COALESCE(c.lp_content_width, 1120),
+             pad_x = COALESCE(c.lp_pad_x, 24),
+             section_gap = COALESCE(c.lp_section_gap, 64),
+             updated_at = NOW()
+           FROM clients c, event_owners eo
+          WHERE c.id = $1
+            AND eo.client_id = c.id AND eo.status = 'accepted'
+            AND p.event_id = eo.event_id
+            AND NOT p.style_customized""",
+        client_id,
     )
     return await get_theme(client=client, db=db)

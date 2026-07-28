@@ -116,6 +116,7 @@ class PagePatch(BaseModel):
     heading_metallic: Optional[bool] = None
     color_body: Optional[str] = None
     color_link: Optional[str] = None
+    price_color: Optional[str] = None
     btn_color: Optional[str] = None
     btn_text_color: Optional[str] = None
     btn_metallic: Optional[bool] = None
@@ -180,6 +181,7 @@ class BlockPatch(BaseModel):
     show_seats: Optional[bool] = None
     show_date: Optional[bool] = None
     show_divider: Optional[bool] = None
+    cards_glow: Optional[bool] = None
     date_position: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
@@ -228,7 +230,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
     theme = await db.fetchrow(
         """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient, cl.lp_bg_mode,
                   cl.lp_font_heading, cl.lp_color_heading, cl.lp_heading_metallic,
-                  cl.lp_font_body, cl.lp_color_body, cl.lp_color_link,
+                  cl.lp_font_body, cl.lp_color_body, cl.lp_color_link, cl.lp_price_color,
                   cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
                   cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_border_color,
                   cl.lp_btn_border_width, cl.lp_btn_border_metallic,
@@ -248,13 +250,13 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             """INSERT INTO event_landing_pages
                  (event_id, kind, bg_color, bg_color_2, bg_angle, bg_gradient, bg_mode,
                   font_heading, color_heading, heading_metallic,
-                  font_body, color_body, color_link,
+                  font_body, color_body, color_link, price_color,
                   btn_color, btn_text_color, btn_metallic,
                   btn_color_2, btn_angle, btn_border_color,
                   btn_border_width, btn_border_metallic,
                   border_color, border_metallic, icon_color, icon_metallic, radius, body_size,
                   content_width, pad_x, section_gap)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
                ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
@@ -269,6 +271,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             normalize_font(t.get("lp_font_body")),
             t.get("lp_color_body") or "#FFFFFF",
             t.get("lp_color_link") or "#FFCFA4",
+            t.get("lp_price_color"),
             t.get("lp_btn_color") or "#FFCFA4",
             t.get("lp_btn_text_color") or "#0a1520",
             bool(t.get("lp_btn_metallic", True)),
@@ -388,7 +391,7 @@ async def patch_page(
         "is_published", "bg_color", "bg_color_2", "bg_angle", "bg_gradient", "bg_mode",
         "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "font_heading", "font_body", "color_heading", "heading_metallic",
-        "color_body", "color_link",
+        "color_body", "color_link", "price_color",
         "btn_color", "btn_text_color", "btn_metallic",
         "btn_color_2", "btn_angle", "btn_border_color",
         "btn_border_width", "btn_border_metallic",
@@ -441,6 +444,22 @@ async def patch_page(
 
     if not sets:
         return {"ok": True}
+
+    # Правка ОФОРМЛЕНИЯ в самом событии помечает страницу как настроенную
+    # вручную — тема из Настроек её больше не перезаписывает. Публикация и
+    # тексты страницы к оформлению не относятся.
+    STYLE_FIELDS = {
+        "bg_color", "bg_color_2", "bg_angle", "bg_gradient", "bg_mode",
+        "bg_image_url", "bg_overlay", "bg_overlay_opacity",
+        "font_heading", "font_body", "color_heading", "heading_metallic",
+        "color_body", "color_link", "price_color", "btn_color", "btn_text_color", "btn_metallic",
+        "btn_color_2", "btn_angle", "btn_border_color", "btn_border_width",
+        "btn_border_metallic", "border_color", "border_metallic",
+        "icon_color", "icon_metallic", "radius", "body_size",
+        "content_width", "pad_x", "section_gap",
+    }
+    if fs & STYLE_FIELDS:
+        sets.append("style_customized = TRUE")
 
     vals.append(page_id)
     row = await db.fetchrow(
@@ -511,7 +530,7 @@ async def patch_block(
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
-        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "show_seats", "seats_position",
+        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
     ):
@@ -654,6 +673,7 @@ async def apply_theme(
              heading_metallic = c.lp_heading_metallic,
              font_body = c.lp_font_body, color_body = c.lp_color_body,
              color_link = c.lp_color_link,
+             price_color = c.lp_price_color,
              btn_color = c.lp_btn_color, btn_text_color = c.lp_btn_text_color,
              btn_metallic = c.lp_btn_metallic,
              btn_color_2 = c.lp_btn_color_2,
@@ -668,6 +688,7 @@ async def apply_theme(
              content_width = COALESCE(c.lp_content_width, 1120),
              pad_x = COALESCE(c.lp_pad_x, 24),
              section_gap = COALESCE(c.lp_section_gap, 64),
+             style_customized = FALSE,
              updated_at = NOW()
            FROM clients c
           WHERE c.id = $1 AND p.id = $2

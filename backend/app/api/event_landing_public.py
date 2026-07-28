@@ -248,7 +248,7 @@ async def get_public_landing(
     # ── Тарифы ────────────────────────────────────────────────────────────
     if "tariffs" in kinds:
         rows = await db.fetch(
-            "SELECT id, code, title, description, price, pay_url, sort_order "
+            "SELECT id, code, title, description, price, pay_url, sort_order, is_featured "
             "FROM event_tariffs WHERE event_id = $1 AND is_active = TRUE "
             "ORDER BY sort_order, id",
             event["id"],

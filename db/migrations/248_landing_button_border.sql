@@ -31,3 +31,35 @@ ALTER TABLE event_landing_pages
   ADD COLUMN IF NOT EXISTS btn_border_metallic BOOLEAN NOT NULL DEFAULT FALSE;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;
+
+-- Признак «стиль страницы правили вручную в самом событии».
+-- Тема применяется к лендингам сразу при сохранении в Настройках, но такие
+-- страницы не трогаем — иначе правка темы затирала бы ручную настройку
+-- под конкретное событие.
+ALTER TABLE event_landing_pages
+  ADD COLUMN IF NOT EXISTS style_customized BOOLEAN NOT NULL DEFAULT FALSE;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;
+
+-- Анимированное свечение карточек секции (ценности, «что получите», отличия,
+-- «для кого», тарифы). По кругу подсвечивается одна карточка за другой —
+-- взгляд цепляется, страница перестаёт быть статичной.
+ALTER TABLE event_landing_blocks
+  ADD COLUMN IF NOT EXISTS cards_glow BOOLEAN NOT NULL DEFAULT FALSE;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
+
+-- Выделенный («рекомендуемый») тариф — светящаяся рамка на лендинге.
+ALTER TABLE event_tariffs
+  ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_tariffs TO plusson;
+
+-- Цвет цены в карточке тарифа. Пусто = цвет заголовков темы.
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS lp_price_color TEXT;
+
+ALTER TABLE event_landing_pages
+  ADD COLUMN IF NOT EXISTS price_color TEXT;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;

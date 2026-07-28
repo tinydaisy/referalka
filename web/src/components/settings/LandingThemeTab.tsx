@@ -187,6 +187,9 @@ export default function LandingThemeTab() {
                 onChange={v => set({ color_body: v })} />
               <ColorField label="Цвет ссылок" value={theme.color_link}
                 onChange={v => set({ color_link: v })} />
+              <ColorField label="Цвет цены в тарифах" value={theme.price_color}
+                onChange={v => set({ price_color: v })}
+                hint="Пусто — как у заголовков." />
             </div>
             <div className="mt-4">
               <label className="mb-1 block text-sm font-medium text-gray-700">

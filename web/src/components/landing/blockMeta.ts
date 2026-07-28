@@ -21,7 +21,7 @@ export interface BlockMeta {
   live?: boolean
   repeatable?: boolean
   /** Какие поля показывать в редакторе блока. */
-  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'numbers' | 'seats' | 'gallery'>
+  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'audience_cards' | 'numbers' | 'seats' | 'gallery'>
 }
 
 export const BLOCK_META: Record<BlockKind, BlockMeta> = {
@@ -49,8 +49,8 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   audience: {
     kind: 'audience',
     label: 'Для кого',
-    hint: 'Кому подойдёт событие: «это для вас, если…». Список пунктов.',
-    fields: ['title', 'subtitle', 'list', 'button'],
+    hint: 'Кому подойдёт событие. У каждой карточки — название, описание и картинка.',
+    fields: ['title', 'subtitle', 'audience_cards', 'button'],
   },
   benefits: {
     kind: 'benefits',

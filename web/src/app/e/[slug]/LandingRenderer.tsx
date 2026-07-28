@@ -187,6 +187,17 @@ export default function LandingRenderer({ data, slug }: Props) {
         @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
+        /* Бегущее свечение карточек: подсвечивается одна за другой по кругу.
+           Задержка у каждой своя (--i), поэтому «огонёк» бежит по списку. */
+        @keyframes lp-glow {
+          0%, 82%, 100% { box-shadow: 0 0 0 0 transparent; border-color: var(--lp-brd); }
+          8%, 26% {
+            box-shadow: 0 0 22px 2px var(--lp-glow), inset 0 0 12px -4px var(--lp-glow);
+            border-color: var(--lp-glow);
+          }
+        }
+        .lp-glow > * { animation: lp-glow 9s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .lp-glow > * { animation: none; } }
         .lp-root { overflow-x: hidden; }
         .lp-root img { max-width: 100%; }
         .lp-root h1, .lp-root h2, .lp-root h3 { overflow-wrap: anywhere; }
@@ -353,6 +364,7 @@ function Section({
   const blockBody = <BlockBody
     block={block} page={page} radius={radius} btnStyle={btnStyle}
     cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
+    glowCls={glowCls} glowVars={glowVars}
     event={event} content={content} slug={slug}
   />
 
@@ -392,6 +404,16 @@ function Section({
 
   // Размер содержимого секции: списки, карточки, подарки, тарифы. Не задан —
   // берётся размер основного текста страницы.
+  // Свечение карточек: класс на контейнер сетки + переменные цвета.
+  // Задержку каждой карточке проставляем инлайном (--i), чтобы огонёк бежал.
+  const glowCls = block.cards_glow ? 'lp-glow' : ''
+  const glowVars: React.CSSProperties = block.cards_glow
+    ? ({
+        ['--lp-glow' as any]: page.icon_color || '#FFCFA4',
+        ['--lp-brd' as any]: page.border_color || '#FFCFA4',
+      } as React.CSSProperties)
+    : {}
+
   const textSizeStyle: React.CSSProperties = block.text_size
     ? { fontSize: `${block.text_size}px` }
     : {}
@@ -521,6 +543,7 @@ function Section({
 
 function BlockBody({
   block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
+  glowCls = '', glowVars = {},
 }: any) {
   const items = block.items
 
@@ -628,18 +651,41 @@ function BlockBody({
 
     /* ── Для кого ──────────────────────────────────────────────────────── */
     case 'audience': {
-      const list: string[] = Array.isArray(items) ? items.filter((i: any) => typeof i === 'string' && i) : []
+      // Формат карточки: {title, text, image}. Старый формат (просто строки)
+      // поддержан — у кого блок уже заполнен, ничего не сломается.
+      const raw = Array.isArray(items) ? items : []
+      const list = raw
+        .map((i: any) => typeof i === 'string' ? { title: i } : i)
+        .filter((i: any) => i && (i.title || i.text || i.image))
+      if (!list.length) return null
+      const cols = Math.max(1, Math.min(6, block.columns || 2))
       return (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {list.map((t, i) => (
-            <div key={i} className="flex items-start gap-3 p-5" style={cardStyle}>
-              {/* Галочка — отличает «для кого» от нумерованного «что получите» */}
-              <svg viewBox="0 0 24 24" className="mt-0.5 h-6 w-6 shrink-0"
-                   fill="none" stroke={iconColor} strokeWidth="2.5"
-                   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-              <span className="font-medium">{t}</span>
+        <div className={`lp-grid grid gap-5 ${glowCls}`}
+             style={{ ['--lp-cols-lg' as any]: cols, ...glowVars }}>
+          {list.map((c: any, i: number) => (
+            <div key={i} className="flex flex-col overflow-hidden"
+                 style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
+              {c.image && (
+                <img src={c.image} alt="" loading="lazy"
+                     className="block w-full object-cover"
+                     style={{ aspectRatio: '16 / 10', background: 'rgba(255,255,255,.06)' }} />
+              )}
+              <div className="flex flex-1 flex-col gap-2 p-5">
+                <div className="flex items-start gap-3">
+                  <svg viewBox="0 0 24 24" className="mt-1 h-5 w-5 shrink-0"
+                       fill="none" stroke={iconColor} strokeWidth="3"
+                       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <span className="font-bold uppercase leading-snug"
+                        style={{ color: page.color_heading || '#FFCFA4' }}>
+                    {c.title}
+                  </span>
+                </div>
+                {c.text && (
+                  <p className="text-[.9em] leading-relaxed opacity-85">{c.text}</p>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -650,9 +696,10 @@ function BlockBody({
     case 'benefits': {
       const list: string[] = Array.isArray(items) ? items.filter((i: any) => typeof i === 'string' && i) : []
       return (
-        <div className="space-y-3">
+        <div className={`space-y-3 ${glowCls}`} style={glowVars}>
           {list.map((t, i) => (
-            <div key={i} className="flex items-start gap-4 p-4" style={cardStyle}>
+            <div key={i} className="flex items-start gap-4 p-4"
+                 style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
               <span
                 className="shrink-0 text-[1.6em] font-bold tabular-nums"
                 style={{ color: iconColor }}
@@ -674,12 +721,12 @@ function BlockBody({
         : []
       if (!list.length) return null
       return (
-        <div className="lp-grid grid gap-6"
-             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>
+        <div className={`lp-grid grid gap-6 ${glowCls}`}
+             style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)), ...glowVars }}>
           {list.map((c: any, i: number) => (
             <div key={i}
                  className="flex flex-col items-center px-6 pb-7 pt-8 text-center"
-                 style={cardStyle}>
+                 style={{ ...cardStyle, animationDelay: `${i * 1.2}s` }}>
               {c.icon && (
                 <div className="mb-5">
                   <CardIcon
@@ -775,26 +822,55 @@ function BlockBody({
       const t = content.tariffs || { items: [] }
       return (
         <>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {(t.items || []).map((x: any) => (
-              <div key={x.id} className="flex flex-col p-6" style={cardStyle}>
+          <div className={`lp-grid grid gap-5 ${glowCls}`}
+               style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)), ...glowVars }}>
+            {(t.items || []).map((x: any, i: number) => (
+              // Выделенный тариф (галочка «рекомендуемый» в разделе Тарифы) —
+              // подсвеченная рамка и мягкое свечение, чтобы взгляд цеплялся.
+              <div key={x.id} className="relative flex flex-col p-6"
+                   style={{
+                     ...cardStyle,
+                     animationDelay: `${i * 1.2}s`,
+                     ...(x.is_featured ? {
+                       borderColor: iconColor,
+                       borderWidth: 2,
+                       boxShadow: `0 0 24px -2px ${iconColor}80`,
+                     } : {}),
+                   }}>
                 <div className="text-[1.3em] font-bold uppercase" style={{ color: page.color_heading }}>
                   {x.title}
                 </div>
                 {x.price != null && (
-                  <div className="mt-2 text-[2em] font-bold" style={headingStyle}>
+                  <div className="mt-2 text-[2em] font-bold"
+                       style={page.price_color
+                         ? { fontFamily: page.font_heading_css, color: page.price_color }
+                         : headingStyle}>
                     {Number(x.price).toLocaleString('ru-RU')} ₽
                   </div>
                 )}
                 {x.description && (
-                  <ul className="mt-4 flex-1 list-none space-y-2 p-0 text-[.9em] leading-relaxed opacity-90">
+                  // Строка, начинающаяся с «-», означает «в тариф НЕ входит»:
+                  // такие показываем крестиком и зачёркнутыми, остальные —
+                  // галочкой. Клиенту достаточно поставить минус в описании.
+                  <ul className="mt-4 flex-1 list-none space-y-2.5 p-0 text-[.9em] leading-relaxed">
                     {String(x.description).split('\n').map((r: string) => r.trim()).filter(Boolean)
-                      .map((row: string, k: number) => (
-                        <li key={k} className="flex gap-2">
-                          <span style={{ color: iconColor }}>—</span>
-                          <span>{row}</span>
-                        </li>
-                      ))}
+                      .map((row: string, k: number) => {
+                        const excluded = /^[-–—]\s*/.test(row)
+                        const text = row.replace(/^[-–—]\s*/, '')
+                        return (
+                          <li key={k} className="flex gap-2.5">
+                            <svg viewBox="0 0 24 24" className="mt-[.35em] h-4 w-4 shrink-0"
+                                 fill="none" stroke={excluded ? 'currentColor' : iconColor}
+                                 strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                                 style={excluded ? { opacity: .45 } : undefined} aria-hidden="true">
+                              {excluded ? <path d="M18 6 6 18M6 6l12 12" /> : <path d="M20 6 9 17l-5-5" />}
+                            </svg>
+                            <span className={excluded ? 'line-through opacity-50' : 'opacity-90'}>
+                              {text}
+                            </span>
+                          </li>
+                        )
+                      })}
                   </ul>
                 )}
                 {/* Ссылка оплаты не задана — ведём на регистрацию (бесплатный

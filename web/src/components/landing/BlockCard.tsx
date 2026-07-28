@@ -214,6 +214,17 @@ export default function BlockCard({
                   label={block.kind === 'audience' ? 'Кому подойдёт' : 'Пункты списка'}
                 />
               )}
+              {has('audience_cards') && (
+                <AudienceEditor
+                  eventId={eventId}
+                  items={Array.isArray(items)
+                    ? items.map((i: any) => typeof i === 'string' ? { title: i } : i)
+                        .filter((i: any) => i && typeof i === 'object')
+                    : []}
+                  onChange={next => onPatch({ items: next })}
+                />
+              )}
+
               {has('cards') && (
                 <CardsEditor
                   items={Array.isArray(items)
@@ -305,6 +316,20 @@ export default function BlockCard({
                       />
                       <span className="text-sm text-gray-700">
                         Линия-разделитель между цифрой и подписью
+                      </span>
+                    </label>
+                  )}
+
+                  {['values', 'difference', 'benefits', 'audience', 'tariffs'].includes(block.kind) && (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.cards_glow}
+                        onChange={e => onPatch({ cards_glow: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm text-gray-700">
+                        Бегущее свечение карточек (анимация)
                       </span>
                     </label>
                   )}
@@ -813,6 +838,68 @@ function IconPicker({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Карточки «Для кого»: название, описание и картинка. */
+function AudienceEditor({
+  eventId, items, onChange,
+}: {
+  eventId: number
+  items: Array<{ title?: string; text?: string; image?: string | null }>
+  onChange: (v: any[]) => void
+}) {
+  const upd = (i: number, patch: any) => {
+    const next = [...items]; next[i] = { ...next[i], ...patch }; onChange(next)
+  }
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">Кому подойдёт</label>
+      <div className="space-y-3">
+        {items.map((c, i) => (
+          <div key={i} className="rounded-lg border border-gray-200 p-3">
+            <div className="flex gap-2">
+              <input
+                type="text" value={c.title || ''}
+                onChange={e => upd(i, { title: e.target.value })}
+                placeholder="Например: Предпринимателям в операционке"
+                className="input font-semibold"
+              />
+              <button
+                onClick={() => onChange(items.filter((_, j) => j !== i))}
+                className="shrink-0 rounded px-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              rows={3} value={c.text || ''}
+              onChange={e => upd(i, { text: e.target.value })}
+              placeholder="Описание — в чём его ситуация и что он получит"
+              className="input mt-2"
+            />
+            <div className="mt-2">
+              <div className="mb-1 text-xs font-medium text-gray-600">Картинка</div>
+              <FileUploader
+                mode="single"
+                kind="landing_media"
+                eventId={eventId}
+                value={c.image || null}
+                onChange={url => upd(i, { image: url })}
+                aspectClass="aspect-video"
+                emptyText="Загрузите картинку"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => onChange([...items, { title: '', text: '', image: null }])}
+        className="mt-2 text-sm font-medium text-brand hover:underline"
+      >
+        + Добавить карточку
+      </button>
     </div>
   )
 }

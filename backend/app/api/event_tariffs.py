@@ -59,6 +59,7 @@ class TariffIn(BaseModel):
     pay_url: Optional[str] = None
     sort_order: int = 0
     is_active: bool = True
+    is_featured: bool = False
 
 
 class TariffPatch(BaseModel):
@@ -69,6 +70,7 @@ class TariffPatch(BaseModel):
     pay_url: Optional[str] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+    is_featured: Optional[bool] = None
 
 
 def _norm_code(code: str) -> str:
@@ -84,7 +86,7 @@ async def list_tariffs(
     await _check_event_access(db, int(client["sub"]), event_id)
     rows = await db.fetch(
         """SELECT t.id, t.code, t.title, t.description, t.price, t.pay_url,
-                  t.sort_order, t.is_active,
+                  t.sort_order, t.is_active, t.is_featured,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
@@ -167,11 +169,11 @@ async def create_tariff(
     if exists:
         raise HTTPException(status_code=409, detail=f"Тариф с кодом «{code}» уже есть у события")
     row = await db.fetchrow(
-        """INSERT INTO event_tariffs (event_id, code, title, description, price, pay_url, sort_order, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING id, code, title, description, price, pay_url, sort_order, is_active""",
+        """INSERT INTO event_tariffs (event_id, code, title, description, price, pay_url, sort_order, is_active, is_featured)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id, code, title, description, price, pay_url, sort_order, is_active, is_featured""",
         event_id, code, data.title.strip(), data.description, data.price,
-        data.pay_url, data.sort_order, data.is_active,
+        data.pay_url, data.sort_order, data.is_active, data.is_featured,
     )
     return dict(row)
 
