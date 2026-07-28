@@ -915,13 +915,20 @@ async def export_speaker_materials(
                 )
             except Exception:
                 links = {}
+        # Формат блока (по запросу клиента): подпись площадки отдельной строкой,
+        # затем ПУСТАЯ строка, затем сама ссылка — чтобы спикер копировал ссылку
+        # одним кликом, не задевая подпись.
+        #     Имя
+        #
+        #     Через ТГ:
+        #
+        #     https://…
         lines = [c["name"] or "Без имени"]
-        if links.get("telegram"):
-            lines.append(f"Телеграм: {links['telegram']}")
-        if links.get("vk"):
-            lines.append(f"Без ВПН через ВК: {links['vk']}")
-        if links.get("max"):
-            lines.append(f"MAX: {links['max']}")
+        for key, label in (("telegram", "Через ТГ"),
+                           ("vk", "Через ВК"),
+                           ("max", "Через МАХ")):
+            if links.get(key):
+                lines.append(f"{label}:\n\n{links[key]}")
         blocks.append("\n\n".join(lines))
     separator = "\n\n" + ("—" * 30) + "\n\n"
     ref_doc = separator.join(blocks) if blocks else "Нет коллабораторов с реф-ссылками."
