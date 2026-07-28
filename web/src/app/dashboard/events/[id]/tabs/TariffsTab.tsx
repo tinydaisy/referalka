@@ -21,6 +21,7 @@ interface Tariff {
   is_active: boolean
   is_featured?: boolean
   pay_product_id?: string | null
+  order_hint?: string | null
   buyers_count: number
   unpaid_count: number
 }
@@ -48,7 +49,7 @@ interface Buyer {
 }
 
 const emptyForm = {
-  code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', is_active: true, is_featured: false,
+  code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', order_hint: '', is_active: true, is_featured: false,
 }
 
 export default function TariffsTab({
@@ -123,6 +124,7 @@ export default function TariffsTab({
       description: t.description || '',
       excluded_description: t.excluded_description || '',
       pay_product_id: t.pay_product_id || '',
+      order_hint: t.order_hint || '',
       price: t.price != null ? String(t.price) : '',
       pay_url: t.pay_url || '',
       is_active: t.is_active,
@@ -142,6 +144,7 @@ export default function TariffsTab({
       description: form.description.trim() || null,
       excluded_description: form.excluded_description.trim() || null,
       pay_product_id: form.pay_product_id.trim() || null,
+      order_hint: form.order_hint.trim() || null,
       price: form.price.trim() ? parseInt(form.price.trim(), 10) : null,
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
@@ -327,6 +330,12 @@ export default function TariffsTab({
             <Field label="Что входит" hint="По пункту в строке — на лендинге станут галочками">
               <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
                         rows={4} className="input-tar resize-none" />
+            </Field>
+            <Field label="Подсказка при оплате"
+                   hint="Показывается белым по красному над формой заказа — например, просьба указать рабочие контакты">
+              <textarea value={form.order_hint}
+                        onChange={e => setForm({ ...form, order_hint: e.target.value })}
+                        rows={3} className="input-tar resize-none" />
             </Field>
             <Field label="Что НЕ входит" hint="По пункту в строке — на лендинге будут зачёркнуты крестиком">
               <textarea value={form.excluded_description}

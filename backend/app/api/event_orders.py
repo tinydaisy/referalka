@@ -210,6 +210,42 @@ async def create_order(
     return {"ok": True, "order_id": order_id, "payment_url": pay_url}
 
 
+@router.get("/prefill/{tariff_id}/{contact_id}", summary="Данные контакта для формы")
+async def prefill(
+    tariff_id: int,
+    contact_id: int,
+    response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Человек пришёл из бота по ссылке с ?c= — подставляем его контакты в
+    форму, чтобы не вводил заново. Поля остаются редактируемыми: телефон
+    в базе может быть старый.
+
+    Контакт обязан принадлежать клиенту события — иначе по чужому номеру в
+    адресе можно было бы вытащить контакты из другой базы."""
+    _cors(response)
+    t = await _load_tariff(db, tariff_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    row = await db.fetchrow(
+        """SELECT c.name, c.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    LIMIT 1) AS email,
+                  (SELECT pt.username FROM platform_users pt
+                    WHERE pt.contact_id = c.id AND pt.platform_slug = 'telegram'
+                      AND pt.username IS NOT NULL
+                    LIMIT 1) AS tg_username
+             FROM contacts c
+            WHERE c.id = $1 AND c.client_id = $2 AND c.merged_into IS NULL""",
+        contact_id, t["client_id"],
+    )
+    if not row:
+        return {}
+    return dict(row)
+
+
 @router.get("/{order_id}", summary="Заказ для страницы благодарности")
 async def get_order(
     order_id: int,

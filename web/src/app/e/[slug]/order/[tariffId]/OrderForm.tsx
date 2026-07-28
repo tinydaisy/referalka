@@ -9,7 +9,7 @@
  * ⚠️ Ссылки на техподдержку здесь нет намеренно: это шаг оплаты, лишние
  * выходы с него уводят человека от покупки.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface Props {
   page: any
@@ -38,6 +38,22 @@ export default function OrderForm({
 
   const price = Number(tariff.price || 0)
   const isFree = price <= 0
+
+  // Пришёл из бота по ссылке с ?c= — подставляем его контакты, чтобы не
+  // вводил заново. Поля остаются редактируемыми: телефон мог измениться.
+  useEffect(() => {
+    if (!contactId) return
+    fetch(`/api/v1/public/event-orders/prefill/${tariff.id}/${contactId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        if (d.name) setName(v => v || d.name)
+        if (d.email) setEmail(v => v || d.email)
+        if (d.phone) setPhone(v => v || d.phone)
+        if (d.tg_username) setTg(v => v || `@${String(d.tg_username).replace(/^@/, '')}`)
+      })
+      .catch(() => {})
+  }, [contactId, tariff.id])
 
   // ⚠️ Кнопка ровно та же, что на лендинге: свой градиент → металл →
   // сплошной цвет, плюс рамка и блик. Иначе на странице оплаты она
@@ -151,6 +167,14 @@ export default function OrderForm({
             {isFree ? 'Бесплатно' : `${price.toLocaleString('ru-RU')} ₽`}
           </div>
         </div>
+
+        {/* Предупреждение от организатора: белым по красному, потому что это
+            именно предупреждение — цвет намеренно не из темы. */}
+        {tariff.order_hint && (
+          <div className="mb-5 rounded-xl bg-[#C62828] px-5 py-4 text-center text-[.85em] font-bold uppercase leading-snug text-white">
+            {tariff.order_hint}
+          </div>
+        )}
 
         {/* Форма */}
         <div
