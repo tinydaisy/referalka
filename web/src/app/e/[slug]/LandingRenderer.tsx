@@ -1542,48 +1542,141 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
   )
 }
 
-/** Партнёры события — те же карточки, но роли general_partner/partner. */
+/**
+ * Партнёры события — лентой со стрелками, как отзывы.
+ *
+ * ⚠️ Логотип показывается ЦЕЛИКОМ на белом поле (object-contain), а не
+ * обрезается квадратом: у партнёров логотипы разных пропорций — часто
+ * длинные горизонтальные, и кадрирование съедало половину названия.
+ *
+ * Описание разворачивается СРАЗУ У ВСЕХ карточек одной стрелкой — как у
+ * спикеров: иначе ряд растягивается по самой высокой, а соседние выглядят
+ * пустыми.
+ */
 function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
+  const scroller = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [atStart, setAtStart] = useState(true)
+  const [atEnd, setAtEnd] = useState(false)
+
+  // ⚠️ Хуки объявляем ДО раннего return — иначе при пустом списке порядок
+  // хуков меняется и React падает (правило проекта).
+  const sync = () => {
+    const el = scroller.current
+    if (!el) return
+    setAtStart(el.scrollLeft <= 4)
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4)
+  }
+  useEffect(() => { sync() }, [list.length])
+
   if (!list.length) return null
+
   const cols = Math.max(1, Math.min(6, block.columns || 4))
-  const scroll = block.display_mode === 'scroll'
+  // Партнёры по умолчанию лентой: логотипов обычно много и они разной ширины.
+  const scroll = (block.display_mode || 'scroll') === 'scroll'
+  const cardW = block.media_size || 260
 
-  const cards = list.map((p: any) => {
-    const inner = (
-      <>
-        {p.photo_url && (
-          <img src={p.photo_url} alt={p.name} loading="lazy"
-               className="block w-full object-cover"
-               style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }} />
-        )}
-        <div className="p-4 text-center">
-          <div className="font-bold uppercase leading-tight"
-               style={{ color: page.color_heading || '#FFCFA4' }}>
-            {p.name}
-          </div>
-          {p.title && (
-            <div className="mt-1 text-[.85em] leading-snug opacity-80">{p.title}</div>
-          )}
-        </div>
-      </>
+  const scrollBy = (dir: 1 | -1) => {
+    scroller.current?.scrollBy({ left: dir * (cardW + 20), behavior: 'smooth' })
+  }
+
+  const cards = list.map((p: any) => (
+    <PartnerCard
+      key={p.id} p={p} page={page} cardStyle={cardStyle} iconColor={iconColor}
+      open={open} onToggle={() => setOpen(o => !o)}
+      className={scroll ? 'shrink-0 snap-start' : ''}
+      width={scroll ? cardW : undefined}
+    />
+  ))
+
+  if (!scroll) {
+    return (
+      <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
+        {cards}
+      </div>
     )
-    const url = p.partner_url || p.website_url
-    const cls = `flex flex-col overflow-hidden ${scroll ? 'w-[min(240px,70vw)] shrink-0 snap-start' : ''}`
-    return url
-      ? <a key={p.id} href={url} target="_blank" rel="noreferrer"
-           className={`${cls} transition-transform hover:scale-[1.02]`} style={cardStyle}>{inner}</a>
-      : <div key={p.id} className={cls} style={cardStyle}>{inner}</div>
-  })
+  }
 
-  return scroll ? (
-    <div className="lp-scroll flex min-w-0 max-w-full snap-x snap-mandatory gap-5 overflow-x-auto pb-3">
-      {cards}
-    </div>
-  ) : (
-    <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
-      {cards}
+  return (
+    <div className="relative min-w-0 max-w-full">
+      <div
+        ref={scroller}
+        onScroll={sync}
+        className="lp-scroll flex min-w-0 max-w-full snap-x snap-mandatory gap-5 overflow-x-auto pb-3"
+      >
+        {cards}
+      </div>
+      {!atStart && <GalleryArrow dir="left" color={iconColor} onClick={() => scrollBy(-1)} />}
+      {!atEnd && <GalleryArrow dir="right" color={iconColor} onClick={() => scrollBy(1)} />}
     </div>
   )
+}
+
+function PartnerCard({
+  p, page, cardStyle, iconColor, open, onToggle, className = '', width,
+}: any) {
+  // Описание партнёра: и должность/подпись, и регалии — всё, что он о себе
+  // рассказал. Первые две строки видны сразу, остальное — по стрелке.
+  const lines: string[] = [
+    ...(p.title ? [String(p.title)] : []),
+    ...(Array.isArray(p.achievements)
+      ? p.achievements
+          .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
+          .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
+          .filter(Boolean)
+      : []),
+  ]
+  const visible = open ? lines : lines.slice(0, 2)
+  const url = p.partner_url || p.website_url
+
+  const inner = (
+    <>
+      {/* ⚠️ Логотип на БЕЛОМ поле и целиком: у партнёров он может быть
+          узким горизонтальным, тёмным или с прозрачным фоном. */}
+      {p.photo_url && (
+        <div className="flex items-center justify-center bg-white p-5"
+             style={{ minHeight: 120 }}>
+          <img src={p.photo_url} alt={p.name} loading="lazy"
+               className="max-h-[90px] w-full object-contain" />
+        </div>
+      )}
+      <div className="flex flex-1 flex-col gap-2 p-4 text-center">
+        <div className="font-bold uppercase leading-tight"
+             style={{ color: page.color_heading || '#FFCFA4' }}>
+          {p.name}
+        </div>
+        {!!visible.length && (
+          <div className="space-y-1.5 text-[.85em] leading-relaxed opacity-85">
+            {visible.map((t, i) => <p key={i}>{t}</p>)}
+          </div>
+        )}
+        {lines.length > 2 && (
+          <button
+            type="button"
+            onClick={e => { e.preventDefault(); onToggle() }}
+            aria-label={open ? 'Свернуть' : 'Показать полностью'}
+            className="mt-auto flex items-center justify-center pt-2"
+            style={{ color: iconColor }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                 strokeLinejoin="round" aria-hidden="true"
+                 style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .2s' }}>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        )}
+      </div>
+    </>
+  )
+
+  const cls = `flex flex-col overflow-hidden ${className}`
+  const style = { ...cardStyle, ...(width ? { width: `min(${width}px, 72vw)` } : {}) }
+
+  return url
+    ? <a href={url} target="_blank" rel="noreferrer"
+         className={`${cls} transition-transform hover:scale-[1.02]`} style={style}>{inner}</a>
+    : <div className={cls} style={style}>{inner}</div>
 }
 
 /**

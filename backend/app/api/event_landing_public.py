@@ -219,7 +219,7 @@ async def get_public_landing(
     if "partners" in kinds:
         rows = await db.fetch(
             f"""SELECT cse.id, cse.role, cse.partner_url,
-                      c.name, c.title, c.photo_url,
+                      c.name, c.title, c.photo_url, c.achievements,
                       c.tg_channel_url, c.vk_url, c.max_url, c.website_url
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
@@ -228,7 +228,10 @@ async def get_public_landing(
                 ORDER BY {order_by_sql('cse')}""",
             event["id"],
         )
-        data["partners"] = [dict(r) for r in rows]
+        # Регалии — JSONB, из asyncpg приходят строкой (см. _jsonb).
+        data["partners"] = [
+            {**dict(r), "achievements": _jsonb(r["achievements"])} for r in rows
+        ]
 
     # ── Организатор ───────────────────────────────────────────────────────
     if "organizer" in kinds and owner:
