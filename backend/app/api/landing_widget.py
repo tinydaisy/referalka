@@ -165,6 +165,75 @@ async def widget_tariffs(
     }
 
 
+@router.options("/events/{slug}/organizer", include_in_schema=False)
+async def _opts_organizer(slug: str, response: Response):
+    _set_cors(response)
+    return Response(status_code=204, headers=_CORS_HEADERS)
+
+
+@router.get("/events/{slug}/organizer", summary="Организатор события — бренд и основатель (для лендинга)")
+async def widget_organizer(
+    slug: str,
+    response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Карточка организатора события: бренд + основатель.
+
+    Публичный профиль клиента (`/public/clients/{id}/profile`) для лендинга не
+    годится — у него нет CORS-заголовков, браузер режет запрос с чужого домена.
+    Здесь те же данные, но с открытым CORS.
+
+    Владелец события — `event_owners (status='accepted')`; у `events` нет
+    `client_id`. Если владельцев несколько (коллаб-событие) — берём того, кто
+    принял приглашение раньше.
+    """
+    _set_cors(response)
+    event = await _resolve_event(db, slug)
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    row = await db.fetchrow(
+        """SELECT cl.id, cl.name, cl.brand_name, cl.brand_logo_url,
+                  cl.profile_photo_url, cl.positioning, cl.achievements,
+                  cl.owner_photo_url, cl.owner_positioning, cl.owner_achievements,
+                  cl.bio, cl.social_links
+             FROM event_owners eo
+             JOIN clients cl ON cl.id = eo.client_id
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY eo.id
+            LIMIT 1""",
+        event["id"],
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Организатор не найден")
+
+    social = row["social_links"]
+    if isinstance(social, str):
+        try:
+            social = json.loads(social)
+        except (ValueError, TypeError):
+            social = {}
+
+    return {
+        "event_slug": event["slug"],
+        "event_id": event["id"],
+        "client_id": row["id"],
+        # бренд
+        "brand_name": row["brand_name"] or row["name"],
+        "brand_logo_url": row["brand_logo_url"],
+        "brand_photo_url": row["profile_photo_url"],
+        "brand_positioning": row["positioning"],
+        "brand_achievements": _parse_jsonb(row["achievements"]),
+        # основатель
+        "owner_name": row["name"],
+        "owner_photo_url": row["owner_photo_url"],
+        "owner_positioning": row["owner_positioning"],
+        "owner_achievements": _parse_jsonb(row["owner_achievements"]),
+        "bio": row["bio"],
+        "social_links": social if isinstance(social, dict) else {},
+    }
+
+
 def _media_total(media_assets: list) -> int:
     """Сумма подписчиков по всем медийным активам ([{platform, subscribers}])."""
     total = 0
