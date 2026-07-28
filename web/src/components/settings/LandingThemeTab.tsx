@@ -94,6 +94,14 @@ export default function LandingThemeTab() {
   // Заливка кнопки в превью — та же логика, что на лендинге.
   const asLayer = (v: string) =>
     v.startsWith('linear-gradient') ? v : `linear-gradient(${v}, ${v})`
+  const hexToRgba = (hex: string, a: number) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
+    if (!m) return `rgba(15,30,46,${a})`
+    const n = parseInt(m[1], 16)
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+  }
+  const cardFillPreview = hexToRgba(theme.card_bg || '#0F1E2E', (theme.card_bg_opacity ?? 55) / 100)
+
   const btnFillPreview = theme.btn_color_2
     ? `linear-gradient(${theme.btn_angle ?? 180}deg, ${safe(theme.btn_color, '#FFCFA4')}, ${safe(theme.btn_color_2, '#FFCFA4')})`
     : theme.btn_metallic
@@ -265,7 +273,40 @@ export default function LandingThemeTab() {
               <ColorField label="Цвет иконок" value={theme.icon_color}
                 onChange={v => set({ icon_color: v })} />
             </div>
-            <div className="mt-3 space-y-2">
+            <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+              <h4 className="font-medium text-gray-900">Заливка карточек</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ColorField label="Цвет заливки" value={theme.card_bg}
+                  onChange={v => set({ card_bg: v })} />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Плотность: {theme.card_bg_opacity ?? 55}%
+                  </label>
+                  <input type="range" min={0} max={100} step={5}
+                    value={theme.card_bg_opacity ?? 55}
+                    onChange={e => set({ card_bg_opacity: Number(e.target.value) })}
+                    className="w-full" />
+                  <p className="mt-1 text-xs text-gray-500">
+                    0 — прозрачная карточка, 100 — сплошной цвет.
+                  </p>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  Стиль рамки
+                </label>
+                <select
+                  value={theme.border_style || 'solid'}
+                  onChange={e => set({ border_style: e.target.value })}
+                  className="input bg-white"
+                >
+                  <option value="solid">Ровная линия по контуру</option>
+                  <option value="fade">Яркая по углам, растворяется к середине</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2 border-t border-gray-100 pt-4">
               <MetallicToggle label="Металлические границы"
                 checked={!!theme.border_metallic}
                 onChange={v => set({ border_metallic: v })} />
@@ -377,8 +418,10 @@ export default function LandingThemeTab() {
                 borderRadius: radius,
                 color: theme.color_body || '#fff',
                 // Металл только в рамке — фон карточки прозрачный, иначе текст не читается.
-                border: `1px solid ${theme.border_color || '#FFCFA4'}`,
-                background: 'rgba(255,255,255,.02)',
+                border: '1px solid transparent',
+                background: theme.border_style === 'fade'
+                  ? `linear-gradient(${cardFillPreview}, ${cardFillPreview}) padding-box, conic-gradient(from 45deg at 50% 50%, ${safe(theme.border_color, '#FFCFA4')}, transparent 25%, ${safe(theme.border_color, '#FFCFA4')} 50%, transparent 75%, ${safe(theme.border_color, '#FFCFA4')}) border-box`
+                  : `linear-gradient(${cardFillPreview}, ${cardFillPreview}) padding-box, linear-gradient(${safe(theme.border_color, '#FFCFA4')}, ${safe(theme.border_color, '#FFCFA4')}) border-box`,
               }}
             >
               <span className="font-bold" style={{ color: theme.icon_color || '#FFCFA4' }}>01</span>

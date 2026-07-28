@@ -63,3 +63,22 @@ ALTER TABLE event_landing_pages
   ADD COLUMN IF NOT EXISTS price_color TEXT;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;
+
+-- Заливка карточек и стиль рамки — в общей теме, применяются везде.
+--   card_bg / card_bg_opacity — цвет и прозрачность внутренней заливки
+--   border_style: solid — ровная рамка;
+--                 fade  — яркая по углам, растворяется к середине сторон
+--                 (эффект «подсвеченных углов» с боевых лендингов)
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS lp_card_bg         TEXT    DEFAULT '#0F1E2E',
+  ADD COLUMN IF NOT EXISTS lp_card_bg_opacity SMALLINT DEFAULT 55,
+  ADD COLUMN IF NOT EXISTS lp_border_style    TEXT    DEFAULT 'solid';
+
+ALTER TABLE event_landing_pages
+  ADD COLUMN IF NOT EXISTS card_bg         TEXT,
+  ADD COLUMN IF NOT EXISTS card_bg_opacity SMALLINT NOT NULL DEFAULT 55
+        CHECK (card_bg_opacity BETWEEN 0 AND 100),
+  ADD COLUMN IF NOT EXISTS border_style    TEXT NOT NULL DEFAULT 'solid'
+        CHECK (border_style IN ('solid', 'fade'));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;

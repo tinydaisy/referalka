@@ -37,6 +37,14 @@ function metallicButton(color: string): string {
   return `linear-gradient(180deg, ${edge}, ${color}, ${light}, ${color}, ${edge})`
 }
 
+/** HEX + прозрачность → rgba(). Мусорный цвет не роняет страницу. */
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
+  if (!m) return `rgba(15,30,46,${alpha})`
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+
 /**
  * Оттенок HEX: минус — темнее (умножение), плюс — светлее (к белому).
  * Осветление именно «к белому», иначе светлый персик упирается в потолок 255
@@ -110,13 +118,27 @@ export default function LandingRenderer({ data, slug }: Props) {
       : { background: btnFill }),
   }
 
-  // ⚠️ Металл — только В РАМКЕ, фон карточки остаётся прозрачным. Заливать
-  // карточку градиентом нельзя: текст поверх становится нечитаемым.
-  const cardStyle: React.CSSProperties = {
-    borderRadius: radius,
-    border: `1px solid ${page.border_color || '#FFCFA4'}`,
-    background: 'rgba(255,255,255,.02)',
-  }
+  // Заливка карточки — свой цвет с прозрачностью из темы.
+  // ⚠️ Металл и градиенты только В РАМКЕ: заливать карточку ярким градиентом
+  // нельзя, текст поверх становится нечитаемым.
+  const cardFill = hexToRgba(page.card_bg || '#0F1E2E', (page.card_bg_opacity ?? 55) / 100)
+  const brd = page.border_color || '#FFCFA4'
+
+  const cardStyle: React.CSSProperties = page.border_style === 'fade'
+    // «Растворяющаяся» рамка: яркая по углам, к середине сторон уходит в ноль.
+    // Делается двумя слоями фона — заливка в padding-box, рамка в border-box.
+    ? {
+        borderRadius: radius,
+        border: '1px solid transparent',
+        background:
+          `linear-gradient(${cardFill}, ${cardFill}) padding-box, ` +
+          `conic-gradient(from 45deg at 50% 50%, ${brd}, transparent 25%, ${brd} 50%, transparent 75%, ${brd}) border-box`,
+      }
+    : {
+        borderRadius: radius,
+        border: `1px solid ${brd}`,
+        background: cardFill,
+      }
 
   const iconColor = page.icon_color || '#FFCFA4'
 
