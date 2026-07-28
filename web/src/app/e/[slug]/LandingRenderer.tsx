@@ -680,17 +680,19 @@ function BlockBody({
       const isThanks = Array.isArray(bots)
       return (
         <div className="text-center">
-          {/* Дата: включается галочкой, ставится над заголовком или под
-              подзаголовком. Цвет — основного текста страницы, не акцент. */}
-          {!isThanks && event.start_at
-            && (block.date_position || 'above') === 'above' && (
-            <p className="mb-4 opacity-85"
-               style={{
-                 color: page.color_body || '#FFFFFF',
-                 fontSize: block.date_size ? `${block.date_size}px` : undefined,
-               }}>
-              {formatDate(event.start_at, event.end_at, event.dates_from_program)}
-            </p>
+          {/* Формат и дата — двумя овалами в один ряд над заголовком.
+              Цвет рамки и текста — основного текста страницы, заливка
+              полупрозрачная и сгущается к центру. */}
+          {!isThanks && (block.date_position || 'above') === 'above' && (
+            <HeroPills
+              kicker={block.kicker}
+              date={event.start_at
+                ? formatDate(event.start_at, event.end_at, event.dates_from_program)
+                : ''}
+              color={page.color_body || '#FFFFFF'}
+              size={block.date_size}
+              className="mb-5"
+            />
           )}
           {/* Размер задаётся в блоке «Шапка» (title_size). Дефолт крупнее,
               чем у обычных секций; clamp — чтобы не вылезал на телефоне. */}
@@ -738,14 +740,16 @@ function BlockBody({
                   {event.description}
                 </p>
               )}
-              {event.start_at && block.date_position === 'below' && (
-                <p className="mt-4 opacity-85"
-                   style={{
-                     color: page.color_body || '#FFFFFF',
-                     fontSize: block.date_size ? `${block.date_size}px` : undefined,
-                   }}>
-                  {formatDate(event.start_at, event.end_at, event.dates_from_program)}
-                </p>
+              {block.date_position === 'below' && (
+                <HeroPills
+                  kicker={block.kicker}
+                  date={event.start_at
+                    ? formatDate(event.start_at, event.end_at, event.dates_from_program)
+                    : ''}
+                  color={page.color_body || '#FFFFFF'}
+                  size={block.date_size}
+                  className="mt-5"
+                />
               )}
               {/* Счётчик мест — рядом с кнопкой, а не отдельной секцией.
                   Положение задаётся в блоке «Шапка»: над кнопкой или сбоку. */}
@@ -1267,6 +1271,46 @@ function CountUp({ value }: { value: string }) {
   }, [value])
 
   return <span ref={ref}>{shown}</span>
+}
+
+/**
+ * Формат и дата над заголовком — два овала в один ряд.
+ *
+ * Рамка и текст цветом основного текста страницы; заливка полупрозрачная и
+ * сгущается к центру, поэтому овал читается и на светлом, и на тёмном фоне.
+ * На узком экране овалы переносятся, но остаются по центру.
+ */
+function HeroPills({
+  kicker, date, color, size, className = '',
+}: {
+  kicker?: string | null
+  date?: string
+  color: string
+  size?: number | null
+  className?: string
+}) {
+  const pills = [kicker, date].map(t => (t || '').trim()).filter(Boolean)
+  if (!pills.length) return null
+
+  const style: React.CSSProperties = {
+    color,
+    border: `1px solid ${hexToRgba(color, 0.55)}`,
+    // Заливка гуще в середине — как на боевом лендинге.
+    background: `radial-gradient(ellipse at center, ${hexToRgba(color, 0.16)}, ${hexToRgba(color, 0.04)} 70%)`,
+    fontSize: size ? `${size}px` : undefined,
+  }
+
+  return (
+    <div className={`flex flex-wrap items-center justify-center gap-3 ${className}`}>
+      {pills.map((t, i) => (
+        <span key={i}
+              className="inline-flex items-center rounded-full px-6 py-2 leading-snug"
+              style={style}>
+          {t}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function SeatsBadge({ seats, iconColor, radius }: any) {

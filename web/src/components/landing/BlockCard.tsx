@@ -596,8 +596,22 @@ export default function BlockCard({
                       без даты продающая шапка не работает. Настраиваются
                       только размер и место. */}
                   <div className="rounded-lg border border-gray-200 p-3">
-                    <div className="mb-2 text-sm font-medium text-gray-700">Дата события</div>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="mb-2 text-sm font-medium text-gray-700">
+                      Формат и дата
+                    </div>
+                    <Field label="Формат">
+                      <input
+                        type="text"
+                        value={block.kicker || ''}
+                        onChange={e => onPatch({ kicker: e.target.value })}
+                        className="input"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Показывается овалом слева от даты — например, «Онлайн-конференция»
+                        или город. Пусто — будет только дата.
+                      </p>
+                    </Field>
+                    <div className="mt-3 grid gap-4 sm:grid-cols-2">
                       <Field label={`Размер даты: ${block.date_size ? `${block.date_size} px` : 'как основной текст'}`}>
                         <div className="flex items-center gap-3">
                           <input type="range" min={10} max={80} step={1}

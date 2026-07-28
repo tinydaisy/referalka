@@ -203,6 +203,7 @@ class BlockPatch(BaseModel):
     offer_id: Optional[int] = None
     date_position: Optional[str] = None
     date_size: Optional[int] = None
+    kicker: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
@@ -591,7 +592,7 @@ async def patch_block(
         "title_color", "title_metallic",
         "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source",
         "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
-        "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size",
+        "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
