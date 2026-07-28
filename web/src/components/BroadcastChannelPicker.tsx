@@ -16,10 +16,19 @@ type Channel = {
 
 /**
  * Площадки, скрытые из выбора каналов рассылки (общей и событийной).
- * Email — системный канал ПЛЮСОНа, WhatsApp — рассылки через мост не идут.
- * Скрываем и никогда не отмечаем галочкой.
+ * WhatsApp — рассылки через мост не идут, скрыт всегда.
+ * Email — только по фиче `email_broadcasts` (см. EMAIL_FEATURE ниже).
  */
-const HIDDEN_PLATFORMS = new Set(['email', 'whatsapp'])
+const HIDDEN_PLATFORMS = new Set(['whatsapp'])
+
+/**
+ * Фича «Рассылки по email». Есть у клиента → площадка Email показывается в
+ * выборе каналов; нет → скрыта и никогда не отмечается галочкой.
+ *
+ * ⚠️ Гейтим ПО ФИЧЕ, не по tariff_slug. Движок рассылки email умеет всегда
+ * (`_send_broadcast_email_part` в tasks/broadcast.py) — ограничение только здесь.
+ */
+const EMAIL_FEATURE = 'email_broadcasts'
 
 const PLATFORM_TITLE: Record<string, string> = {
   telegram: 'Telegram',
@@ -56,14 +65,19 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    api.channels.list().then((res: any) => {
+    // Каналы и фичи клиента грузим вместе: без фич не решить, показывать ли Email.
+    Promise.all([api.channels.list(), api.auth.me()]).then(([res, me]: any[]) => {
       if (cancelled) return
-      // Email (с 2026-07-08) и WhatsApp (с 2026-07-10) убраны из выбора каналов
-      // рассылки. Отфильтровываем ДО onChange, чтобы они не рисовались секцией
-      // и не попадали в target_channel_ids (иначе галочка встала бы сама).
-      const items: Channel[] = (res?.items || []).filter(
-        (c: Channel) => !HIDDEN_PLATFORMS.has(c.platform_slug)
-      )
+      // WhatsApp (с 2026-07-10) скрыт всегда, Email — только без фичи
+      // email_broadcasts. Отфильтровываем ДО onChange, чтобы скрытая площадка не
+      // рисовалась секцией и не попадала в target_channel_ids (иначе галочка
+      // встала бы сама при инициализации «выбрать все»).
+      const hasEmail = !!(me?.features || []).includes(EMAIL_FEATURE)
+      const items: Channel[] = (res?.items || []).filter((c: Channel) => {
+        if (HIDDEN_PLATFORMS.has(c.platform_slug)) return false
+        if (c.platform_slug === 'email' && !hasEmail) return false
+        return true
+      })
       setChannels(items)
       // Первая инициализация: NULL → выбрать все каналы (поведение по умолчанию).
       if (value === null) {
