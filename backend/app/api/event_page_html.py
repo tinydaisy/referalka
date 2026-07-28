@@ -39,7 +39,7 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "description_post_register, vip_url, vip_button_label, hide_stream_button, accent_button, "
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
-            "landing_url, start_at, end_at, link_mode, is_collab, "
+            "landing_url, start_at, end_at, link_mode, is_collab, skip_contact_form, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
             "WHEN 'vk' THEN events.vk_chat_ref WHEN 'max' THEN events.max_chat_ref ELSE events.tg_chat_ref END) AS chat_url, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg, "
@@ -2644,6 +2644,34 @@ async def event_register_page(slug: str, c: str = "",
         if is_reg:
             return RedirectResponse(
                 url=f"/event/{ev['slug']}?c={contact_id}", status_code=302)
+
+        # ВЕТКА 1.5: «Регистрировать без ввода контактных данных» — веб повторяет
+        # Mini App (EventPage.tsx: event.skip_contact_form → registerParticipant без
+        # формы). Контакт известен из ссылки бота → регистрируем сразу и уводим в
+        # кабинет, форму не показываем. Контакт обязан принадлежать клиенту события.
+        if ev.get("skip_contact_form"):
+            own_cid = await db.fetchval(
+                """SELECT id FROM contacts
+                    WHERE id = $1 AND client_id = $2 AND merged_into IS NULL
+                    LIMIT 1""",
+                contact_id, ev["client_id"],
+            )
+            if own_cid:
+                from app.services.participant_registration import (
+                    finalize_participant_registration,
+                )
+                await db.execute(
+                    """INSERT INTO event_participants
+                           (event_id, contact_id, is_registered)
+                         VALUES ($1, $2, TRUE)
+                         ON CONFLICT (event_id, contact_id)
+                         DO UPDATE SET is_registered = TRUE""",
+                    ev["id"], contact_id,
+                )
+                await finalize_participant_registration(
+                    db, event_id=ev["id"], contact_id=contact_id)
+                return RedirectResponse(
+                    url=f"/event/{ev['slug']}?c={contact_id}", status_code=302)
 
         # ВЕТКА 2: контакт известен, не зареган → форма с автозаполнением.
         row = await db.fetchrow(
