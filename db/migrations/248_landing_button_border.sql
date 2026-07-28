@@ -107,3 +107,10 @@ ALTER TABLE event_landing_blocks
         CHECK (card_img_ratio BETWEEN 0.4 AND 3.0);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;
+
+-- Размер иконок в карточках секции (ценности, отличия и др.), px.
+ALTER TABLE event_landing_blocks
+  ADD COLUMN IF NOT EXISTS icon_size SMALLINT NOT NULL DEFAULT 88
+        CHECK (icon_size BETWEEN 24 AND 200);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_blocks TO plusson;

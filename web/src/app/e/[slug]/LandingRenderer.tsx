@@ -10,7 +10,7 @@
  * Вёрстка адаптивная: любая двухколоночная раскладка на узком экране
  * схлопывается в одну колонку (правило проекта — проверять на 375px).
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CardIcon } from '@/components/landing/icons'
 
 interface Props {
@@ -719,7 +719,9 @@ function BlockBody({
               )}
               <div className="flex flex-1 flex-col gap-2 p-5">
                 <div className="flex items-start gap-3">
-                  <svg viewBox="0 0 24 24" className="mt-1 h-5 w-5 shrink-0"
+                  <svg viewBox="0 0 24 24" className="mt-1 shrink-0"
+                       width={Math.round((block.icon_size || 88) * 0.24)}
+                       height={Math.round((block.icon_size || 88) * 0.24)}
                        fill="none" stroke={iconColor} strokeWidth="3"
                        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M20 6 9 17l-5-5" />
@@ -780,7 +782,7 @@ function BlockBody({
                     iconKey={c.icon}
                     color={iconColor}
                     metallic={!!page.icon_metallic}
-                    size={88}
+                    size={block.icon_size || 88}
                     id={`${block.id}-${i}`}
                   />
                 </div>
@@ -827,7 +829,7 @@ function BlockBody({
             <div key={i} className="p-5 text-center" style={cardStyle}>
               <div className="text-[2.6em] font-bold leading-none sm:text-[3.2em]"
                    style={metalNum}>
-                {n.value}
+                <CountUp value={n.value} />
               </div>
               {block.show_divider && (
                 <div className="mx-auto mt-3 h-px w-10"
@@ -1145,6 +1147,50 @@ function BlockBody({
  * Подпись и её положение (сверху / слева / справа от рамки) задаются рядом
  * с числом мест — в настройках события, а не в двух разных местах.
  */
+/**
+ * Счётчик: число набегает от нуля, когда блок появился на экране.
+ * Анимируется только числовая часть — «1100+» считается как 1100, знаки
+ * остаются на месте. Нечисловое значение показывается как есть.
+ */
+function CountUp({ value }: { value: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [shown, setShown] = useState<string>(String(value ?? ''))
+
+  useEffect(() => {
+    const m = /^(\D*)(\d[\d\s\u00a0]*)(.*)$/.exec(String(value ?? ''))
+    const el = ref.current
+    if (!m || !el) { setShown(String(value ?? '')); return }
+    const pre = m[1], post = m[3]
+    const target = parseInt(m[2].replace(/[^\d]/g, ''), 10)
+    if (!Number.isFinite(target)) { setShown(String(value)); return }
+
+    if (typeof IntersectionObserver === 'undefined'
+        || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setShown(String(value)); return
+    }
+
+    setShown(`${pre}0${post}`)
+    let raf = 0
+    const io = new IntersectionObserver(entries => {
+      if (!entries[0]?.isIntersecting) return
+      io.disconnect()
+      const t0 = performance.now()
+      const tick = (t: number) => {
+        const k = Math.min(1, (t - t0) / 1400)
+        // Плавное замедление к концу — цифра «доезжает», а не обрывается.
+        const cur = Math.round(target * (1 - Math.pow(1 - k, 3)))
+        setShown(`${pre}${cur.toLocaleString('ru-RU')}${post}`)
+        if (k < 1) raf = requestAnimationFrame(tick)
+      }
+      raf = requestAnimationFrame(tick)
+    }, { threshold: 0.4 })
+    io.observe(el)
+    return () => { io.disconnect(); cancelAnimationFrame(raf) }
+  }, [value])
+
+  return <span ref={ref}>{shown}</span>
+}
+
 function SeatsBadge({ seats, iconColor, radius }: any) {
   const metalText: React.CSSProperties = {
     background: metallic(iconColor),

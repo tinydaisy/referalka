@@ -186,6 +186,7 @@ class BlockPatch(BaseModel):
     show_date: Optional[bool] = None
     show_divider: Optional[bool] = None
     cards_glow: Optional[bool] = None
+    icon_size: Optional[int] = None
     card_img_radius_x: Optional[int] = None
     card_img_radius_y: Optional[int] = None
     card_img_ratio: Optional[float] = None
@@ -565,7 +566,7 @@ async def patch_block(
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
-        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow",
+        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size",
         "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -604,6 +605,8 @@ async def patch_block(
             val = "grid"
         if field == "date_position" and val not in ("above", "below"):
             val = "above"
+        if field == "icon_size" and val is not None:
+            val = max(24, min(200, int(val)))
         if field in ("card_img_radius_x", "card_img_radius_y") and val is not None:
             val = max(0, min(50, int(val)))
         if field == "card_img_ratio" and val is not None:

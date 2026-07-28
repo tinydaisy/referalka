@@ -306,6 +306,15 @@ export default function BlockCard({
                       На узком экране колонок будет меньше — вёрстка подстроится сама.
                     </p>
                   </Field>
+                  {['values', 'difference', 'audience'].includes(block.kind) && (
+                    <Field label={`Размер иконок: ${block.icon_size || 88} px`}>
+                      <input type="range" min={24} max={200} step={4}
+                        value={block.icon_size || 88}
+                        onChange={e => onPatch({ icon_size: Number(e.target.value) })}
+                        className="w-full" />
+                    </Field>
+                  )}
+
                   {block.kind === 'audience' && (
                     <div className="rounded-lg border border-gray-200 p-3">
                       <div className="mb-2 text-sm font-medium text-gray-700">Фото в карточках</div>
