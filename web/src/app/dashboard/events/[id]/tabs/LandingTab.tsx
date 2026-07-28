@@ -64,33 +64,50 @@ export default function LandingTab({ eventId, event }: Props) {
   const navItems: any[] = Array.isArray(page?.nav_items) ? page!.nav_items : []
 
   /* ── правка настроек страницы ─────────────────────────────────────────── */
+  // ⚠️ Накопительное сохранение. Раньше в setTimeout уходил ТОЛЬКО последний
+  // patch: при быстром вводе (буква за буквой) предыдущие правки терялись, и
+  // поле выглядело «не принимающим ввод». Теперь копим все правки в pending и
+  // отправляем одним запросом.
+  const pendingPage = useRef<Record<number, any>>({})
+
   const patchPage = (patch: any) => {
     if (!page) return
-    setPages(prev => prev.map(p => p.id === page.id ? { ...p, ...patch } : p))
-    const key = `page-${page.id}`
+    const pageId = page.id
+    setPages(prev => prev.map(p => p.id === pageId ? { ...p, ...patch } : p))
+    pendingPage.current[pageId] = { ...(pendingPage.current[pageId] || {}), ...patch }
+    const key = `page-${pageId}`
     clearTimeout(timers.current[key])
     timers.current[key] = setTimeout(async () => {
+      const body = pendingPage.current[pageId]
+      delete pendingPage.current[pageId]
+      if (!body) return
       setSaving(true)
-      try { await api.eventLanding.patchPage(eventId, page.id, patch) }
+      try { await api.eventLanding.patchPage(eventId, pageId, body) }
       catch (e: any) { alert(e?.message || 'Не удалось сохранить') }
       finally { setSaving(false) }
-    }, 500)
+    }, 600)
   }
 
   /* ── правка блока ─────────────────────────────────────────────────────── */
+  const pendingBlock = useRef<Record<number, any>>({})
+
   const patchBlock = (blockId: number, patch: any) => {
     setPages(prev => prev.map(p => p.id !== page?.id ? p : {
       ...p,
       blocks: p.blocks.map((b: any) => b.id === blockId ? { ...b, ...patch } : b),
     }))
+    pendingBlock.current[blockId] = { ...(pendingBlock.current[blockId] || {}), ...patch }
     const key = `block-${blockId}`
     clearTimeout(timers.current[key])
     timers.current[key] = setTimeout(async () => {
+      const body = pendingBlock.current[blockId]
+      delete pendingBlock.current[blockId]
+      if (!body) return
       setSaving(true)
-      try { await api.eventLanding.patchBlock(eventId, blockId, patch) }
+      try { await api.eventLanding.patchBlock(eventId, blockId, body) }
       catch (e: any) { alert(e?.message || 'Не удалось сохранить') }
       finally { setSaving(false) }
-    }, 500)
+    }, 600)
   }
 
   const removeBlock = async (blockId: number) => {
@@ -302,49 +319,82 @@ export default function LandingTab({ eventId, event }: Props) {
                     className="input"
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Пусто — кнопки в шапке не будет. Ведёт на регистрацию.
+                    Пусто — кнопки в шапке не будет.
                   </p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Куда ведёт кнопка в шапке
+                  </label>
+                  <select
+                    value={page.nav_button_target || 'register'}
+                    onChange={e => patchPage({ nav_button_target: e.target.value })}
+                    className="input bg-white"
+                  >
+                    <option value="register">На регистрацию</option>
+                    {(page.blocks || []).map((b: any) => (
+                      <option key={b.id} value={b.kind}>
+                        К секции «{b.admin_name || metaFor(b.kind).label}»
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Пункты меню
                   </label>
+                  <p className="mb-2 text-xs text-gray-500">
+                    Слева — как пункт называется в шапке, справа — к какой секции
+                    он прокручивает страницу.
+                  </p>
                   <div className="space-y-2">
                     {navItems.map((it: any, i: number) => (
-                      <div key={i} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={it.label || ''}
-                          onChange={e => {
-                            const next = [...navItems]
-                            next[i] = { ...next[i], label: e.target.value }
-                            patchPage({ nav_items: next })
-                          }}
-                          placeholder="Название пункта"
-                          className="input"
-                        />
-                        <select
-                          value={it.block_kind || ''}
-                          onChange={e => {
-                            const next = [...navItems]
-                            next[i] = { ...next[i], block_kind: e.target.value }
-                            patchPage({ nav_items: next })
-                          }}
-                          className="input w-56 shrink-0 bg-white"
-                        >
-                          <option value="">— секция —</option>
-                          {(page.blocks || []).map((b: any) => (
-                            <option key={b.id} value={b.kind}>
-                              {metaFor(b.kind).label}
-                            </option>
-                          ))}
-                        </select>
+                      <div key={i} className="flex flex-wrap items-end gap-2">
+                        <div className="min-w-[160px] flex-1">
+                          <div className="mb-1 text-xs font-medium text-gray-600">
+                            Название пункта
+                          </div>
+                          <input
+                            type="text"
+                            value={it.label || ''}
+                            onChange={e => {
+                              const next = [...navItems]
+                              next[i] = { ...next[i], label: e.target.value }
+                              patchPage({ nav_items: next })
+                            }}
+                            placeholder="Спикеры"
+                            className="input"
+                          />
+                        </div>
+                        <div className="min-w-[200px] flex-1">
+                          <div className="mb-1 text-xs font-medium text-gray-600">
+                            Куда ведёт
+                          </div>
+                          <select
+                            value={it.block_kind || ''}
+                            onChange={e => {
+                              const next = [...navItems]
+                              next[i] = { ...next[i], block_kind: e.target.value }
+                              patchPage({ nav_items: next })
+                            }}
+                            className="input bg-white"
+                          >
+                            <option value="">— выберите секцию —</option>
+                            {(page.blocks || []).map((b: any) => (
+                              <option key={b.id} value={b.kind}>
+                                {b.admin_name || metaFor(b.kind).label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         <button
                           onClick={() => patchPage({
                             nav_items: navItems.filter((_: any, j: number) => j !== i),
                           })}
-                          className="shrink-0 rounded px-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                          title="Удалить пункт"
+                          className="mb-1 shrink-0 rounded px-2 py-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
                         >
                           ✕
                         </button>
@@ -360,6 +410,11 @@ export default function LandingTab({ eventId, event }: Props) {
                     >
                       + Добавить пункт
                     </button>
+                  )}
+                  {!!navItems.length && navItems.some((i: any) => !i.label || !i.block_kind) && (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Пункты без названия или без выбранной секции в шапке не показываются.
+                    </p>
                   )}
                 </div>
               </>

@@ -88,6 +88,21 @@ async def get_public_landing(
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
+    # ⚠️ У конференции/турнира даты — в программе (conf_days), а events.start_at
+    # обычно пуст (правило проекта: источник истины — программа). Без этого
+    # шапка лендинга оставалась без даты.
+    ev = dict(event)
+    if not ev.get("start_at"):
+        days = await db.fetchrow(
+            """SELECT MIN(day_date) AS d1, MAX(day_date) AS d2
+                 FROM conf_days WHERE event_id = $1 AND day_date IS NOT NULL""",
+            ev["id"],
+        )
+        if days and days["d1"]:
+            ev["start_at"] = days["d1"]
+            ev["end_at"] = days["d2"]
+            ev["dates_from_program"] = True
+
     page = await db.fetchrow(
         "SELECT * FROM event_landing_pages WHERE event_id = $1 AND kind = $2",
         event["id"], kind,
@@ -367,14 +382,17 @@ async def get_public_landing(
 
     return {
         "event": {
-            "id": event["id"],
-            "slug": event["slug"],
-            "title": event["title"],
-            "description": event["description"],
-            "start_at": event["start_at"],
-            "end_at": event["end_at"],
-            "poster_url": event["poster_url"],
-            "module_slug": event["module_slug"],
+            "id": ev["id"],
+            "slug": ev["slug"],
+            "title": ev["title"],
+            "description": ev["description"],
+            "start_at": ev["start_at"],
+            "end_at": ev.get("end_at"),
+            "poster_url": ev["poster_url"],
+            "module_slug": ev["module_slug"],
+            # Даты взяты из программы → на странице показываем только даты,
+            # без времени: у дня программы своё расписание по слотам.
+            "dates_from_program": bool(ev.get("dates_from_program")),
         },
         "page": page_d,
         "blocks": [

@@ -139,6 +139,7 @@ class PagePatch(BaseModel):
     section_gap: Optional[int] = None
     nav_enabled: Optional[bool] = None
     nav_button_label: Optional[str] = None
+    nav_button_target: Optional[str] = None
     nav_items: Optional[Any] = None
     post_pay_title: Optional[str] = None
     post_pay_text: Optional[str] = None
@@ -423,7 +424,7 @@ async def patch_page(
         "card_bg", "card_bg_opacity",
         "icon_color", "icon_metallic", "radius",
         "body_size", "content_width", "pad_x", "section_gap",
-        "nav_enabled", "nav_button_label",
+        "nav_enabled", "nav_button_label", "nav_button_target",
         "post_pay_title", "post_pay_text",
     ):
         if field not in fs:

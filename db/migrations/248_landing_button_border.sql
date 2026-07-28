@@ -82,3 +82,10 @@ ALTER TABLE event_landing_pages
         CHECK (border_style IN ('solid', 'fade'));
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;
+
+-- Куда ведёт кнопка в шапке: на регистрацию или к секции страницы (например,
+-- к тарифам — «выбрать формат»).
+ALTER TABLE event_landing_pages
+  ADD COLUMN IF NOT EXISTS nav_button_target TEXT NOT NULL DEFAULT 'register';
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON event_landing_pages TO plusson;

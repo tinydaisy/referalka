@@ -209,16 +209,19 @@ export default function LandingRenderer({ data, slug }: Props) {
         @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
-        /* Бегущее свечение карточек: подсвечивается одна за другой по кругу.
-           Задержка у каждой своя (--i), поэтому «огонёк» бежит по списку. */
+        /* Бегущая подсветка: в каждый момент выделена РОВНО ОДНА карточка —
+           золотистая полупрозрачная заливка + свечение. Предыдущая гаснет
+           до того, как загорится следующая, поэтому «огонёк» бежит по списку.
+           Длительность цикла задаётся переменной --lp-cycle (число карточек). */
         @keyframes lp-glow {
-          0%, 82%, 100% { box-shadow: 0 0 0 0 transparent; border-color: var(--lp-brd); }
-          8%, 26% {
-            box-shadow: 0 0 22px 2px var(--lp-glow), inset 0 0 12px -4px var(--lp-glow);
-            border-color: var(--lp-glow);
-          }
+          0%, 100% { background-color: transparent; box-shadow: none; border-color: var(--lp-brd); }
+          4%  { background-color: var(--lp-glow-soft);
+                box-shadow: 0 0 26px 2px var(--lp-glow-dim); border-color: var(--lp-glow); }
+          14% { background-color: var(--lp-glow-soft);
+                box-shadow: 0 0 26px 2px var(--lp-glow-dim); border-color: var(--lp-glow); }
+          20%, 99% { background-color: transparent; box-shadow: none; border-color: var(--lp-brd); }
         }
-        .lp-glow > * { animation: lp-glow 9s ease-in-out infinite; }
+        .lp-glow > * { animation: lp-glow var(--lp-cycle, 10s) ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .lp-glow > * { animation: none; } }
         .lp-root { overflow-x: hidden; }
         .lp-root img { max-width: 100%; }
@@ -266,6 +269,10 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
   // Показываем только пункты, чья секция реально есть и включена.
   const present = new Set(blocks.map((b: any) => b.kind))
   const links = items.filter(i => present.has(i.block_kind))
+  // 'register' → форма регистрации; иначе — якорь на секцию страницы.
+  const navTarget = (!page.nav_button_target || page.nav_button_target === 'register')
+    ? `/event/${slug}/register`
+    : `#lp-${page.nav_button_target}`
   const logo = content?.brand?.logo_url
 
   return (
@@ -298,7 +305,8 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
         </nav>
 
         {page.nav_button_label && (
-          <a href={`/event/${slug}/register`}
+          // Цель кнопки: регистрация или якорь на секцию (например, тарифы).
+          <a href={navTarget}
              className="ml-auto hidden shrink-0 px-5 py-2.5 text-[.85em] font-bold uppercase md:ml-0 md:inline-block"
              style={btnStyle}>
             {page.nav_button_label}
@@ -332,7 +340,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug }: any) {
             </a>
           ))}
           {page.nav_button_label && (
-            <a href={`/event/${slug}/register`}
+            <a href={navTarget} onClick={() => setOpen(false)}
                className="mt-2 px-5 py-3 text-center text-[.9em] font-bold uppercase"
                style={btnStyle}>
               {page.nav_button_label}
@@ -388,6 +396,9 @@ function Section({
   const glowVars: React.CSSProperties = block.cards_glow
     ? ({
         ['--lp-glow' as any]: page.icon_color || '#FFCFA4',
+        // Полупрозрачная заливка тем же акцентом — «подсвеченная» карточка.
+        ['--lp-glow-soft' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.14),
+        ['--lp-glow-dim' as any]: hexToRgba(page.icon_color || '#FFCFA4', 0.45),
         ['--lp-brd' as any]: page.border_color || '#FFCFA4',
       } as React.CSSProperties)
     : {}
@@ -583,7 +594,7 @@ function BlockBody({
           {!isThanks && event.start_at && block.show_date !== false
             && (block.date_position || 'above') === 'above' && (
             <p className="mb-4 opacity-85" style={{ color: page.color_body || '#FFFFFF' }}>
-              {formatDate(event.start_at)}
+              {formatDate(event.start_at, event.end_at, event.dates_from_program)}
             </p>
           )}
           {/* Размер задаётся в блоке «Шапка» (title_size). Дефолт крупнее,
@@ -632,7 +643,7 @@ function BlockBody({
               {event.start_at && block.show_date !== false
                 && block.date_position === 'below' && (
                 <p className="mt-4 opacity-85" style={{ color: page.color_body || '#FFFFFF' }}>
-                  {formatDate(event.start_at)}
+                  {formatDate(event.start_at, event.end_at, event.dates_from_program)}
                 </p>
               )}
               {/* Счётчик мест — рядом с кнопкой, а не отдельной секцией.
@@ -1441,13 +1452,31 @@ function embedUrl(url: string): string {
   return url
 }
 
-/** Дата события — всегда МСК (правило проекта). */
-function formatDate(iso: string): string {
+/**
+ * Дата события — всегда МСК (правило проекта).
+ * Если даты взяты из программы (у конференции events.start_at пуст), время
+ * не показываем: у каждого дня своё расписание по слотам. Диапазон дней
+ * выводим как «30–31 июля».
+ */
+function formatDate(iso: string, end?: string | null, fromProgram?: boolean): string {
   try {
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-      timeZone: 'Europe/Moscow',
-    }) + ' МСК'
+    const d1 = new Date(iso)
+    const opts: Intl.DateTimeFormatOptions = fromProgram
+      ? { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' }
+      : { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }
+    const s1 = d1.toLocaleString('ru-RU', opts)
+    if (fromProgram && end) {
+      const d2 = new Date(end)
+      if (d2.getTime() !== d1.getTime()) {
+        const sameMonth = d1.getMonth() === d2.getMonth()
+        const left = sameMonth
+          ? d1.toLocaleString('ru-RU', { day: 'numeric', timeZone: 'Europe/Moscow' })
+          : s1
+        const right = d2.toLocaleString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
+        return `${left}–${right}`
+      }
+    }
+    return fromProgram ? s1 : `${s1} МСК`
   } catch { return '' }
 }
 
