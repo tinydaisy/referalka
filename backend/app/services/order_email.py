@@ -187,3 +187,68 @@ async def send_order_paid_email(db, order_id: int) -> bool:
     if ok:
         logger.info("Письмо об оплате заказа %s отправлено", order_id)
     return ok
+
+
+async def notify_organizer_new_order(db, order_id: int, *, paid: bool = False) -> None:
+    """Уведомление организатору о заказе — в канал оплат его же ботом.
+
+    Шлём и при оформлении (видно, кто собрался платить), и при оплате.
+    Внутри — всё, что нужно, чтобы связаться с человеком, не заходя в
+    кабинет: имя, email, телефон, ник, ссылка на карточку контакта.
+
+    Ошибка отправки не должна ронять заказ — оборачиваем целиком.
+    """
+    row = await db.fetchrow(
+        """SELECT o.id, o.status, o.amount, o.contact_id,
+                  t.title AS tariff_title,
+                  e.title AS event_title,
+                  c.name AS contact_name, c.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    LIMIT 1) AS email,
+                  (SELECT pt.username FROM platform_users pt
+                    WHERE pt.contact_id = c.id AND pt.platform_slug = 'telegram'
+                      AND pt.username IS NOT NULL LIMIT 1) AS tg_username,
+                  eo.client_id
+             FROM event_participant_tariffs o
+             JOIN event_tariffs t ON t.id = o.tariff_id
+             JOIN events e ON e.id = o.event_id
+             JOIN contacts c ON c.id = o.contact_id
+             JOIN event_owners eo ON eo.event_id = e.id AND eo.status = 'accepted'
+            WHERE o.id = $1
+            ORDER BY eo.id LIMIT 1""",
+        order_id,
+    )
+    if not row:
+        return
+
+    amount = f"{int(row['amount'] or 0):,}".replace(",", " ")
+    head = "💰 ОПЛАЧЕНО" if paid else "🧾 Новый заказ"
+    tg_nick = (row["tg_username"] or "").lstrip("@")
+
+    lines = [
+        f"<b>{head}</b> · {amount} ₽",
+        "",
+        f"Событие: {row['event_title']}",
+        f"Тариф: {row['tariff_title']}",
+        "",
+        f"Имя: {row['contact_name'] or '—'}",
+        f"Email: {row['email'] or '—'}",
+        f"Телефон: {row['phone'] or '—'}",
+    ]
+    if tg_nick:
+        lines.append(f'Telegram: <a href="https://t.me/{tg_nick}">@{tg_nick}</a>')
+    lines += [
+        "",
+        f'<a href="https://pluson.ru/dashboard/clients?contact_id={row["contact_id"]}">'
+        f'Карточка контакта #{row["contact_id"]}</a>',
+        f"Заказ №{row['id']}",
+    ]
+    text = "\n".join(lines)
+
+    try:
+        from app.services.channels import notify_organizer_all_channels
+        await notify_organizer_all_channels(
+            row["client_id"], text, db, kind="payments")
+    except Exception as e:
+        logger.warning("Уведомление о заказе %s не ушло: %s", order_id, e)

@@ -16,6 +16,12 @@ const CHAT_LABEL: Record<string, string> = {
   max: 'Чат в MAX',
 }
 
+const BOT_LABEL: Record<string, string> = {
+  telegram: 'Бот в Telegram',
+  vk: 'Сообщество ВКонтакте',
+  max: 'Бот в MAX',
+}
+
 export default function ThanksContent({
   orderId, failed,
 }: {
@@ -104,6 +110,39 @@ export default function ThanksContent({
             ))}
           </div>
         </>
+      )}
+
+      {/* Боты: без подписки человек не получит напоминания и ссылку на эфир. */}
+      {!!order?.bots?.length && (
+        <>
+          <p className="mt-8 text-sm uppercase tracking-wide text-white/60">
+            Откройте бота — там напоминания, подарки и ссылка на эфир
+          </p>
+          <div className="mt-3 flex flex-col gap-2.5">
+            {order.bots.map((b: any) => (
+              <a key={b.platform} href={b.url} target="_blank" rel="noreferrer"
+                 className="rounded-lg border border-[#FFCFA4] px-6 py-3 font-bold uppercase text-[#FFCFA4] transition-colors hover:bg-[#FFCFA4]/10">
+                {BOT_LABEL[b.platform] || 'Бот'}
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!!order?.support?.length && (
+        <p className="mt-8 text-sm text-white/60">
+          Что-то не открылось?{' '}
+          {order.support.map((s: any, i: number) => (
+            <span key={s.platform}>
+              {i > 0 && ' · '}
+              <a href={s.url} target="_blank" rel="noreferrer"
+                 className="underline hover:text-white">
+                {(BOT_LABEL[s.platform] || '').replace('Бот в ', '')
+                  .replace('Сообщество ', '') || 'Написать нам'}
+              </a>
+            </span>
+          ))}
+        </p>
       )}
 
       {order?.event_slug && (

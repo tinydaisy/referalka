@@ -520,7 +520,8 @@ async def get_client_vk_token(client_id: int, db) -> Optional[str]:
 
 
 async def notify_organizer_all_channels(
-    client_id: int, text_html: str, db, *, text_plain: Optional[str] = None
+    client_id: int, text_html: str, db, *, text_plain: Optional[str] = None,
+    kind: str = "general",
 ) -> dict:
     """ЕДИНАЯ точка отправки уведомления организатору во ВСЕ его каналы уведомлений:
     Telegram + MAX + VK. Уведомление ДУБЛИРУЕТСЯ в каждый заполненный канал,
@@ -531,15 +532,32 @@ async def notify_organizer_all_channels(
             MAX не поддерживает HTML так же — шлём text_plain (или strip тегов).
     - VK  — plain-текст (clients.notifications_vk_peer_id) сообществом клиента.
 
+    kind='payments' (миграция 259) → уведомления об ОПЛАТАХ идут в отдельный
+    канал: в общем они теряются среди «новых интересов» и вопросов, а оплаты
+    нужно видеть сразу и часто показывать другим людям. Если отдельный канал
+    не задан — падаем на общий, чтобы уведомление не пропало.
+
     Пустое поле канала / нет токена бота на платформе → канал пропускается (graceful).
     Возвращает {'tg': bool, 'max': bool, 'vk': bool}.
     """
     row = await db.fetchrow(
         """SELECT notifications_telegram_chat_id, notifications_max_chat_id,
-                  notifications_vk_peer_id
+                  notifications_vk_peer_id,
+                  payments_telegram_chat_id, payments_max_chat_id,
+                  payments_vk_peer_id
              FROM clients WHERE id = $1""",
         client_id,
     )
+    if row and kind == "payments":
+        # Отдельный канал оплат, а где не задан — общий.
+        row = {
+            "notifications_telegram_chat_id":
+                row["payments_telegram_chat_id"] or row["notifications_telegram_chat_id"],
+            "notifications_max_chat_id":
+                row["payments_max_chat_id"] or row["notifications_max_chat_id"],
+            "notifications_vk_peer_id":
+                row["payments_vk_peer_id"] or row["notifications_vk_peer_id"],
+        }
     result = {"tg": False, "max": False, "vk": False}
     if not row or not text_html:
         return result

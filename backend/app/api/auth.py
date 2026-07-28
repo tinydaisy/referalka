@@ -462,6 +462,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 c.created_at, c.timezone, c.email_verified, c.is_system_service,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
+                  c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
                 c.integration_token, c.default_link_mode,
                 c.start_mode, c.start_event_id,
@@ -568,6 +569,10 @@ class ProfileUpdate(BaseModel):
     broadcast_concurrency: Optional[int] = None
     notifications_telegram_chat_id: Optional[int] = None
     notifications_max_chat_id: Optional[str] = None
+    # Отдельный канал для уведомлений об оплатах (миграция 259).
+    payments_telegram_chat_id: Optional[str] = None
+    payments_max_chat_id: Optional[str] = None
+    payments_vk_peer_id: Optional[str] = None
     notifications_max_url: Optional[str] = None
     notifications_vk_peer_id: Optional[str] = None
     partner_landing_url: Optional[str] = None
@@ -593,6 +598,7 @@ async def update_me(
                 c.created_at, c.timezone,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
+                  c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
                   c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
            FROM clients c WHERE c.id = $1""",
             client_id
@@ -627,6 +633,7 @@ async def update_me(
                   c.created_at, c.timezone,
                   c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
+                  c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
                   c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
              FROM clients c WHERE c.id = $1""",
         client_id

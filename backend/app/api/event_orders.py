@@ -208,12 +208,11 @@ async def create_order(
             order_id=order_id,
             product_id=t["pay_product_id"],
             notification_url=f"{base}/api/v1/integrations/client-pay/leadpay",
-            # ⚠️ Номер ТАРИФА в самом адресе, а не параметром: параметр
-            # терялся по дороге, и страница не знала, чьи чаты показывать.
-            # Чаты и боты у всех покупателей тарифа одинаковые, поэтому
-            # различать людей не нужно — одновременные покупки не мешают.
-            redirect_url_ok=f"{base}/thanks/{t['id']}",
-            redirect_url_error=f"{base}/thanks/{t['id']}?fail=1",
+            # ⚠️ Номер ЗАКАЗА в самом ПУТИ, а не параметром: параметр
+            # терялся по дороге. По заказу видно и событие, и конкретного
+            # человека — имя, сумму, статус оплаты.
+            redirect_url_ok=f"{base}/thanks/order/{order_id}",
+            redirect_url_error=f"{base}/thanks/order/{order_id}?fail=1",
             email=email,
             phone=phone,
             fio=name or None,
@@ -231,8 +230,11 @@ async def create_order(
     # Письмо со ссылкой на оплату: человек часто уходит подумать и теряет
     # вкладку. Ошибка отправки не должна ронять заказ — ссылка уже готова.
     try:
-        from app.services.order_email import send_order_created_email
+        from app.services.order_email import (
+            send_order_created_email, notify_organizer_new_order,
+        )
         await send_order_created_email(db, order_id)
+        await notify_organizer_new_order(db, order_id)
     except Exception as e:
         logger.warning("Письмо о заказе %s не отправлено: %s", order_id, e)
 
@@ -368,7 +370,7 @@ async def get_order(
     событие и отдаём его чаты. Ничего настраивать не нужно."""
     _cors(response)
     row = await db.fetchrow(
-        """SELECT o.id, o.status, o.amount, o.contact_id,
+        """SELECT o.id, o.status, o.amount, o.contact_id, o.event_id,
                   t.title AS tariff_title,
                   e.slug AS event_slug, e.title AS event_title,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_url,
@@ -396,6 +398,48 @@ async def get_order(
                      ("max", d.pop("max_chat_url", None)))
         if u
     ]
+
+    # Боты клиента: через них придут напоминания, подарки и ссылка на эфир.
+    chans = await db.fetch(
+        """SELECT ch.platform_slug, ch.handle
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+             JOIN event_owners eo ON eo.client_id = cc.client_id
+                                 AND eo.status = 'accepted'
+            WHERE eo.event_id = $1 AND cc.is_active = TRUE
+              AND ch.handle IS NOT NULL AND ch.handle <> ''
+              AND ch.platform_slug IN ('telegram', 'vk', 'max')""",
+        row["event_id"] if "event_id" in row else d.get("event_id"),
+    )
+    bots = []
+    for c in chans:
+        h = c["handle"].lstrip("@")
+        url = {
+            "telegram": f"https://telegram.me/{h}?start=ref_pg{d['event_slug']}",
+            "vk": f"https://vk.me/{h}",
+            "max": f"https://max.ru/{h}?start=ref_pg{d['event_slug']}",
+        }.get(c["platform_slug"])
+        if url:
+            bots.append({"platform": c["platform_slug"], "url": url})
+    d["bots"] = bots
+
+    cl = await db.fetchrow(
+        """SELECT cl.work_tg_username, cl.work_vk, cl.work_max
+             FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY eo.id LIMIT 1""",
+        row["event_id"] if "event_id" in row else d.get("event_id"),
+    )
+    support = []
+    if cl:
+        if cl["work_tg_username"]:
+            support.append({"platform": "telegram",
+                            "url": f"https://t.me/{str(cl['work_tg_username']).lstrip('@')}"})
+        if cl["work_vk"]:
+            support.append({"platform": "vk", "url": cl["work_vk"]})
+        if cl["work_max"]:
+            support.append({"platform": "max", "url": cl["work_max"]})
+    d["support"] = support
     return d
 
 
@@ -475,8 +519,11 @@ async def leadpay_order_webhook(
             db, event_id=order["event_id"], contact_id=order["contact_id"])
 
     try:
-        from app.services.order_email import send_order_paid_email
+        from app.services.order_email import (
+            send_order_paid_email, notify_organizer_new_order,
+        )
         await send_order_paid_email(db, order_id)
+        await notify_organizer_new_order(db, order_id, paid=True)
     except Exception as e:
         logger.warning("Письмо об оплате заказа %s не отправлено: %s", order_id, e)
 
