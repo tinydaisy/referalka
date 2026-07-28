@@ -427,7 +427,8 @@ function BlockBody({
                 block.seats_position === 'side' ? 'flex-row' : 'flex-col'
               }`}>
                 {block.show_seats && content.seats && (
-                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
+                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius}
+                              label={block.title} />
                 )}
                 <a
                   href={`/event/${slug}/register`}
@@ -449,7 +450,8 @@ function BlockBody({
     case 'seats':
       return content.seats
         ? <div className="text-center">
-            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
+            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius}
+                        label={block.title} />
           </div>
         : null
 
@@ -638,7 +640,7 @@ function BlockBody({
             <li key={i} className="flex items-start gap-4">
               <GiftIcon color={iconColor} id={`g${i}`} />
               <div className="min-w-0 flex-1 pt-1">
-                <span className="font-bold">{g.title || 'Подарок'}</span>
+                <span className="font-bold">{g.title}</span>
                 {g.description && (
                   <span className="opacity-85"> — {g.description}</span>
                 )}
@@ -833,11 +835,13 @@ function BlockBody({
 
 /** Бейдж «осталось мест» — цифра металликом из цвета иконок темы. */
 function SeatsBadge({
-  seats, iconColor, radius,
+  seats, iconColor, radius, label,
 }: {
   seats: any
   iconColor: string
   radius: number
+  /** Подпись задаётся в блоке; пусто — понятный текст по смыслу. */
+  label?: string | null
 }) {
   const metalText: React.CSSProperties = {
     background: metallic(iconColor),
@@ -850,7 +854,7 @@ function SeatsBadge({
          style={{ border: `2px solid ${iconColor}`, borderRadius: Math.max(radius, 8),
                   background: 'rgba(255,255,255,.05)' }}>
       <span className="text-[13px] font-semibold uppercase tracking-widest opacity-90">
-        {seats.left != null ? 'Осталось мест:' : 'Уже с нами:'}
+        {label || (seats.left != null ? 'Осталось мест:' : 'Уже с нами:')}
       </span>
       <span className="text-4xl font-bold leading-none" style={metalText}>
         {seats.left != null ? `${seats.left}/${seats.total}` : (seats.taken || 0)}
@@ -865,6 +869,7 @@ function SeatsBadge({
  * карточке, а соседние выглядят пустыми коробками.
  */
 function SpeakersBlock({ list, block, page, cardStyle, iconColor, btnStyle }: any) {
+  // Подпись кнопки задаётся в блоке (button_label).
   const [open, setOpen] = useState(false)
   if (!list.length) return null
 
@@ -888,7 +893,7 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor, btnStyle }: an
             className="inline-flex items-center gap-2 px-7 py-3 text-sm font-bold uppercase"
             style={btnStyle}
           >
-            {open ? 'Свернуть' : 'Подробнее о спикерах'}
+            {open ? 'Свернуть' : (block.button_label || 'Подробнее о спикерах')}
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" strokeWidth="3" strokeLinecap="round"
                  strokeLinejoin="round" aria-hidden="true"

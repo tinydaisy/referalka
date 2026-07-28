@@ -35,7 +35,7 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   seats: {
     kind: 'seats',
     label: 'Осталось мест',
-    hint: 'Занятые места считаются сами по числу зарегистрированных.',
+    hint: 'Занятые места считаются сами по числу зарегистрированных. Заголовок — подпись над цифрой.',
     live: true,
     fields: ['title', 'body', 'seats'],
   },
@@ -87,7 +87,8 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     label: 'Спикеры',
     hint: 'Подтягиваются из события. Поправили карточку спикера — на лендинге обновилось.',
     live: true,
-    fields: ['title', 'subtitle'],
+    // button — подпись кнопки, раскрывающей регалии («Подробнее о спикерах»).
+    fields: ['title', 'subtitle', 'button'],
   },
   organizer: {
     kind: 'organizer',
