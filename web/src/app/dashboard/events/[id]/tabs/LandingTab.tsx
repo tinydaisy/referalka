@@ -13,7 +13,7 @@
  * Сохранение — по факту правки, с задержкой (не дёргаем сервер на каждую букву).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, Plus, Loader2, ExternalLink } from 'lucide-react'
+import { Eye, Plus, Loader2, ExternalLink, Palette } from 'lucide-react'
 import { api } from '@/lib/api'
 import BlockCard from '@/components/landing/BlockCard'
 import { ADDABLE, metaFor } from '@/components/landing/blockMeta'
@@ -130,6 +130,17 @@ export default function LandingTab({ eventId, event }: Props) {
     catch (e: any) { alert(e?.message || 'Не удалось сохранить порядок'); load() }
   }
 
+  // Тема копируется в страницу при создании; для уже собранной страницы —
+  // явная кнопка, иначе правка «Стилей лендингов» не видна на лендинге.
+  const applyTheme = async () => {
+    if (!page) return
+    if (!confirm('Перетянуть оформление из «Стили лендингов» в эту страницу?\n\nЦвета, шрифты, отступы и ширина заменятся. Содержимое блоков не изменится.')) return
+    try {
+      const updated = await api.eventLanding.applyTheme(eventId, page.id)
+      setPages(prev => prev.map(p => p.id === page.id ? { ...p, ...updated } : p))
+    } catch (e: any) { alert(e?.message || 'Не удалось применить тему') }
+  }
+
   const saveSeats = async () => {
     const v = seats.trim() === '' ? null : Math.max(0, parseInt(seats, 10) || 0)
     try {
@@ -204,15 +215,24 @@ export default function LandingTab({ eventId, event }: Props) {
               : 'Пока черновик — посторонние страницу не увидят.'}
           </p>
         </div>
-        <a
-          href={publicUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          <Eye className="h-4 w-4" /> Посмотреть
-          <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
-        </a>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={applyTheme}
+            title="Взять цвета, шрифты и отступы из Настройки → Стили лендингов"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Palette className="h-4 w-4" /> Применить стили
+          </button>
+          <a
+            href={publicUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Eye className="h-4 w-4" /> Посмотреть
+            <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
+          </a>
+        </div>
       </div>
 
       {/* Всего мест — только на основной странице */}

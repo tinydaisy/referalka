@@ -558,6 +558,10 @@ export const api = {
       request(`/api/v1/events/${eventId}/landing/pages/${pageId}/reorder`, {
         method: 'POST', body: JSON.stringify({ ids }),
       }),
+    applyTheme: (eventId: number, pageId: number) =>
+      request(`/api/v1/events/${eventId}/landing/pages/${pageId}/apply-theme`, {
+        method: 'POST',
+      }),
     setSeats: (eventId: number, seats_total: number | null) =>
       request(`/api/v1/events/${eventId}/landing/seats`, {
         method: 'PATCH', body: JSON.stringify({ seats_total }),

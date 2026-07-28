@@ -576,6 +576,54 @@ async def delete_block(
     return {"ok": True}
 
 
+@router.post("/pages/{page_id}/apply-theme", summary="Применить фирменную тему к странице")
+async def apply_theme(
+    event_id: int,
+    page_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Перетянуть оформление из «Стили лендингов» в эту страницу.
+
+    Тема копируется в страницу при её создании (см. `_get_or_create_page`) —
+    чтобы правка темы не переоформляла задним числом уже собранные лендинги.
+    Но клиент, настроив тему, ждёт, что увидит её на существующей странице,
+    поэтому даём явную кнопку. Содержимое блоков не трогаем — только стиль.
+    """
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+    await _page_for_write(db, event_id, page_id)
+
+    row = await db.fetchrow(
+        """UPDATE event_landing_pages p SET
+             bg_color = c.lp_bg_color, bg_color_2 = c.lp_bg_color_2,
+             bg_angle = c.lp_bg_angle, bg_gradient = c.lp_bg_gradient,
+             bg_mode = COALESCE(c.lp_bg_mode, 'screen'),
+             font_heading = c.lp_font_heading, color_heading = c.lp_color_heading,
+             heading_metallic = c.lp_heading_metallic,
+             font_body = c.lp_font_body, color_body = c.lp_color_body,
+             color_link = c.lp_color_link,
+             btn_color = c.lp_btn_color, btn_text_color = c.lp_btn_text_color,
+             btn_metallic = c.lp_btn_metallic,
+             border_color = c.lp_border_color, border_metallic = c.lp_border_metallic,
+             icon_color = c.lp_icon_color, icon_metallic = c.lp_icon_metallic,
+             radius = COALESCE(c.lp_radius, 5),
+             body_size = COALESCE(c.lp_body_size, 16),
+             content_width = COALESCE(c.lp_content_width, 1120),
+             pad_x = COALESCE(c.lp_pad_x, 24),
+             section_gap = COALESCE(c.lp_section_gap, 64),
+             updated_at = NOW()
+           FROM clients c
+          WHERE c.id = $1 AND p.id = $2
+          RETURNING p.*""",
+        client_id, page_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Страница не найдена")
+    return dict(row)
+
+
 @router.patch("/seats", summary="Всего мест на событии")
 async def set_seats(
     event_id: int,
