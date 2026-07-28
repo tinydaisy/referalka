@@ -2616,11 +2616,12 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
     return data;
   }}
 
-  // Известный контакт (?c=… или prefill) → сразу полная форма, без проверки email.
-  if (HAS_PREFILL || CONTACT_ID) {{
-    document.getElementById('step1').style.display = 'none';
-    document.getElementById('step2').style.display = 'block';
-  }}
+  // ⚠️ Промежуточного шага «введите email — мы проверим» БОЛЬШЕ НЕТ: он
+  // спрашивал один email и только потом показывал остальные поля, из-за чего
+  // выглядел как форма из одного поля. Сразу открываем полную форму;
+  // существующий контакт всё равно найдётся по email при отправке.
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = 'block';
 
   // ШАГ 1 — проверка email (только когда контакт неизвестен)
   var btnCheck = document.getElementById('btn-check');

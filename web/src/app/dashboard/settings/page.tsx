@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown, Palette } from 'lucide-react'
+import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown, Palette, CreditCard } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
@@ -10,9 +10,10 @@ import LegalTab from '@/components/settings/LegalTab'
 import LandingThemeTab from '@/components/settings/LandingThemeTab'
 import AssistantTab from '@/components/settings/AssistantTab'
 import ChatGatesTab from '@/components/settings/ChatGatesTab'
+import PaymentSettingsTab from '@/components/settings/PaymentSettingsTab'
 import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
-type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme'
+type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'payments'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -177,6 +178,8 @@ export default function SettingsPage() {
   const hasPartnerRegistration = clientFeatures.includes('partner_registration')
   // Стили лендингов — та же фича, что и сам конструктор лендинга (миграция 241).
   const hasLandingTheme = clientFeatures.includes('event_landing')
+  // Приём оплаты за тарифы своей платёжной системой (миграция 257).
+  const hasPayments = clientFeatures.includes('payments')
 
   const isAnyAssistant = role === 'assistant'
   const isRestrictedAssistant = isAnyAssistant && assistantLevel !== 'full'
@@ -187,6 +190,7 @@ export default function SettingsPage() {
     ...(hasPartnerRegistration ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     ...(hasLandingTheme ? [{ id: 'landing-theme' as Tab, label: 'Стили лендингов', icon: Palette }] : []),
+    ...(hasPayments ? [{ id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard }] : []),
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     // Управлять ассистентом может только владелец — даже полный ассистент не может
     // сменить себе пароль или отключить себя.
@@ -252,6 +256,7 @@ export default function SettingsPage() {
 
       {/* Гейт по подписке в TG-чатах — миграция 115 */}
       {effectiveTab === 'chat-gates' && <ChatGatesTab />}
+      {effectiveTab === 'payments' && <PaymentSettingsTab />}
 
       {/* Интеграция — токен для чат-ботов (только vip) */}
       {effectiveTab === 'integration' && <IntegrationTab />}

@@ -20,6 +20,7 @@ interface Tariff {
   sort_order: number
   is_active: boolean
   is_featured?: boolean
+  pay_product_id?: string | null
   buyers_count: number
   unpaid_count: number
 }
@@ -47,7 +48,7 @@ interface Buyer {
 }
 
 const emptyForm = {
-  code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', is_active: true, is_featured: false,
+  code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', is_active: true, is_featured: false,
 }
 
 export default function TariffsTab({
@@ -72,6 +73,9 @@ export default function TariffsTab({
 
   // раскрытый блок «кто оплатил» (inline, не модалка)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  // Подключена ли своя платёжная система: от этого зависит, что спрашивать
+  // у тарифа — код товара (мы сами создаём заказ) или внешнюю ссылку.
+  const [payReady, setPayReady] = useState(false)
   // подвкладка: настройка тарифов / сводная таблица заказов (запоминается в URL ?sub=).
   // Если subTab передан сверху (родитель управляет через группировку вкладок) —
   // используем его и прячем свою панель подвкладок (hideSubNav).
@@ -88,6 +92,13 @@ export default function TariffsTab({
     }
   }
   useEffect(() => { load() }, [eventId])
+
+  // Молча: раздел может быть недоступен на тарифе — тогда остаётся ссылка.
+  useEffect(() => {
+    api.paymentSettings.get()
+      .then(r => setPayReady(!!r?.is_configured))
+      .catch(() => {})
+  }, [])
 
   async function saveOffer() {
     setSavingOffer(true)
@@ -111,6 +122,7 @@ export default function TariffsTab({
       title: t.title,
       description: t.description || '',
       excluded_description: t.excluded_description || '',
+      pay_product_id: t.pay_product_id || '',
       price: t.price != null ? String(t.price) : '',
       pay_url: t.pay_url || '',
       is_active: t.is_active,
@@ -129,6 +141,7 @@ export default function TariffsTab({
       title,
       description: form.description.trim() || null,
       excluded_description: form.excluded_description.trim() || null,
+      pay_product_id: form.pay_product_id.trim() || null,
       price: form.price.trim() ? parseInt(form.price.trim(), 10) : null,
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
@@ -320,19 +333,31 @@ export default function TariffsTab({
                         onChange={e => setForm({ ...form, excluded_description: e.target.value })}
                         rows={3} className="input-tar resize-none" />
             </Field>
-            <Field label="Ссылка на оплату" hint="Продамус / ЮKassa / GetCourse — любая">
-              <input value={form.pay_url} onChange={e => setForm({ ...form, pay_url: e.target.value })}
-                     className="input-tar" placeholder="https://..." />
-            </Field>
+            {/* Развилка: платёжная система подключена → код товара, мы сами
+                создаём заказ и ловим оплату вебхуком. Не подключена →
+                внешняя ссылка, оплаты отмечаются вручную. */}
+            {payReady ? (
+              <Field label="Код товара в платёжной системе"
+                     hint="Номер карточки товара — например 63959. Заказ и оплата отметятся сами">
+                <input value={form.pay_product_id}
+                       onChange={e => setForm({ ...form, pay_product_id: e.target.value })}
+                       className="input-tar" placeholder="63959" inputMode="numeric" />
+              </Field>
+            ) : (
+              <Field label="Ссылка на оплату"
+                     hint="Оплаты придётся отмечать вручную. Подключите платёжную систему в Настройках, чтобы это происходило само">
+                <input value={form.pay_url} onChange={e => setForm({ ...form, pay_url: e.target.value })}
+                       className="input-tar" placeholder="https://..." />
+              </Field>
+            )}
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />
               Тариф активен
             </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={!!form.is_featured}
-                  onChange={e => setForm({ ...form, is_featured: e.target.checked })} />
-                <span className="text-sm text-gray-700">Выделить на лендинге (светящаяся рамка)</span>
-              </label>
+            {/* ⚠️ Галочки «Выделить на лендинге» здесь НЕТ: выделенный тариф
+                выбирается в конструкторе лендинга (блок «Тарифы»), там же
+                настраивается сила свечения. Две точки управления одним и тем
+                же признаком путали. */}
             <p className="text-xs text-gray-400 -mt-2">Выключенный тариф остаётся в кабинете, оплаты по нему засчитываются. Влияет только на отдачу в API для стороннего лендинга.</p>
             <div className="flex gap-2 pt-1">
               <button onClick={submitForm} disabled={saving}

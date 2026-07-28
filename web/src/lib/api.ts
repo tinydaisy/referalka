@@ -604,6 +604,20 @@ export const api = {
       }),
   },
 
+  // Своя платёжная система клиента: ею покупатели оплачивают тарифы его
+  // событий, деньги идут клиенту (миграция 257). Гейт — фича payments.
+  paymentSettings: {
+    get: () => request('/api/v1/clients/me/payment-settings'),
+    update: (data: any) =>
+      request('/api/v1/clients/me/payment-settings', {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    check: (data: any) =>
+      request('/api/v1/clients/me/payment-settings/check', {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+  },
+
   eventTariffs: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs`),
     allOrders: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs-orders`),
