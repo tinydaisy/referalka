@@ -50,6 +50,10 @@ class OrderIn(BaseModel):
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     contact_id: Optional[int] = None
+    # Человек выбрал себя на экране «Это вы?» (несколько совпадений).
+    chosen_contact_id: Optional[int] = None
+    # Ничего из найденного не подошло — создаём новый контакт.
+    force_new: bool = False
     # Реф-код того, кто привёл (?pid= в адресе лендинга). Позволяет вести
     # рекламу прямо на лендинг, без прохода через бота.
     ref_code: Optional[str] = None
@@ -131,6 +135,27 @@ async def create_order(
     # регистрации под их собственным ником. Ник используем только для ПОИСКА;
     # настоящая идентичность появится, когда человек зайдёт в бота.
     contact_id = known_cid
+
+    # Человек уже выбрал себя на экране «Это вы?».
+    if not contact_id and data.chosen_contact_id:
+        contact_id = await db.fetchval(
+            """SELECT id FROM contacts
+                WHERE id = $1 AND client_id = $2 AND is_active = TRUE
+                  AND merged_into IS NULL""",
+            data.chosen_contact_id, t["client_id"],
+        )
+
+    # ⚠️ Email одного контакта, телефон другого — обычная ситуация: у человека
+    # два аккаунта в базе. Молча брать первый нельзя (заказ уйдёт не тому),
+    # сливать их автоматически — тем более. Показываем найденных и просим
+    # выбрать, ровно как вебинарная авторизация.
+    if not contact_id and not data.force_new:
+        from app.services.contact_merge import find_contact_candidates
+        cands = await find_contact_candidates(
+            db, t["client_id"], email, phone, tg)
+        if len(cands) > 1:
+            return {"ok": False, "need_choice": True, "candidates": cands}
+
     if not contact_id:
         contact_id, _is_new = await find_or_create_contact(
             db,

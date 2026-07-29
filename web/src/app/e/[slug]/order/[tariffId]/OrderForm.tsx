@@ -38,6 +38,9 @@ export default function OrderForm({
   const [mkt, setMkt] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Нашлось несколько контактов (email одного, телефон другого) — просим
+  // человека выбрать себя, как в авторизации вебинарной комнаты.
+  const [candidates, setCandidates] = useState<any[] | null>(null)
 
   const price = Number(tariff.price || 0)
   const isFree = price <= 0
@@ -105,7 +108,7 @@ export default function OrderForm({
       : { background: btnFill }),
   }
 
-  const submit = async () => {
+  const submit = async (extra: any = {}) => {
     setError('')
     if (!name.trim()) { setError('Укажите имя и фамилию'); return }
     if (!email.trim()) { setError('Укажите email — на него придёт доступ'); return }
@@ -136,6 +139,7 @@ export default function OrderForm({
           phone: phone.trim() || null,
           telegram_username: tg.trim() || null,
           contact_id: contactId ? Number(contactId) : null,
+          ...extra,
           // Кто привёл: ?pid= в адресе лендинга. Позволяет вести рекламу
           // прямо на лендинг, минуя бота, и всё равно считать рефералов.
           ref_code: pid || null,
@@ -146,6 +150,13 @@ export default function OrderForm({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.detail || 'Не удалось оформить заказ')
+
+      // Несколько совпадений — показываем «Это вы?».
+      if (data?.need_choice) {
+        setCandidates(data.candidates || [])
+        setBusy(false)
+        return
+      }
 
       // Бесплатный тариф — сразу в кабинет; платный — на оплату.
       if (data.redirect) { location.href = data.redirect; return }
@@ -163,6 +174,53 @@ export default function OrderForm({
       setError(e?.message || 'Не удалось оформить заказ')
       setBusy(false)
     }
+  }
+
+  if (candidates) {
+    return (
+      <div className="min-h-screen px-4 py-8"
+           style={{
+             background: page.bg_css_screen || page.bg_css || '#25455D',
+             color: page.color_body || '#FFFFFF',
+             fontFamily: page.font_body_css,
+           }}>
+        <div className="mx-auto w-full max-w-lg">
+          <h1 className="text-center text-[1.5em] font-bold uppercase"
+              style={{ fontFamily: page.font_heading_css, color: page.color_heading || '#FFCFA4' }}>
+            Это вы?
+          </h1>
+          <p className="mt-3 text-center text-[.9em] opacity-80">
+            Мы нашли несколько записей с такими контактами. Выберите свою —
+            так заказ и доступ придут туда, где вас уже знают.
+          </p>
+          <div className="mt-6 space-y-2.5">
+            {candidates.map((c: any) => (
+              <button
+                key={c.id}
+                onClick={() => { setCandidates(null); submit({ chosen_contact_id: c.id }) }}
+                className="w-full rounded-xl px-5 py-4 text-left transition-transform hover:scale-[1.01]"
+                style={{
+                  background: 'rgba(255,255,255,.08)',
+                  border: `1px solid ${page.border_color || '#FFCFA4'}55`,
+                }}
+              >
+                <div className="font-semibold">{c.name || 'Без имени'}</div>
+                <div className="mt-0.5 text-[.85em] opacity-75">
+                  {[c.email, c.phone].filter(Boolean).join(' · ')}
+                </div>
+              </button>
+            ))}
+            <button
+              onClick={() => { setCandidates(null); submit({ force_new: true }) }}
+              className="w-full rounded-xl border border-dashed px-5 py-4 text-[.9em] opacity-80 hover:opacity-100"
+              style={{ borderColor: `${page.border_color || '#FFCFA4'}55` }}
+            >
+              Ничего из этого — я здесь впервые
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (autoReg) {
@@ -290,7 +348,7 @@ export default function OrderForm({
           )}
 
           <button
-            onClick={submit}
+            onClick={() => submit()}
             disabled={busy}
             className="w-full px-6 py-4 text-[1em] font-bold uppercase transition-transform hover:scale-[1.02] disabled:opacity-60"
             style={btnStyle}

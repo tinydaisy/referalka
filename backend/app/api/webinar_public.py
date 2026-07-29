@@ -571,52 +571,14 @@ class RegisterIn(BaseModel):
     policy_version: Optional[int] = None
 
 
-def _mask_email(email: Optional[str]) -> Optional[str]:
-    """ma••••ta@mail.ru — первые/последние буквы до @, домен как есть."""
-    if not email or "@" not in email:
-        return email
-    local, dom = email.split("@", 1)
-    if len(local) <= 2:
-        return local[0] + "•••@" + dom
-    return f"{local[:2]}••••{local[-2:]}@{dom}"
-
-
-def _mask_phone(phone: Optional[str]) -> Optional[str]:
-    """+791••••••234 — первые 4 цифры и 3 последних."""
-    if not phone:
-        return phone
-    digits = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
-    if len(digits) <= 7:
-        return digits
-    return digits[:4] + "•" * max(0, len(digits) - 7) + digits[-3:]
-
-
-async def _find_contact_candidates(conn, client_id: int, email, phone, tg_username):
-    """Все контакты клиента, подходящие по email / телефону / TG-нику. Для экрана «Это вы?»."""
-    from app.services.contact_merge import normalize_email, normalize_phone, find_contact_by_telegram_username
-    ids = set()
-    en = normalize_email(email); pn = normalize_phone(phone)
-    if en:
-        rows = await conn.fetch(
-            "SELECT c.id FROM contacts c WHERE c.client_id=$1 AND c.is_active=TRUE AND EXISTS "
-            "(SELECT 1 FROM platform_users pu WHERE pu.contact_id=c.id AND pu.platform_slug='email' AND pu.platform_user_id=$2)",
-            client_id, en)
-        ids.update(r["id"] for r in rows)
-    if pn:
-        rows = await conn.fetch(
-            "SELECT id FROM contacts WHERE client_id=$1 AND is_active=TRUE AND phone_normalized=$2", client_id, pn)
-        ids.update(r["id"] for r in rows)
-    if tg_username:
-        cid = await find_contact_by_telegram_username(conn, client_id=client_id, telegram_username=tg_username)
-        if cid:
-            ids.add(cid)
-    if not ids:
-        return []
-    rows = await conn.fetch(
-        "SELECT c.id, c.name, c.phone, "
-        "  (SELECT pu.platform_user_id FROM platform_users pu WHERE pu.contact_id=c.id AND pu.platform_slug='email' LIMIT 1) AS email "
-        "FROM contacts c WHERE c.id = ANY($1::int[]) ORDER BY c.id", list(ids))
-    return [{"id": r["id"], "name": r["name"], "email": _mask_email(r["email"]), "phone": _mask_phone(r["phone"])} for r in rows]
+# ⚠️ Поиск кандидатов «Это вы?» и маскировка живут в contact_merge — общем
+# доме всего, что касается опознания человека. Здесь только псевдонимы, чтобы
+# не переписывать вызовы ниже.
+from app.services.contact_merge import (  # noqa: E402
+    find_contact_candidates as _find_contact_candidates,
+    mask_email as _mask_email,
+    mask_phone as _mask_phone,
+)
 
 
 @router.post("/{slug}/{day}/register", summary="Авторизация зрителя (форма перед эфиром)")
