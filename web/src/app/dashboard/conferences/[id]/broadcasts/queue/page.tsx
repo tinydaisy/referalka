@@ -353,7 +353,7 @@ export default function QueuePage() {
   }
 
   async function deleteOne(schedule: any) {
-    const label = TYPE_LABELS[schedule.template_type] || schedule.type || '#' + schedule.id
+    const label = schedule.template_name || TYPE_LABELS[schedule.template_type] || schedule.type || '#' + schedule.id
     const msg = schedule.status === 'pending' || schedule.status === 'running'
       ? `Задача «${label}» сейчас ${STATUS_LABEL[schedule.status].toLowerCase()}. Отменить и удалить?`
       : `Удалить задачу «${label}»? Это действие нельзя отменить.`
@@ -1014,7 +1014,7 @@ export default function QueuePage() {
                         {STATUS_LABEL[s.status] || s.status}
                       </span>
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-white/80 border border-gray-200 text-gray-600">
-                        {TYPE_LABELS[s.template_type] || s.type}
+                        {s.template_name || TYPE_LABELS[s.template_type] || s.type}
                       </span>
                       {/* Дневная рассылка — какой день программы уйдёт в сообщении */}
                       {s.day && (
