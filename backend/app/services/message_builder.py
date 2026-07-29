@@ -631,7 +631,8 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
                             personal_tg=None, tg_channel_url=None, instagram_url=None,
                             vk_url=None, max_url=None, website_url=None,
                             achievements=None, role=None, bio=None, positioning=None,
-                            card_link=None, speaker_notes=None, speaker_topic_desc=None):
+                            card_link=None, speaker_notes=None, speaker_topic_desc=None,
+                            speaker_when=None):
     text = tmpl_text or ""
     text = text.replace("{stream_url}", stream_url_val or "")
     # Полный набор спикер-плейсхолдеров (те же, что в speaker_intro), чтобы
@@ -665,6 +666,12 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
     text = text.replace("{speaker_tg_username}", personal_mention)
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
+    # {speaker_when} — «Сегодня/Завтра в HH:MM МСК». Пусто → строку с ним
+    # убираем целиком (как у остальных плейсхолдеров), чтобы не было пробела.
+    _when_v = (speaker_when or "").strip()
+    if not _when_v:
+        text = re.sub(r"^[^\n]*\{speaker_when\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{speaker_when}", _when_v)
     text = text.replace("{speaker_bio}", (bio or "").strip())
     text = text.replace("{speaker_positioning}", (positioning or "").strip())
     text = text.replace("{speaker_card_link}", (card_link or "").strip())
@@ -1676,6 +1683,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             conn, session_data.get("session_event_id") or event_id, session_data.get("session_day"), "__CT__")
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
+        _pre_when = ""   # {speaker_when}; заполняется веткой 5min_before
         if tpl_type == "gift":
             # is_package — подарок это ПАКЕТ лид-магнитов → особый формат вывода
             # (ссылка → название пакета → «Ссылка на пакет материалов: ссылка»).
@@ -1698,6 +1706,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             )
             text = apply_speaker_material(text, speaker_material)
         else:  # 5min_before
+            if session_data.get("start_time"):
+                _pre_date = await conn.fetchval(
+                    "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2",
+                    session_data.get("session_event_id") or event_id,
+                    session_data.get("day") or session_data.get("session_day"),
+                )
+                _pre_when = relative_when(_pre_date, session_data["start_time"],
+                                          _msk_ref_date(fire_at))
             card_link = speaker_card_link(session_data.get("event_slug"), session_data.get("ec_id"),
                                           session_data.get("default_link_mode"), session_data.get("bot_handle"))
             text = build_pre_start_message(
@@ -1718,15 +1734,21 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 card_link=card_link,
                 speaker_notes=session_data.get("speaker_notes"),
                 speaker_topic_desc=session_data.get("speaker_topic_desc"),
+                speaker_when=_pre_when,
             )
             text = apply_speaker_material(text, speaker_material)
         btn_url = btn_url.replace("{stream_url}", stream_url)
         # Имя и тема спикера — нужны для подстановки в subject (заголовок).
         resolved_speaker_name = session_data.get("speaker_name") or ""
+        # {speaker_when} — «Сегодня/Завтра в HH:MM МСК». ⚠️ Считаем ТОЙ ЖЕ
+        # общей relative_when, что и остальные ветки: без этого плейсхолдер
+        # оставался сырым в заголовке (в тексте он раскрывался).
+        # Значение посчитано в ветке 5min_before выше; у gift-ветки его нет.
         subject_speaker_vals = {
             "speaker_topic": (session_data.get("speaker_topic")
                               or session_data.get("session_title") or ""),
             "speaker_role": session_data.get("role") or "",
+            "speaker_when": _pre_when,
             "gift_after_speech_title": session_data.get("gift_title") or "",
             "gift_title": session_data.get("gift_title") or "",
         }
