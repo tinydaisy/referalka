@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
@@ -293,6 +293,10 @@ function PreviewImage({ src, placeholder }: { src: string; placeholder: string }
     />
   )
 }
+
+// Типы, которых на событии может быть НЕСКОЛЬКО → их можно дублировать.
+// Должно совпадать с DUPLICABLE_TYPES на бэке (modules/broadcasts.py).
+const DUPLICABLE_TYPES = ['custom', 'expert_day', 'speaker_intro']
 
 const CUSTOM_PLACEHOLDERS = [
   '{conf_title}', '{conf_date}', '{conf_description}',
@@ -712,6 +716,20 @@ export default function TemplatesPage() {
       const res = await api.conference.templates.create(eventId, payload)
       setTemplates([...templates, res])
       setCreateModal(false)
+    } catch (e: any) {
+      alert(e.message)
+    }
+  }
+
+  // Копия шаблона со всеми настройками (текст, тайминг, аудитория, каналы).
+  // Сразу открываем её на правку — обычно копию делают, чтобы что-то поменять.
+  async function duplicateTemplate(tplId: number) {
+    try {
+      const copy = await api.conference.templates.duplicate(eventId, tplId)
+      const fresh = await api.conference.templates.list(eventId)
+      setTemplates(fresh.templates || [])
+      const created = (fresh.templates || []).find((x: any) => x.id === copy.id) || copy
+      openEdit(created)
     } catch (e: any) {
       alert(e.message)
     }
@@ -1359,6 +1377,16 @@ export default function TemplatesPage() {
                       style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
                       <Edit2 size={13} /> Редактировать
                     </button>
+                    {/* Дублировать — только типы, которых может быть несколько.
+                        Копия сохраняет текст, тайминг, аудиторию и каналы: удобно
+                        сделать второе «Знакомство» под другую аудиторию. */}
+                    {DUPLICABLE_TYPES.includes(tpl.type) && (
+                      <button onClick={() => duplicateTemplate(tpl.id)}
+                        title="Сделать копию этого шаблона"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-600 font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
+                        <Copy size={13} /> Дублировать
+                      </button>
+                    )}
                     {/* Удалять можно и типовые шаблоны — вернуть их потом можно
                         кнопкой «Добавить шаблон» (готовые пресеты). Авто-сид
                         срабатывает только когда шаблонов ноль, так что удалённый

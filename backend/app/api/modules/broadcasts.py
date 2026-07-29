@@ -61,6 +61,11 @@ def ru_date(d) -> str:
 
 router = APIRouter(prefix="/events/{event_id}/broadcasts", tags=["Рассылки"])
 
+# Типы, которых на событии может быть НЕСКОЛЬКО (и которые можно дублировать).
+# Остальные — строго один на тип: в generate_schedules они лежат в tmpl_map
+# (словарь по type), поэтому вторая копия молча не попала бы в генерацию.
+DUPLICABLE_TYPES = {"custom", "expert_day", "speaker_intro"}
+
 
 # ─────────────────────────────────────────
 # ШАБЛОНЫ
@@ -711,6 +716,9 @@ def _fallback_flags(t: str, for_presets: bool) -> dict:
         "for_conference": t != "event_live",
         "for_turnir": (t in EVENT_ONLY or t in TURNIR_EXTRA) and t != "event_live",
         "autoseed": t != "expert_day",
+        # ⚠️ speaker_intro сюда НЕ входит: в списке «готовых шаблонов» повторно
+        # предлагать его не нужно — вторая копия делается кнопкой «Дублировать»
+        # (готовый пресет затёр бы уже настроенный текст и тайминг).
         "multi_instance": t in {"vip_offer", "custom", "expert_day"},
     }
 
@@ -925,6 +933,73 @@ async def update_template(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
+    return dict(row)
+
+
+@router.post("/templates/{template_id}/duplicate", summary="Дублировать шаблон")
+async def duplicate_template(
+    event_id: int,
+    template_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Копия шаблона со ВСЕМИ настройками (текст, тайминг, аудитория, каналы, медиа).
+
+    Зачем: сделать второе «Знакомство со спикером» — с другим текстом и другой
+    аудиторией (одно интересовавшимся, второе — холодной базе), не настраивая
+    тайминг заново. Копия сразу редактируется как обычный шаблон.
+
+    ⚠️ Копируются только типы, которых на событии может быть несколько
+    (custom / expert_day / speaker_intro). Остальные — один на тип: вторая копия
+    просто не попала бы в генерацию (tmpl_map держит по одному на тип).
+    """
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    src = await db.fetchrow(
+        "SELECT * FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+        template_id, event_id,
+    )
+    if not src:
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
+    if src["type"] not in DUPLICABLE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Этот шаблон можно держать только в одном экземпляре. "
+                   "Дублировать можно «Знакомство со спикером», «Экспертный день» и свои шаблоны.",
+        )
+
+    row = await db.fetchrow(
+        """
+        INSERT INTO broadcast_templates
+          (client_id, event_id, name, type, subject, text, photo_url, video_url, media_type,
+           button_text, button_url, schedule_mode, offset_minutes,
+           audience_include, audience_exclude, allow_custom_datetime,
+           intro_start_time, intro_interval_min, intro_days_before, intro_roles,
+           custom_day_ref, custom_time,
+           custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
+           target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
+           speaker_photo_mode)
+        SELECT client_id, event_id, $3, type, subject, text, photo_url, video_url, media_type,
+               button_text, button_url, schedule_mode, offset_minutes,
+               audience_include, audience_exclude, allow_custom_datetime,
+               intro_start_time, intro_interval_min, intro_days_before, intro_roles,
+               custom_day_ref, custom_time,
+               custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
+               target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
+               speaker_photo_mode
+          FROM broadcast_templates WHERE id=$1 AND event_id=$2
+        RETURNING id, name, type, subject, text, photo_url, video_url, media_type,
+                  button_text, button_url, schedule_mode, offset_minutes,
+                  audience_include, audience_exclude, allow_custom_datetime,
+                  intro_start_time, intro_interval_min, intro_days_before, intro_roles,
+                  custom_day_ref, custom_time,
+                  custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
+                  target_channel_ids, send_to_event_chats, send_to_client_chats,
+                  send_to_private_chats, speaker_photo_mode, created_at
+        """,
+        template_id, event_id, f"{src['name']} (копия)",
+    )
     return dict(row)
 
 
@@ -1224,13 +1299,18 @@ async def generate_schedules(
     if only_ids is not None:
         templates = [t for t in templates if t["id"] in only_ids]
 
-    # Для предустановленных типов — один шаблон на тип. Кастомные и expert_day
-    # (их может быть несколько на событие) собираем отдельными списками.
-    tmpl_map = {t["type"]: t for t in templates if t["type"] not in ("custom", "expert_day")}
+    # Для предустановленных типов — один шаблон на тип. Кастомные, expert_day и
+    # speaker_intro (их может быть несколько на событие) собираем отдельно.
+    # ⚠️ speaker_intro стал многоэкземплярным (копия шаблона): клиент делает
+    # второе «Знакомство» с другим текстом и другой аудиторией (например одно —
+    # интересовавшимся с соцсетями, второе — холодной базе без соцсетей).
+    tmpl_map = {t["type"]: t for t in templates
+                if t["type"] not in ("custom", "expert_day", "speaker_intro")}
     custom_tmpls = [t for t in templates if t["type"] == "custom"]
     expert_day_tmpls = [t for t in templates if t["type"] == "expert_day"]
+    speaker_intro_tmpls = [t for t in templates if t["type"] == "speaker_intro"]
 
-    if not tmpl_map and not custom_tmpls and not expert_day_tmpls:
+    if not tmpl_map and not custom_tmpls and not expert_day_tmpls and not speaker_intro_tmpls:
         raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок" if only_ids is None else "Не выбрано ни одного шаблона")
 
     # Валидация: для события с программой по дням нужна программа (дни + сессии),
@@ -1468,8 +1548,11 @@ async def generate_schedules(
                 skipped += 1
 
     # ── speaker_intro: одна запись на каждого спикера — начиная через 5 мин после pre_conf ──
-    if "speaker_intro" in tmpl_map:
-        await _fanout_collaborator_intro(tmpl_map["speaker_intro"])
+    # Копий «Знакомства» может быть несколько → дедуп по template_id (как expert_day),
+    # иначе вторая копия схлопнулась бы с первой (дедуп по type+session_id).
+    _multi_intro = len(speaker_intro_tmpls) > 1
+    for _si_tmpl in speaker_intro_tmpls:
+        await _fanout_collaborator_intro(_si_tmpl, per_template_dedup=_multi_intro)
 
     # ── expert_day: «Экспертный день» — одна запись на каждого выбранного коллаба.
     # Шаблонов может быть несколько (разные эксперты/дни) — дедупим по template_id.

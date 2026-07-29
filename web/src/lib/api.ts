@@ -382,6 +382,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
       delete: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/templates/${id}`, { method: 'DELETE' }),
+      duplicate: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates/${id}/duplicate`, { method: 'POST' }),
       test: (eventId: number, id: number, day: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/templates/${id}/test?day=${day}`, { method: 'POST' }),
     },
