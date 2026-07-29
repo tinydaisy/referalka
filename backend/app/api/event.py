@@ -259,14 +259,32 @@ async def mark_link_click(body: LinkClickRequest):
         event_id = row["id"]
         client_id = row["client_id"]
 
+        uname = body.username.lstrip('@') if body.username else None
+        fname = body.first_name or None
+        lname = body.last_name or None
+
+        # ⚠️ Открыли Mini App кнопкой, не заходя в бота → Telegram отдаёт
+        # только id, а ник и имя пустые: контакт создавался безымянным, и
+        # опознать человека было нечем. Спрашиваем эти данные у самого
+        # Telegram по номеру аккаунта.
+        if platform == "telegram" and not uname and body.tg_id:
+            try:
+                from app.services.identity_resolver import fetch_telegram_profile
+                prof = await fetch_telegram_profile(conn, client_id, body.tg_id)
+                uname = uname or prof.get("username")
+                fname = fname or prof.get("first_name")
+                lname = lname or prof.get("last_name")
+            except Exception:
+                pass   # не достали — не беда, контакт всё равно заведём
+
         contact_id, _pu_id, _new = await upsert_contact_with_identity(
             conn,
             client_id=client_id,
             platform_slug=platform,
             platform_user_id=str(body.tg_id),
-            username=(body.username.lstrip('@') if body.username else None),
-            first_name=body.first_name or None,
-            last_name=body.last_name or None,
+            username=uname,
+            first_name=fname,
+            last_name=lname,
         )
 
         await conn.execute(

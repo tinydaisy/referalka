@@ -134,3 +134,39 @@ async def _resolve_vk(screen_name: str) -> Tuple[Optional[str], bool]:
     # vk_group_id клиента и group token). Пока возвращаем False — флаг
     # пользователь сам обновит когда напишет первое сообщение в сообщество.
     return str(user_id), False
+
+
+async def fetch_telegram_profile(db, client_id: int, tg_id) -> dict:
+    """По ЧИСЛОВОМУ id аккаунта достаём ник и имя через getChat.
+
+    ⚠️ Нужно потому, что Telegram отдаёт неполные данные, когда Mini App
+    открывают кнопкой, не заходя в бота: приходит только id, ник и имя
+    пустые — и контакт создаётся безымянным. Сам Telegram эти данные знает,
+    достаточно спросить.
+
+    Работает, если человек когда-либо писал боту клиента (иначе Telegram
+    отвечает «chat not found» — тогда просто вернём пустой словарь).
+    """
+    from app.services.channels import get_client_telegram_token
+
+    token = await get_client_telegram_token(client_id, db)
+    if not token or not tg_id:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                f"https://api.telegram.org/bot{token}/getChat",
+                params={"chat_id": str(tg_id)},
+            )
+        data = r.json()
+        if not data.get("ok"):
+            return {}
+        res = data.get("result") or {}
+        return {
+            "username": (res.get("username") or "").lstrip("@") or None,
+            "first_name": res.get("first_name") or None,
+            "last_name": res.get("last_name") or None,
+        }
+    except Exception as e:  # noqa: BLE001 — сеть/таймаут не должны ронять вход
+        log.warning("getChat(%s) не удался: %s", tg_id, e)
+        return {}
