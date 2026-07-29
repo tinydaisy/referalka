@@ -401,7 +401,22 @@ function ContactCard({
             {initial}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-gray-900 text-sm truncate">{name}</p>
+            {/* Имя — ссылка на карточку контакта в общей базе: раньше туда
+                можно было попасть, только развернув участника. */}
+            {p.contact_id ? (
+              <a
+                href={`/dashboard/clients?contact=${p.contact_id}`}
+                target="_blank"
+                rel="noopener"
+                onClick={e => e.stopPropagation()}
+                title="Открыть карточку контакта"
+                className="block truncate text-sm font-medium text-gray-900 hover:text-[#25455D] hover:underline"
+              >
+                {name}
+              </a>
+            ) : (
+              <p className="truncate text-sm font-medium text-gray-900">{name}</p>
+            )}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
               <button
                 type="button"
