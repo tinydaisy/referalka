@@ -464,11 +464,19 @@ function ContactCard({
           )}
         </div>
 
-        {/* Колонка «Дата регистрации» */}
+        {/* Колонка «Дата регистрации» — дата и ВРЕМЯ захода.
+            ⚠️ Время считаем в МСК (timeZone), а не в поясе браузера: у клиента
+            и у зрителей он разный, а событие живёт по московскому. */}
         <div className="w-24 text-center shrink-0">
           {p.registered_at ? (
-            <span className="text-xs text-gray-500">
-              {new Date(p.registered_at).toLocaleDateString('ru')}
+            <span className="text-xs text-gray-500 leading-tight block">
+              {new Date(p.registered_at).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
+              <br />
+              <span className="text-[11px] text-gray-400">
+                {new Date(p.registered_at).toLocaleTimeString('ru', {
+                  timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
+                })} МСК
+              </span>
             </span>
           ) : (
             <span className="text-xs text-gray-300">—</span>

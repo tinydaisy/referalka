@@ -9,7 +9,9 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
 interface LinkRow {
   key: string
   /** Площадка строки — только у TG/VK/MAX (у веб-ссылок нет). Нужна для галочки. */
-  platform?: 'telegram' | 'vk' | 'max'
+  // 'web'/'landing' — не мессенджеры, но галочка у них та же: выключенную
+  // страницу не отдаём спикерам и участникам, в кабинете она остаётся видна.
+  platform?: 'telegram' | 'vk' | 'max' | 'web' | 'landing'
   label: string
   badge: string         // 'TG' | 'MAX' | 'WEB' и т.д.
   color: string
@@ -116,22 +118,24 @@ export default function PublicLinks({
   const buildRows = (pl: PlatformLinks, kind: 'miniapp' | 'bot'): LinkRow[] => {
     if (!slug) return []
     const rows: LinkRow[] = []
-    if (kind === 'miniapp') {
+    // ⚠️ Веб-страницы показываем в ОБОИХ режимах: они есть у события всегда и
+    // не зависят от того, открываются ссылки через Mini App или через ботов.
+    // Раньше их клали только в набор Mini App — у клиента с режимом «веб»
+    // ссылки на лендинг в кабинете не было вовсе.
+    rows.push({
+      key: `${kind}-web`, platform: 'web', label: 'Простая страница события', badge: 'WEB', color: '#25455D',
+      url: `${APP_URL}/l/${slug}`,
+      hint: 'Афиша, описание и кнопка записаться — есть у любого события',
+    })
+    // Плюсоновский лендинг — продающая страница, собранная в конструкторе.
+    // ⚠️ Понимает ?pid= — можно вести рекламу прямо на него, минуя бота,
+    // и рефералы всё равно засчитаются.
+    if (hasLanding) {
       rows.push({
-        key: 'web', label: 'Простая страница события', badge: 'WEB', color: '#25455D',
-        url: `${APP_URL}/l/${slug}`,
-        hint: 'Афиша, описание и кнопка записаться — есть у любого события',
+        key: `${kind}-landing`, platform: 'landing', label: 'Плюсоновский лендинг', badge: 'LP', color: '#FFCFA4',
+        url: `${APP_URL}/e/${slug}`,
+        hint: 'Продающая страница из конструктора. Для реферальной ссылки допишите ?pid=КОД',
       })
-      // Плюсоновский лендинг — продающая страница, собранная в конструкторе.
-      // ⚠️ Понимает ?pid= — можно вести рекламу прямо на него, минуя бота,
-      // и рефералы всё равно засчитаются.
-      if (hasLanding) {
-        rows.push({
-          key: 'landing', label: 'Плюсоновский лендинг', badge: 'LP', color: '#FFCFA4',
-          url: `${APP_URL}/e/${slug}`,
-          hint: 'Продающая страница из конструктора. Для реферальной ссылки допишите ?pid=КОД',
-        })
-      }
     }
     if (pl.telegram) rows.push({
       key: `${kind}-tg`, platform: 'telegram', label: 'Telegram', badge: 'TG', color: '#229ED9', url: pl.telegram,
