@@ -161,14 +161,22 @@ async def create_order(
             contact_id = cands[0]["id"]
 
     if not contact_id:
-        contact_id, _is_new = await find_or_create_contact(
-            db,
-            client_id=t["client_id"],
-            name=name or None,
-            email=email,
-            phone=phone,
-            lookup_telegram_username=tg,
-        )
+        if data.force_new:
+            # «Я здесь впервые» — создаём новый контакт, минуя автомердж.
+            from app.services.contact_merge import create_new_contact
+            contact_id = await create_new_contact(
+                db, client_id=t["client_id"], name=name or None,
+                email=email, phone=phone, utm_source=data.utm_source or None,
+            )
+        else:
+            contact_id, _is_new = await find_or_create_contact(
+                db,
+                client_id=t["client_id"],
+                name=name or None,
+                email=email,
+                phone=phone,
+                lookup_telegram_username=tg,
+            )
 
     # Кто привёл. Код может быть старым (merged_ref_codes) — резолвер это
     # учитывает. Свой собственный код игнорируем: сам себя не приводил.

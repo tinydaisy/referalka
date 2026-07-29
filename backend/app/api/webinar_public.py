@@ -624,12 +624,23 @@ async def register(slug: str, day: int, body: RegisterIn):
         if not contact_id:
             if not (body.name or body.email or body.phone or body.telegram_username):
                 raise HTTPException(400, "Заполните имя и хотя бы один контакт")
-            contact_id, _ = await find_or_create_contact(
-                conn, client_id=client_id,
-                name=body.name, email=body.email, phone=body.phone,
-                utm_source=body.utm_source,
-                lookup_telegram_username=body.telegram_username,
-            )
+            if body.force_new:
+                # ⚠️ «Это новый участник»: зритель посмотрел найденные записи
+                # и сказал, что это не он. find_or_create_contact снова нашёл
+                # бы старый контакт по email — его выбор был бы проигнорирован.
+                from app.services.contact_merge import create_new_contact
+                contact_id = await create_new_contact(
+                    conn, client_id=client_id, name=body.name,
+                    email=body.email, phone=body.phone,
+                    utm_source=body.utm_source,
+                )
+            else:
+                contact_id, _ = await find_or_create_contact(
+                    conn, client_id=client_id,
+                    name=body.name, email=body.email, phone=body.phone,
+                    utm_source=body.utm_source,
+                    lookup_telegram_username=body.telegram_username,
+                )
         if not contact_id:
             raise HTTPException(400, "Заполните имя и хотя бы один контакт")
 

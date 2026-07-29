@@ -1043,3 +1043,28 @@ async def find_contact_candidates(db, client_id: int, email, phone, tg_username)
              "email": mask_email(r["email"]), "phone": mask_phone(r["phone"]),
              "accounts": by_contact.get(r["id"], [])}
             for r in rows]
+
+
+async def create_new_contact(
+    db, *, client_id: int, name=None, email=None, phone=None, utm_source=None,
+) -> int:
+    """Создать заведомо НОВЫЙ контакт, минуя автомердж.
+
+    ⚠️ Нужна для кнопки «Я здесь впервые» на экране «Это вы?»: человек
+    посмотрел найденные записи и сказал, что это не он. Обычный
+    find_or_create_contact снова нашёл бы старый контакт по email — и выбор
+    человека был бы проигнорирован.
+    """
+    contact_id = await db.fetchval(
+        """INSERT INTO contacts (client_id, name, phone, phone_normalized,
+                                 utm_source, ref_code)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
+        client_id, name, phone, normalize_phone(phone), utm_source,
+        await _generate_unique_ref_code(db),
+    )
+    if normalize_email(email):
+        await sync_email_identity_and_subscription(
+            db, client_id=client_id, contact_id=contact_id,
+            email=normalize_email(email), first_name=name,
+        )
+    return contact_id
