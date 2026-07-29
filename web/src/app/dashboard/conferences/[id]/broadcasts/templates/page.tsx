@@ -920,13 +920,17 @@ export default function TemplatesPage() {
     const vk = bh.vk ? `https://vk.me/${String(bh.vk).replace(/^@/, '')}?ref=${payload}` : ''
     const max = bh.max ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=${payload}` : ''
     const links: Record<string, string> = { telegram: tg, vk, max }
-    const order = platform === 'max' ? ['max', 'telegram', 'vk']
-      : platform === 'vk' ? ['vk', 'telegram', 'max']
+    // ⚠️ Выключенные у события площадки исключаем — ровно как сервер при
+    // отправке. Иначе в превью на вкладке ВК стояла вк-ссылка, хотя ВК у
+    // события снят галочкой и человека надо уводить в MAX.
+    for (const p of ((confData as any)?.disabled_platforms || [])) links[p] = ''
+    const order = platform === 'max' ? ['max', 'vk', 'telegram']
+      : platform === 'vk' ? ['vk', 'max', 'telegram']
       : ['telegram', 'max', 'vk']
     for (const p of order) if (links[p]) return links[p]
-    // Своего бота нет ни на одной площадке — ссылки не будет (системный бот
-    // для клиентских флоу не используется).
-    return ''
+    // Своего бота нет ни на одной площадке — уводим на веб-страницу регистрации
+    // (тот же фолбэк, что на сервере), иначе кнопка была бы пустой.
+    return landingUrl()
   }
 
   // Ссылка подарка-магнита для превью: воронка (если funnel_slug) или прямой url.
