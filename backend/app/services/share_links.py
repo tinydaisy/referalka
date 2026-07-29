@@ -306,6 +306,9 @@ async def build_share_links(
     tab: Optional[str] = None,
     contact_id: Optional[int] = None,
     link_mode: str = 'miniapp',
+    # True — выдача для КАБИНЕТА: выключенные площадки остаются в списке
+    # (со снятой галочкой), иначе строка исчезает и вернуть площадку нечем.
+    include_disabled: bool = False,
 ) -> dict[str, str]:
     """Возвращает {platform → url} ТОЛЬКО для тех платформ, где у клиента
     подключён СВОЙ канал (channels.is_system=FALSE).
