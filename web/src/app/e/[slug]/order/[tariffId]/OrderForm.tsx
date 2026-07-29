@@ -118,7 +118,9 @@ export default function OrderForm({
       setError('Без согласия на обработку персональных данных оформить заказ нельзя')
       return
     }
-    if (offerUrl && !offer) {
+    // ⚠️ Оферта — только у платного тарифа: у бесплатного покупки нет,
+    // соглашаться не с чем.
+    if (!isFree && offerUrl && !offer) {
       setError('Примите условия оферты, чтобы продолжить')
       return
     }
@@ -325,7 +327,7 @@ export default function OrderForm({
             ) : 'С Политикой обработки персональных данных ознакомлен.'}
           </Consent>
 
-          {offerUrl && (
+          {!isFree && offerUrl && (
             <Consent checked={offer} onChange={setOffer}>
               Я принимаю условия{' '}
               <a href={offerUrl} target="_blank" rel="noreferrer"
