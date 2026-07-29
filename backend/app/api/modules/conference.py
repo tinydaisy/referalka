@@ -320,6 +320,9 @@ async def get_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+               e.thanks_destination AS event_thanks_destination,
+               e.registration_mode AS event_registration_mode,
+               e.skip_contact_form AS event_skip_contact_form,
                e.end_action AS event_end_action,
                e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
                e.end_gift_package_id AS event_end_gift_package_id
@@ -346,6 +349,11 @@ async def get_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    # Способ регистрации и связанные поля живут в events, а страница настроек
+    # читает их отсюда — без распаковки выбор в списке всегда сбрасывался.
+    d["thanks_destination"] = d.pop("event_thanks_destination", None) or "bots"
+    d["registration_mode"] = d.pop("event_registration_mode", None)
+    d["skip_contact_form"] = bool(d.pop("event_skip_contact_form", None))
     d["disabled_platforms"] = list(d.pop("event_disabled_platforms", None) or [])
     d["end_action"] = d.pop("event_end_action", None) or "next_event"
     d["end_gift_lead_magnet_id"] = d.pop("event_end_gift_lead_magnet_id", None)

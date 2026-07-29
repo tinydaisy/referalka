@@ -1067,7 +1067,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                  speaker_photo_mode: str = "poster",
                                  subject: str | None = None,
                                  explicit_day: int | None = None,
-                                 support_link: str | None = None) -> dict:
+                                 support_link: str | None = None,
+                                 signup_link: str | None = None) -> dict:
     """
     Единственная функция сборки текста, фото/видео и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
@@ -1178,6 +1179,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # контактом ТОЙ площадки, куда уходит сообщение.
         if support_link is not None:
             raw_text = raw_text.replace("{support_platform}", support_link).replace("{support_link}", support_link)
+        # {signup_link} — регистрация в боте площадки получателя. В превью и
+        # тесте площадка неизвестна, поэтому приходит уже выбранная ссылка.
+        if signup_link is not None:
+            raw_text = raw_text.replace("{signup_link}", signup_link)
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
         return {
             "text": raw_text,

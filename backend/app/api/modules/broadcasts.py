@@ -25,6 +25,22 @@ async def _support_link_preview(db, client_id: int) -> str:
     return build_support_inline_html(row["work_tg_username"], row["work_vk"], row["work_max"])
 
 
+async def _signup_link_preview(db, client_id: int, event_id: int) -> str:
+    """Значение {signup_link} для ПРЕВЬЮ и ТЕСТА.
+
+    В реальной рассылке Celery подставляет ссылку ПЛОЩАДКИ ПОЛУЧАТЕЛЯ
+    (в Telegram — телеграм-бота, в VK — сообщества, в MAX — MAX-бота).
+    В превью площадка неизвестна: сообщение одно на все, поэтому берём первую
+    доступную по тому же приоритету, что и рассылка.
+    """
+    from app.services.share_links import (
+        get_client_bot_handles, build_event_signup_links, pick_signup_link,
+    )
+    handles = await get_client_bot_handles(client_id, db)
+    links = build_event_signup_links(handles, event_id)
+    return pick_signup_link(links, "telegram", "") or ""
+
+
 def _msk_str_to_utc(day_date, hhmm) -> Optional[datetime]:
     """Собирает UTC datetime из day_date (DATE) + строки "HH:MM" в МСК.
     Используется только под капотом для расчёта fire_at — пользователь видит только строку времени."""
@@ -2915,6 +2931,7 @@ async def preview_schedule(
         # В превью платформа неизвестна (одно сообщение на все) — показываем все
         # каналы поддержки блоком. При отправке Celery подставит контакт СВОЕЙ площадки.
         support_link=await _support_link_preview(db, client_id),
+        signup_link=await _signup_link_preview(db, client_id, event_id),
     )
 
     # Подарки-лид-магниты помечены токенами ⟦GF:kind:slug⟧ — раскрываем ссылкой
@@ -3141,6 +3158,7 @@ async def test_existing_schedule_now(
         subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
         explicit_day=schedule.get("day"),
         support_link=await _support_link_preview(db, client_id),
+        signup_link=await _signup_link_preview(db, client_id, event_id),
     )
     # subject → жирной первой строкой (как в реальной отправке).
     subj = (content.get("subject") or "").strip()
