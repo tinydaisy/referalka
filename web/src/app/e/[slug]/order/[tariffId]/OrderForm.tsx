@@ -229,6 +229,15 @@ export default function OrderForm({
                       <PlatformMark platform={a.platform} /> @{a.username}
                     </div>
                   ))}
+                  {/* Письмо о заказе шлётся на email контакта — если его нет,
+                      человек должен понимать, что получит доступ только в
+                      мессенджер. */}
+                  {!c.email && (
+                    <div className="pt-1 text-[.95em] opacity-70">
+                      Почты нет — доступ придёт только в мессенджер.
+                      Выберите запись с почтой, если письмо нужно.
+                    </div>
+                  )}
                 </div>
               </button>
             ))}

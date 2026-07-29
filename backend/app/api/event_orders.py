@@ -144,6 +144,42 @@ async def create_order(
                   AND merged_into IS NULL""",
             data.chosen_contact_id, t["client_id"],
         )
+        # ⚠️ Человек выбрал контакт и тут же назвал свои email/телефон —
+        # дописываем их ЕМУ, если у него этих полей не было. Иначе контакт
+        # остаётся с одним ником, а письмо о заказе слать некуда.
+        if contact_id:
+            from app.services.contact_merge import (
+                normalize_phone, sync_email_identity_and_subscription,
+            )
+            if phone:
+                await db.execute(
+                    "UPDATE contacts SET phone = COALESCE(NULLIF(phone, ''), $2), "
+                    "phone_normalized = COALESCE(NULLIF(phone_normalized, ''), $3) "
+                    "WHERE id = $1",
+                    contact_id, phone, normalize_phone(phone),
+                )
+            if name:
+                await db.execute(
+                    "UPDATE contacts SET name = COALESCE(NULLIF(name, ''), $2) WHERE id = $1",
+                    contact_id, name,
+                )
+            if email:
+                # Email уникален: если он уже занят ДРУГИМ контактом, тихо
+                # пропускаем — иначе упрёмся в ограничение базы.
+                busy = await db.fetchval(
+                    """SELECT contact_id FROM platform_users
+                        WHERE client_id = $1 AND platform_slug = 'email'
+                          AND platform_user_id = $2 LIMIT 1""",
+                    t["client_id"], email.strip().lower(),
+                )
+                if not busy:
+                    try:
+                        await sync_email_identity_and_subscription(
+                            db, client_id=t["client_id"], contact_id=contact_id,
+                            email=email, first_name=name or None,
+                        )
+                    except Exception:
+                        pass
 
     # ⚠️ Email одного контакта, телефон другого — обычная ситуация: у человека
     # два аккаунта в базе. Молча брать первый нельзя (заказ уйдёт не тому),
