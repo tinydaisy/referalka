@@ -39,6 +39,7 @@ export default function OverviewTab({
   const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
   // Способ регистрации и галочка регистрации на нашем лендинге (миграция 262).
   const [regMode, setRegMode] = useState<string | null>(event.registration_mode || null)
+  const [regError, setRegError] = useState('')
   const [landingReqReg, setLandingReqReg] = useState<boolean>(
     event.landing_require_registration !== false)
   // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт из Mini App.
@@ -55,6 +56,8 @@ export default function OverviewTab({
   }
 
   async function handleSave() {
+    // См. SettingsTab: без рабочей ссылки регистрации сохранять нельзя.
+    if (regError) { setErr(regError); return }
     setSaving(true); setErr(null)
     try {
       // PATCH-семантика: отправляем ТОЛЬКО реально изменённые поля.
@@ -258,6 +261,7 @@ export default function OverviewTab({
       {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем
              внутренний/сторонний лендинг. У КОЛЛАБЫ стороннего нет. */}
       <LandingSettingsBlock
+        onValidity={setRegError}
         description={description}
         onDescription={setDescription}
         landingUrl={landingUrl}

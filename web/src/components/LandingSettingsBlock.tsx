@@ -56,6 +56,9 @@ export default function LandingSettingsBlock({
   /** Требовать регистрацию на нашем лендинге. */
   landingRequireReg?: boolean
   onLandingRequireReg?: (v: boolean) => void
+  /** Сообщает наверх текст ошибки ('' = всё в порядке). Страница по нему
+      блокирует сохранение: ссылка регистрации не может быть пустой. */
+  onValidity?: (error: string) => void
 }) {
   // Режим держим в state — иначе, стерев URL, нельзя было бы остаться в «стороннем»
   // и напечатать новый адрес (поле исчезало бы на первом же символе).
@@ -79,9 +82,26 @@ export default function LandingSettingsBlock({
 
   const isExternal = allowExternal && mode === 'external'
 
+  // ⚠️ Ссылка регистрации не может быть пустой: с неё идут кнопки в рассылках
+  // ({landing_url}), в боте и в Mini App. Поэтому не даём сохранить событие,
+  // если выбранный способ не может дать рабочий адрес.
+  const error =
+    isExternal && !landingUrl.trim()
+      ? 'Укажите адрес стороннего лендинга — без него кнопка «Зарегистрироваться» ведёт в никуда.'
+      : (mode === 'landing' && !hasLanding)
+        ? 'Плюсоновский лендинг ещё не опубликован — соберите и опубликуйте его на вкладке «Лендинг».'
+        : ''
+  useEffect(() => { onValidity?.(error) }, [error])
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
       <h2 className="block-title">Настройки страницы регистрации</h2>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {allowExternal && (
         <div className="grid gap-3 sm:grid-cols-3">
@@ -165,7 +185,9 @@ export default function LandingSettingsBlock({
             value={landingUrl}
             onChange={e => onLandingUrl(e.target.value)}
             placeholder="https://yoursite.com/event"
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+            className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none ${
+              landingUrl.trim() ? 'border-gray-200 focus:border-brand' : 'border-red-300 bg-red-50/40'
+            }`}
           />
           <p className="text-xs text-gray-500 mt-2 leading-relaxed">
             Mini App будет открывать вашу страницу вместо встроенной. Чтобы вернуться к странице

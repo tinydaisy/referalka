@@ -76,6 +76,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Текст ошибки настроек регистрации ('' = всё в порядке) — приходит из
+  // LandingSettingsBlock, блокирует сохранение.
+  const [regError, setRegError] = useState('')
 
   // Лид-магниты и пакеты для выбора подарка при завершении события.
   useEffect(() => {
@@ -119,6 +122,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     setForm(f => ({ ...f, [k]: e.target.value }))
 
   async function handleSave() {
+    // Ссылка регистрации не может быть пустой — с неё идут кнопки в рассылках,
+    // в боте и в Mini App. Блок сообщает текст ошибки через onValidity.
+    if (regError) { alert(regError); return }
     setSaving(true); setSaved(false)
     try {
       // PATCH-семантика: отправляем ТОЛЬКО реально изменённые поля.
@@ -389,6 +395,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем
              внутренний/сторонний лендинг (общий компонент с мероприятиями). */}
       <LandingSettingsBlock
+        onValidity={setRegError}
         description={form.description}
         onDescription={(v) => setForm(f => ({ ...f, description: v }))}
         landingUrl={form.landing_url}
