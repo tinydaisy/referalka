@@ -811,6 +811,115 @@ async def copy_event(
                 new_id, *[tpl[c] for c in cols]
             )
 
+        # ── Тарифы события ────────────────────────────────────────────────
+        # Копируем названия, описания и цены. Заказы и оплаты НЕ копируем —
+        # они принадлежат людям, а не событию.
+        for row in await db.fetch(
+            "SELECT * FROM event_tariffs WHERE event_id = $1 ORDER BY sort_order, id",
+            event_id,
+        ):
+            cols = [k for k in dict(row).keys()
+                    if k not in ('id', 'event_id', 'created_at', 'updated_at')]
+            ph = ",".join(f"${i+2}" for i in range(len(cols)))
+            await db.execute(
+                f"INSERT INTO event_tariffs (event_id, {','.join(cols)}) VALUES ($1, {ph})",
+                new_id, *[row[c] for c in cols],
+            )
+
+        # ── Лендинг: страницы и блоки ─────────────────────────────────────
+        # ⚠️ Адрес у копии свой (новый slug), а оформление и блоки переносим
+        # целиком — иначе лендинг пришлось бы собирать заново.
+        for page in await db.fetch(
+            "SELECT * FROM event_landing_pages WHERE event_id = $1 ORDER BY id",
+            event_id,
+        ):
+            cols = [k for k in dict(page).keys()
+                    if k not in ('id', 'event_id', 'created_at', 'updated_at')]
+            ph = ",".join(f"${i+2}" for i in range(len(cols)))
+            new_page_id = await db.fetchval(
+                f"INSERT INTO event_landing_pages (event_id, {','.join(cols)}) "
+                f"VALUES ($1, {ph}) RETURNING id",
+                new_id, *[page[c] for c in cols],
+            )
+            for blk in await db.fetch(
+                "SELECT * FROM event_landing_blocks WHERE page_id = $1 ORDER BY sort_order, id",
+                page["id"],
+            ):
+                bcols = [k for k in dict(blk).keys()
+                         if k not in ('id', 'page_id', 'created_at', 'updated_at',
+                                      # Ссылки на тарифы/оферты старого события
+                                      # не переносим — там чужие номера.
+                                      'featured_tariff_id')]
+                bph = ",".join(f"${i+2}" for i in range(len(bcols)))
+                await db.execute(
+                    f"INSERT INTO event_landing_blocks (page_id, {','.join(bcols)}) "
+                    f"VALUES ($1, {bph})",
+                    new_page_id, *[blk[c] for c in bcols],
+                )
+
+        # ── Вебинарные комнаты и продающие блоки ──────────────────────────
+        # ⚠️ Ключ трансляции НЕ копируем: он один на комнату, иначе две
+        # комнаты стали бы принимать один поток. Статус — заново.
+        for room in await db.fetch(
+            "SELECT * FROM webinar_rooms WHERE event_id = $1 ORDER BY day_number, id",
+            event_id,
+        ):
+            rcols = [k for k in dict(room).keys()
+                     if k not in ('id', 'event_id', 'created_at', 'updated_at',
+                                  'stream_key', 'status', 'stream_active',
+                                  'started_at', 'ended_at', 'chat_cleared_at',
+                                  'current_session_id', 'manual_speaker_ec_id',
+                                  'room_state')]
+            rph = ",".join(f"${i+2}" for i in range(len(rcols)))
+            new_room_id = await db.fetchval(
+                f"INSERT INTO webinar_rooms (event_id, {','.join(rcols)}) "
+                f"VALUES ($1, {rph}) RETURNING id",
+                new_id, *[room[c] for c in rcols],
+            )
+            for blk in await db.fetch(
+                "SELECT * FROM webinar_blocks WHERE room_id = $1 ORDER BY sort_order, id",
+                room["id"],
+            ):
+                bcols = [k for k in dict(blk).keys()
+                         if k not in ('id', 'room_id', 'created_at', 'updated_at',
+                                      # Спикер и событие регистрации — из старой
+                                      # программы, у копии свои.
+                                      'speaker_id', 'reg_event_id')]
+                bph = ",".join(f"${i+2}" for i in range(len(bcols)))
+                await db.execute(
+                    f"INSERT INTO webinar_blocks (room_id, {','.join(bcols)}) "
+                    f"VALUES ($1, {bph})",
+                    new_room_id, *[blk[c] for c in bcols],
+                )
+
+        # ── Воронки догрева, розыгрыш, тексты-анонсы ──────────────────────
+        # Простые справочники «событие → строки»: копируются одинаково.
+        for table, order in (
+            ("event_nurture_steps", "sort_order, id"),
+            ("event_nurture_reg_steps", "sort_order, id"),
+            ("event_raffle_settings", "id"),
+            ("event_raffle_prizes", "sort_order, id"),
+            ("event_raffle_keywords", "sort_order, id"),
+            ("event_announcement_texts", "sort, id"),
+        ):
+            try:
+                rows = await db.fetch(
+                    f"SELECT * FROM {table} WHERE event_id = $1 ORDER BY {order}",
+                    event_id,
+                )
+            except Exception:
+                continue   # таблицы может не быть на старом окружении
+            for row in rows:
+                cols = [k for k in dict(row).keys()
+                        if k not in ('id', 'event_id', 'created_at', 'updated_at',
+                                     # Счётчики использования — у копии с нуля.
+                                     'used_count')]
+                ph = ",".join(f"${i+2}" for i in range(len(cols)))
+                await db.execute(
+                    f"INSERT INTO {table} (event_id, {','.join(cols)}) VALUES ($1, {ph})",
+                    new_id, *[row[c] for c in cols],
+                )
+
     return {"event": dict(new_event)}
 
 
