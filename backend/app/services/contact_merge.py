@@ -1018,6 +1018,28 @@ async def find_contact_candidates(db, client_id: int, email, phone, tg_username)
         "  (SELECT pu.platform_user_id FROM platform_users pu "
         "     WHERE pu.contact_id=c.id AND pu.platform_slug='email' LIMIT 1) AS email "
         "FROM contacts c WHERE c.id = ANY($1::int[]) ORDER BY c.id", list(ids))
+
+    # ⚠️ Показываем ВСЕ известные площадки человека, а не только email с
+    # телефоном: по нику в MAX или ВК он узнает себя быстрее, чем по
+    # замаскированной почте. Ники маскировать не нужно — они и так публичны.
+    accounts = await db.fetch(
+        "SELECT contact_id, platform_slug, username, platform_user_id "
+        "  FROM platform_users "
+        " WHERE contact_id = ANY($1::int[]) AND platform_slug <> 'email' "
+        " ORDER BY contact_id, platform_slug", list(ids))
+    by_contact: dict = {}
+    for a in accounts:
+        nick = (a["username"] or "").strip().lstrip("@")
+        if not nick:
+            pid = str(a["platform_user_id"] or "")
+            # Псевдо-запись '@ник' — ник берём из неё; числовой id не показываем.
+            nick = pid[1:] if pid.startswith("@") else ""
+        if not nick:
+            continue
+        by_contact.setdefault(a["contact_id"], []).append(
+            {"platform": a["platform_slug"], "username": nick})
+
     return [{"id": r["id"], "name": r["name"],
-             "email": mask_email(r["email"]), "phone": mask_phone(r["phone"])}
+             "email": mask_email(r["email"]), "phone": mask_phone(r["phone"]),
+             "accounts": by_contact.get(r["id"], [])}
             for r in rows]

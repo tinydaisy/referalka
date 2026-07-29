@@ -904,7 +904,26 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
               <button key={c.id} disabled={busy} onClick={() => send({ chosen_contact_id: c.id })}
                 className="w-full text-left rounded-lg bg-white/10 hover:bg-white/20 p-3">
                 <div className="font-semibold text-sm">{c.name || 'Без имени'}</div>
-                <div className="text-xs text-white/50">{[c.email, c.phone].filter(Boolean).join(' · ')}</div>
+                {/* ⚠️ Контакты ПОСТРОЧНО и со значком площадки: по нику в
+                    MAX или ВК человек узнаёт себя быстрее, чем по
+                    замаскированной почте. */}
+                <div className="mt-1 space-y-0.5 text-xs text-white/60">
+                  {c.email && (
+                    <div className="flex items-center gap-1.5">
+                      <PlatformMark platform="email" /> {c.email}
+                    </div>
+                  )}
+                  {c.phone && (
+                    <div className="flex items-center gap-1.5">
+                      <PlatformMark platform="phone" /> {c.phone}
+                    </div>
+                  )}
+                  {(c.accounts || []).map((a: any) => (
+                    <div key={a.platform} className="flex items-center gap-1.5">
+                      <PlatformMark platform={a.platform} /> @{a.username}
+                    </div>
+                  ))}
+                </div>
               </button>
             ))}
             <button disabled={busy} onClick={() => send({ force_new: true })}
@@ -1045,5 +1064,27 @@ function Countdown({ opensAt }: { opensAt: string }) {
         {d > 0 && <span>{d} дн </span>}{pad(hh)}:{pad(mm)}:{pad(ss)}
       </div>
     </div>
+  )
+}
+
+/** Значок площадки в карточке «Это вы?» — фирменный цвет и короткая метка. */
+const PLATFORM_MARK: Record<string, { label: string; color: string; short: string }> = {
+  telegram: { label: 'Telegram', color: '#229ED9', short: 'TG' },
+  vk:       { label: 'ВКонтакте', color: '#0077FF', short: 'VK' },
+  max:      { label: 'MAX', color: '#8B5CF6', short: 'MAX' },
+  email:    { label: 'Почта', color: '#6B7280', short: '@' },
+  phone:    { label: 'Телефон', color: '#10B981', short: '☎' },
+}
+
+function PlatformMark({ platform }: { platform: string }) {
+  const m = PLATFORM_MARK[platform] || { label: platform, color: '#6B7280', short: '•' }
+  return (
+    <span
+      title={m.label}
+      className="inline-flex h-4 min-w-[32px] shrink-0 items-center justify-center rounded px-1 text-[9px] font-bold uppercase text-white"
+      style={{ background: m.color }}
+    >
+      {m.short}
+    </span>
   )
 }

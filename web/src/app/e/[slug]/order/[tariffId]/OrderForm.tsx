@@ -207,8 +207,24 @@ export default function OrderForm({
                 }}
               >
                 <div className="font-semibold">{c.name || 'Без имени'}</div>
-                <div className="mt-0.5 text-[.85em] opacity-75">
-                  {[c.email, c.phone].filter(Boolean).join(' · ')}
+                {/* ⚠️ Каждый контакт — ПОСТРОЧНО, а не в одну строку через
+                    точку: так человек за секунду находит свой аккаунт. */}
+                <div className="mt-1.5 space-y-1 text-[.85em] opacity-80">
+                  {c.email && (
+                    <div className="flex items-center gap-2">
+                      <PlatformMark platform="email" /> {c.email}
+                    </div>
+                  )}
+                  {c.phone && (
+                    <div className="flex items-center gap-2">
+                      <PlatformMark platform="phone" /> {c.phone}
+                    </div>
+                  )}
+                  {(c.accounts || []).map((a: any) => (
+                    <div key={a.platform} className="flex items-center gap-2">
+                      <PlatformMark platform={a.platform} /> @{a.username}
+                    </div>
+                  ))}
                 </div>
               </button>
             ))}
@@ -385,6 +401,32 @@ function normalizePhone(v: string): string {
   // 10 цифр без кода — российский номер, дописываем +7.
   if (digits.length === 10) return `+7${digits}`
   return v.trim()
+}
+
+/**
+ * Значок площадки в карточке «Это вы?».
+ * Свои SVG не рисуем — берём фирменные цвета и первую букву: логотипы
+ * мессенджеров в мелком размере всё равно нечитаемы.
+ */
+const PLATFORM_MARK: Record<string, { label: string; color: string; short: string }> = {
+  telegram: { label: 'Telegram', color: '#229ED9', short: 'TG' },
+  vk:       { label: 'ВКонтакте', color: '#0077FF', short: 'VK' },
+  max:      { label: 'MAX', color: '#8B5CF6', short: 'MAX' },
+  email:    { label: 'Почта', color: '#6B7280', short: '@' },
+  phone:    { label: 'Телефон', color: '#10B981', short: '☎' },
+}
+
+function PlatformMark({ platform }: { platform: string }) {
+  const m = PLATFORM_MARK[platform] || { label: platform, color: '#6B7280', short: '•' }
+  return (
+    <span
+      title={m.label}
+      className="inline-flex h-5 min-w-[36px] shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold uppercase text-white"
+      style={{ background: m.color }}
+    >
+      {m.short}
+    </span>
+  )
 }
 
 function inputStyle(page: any): React.CSSProperties {
