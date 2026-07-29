@@ -906,8 +906,8 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
         <div className="w-full max-w-sm">
           <h2 className="text-lg font-bold text-center mb-1">Это вы?</h2>
           <p className="text-sm text-white/60 text-center mb-4">
-            Мы нашли несколько записей. Выберите свою — доступ придёт на её
-            адрес и в её мессенджер.
+            Мы нашли несколько записей. Выберите ту, куда хотите получить
+            доступ и напоминания.
           </p>
           <div className="space-y-2">
             {candidates.map((c: any) => (
