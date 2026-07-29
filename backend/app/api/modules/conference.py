@@ -265,6 +265,12 @@ class ConferenceUpdate(BaseModel):
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
+    # ⚠️ Поля обязаны быть ЗДЕСЬ, а не только в списке EVENT_FIELDS: Pydantic
+    # выбрасывает всё, чего нет в модели, — запрос отвечал 200, а значение до
+    # базы не доходило.
+    thanks_destination: Optional[str] = None       # куда вести после оплаты (261)
+    registration_mode: Optional[str] = None        # форма | наш лендинг | чужой сайт (262)
+    landing_require_registration: Optional[bool] = None
     end_action: Optional[str] = None               # 'next_event' | 'gift' (миграция 195)
     end_gift_lead_magnet_id: Optional[int] = None
     end_gift_package_id: Optional[int] = None

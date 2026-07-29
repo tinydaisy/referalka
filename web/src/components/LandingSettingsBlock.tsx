@@ -163,16 +163,18 @@ export default function LandingSettingsBlock({
             <span className="font-medium text-gray-700">{landingUrlInternal || 'ваш лендинг'}</span>.
             {!hasLanding && ' Лендинг ещё не опубликован — соберите его на вкладке «Лендинг».'}
           </p>
+          {/* ⚠️ Та же галочка и та же формулировка, что у простой страницы:
+              одно и то же действие не должно называться по-разному, да ещё и
+              с обратным смыслом. */}
           <label className="flex cursor-pointer items-start gap-2.5">
-            <input type="checkbox" checked={landingRequireReg}
-              onChange={e => onLandingRequireReg?.(e.target.checked)}
+            <input type="checkbox" checked={!landingRequireReg}
+              onChange={e => onLandingRequireReg?.(!e.target.checked)}
               className="mt-0.5 accent-[#25455D]" />
             <div>
-              <p className="text-sm font-medium text-gray-800">Требовать регистрацию</p>
+              <p className="text-sm font-medium text-gray-800">Регистрировать без ввода контактных данных</p>
               <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
-                Включено — перед покупкой человек заполняет форму с контактами.
-                Выключено — сразу переходит к оплате, а на бесплатный тариф
-                записываем по его аккаунту.
+                Человек пришёл из бота — записываем сразу по его аккаунту, без формы.
+                С рекламы и репостов форма всё равно нужна: иначе непонятно, кого записывать.
               </p>
             </div>
           </label>

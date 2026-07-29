@@ -74,6 +74,7 @@ async def get_public_landing(
                   e.status, e.module_slug, e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
                   e.seats_count_mode, e.seats_base, e.skip_contact_form,
+                  e.landing_require_registration,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -470,6 +471,9 @@ async def get_public_landing(
             # Галочка «Регистрировать без ввода контактных данных»: у
             # бесплатного тарифа форму не показываем (миграция 079).
             "skip_contact_form": ev["skip_contact_form"],
+            # Галочка «Требовать регистрацию» у нашего лендинга (миграция 262):
+            # выключена → форму не показываем, ведём сразу к оплате.
+            "landing_require_registration": ev["landing_require_registration"],
             "title": ev["title"],
             "description": ev["description"],
             "start_at": ev["start_at"],
