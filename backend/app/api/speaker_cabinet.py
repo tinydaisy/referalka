@@ -949,6 +949,10 @@ async def get_me_materials(
         payload = f"prtp_{int(ref_cid)}" if ref_cid else f"prtc_{client_id_int}"
 
         platforms = set(await get_active_platforms(db, client_id_int))
+        # Площадки, выключенные у события (миграция 263), спикеру не показываем
+        # и в выгрузку материалов не отдаём — сам бот при этом работает.
+        from app.services.share_links import get_event_disabled_platforms
+        platforms -= await get_event_disabled_platforms(db, event_id=e_id)
         handles   = await get_client_bot_handles(db, client_id_int)
         vk_app_id = await get_client_vk_app_id(db, client_id_int)
         # Системный @pluson_bot — fallback для TG, если у клиента нет своего

@@ -105,9 +105,9 @@ export default function LandingSettingsBlock({
             type="button"
             onClick={() => choose('form')}
             className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
-              !isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
+              mode === 'form' ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
             }`}>
-            <Layout size={18} className={!isExternal ? 'text-[#25455D] mt-0.5' : 'text-gray-400 mt-0.5'} />
+            <Layout size={18} className={mode === 'form' ? 'text-[#25455D] mt-0.5' : 'text-gray-400 mt-0.5'} />
             <div>
               <p className="text-sm font-medium text-gray-900">Простая страница события</p>
               <p className="text-xs text-gray-400 mt-0.5">Афиша, описание и кнопка записаться — верстать ничего не нужно.</p>

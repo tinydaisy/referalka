@@ -197,6 +197,48 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
     return result
 
 
+def build_event_signup_links(handles: dict[str, str | None], event_id: int) -> dict[str, str]:
+    """Deeplink-ссылки «Зарегистрироваться» по площадкам: клик → бот регистрирует
+    человека на событие (контакты уже известны) и присылает меню события.
+    Обработчик `evsignup_` есть во всех 3 ботах (TG/VK/MAX).
+      • TG:  telegram.me/{handle}?start=evsignup_{event_id}
+      • VK:  vk.me/{handle}?ref=evsignup_{event_id}
+      • MAX: max.ru/{handle}?start=evsignup_{event_id}
+    Нет своего бота на площадке → пустая строка (системный бот не используется).
+    """
+    tg = (handles.get("telegram") or "").lstrip('@')
+    vk = (handles.get("vk") or "").lstrip('@')
+    mx = (handles.get("max") or "").lstrip('@')
+    return {
+        "telegram": f"https://telegram.me/{tg}?start=evsignup_{event_id}" if tg else "",
+        "vk": f"https://vk.me/{vk}?ref=evsignup_{event_id}" if vk else "",
+        "max": f"https://max.ru/{mx}?start=evsignup_{event_id}" if mx else "",
+    }
+
+
+# Приоритет подмены, когда на площадке получателя ссылки нет (бота нет или
+# площадка выключена в настройках события). Своя площадка — первой, дальше
+# по убыванию близости. Тот же порядок, что у ссылок подарков на фронте.
+SIGNUP_FALLBACK_ORDER = {
+    "telegram": ("telegram", "max", "vk"),
+    "vk": ("vk", "max", "telegram"),
+    "max": ("max", "vk", "telegram"),
+    "email": ("telegram", "max", "vk"),
+}
+
+
+def pick_signup_link(links: dict[str, str], platform: str, web_url: str = "") -> str:
+    """Ссылка регистрации для получателя НА ЕГО площадке.
+
+    Нет своей → берём соседнюю по SIGNUP_FALLBACK_ORDER (например из ВК уводим
+    в MAX). Совсем ничего нет → веб-страница регистрации (web_url).
+    """
+    for p in SIGNUP_FALLBACK_ORDER.get(platform, SIGNUP_FALLBACK_ORDER["telegram"]):
+        if links.get(p):
+            return links[p]
+    return web_url
+
+
 def build_support_command_links(handles: dict[str, str | None], event_id: int) -> dict[str, str]:
     """Deeplink-ссылки «Тех.поддержка» по площадкам: клик → бот вызывает команду
     support (сообщение со всеми каналами связи клиента-владельца события).
@@ -294,7 +336,25 @@ async def build_share_links(
         result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_vk"))
     if handles.get("max"):
         result["max"] = max_link(event_slug, bot_handle=handles["max"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_max"))
+
+    # Площадки, отключённые у ЭТОГО события (миграция 263): ссылку наружу не
+    # отдаём — ни спикерам в кабинет/материалы, ни участникам в реф-ссылки.
+    # ⚠️ Сам бот площадки продолжает работать: прячем только публичную выдачу.
+    for p in await get_event_disabled_platforms(db, event_slug=event_slug):
+        result.pop(p, None)
     return result
+
+
+async def get_event_disabled_platforms(db, *, event_slug: str = "",
+                                       event_id: Optional[int] = None) -> set[str]:
+    """Площадки, выключенные галочкой в «Публичных ссылках» события (миграция 263)."""
+    if event_id:
+        row = await db.fetchrow("SELECT disabled_platforms FROM events WHERE id = $1", event_id)
+    elif event_slug:
+        row = await db.fetchrow("SELECT disabled_platforms FROM events WHERE slug = $1", event_slug)
+    else:
+        return set()
+    return {p for p in (row["disabled_platforms"] or [])} if row else set()
 
 
 async def build_funnel_landing_links(
