@@ -1349,10 +1349,16 @@ async def send_vk_event_funnel(
     # Одна кнопка «Зарегистрироваться» → сторонний лендинг (если задан и
     # опубликован) ЛИБО встроенный веб pluson.ru/event/{slug} — с передачей
     # contact_id, pid, utm, external_ref_param рефовода и полей контакта.
-    internal_web = (f"https://pluson.ru/event/{slug}?c={contact_id}"
-                    if contact_id else f"https://pluson.ru/event/{slug}")
+    # ⚠️ Куда ведёт кнопка — решает СПОСОБ РЕГИСТРАЦИИ события (общая
+    # resolve_landing_url, та же во всех ботах и в рассылках). Раньше ВК про
+    # наш лендинг-конструктор не знал и всегда вёл на страницу события.
+    from app.services.message_builder import resolve_landing_url
+    _reg_page = await resolve_landing_url(conn, event_id) or f"https://pluson.ru/event/{slug}/register"
+    _sep = "&" if "?" in _reg_page else "?"
+    internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
     landing_url = (event_row["landing_url"] or "").strip()
-    if landing_url and event_row["status"] == "published":
+    _reg_mode = await conn.fetchval("SELECT registration_mode FROM events WHERE id=$1", event_id)
+    if landing_url and event_row["status"] == "published" and _reg_mode != "landing":
         contact_params = await get_contact_landing_params(conn, contact_id) if contact_id else {}
         erp = await resolve_referrer_external_ref_param(conn, client_id, pid=pid or None, contact_id=contact_id)
         # participant_id ОБЯЗАТЕЛЕН в URL: GetCourse/Tilda кладут его в скрытое

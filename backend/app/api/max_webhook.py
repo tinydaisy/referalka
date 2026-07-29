@@ -1443,11 +1443,18 @@ async def _process_start(
             # participant_id ОБЯЗАТЕЛЕН: GetCourse/Tilda присылают его обратно в
             # webhook getcourse/register — без него регистрация на лендинге не
             # привязывается к участию (is_registered не проставляется).
-            internal_web = (
-                f"https://pluson.ru/event/{event_slug}/register?c={contact_id}"
-                if contact_id else f"https://pluson.ru/event/{event_slug}/register"
-            )
-            if event_landing_url and event_status == "published":
+            # ⚠️ Куда ведёт кнопка — решает СПОСОБ РЕГИСТРАЦИИ события
+            # (общая resolve_landing_url, та же во всех ботах и в рассылках).
+            # Раньше про наш лендинг-конструктор МАКС не знал и вёл на форму.
+            from app.services.message_builder import resolve_landing_url
+            _reg_page = await resolve_landing_url(conn, event_id) if event_id else ""
+            if not _reg_page:
+                _reg_page = f"https://pluson.ru/event/{event_slug}/register"
+            _sep = "&" if "?" in _reg_page else "?"
+            internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
+            _reg_mode = await conn.fetchval(
+                "SELECT registration_mode FROM events WHERE id=$1", event_id) if event_id else None
+            if event_landing_url and event_status == "published" and _reg_mode != "landing":
                 from app.services.external_landing import (
                     build_external_landing_url,
                     get_contact_landing_params,

@@ -1122,7 +1122,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     async with pool.acquire() as db:
         ev = await db.fetchrow(
             """SELECT id, title, landing_url, status, module_slug,
-                      skip_contact_form,
+                      skip_contact_form, registration_mode,
                       (SELECT eo.client_id FROM event_owners eo
                          WHERE eo.event_id = e.id AND eo.status = 'accepted'
                          ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -1210,12 +1210,18 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             "Если проблемы с регистрацией — нажмите кнопку «🆘 Тех. поддержка»."
         )
 
-        # Веб-ссылка/ссылка регистрации: сторонний лендинг (если задан и опубликован),
-        # иначе ВНУТРЕННИЙ ЛЕНДИНГ РЕГИСТРАЦИИ pluson.ru/event/{slug}/register?c={cid}
-        # (страница сама решает: зареган → кабинет, не зареган → форма).
+        # Куда ведёт кнопка «Зарегистрироваться» — решает СПОСОБ РЕГИСТРАЦИИ
+        # события (events.registration_mode). ⚠️ Общая функция resolve_landing_url,
+        # та же, что раскрывает {landing_url} в рассылках: раньше бот про наш
+        # лендинг-конструктор не знал вовсе и при выбранном «Плюсоновском лендинге»
+        # всё равно вёл на простую форму.
+        from app.services.message_builder import resolve_landing_url
         landing_url = (ev["landing_url"] or "").strip()
-        internal_web = f"https://pluson.ru/event/{slug}/register?c={contact_id}" if contact_id else f"https://pluson.ru/event/{slug}/register"
-        if landing_url and ev["status"] == "published":
+        _reg_page = await resolve_landing_url(db, ev["id"])
+        _sep = "&" if "?" in _reg_page else "?"
+        internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
+        # Сторонний сайт ведём прежним путём (там свои параметры и webhook).
+        if landing_url and ev["status"] == "published" and ev["registration_mode"] != "landing":
             contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
             erp = await resolve_referrer_external_ref_param(
                 db, ev["client_id"], pid=pid, contact_id=contact_id,

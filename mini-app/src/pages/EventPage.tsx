@@ -367,9 +367,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     if (registered || ended) return
     if (regFromLanding) return  // ← возврат с лендинга: ждём registerParticipant
     if (noLanding) return       // ← флаг `_nolend`: показываем внутренний лендинг, внешний не открываем
-    const landingUrl: string = (event.landing_url || '').trim()
-    if (!landingUrl) return
-    redirectToExternalLanding(landingUrl)
+    // ⚠️ Спрашиваем сервер ВСЕГДА, а не только при заполненном стороннем
+    // адресе: способ регистрации может быть «Плюсоновский лендинг», у него
+    // своего адреса в событии нет. Сервер вернёт пусто — остаёмся здесь.
+    redirectToExternalLanding((event.landing_url || '').trim())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event, loading, registered, ended, regFromLanding, noLanding])
 
@@ -392,9 +393,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
 
   // Партнёрский параметр клиента + полный набор полей контакта — берём
   // готовый URL с бэка (/landing-redirect), не собираем его на фронте.
-  async function redirectToExternalLanding(landingUrl: string) {
-    const { getPlatform } = await import('../platform')
-    let fullUrl = landingUrl
+  // Куда уводить на регистрацию по мнению сервера: сторонний сайт, наш
+  // лендинг-конструктор или никуда (встроенная форма). Пусто = остаёмся здесь.
+  async function resolveRegistrationTarget(): Promise<string> {
     try {
       const apiBase = import.meta.env.VITE_API_URL || ''
       const qs = platformQuery()
@@ -403,9 +404,17 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       )
       if (r.ok) {
         const data = await r.json()
-        if (data?.redirect_url) fullUrl = data.redirect_url
+        if (data?.redirect_url) return String(data.redirect_url)
       }
-    } catch { /* fallback — открываем как есть */ }
+    } catch { /* сеть недоступна — остаёмся на встроенной странице */ }
+    return ''
+  }
+
+  async function redirectToExternalLanding(landingUrl: string) {
+    const target = await resolveRegistrationTarget()
+    const fullUrl = target || landingUrl
+    if (!fullUrl) return
+    const { getPlatform } = await import('../platform')
     getPlatform().redirectTo(fullUrl)
   }
 
@@ -493,10 +502,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     // ограничений и согласуется с авто-открытием.
     // Флаг `_nolend` — клиент намеренно гонит регистрацию через внутренний
     // лендинг, на сторонний не уводим даже по клику «Хочу участвовать».
-    const landingUrl: string = noLanding ? '' : (event?.landing_url || '').trim()
-    if (landingUrl) {
-      await redirectToExternalLanding(landingUrl)
-      return
+    // ⚠️ Куда вести — решает СПОСОБ РЕГИСТРАЦИИ события, его знает сервер
+    // (/landing-redirect). Раньше проверялся только сторонний адрес, и при
+    // выбранном «Плюсоновском лендинге» человек оставался на простой форме.
+    if (!noLanding) {
+      const target = await resolveRegistrationTarget()
+      if (target) {
+        const { getPlatform } = await import('../platform')
+        getPlatform().redirectTo(target)
+        return
+      }
     }
 
     // Клиент в дашборде включил «Регистрировать без ввода контактных данных»:
