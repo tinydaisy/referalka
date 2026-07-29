@@ -169,6 +169,7 @@ export default function ContestOverviewTab({
         eventId={eventId}
         onSlugSaved={onReload}
         eventStatus={event?.status}
+        disabledPlatforms={event?.disabled_platforms || []}
       />
 
       {/* Save bar — в самом низу страницы */}
