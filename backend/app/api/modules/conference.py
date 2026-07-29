@@ -349,6 +349,11 @@ async def get_conference(
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
     d["event_landing_url"] = d.pop("event_landing_url") or ""
+    # Готовая ссылка регистрации — тем же резолвером, что и в рассылках
+    # ({landing_url}). Фронт-превью берёт её отсюда, а не собирает само:
+    # у события со своим лендингом (сторонний пуст) в превью была пустота.
+    from app.services.message_builder import resolve_landing_url
+    d["registration_link"] = await resolve_landing_url(db, event_id)
     return {"conference": d}
 
 
