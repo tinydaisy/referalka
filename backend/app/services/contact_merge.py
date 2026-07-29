@@ -950,6 +950,36 @@ def mask_phone(phone: Optional[str]) -> Optional[str]:
     return digits[:4] + "•" * max(0, len(digits) - 7) + digits[-3:]
 
 
+def needs_choice(email, phone, tg_username, candidates: list) -> bool:
+    """Спрашивать ли «Это вы?» — или можно записать человека сразу.
+
+    ⚠️ Правило клиента. Опасен не сам факт совпадения, а совпадение
+    ЧАСТИЧНОЕ: человек указал два разных «ключа», и мы не знаем, какой из
+    его аккаунтов он имел в виду.
+
+      • ничего не нашли / нашли больше одного → выбор (или новый контакт);
+      • нашли ровно один И человек дал все три ключа (email + телефон + ник)
+        → записываем сразу: совпадение полное, сомнений нет;
+      • дал только email (без телефона и ника) → тоже сразу: одного ключа
+        достаточно, когда других он не называл;
+      • дал email + ник без телефона, или телефон + ник без email →
+        СПРАШИВАЕМ: у человека часто несколько аккаунтов, и такой набор
+        может указывать на любой из них.
+    """
+    if len(candidates) != 1:
+        return len(candidates) > 1
+
+    has_email = bool(normalize_email(email))
+    has_phone = bool(normalize_phone(phone))
+    has_tg = bool((tg_username or "").strip())
+
+    if has_email and has_phone and has_tg:
+        return False          # полное совпадение — вопросов нет
+    if has_email and not has_phone and not has_tg:
+        return False          # только email — записываем
+    return True               # частичный набор — уточняем у человека
+
+
 async def find_contact_candidates(db, client_id: int, email, phone, tg_username):
     """Все контакты клиента, подходящие по email / телефону / TG-нику.
 

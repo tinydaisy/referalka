@@ -612,9 +612,14 @@ async def register(slug: str, day: int, body: RegisterIn):
         if not contact_id and not body.force_new and not body.tg_id:
             cands = await _find_contact_candidates(
                 conn, client_id, body.email, body.phone, body.telegram_username)
-            if len(cands) > 1:
-                # несколько совпадений → пусть зритель выберет («Это вы?»)
+            # ⚠️ Общее правило (needs_choice в contact_merge): спрашиваем при
+            # ЧАСТИЧНОМ совпадении — например, email+ник без телефона. При
+            # полном наборе или когда назван только email, записываем сразу.
+            from app.services.contact_merge import needs_choice
+            if needs_choice(body.email, body.phone, body.telegram_username, cands):
                 return {"ok": False, "need_choice": True, "candidates": cands}
+            if len(cands) == 1:
+                contact_id = cands[0]["id"]
         # 2) иначе — по данным формы (0 или 1 совпадение → авто)
         if not contact_id:
             if not (body.name or body.email or body.phone or body.telegram_username):

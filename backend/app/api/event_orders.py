@@ -150,11 +150,15 @@ async def create_order(
     # сливать их автоматически — тем более. Показываем найденных и просим
     # выбрать, ровно как вебинарная авторизация.
     if not contact_id and not data.force_new:
-        from app.services.contact_merge import find_contact_candidates
+        from app.services.contact_merge import find_contact_candidates, needs_choice
         cands = await find_contact_candidates(
             db, t["client_id"], email, phone, tg)
-        if len(cands) > 1:
+        # Спрашиваем не всегда: при полном совпадении (email+телефон+ник) или
+        # когда человек назвал ТОЛЬКО email — записываем сразу.
+        if needs_choice(email, phone, tg, cands):
             return {"ok": False, "need_choice": True, "candidates": cands}
+        if len(cands) == 1:
+            contact_id = cands[0]["id"]
 
     if not contact_id:
         contact_id, _is_new = await find_or_create_contact(
