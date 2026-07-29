@@ -906,7 +906,9 @@ export default function TemplatesPage() {
       : platform === 'vk' ? ['vk', 'telegram', 'max']
       : ['telegram', 'max', 'vk']
     for (const p of order) if (links[p]) return links[p]
-    return event?.slug ? `https://pluson.ru/event/${event.slug}` : ''
+    // Своего бота нет ни на одной площадке — ссылки не будет (системный бот
+    // для клиентских флоу не используется).
+    return ''
   }
 
   // Ссылка подарка-магнита для превью: воронка (если funnel_slug) или прямой url.
