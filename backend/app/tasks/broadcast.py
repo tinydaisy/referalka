@@ -447,6 +447,13 @@ async def _send_broadcast(schedule_id: int):
                 txt = txt.replace("{signup_link}", signup_by_platform.get(platform, ""))
             return txt
 
+        def _clean_url(u: str) -> str:
+            """⚠️ Telegram отвергает адрес кнопки с пробелом или переводом
+            строки («Bad Request: inline keyboard button URL is invalid»), а
+            в шаблоне после плейсхолдера легко остаётся лишний пробел — тогда
+            не доходит ВСЁ сообщение, а не только кнопка."""
+            return (u or "").strip()
+
         # ── Ссылки на воронку подарков-лид-магнитов ⟦GF:m|p:slug⟧ ──────────────
         # Подарок-лид-магнит/пакет ПЛЮСОНа в тексте помечен токеном ⟦GF:kind:slug⟧
         # (kind = m|p). Прямой файл в рассылку НЕ уходит — он выдаётся воронкой за
@@ -609,7 +616,7 @@ async def _send_broadcast(schedule_id: int):
         async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
                 msg_text = _with_gift_funnel(_with_support(text, "telegram"), "telegram")
-                msg_btn_url = _with_gift_funnel(_with_support(button_url, "telegram"), "telegram")
+                msg_btn_url = _clean_url(_with_gift_funnel(_with_support(button_url, "telegram"), "telegram"))
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 if needs_game_link:
@@ -747,7 +754,7 @@ async def _send_broadcast(schedule_id: int):
                                 http_extra, default_bot_token, cid,
                                 _with_gift_funnel(_with_support(text, "telegram"), "telegram"),
                                 photo_url, button_text,
-                                _with_gift_funnel(_with_support(button_url, "telegram"), "telegram"),
+                                _clean_url(_with_gift_funnel(_with_support(button_url, "telegram"), "telegram")),
                                 buttons=buttons,
                                 video_url=video_url if media_type == "video" else None,
                                 on_message_id=lambda mid: _chat_mids.append(mid),
@@ -767,7 +774,7 @@ async def _send_broadcast(schedule_id: int):
             vk_sent = await _send_broadcast_vk_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "vk"), "vk"),
-                photo_url, button_text, _with_gift_funnel(_with_support(button_url, "vk"), "vk"),
+                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "vk"), "vk")),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -784,7 +791,7 @@ async def _send_broadcast(schedule_id: int):
             max_sent = await _send_broadcast_max_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "max"), "max"),
-                photo_url, button_text, _with_gift_funnel(_with_support(button_url, "max"), "max"),
+                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "max"), "max")),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -800,7 +807,7 @@ async def _send_broadcast(schedule_id: int):
             email_sent = await _send_broadcast_email_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text_for_email, "email"), "email"),
-                photo_url, button_text, _with_gift_funnel(_with_support(button_url, "email"), "email"),
+                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "email"), "email")),
                 buttons=buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,
