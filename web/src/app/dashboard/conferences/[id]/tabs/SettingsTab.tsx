@@ -93,7 +93,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
-    registration_mode: conf?.registration_mode || null,
+      // ⚠️ registration_mode здесь НЕ пересобираем: этот блок срабатывает при
+      // каждом изменении conf (в том числе после сохранения) и возвращал
+      // старое значение поверх только что выбранного — до базы выбор не
+      // доходил. Начальное значение ставится один раз при инициализации.
       landing_url: event?.landing_url || '',
       vip_url: conf?.vip_url || '',
       vip_button_label: conf?.vip_button_label || '',

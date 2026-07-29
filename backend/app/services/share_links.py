@@ -345,8 +345,12 @@ async def build_share_links(
     # Площадки, отключённые у ЭТОГО события (миграция 263): ссылку наружу не
     # отдаём — ни спикерам в кабинет/материалы, ни участникам в реф-ссылки.
     # ⚠️ Сам бот площадки продолжает работать: прячем только публичную выдачу.
-    for p in await get_event_disabled_platforms(db, event_slug=event_slug):
-        result.pop(p, None)
+    #
+    # ⚠️ include_disabled=True — для КАБИНЕТА: там строка должна остаться со
+    # снятой галочкой, иначе площадку не вернуть (строка исчезала целиком).
+    if not include_disabled:
+        for p in await get_event_disabled_platforms(db, event_slug=event_slug):
+            result.pop(p, None)
     return result
 
 

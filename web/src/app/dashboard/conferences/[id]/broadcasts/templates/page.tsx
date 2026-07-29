@@ -892,6 +892,22 @@ export default function TemplatesPage() {
     return ''
   }
 
+  // {landing_url} — страница регистрации события. ⚠️ Тот же порядок, что на
+  // сервере (resolve_landing_url): способ регистрации главнее, а не «есть ли
+  // сторонний адрес». Раньше подставлялся только сторонний сайт, и у события
+  // со встроенным лендингом плейсхолдер уходил ПУСТЫМ.
+  function landingUrl(): string {
+    const slug = (confData as any)?.event_slug || ''
+    const ext = ((confData as any)?.event_landing_url || '').trim()
+    const mode = (confData as any)?.registration_mode
+    const form = slug ? `https://pluson.ru/event/${slug}/register` : ''
+    if (mode === 'external') return ext || form
+    if (mode === 'landing') return slug ? `https://pluson.ru/e/${slug}` : form
+    if (mode === 'form') return form
+    // Способ не задан (старые события) — как раньше: сторонний, иначе форма.
+    return ext || form
+  }
+
   // {signup_link} — ссылка «Зарегистрироваться» в боте площадки получателя.
   // ⚠️ Формат ref_pg{slug}, как в «Публичных ссылках»: evsignup_ — это
   // callback уже нажатой кнопки ВНУТРИ бота, обработчика /start с таким
@@ -1007,7 +1023,7 @@ export default function TemplatesPage() {
           .replace(/\{speaker_achievements\}/g, achText)
           .replace(/\{gift_after_speech_title\}/g, giftTitle)
           .replace(/\{gift_raffle_title\}/g, giftRaffle)
-          .replace(/\{landing_url\}/g, confData?.event_landing_url || '')
+          .replace(/\{landing_url\}/g, landingUrl())
         if (tgChannel) out = out.replace(/\{speaker_tg\}/g, `<b>Тг канал:</b> ${tgChannel}`)
         if (insta) out = out.replace(/\{speaker_instagram\}/g, `<b>Нельзяграм:</b> ${insta}`)
 

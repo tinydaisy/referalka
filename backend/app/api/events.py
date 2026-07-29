@@ -437,8 +437,12 @@ async def get_event_share_links(
     # ⚠️ КОЛЛАБ: ссылка строится через бота организатора, от которого пришёл человек.
     owner_cid = await _collab_share_client_id(db, ev, pid=pid, cid=cid)
     lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid)
+    # ⚠️ include_disabled=True: это выдача для КАБИНЕТА. Выключенную площадку
+    # показываем со снятой галочкой — иначе строка исчезает совсем и вернуть
+    # площадку нечем. Наружу (спикерам, участникам) ссылка по-прежнему не идёт.
     links = await build_share_links(
-        db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
+        db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab,
+        link_mode=lm, include_disabled=True,
     )
     return {"event_id": event_id, "slug": ev["slug"], "links": links, "link_mode": lm}
 
