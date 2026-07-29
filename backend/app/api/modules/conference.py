@@ -1488,12 +1488,12 @@ async def update_speaker_event(
             speaker_event_id, event_id, *updates.values()
         )
     if topics_list is not None:
+        # ⚠️ speaker_topic (денормализованное НАЗВАНИЕ первой темы) проставляет сам
+        # _rewrite_speaker_topics — отдельный UPDATE здесь не нужен и ЛОМАЛСЯ:
+        # тема теперь приходит объектом {topic, description}, и в TEXT-колонку
+        # уезжал dict → asyncpg DataError «expected str, got dict» (500 при
+        # сохранении описания).
         await _save_topics(speaker_event_id, topics_list, db)
-        first_topic = topics_list[0] if topics_list else None
-        await db.execute(
-            "UPDATE event_collaborators SET speaker_topic=$1 WHERE id=$2",
-            first_topic, speaker_event_id
-        )
     if stage_ids is not None:
         new_set = {int(x) for x in stage_ids}
         old_set = {r["stage_id"] for r in await db.fetch(
