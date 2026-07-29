@@ -175,6 +175,30 @@ def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
     return "\n".join(lines)
 
 
+async def resolve_landing_url(conn, event_id: int) -> str:
+    """Ссылка регистрации для {landing_url} / {registration_url}.
+
+    Приоритет: сторонний лендинг клиента (events.landing_url) → наш встроенный
+    лендинг-конструктор pluson.ru/e/{slug}, если он ОПУБЛИКОВАН.
+
+    Раньше читался только events.landing_url: у события со своим лендингом
+    в конструкторе (стороннего нет) плейсхолдер уходил ПУСТЫМ — кнопка
+    «Зарегистрироваться» вела в никуда, и приходилось вписывать ссылку руками.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT COALESCE(NULLIF(btrim(e.landing_url), ''),
+                        CASE WHEN EXISTS (SELECT 1 FROM event_landing_pages lp
+                                           WHERE lp.event_id = e.id
+                                             AND lp.kind = 'main' AND lp.is_published)
+                             THEN 'https://pluson.ru/e/' || e.slug END) AS url
+          FROM events e WHERE e.id = $1
+        """,
+        event_id,
+    )
+    return (row["url"] if row and row["url"] else "") or ""
+
+
 async def _speaker_topics_strings(conn, ec_id) -> tuple:
     """Темы спикера двумя видами — (только названия, названия + описания).
 
@@ -843,7 +867,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                cse.gift_raffle_title, cse.notes AS speaker_notes,
                c.ask_topics AS speaker_ask_topics,
                cse.knowledge_base_title, cse.knowledge_base_url,
-               e.slug AS event_slug, e.landing_url AS registration_url, e.id AS event_id,
+               e.slug AS event_slug, COALESCE(NULLIF(btrim(e.landing_url), ''), CASE WHEN EXISTS (SELECT 1 FROM event_landing_pages lp WHERE lp.event_id=e.id AND lp.kind='main' AND lp.is_published) THEN 'https://pluson.ru/e/' || e.slug END) AS registration_url, e.id AS event_id,
                (SELECT cs.day FROM conf_sessions cs
                   WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
                   ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS speaker_day,
@@ -1051,8 +1075,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Событийные плейсхолдеры-ссылки {stream_url}/{landing_url}/{registration_url}
         # (ссылка на эфир / регистрацию) — раскрываем и в тексте, и в кнопках, ДАЖЕ БЕЗ
         # выбранного спикера (это данные события, не спикера).
-        ev_links = await conn.fetchrow(
-            "SELECT landing_url FROM events WHERE id=$1", event_id)
+        # Сторонний лендинг → иначе наш опубликованный /e/{slug}.
+        _reg_url = await resolve_landing_url(conn, event_id)
         # {stream_url} — вебинарная комната. Для произвольного сообщения без привязки
         # к дню берём первый день события с комнатой (мероприятие = день 1).
         from app.services.webinar_service import day_stream_url as _day_stream_url
@@ -1061,8 +1085,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         _ev_stream = await _day_stream_url(conn, event_id, _wr_day, "__CT__") if _wr_day else ""
         _ev_repl = {
             "{stream_url}": _ev_stream,
-            "{landing_url}": (ev_links["landing_url"] if ev_links else None) or "",
-            "{registration_url}": (ev_links["landing_url"] if ev_links else None) or "",
+            "{landing_url}": _reg_url,
+            "{registration_url}": _reg_url,
         }
         for token, val in _ev_repl.items():
             if token in raw_text:
@@ -1159,7 +1183,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             """
             SELECT e.title as conf_title,
                    e.module_slug,
-                   e.landing_url AS registration_url,
+                   COALESCE(NULLIF(btrim(e.landing_url), ''), CASE WHEN EXISTS (SELECT 1 FROM event_landing_pages lp WHERE lp.event_id=e.id AND lp.kind='main' AND lp.is_published) THEN 'https://pluson.ru/e/' || e.slug END) AS registration_url,
                    e.slug AS event_slug,
                    cc.raffle_url,
                    cd.title AS day_title,
@@ -1397,7 +1421,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.ask_topics AS speaker_ask_topics,
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        e.slug AS event_slug,
-                       e.landing_url AS registration_url,
+                       COALESCE(NULLIF(btrim(e.landing_url), ''), CASE WHEN EXISTS (SELECT 1 FROM event_landing_pages lp WHERE lp.event_id=e.id AND lp.kind='main' AND lp.is_published) THEN 'https://pluson.ru/e/' || e.slug END) AS registration_url,
                        -- Слот выступления спикера в программе (первая его сессия по времени).
                        -- Для {speaker_time}/{speaker_date}/{speaker_datetime}.
                        (SELECT cs.start_time FROM conf_sessions cs
@@ -1650,7 +1674,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, e.description as conf_description,
-                   e.landing_url AS registration_url,
+                   COALESCE(NULLIF(btrim(e.landing_url), ''), CASE WHEN EXISTS (SELECT 1 FROM event_landing_pages lp WHERE lp.event_id=e.id AND lp.kind='main' AND lp.is_published) THEN 'https://pluson.ru/e/' || e.slug END) AS registration_url,
                    cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
@@ -1725,7 +1749,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, e.description as conf_description,
-                   e.landing_url AS registration_url, e.slug AS event_slug, cc.raffle_url,
+                   COALESCE(NULLIF(btrim(e.landing_url), ''), CASE WHEN EXISTS (SELECT 1 FROM event_landing_pages lp WHERE lp.event_id=e.id AND lp.kind='main' AND lp.is_published) THEN 'https://pluson.ru/e/' || e.slug END) AS registration_url, e.slug AS event_slug, cc.raffle_url,
                    cl.default_link_mode,
                    (SELECT ch.handle FROM client_channels cc2 JOIN channels ch ON ch.id=cc2.channel_id
                       WHERE cc2.client_id=cl.id AND cc2.is_active AND ch.platform_slug='telegram'
@@ -1858,7 +1882,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     # эфир / регистрацию. В тексте они уже подставлены в своих ветках; здесь
     # добираем кнопку, чтобы «ссылка на эфир» в кнопке тоже раскрывалась.
     if btn_url and ("{stream_url}" in btn_url or "{landing_url}" in btn_url or "{registration_url}" in btn_url):
-        _ev = await conn.fetchrow("SELECT landing_url FROM events WHERE id=$1", event_id)
+        _ev_reg = await resolve_landing_url(conn, event_id)
         # {stream_url} в кнопке — уже вычисленная выше ссылка эфира (комната дня),
         # иначе первый день события с комнатой.
         _btn_stream = locals().get("stream_url") or ""
@@ -1869,8 +1893,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             _btn_stream = await _day_stream_url(conn, event_id, _bd, "__CT__") if _bd else ""
         btn_url = (btn_url
                    .replace("{stream_url}", _btn_stream)
-                   .replace("{landing_url}", (_ev["landing_url"] if _ev else None) or "")
-                   .replace("{registration_url}", (_ev["landing_url"] if _ev else None) or ""))
+                   .replace("{landing_url}", _ev_reg)
+                   .replace("{registration_url}", _ev_reg))
 
     # ── Глобальные плейсхолдеры для ВСЕХ типов событийных рассылок ────────────
     # {brand_name} — бренд клиента (clients.brand_name, fallback clients.name).
