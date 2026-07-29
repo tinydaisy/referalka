@@ -159,6 +159,35 @@ export default function LandingSettingsBlock({
             </p>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание под афишей</label>
+            <textarea
+              value={description}
+              onChange={e => onDescription(e.target.value)}
+              rows={4}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+              placeholder="О чём это событие — пара предложений. Поддерживается HTML."
+            />
+            <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+              Продающий текст. Показывается на странице события (веб и Mini App) до регистрации.
+              Можно использовать HTML: {'<b>жирный</b>, <i>курсив</i>, <a href="...">ссылка</a>, <br>, <ul><li>списки</li></ul>'}.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Текст кнопки</label>
+            <input
+              value={ctaLabel}
+              onChange={e => onCtaLabel(e.target.value)}
+              maxLength={40}
+              placeholder="Хочу участвовать"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+            />
+            <p className="text-xs text-gray-400 mt-1.5">
+              Главная кнопка события. Пусто — будет «Хочу участвовать».
+            </p>
+          </div>
+
           {/* ⚠️ Галочка ОДНА на оба варианта — то же поле skip_contact_form.
               Второго поля с тем же смыслом в базе не заводим. */}
           <SkipContactCheckbox
@@ -183,45 +212,6 @@ export default function LandingSettingsBlock({
             Mini App будет открывать вашу страницу вместо встроенной. Чтобы вернуться к странице
             от ПЛЮСОНа — выберите «Внутренний лендинг» (адрес очистится).
           </p>
-        </div>
-      ) : (
-        /* ── ВНУТРЕННИЙ: описание + текст кнопки + регистрация без контактов ── */
-        <div className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание под афишей</label>
-            <textarea
-              value={description}
-              onChange={e => onDescription(e.target.value)}
-              rows={4}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              placeholder="О чём это событие — пара предложений. Поддерживается HTML."
-            />
-            <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
-              Продающий текст. Показывается на странице события (веб и Mini App) до регистрации.
-              Можно использовать HTML: {'<b>жирный</b>, <i>курсив</i>, <a href="...">ссылка</a>, <br>, <ul><li>списки</li></ul>'}.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Текст кнопки на лендинге</label>
-            <input
-              value={ctaLabel}
-              onChange={e => onCtaLabel(e.target.value)}
-              maxLength={40}
-              placeholder="Хочу участвовать"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
-            <p className="text-xs text-gray-400 mt-1.5">
-              Главная кнопка на встроенном лендинге. Пусто — будет «Хочу участвовать».
-            </p>
-          </div>
-
-          {/* Обычная галочка: это настройка ВНУТРИ простой страницы, а не
-              ещё один тип лендинга — рамкой-плиткой не выделяем. */}
-          <SkipContactCheckbox
-            checked={skipContactForm}
-            onChange={onSkipContactForm}
-          />
         </div>
       )}
     </div>
