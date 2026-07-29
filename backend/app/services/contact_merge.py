@@ -950,34 +950,89 @@ def mask_phone(phone: Optional[str]) -> Optional[str]:
     return digits[:4] + "•" * max(0, len(digits) - 7) + digits[-3:]
 
 
-def needs_choice(email, phone, tg_username, candidates: list) -> bool:
-    """Спрашивать ли «Это вы?» — или можно записать человека сразу.
+async def resolve_or_ask(db, client_id: int, email, phone, tg_username,
+                         vk_username=None, max_username=None):
+    """Кого записывать: конкретный контакт, выбор человека или новый.
 
-    ⚠️ Правило клиента. Опасен не сам факт совпадения, а совпадение
-    ЧАСТИЧНОЕ: человек указал два разных «ключа», и мы не знаем, какой из
-    его аккаунтов он имел в виду.
+    ⚠️ Правило опирается на то, что уникально В БАЗЕ:
+      • email и ники площадок (Telegram, ВКонтакте, MAX) — уникальны у
+        клиента: ограничение на platform_users не даст одному нику
+        принадлежать двум контактам, поэтому спорить не о чем. Сейчас формы
+        спрашивают только Telegram, но правило написано на все площадки —
+        добавите поле, оно заработает само;
+      • телефон — обычное поле в contacts, БЕЗ ограничения: два человека
+        могут делить один номер (семья, рабочий).
 
-      • ничего не нашли / нашли больше одного → выбор (или новый контакт);
-      • нашли ровно один И человек дал все три ключа (email + телефон + ник)
-        → записываем сразу: совпадение полное, сомнений нет;
-      • дал только email (без телефона и ника) → тоже сразу: одного ключа
-        достаточно, когда других он не называл;
-      • дал email + ник без телефона, или телефон + ник без email →
-        СПРАШИВАЕМ: у человека часто несколько аккаунтов, и такой набор
-        может указывать на любой из них.
+    Отсюда:
+      • совпал только email → это он;
+      • совпал только ник площадки → это он;
+      • email и ник (или ники разных площадок) указывают на РАЗНЫХ людей →
+        спрашиваем;
+      • совпал только телефон → спрашиваем (номер не доказательство);
+      • ничего не совпало → новый контакт.
+
+    Возвращает (contact_id, candidates, can_create_new):
+      • contact_id задан — записываем сразу;
+      • иначе candidates непуст — показываем «Это вы?»;
+      • can_create_new — можно ли предложить «я здесь впервые». Нельзя, если
+        email или ник УЖЕ в базе: они уникальны, второй контакт с ними просто
+        не создастся (упрёмся в ограничение). Кнопка врала бы человеку.
     """
-    if len(candidates) != 1:
-        return len(candidates) > 1
+    en = normalize_email(email)
+    pn = normalize_phone(phone)
+    nick = (tg_username or "").strip().lstrip("@")
 
-    has_email = bool(normalize_email(email))
-    has_phone = bool(normalize_phone(phone))
-    has_tg = bool((tg_username or "").strip())
+    by_email = None
+    if en:
+        by_email = await db.fetchval(
+            "SELECT c.id FROM contacts c WHERE c.client_id=$1 AND c.is_active=TRUE "
+            "  AND EXISTS (SELECT 1 FROM platform_users pu WHERE pu.contact_id=c.id "
+            "              AND pu.platform_slug='email' AND pu.platform_user_id=$2) "
+            "LIMIT 1",
+            client_id, en)
 
-    if has_email and has_phone and has_tg:
-        return False          # полное совпадение — вопросов нет
-    if has_email and not has_phone and not has_tg:
-        return False          # только email — записываем
-    return True               # частичный набор — уточняем у человека
+    # Ники площадок: сейчас формы спрашивают только Telegram, остальные
+    # заведены на будущее — логика от площадки не зависит.
+    by_platform: dict = {}
+    if nick:
+        cid = await find_contact_by_telegram_username(
+            db, client_id=client_id, telegram_username=nick)
+        if cid:
+            by_platform["telegram"] = cid
+    for slug, uname in (("vk", vk_username), ("max", max_username)):
+        u = (uname or "").strip().lstrip("@")
+        if not u:
+            continue
+        cid = await db.fetchval(
+            "SELECT contact_id FROM platform_users "
+            " WHERE client_id=$1 AND platform_slug=$2 AND LOWER(username)=LOWER($3) "
+            " LIMIT 1",
+            client_id, slug, u)
+        if cid:
+            by_platform[slug] = cid
+
+    found = set(by_platform.values())
+    if by_email:
+        found.add(by_email)
+
+    # Разные ключи указывают на РАЗНЫХ людей: только человек знает, кто он.
+    if len(found) > 1:
+        cands = await find_contact_candidates(db, client_id, email, phone, tg_username)
+        return None, cands, False
+
+    if by_email:
+        return by_email, [], False
+    if by_platform:
+        return next(iter(by_platform.values())), [], False
+
+    # Остался только телефон — он не уникален, поэтому спрашиваем.
+    # Здесь «я здесь впервые» уместно: ни email, ни ника в базе нет.
+    if pn:
+        cands = await find_contact_candidates(db, client_id, None, phone, None)
+        if cands:
+            return None, cands, True
+
+    return None, [], True
 
 
 async def find_contact_candidates(db, client_id: int, email, phone, tg_username):

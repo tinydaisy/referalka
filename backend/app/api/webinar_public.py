@@ -610,16 +610,18 @@ async def register(slug: str, day: int, body: RegisterIn):
             contact_id = res[0] if isinstance(res, (tuple, list)) else res
         # 1.5) если не форсим новый и не выбран — проверяем неоднозначность
         if not contact_id and not body.force_new and not body.tg_id:
-            cands = await _find_contact_candidates(
+            # ⚠️ Общее правило — resolve_or_ask в contact_merge. Email и ники
+            # площадок уникальны, поэтому по ним берём контакт сразу; спор
+            # возникает, только если они указывают на разных людей или
+            # совпал один телефон (он не уникален).
+            from app.services.contact_merge import resolve_or_ask
+            found, cands, can_new = await resolve_or_ask(
                 conn, client_id, body.email, body.phone, body.telegram_username)
-            # ⚠️ Общее правило (needs_choice в contact_merge): спрашиваем при
-            # ЧАСТИЧНОМ совпадении — например, email+ник без телефона. При
-            # полном наборе или когда назван только email, записываем сразу.
-            from app.services.contact_merge import needs_choice
-            if needs_choice(body.email, body.phone, body.telegram_username, cands):
-                return {"ok": False, "need_choice": True, "candidates": cands}
-            if len(cands) == 1:
-                contact_id = cands[0]["id"]
+            if found:
+                contact_id = found
+            elif cands:
+                return {"ok": False, "need_choice": True,
+                        "candidates": cands, "can_create_new": can_new}
         # 2) иначе — по данным формы (0 или 1 совпадение → авто)
         if not contact_id:
             if not (body.name or body.email or body.phone or body.telegram_username):

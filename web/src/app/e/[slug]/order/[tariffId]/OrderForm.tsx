@@ -41,6 +41,9 @@ export default function OrderForm({
   // Нашлось несколько контактов (email одного, телефон другого) — просим
   // человека выбрать себя, как в авторизации вебинарной комнаты.
   const [candidates, setCandidates] = useState<any[] | null>(null)
+  // Можно ли предложить «я здесь впервые»: нельзя, если email или ник уже
+  // в базе — они уникальны, второй контакт с ними не создастся.
+  const [canCreateNew, setCanCreateNew] = useState(false)
 
   const price = Number(tariff.price || 0)
   const isFree = price <= 0
@@ -156,6 +159,7 @@ export default function OrderForm({
       // Несколько совпадений — показываем «Это вы?».
       if (data?.need_choice) {
         setCandidates(data.candidates || [])
+        setCanCreateNew(!!data.can_create_new)
         setBusy(false)
         return
       }
@@ -193,7 +197,7 @@ export default function OrderForm({
           </h1>
           <p className="mt-3 text-center text-[.9em] opacity-80">
             Мы нашли несколько записей с такими контактами. Выберите свою —
-            так заказ и доступ придут туда, где вас уже знают.
+            письмо о заказе и доступ придут на её адрес и в её мессенджер.
           </p>
           <div className="mt-6 space-y-2.5">
             {candidates.map((c: any) => (
@@ -228,13 +232,17 @@ export default function OrderForm({
                 </div>
               </button>
             ))}
-            <button
-              onClick={() => { setCandidates(null); submit({ force_new: true }) }}
-              className="w-full rounded-xl border border-dashed px-5 py-4 text-[.9em] opacity-80 hover:opacity-100"
-              style={{ borderColor: `${page.border_color || '#FFCFA4'}55` }}
-            >
-              Ничего из этого — я здесь впервые
-            </button>
+            {/* ⚠️ Кнопка только когда email и ник в базе не встречались:
+                они уникальны, и новый контакт с ними просто не создастся. */}
+            {canCreateNew && (
+              <button
+                onClick={() => { setCandidates(null); submit({ force_new: true }) }}
+                className="w-full rounded-xl border border-dashed px-5 py-4 text-[.9em] opacity-80 hover:opacity-100"
+                style={{ borderColor: `${page.border_color || '#FFCFA4'}55` }}
+              >
+                Ничего из этого — я здесь впервые
+              </button>
+            )}
           </div>
         </div>
       </div>

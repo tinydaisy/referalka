@@ -863,6 +863,9 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [candidates, setCandidates] = useState<any[] | null>(null) // экран «Это вы?»
+  // «Это новый участник» показываем, только когда email и ник свободны:
+  // они уникальны, второй контакт с ними не создастся.
+  const [canCreateNew, setCanCreateNew] = useState(false)
   const [consentPd, setConsentPd] = useState(false)
   const [consentMk, setConsentMk] = useState(false)
   const privacyUrl = clientId ? `${(typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru')}/c/${clientId}/privacy` : null
@@ -875,7 +878,11 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
         body: JSON.stringify({ ...f, pid, utm_source: utm, consent_pd: consentPd, consent_marketing: consentMk, ...extra }),
       })
       const d = await r.json()
-      if (d.need_choice) { setCandidates(d.candidates || []); return }
+      if (d.need_choice) {
+        setCandidates(d.candidates || [])
+        setCanCreateNew(!!d.can_create_new)
+        return
+      }
       if (r.ok && d.contact_id) onAuthed(d.contact_id, f)
       else setErr(d.detail || 'Не удалось войти')
     } catch { setErr('Ошибка сети') }
@@ -898,7 +905,10 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
       <Centered>
         <div className="w-full max-w-sm">
           <h2 className="text-lg font-bold text-center mb-1">Это вы?</h2>
-          <p className="text-sm text-white/60 text-center mb-4">Мы нашли несколько записей. Выберите свою или войдите как новый участник.</p>
+          <p className="text-sm text-white/60 text-center mb-4">
+            Мы нашли несколько записей. Выберите свою — доступ придёт на её
+            адрес и в её мессенджер.
+          </p>
           <div className="space-y-2">
             {candidates.map((c: any) => (
               <button key={c.id} disabled={busy} onClick={() => send({ chosen_contact_id: c.id })}
@@ -926,10 +936,12 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
                 </div>
               </button>
             ))}
-            <button disabled={busy} onClick={() => send({ force_new: true })}
-              className="w-full py-2.5 rounded-lg font-semibold mt-1" style={{ background: '#FFCFA4', color: '#0a1520' }}>
-              Это новый участник
-            </button>
+            {canCreateNew && (
+              <button disabled={busy} onClick={() => send({ force_new: true })}
+                className="w-full py-2.5 rounded-lg font-semibold mt-1" style={{ background: '#FFCFA4', color: '#0a1520' }}>
+                Это новый участник
+              </button>
+            )}
             {err && <div className="text-sm text-red-300">{err}</div>}
           </div>
         </div>
