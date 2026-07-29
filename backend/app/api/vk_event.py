@@ -1280,10 +1280,13 @@ async def send_vk_event_funnel(
     # ОСТАЁТСЯ, но ведёт на callback `evsignup_<id>` — регистрируем по НАЖАТИЮ и
     # присылаем меню (как в TG и MAX). Меню само, без нажатия, НЕ шлём.
     # Сторонний лендинг главнее — там своя форма и свой webhook.
+    # ⚠️ Лендинг главнее — тот же порядок, что в TG/MAX.
+    _rm = await conn.fetchval("SELECT registration_mode FROM events WHERE id=$1", event_id)
     reg_in_bot = bool(
         not is_registered and contact_id
         and event_row["skip_contact_form"]
         and not (event_row["landing_url"] or "").strip()
+        and _rm != "landing"
     )
 
     # ── Зарегистрирован → меню кабинета (порт send_event_menu) ────────────────

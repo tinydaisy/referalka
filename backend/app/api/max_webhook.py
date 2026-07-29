@@ -1430,9 +1430,12 @@ async def _process_start(
             # «ЗАРЕГИСТРИРОВАТЬСЯ» ОСТАЁТСЯ, но ведёт на callback `evsignup_<id>` —
             # регистрируем по НАЖАТИЮ и присылаем меню (как в TG). Меню само, без
             # нажатия, НЕ шлём. Сторонний лендинг главнее — там своя форма.
+            # ⚠️ Лендинг главнее — см. тот же порядок в TG/VK.
             reg_in_bot = bool(
                 event_skip_contact_form and contact_id and event_id
                 and not event_landing_url
+                and (await conn.fetchval(
+                    "SELECT registration_mode FROM events WHERE id=$1", event_id)) != "landing"
             )
 
             # НЕ зарегистрирован → 1 кнопка «ЗАРЕГИСТРИРОВАТЬСЯ» + афиша (как в TG).
