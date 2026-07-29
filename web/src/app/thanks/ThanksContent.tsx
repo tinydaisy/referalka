@@ -22,6 +22,12 @@ const BOT_LABEL: Record<string, string> = {
   max: 'Бот в MAX',
 }
 
+const CHAT_LABEL: Record<string, string> = {
+  telegram: 'Чат в Telegram',
+  vk: 'Чат во ВКонтакте',
+  max: 'Чат в MAX',
+}
+
 export default function ThanksContent({
   orderId, failed,
 }: {
@@ -95,23 +101,48 @@ export default function ThanksContent({
         </p>
       )}
 
-      {/* ⚠️ Ни чатов, ни страницы события — только бот со слагом события:
-          он открывает МЕНЮ события, где уже есть и чат, и программа, и
-          подарки. Одна кнопка вместо россыпи ссылок. */}
-      {!!order?.bots?.length && (
-        <>
-          <p className="mt-8 text-sm uppercase tracking-wide text-white/60">
-            Откройте бота — там меню события: чат, программа, подарки и эфир
-          </p>
-          <div className="mt-3 flex flex-col gap-2.5">
-            {order.bots.map((b: any) => (
-              <a key={b.platform} href={b.url} target="_blank" rel="noreferrer"
-                 className="rounded-lg border border-[#FFCFA4] px-6 py-3 font-bold uppercase text-[#FFCFA4] transition-colors hover:bg-[#FFCFA4]/10">
-                {BOT_LABEL[b.platform] || 'Бот'}
-              </a>
-            ))}
-          </div>
-        </>
+      {/* Куда вести — настройка события (миграция 261).
+          «В бота» (по умолчанию) — там меню события: чат, программа, подарки,
+          эфир. «В чаты» — сразу в чат, когда бот клиенту не нужен. */}
+      {order?.thanks_destination === 'chats' ? (
+        !!order?.chats?.length && (
+          <>
+            <p className="mt-8 text-sm uppercase tracking-wide text-white/60">
+              Заходите в чат события — там всё самое важное
+            </p>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {order.chats.map((c: any) => (
+                <a key={c.platform} href={c.url} target="_blank" rel="noreferrer"
+                   className="rounded-lg bg-[#FFCFA4] px-6 py-3.5 font-bold uppercase text-[#0a1520] transition-transform hover:scale-[1.02]">
+                  {CHAT_LABEL[c.platform] || 'Чат события'}
+                </a>
+              ))}
+            </div>
+          </>
+        )
+      ) : (
+        !!order?.bots?.length && (
+          <>
+            <p className="mt-8 text-sm uppercase tracking-wide text-white/60">
+              Откройте бота — там меню события: чат, программа, подарки и эфир
+            </p>
+            {/* ⚠️ Важное предупреждение: если человек зайдёт в бота на другой
+                площадке, его аккаунт не свяжется с регистрацией и рассылки
+                до него не дойдут. */}
+            <p className="mt-2 text-sm text-white/70">
+              Вернитесь на ту площадку, с которой начинали регистрацию, —
+              иначе мы не сможем связать вас с заказом.
+            </p>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {order.bots.map((b: any) => (
+                <a key={b.platform} href={b.url} target="_blank" rel="noreferrer"
+                   className="rounded-lg border border-[#FFCFA4] px-6 py-3 font-bold uppercase text-[#FFCFA4] transition-colors hover:bg-[#FFCFA4]/10">
+                  {BOT_LABEL[b.platform] || 'Бот'}
+                </a>
+              ))}
+            </div>
+          </>
+        )
       )}
 
 

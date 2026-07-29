@@ -389,6 +389,8 @@ async def update_conference(
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
+        # Куда вести со страницы после оплаты (миграция 261)
+        "thanks_destination",
         # Что показывать на «Итогах» при завершении (миграция 195)
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)

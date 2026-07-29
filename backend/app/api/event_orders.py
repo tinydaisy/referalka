@@ -373,6 +373,7 @@ async def get_order(
         """SELECT o.id, o.status, o.amount, o.contact_id, o.event_id,
                   t.title AS tariff_title,
                   e.slug AS event_slug, e.title AS event_title,
+                  e.thanks_destination,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_url,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_url,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_url,

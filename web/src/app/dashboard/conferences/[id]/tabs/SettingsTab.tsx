@@ -43,6 +43,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
+    thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
     // landing_url — единое поле для всех событий (events.landing_url),
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
@@ -87,6 +88,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
+    thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
       landing_url: event?.landing_url || '',
       vip_url: conf?.vip_url || '',
       vip_button_label: conf?.vip_button_label || '',
@@ -137,6 +139,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       const confPatch: any = {}
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.hide_stream_button !== !!conf?.hide_stream_button)      confPatch.hide_stream_button = form.hide_stream_button
+      if (form.thanks_destination !== (conf?.thanks_destination === 'chats' ? 'chats' : 'bots'))
+        confPatch.thanks_destination = form.thanks_destination
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
       if (form.vip_button_label !== (conf?.vip_button_label || ''))    confPatch.vip_button_label = form.vip_button_label || null
       if (form.chat_button_label !== (conf?.chat_button_label || ''))  confPatch.chat_button_label = form.chat_button_label || null
@@ -214,6 +218,37 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       {/* 2) НАСТРОЙКА ССЫЛОК */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
         <h2 className="block-title">Настройка ссылок</h2>
+
+        {/* Куда вести человека после оплаты тарифа (миграция 261). */}
+        <div className="mb-5 rounded-xl border border-gray-200 p-3">
+          <div className="mb-1 text-sm font-medium text-gray-700">
+            Куда вести после оплаты
+          </div>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {([
+              ['bots', 'В бота события'], ['chats', 'В чаты события'],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setForm(f => ({ ...f, thanks_destination: val }))}
+                className={`rounded-lg border px-3 py-1.5 text-sm ${
+                  form.thanks_destination === val
+                    ? 'border-brand bg-brand/5 font-medium text-brand'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400">
+            {form.thanks_destination === 'chats'
+              ? 'На странице после оплаты человек увидит ссылки на чаты события.'
+              : 'На странице после оплаты — ссылка на бота с меню события: чат, программа, подарки, эфир. Там же попросим вернуться на ту площадку, с которой человек начинал, — иначе его аккаунт не свяжется с заказом.'}
+          </p>
+        </div>
+
         <div>
           {/* Ссылка эфира — ПО ДНЯМ в разделе «Вебинары» (комната дня/сторонняя). */}
           <label className="flex items-start gap-2 cursor-pointer">

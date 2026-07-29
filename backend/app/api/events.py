@@ -136,6 +136,8 @@ class UpdateEventRequest(BaseModel):
     # показывается. TRUE = жёстко скрыта. Ссылка эфира теперь = вебинарная
     # комната дня (см. webinar_service.day_stream_url), колонка stream_url убрана.
     hide_stream_button: Optional[bool] = None
+    # Куда вести со страницы после оплаты: 'bots' | 'chats' (миграция 261).
+    thanks_destination: Optional[str] = None
     # Что показывать на вкладке «Итоги» при завершении события (миграция 195):
     # 'next_event' (default) — следующее незавершённое событие; 'gift' — подарок.
     end_action: Optional[str] = None

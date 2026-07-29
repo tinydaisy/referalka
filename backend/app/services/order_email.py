@@ -28,6 +28,7 @@ async def _load_context(db, order_id: int) -> Optional[dict]:
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_url,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_url,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_url,
+                  e.thanks_destination,
                   c.name AS contact_name,
                   cl.id AS client_id, cl.name AS client_name, cl.brand_name,
                   cl.work_tg_username, cl.work_vk, cl.work_max,
@@ -131,9 +132,13 @@ async def send_order_paid_email(db, order_id: int) -> bool:
         return False
     o = ctx["order"]
 
-    # ⚠️ Ни чатов, ни страницы события в письме НЕТ — только бот со слагом
-    # события (ref_pg{slug}): он открывает МЕНЮ события, где и чат, и
-    # программа, и подарки. Одна кнопка вместо россыпи ссылок.
+    # Чаты события — нужны, когда клиент выбрал вести людей сразу в чат.
+    chats = [u for u in (o["tg_chat_url"], o["vk_chat_url"], o["max_chat_url"]) if u]
+    chats_block = ("\n".join(f"• {u}" for u in chats)) if chats else ""
+
+    # По умолчанию ведём в бота со слагом события (ref_pg{slug}): он открывает
+    # МЕНЮ события, где и чат, и программа, и подарки — одна ссылка вместо
+    # россыпи.
     bots = await db.fetch(
         """SELECT ch.platform_slug, ch.handle, ch.display_name
              FROM client_channels cc
@@ -175,9 +180,16 @@ async def send_order_paid_email(db, order_id: int) -> bool:
         f"По условиям опций вашего тарифа с вами свяжется менеджер.\n"
         + (f"Чтобы ускорить — напишите сами в нашу службу заботы:\n"
            f"{support_block}\n\n" if support_block else "\n")
-        + (f"Откройте нашего бота — там меню события: чат, программа, подарки "
-           f"и ссылка на эфир. Выберите удобную площадку:\n{bots_block}\n\n"
-           if bots_block else "")
+        + (
+            # Куда вести — настройка события (миграция 261).
+            (f"Заходите в чат события — там всё самое важное:\n{chats_block}\n\n"
+             if chats_block else "")
+            if o["thanks_destination"] == "chats" else
+            (f"Откройте нашего бота — там меню события: чат, программа, подарки "
+             f"и ссылка на эфир. ⚠️ Вернитесь на ту площадку, с которой "
+             f"начинали регистрацию, — иначе мы не сможем связать вас с "
+             f"заказом.\n{bots_block}\n\n" if bots_block else "")
+        )
         + f"До встречи!"
     )
     ok = await _send(db, ctx, f"Оплата получена — «{o['event_title']}»", body)
