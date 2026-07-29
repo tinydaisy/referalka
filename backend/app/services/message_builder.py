@@ -204,16 +204,20 @@ async def resolve_landing_url(conn, event_id: int) -> str:
         return ""
     mode = row["registration_mode"]
     ext, slug, has_lp = row["ext"], row["slug"], row["has_lp"]
+    # ⚠️ Простая страница = СРАЗУ ФОРМА /event/{slug}/register, а не /event/{slug}:
+    # на странице события кнопки «Зарегистрироваться» нет (только мелкая ссылка
+    # внутри блока подарков), человек с рассылки упирался бы в тупик.
+    form_url = f"https://pluson.ru/event/{slug}/register"
     if mode == "external":
-        return ext or (f"https://pluson.ru/e/{slug}" if has_lp else f"https://pluson.ru/event/{slug}")
+        return ext or (f"https://pluson.ru/e/{slug}" if has_lp else form_url)
     if mode == "landing":
-        return f"https://pluson.ru/e/{slug}" if has_lp else f"https://pluson.ru/event/{slug}"
+        return f"https://pluson.ru/e/{slug}" if has_lp else form_url
     if mode == "form":
-        return f"https://pluson.ru/event/{slug}"
+        return form_url
     # Режим не задан — прежнее поведение + непустой фолбэк.
     if ext:
         return ext
-    return f"https://pluson.ru/e/{slug}" if has_lp else f"https://pluson.ru/event/{slug}"
+    return f"https://pluson.ru/e/{slug}" if has_lp else form_url
 
 
 async def _speaker_topics_strings(conn, ec_id) -> tuple:

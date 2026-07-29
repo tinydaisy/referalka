@@ -101,7 +101,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       accent_button: normalizeAccent(conf?.accent_button) as AccentButton,
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
-      skip_contact_form: !!event?.skip_contact_form,
       landing_cta_label: event?.landing_cta_label || '',
       end_action: (conf?.end_action as 'next_event' | 'gift') || 'next_event',
       end_gift: conf?.end_gift_package_id
@@ -114,7 +113,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       maxChatRef: conf?.max_chat_ref ?? null,
       primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
     })
-  }, [conf, event?.landing_url, event?.skip_contact_form, event?.landing_cta_label, event?.description, event?.description_post_register])
+    // ⚠️ event?.skip_contact_form в зависимостях НЕТ намеренно: этот блок
+    // пересобирает форму при каждом изменении объекта event, а он меняется
+    // и после сохранения. Снятая галочка тут же затиралась старым значением,
+    // и до сервера правка не доходила. Начальное значение ставится один раз
+    // выше — этого достаточно.
+  }, [conf, event?.landing_url, event?.landing_cta_label, event?.description, event?.description_post_register])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
