@@ -13,12 +13,12 @@
 -- NULL трактуем как раньше: есть landing_url → 'external', иначе 'form'.
 -- Так существующие события работают без изменений.
 
--- landing_require_registration — нужна ли регистрация на нашем лендинге.
--- FALSE: человек с лендинга сразу платит или уходит в бота, форму не
--- показываем (у бесплатного тарифа регистрируем по аккаунту).
+-- ⚠️ Отдельного поля «требовать регистрацию» у лендинга НЕТ: галочка
+-- «Регистрировать без ввода контактных данных» одна на все режимы — это
+-- events.skip_contact_form (миграция 079). Второе поле с тем же смыслом
+-- неизбежно разъехалось бы с первым.
 ALTER TABLE events
   ADD COLUMN IF NOT EXISTS registration_mode TEXT
-    CHECK (registration_mode IN ('form', 'landing', 'external')),
-  ADD COLUMN IF NOT EXISTS landing_require_registration BOOLEAN NOT NULL DEFAULT TRUE;
+    CHECK (registration_mode IN ('form', 'landing', 'external'));
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON events TO plusson;

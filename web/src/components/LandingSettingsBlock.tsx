@@ -33,8 +33,6 @@ export default function LandingSettingsBlock({
   landingUrlInternal,
   regMode,
   onRegMode,
-  landingRequireReg = true,
-  onLandingRequireReg,
   onValidity,
 }: {
   description: string
@@ -54,9 +52,6 @@ export default function LandingSettingsBlock({
   /** Способ регистрации: form | landing | external (миграция 262). */
   regMode?: string | null
   onRegMode?: (v: RegMode) => void
-  /** Требовать регистрацию на нашем лендинге. */
-  landingRequireReg?: boolean
-  onLandingRequireReg?: (v: boolean) => void
   /** Сообщает наверх текст ошибки ('' = всё в порядке). Страница по нему
       блокирует сохранение: ссылка регистрации не может быть пустой. */
   onValidity?: (error: string) => void
@@ -163,21 +158,14 @@ export default function LandingSettingsBlock({
             <span className="font-medium text-gray-700">{landingUrlInternal || 'ваш лендинг'}</span>.
             {!hasLanding && ' Лендинг ещё не опубликован — соберите его на вкладке «Лендинг».'}
           </p>
-          {/* ⚠️ Та же галочка и та же формулировка, что у простой страницы:
-              одно и то же действие не должно называться по-разному, да ещё и
-              с обратным смыслом. */}
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <input type="checkbox" checked={!landingRequireReg}
-              onChange={e => onLandingRequireReg?.(!e.target.checked)}
-              className="mt-0.5 accent-[#25455D]" />
-            <div>
-              <p className="text-sm font-medium text-gray-800">Регистрировать без ввода контактных данных</p>
-              <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
-                Человек пришёл из бота — записываем сразу по его аккаунту, без формы.
-                С рекламы и репостов форма всё равно нужна: иначе непонятно, кого записывать.
-              </p>
-            </div>
-          </label>
+          {/* ⚠️ Галочка ОДНА на оба режима — то же поле skip_contact_form.
+              К чему она относится, определяет выбранный способ регистрации:
+              к простой странице или к нашему лендингу. Второго поля в базе
+              заводить не нужно — смысл тот же. */}
+          <SkipContactCheckbox
+            checked={skipContactForm}
+            onChange={onSkipContactForm}
+          />
         </div>
       ) : isExternal ? (
         /* ── СТОРОННИЙ: только URL ── */
@@ -231,20 +219,32 @@ export default function LandingSettingsBlock({
 
           {/* Обычная галочка: это настройка ВНУТРИ простой страницы, а не
               ещё один тип лендинга — рамкой-плиткой не выделяем. */}
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <input type="checkbox" checked={skipContactForm}
-              onChange={e => onSkipContactForm(e.target.checked)}
-              className="mt-0.5 accent-[#25455D]" />
-            <div>
-              <p className="text-sm font-medium text-gray-800">Регистрировать без ввода контактных данных</p>
-              <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
-                Человек пришёл из бота — записываем сразу по его аккаунту, без формы.
-                С рекламы и репостов форма всё равно нужна: иначе непонятно, кого записывать.
-              </p>
-            </div>
-          </label>
+          <SkipContactCheckbox
+            checked={skipContactForm}
+            onChange={onSkipContactForm}
+          />
         </div>
       )}
     </div>
+  )
+}
+
+/** Одна галочка на оба режима: и простую страницу, и наш лендинг. */
+function SkipContactCheckbox({
+  checked, onChange,
+}: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5">
+      <input type="checkbox" checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        className="mt-0.5 accent-[#25455D]" />
+      <div>
+        <p className="text-sm font-medium text-gray-800">Регистрировать без ввода контактных данных</p>
+        <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
+          Человек пришёл из бота — записываем сразу по его аккаунту, без формы.
+          С рекламы и репостов форма всё равно нужна: иначе непонятно, кого записывать.
+        </p>
+      </div>
+    </label>
   )
 }

@@ -68,7 +68,7 @@ async def _load_tariff(db, tariff_id: int):
         """SELECT t.id, t.code, t.title, t.price, t.pay_url, t.pay_product_id,
                   t.is_active,
                   e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
-                  e.skip_contact_form, e.landing_require_registration,
+                  e.skip_contact_form,
                   cl.id AS client_id, cl.name AS client_name,
                   cl.pay_provider, cl.pay_leadpay_login, cl.pay_leadpay_token
              FROM event_tariffs t
@@ -341,11 +341,9 @@ async def quick_register(
     t = await _load_tariff(db, tariff_id)
     if not t or not t["is_active"]:
         raise HTTPException(status_code=404, detail="Тариф не найден")
-    # Форма не нужна, если стоит любая из двух галочек: «регистрировать без
-    # ввода контактных данных» (простая страница) или снятое «требовать
-    # регистрацию» (наш лендинг).
-    skip_ok = t["skip_contact_form"] or not t["landing_require_registration"]
-    if int(t["price"] or 0) > 0 or not skip_ok:
+    # ⚠️ Галочка ОДНА на оба режима — skip_contact_form. Отдельного поля под
+    # лендинг не заводим: смысл тот же, а два поля разъезжаются.
+    if int(t["price"] or 0) > 0 or not t["skip_contact_form"]:
         raise HTTPException(status_code=400, detail="Нужна форма")
 
     own = await db.fetchval(

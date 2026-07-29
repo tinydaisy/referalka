@@ -270,7 +270,6 @@ class ConferenceUpdate(BaseModel):
     # базы не доходило.
     thanks_destination: Optional[str] = None       # куда вести после оплаты (261)
     registration_mode: Optional[str] = None        # форма | наш лендинг | чужой сайт (262)
-    landing_require_registration: Optional[bool] = None
     end_action: Optional[str] = None               # 'next_event' | 'gift' (миграция 195)
     end_gift_lead_magnet_id: Optional[int] = None
     end_gift_package_id: Optional[int] = None
@@ -403,7 +402,7 @@ async def update_conference(
         # Куда вести со страницы после оплаты (миграция 261)
         "thanks_destination",
         # Способ регистрации и галочка регистрации на нашем лендинге (262)
-        "registration_mode", "landing_require_registration",
+        "registration_mode",
         # Что показывать на «Итогах» при завершении (миграция 195)
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)

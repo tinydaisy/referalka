@@ -40,8 +40,6 @@ export default function OverviewTab({
   // Способ регистрации и галочка регистрации на нашем лендинге (миграция 262).
   const [regMode, setRegMode] = useState<string | null>(event.registration_mode || null)
   const [regError, setRegError] = useState('')
-  const [landingReqReg, setLandingReqReg] = useState<boolean>(
-    event.landing_require_registration !== false)
   // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт из Mini App.
   const [landingCtaLabel, setLandingCtaLabel] = useState(event.landing_cta_label || '')
   const [saving, setSaving] = useState(false)
@@ -99,8 +97,6 @@ export default function OverviewTab({
       if (requireAllOwners !== !!event.require_subscribe_all_owners) payload.require_subscribe_all_owners = requireAllOwners
       if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
       if (regMode !== (event.registration_mode || null))         payload.registration_mode = regMode
-      if (landingReqReg !== (event.landing_require_registration !== false))
-        payload.landing_require_registration = landingReqReg
       const lcl = landingCtaLabel.trim()
       if (lcl !== (event.landing_cta_label || ''))             payload.landing_cta_label = lcl || null
 
@@ -273,8 +269,6 @@ export default function OverviewTab({
         landingUrlInternal={event?.slug ? `pluson.ru/e/${event.slug}` : ''}
         regMode={regMode}
         onRegMode={setRegMode}
-        landingRequireReg={landingReqReg}
-        onLandingRequireReg={setLandingReqReg}
         onSkipContactForm={setSkipContactForm}
         allowExternal={!event.is_collab}
       />
