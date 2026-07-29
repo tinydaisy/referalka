@@ -258,6 +258,8 @@ export default function OverviewTab({
         ctaLabel={landingCtaLabel}
         onCtaLabel={setLandingCtaLabel}
         skipContactForm={skipContactForm}
+        hasLanding={!!event?.landing_published}
+        landingUrlInternal={event?.slug ? `pluson.ru/e/${event.slug}` : ''}
         onSkipContactForm={setSkipContactForm}
         allowExternal={!event.is_collab}
       />

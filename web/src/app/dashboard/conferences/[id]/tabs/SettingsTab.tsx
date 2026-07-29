@@ -390,6 +390,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         skipContactForm={form.skip_contact_form}
         onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
         allowExternal={!event?.is_collab}
+        hasLanding={!!event?.landing_published}
+        landingUrlInternal={event?.slug ? `pluson.ru/e/${event.slug}` : ''}
       />
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}

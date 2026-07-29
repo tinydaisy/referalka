@@ -1,13 +1,17 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Globe, Layout } from 'lucide-react'
+import { Globe, Layout, Sparkles } from 'lucide-react'
 
 /**
  * Единая секция «Настройки страницы регистрации».
- * Переключатель: ВНУТРЕННИЙ лендинг (от ПЛЮСОНа) или СТОРОННИЙ (Tilda/GetCourse/…).
  *
- *  • Внутренний  → «Описание для лендинга» + «Текст кнопки» + «Регистрировать без контактных данных»
- *  • Сторонний   → только URL внешнего лендинга
+ * Три разных страницы, которые часто путают:
+ *  • Простая страница события — встроенная, есть у всех: афиша, описание,
+ *    кнопка записаться. Настраивается тут же (описание, текст кнопки,
+ *    регистрация без контактных данных).
+ *  • Плюсоновский лендинг — продающая страница, собранная в конструкторе
+ *    (вкладка «Лендинг»). Показывается вместо простой, когда опубликован.
+ *  • Сторонний лендинг — чужой сайт (Tilda, GetCourse, Taplink).
  *
  * Режим — локальный state (обе плитки КЛИКАБЕЛЬНЫ). Инициализируется по landing_url:
  * заполнен → сторонний. Выбор «внутренний» очищает URL (иначе Mini App продолжит
@@ -23,6 +27,8 @@ export default function LandingSettingsBlock({
   ctaLabel, onCtaLabel,
   skipContactForm, onSkipContactForm,
   allowExternal = true,
+  hasLanding = false,
+  landingUrlInternal,
 }: {
   description: string
   onDescription: (v: string) => void
@@ -34,6 +40,10 @@ export default function LandingSettingsBlock({
   onSkipContactForm: (v: boolean) => void
   /** false — только внутренний лендинг (коллаб-событие) */
   allowExternal?: boolean
+  /** Плюсоновский лендинг собран и опубликован (вкладка «Лендинг»). */
+  hasLanding?: boolean
+  /** Адрес плюсоновского лендинга — pluson.ru/e/{slug}. */
+  landingUrlInternal?: string
 }) {
   // Режим держим в state — иначе, стерев URL, нельзя было бы остаться в «стороннем»
   // и напечатать новый адрес (поле исчезало бы на первом же символе).
@@ -57,7 +67,7 @@ export default function LandingSettingsBlock({
       <h2 className="block-title">Настройки страницы регистрации</h2>
 
       {allowExternal && (
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <button
             type="button"
             onClick={chooseInternal}
@@ -66,10 +76,31 @@ export default function LandingSettingsBlock({
             }`}>
             <Layout size={18} className={!isExternal ? 'text-[#25455D] mt-0.5' : 'text-gray-400 mt-0.5'} />
             <div>
-              <p className="text-sm font-medium text-gray-900">Внутренний лендинг</p>
-              <p className="text-xs text-gray-400 mt-0.5">Страница события от ПЛЮСОНа — ничего верстать не нужно.</p>
+              <p className="text-sm font-medium text-gray-900">Простая страница события</p>
+              <p className="text-xs text-gray-400 mt-0.5">Афиша, описание и кнопка записаться — верстать ничего не нужно.</p>
             </div>
           </button>
+
+          {/* Плюсоновский лендинг — продающая страница из конструктора.
+              Плитка информационная: собирается он на вкладке «Лендинг», а
+              не здесь, поэтому просто показываем состояние и адрес. */}
+          <div className={`flex items-start gap-3 rounded-xl border-2 p-3.5 text-left ${
+            hasLanding ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200'
+          }`}>
+            <Sparkles size={18} className={hasLanding ? 'mt-0.5 text-[#25455D]' : 'mt-0.5 text-gray-400'} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900">Плюсоновский лендинг</p>
+              {hasLanding ? (
+                <p className="mt-0.5 truncate text-xs text-gray-400">
+                  Опубликован: {landingUrlInternal || '—'}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-gray-400">
+                  Соберите на вкладке «Лендинг» — он заменит простую страницу.
+                </p>
+              )}
+            </div>
+          </div>
 
           <button
             type="button"
