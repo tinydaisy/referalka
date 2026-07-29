@@ -613,7 +613,9 @@ export default function TemplatesPage() {
         media_type: mt,
         audience_include: (form as any).audience_include || 'all_event',
         audience_exclude: (form as any).audience_exclude || 'none',
-        intro_start_time: (form as any).intro_start_time || '11:00',
+        // ⚠️ Без подстановки '11:00': поле общее на все типы, и у «за сутки»
+        // (09:12) / анонса знакомства (10:43) свой час по умолчанию на сервере.
+        intro_start_time: (form as any).intro_start_time || null,
         intro_interval_min: (form as any).intro_interval_min || 15,
         intro_days_before: (form as any).intro_days_before || 1,
         // Общие/личные чаты — только с фичей broadcast_chats. Без неё принудительно false,
@@ -769,7 +771,9 @@ export default function TemplatesPage() {
       button_url: t.button_url || '',
       audience_include: t.audience_include || 'all_event',
       audience_exclude: t.audience_exclude || 'none',
-      intro_start_time: t.intro_start_time || '11:00',
+      intro_start_time: t.intro_start_time
+        || (t.type === 'pre_conf' ? '10:43'
+          : String(t.type || '').startsWith('day_before_09_12') ? '09:12' : '11:00'),
       intro_interval_min: t.intro_interval_min || 15,
       intro_days_before: t.intro_days_before || 1,
       intro_roles: Array.isArray(t.intro_roles) ? t.intro_roles : null,
@@ -1699,6 +1703,31 @@ export default function TemplatesPage() {
                   dayRefOptions={dayRefOptions}
                   sessions={confSessions}
                 />
+              )}
+
+              {/* Время отправки для рассылок «за сутки» и анонса знакомства.
+                  ⚠️ Раньше час был зашит в коде (09:12 / 10:43) и задать своё
+                  было негде — прошедшее время молча пропускалось. */}
+              {(editModal?.type === 'day_before_09_12_unreg'
+                || editModal?.type === 'day_before_09_12_reg'
+                || editModal?.type === 'pre_conf') && (
+                <div className="border border-blue-100 rounded-xl p-3 bg-blue-50">
+                  <label className="text-xs font-medium text-blue-700 mb-1 block">
+                    ⏰ Время отправки (МСК)
+                  </label>
+                  <input
+                    type="time"
+                    value={(form as any).intro_start_time
+                      || (editModal?.type === 'pre_conf' ? '10:43' : '09:12')}
+                    onChange={e => setForm({ ...form, intro_start_time: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {editModal?.type === 'pre_conf'
+                      ? 'Накануне первого дня, в это время.'
+                      : 'Накануне дня события, в это время.'}
+                  </p>
+                </div>
               )}
 
               {/* Настройки расписания для Знакомства со спикером и Экспертного дня */}

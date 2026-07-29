@@ -49,6 +49,27 @@ async def _signup_link_preview(db, client_id: int, event_id: int,
     return pick_signup_link(links, platform, web) or ""
 
 
+def _tmpl_time_msk(tmpl, default_h: int, default_m: int) -> tuple[int, int]:
+    """Время отправки шаблона «ЧЧ:ММ» (поле intro_start_time) → (часы, минуты).
+
+    ⚠️ Раньше время у «за сутки» (09:12) и «анонса знакомства» (10:43) было
+    зашито в коде — задать своё было негде, и рассылка вставала не в то время,
+    а прошедшая молча пропускалась. Поле пустое → прежний час по умолчанию.
+    """
+    raw = ""
+    try:
+        raw = (tmpl["intro_start_time"] or "").strip()
+    except (KeyError, TypeError):
+        raw = ""
+    if raw:
+        try:
+            parts = raw.split(":")
+            return int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            pass
+    return default_h, default_m
+
+
 def _msk_str_to_utc(day_date, hhmm) -> Optional[datetime]:
     """Собирает UTC datetime из day_date (DATE) + строки "HH:MM" в МСК.
     Используется только под капотом для расчёта fire_at — пользователь видит только строку времени."""
@@ -1427,7 +1448,8 @@ async def generate_schedules(
             tz_msk = ZoneInfo("Europe/Moscow")
             conf_date = first_day["day_date"]
             send_date = conf_date - timedelta(days=1)
-            fire_at_pre_conf = datetime(send_date.year, send_date.month, send_date.day, 10, 43, 0, tzinfo=tz_msk)
+            _h, _m = _tmpl_time_msk(tmpl, 10, 43)
+            fire_at_pre_conf = datetime(send_date.year, send_date.month, send_date.day, _h, _m, 0, tzinfo=tz_msk)
             exists = await db.fetchval(
                 "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='pre_conf'",
                 event_id
@@ -1662,12 +1684,13 @@ async def generate_schedules(
         # содержимое — программа дня day_num.
         if first_start_utc:
             day_before_date = first_start_utc.astimezone(tz_msk).date() - timedelta(days=1)
-            fire_0912_utc = datetime(
-                day_before_date.year, day_before_date.month, day_before_date.day, 9, 12, 0, tzinfo=tz_msk
-            ).astimezone(ZoneInfo("UTC"))
             for ttype in ("day_before_09_12_unreg", "day_before_09_12_reg"):
                 if ttype in tmpl_map:
-                    await add_schedule(tmpl_map[ttype], fire_0912_utc, None, ttype, day=day_num)
+                    _h, _m = _tmpl_time_msk(tmpl_map[ttype], 9, 12)
+                    _fire = datetime(day_before_date.year, day_before_date.month,
+                                     day_before_date.day, _h, _m, 0,
+                                     tzinfo=tz_msk).astimezone(ZoneInfo("UTC"))
+                    await add_schedule(tmpl_map[ttype], _fire, None, ttype, day=day_num)
 
     # ⚠️ `event_live` («за 5 минут до старта мероприятия») у события С ПРОГРАММОЙ
     # НЕ генерируется — это дубль `day_live` («старт дня»), который уходит перед
@@ -1703,11 +1726,12 @@ async def generate_schedules(
         tz_msk = ZoneInfo("Europe/Moscow")
         start_msk = event_start_utc.astimezone(tz_msk)
         day_before = start_msk.date() - timedelta(days=1)
-        fire_at_09_12_msk = datetime(day_before.year, day_before.month, day_before.day, 9, 12, 0, tzinfo=tz_msk)
-        fire_at_09_12_utc = fire_at_09_12_msk.astimezone(ZoneInfo("UTC"))
         for ttype in ("day_before_09_12_unreg", "day_before_09_12_reg"):
             if ttype in tmpl_map:
-                await add_schedule(tmpl_map[ttype], fire_at_09_12_utc, None, ttype)
+                _h, _m = _tmpl_time_msk(tmpl_map[ttype], 9, 12)
+                _fire = datetime(day_before.year, day_before.month, day_before.day,
+                                 _h, _m, 0, tzinfo=tz_msk).astimezone(ZoneInfo("UTC"))
+                await add_schedule(tmpl_map[ttype], _fire, None, ttype)
 
     # ── vip_offer: одна запись на событие с fire_at=NULL (пользователь сам задаёт время) ──
     if "vip_offer" in tmpl_map:
