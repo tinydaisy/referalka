@@ -314,6 +314,7 @@ async def get_conference(
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
+               e.disabled_platforms AS event_disabled_platforms,
                e.landing_url AS event_landing_url,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_tg_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
@@ -345,6 +346,7 @@ async def get_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    d["disabled_platforms"] = list(d.pop("event_disabled_platforms", None) or [])
     d["end_action"] = d.pop("event_end_action", None) or "next_event"
     d["end_gift_lead_magnet_id"] = d.pop("event_end_gift_lead_magnet_id", None)
     d["end_gift_package_id"] = d.pop("event_end_gift_package_id", None)
@@ -399,6 +401,8 @@ async def update_conference(
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
+        # Выключенные площадки события (миграция 263)
+        "disabled_platforms",
         # Куда вести со страницы после оплаты (миграция 261)
         "thanks_destination",
         # Способ регистрации и галочка регистрации на нашем лендинге (262)
@@ -476,6 +480,7 @@ async def update_conference(
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
+               e.disabled_platforms AS event_disabled_platforms,
                e.landing_url AS event_landing_url,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_tg_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
@@ -504,6 +509,7 @@ async def update_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    d["disabled_platforms"] = list(d.pop("event_disabled_platforms", None) or [])
     d["end_action"] = d.pop("event_end_action", None) or "next_event"
     d["end_gift_lead_magnet_id"] = d.pop("event_end_gift_lead_magnet_id", None)
     d["end_gift_package_id"] = d.pop("event_end_gift_package_id", None)

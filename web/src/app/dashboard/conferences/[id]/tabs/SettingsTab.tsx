@@ -418,6 +418,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onSlugSaved={(s) => onEventUpdated?.({ slug: s })}
         eventStatus={event?.status}
         hasLanding={!!event?.landing_published}
+        disabledPlatforms={event?.disabled_platforms || []}
       />
 
       {/* Кнопка сохранения — в самом низу страницы */}

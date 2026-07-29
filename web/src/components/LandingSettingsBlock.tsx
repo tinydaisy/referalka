@@ -100,37 +100,22 @@ export default function LandingSettingsBlock({
       )}
 
       {allowExternal && (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {/* ⚠️ Две карточки: наша страница или чужой сайт. ЧТО именно
+              показывать на нашей — простую форму или собранный лендинг —
+              выбирается списком внутри: так видно, что это одна ветка, а не
+              три равноправных варианта. */}
           <button
             type="button"
-            onClick={() => choose('form')}
+            onClick={() => choose(mode === 'external' ? 'form' : mode)}
             className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
-              mode === 'form' ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
+              !isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
             }`}>
-            <Layout size={18} className={mode === 'form' ? 'text-[#25455D] mt-0.5' : 'text-gray-400 mt-0.5'} />
+            <Layout size={18} className={!isExternal ? 'text-[#25455D] mt-0.5' : 'text-gray-400 mt-0.5'} />
             <div>
-              <p className="text-sm font-medium text-gray-900">Простая страница события</p>
-              <p className="text-xs text-gray-400 mt-0.5">Афиша, описание и кнопка записаться — верстать ничего не нужно.</p>
-            </div>
-          </button>
-
-          {/* Наш лендинг: регистрация идёт через него — человек попадает
-              на pluson.ru/e/{slug}, а не на простую страницу. */}
-          <button
-            type="button"
-            onClick={() => choose('landing')}
-            className={`flex items-start gap-3 rounded-xl border-2 p-3.5 text-left transition-all ${
-              mode === 'landing'
-                ? 'border-[#25455D] bg-[#25455D]/5'
-                : 'border-gray-200 hover:border-gray-300'
-            }`}>
-            <Sparkles size={18} className={mode === 'landing' ? 'mt-0.5 text-[#25455D]' : 'mt-0.5 text-gray-400'} />
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-900">Плюсоновский лендинг</p>
-              <p className="mt-0.5 truncate text-xs text-gray-400">
-                {hasLanding
-                  ? `Опубликован: ${landingUrlInternal || ''}`
-                  : 'Соберите его на вкладке «Лендинг»'}
+              <p className="text-sm font-medium text-gray-900">Плюсоновская страница</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Регистрация проходит у нас — верстать ничего не нужно.
               </p>
             </div>
           </button>
@@ -150,24 +135,38 @@ export default function LandingSettingsBlock({
         </div>
       )}
 
-      {mode === 'landing' ? (
-        /* ── НАШ ЛЕНДИНГ: только галочка регистрации ── */
-        <div className="space-y-3">
-          <p className="text-sm text-gray-500">
-            Человек с кнопки события попадёт на{' '}
-            <span className="font-medium text-gray-700">{landingUrlInternal || 'ваш лендинг'}</span>.
-            {!hasLanding && ' Лендинг ещё не опубликован — соберите его на вкладке «Лендинг».'}
-          </p>
-          {/* ⚠️ Галочка ОДНА на оба режима — то же поле skip_contact_form.
-              К чему она относится, определяет выбранный способ регистрации:
-              к простой странице или к нашему лендингу. Второго поля в базе
-              заводить не нужно — смысл тот же. */}
+      {!isExternal ? (
+        /* ── НАША СТРАНИЦА: чем именно регистрируем ── */
+        <div className="space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              Что показываем человеку
+            </label>
+            <select
+              value={mode}
+              onChange={e => choose(e.target.value as RegMode)}
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+            >
+              <option value="form">Простая форма регистрации</option>
+              <option value="landing">Встроенный лендинг</option>
+            </select>
+            <p className="mt-1.5 text-xs text-gray-400">
+              {mode === 'landing'
+                ? (hasLanding
+                    ? `Человек с кнопки события попадёт на ${landingUrlInternal || 'ваш лендинг'}.`
+                    : 'Лендинг ещё не опубликован — соберите его на вкладке «Лендинг», иначе останется простая форма.')
+                : 'Афиша, описание и кнопка записаться.'}
+            </p>
+          </div>
+
+          {/* ⚠️ Галочка ОДНА на оба варианта — то же поле skip_contact_form.
+              Второго поля с тем же смыслом в базе не заводим. */}
           <SkipContactCheckbox
             checked={skipContactForm}
             onChange={onSkipContactForm}
           />
         </div>
-      ) : isExternal ? (
+      ) : (
         /* ── СТОРОННИЙ: только URL ── */
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">URL вашего лендинга</label>

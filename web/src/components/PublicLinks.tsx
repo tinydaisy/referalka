@@ -8,6 +8,8 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
 
 interface LinkRow {
   key: string
+  /** Площадка строки — только у TG/VK/MAX (у веб-ссылок нет). Нужна для галочки. */
+  platform?: 'telegram' | 'vk' | 'max'
   label: string
   badge: string         // 'TG' | 'MAX' | 'WEB' и т.д.
   color: string
@@ -25,6 +27,8 @@ export default function PublicLinks({
   linkMode,
   onLinkModeChange,
   hasLanding,
+  disabledPlatforms,
+  onDisabledPlatformsChange,
 }: {
   slug: string | null | undefined
   eventId?: number
@@ -35,11 +39,27 @@ export default function PublicLinks({
   linkMode?: 'miniapp' | 'bot' | null
   /** Плюсоновский лендинг собран и опубликован — показываем ссылку на него. */
   hasLanding?: boolean
+  /** Площадки, выключенные у события (миграция 263): их ссылки не отдаются
+   *  спикерам и участникам. Сам бот площадки при этом работает. */
+  disabledPlatforms?: string[]
+  onDisabledPlatformsChange?: (next: string[]) => void
   /** Если передан — управляемый режим: радио НЕ сохраняет сразу, а зовёт callback
    *  (сохранение делает общая кнопка «Сохранить» на странице). Иначе — авто-сохранение. */
   onLinkModeChange?: (mode: 'miniapp' | 'bot') => void
 }) {
   const isDraft = eventStatus === 'draft'
+  // Выключенные площадки. Управляемый режим (передан колбэк) — состояние живёт
+  // на странице; иначе держим локально и сохраняем сразу (блок вне общей формы).
+  const [offLocal, setOffLocal] = useState<string[]>(disabledPlatforms || [])
+  useEffect(() => { setOffLocal(disabledPlatforms || []) }, [JSON.stringify(disabledPlatforms || [])])
+  const offList = onDisabledPlatformsChange ? (disabledPlatforms || []) : offLocal
+  const changeOff = async (next: string[]) => {
+    if (onDisabledPlatformsChange) { onDisabledPlatformsChange(next); return }
+    setOffLocal(next)
+    if (!eventId) return
+    try { await api.events.update(eventId, { disabled_platforms: next }) }
+    catch (e: any) { setErr(e?.message || 'Не удалось сохранить'); setOffLocal(offLocal) }
+  }
   const [copied, setCopied] = useState<string | null>(null)
   const [draft, setDraft] = useState(slug || '')
   const [saving, setSaving] = useState(false)
@@ -114,19 +134,19 @@ export default function PublicLinks({
       }
     }
     if (pl.telegram) rows.push({
-      key: `${kind}-tg`, label: 'Telegram', badge: 'TG', color: '#229ED9', url: pl.telegram,
+      key: `${kind}-tg`, platform: 'telegram', label: 'Telegram', badge: 'TG', color: '#229ED9', url: pl.telegram,
       hint: kind === 'miniapp'
         ? 'Открывает Mini App вашего бота (или @pluson_bot)'
         : 'Открывает бота — он пришлёт сообщение события с кнопкой «Зарегистрироваться»',
     })
     if (pl.vk) rows.push({
-      key: `${kind}-vk`, label: 'ВКонтакте', badge: 'VK', color: '#0077FF', url: pl.vk,
+      key: `${kind}-vk`, platform: 'vk', label: 'ВКонтакте', badge: 'VK', color: '#0077FF', url: pl.vk,
       hint: kind === 'miniapp'
         ? 'Открывает VK Mini App'
         : 'Лёгкая заглушка — сообщество пишет в ЛС сообщение события',
     })
     if (pl.max) rows.push({
-      key: `${kind}-max`, label: 'MAX', badge: 'MAX', color: '#FFCFA4', url: pl.max,
+      key: `${kind}-max`, platform: 'max', label: 'MAX', badge: 'MAX', color: '#FFCFA4', url: pl.max,
       hint: 'Используй когда подключите свой MAX-канал',
     })
     return rows
@@ -189,6 +209,27 @@ export default function PublicLinks({
             </a>
           )}
         </div>
+        {l.platform && (() => {
+          const off = offList.includes(l.platform!)
+          return (
+            <label className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none mr-1"
+              title={off
+                ? 'Площадка выключена: ссылки не отдаются спикерам и участникам. Сам бот работает.'
+                : 'Снимите галочку, чтобы не отдавать ссылки этой площадки наружу'}>
+              <input type="checkbox" checked={!off}
+                onChange={e => {
+                  const cur = new Set(offList)
+                  if (e.target.checked) cur.delete(l.platform!)
+                  else cur.add(l.platform!)
+                  changeOff(Array.from(cur))
+                }}
+                className="w-4 h-4 accent-[#25455D]" />
+              <span className={`text-[11px] ${off ? 'text-gray-400' : 'text-gray-500'}`}>
+                {off ? 'выкл' : 'вкл'}
+              </span>
+            </label>
+          )
+        })()}
         <button
           onClick={() => copy(l.key, l.url)}
           className={`p-2 rounded-lg ${isDraft ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-500'}`}

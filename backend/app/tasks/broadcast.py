@@ -383,6 +383,9 @@ async def _send_broadcast(schedule_id: int):
         # клик по которому вызывает команду support в боте (сообщение со всеми
         # каналами связи). Резолвится в deeplink ПО ПЛОЩАДКЕ получателя.
         needs_support_cmd = ("{support_command}" in (text or "")) or ("{support_command}" in (button_url or ""))
+        # {signup_link} — регистрация в боте ПЛОЩАДКИ ПОЛУЧАТЕЛЯ (deeplink evsignup_).
+        needs_signup = ("{signup_link}" in (text or "")) or ("{signup_link}" in (button_url or ""))
+        signup_by_platform: dict[str, str] = {}
         support_by_platform: dict[str, str] = {}
         support_all_block = ""
         support_cmd_by_platform: dict[str, str] = {}
@@ -406,6 +409,23 @@ async def _send_broadcast(schedule_id: int):
             support_cmd_by_platform = {
                 "telegram": _cmd["telegram"], "vk": _cmd["vk"], "max": _cmd["max"], "email": _cmd["telegram"],
             }
+        if needs_signup and schedule.get("event_id"):
+            from app.services.share_links import (
+                get_client_bot_handles, build_event_signup_links, pick_signup_link,
+                get_event_disabled_platforms,
+            )
+            from app.services.message_builder import resolve_landing_url
+            _sh = await get_client_bot_handles(conn, schedule["client_id"])
+            _slinks = build_event_signup_links(_sh, schedule["event_id"])
+            # Площадки, выключенные у события (миграция 263) — как будто бота нет:
+            # сработает приоритет подмены (из ВК уводим в MAX).
+            for _p in await get_event_disabled_platforms(conn, event_id=schedule["event_id"]):
+                _slinks[_p] = ""
+            _web = await resolve_landing_url(conn, schedule["event_id"])
+            signup_by_platform = {
+                p: pick_signup_link(_slinks, p, _web)
+                for p in ("telegram", "vk", "max", "email")
+            }
 
         def _with_support(txt: str | None, platform: str) -> str:
             """{support_platform}/{support_link} → ОДИН контакт по площадке;
@@ -419,6 +439,8 @@ async def _send_broadcast(schedule_id: int):
                           .replace("{support_platform}", val).replace("{support_link}", val))
             if needs_support_cmd:
                 txt = txt.replace("{support_command}", support_cmd_by_platform.get(platform, ""))
+            if needs_signup:
+                txt = txt.replace("{signup_link}", signup_by_platform.get(platform, ""))
             return txt
 
         # ── Ссылки на воронку подарков-лид-магнитов ⟦GF:m|p:slug⟧ ──────────────

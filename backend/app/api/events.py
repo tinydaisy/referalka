@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
@@ -136,6 +136,9 @@ class UpdateEventRequest(BaseModel):
     # показывается. TRUE = жёстко скрыта. Ссылка эфира теперь = вебинарная
     # комната дня (см. webinar_service.day_stream_url), колонка stream_url убрана.
     hide_stream_button: Optional[bool] = None
+    # Площадки, выключенные у события (миграция 263): их ссылки не отдаются
+    # наружу (спикерам, участникам, в рассылках). Сам бот площадки работает.
+    disabled_platforms: Optional[List[str]] = None
     # Куда вести со страницы после оплаты: 'bots' | 'chats' (миграция 261).
     thanks_destination: Optional[str] = None
     # Как идёт регистрация: 'form' | 'landing' | 'external' (миграция 262).

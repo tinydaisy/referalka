@@ -286,6 +286,7 @@ export default function OverviewTab({
           onSlugSaved={onReload}
           eventStatus={event?.status}
           hasLanding={!!event?.landing_published}
+          disabledPlatforms={event?.disabled_platforms || []}
         />
       )}
 
