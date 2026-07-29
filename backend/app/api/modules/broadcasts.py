@@ -25,21 +25,28 @@ async def _support_link_preview(db, client_id: int) -> str:
     return build_support_inline_html(row["work_tg_username"], row["work_vk"], row["work_max"])
 
 
-async def _signup_link_preview(db, client_id: int, event_id: int) -> str:
-    """Значение {signup_link} для ПРЕВЬЮ и ТЕСТА.
+async def _signup_link_preview(db, client_id: int, event_id: int,
+                               platform: str = "telegram") -> str:
+    """Значение {signup_link} для ПРЕВЬЮ и ТЕСТА — ссылка ЗАДАННОЙ площадки.
 
-    В реальной рассылке Celery подставляет ссылку ПЛОЩАДКИ ПОЛУЧАТЕЛЯ
-    (в Telegram — телеграм-бота, в VK — сообщества, в MAX — MAX-бота).
-    В превью площадка неизвестна: сообщение одно на все, поэтому берём первую
-    доступную по тому же приоритету, что и рассылка.
+    ⚠️ Площадку передавать обязательно: у превью есть вкладки TG/VK/MAX, и на
+    каждой должна стоять ссылка своего бота. Раньше здесь всегда бралась
+    телеграмная — на вкладках ВК и МАКС показывалась чужая ссылка.
+    Выключенные у события площадки исключаем и уводим на соседнюю (как рассылка),
+    совсем ничего нет → веб-страница регистрации.
     """
     from app.services.share_links import (
         get_client_bot_handles, build_event_signup_links, pick_signup_link,
+        get_event_disabled_platforms,
     )
+    from app.services.message_builder import resolve_landing_url
     handles = await get_client_bot_handles(db, client_id)
     slug = await db.fetchval("SELECT slug FROM events WHERE id = $1", event_id)
     links = build_event_signup_links(handles, slug or "")
-    return pick_signup_link(links, "telegram", "") or ""
+    for p in await get_event_disabled_platforms(db, event_id=event_id):
+        links[p] = ""
+    web = await resolve_landing_url(db, event_id) or ""
+    return pick_signup_link(links, platform, web) or ""
 
 
 def _msk_str_to_utc(day_date, hhmm) -> Optional[datetime]:
@@ -1499,8 +1506,19 @@ async def generate_schedules(
             tz_msk = ZoneInfo("Europe/Moscow")
             conf_date = first_day["day_date"]
             start_date = conf_date - timedelta(days=days_before)
-            # Первый = 10:48 (10:43 + 5 мин после pre_conf), далее +interval.
-            base_dt = datetime(start_date.year, start_date.month, start_date.day, 10, 48, 0, tzinfo=tz_msk)
+            # ⚠️ Время старта берём из шаблона (intro_start_time, «ЧЧ:ММ»).
+            # Раньше было зашито 10:48, и задать своё было негде — рассылки
+            # формировались не в то время, а прошедшие молча пропускались.
+            _hh, _mm = 10, 48
+            _raw = (tmpl.get("intro_start_time") or "").strip()
+            if _raw:
+                try:
+                    _parts = _raw.split(":")
+                    _hh, _mm = int(_parts[0]), int(_parts[1])
+                except (ValueError, IndexError):
+                    _hh, _mm = 10, 48   # мусор в поле не должен ломать генерацию
+            base_dt = datetime(start_date.year, start_date.month, start_date.day,
+                               _hh, _mm, 0, tzinfo=tz_msk)
 
             for i, sp in enumerate(speakers_list):
                 fire_at = base_dt + timedelta(minutes=interval_min * i)
@@ -2932,7 +2950,9 @@ async def preview_schedule(
         # В превью платформа неизвестна (одно сообщение на все) — показываем все
         # каналы поддержки блоком. При отправке Celery подставит контакт СВОЕЙ площадки.
         support_link=await _support_link_preview(db, client_id),
-        signup_link=await _signup_link_preview(db, client_id, event_id),
+        # ⚠️ Ссылку регистрации НЕ подставляем здесь: она разная на каждой
+        # площадке. Оставляем метку и раскрываем ниже — по вкладкам, как подарки.
+        signup_link="\u27e6SIGNUP\u27e7",
     )
 
     # Подарки-лид-магниты помечены токенами ⟦GF:kind:slug⟧ — раскрываем ссылкой
@@ -2964,10 +2984,13 @@ async def preview_schedule(
     text_by_platform = {}
     btn_by_platform = {}
     for _p in _plats:
-        text_by_platform[_p] = await resolve_gift_funnel_tokens(
+        _signup = await _signup_link_preview(db, client_id, event_id, _p)
+        text_by_platform[_p] = (await resolve_gift_funnel_tokens(
             db, client_id=client_id, text=base_text, platform=_p)
-        btn_by_platform[_p] = await resolve_gift_funnel_tokens(
+        ).replace("\u27e6SIGNUP\u27e7", _signup)
+        btn_by_platform[_p] = (await resolve_gift_funnel_tokens(
             db, client_id=client_id, text=base_btn, platform=_p)
+        ).replace("\u27e6SIGNUP\u27e7", _signup)
 
     return {
         # base text/button — раскрыты по TG-приоритету (чтобы сырой ⟦GF⟧ не светился
@@ -3024,7 +3047,8 @@ async def _load_test_targets(db, client_id: int):
 
 
 async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
-                                 db=None, client_id: int | None = None):
+                                 db=None, client_id: int | None = None,
+                                 event_id: int | None = None):
     """Шлёт готовый content (text/photo/video/buttons) во все тестовые ID всех платформ.
 
     db/client_id — чтобы раскрыть токены воронки подарков ⟦GF⟧ ссылкой СВОЕЙ
@@ -3038,11 +3062,20 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
     btn_text = content.get("button_text") or (buttons[0]["text"] if buttons else None)
     btn_url = content.get("button_url") or (buttons[0]["url"] if buttons else None)
 
+    # {signup_link} тоже раскрывается ПО ПЛОЩАДКЕ (метка ⟦SIGNUP⟧ пришла из
+    # build_message_content): в тест на VK должна уйти вк-ссылка, а не телеграмная.
+    async def _signup(platform: str) -> str:
+        if not (db and client_id and event_id):
+            return ""
+        return await _signup_link_preview(db, client_id, event_id, platform)
+
     async def _txt(platform: str) -> str:
-        return await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform=platform) if db else text
+        t = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform=platform) if db else text
+        return (t or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform))
 
     async def _burl(platform: str):
-        return await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform=platform) if (db and btn_url) else btn_url
+        u = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform=platform) if (db and btn_url) else btn_url
+        return (u or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform)) if u else u
 
     out: list[dict] = []
     async with httpx.AsyncClient(timeout=20) as http:
@@ -3159,7 +3192,8 @@ async def test_existing_schedule_now(
         subject=(schedule.get("snapshot_subject") or schedule.get("tmpl_subject")),
         explicit_day=schedule.get("day"),
         support_link=await _support_link_preview(db, client_id),
-        signup_link=await _signup_link_preview(db, client_id, event_id),
+        # Метку раскроет _send_content_to_tests — ссылкой СВОЕЙ площадки.
+        signup_link="\u27e6SIGNUP\u27e7",
     )
     # subject → жирной первой строкой (как в реальной отправке).
     subj = (content.get("subject") or "").strip()
@@ -3167,7 +3201,7 @@ async def test_existing_schedule_now(
         content = dict(content)
         content["text"] = f"<b>{subj}</b>\n\n{content.get('text') or ''}"
     results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
-                                           db=db, client_id=client_id)
+                                           db=db, client_id=client_id, event_id=event_id)
     sent = sum(1 for r in results if r.get("ok"))
     return {"ok": True, "sent": sent, "total": len(results), "results": results}
 
@@ -3232,6 +3266,14 @@ async def test_template(
         ID всех включённых платформ. Возвращает список результатов
         [{platform, chat_id, ok, error}, ...]."""
         from app.services.share_links import resolve_gift_funnel_tokens
+        # {signup_link} → ссылка СВОЕЙ площадки (метка ⟦SIGNUP⟧ из build_message_content)
+        _sg: dict[str, str] = {}
+        for _p in ("telegram", "vk", "max"):
+            _sg[_p] = await _signup_link_preview(db, client_id, event_id, _p)
+
+        def _sub(val, platform):
+            return (val or "").replace("\u27e6SIGNUP\u27e7", _sg.get(platform, "")) if val else val
+
         out: list[dict] = []
         text = content.get("text") or ""
         photo = content.get("photo")
@@ -3242,8 +3284,8 @@ async def test_template(
 
         # === Telegram ===
         if test_tg_ids and bot_token:
-            tg_text = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="telegram")
-            tg_burl = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="telegram") if btn_url else btn_url
+            tg_text = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="telegram"), "telegram")
+            tg_burl = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="telegram"), "telegram") if btn_url else btn_url
             for chat_id in [str(t) for t in test_tg_ids]:
                 ok, err = await send_telegram_message(
                     http, bot_token, chat_id, tg_text, photo, btn_text, tg_burl,
@@ -3257,11 +3299,11 @@ async def test_template(
                 send_message as vk_send,
                 tg_inline_to_vk_keyboard,
             )
-            vk_btn_url = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="vk") if btn_url else btn_url
+            vk_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="vk"), "vk") if btn_url else btn_url
             vk_keyboard = None
             if btn_text and vk_btn_url:
                 vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_btn_url}]])
-            _vk_body = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="vk")
+            _vk_body = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="vk"), "vk")
             # Фото в превью: VK сам развернёт по URL в начале сообщения.
             vk_text = f"{photo}\n\n{_vk_body}".strip() if photo else _vk_body
             if m_type == "video" and video:
@@ -3282,11 +3324,11 @@ async def test_template(
                 send_message as max_send,
                 tg_inline_to_max_keyboard,
             )
-            max_btn_url = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="max") if btn_url else btn_url
+            max_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="max"), "max") if btn_url else btn_url
             max_buttons = None
             if btn_text and max_btn_url:
                 max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": max_btn_url}]])
-            max_text = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="max")
+            max_text = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="max"), "max")
             if photo:
                 max_text = f"{photo}\n\n{max_text}".strip()
             if m_type == "video" and video:
@@ -3345,6 +3387,7 @@ async def test_template(
                     video_url=tpl["video_url"], media_type=tpl["media_type"],
                     speaker_photo_mode=tpl.get("speaker_photo_mode") or "poster",
                     support_link=_sup_link,
+                    signup_link="\u27e6SIGNUP\u27e7",
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
@@ -3375,6 +3418,7 @@ async def test_template(
                     video_url=tpl["video_url"], media_type=tpl["media_type"],
                     speaker_photo_mode=tpl.get("speaker_photo_mode") or "poster",
                     support_link=_sup_link,
+                    signup_link="\u27e6SIGNUP\u27e7",
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
@@ -3407,6 +3451,7 @@ async def test_template(
             video_url=tpl["video_url"], media_type=tpl["media_type"],
             explicit_day=day,
             support_link=_sup_link,
+            signup_link="\u27e6SIGNUP\u27e7",
         )
         async with httpx.AsyncClient(timeout=15) as http:
             send_results = await _send_one_content(http, content)
