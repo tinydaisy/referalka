@@ -22,9 +22,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services import client_payments
-from app.services.contact_merge import (
-    find_or_create_contact, resolve_ref_code, upsert_contact_with_identity,
-)
+from app.services.contact_merge import find_or_create_contact, resolve_ref_code
 from app.services.participant_registration import finalize_participant_registration
 
 logger = logging.getLogger(__name__)
@@ -127,30 +125,21 @@ async def create_order(
             data.contact_id, t["client_id"],
         )
 
-    if tg:
-        # Есть ник — заводим/находим человека вместе с его TG-идентичностью:
-        # так заказ с лендинга и заход в бота склеятся в один контакт.
-        contact_id, _puid, _new = await upsert_contact_with_identity(
+    # ⚠️ Идентичность из НИКА не создаём (как в вебинарной авторизации):
+    # реального id мы не знаем, а псевдо-запись '@ник' конфликтует с уже
+    # существующим числовым id того же человека — форма отказывала людям в
+    # регистрации под их собственным ником. Ник используем только для ПОИСКА;
+    # настоящая идентичность появится, когда человек зайдёт в бота.
+    contact_id = known_cid
+    if not contact_id:
+        contact_id, _is_new = await find_or_create_contact(
             db,
             client_id=t["client_id"],
-            platform_slug="telegram",
-            platform_user_id=f"@{tg}",   # псевдо-id: реальный придёт при заходе в бота
-            username=tg,
-            first_name=name or None,
+            name=name or None,
             email=email,
             phone=phone,
-            known_contact_id=known_cid,
+            lookup_telegram_username=tg,
         )
-    else:
-        contact_id = known_cid
-        if not contact_id:
-            contact_id, _is_new = await find_or_create_contact(
-                db,
-                client_id=t["client_id"],
-                name=name or None,
-                email=email,
-                phone=phone,
-            )
 
     # Кто привёл. Код может быть старым (merged_ref_codes) — резолвер это
     # учитывает. Свой собственный код игнорируем: сам себя не приводил.

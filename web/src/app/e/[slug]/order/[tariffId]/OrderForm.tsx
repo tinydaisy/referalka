@@ -242,7 +242,9 @@ export default function OrderForm({
                    type="email" autoComplete="email" style={inputStyle(page)} />
           </Field>
           <Field label="Телефон" required>
-            <input value={phone} onChange={e => setPhone(e.target.value)}
+            <input value={phone}
+                   onChange={e => setPhone(e.target.value)}
+                   onBlur={e => setPhone(normalizePhone(e.target.value))}
                    type="tel" autoComplete="tel" style={inputStyle(page)} />
           </Field>
           <Field label="Ник в Telegram" required>
@@ -306,6 +308,23 @@ export default function OrderForm({
       </div>
     </div>
   )
+}
+
+/**
+ * Приводим телефон к виду +7XXXXXXXXXX.
+ *
+ * ⚠️ Автозаполнение браузера часто отдаёт номер без кода страны
+ * («9931354897») или в виде «8 (993) …». Без приведения такой контакт не
+ * склеится с уже существующим — телефон в базе хранится с кодом.
+ */
+function normalizePhone(v: string): string {
+  const digits = (v || '').replace(/\D/g, '')
+  if (!digits) return v
+  if (digits.length === 11 && digits.startsWith('8')) return `+7${digits.slice(1)}`
+  if (digits.length === 11 && digits.startsWith('7')) return `+${digits}`
+  // 10 цифр без кода — российский номер, дописываем +7.
+  if (digits.length === 10) return `+7${digits}`
+  return v.trim()
 }
 
 function inputStyle(page: any): React.CSSProperties {
