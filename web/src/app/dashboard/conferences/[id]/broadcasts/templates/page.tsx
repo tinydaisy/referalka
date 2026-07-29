@@ -892,15 +892,17 @@ export default function TemplatesPage() {
     return ''
   }
 
-  // {signup_link} — deeplink «Зарегистрироваться» в боте площадки получателя
-  // (evsignup_). Формат тот же, что у бэка (build_event_signup_links +
-  // pick_signup_link): своя площадка первой, дальше запасные; нет ни одного
-  // бота — ведём на веб-страницу события.
+  // {signup_link} — ссылка «Зарегистрироваться» в боте площадки получателя.
+  // ⚠️ Формат ref_pg{slug}, как в «Публичных ссылках»: evsignup_ — это
+  // callback уже нажатой кнопки ВНУТРИ бота, обработчика /start с таким
+  // аргументом нет, и ссылка вела в никуда.
   function signupLink(platform: 'telegram' | 'vk' | 'max'): string {
     const bh = (me as any)?.bot_handles || {}
-    const tg = bh.telegram ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=evsignup_${eventId}` : ''
-    const vk = bh.vk ? `https://vk.me/${String(bh.vk).replace(/^@/, '')}?ref=evsignup_${eventId}` : ''
-    const max = bh.max ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=evsignup_${eventId}` : ''
+    const slug = (confData as any)?.event_slug || ''
+    const payload = `ref_pg${slug}`
+    const tg = bh.telegram ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=${payload}` : ''
+    const vk = bh.vk ? `https://vk.me/${String(bh.vk).replace(/^@/, '')}?ref=${payload}` : ''
+    const max = bh.max ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=${payload}` : ''
     const links: Record<string, string> = { telegram: tg, vk, max }
     const order = platform === 'max' ? ['max', 'telegram', 'vk']
       : platform === 'vk' ? ['vk', 'telegram', 'max']

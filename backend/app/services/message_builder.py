@@ -1181,8 +1181,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             raw_text = raw_text.replace("{support_platform}", support_link).replace("{support_link}", support_link)
         # {signup_link} — регистрация в боте площадки получателя. В превью и
         # тесте площадка неизвестна, поэтому приходит уже выбранная ссылка.
+        # ⚠️ Подставляем и в АДРЕС КНОПКИ: иначе туда уходил сырой
+        # «{signup_link}», и Telegram отклонял сообщение целиком
+        # («inline keyboard button URL is invalid»).
         if signup_link is not None:
             raw_text = raw_text.replace("{signup_link}", signup_link)
+            # ⚠️ И в АДРЕСАХ КНОПОК: иначе туда уходит сырой «{signup_link}»,
+            # и Telegram отклоняет сообщение целиком («inline keyboard button
+            # URL is invalid») — не доходит вообще ничего.
+            for _b in (raw_buttons or []):
+                if isinstance(_b, dict) and _b.get("url"):
+                    _b["url"] = _b["url"].replace("{signup_link}", signup_link)
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
         return {
             "text": raw_text,
@@ -1197,6 +1206,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     text = tmpl_text or ""
     photo = photo_url
     btn_url = btn_url or ""
+    # {signup_link} в тексте и в адресе кнопки шаблона (превью/тест: площадка
+    # неизвестна, ссылка приходит уже выбранной).
+    if signup_link is not None:
+        text = text.replace("{signup_link}", signup_link)
+        btn_url = btn_url.replace("{signup_link}", signup_link)
     # Имя спикера — заполняется в speaker-ветках; нужно для подстановки в subject.
     resolved_speaker_name = ""
     # Прочие спикерские значения для subject ({speaker_topic} и т.п.). Заполняются
