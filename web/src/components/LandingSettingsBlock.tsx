@@ -35,6 +35,7 @@ export default function LandingSettingsBlock({
   onRegMode,
   landingRequireReg = true,
   onLandingRequireReg,
+  onValidity,
 }: {
   description: string
   onDescription: (v: string) => void
