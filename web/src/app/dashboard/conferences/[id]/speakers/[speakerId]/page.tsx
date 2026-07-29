@@ -577,7 +577,8 @@ export default function ConferenceSpeakerPage() {
         is_visible: eventForm.is_visible,
         poster_id: eventForm.poster_id,
         announcement_poster_ids: eventForm.announcement_poster_ids,
-        use_photo_instead_of_poster: eventForm.use_photo_instead_of_poster,
+        // use_photo_instead_of_poster НЕ шлём тут: тумблер живёт в форме
+        // профиля и сохраняется сразу по клику (см. блок «Индивидуальные афиши»).
       }
       try {
         await api.conference.speakers.update(confId, speakerEventId, payload)
@@ -1169,7 +1170,19 @@ export default function ConferenceSpeakerPage() {
                 type="checkbox"
                 className="mt-0.5"
                 checked={eventForm.use_photo_instead_of_poster}
-                onChange={e => setEventForm(f => ({ ...f, use_photo_instead_of_poster: e.target.checked }))}
+                onChange={e => {
+                  // ⚠️ Блок афиш физически внутри формы ПРОФИЛЯ (saveProfile →
+                  // collaborators), а поле — per-event. Поэтому сохраняем сразу
+                  // по клику, как радио «Для рассылок» ниже, а не по кнопке формы.
+                  const v = e.target.checked
+                  setEventForm(f => ({ ...f, use_photo_instead_of_poster: v }))
+                  api.conference.speakers
+                    .update(confId, speakerEventId, { use_photo_instead_of_poster: v } as any)
+                    .catch(() => {
+                      setEventForm(f => ({ ...f, use_photo_instead_of_poster: !v }))
+                      setError('Не удалось сохранить настройку афиш. Попробуйте ещё раз.')
+                    })
+                }}
               />
               <span className="text-sm text-gray-800">
                 <b>Не использовать индивидуальные афиши в этом событии</b>
