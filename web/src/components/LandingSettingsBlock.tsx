@@ -84,9 +84,10 @@ export default function LandingSettingsBlock({
           {/* Плюсоновский лендинг — продающая страница из конструктора.
               Плитка информационная: собирается он на вкладке «Лендинг», а
               не здесь, поэтому просто показываем состояние и адрес. */}
-          <div className={`flex items-start gap-3 rounded-xl border-2 p-3.5 text-left ${
-            hasLanding ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200'
-          }`}>
+          {/* ⚠️ Плитка СПРАВОЧНАЯ, а не выбор: лендинг собирается на своей
+              вкладке. Подсветку не ставим — выделенным может быть только
+              один тип страницы, иначе непонятно, что выбрано. */}
+          <div className="flex items-start gap-3 rounded-xl border-2 border-gray-200 p-3.5 text-left">
             <Sparkles size={18} className={hasLanding ? 'mt-0.5 text-[#25455D]' : 'mt-0.5 text-gray-400'} />
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-900">Плюсоновский лендинг</p>
@@ -165,18 +166,17 @@ export default function LandingSettingsBlock({
             </p>
           </div>
 
-          <label
-            className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-              skipContactForm ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
-            }`}>
+          {/* Обычная галочка: это настройка ВНУТРИ простой страницы, а не
+              ещё один тип лендинга — рамкой-плиткой не выделяем. */}
+          <label className="flex cursor-pointer items-start gap-2.5">
             <input type="checkbox" checked={skipContactForm}
               onChange={e => onSkipContactForm(e.target.checked)}
               className="mt-0.5 accent-[#25455D]" />
             <div>
-              <p className="text-sm font-medium text-gray-900">Регистрировать без ввода контактных данных</p>
-              <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
-                Клик по кнопке сразу создаёт участника по его Telegram-аккаунту — без формы
-                с именем, email и телефоном.
+              <p className="text-sm font-medium text-gray-800">Регистрировать без ввода контактных данных</p>
+              <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
+                Человек пришёл из бота — записываем сразу по его аккаунту, без формы.
+                С рекламы и репостов форма всё равно нужна: иначе непонятно, кого записывать.
               </p>
             </div>
           </label>
