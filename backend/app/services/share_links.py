@@ -197,22 +197,27 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
     return result
 
 
-def build_event_signup_links(handles: dict[str, str | None], event_id: int) -> dict[str, str]:
-    """Deeplink-ссылки «Зарегистрироваться» по площадкам: клик → бот регистрирует
-    человека на событие (контакты уже известны) и присылает меню события.
-    Обработчик `evsignup_` есть во всех 3 ботах (TG/VK/MAX).
-      • TG:  telegram.me/{handle}?start=evsignup_{event_id}
-      • VK:  vk.me/{handle}?ref=evsignup_{event_id}
-      • MAX: max.ru/{handle}?start=evsignup_{event_id}
+def build_event_signup_links(handles: dict[str, str | None], event_slug: str) -> dict[str, str]:
+    """Ссылки «Зарегистрироваться» по площадкам: клик → бот присылает сообщение
+    события с кнопкой регистрации (тот же вход, что в «Публичных ссылках»).
+
+    ⚠️ Формат — `ref_pg{slug}`, а НЕ `evsignup_{id}`: последний существует
+    только как callback УЖЕ НАЖАТОЙ кнопки внутри бота, обработчика команды
+    /start с таким аргументом в Telegram нет вовсе. Ссылка с ним вела в бота,
+    где ничего не происходило.
+      • TG:  telegram.me/{handle}?start=ref_pg{slug}
+      • VK:  vk.me/{handle}?ref=ref_pg{slug}
+      • MAX: max.ru/{handle}?start=ref_pg{slug}
     Нет своего бота на площадке → пустая строка (системный бот не используется).
     """
     tg = (handles.get("telegram") or "").lstrip('@')
     vk = (handles.get("vk") or "").lstrip('@')
     mx = (handles.get("max") or "").lstrip('@')
+    payload = f"ref_pg{event_slug}"
     return {
-        "telegram": f"https://telegram.me/{tg}?start=evsignup_{event_id}" if tg else "",
-        "vk": f"https://vk.me/{vk}?ref=evsignup_{event_id}" if vk else "",
-        "max": f"https://max.ru/{mx}?start=evsignup_{event_id}" if mx else "",
+        "telegram": f"https://telegram.me/{tg}?start={payload}" if tg else "",
+        "vk": f"https://vk.me/{vk}?ref={payload}" if vk else "",
+        "max": f"https://max.ru/{mx}?start={payload}" if mx else "",
     }
 
 

@@ -416,7 +416,11 @@ async def _send_broadcast(schedule_id: int):
             )
             from app.services.message_builder import resolve_landing_url
             _sh = await get_client_bot_handles(conn, schedule["client_id"])
-            _slinks = build_event_signup_links(_sh, schedule["event_id"])
+            # ⚠️ Ссылка строится по SLUG события (ref_pg{slug}), а не по его
+            # номеру: обработчика /start evsignup_{id} в ботах нет.
+            _eslug = await conn.fetchval(
+                "SELECT slug FROM events WHERE id = $1", schedule["event_id"])
+            _slinks = build_event_signup_links(_sh, _eslug or "")
             # Площадки, выключенные у события (миграция 263) — как будто бота нет:
             # сработает приоритет подмены (из ВК уводим в MAX).
             for _p in await get_event_disabled_platforms(conn, event_id=schedule["event_id"]):

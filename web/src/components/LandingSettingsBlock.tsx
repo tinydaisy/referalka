@@ -66,7 +66,14 @@ export default function LandingSettingsBlock({
       ? regMode
       : (allowExternal && landingUrl.trim() ? 'external' : 'form')
   const [mode, setMode] = useState<RegMode>(initialMode)
-  useEffect(() => { setMode(initialMode) }, [initialMode])
+  // ⚠️ Синхронизируем ТОЛЬКО когда значение пришло с сервера и отличается от
+  // того, что уже выбрал человек. Безусловный setMode(initialMode) откатывал
+  // выбор при каждой перерисовке: пользователь ставил «Встроенный лендинг», а
+  // список тут же возвращался к «простой форме», и до сохранения не доходило.
+  useEffect(() => {
+    if (regMode && regMode !== mode) setMode(regMode as RegMode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regMode])
 
   const choose = (m: RegMode) => {
     setMode(m)

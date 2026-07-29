@@ -36,8 +36,9 @@ async def _signup_link_preview(db, client_id: int, event_id: int) -> str:
     from app.services.share_links import (
         get_client_bot_handles, build_event_signup_links, pick_signup_link,
     )
-    handles = await get_client_bot_handles(client_id, db)
-    links = build_event_signup_links(handles, event_id)
+    handles = await get_client_bot_handles(db, client_id)
+    slug = await db.fetchval("SELECT slug FROM events WHERE id = $1", event_id)
+    links = build_event_signup_links(handles, slug or "")
     return pick_signup_link(links, "telegram", "") or ""
 
 
