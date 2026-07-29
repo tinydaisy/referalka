@@ -80,6 +80,12 @@ class TemplateCreate(BaseModel):
     audience_exclude: Optional[str] = None
     custom_day_ref: Optional[str] = None        # 'before_1' | 'day_1' | 'after_1' для type='custom'
     custom_time: Optional[str] = None           # 'HH:MM'
+    # Привязка кастомного шаблона (миграция 260): 'day' (день программы, как было),
+    # 'slot' (слот спикера — раскрываются спикерские плейсхолдеры), 'none' (без привязки).
+    custom_bind_kind: Optional[str] = None
+    custom_slot_session_id: Optional[int] = None   # conf_sessions.id для bind_kind='slot'
+    custom_slot_offset_min: Optional[int] = None   # смещение от старта слота, мин (может быть <0)
+    custom_fire_at: Optional[str] = None           # 'YYYY-MM-DDTHH:MM' для bind_kind='none'
     # Каналы для отправки: NULL/None = все каналы клиента (default), [] = никуда,
     # [N,M] = только эти channel_id. Унаследуется в schedules через generate_schedules.
     target_channel_ids: Optional[List[int]] = None
@@ -113,6 +119,10 @@ class TemplateUpdate(BaseModel):
     intro_days_before: Optional[int] = None     # за сколько дней до конференции
     custom_day_ref: Optional[str] = None        # для type='custom'
     custom_time: Optional[str] = None           # для type='custom'
+    custom_bind_kind: Optional[str] = None      # 'none' | 'day' | 'slot' (миграция 260)
+    custom_slot_session_id: Optional[int] = None
+    custom_slot_offset_min: Optional[int] = None
+    custom_fire_at: Optional[str] = None
     target_channel_ids: Optional[List[int]] = None
     send_to_event_chats: Optional[bool] = None
     send_to_client_chats: Optional[bool] = None
@@ -492,6 +502,7 @@ async def list_templates(
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
+               custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles,
                speaker_photo_mode,
                created_at
@@ -554,6 +565,58 @@ async def list_templates(
     return {"templates": result}
 
 
+async def _resolve_custom_binding(db, event_id: int, data, tz: ZoneInfo) -> dict:
+    """Разбирает привязку кастомного шаблона (миграция 260) и валидирует её.
+
+    Возвращает {bind_kind, slot_session_id, slot_offset_min, fire_at (aware UTC)}.
+    'day'  — день программы (custom_day_ref) + custom_time, как было до 260.
+    'slot' — слот спикера: нужен существующий conf_sessions.id этого события.
+    'none' — абсолютные дата+время (custom_fire_at, локальные для клиента).
+    """
+    kind = (getattr(data, "custom_bind_kind", None) or "").strip().lower() or None
+    if kind is None:
+        return {"bind_kind": None, "slot_session_id": None,
+                "slot_offset_min": None, "fire_at": None}
+    if kind not in ("none", "day", "slot"):
+        raise HTTPException(status_code=400, detail="Неверный тип привязки шаблона")
+
+    slot_id = None
+    offset_min = None
+    fire_at = None
+
+    if kind == "slot":
+        slot_id = getattr(data, "custom_slot_session_id", None)
+        if not slot_id:
+            raise HTTPException(status_code=400, detail="Выберите слот программы (выступление спикера)")
+        ok = await db.fetchval(
+            "SELECT 1 FROM conf_sessions WHERE id=$1 AND event_id=$2", slot_id, event_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Выбранный слот не найден в программе этого события")
+        offset_min = getattr(data, "custom_slot_offset_min", None)
+        offset_min = 0 if offset_min is None else int(offset_min)
+    elif kind == "none":
+        raw = (getattr(data, "custom_fire_at", None) or "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Укажите дату и время отправки")
+        try:
+            fire_at = _parse_fire_at(raw, tz)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Неверный формат даты отправки")
+    else:  # day
+        if not (getattr(data, "custom_day_ref", None) or "").strip():
+            raise HTTPException(status_code=400, detail="Выберите день отправки")
+
+    return {"bind_kind": kind, "slot_session_id": slot_id,
+            "slot_offset_min": offset_min, "fire_at": fire_at}
+
+
+async def _client_tz(db, client_id: int) -> ZoneInfo:
+    row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    return ZoneInfo((row["timezone"] or "Europe/Moscow") if row else "Europe/Moscow")
+
+
 @router.post("/templates", summary="Создать шаблон")
 async def create_template(
     event_id: int,
@@ -569,6 +632,8 @@ async def create_template(
     schedule_mode = "custom_datetime" if is_custom else None
     allow_custom_datetime = True if is_custom else None
 
+    bind = await _resolve_custom_binding(db, event_id, data, await _client_tz(db, client_id))
+
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_templates
@@ -576,17 +641,21 @@ async def create_template(
            audience_include, audience_exclude, custom_day_ref, custom_time,
            schedule_mode, allow_custom_datetime, target_channel_ids,
            video_url, media_type, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-           speaker_photo_mode)
+           speaker_photo_mode,
+           custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
                 COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
                 $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE), COALESCE($21, FALSE),
-                COALESCE($22, 'poster'))
+                COALESCE($22, 'poster'),
+                $23, $24, $25, $26)
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats,
-                  send_to_private_chats, speaker_photo_mode, created_at
+                  send_to_private_chats, speaker_photo_mode,
+                  custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
+                  created_at
         """,
         client_id, event_id, data.name, data.type, data.subject,
         data.text, data.photo_url, data.button_text, data.button_url,
@@ -597,6 +666,7 @@ async def create_template(
         data.video_url, data.media_type,
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats,
         data.speaker_photo_mode,
+        bind["bind_kind"], bind["slot_session_id"], bind["slot_offset_min"], bind["fire_at"],
     )
     return dict(row)
 
@@ -791,6 +861,13 @@ async def update_template(
             template_id, event_id,
         )
 
+    # Привязка (миграция 260) меняется ТОЛЬКО если фронт её прислал. Иначе поля не
+    # трогаем — иначе переключение «слот → день» не смогло бы обнулить старый слот
+    # (COALESCE оставил бы его навсегда).
+    bind_sent = "custom_bind_kind" in data.model_fields_set
+    bind = (await _resolve_custom_binding(db, event_id, data, await _client_tz(db, client_id))
+            if bind_sent else None)
+
     row = await db.fetchrow(
         """
         UPDATE broadcast_templates SET
@@ -813,13 +890,18 @@ async def update_template(
             send_to_client_chats = COALESCE($25, send_to_client_chats),
             send_to_private_chats = COALESCE($26, send_to_private_chats),
             speaker_photo_mode = COALESCE($27, speaker_photo_mode),
+            custom_bind_kind       = CASE WHEN $28 THEN $29 ELSE custom_bind_kind END,
+            custom_slot_session_id = CASE WHEN $28 THEN $30 ELSE custom_slot_session_id END,
+            custom_slot_offset_min = CASE WHEN $28 THEN $31 ELSE custom_slot_offset_min END,
+            custom_fire_at         = CASE WHEN $28 THEN $32 ELSE custom_fire_at END,
             updated_at = NOW()
         WHERE id = $19 AND event_id = $20
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats,
-                  send_to_client_chats, send_to_private_chats, intro_roles, speaker_photo_mode
+                  send_to_client_chats, send_to_private_chats, intro_roles, speaker_photo_mode,
+                  custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at
         """,
         data.name, data.type, data.subject, new_text,
         data.photo_url, data.button_text, data.button_url,
@@ -835,6 +917,11 @@ async def update_template(
         data.send_to_client_chats,
         data.send_to_private_chats,
         data.speaker_photo_mode,
+        bind_sent,
+        bind["bind_kind"] if bind else None,
+        bind["slot_session_id"] if bind else None,
+        bind["slot_offset_min"] if bind else None,
+        bind["fire_at"] if bind else None,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -910,7 +997,7 @@ async def list_schedules(
                COALESCE(NULLIF(cst.topic,''), cs.title) AS speaker_topic_resolved,
                cs.start_time, cs.end_time,
                CASE
-                 WHEN bs.type IN ('speaker_intro', 'expert_day') THEN ci.name
+                 WHEN bs.type IN ('speaker_intro', 'expert_day', 'custom') THEN ci.name
                  ELSE c.name
                END as speaker_name,
                bs.session_id,
@@ -934,13 +1021,15 @@ async def list_schedules(
                (bs.send_to_private_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_private_chats, FALSE))) AS eff_send_to_private_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
-        -- speaker_intro/expert_day: session_id = event_collaborators.id (спикер),
+        -- speaker_intro/expert_day/custom: session_id = event_collaborators.id (спикер),
         -- у остальных session_id = conf_sessions.id (сессия программы).
-        LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type NOT IN ('speaker_intro', 'expert_day')
+        -- ⚠️ 'custom' — в «спикерской» ветке: и ручная произвольная рассылка, и
+        -- шаблон с привязкой к слоту (миграция 260) пишут туда именно ec_id.
+        LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type NOT IN ('speaker_intro', 'expert_day', 'custom')
         LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
         LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
         LEFT JOIN collaborators c ON c.id = cse.speaker_id
-        LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type IN ('speaker_intro', 'expert_day')
+        LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type IN ('speaker_intro', 'expert_day', 'custom')
         LEFT JOIN collaborators ci ON ci.id = cse_intro.speaker_id
         WHERE bs.event_id = $1
           -- Коллаб-событие: каждый организатор видит рассылки ПО СВОЕЙ базе —
@@ -1123,6 +1212,7 @@ async def generate_schedules(
         SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
+               custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                text, photo_url, button_text, button_url,
                name, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles
         FROM broadcast_templates WHERE event_id=$1
@@ -1523,11 +1613,15 @@ async def generate_schedules(
         else:
             skipped += 1
 
-    # ── Кастомные шаблоны: fire_at = день_конфы(по custom_day_ref) + custom_time в таймзоне клиента ──
+    # ── Кастомные шаблоны ──────────────────────────────────────────────────
+    # Три режима привязки (custom_bind_kind, миграция 260):
+    #   'day' (и NULL — как было до 260) — день программы (custom_day_ref) + custom_time;
+    #   'slot' — слот спикера: fire_at = старт слота + смещение, в schedule пишется
+    #            session_id спикера (event_collaborators.id) → в сообщении работают
+    #            {speaker_name}, {speaker_time}, {speaker_topic}, афиша спикера;
+    #   'none' — абсолютные дата+время (custom_fire_at), без привязки к программе.
     if custom_tmpls:
-        client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
-        tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
-        tz = ZoneInfo(tz_str)
+        tz = await _client_tz(db, client_id)
 
         conf_days_list = await db.fetch(
             "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number",
@@ -1538,38 +1632,76 @@ async def generate_schedules(
         days_by_num = {d["day_number"]: d["day_date"] for d in conf_days_list}
 
         for tmpl in custom_tmpls:
-            ref = (tmpl["custom_day_ref"] or "").strip()
-            tm = (tmpl["custom_time"] or "").strip()
-            if not ref or not tm:
-                skipped += 1
-                continue
-            try:
-                hh, mm = tm.split(":")
-                hh, mm = int(hh), int(mm)
-            except Exception:
-                skipped += 1
-                continue
+            kind = (tmpl["custom_bind_kind"] or "day").strip().lower()
+            fire_at = None
+            sched_session_id = None
+            sched_day = None
 
-            target_date = None
-            if ref.startswith("before_"):
-                n = int(ref.split("_", 1)[1])
-                if first_day_row and first_day_row["day_date"]:
-                    target_date = first_day_row["day_date"] - timedelta(days=n)
-            elif ref.startswith("day_"):
-                n = int(ref.split("_", 1)[1])
-                target_date = days_by_num.get(n)
-            elif ref.startswith("after_"):
-                n = int(ref.split("_", 1)[1])
-                if last_day_row and last_day_row["day_date"]:
-                    target_date = last_day_row["day_date"] + timedelta(days=n)
+            if kind == "none":
+                fire_at = tmpl["custom_fire_at"]
+                if not fire_at:
+                    skipped += 1
+                    continue
 
-            if not target_date:
-                skipped += 1
-                continue
+            elif kind == "slot":
+                slot = await db.fetchrow(
+                    """
+                    SELECT cs.day, cs.start_time, cs.speaker_id, cd.day_date
+                      FROM conf_sessions cs
+                      LEFT JOIN conf_days cd
+                        ON cd.event_id = cs.event_id AND cd.day_number = cs.day
+                     WHERE cs.id = $1 AND cs.event_id = $2
+                    """,
+                    tmpl["custom_slot_session_id"], event_id,
+                )
+                # Слот удалили из программы или у него нет даты/времени — пропускаем.
+                if not slot or not slot["day_date"] or not slot["start_time"]:
+                    skipped += 1
+                    continue
+                start_utc = _msk_str_to_utc(slot["day_date"], slot["start_time"])
+                if not start_utc:
+                    skipped += 1
+                    continue
+                fire_at = start_utc + timedelta(minutes=int(tmpl["custom_slot_offset_min"] or 0))
+                # session_id = event_collaborators.id спикера слота: именно по нему
+                # message_builder раскрывает спикерские плейсхолдеры произвольной рассылки.
+                sched_session_id = slot["speaker_id"]
+                sched_day = slot["day"]
 
-            fire_at = datetime(
-                target_date.year, target_date.month, target_date.day, hh, mm, 0, tzinfo=tz
-            )
+            else:  # 'day' — прежнее поведение
+                ref = (tmpl["custom_day_ref"] or "").strip()
+                tm = (tmpl["custom_time"] or "").strip()
+                if not ref or not tm:
+                    skipped += 1
+                    continue
+                try:
+                    hh, mm = tm.split(":")
+                    hh, mm = int(hh), int(mm)
+                except Exception:
+                    skipped += 1
+                    continue
+
+                target_date = None
+                if ref.startswith("before_"):
+                    n = int(ref.split("_", 1)[1])
+                    if first_day_row and first_day_row["day_date"]:
+                        target_date = first_day_row["day_date"] - timedelta(days=n)
+                elif ref.startswith("day_"):
+                    n = int(ref.split("_", 1)[1])
+                    target_date = days_by_num.get(n)
+                    sched_day = n if target_date else None
+                elif ref.startswith("after_"):
+                    n = int(ref.split("_", 1)[1])
+                    if last_day_row and last_day_row["day_date"]:
+                        target_date = last_day_row["day_date"] + timedelta(days=n)
+
+                if not target_date:
+                    skipped += 1
+                    continue
+
+                fire_at = datetime(
+                    target_date.year, target_date.month, target_date.day, hh, mm, 0, tzinfo=tz
+                )
 
             # Не создаём рассылки с уже прошедшим временем отправки.
             if fire_at < past_cutoff:
@@ -1587,13 +1719,15 @@ async def generate_schedules(
             await db.execute(
                 """
                 INSERT INTO broadcast_schedules
-                  (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                  (event_id, session_id, template_id, type, fire_at, day, status,
+                   audience_include, audience_exclude,
                    snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                VALUES ($1, NULL, $2, 'custom', $3, 'draft', $4, $5, $6, $7, $8, $9)
+                VALUES ($1, $10, $2, 'custom', $3, $11, 'draft', $4, $5, $6, $7, $8, $9)
                 """,
                 event_id, tmpl["id"], fire_at,
                 tmpl["audience_include"], tmpl["audience_exclude"],
-                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                sched_session_id, sched_day,
             )
             created += 1
 

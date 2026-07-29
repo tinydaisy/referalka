@@ -42,6 +42,24 @@ export default function OrderForm({
   const price = Number(tariff.price || 0)
   const isFree = price <= 0
 
+  // ⚠️ Бесплатный тариф + галочка «Регистрировать без ввода контактных
+  // данных» + человек пришёл из бота → регистрируем сразу, форму не
+  // показываем: контакты у нас уже есть, спрашивать их заново незачем.
+  const [autoReg, setAutoReg] = useState(
+    isFree && !!event.skip_contact_form && !!contactId,
+  )
+  useEffect(() => {
+    if (!autoReg) return
+    fetch(`/api/v1/public/event-orders/quick/${tariff.id}/${contactId}`,
+          { method: 'POST' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.redirect) { location.href = d.redirect; return }
+        setAutoReg(false)   // не вышло — показываем обычную форму
+      })
+      .catch(() => setAutoReg(false))
+  }, [autoReg, tariff.id, contactId])
+
   // Пришёл из бота по ссылке с ?c= — подставляем его контакты, чтобы не
   // вводил заново. Поля остаются редактируемыми: телефон мог измениться.
   useEffect(() => {
@@ -145,6 +163,19 @@ export default function OrderForm({
       setError(e?.message || 'Не удалось оформить заказ')
       setBusy(false)
     }
+  }
+
+  if (autoReg) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4"
+           style={{
+             background: page.bg_css_screen || page.bg_css || '#25455D',
+             color: page.color_body || '#FFFFFF',
+             fontFamily: page.font_body_css,
+           }}>
+        Записываем вас…
+      </div>
+    )
   }
 
   return (

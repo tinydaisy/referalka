@@ -73,7 +73,7 @@ async def get_public_landing(
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
                   e.status, e.module_slug, e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
-                  e.seats_count_mode, e.seats_base,
+                  e.seats_count_mode, e.seats_base, e.skip_contact_form,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -467,6 +467,9 @@ async def get_public_landing(
         "event": {
             "id": ev["id"],
             "slug": ev["slug"],
+            # Галочка «Регистрировать без ввода контактных данных»: у
+            # бесплатного тарифа форму не показываем (миграция 079).
+            "skip_contact_form": ev["skip_contact_form"],
             "title": ev["title"],
             "description": ev["description"],
             "start_at": ev["start_at"],

@@ -64,6 +64,7 @@ async def _load_tariff(db, tariff_id: int):
         """SELECT t.id, t.code, t.title, t.price, t.pay_url, t.pay_product_id,
                   t.is_active,
                   e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
+                  e.skip_contact_form,
                   cl.id AS client_id, cl.name AS client_name,
                   cl.pay_provider, cl.pay_leadpay_login, cl.pay_leadpay_token
              FROM event_tariffs t
@@ -239,6 +240,45 @@ async def create_order(
         logger.warning("Письмо о заказе %s не отправлено: %s", order_id, e)
 
     return {"ok": True, "order_id": order_id, "payment_url": pay_url}
+
+
+@router.post("/quick/{tariff_id}/{contact_id}", summary="Регистрация без формы")
+async def quick_register(
+    tariff_id: int,
+    contact_id: int,
+    response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Бесплатный тариф + галочка «Регистрировать без ввода контактных
+    данных» + известный контакт → регистрируем сразу, форму не показываем.
+
+    ⚠️ Работает только для БЕСПЛАТНОГО тарифа: для платного контакты нужны
+    в любом случае — по ним человек получит доступ и чек.
+    """
+    _cors(response)
+    t = await _load_tariff(db, tariff_id)
+    if not t or not t["is_active"]:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+    if int(t["price"] or 0) > 0 or not t["skip_contact_form"]:
+        raise HTTPException(status_code=400, detail="Нужна форма")
+
+    own = await db.fetchval(
+        """SELECT id FROM contacts
+            WHERE id = $1 AND client_id = $2 AND merged_into IS NULL""",
+        contact_id, t["client_id"],
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    await db.execute(
+        """INSERT INTO event_participants (event_id, contact_id, is_registered)
+           VALUES ($1, $2, TRUE)
+           ON CONFLICT (event_id, contact_id) DO UPDATE SET is_registered = TRUE""",
+        t["event_id"], contact_id,
+    )
+    await finalize_participant_registration(
+        db, event_id=t["event_id"], contact_id=contact_id)
+    return {"ok": True, "redirect": f"/event/{t['event_slug']}?c={contact_id}"}
 
 
 @router.get("/prefill/{tariff_id}/{contact_id}", summary="Данные контакта для формы")

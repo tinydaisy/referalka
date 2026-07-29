@@ -165,6 +165,8 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
   { name: '{day_date}', desc: 'Дата дня конференции' },
   { name: '{day_datetime}', desc: 'Дата дня + время старта («13 июля в 10:00 МСК»)' },
+  { name: '{event_when}', desc: 'Когда событие: «Сегодня в 10:00 МСК» / «Завтра в 10:00 МСК», а если позже — «13 июля в 10:00 МСК». Работает в любой рассылке события' },
+  { name: '{speaker_when}', desc: 'Когда выступает спикер: «Сегодня в 14:30 МСК» / «Завтра в 14:30 МСК», иначе «13 июля в 14:30 МСК». Нужен шаблон со спикером или привязка к слоту' },
   { name: '{support_platform}', desc: 'Служба поддержки — ОДИН контакт своей площадки: в Telegram — телеграм, в VK — ВК, в MAX — MAX' },
   { name: '{support_links}', desc: 'Служба поддержки — ВСЕ каналы списком (ВК, Telegram, MAX), по строке на каждый' },
   { name: '{support_command}', desc: 'Ссылка ДЛЯ КНОПКИ «Тех.поддержка» — клик открывает бота и показывает все контакты поддержки. Вставлять в поле URL кнопки, не в текст' },
@@ -260,6 +262,12 @@ const emptyForm = {
   send_to_private_chats: false,
   speaker_photo_mode: 'poster',
   custom_day_ref: '', custom_time: '12:00',
+  // Привязка кастомного шаблона: 'day' — день программы (как было),
+  // 'slot' — выступление спикера, 'none' — без привязки (своя дата+время).
+  custom_bind_kind: 'day' as 'none' | 'day' | 'slot',
+  custom_slot_session_id: null as number | null,
+  custom_slot_offset_min: 0,
+  custom_fire_at: '',
   // target_channel_ids: null = «по всем каналам клиента» (default),
   // [] = никуда не слать, [N,M] = только эти channel_id.
   target_channel_ids: null as number[] | null,
@@ -292,6 +300,11 @@ const CUSTOM_PLACEHOLDERS = [
   '{day_program}', '{day_program_with_links}',
   '{stream_url}', '{landing_url}', '{raffle_url}',
   '{first_name}', '{vip_url}', '{support_platform}',
+  // «Сегодня в 14:30 МСК» / «Завтра в 14:30 МСК», иначе обычная дата+время.
+  '{event_when}', '{speaker_when}',
+  // Работают, если шаблон привязан к слоту спикера.
+  '{speaker_name}', '{speaker_topic}', '{speaker_achievements}',
+  '{speaker_time}', '{speaker_date}', '{speaker_datetime}',
 ]
 
 // Дата дня "YYYY-MM-DD" → "6 июля" без new Date() (UTC-парс уводит на сутки).
@@ -308,6 +321,202 @@ function customDayRefLabel(ref: string, confDays: number[]): string {
   if (ref.startsWith('day_')) return `День ${ref.split('_')[1]}`
   if (ref.startsWith('after_')) return `Через ${ref.split('_')[1]} дня после конференции`
   return ref
+}
+
+// Подпись привязки в карточке шаблона: «День 2 в 12:00» / «Слот: Иванов…» / дата.
+function customBindLabel(tpl: any, sessions: any[], confDays: number[]): string {
+  const kind = tpl.custom_bind_kind || 'day'
+  if (kind === 'none') {
+    if (!tpl.custom_fire_at) return 'Дата не задана'
+    const d = new Date(tpl.custom_fire_at)
+    return `${d.getDate()} ${_TPL_DM[d.getMonth()]} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  if (kind === 'slot') {
+    const s = sessions.find((x: any) => x.id === tpl.custom_slot_session_id)
+    if (!s) return 'Слот удалён из программы'
+    const t = String(s.start_time || '').slice(0, 5)
+    const off = Number(tpl.custom_slot_offset_min || 0)
+    const offLabel = off === 0 ? 'в момент старта' : (off < 0 ? `за ${-off} мин до` : `через ${off} мин после`)
+    return `${s.speaker_name || s.title || `Слот #${s.id}`}${s.day ? `, День ${s.day}` : ''}${t ? ` ${t} МСК` : ''} — ${offLabel}`
+  }
+  return `${customDayRefLabel(tpl.custom_day_ref || '', confDays)} в ${tpl.custom_time || '—'}`
+}
+
+// Превью {event_when}/{speaker_when}: «Сегодня в 14:30 МСК» / «Завтра в …»,
+// иначе «6 июля в 14:30 МСК». Без года и без секунд. Дата — "YYYY-MM-DD".
+function relativeWhenPreview(dayDate?: string | null, hhmm?: string | null): string {
+  if (!dayDate) return ''
+  const m = String(dayDate).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return ''
+  const t = hhmm ? String(hhmm).slice(0, 5) : ''
+  const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const today = new Date()
+  const ref = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const delta = Math.round((target.getTime() - ref.getTime()) / 86400000)
+  const dayPart = delta === 0 ? 'Сегодня'
+    : delta === 1 ? 'Завтра'
+    : `${target.getDate()} ${_TPL_DM[target.getMonth()]}`
+  return t ? `${dayPart} в ${t} МСК` : dayPart
+}
+
+// ISO из БД → значение для <input type="datetime-local"> (локальное «YYYY-MM-DDTHH:MM»).
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// Проверка привязки перед сохранением. Возвращает текст ошибки или '' если всё ок.
+function validateBinding(f: any): string {
+  const kind = f.custom_bind_kind || 'day'
+  if (kind === 'slot') {
+    if (!f.custom_slot_session_id) return 'Выберите слот программы (выступление спикера)'
+    return ''
+  }
+  if (kind === 'none') {
+    if (!f.custom_fire_at) return 'Укажите дату и время отправки'
+    return ''
+  }
+  if (!f.custom_day_ref) return 'Выберите день отправки'
+  if (!f.custom_time || !/^\d{1,2}:\d{2}$/.test(f.custom_time)) return 'Укажите время в формате HH:MM'
+  return ''
+}
+
+// Поля привязки для payload. Шлём ВСЕ — бэк по custom_bind_kind сам решает,
+// что применить, а чего не касаться (переключение режима обнуляет лишнее).
+function bindingPayload(f: any) {
+  const kind = f.custom_bind_kind || 'day'
+  return {
+    custom_bind_kind: kind,
+    custom_day_ref: f.custom_day_ref || null,
+    custom_time: f.custom_time || null,
+    custom_slot_session_id: kind === 'slot' ? (f.custom_slot_session_id ?? null) : null,
+    custom_slot_offset_min: kind === 'slot' ? Number(f.custom_slot_offset_min || 0) : null,
+    custom_fire_at: kind === 'none' ? (f.custom_fire_at || null) : null,
+  }
+}
+
+// Выбор привязки кастомного шаблона — один блок на обе модалки (создание и правка).
+function CustomBindingFields({ form, setForm, dayRefOptions, sessions }: {
+  form: any
+  setForm: (f: any) => void
+  dayRefOptions: { value: string; label: string }[]
+  sessions: any[]
+}) {
+  const kind: 'none' | 'day' | 'slot' = form.custom_bind_kind || 'day'
+  const slots = sessions
+    .filter((s: any) => s.start_time)
+    .sort((a: any, b: any) => (a.day - b.day) || String(a.start_time || '').localeCompare(String(b.start_time || '')))
+
+  const KINDS: { value: 'day' | 'slot' | 'none'; label: string; hint: string }[] = [
+    { value: 'day', label: 'К дню программы', hint: 'Уйдёт в выбранный день конференции в указанное время.' },
+    { value: 'slot', label: 'К выступлению спикера', hint: 'Время считается от слота в программе. В тексте работают {speaker_name}, {speaker_time}, {speaker_topic} и афиша спикера.' },
+    { value: 'none', label: 'Без привязки', hint: 'Просто дата и время — не зависит от программы.' },
+  ]
+  const active = KINDS.find(k => k.value === kind)!
+
+  return (
+    <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-3">
+      <div>
+        <p className="text-xs font-medium text-gray-600 mb-2">🔗 К чему привязать рассылку</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {KINDS.map(k => (
+            <button
+              key={k.value}
+              type="button"
+              onClick={() => setForm({ ...form, custom_bind_kind: k.value })}
+              className={`px-2 py-2 rounded-lg text-xs font-medium border transition ${
+                kind === k.value
+                  ? 'border-[#25455D] bg-white text-[#25455D] shadow-sm'
+                  : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+              }`}>
+              {k.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">{active.hint}</p>
+      </div>
+
+      {kind === 'day' && (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">День отправки</label>
+            <select
+              value={form.custom_day_ref || ''}
+              onChange={e => setForm({ ...form, custom_day_ref: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+              {dayRefOptions.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Время (МСК / таймзона клиента)</label>
+            <input
+              type="time"
+              value={form.custom_time || '12:00'}
+              onChange={e => setForm({ ...form, custom_time: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
+          </div>
+        </div>
+      )}
+
+      {kind === 'slot' && (
+        <div className="space-y-2">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Слот программы</label>
+            <select
+              value={form.custom_slot_session_id ?? ''}
+              onChange={e => setForm({ ...form, custom_slot_session_id: e.target.value ? Number(e.target.value) : null })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+              <option value="">— выберите выступление —</option>
+              {slots.map((s: any) => {
+                const t = String(s.start_time || '').slice(0, 5)
+                const who = s.speaker_name || s.title || `Слот #${s.id}`
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.day ? `День ${s.day}, ` : ''}{t ? `${t} МСК — ` : ''}{who}
+                  </option>
+                )
+              })}
+            </select>
+            {slots.length === 0 && (
+              <p className="text-[11px] text-amber-600 mt-1">
+                В программе пока нет слотов со временем — добавьте их во вкладке «Программа».
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Когда отправить</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step={5}
+                value={form.custom_slot_offset_min ?? 0}
+                onChange={e => setForm({ ...form, custom_slot_offset_min: Number(e.target.value) })}
+                className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
+              <span className="text-xs text-gray-500">минут от начала выступления</span>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+              Минус — раньше старта (−5 = «за 5 минут до выступления»), плюс — позже, 0 — ровно в момент старта.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {kind === 'none' && (
+        <div>
+          <label className="text-xs text-gray-500 mb-1 block">Дата и время отправки</label>
+          <input
+            type="datetime-local"
+            value={form.custom_fire_at || ''}
+            onChange={e => setForm({ ...form, custom_fire_at: e.target.value })}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function TemplatesPage() {
@@ -384,6 +593,11 @@ export default function TemplatesPage() {
   async function save() {
     try {
       const mt = (form as any).media_type as 'photo' | 'video' | null
+      const isCustomTpl = (form as any).type === 'custom'
+      if (isCustomTpl) {
+        const bindErr = validateBinding(form as any)
+        if (bindErr) { alert(bindErr); return }
+      }
       const payload: any = {
         ...form,
         text: form.text || '',
@@ -400,7 +614,11 @@ export default function TemplatesPage() {
         // чтобы старое включённое значение не «прилипло» при сохранении.
         send_to_client_chats: hasChatsFeature ? !!(form as any).send_to_client_chats : false,
         send_to_private_chats: hasChatsFeature ? !!(form as any).send_to_private_chats : false,
+        // Привязка — только у кастомных. У остальных типов custom_bind_kind не
+        // шлём вовсе, чтобы бэк не трогал эти поля (см. model_fields_set).
+        ...(isCustomTpl ? bindingPayload(form as any) : {}),
       }
+      if (!isCustomTpl) delete payload.custom_bind_kind
       // target_channel_ids: null = «не трогаем текущее значение в БД»,
       // массив = заменяем целиком. Picker всегда приводит null → массив после
       // первичной отрисовки, поэтому здесь обычно уже массив.
@@ -437,8 +655,12 @@ export default function TemplatesPage() {
       type: 'custom',
       audience_include: 'all_event',
       audience_exclude: 'none',
+      custom_bind_kind: 'day',
       custom_day_ref: confDays[0] ? `day_${confDays[0]}` : 'before_1',
       custom_time: '12:00',
+      custom_slot_session_id: null,
+      custom_slot_offset_min: 0,
+      custom_fire_at: '',
     } as any)
     setCreateModal(true)
   }
@@ -461,12 +683,9 @@ export default function TemplatesPage() {
         alert('Введите название шаблона')
         return
       }
-      if (!f.custom_day_ref) {
-        alert('Выберите день отправки')
-        return
-      }
-      if (!f.custom_time || !/^\d{1,2}:\d{2}$/.test(f.custom_time)) {
-        alert('Укажите время в формате HH:MM')
+      const bindErr = validateBinding(f)
+      if (bindErr) {
+        alert(bindErr)
         return
       }
       const payload: any = {
@@ -481,8 +700,7 @@ export default function TemplatesPage() {
         button_url: f.button_url || null,
         audience_include: f.audience_include || 'all_event',
         audience_exclude: f.audience_exclude || 'none',
-        custom_day_ref: f.custom_day_ref,
-        custom_time: f.custom_time,
+        ...bindingPayload(f),
         send_to_event_chats: !!f.send_to_event_chats,
         // Общие/личные чаты — только с фичей broadcast_chats.
         send_to_client_chats: hasChatsFeature ? !!f.send_to_client_chats : false,
@@ -539,8 +757,13 @@ export default function TemplatesPage() {
       send_to_client_chats: !!t.send_to_client_chats,
       send_to_private_chats: !!t.send_to_private_chats,
       speaker_photo_mode: t.speaker_photo_mode || 'poster',
+      custom_bind_kind: t.custom_bind_kind || 'day',
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
+      custom_slot_session_id: t.custom_slot_session_id ?? null,
+      custom_slot_offset_min: t.custom_slot_offset_min ?? 0,
+      // datetime-local хочет "YYYY-MM-DDTHH:MM" в локальном времени.
+      custom_fire_at: t.custom_fire_at ? toLocalInputValue(t.custom_fire_at) : '',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
     } as any)
   }
@@ -819,7 +1042,12 @@ export default function TemplatesPage() {
         slotDate = `${dd.getDate()} ${MONTHS_SLOT[dd.getMonth()]}`
       }
       const slotDatetime = (slotDate && slotTime) ? `${slotDate}, ${slotTime}` : (slotDate || slotTime)
-      const slotMap: Record<string, string> = { speaker_time: slotTime, speaker_date: slotDate, speaker_datetime: slotDatetime }
+      // {speaker_when}: «Сегодня/Завтра в HH:MM МСК», иначе «6 июля в HH:MM МСК».
+      const slotWhen = relativeWhenPreview(slotDayObj?.day_date, slotStart)
+      const slotMap: Record<string, string> = {
+        speaker_time: slotTime, speaker_date: slotDate, speaker_datetime: slotDatetime,
+        speaker_when: slotWhen,
+      }
       for (const [k, v] of Object.entries(slotMap)) {
         const re = new RegExp('\\{' + k + '\\}', 'g')
         if (out.match(re)) {
@@ -957,7 +1185,15 @@ export default function TemplatesPage() {
     const supportLink = (me?.work_tg_username || me?.work_vk || me?.work_max || '').trim()
       || '[ссылка на поддержку]'
 
+    // {event_when} — «Сегодня/Завтра в HH:MM МСК», иначе «6 июля в HH:MM МСК».
+    // В превью считаем от дня, выбранного переключателем дней.
+    const realEventWhen = relativeWhenPreview(
+      dayObj?.day_date || eventData?.start_at?.slice(0, 10),
+      firstStart || (eventData?.start_at ? String(eventData.start_at).slice(11, 16) : ''),
+    )
+
     out = out
+      .replace(/\{event_when\}/g, realEventWhen || '[дата и время события]')
       .replace(/\{conf_title\}/g, realConfTitle)
       .replace(/\{conf_date\}/g, confDay1Date || '[дата конференции]')
       .replace(/\{conf_description\}/g, realConfDesc || '[описание конференции]')
@@ -1036,6 +1272,9 @@ export default function TemplatesPage() {
     hint: '',
     variables: CUSTOM_PLACEHOLDERS,
     showPhoto: true,
+    // Кастомный шаблон можно привязать к слоту спикера — тогда в тексте работают
+    // {speaker_*}. Селектор спикера в превью нужен, чтобы это увидеть.
+    hasSpeaker: true,
   }
 
   return (
@@ -1177,13 +1416,20 @@ export default function TemplatesPage() {
                   <div className="min-w-0">
                     <h4 className="font-semibold text-gray-800">{tpl.name}</h4>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      ⏰ {customDayRefLabel(tpl.custom_day_ref || '', confDays)} в {tpl.custom_time || '—'}
+                      {(tpl.custom_bind_kind || 'day') === 'slot' ? '🎤' : '⏰'}{' '}
+                      {customBindLabel(tpl, confSessions, confDays)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
                     <button
                       onClick={() => {
-                        setTestDay(customDayToTestDay(tpl.custom_day_ref || ''))
+                        // Привязка к слоту → превью показываем на дне этого слота.
+                        const slot = (tpl.custom_bind_kind === 'slot')
+                          ? confSessions.find((s: any) => s.id === tpl.custom_slot_session_id)
+                          : null
+                        setTestDay(slot?.day || customDayToTestDay(tpl.custom_day_ref || ''))
+                        // Спикер слота — чтобы в превью раскрылись {speaker_*}.
+                        if (slot?.speaker_id) setPreviewSpeakerId(slot.speaker_id)
                         setPreviewModal({ tpl, def: { ...CUSTOM_DEF, title: tpl.name } })
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-600 font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -1322,32 +1568,14 @@ export default function TemplatesPage() {
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1">Чтобы убрать кнопку — очистите оба поля или нажмите «Убрать кнопку».</p>
               </div>
-              {/* Настройки кастомного шаблона — день и время */}
+              {/* Настройки кастомного шаблона — к чему привязать и когда отправлять */}
               {editModal?.type === 'custom' && (
-                <div className="border border-amber-100 rounded-xl p-3 bg-amber-50 space-y-3">
-                  <p className="text-xs font-medium text-amber-800">📅 Когда отправлять</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">День отправки</label>
-                      <select
-                        value={(form as any).custom_day_ref || ''}
-                        onChange={e => setForm({ ...form, custom_day_ref: e.target.value } as any)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
-                        {dayRefOptions.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Время</label>
-                      <input
-                        type="time"
-                        value={(form as any).custom_time || '12:00'}
-                        onChange={e => setForm({ ...form, custom_time: e.target.value } as any)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
-                    </div>
-                  </div>
-                </div>
+                <CustomBindingFields
+                  form={form}
+                  setForm={(f: any) => setForm(f)}
+                  dayRefOptions={dayRefOptions}
+                  sessions={confSessions}
+                />
               )}
 
               {/* Настройки расписания для Знакомства со спикером и Экспертного дня */}
@@ -1622,27 +1850,12 @@ export default function TemplatesPage() {
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400" />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">День отправки</label>
-                  <select
-                    value={(form as any).custom_day_ref || ''}
-                    onChange={e => setForm({ ...form, custom_day_ref: e.target.value } as any)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
-                    {dayRefOptions.map(o => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Время (МСК / таймзона клиента)</label>
-                  <input
-                    type="time"
-                    value={(form as any).custom_time || '12:00'}
-                    onChange={e => setForm({ ...form, custom_time: e.target.value } as any)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
-                </div>
-              </div>
+              <CustomBindingFields
+                form={form}
+                setForm={(f: any) => setForm(f)}
+                dayRefOptions={dayRefOptions}
+                sessions={confSessions}
+              />
 
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">

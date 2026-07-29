@@ -117,6 +117,7 @@ SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day")
 _SPEAKER_ONLY_PLACEHOLDERS = (
     "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
     "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
+    "speaker_when",
     "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
     "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
     "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
@@ -174,6 +175,46 @@ def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
     return "\n".join(lines)
 
 
+def _msk_ref_date(fire_at):
+    """Дата отправки в МСК — точка отсчёта для «Сегодня/Завтра».
+    fire_at не задан (превью из формы) → сегодняшняя дата."""
+    if fire_at:
+        try:
+            return fire_at.astimezone(ZoneInfo("Europe/Moscow")).date()
+        except Exception:
+            pass
+    return datetime.now(ZoneInfo("Europe/Moscow")).date()
+
+
+def relative_when(target_date, hhmm, ref_date=None) -> str:
+    """«Сегодня в 14:30 МСК» / «Завтра в 14:30 МСК», иначе «6 июля в 14:30 МСК».
+
+    Год не пишем никогда. Секунды тоже — время только "HH:MM".
+    Считается ОТНОСИТЕЛЬНО ДАТЫ ОТПРАВКИ (ref_date, МСК), а не момента сборки
+    превью: одно и то же сообщение, отправленное завтра, скажет «Сегодня».
+    Нет даты → пустая строка (плейсхолдер уберётся вместе со своей строкой).
+    """
+    if not target_date:
+        return ""
+    t = _fmt_time(hhmm)
+    if ref_date is None:
+        ref_date = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    try:
+        delta = (target_date - ref_date).days
+    except Exception:
+        return ""
+    if delta == 0:
+        day_part = "Сегодня"
+    elif delta == 1:
+        day_part = "Завтра"
+    else:
+        try:
+            day_part = f"{target_date.day} {RU_MONTHS[target_date.month - 1]}"
+        except Exception:
+            return ""
+    return f"{day_part} в {t} МСК" if t else day_part
+
+
 def _build_speaker_slot_strings(slot_start, slot_end, slot_date):
     """Из слота выступления спикера (start_time/end_time — строки "HH:MM",
     day_date — date) собирает 3 значения для плейсхолдеров:
@@ -209,7 +250,8 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
                                 bio=None, positioning=None, card_link=None,
                                 vk_url=None, max_url=None, website_url=None,
                                 speaker_notes=None, speaker_ask_topics=None,
-                                speaker_time=None, speaker_date=None, speaker_datetime=None):
+                                speaker_time=None, speaker_date=None, speaker_datetime=None,
+                                speaker_when=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -276,6 +318,10 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_date\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not dt_v:
         text = re.sub(r"^[^\n]*\{speaker_datetime\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    # {speaker_when} — «Сегодня/Завтра в HH:MM МСК», иначе «6 июля в HH:MM МСК».
+    when_v = (speaker_when or "").strip()
+    if not when_v:
+        text = re.sub(r"^[^\n]*\{speaker_when\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     # {speaker_slot_topic} — комбинированный: слот (жирным) + тема через «: ».
     #   слот + тема → «<b>дата/время</b>: тема»
     #   только тема → «тема» (без слота и двоеточия)
@@ -298,6 +344,7 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     text = text.replace("{speaker_time}", time_v)
     text = text.replace("{speaker_date}", date_v)
     text = text.replace("{speaker_datetime}", dt_v)
+    text = text.replace("{speaker_when}", when_v)
     text = text.replace("{speaker_tg_username}", personal_mention)
     text = text.replace("{speaker_personal_tg}", socials_block)
     text = text.replace("{speaker_socials}", socials_block)
@@ -640,6 +687,73 @@ async def _get_event_globals(conn, event_id: int) -> dict:
     return data
 
 
+async def _apply_event_when(conn, event_id: int, text: str, fire_at=None, day=None) -> str:
+    """{event_when} — когда событие: «Сегодня в 12:00 МСК» / «Завтра в 12:00 МСК»,
+    иначе «6 июля в 12:00 МСК». Год не пишем, секунды не пишем.
+
+    Работает в ЛЮБОЙ событийной рассылке. Источник времени:
+      конференция/турнир — старт первой сессии нужного дня (day или ближайший
+        будущий относительно даты отправки);
+      мероприятие — events.start_at (МСК).
+    Пусто → строка с плейсхолдером убирается целиком.
+    """
+    if "{event_when}" not in (text or ""):
+        return text
+    ref_date = _msk_ref_date(fire_at)
+    row = await conn.fetchrow(
+        """
+        SELECT e.module_slug,
+               (e.start_at AT TIME ZONE 'Europe/Moscow') AS start_msk
+          FROM events e WHERE e.id = $1
+        """,
+        event_id,
+    )
+    when = ""
+    if row and row["module_slug"] in ("conference", "turnir"):
+        # День рассылки: явный, иначе ближайший не прошедший, иначе первый.
+        d = await conn.fetchrow(
+            """
+            SELECT cd.day_date,
+                   (SELECT cs.start_time FROM conf_sessions cs
+                     WHERE cs.event_id = cd.event_id AND cs.day = cd.day_number
+                       AND cs.start_time IS NOT NULL
+                     ORDER BY cs.start_time LIMIT 1) AS first_start,
+                   cd.open_time
+              FROM conf_days cd
+             WHERE cd.event_id = $1
+               AND ($2::int IS NULL OR cd.day_number = $2)
+               AND ($2::int IS NOT NULL OR cd.day_date >= $3)
+             ORDER BY cd.day_date
+             LIMIT 1
+            """,
+            event_id, day, ref_date,
+        )
+        if not d:
+            d = await conn.fetchrow(
+                """
+                SELECT cd.day_date,
+                       (SELECT cs.start_time FROM conf_sessions cs
+                         WHERE cs.event_id = cd.event_id AND cs.day = cd.day_number
+                           AND cs.start_time IS NOT NULL
+                         ORDER BY cs.start_time LIMIT 1) AS first_start,
+                       cd.open_time
+                  FROM conf_days cd
+                 WHERE cd.event_id = $1
+                 ORDER BY cd.day_date LIMIT 1
+                """,
+                event_id,
+            )
+        if d:
+            when = relative_when(d["day_date"], d["first_start"] or d["open_time"], ref_date)
+    elif row and row["start_msk"]:
+        s = row["start_msk"]
+        when = relative_when(s.date(), s.strftime("%H:%M"), ref_date)
+
+    if when:
+        return text.replace("{event_when}", when)
+    return re.sub(r"^[^\n]*\{event_when\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+
+
 async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
     """Подставляет глобальные плейсхолдеры {brand_name} / {event_chat_tg|vk|max}
     в текст (и в кнопку — для ссылок на чат). Пустое значение → строку с
@@ -664,7 +778,7 @@ async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
 
 
 async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_photo_mode="poster",
-                                        photo_already=None):
+                                        photo_already=None, ref_date=None):
     """Раскрывает спикерские плейсхолдеры для ПРОИЗВОЛЬНОЙ рассылки, где клиент
     выбрал спикера/организатора/жюри (ec_id = event_collaborators.id). Возвращает
     (text, photo, buttons). Плейсхолдеры/фото — те же, что в speaker_intro/expert_day;
@@ -734,6 +848,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
         vk_url=sp["vk_url"], max_url=sp["max_url"], website_url=sp["website_url"],
         speaker_notes=sp["speaker_notes"], speaker_ask_topics=sp["speaker_ask_topics"],
         speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
+        speaker_when=relative_when(sp["slot_date"], sp["slot_start"], ref_date),
     )
     text = apply_speaker_material(
         text, build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]))
@@ -941,9 +1056,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if session_id:
             _sp_text, _sp_photo, _sp_btns = await _resolve_speaker_placeholders(
                 conn, session_id, raw_text, raw_buttons, speaker_photo_mode,
-                photo_already=snap_photo)
+                photo_already=snap_photo, ref_date=_msk_ref_date(fire_at))
             raw_text = _sp_text
             raw_buttons = _sp_btns
+        # {event_when} — «Сегодня/Завтра в HH:MM МСК» (иначе «6 июля в HH:MM МСК»).
+        raw_text = await _apply_event_when(conn, event_id, raw_text, fire_at, explicit_day)
         # Оставшиеся (незаполненные) спикерские плейсхолдеры вырезаем, чтобы не ушли
         # получателю сырыми — как при отсутствии выбранного спикера.
         for ph in _SPEAKER_ONLY_PLACEHOLDERS:
@@ -1290,6 +1407,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                               sp["default_link_mode"], sp["bot_handle"])
                 sp_time, sp_date, sp_dt = _build_speaker_slot_strings(
                     sp["slot_start"], sp["slot_end"], sp["slot_date"])
+                # «Сегодня/Завтра» считаем от ДАТЫ ОТПРАВКИ (fire_at, МСК), а не от
+                # момента сборки — иначе превью и реальная отправка разойдутся.
+                sp_when = relative_when(sp["slot_date"], sp["slot_start"], _msk_ref_date(fire_at))
                 text = build_speaker_intro_message(
                     text, sp["speaker_name"], sp["personal_tg_username"],
                     sp["tg_channel_url"], sp["instagram_url"],
@@ -1301,6 +1421,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     speaker_notes=sp["speaker_notes"],
                     speaker_ask_topics=sp["speaker_ask_topics"],
                     speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
+                    speaker_when=sp_when,
                 )
                 text = apply_speaker_material(
                     text,
@@ -1315,6 +1436,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     "speaker_time": sp_time or "",
                     "speaker_date": sp_date or "",
                     "speaker_datetime": sp_dt or "",
+                    "speaker_when": sp_when or "",
                     "gift_after_speech_title": sp["gift_after_speech_title"] or "",
                     "gift_raffle_title": sp["gift_raffle_title"] or "",
                 }
@@ -1716,6 +1838,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     # подстановка ниже, в отдельной ветке). Пусто → строка с плейсхолдером убирается.
     text, btn_url = await _apply_event_globals(conn, event_id, text, btn_url)
 
+    # {event_when} — «Сегодня/Завтра в HH:MM МСК» (иначе «6 июля в HH:MM МСК»).
+    # Доступен в ЛЮБОМ типе событийной рассылки.
+    text = await _apply_event_when(conn, event_id, text, fire_at, explicit_day)
+    if subject:
+        subject = await _apply_event_when(conn, event_id, subject, fire_at, explicit_day)
+
     # {support_link} — служба поддержки. Работает в ЛЮБОМ типе шаблона любого события.
     # ⚠️ Подставляется здесь ТОЛЬКО если вызывающий передал готовое значение
     # (превью / тест — там платформа неизвестна, показываем все каналы блоком).
@@ -1737,6 +1865,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     _KNOWN_PLACEHOLDERS = [
         "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
         "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
+        "speaker_when",
         "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
         "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
