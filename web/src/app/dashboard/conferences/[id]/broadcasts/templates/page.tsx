@@ -892,6 +892,23 @@ export default function TemplatesPage() {
     return ''
   }
 
+  // {signup_link} — deeplink «Зарегистрироваться» в боте площадки получателя
+  // (evsignup_). Формат тот же, что у бэка (build_event_signup_links +
+  // pick_signup_link): своя площадка первой, дальше запасные; нет ни одного
+  // бота — ведём на веб-страницу события.
+  function signupLink(platform: 'telegram' | 'vk' | 'max'): string {
+    const bh = (me as any)?.bot_handles || {}
+    const tg = bh.telegram ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=evsignup_${eventId}` : ''
+    const vk = bh.vk ? `https://vk.me/${String(bh.vk).replace(/^@/, '')}?ref=evsignup_${eventId}` : ''
+    const max = bh.max ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=evsignup_${eventId}` : ''
+    const links: Record<string, string> = { telegram: tg, vk, max }
+    const order = platform === 'max' ? ['max', 'telegram', 'vk']
+      : platform === 'vk' ? ['vk', 'telegram', 'max']
+      : ['telegram', 'max', 'vk']
+    for (const p of order) if (links[p]) return links[p]
+    return event?.slug ? `https://pluson.ru/event/${event.slug}` : ''
+  }
+
   // Ссылка подарка-магнита для превью: воронка (если funnel_slug) или прямой url.
   function giftMagnetUrl(g: any, platform: 'telegram' | 'vk' | 'max'): string {
     if (g?.funnel_slug && g?.funnel_kind) return giftFunnelLink(g.funnel_kind, g.funnel_slug, platform)
@@ -902,6 +919,9 @@ export default function TemplatesPage() {
     if (!text) return ''
     // Нормализуем литеральные \n на случай старых данных из БД
     let out = text.replace(/\\n/g, '\n')
+    // {signup_link} — зависит от площадки получателя, поэтому раскрываем
+    // здесь же, а не в общем списке плейсхолдеров.
+    out = out.replace(/\{signup_link\}/g, signupLink(platform))
 
     if (speaker) {
       const giftTitle = (speaker.gift_after_speech_title || '').trim()
@@ -2103,11 +2123,12 @@ export default function TemplatesPage() {
               </div>
             )}
 
-            {/* Вкладки площадок — для шаблонов с подарком (ссылка воронки зависит
-                от площадки: TG/VK/MAX-бот клиента). Показываем для gift/day_end. */}
-            {['gift', 'day_end'].includes(previewModal.def.type) && (
-              <div className="mb-4">
-                <label className="text-xs text-gray-500 mb-1.5 block">Площадка (ссылка подарка):</label>
+            {/* ⚠️ Вкладки площадок — у ВСЕХ шаблонов, а не только у подарочных.
+                От площадки зависит любая ссылка в тексте: регистрация, кабинет,
+                подарок, чат — они ведут в бота клиента на своей площадке.
+                Клиент должен видеть, что реально уйдёт человеку в TG, VK и MAX. */}
+            <div className="mb-4">
+                <label className="text-xs text-gray-500 mb-1.5 block">Площадка получателя:</label>
                 <div className="flex gap-1">
                   {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const).map(([pk, label]) => (
                     <button key={pk} onClick={() => setPreviewPlatform(pk)}
@@ -2117,9 +2138,8 @@ export default function TemplatesPage() {
                       {label}
                     </button>
                   ))}
-                </div>
               </div>
-            )}
+            </div>
 
             {/* Выбор спикера — для шаблонов со спикером */}
             {previewModal.def.hasSpeaker && speakers.length > 0 && (
