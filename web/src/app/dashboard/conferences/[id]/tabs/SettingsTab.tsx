@@ -44,6 +44,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
+    registration_mode: conf?.registration_mode || null,
+    landing_require_registration: conf?.landing_require_registration !== false,
     // landing_url — единое поле для всех событий (events.landing_url),
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
@@ -89,6 +91,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
+    registration_mode: conf?.registration_mode || null,
+    landing_require_registration: conf?.landing_require_registration !== false,
       landing_url: event?.landing_url || '',
       vip_url: conf?.vip_url || '',
       vip_button_label: conf?.vip_button_label || '',
@@ -141,6 +145,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.hide_stream_button !== !!conf?.hide_stream_button)      confPatch.hide_stream_button = form.hide_stream_button
       if (form.thanks_destination !== (conf?.thanks_destination === 'chats' ? 'chats' : 'bots'))
         confPatch.thanks_destination = form.thanks_destination
+      if (form.registration_mode !== (conf?.registration_mode || null))
+        confPatch.registration_mode = form.registration_mode
+      if (form.landing_require_registration !== (conf?.landing_require_registration !== false))
+        confPatch.landing_require_registration = form.landing_require_registration
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
       if (form.vip_button_label !== (conf?.vip_button_label || ''))    confPatch.vip_button_label = form.vip_button_label || null
       if (form.chat_button_label !== (conf?.chat_button_label || ''))  confPatch.chat_button_label = form.chat_button_label || null
@@ -392,6 +400,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         allowExternal={!event?.is_collab}
         hasLanding={!!event?.landing_published}
         landingUrlInternal={event?.slug ? `pluson.ru/e/${event.slug}` : ''}
+        regMode={form.registration_mode}
+        onRegMode={(v) => setForm(f => ({ ...f, registration_mode: v }))}
+        landingRequireReg={form.landing_require_registration}
+        onLandingRequireReg={(v) => setForm(f => ({ ...f, landing_require_registration: v }))}
       />
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}

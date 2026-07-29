@@ -81,15 +81,30 @@ function WarningPopup({ missing, onClose }: { missing: string[]; onClose: () => 
 }
 
 /** Редактор списка тем */
-function TopicsEditor({ topics, onChange, boundIndex, slotLabel, slotHasTopic }: {
+function TopicsEditor({ topics, descriptions, onChange, onChangeDescriptions,
+                        boundIndex, slotLabel, slotHasTopic }: {
   topics: string[]; onChange: (topics: string[]) => void
+  descriptions?: string[]; onChangeDescriptions?: (d: string[]) => void
   boundIndex?: number | null; slotLabel?: string | null; slotHasTopic?: boolean | null
 }) {
+  const descs = descriptions || []
   function updateTopic(i: number, val: string) {
     const next = [...topics]; next[i] = val; onChange(next)
   }
-  function removeTopic(i: number) { onChange(topics.filter((_, idx) => idx !== i)) }
-  function addTopic() { onChange([...topics, '']) }
+  function updateDesc(i: number, val: string) {
+    const next = [...descs]
+    while (next.length < topics.length) next.push('')
+    next[i] = val
+    onChangeDescriptions?.(next)
+  }
+  function removeTopic(i: number) {
+    onChange(topics.filter((_, idx) => idx !== i))
+    onChangeDescriptions?.(descs.filter((_, idx) => idx !== i))
+  }
+  function addTopic() {
+    onChange([...topics, ''])
+    onChangeDescriptions?.([...descs, ''])
+  }
   // Слот в программе есть, но темы в нём ещё нет — предупреждаем.
   const slotNoTopic = !!slotLabel && slotHasTopic === false
   return (
@@ -105,12 +120,21 @@ function TopicsEditor({ topics, onChange, boundIndex, slotLabel, slotHasTopic }:
         const isBound = boundIndex != null && boundIndex === i
         return (
           <div key={i} className="flex items-start gap-2">
-            <div className="flex-1">
-              <textarea value={t} onChange={e => updateTopic(i, e.target.value)} rows={2}
-                placeholder={`Тема ${i + 1}`}
-                className={`input w-full resize-none text-sm ${isBound ? 'border-emerald-400 ring-1 ring-emerald-200' : ''}`} />
+            <div className="flex-1 space-y-1.5">
+              {/* Название темы — ОДНА строка. Идёт в программу (лендинг, Mini App,
+                  веб, слоты) и в тему письма, поэтому описание сюда не вписывают. */}
+              <input value={t} onChange={e => updateTopic(i, e.target.value)}
+                placeholder={`Название темы ${i + 1}`}
+                className={`input w-full text-sm ${isBound ? 'border-emerald-400 ring-1 ring-emerald-200' : ''}`} />
+              <textarea value={descs[i] || ''} onChange={e => updateDesc(i, e.target.value)} rows={3}
+                placeholder="Описание: что будет на выступлении (можно списком)"
+                className="input w-full resize-y text-sm" />
+              <div className="text-[11px] text-gray-400 leading-snug">
+                В программе и в теме письма — только <b>название</b>. Описание уходит в текст
+                рассылки (плейсхолдер <code className="bg-gray-100 rounded px-1">{'{speaker_topic_full}'}</code>).
+              </div>
               {isBound && (
-                <div className="text-[11px] text-emerald-600 mt-1">✓ Тема в слоте программы{slotLabel ? ` (${slotLabel})` : ''}</div>
+                <div className="text-[11px] text-emerald-600">✓ Тема в слоте программы{slotLabel ? ` (${slotLabel})` : ''}</div>
               )}
             </div>
             {topics.length > 1 && (
@@ -187,6 +211,8 @@ export default function ConferenceSpeakerPage() {
   const [eventForm, setEventForm] = useState({
     role: 'speaker',
     topics: [''],
+    // Описания тем — параллельный topics массив (индекс в индекс).
+    topic_descriptions: [''],
     gift_after_speech_title: '',
     gift_after_speech_url: '',
     gift_raffle_title: '',
@@ -324,10 +350,16 @@ export default function ConferenceSpeakerPage() {
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
           : (sp.speaker_topic ? [sp.speaker_topic] : [''])
+        // Описание темы приходит объектом {topic, description}; у старых
+        // (строковых) тем описания нет — подставляем пустые.
+        const rawDescs = sp.topics && sp.topics.length > 0
+          ? sp.topics.map((t: any) => typeof t === 'string' ? '' : (t.description || ''))
+          : []
 
         setEventForm({
           role: sp.role || 'speaker',
           topics: rawTopics.length > 0 ? rawTopics : [''],
+          topic_descriptions: rawDescs,
           // Ручной подарок теперь в manualGifts (список), эти поля не используются.
           gift_after_speech_title: '',
           gift_after_speech_url: '',
@@ -530,7 +562,11 @@ export default function ConferenceSpeakerPage() {
     e.preventDefault()
     setSavingEvent(true); setError(''); setEventSaved(false)
     try {
-      const topics = eventForm.topics.filter(t => t.trim())
+      // Тема = {название, описание}. Пустое название = темы нет.
+      const _descs = (eventForm as any).topic_descriptions || []
+      const topics = eventForm.topics
+        .map((t, i) => ({ topic: (t || '').trim(), description: (_descs[i] || '').trim() }))
+        .filter(t => t.topic)
       // Приоритет берём ИЗ ПОЛЯ (то, что клиент ввёл вручную), а не пересчитываем
       // по роли — иначе ручное значение затиралось. Пусто → дефолт по роли.
       const priority = ((eventForm as any).priority ?? null) !== null
@@ -856,6 +892,8 @@ export default function ConferenceSpeakerPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <FieldLabel label="Темы выступления" empty={!eventForm.topics.some(t => t.trim())} />
           <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))}
+            descriptions={(eventForm as any).topic_descriptions || []}
+            onChangeDescriptions={d => setEventForm(f => ({ ...f, topic_descriptions: d } as any))}
             boundIndex={(eventForm as any).bound_topic_index}
             slotLabel={(eventForm as any).slot_label}
             slotHasTopic={(eventForm as any).slot_has_topic} />

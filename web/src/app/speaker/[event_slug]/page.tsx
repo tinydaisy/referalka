@@ -87,6 +87,9 @@ type SpeakerMe = {
   ref_code: string | null
   ref_links: { telegram?: string; vk?: string; max?: string }
   topics: string[]
+  // Описание темы («что будет на выступлении») — параллельный topics массив.
+  // В программу и в тему письма идёт только НАЗВАНИЕ, описание — в тело рассылки.
+  topic_descriptions?: string[]
   // индекс темы (в topics), привязанной к слоту программы — она уходит в
   // программу и рассылки; null = слота нет или тема не привязана
   bound_topic_index: number | null
@@ -363,6 +366,7 @@ export default function SpeakerCabinetPage() {
         personal_vk_id: me.personal_vk_id, personal_vk_username: me.personal_vk_username,
         personal_max_id: me.personal_max_id, personal_max_username: me.personal_max_username,
         topics: me.topics,
+        topic_descriptions: me.topic_descriptions || [],
         media_assets: Array.isArray(me.media_assets) ? me.media_assets : [],
       }
       if (me.show_gift_after_speech_field) {
@@ -657,8 +661,20 @@ export default function SpeakerCabinetPage() {
     arr[i] = v
     update({ topics: arr })
   }
-  const addTopic = () => update({ topics: [...(me?.topics || []), ''] })
-  const removeTopic = (i: number) => update({ topics: (me?.topics || []).filter((_, idx) => idx !== i) })
+  const addTopic = () => update({
+    topics: [...(me?.topics || []), ''],
+    topic_descriptions: [...(me?.topic_descriptions || []), ''],
+  })
+  const removeTopic = (i: number) => update({
+    topics: (me?.topics || []).filter((_, idx) => idx !== i),
+    topic_descriptions: (me?.topic_descriptions || []).filter((_, idx) => idx !== i),
+  })
+  const updTopicDesc = (i: number, val: string) => {
+    const arr = [...(me?.topic_descriptions || [])]
+    while (arr.length < (me?.topics || []).length) arr.push('')
+    arr[i] = val
+    update({ topic_descriptions: arr })
+  }
 
   // Медийные активы — подписчики на платформе (миграция 111)
   const mediaAssets = (me?.media_assets || []) as { platform: string; subscribers: number }[]
@@ -1053,6 +1069,15 @@ export default function SpeakerCabinetPage() {
                       placeholder={`Тема ${i + 1}`}
                     />
                     <button onClick={() => removeTopic(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
+                  </div>
+                  <textarea
+                    style={{ ...inputCss, marginTop: 6, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
+                    value={(me.topic_descriptions || [])[i] || ''}
+                    onChange={(e) => updTopicDesc(i, e.target.value)}
+                    placeholder="Описание: что будет на выступлении (можно списком)"
+                  />
+                  <div style={{ fontSize: 11, color: '#5c7589', marginTop: 3 }}>
+                    В программе показывается только <b>название</b>. Описание уходит в текст рассылки о вас.
                   </div>
                 </div>
               )

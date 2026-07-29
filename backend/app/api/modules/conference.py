@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
@@ -391,6 +391,8 @@ async def update_conference(
         "chat_button_label", "accent_button", "hide_stream_button",
         # Куда вести со страницы после оплаты (миграция 261)
         "thanks_destination",
+        # Способ регистрации и галочка регистрации на нашем лендинге (262)
+        "registration_mode", "landing_require_registration",
         # Что показывать на «Итогах» при завершении (миграция 195)
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)
@@ -522,7 +524,10 @@ class SpeakerAddToEvent(BaseModel):
     speaker_id: int
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
-    topics: Optional[List[str]] = None
+    # Темы выступления. Элемент — строка (только название) ЛИБО объект
+    # {topic, description}: описание хранится отдельно, в программу и в
+    # заголовок письма идёт только название.
+    topics: Optional[List[Union[str, dict]]] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
@@ -563,7 +568,10 @@ class SpeakerCreateAndAdd(BaseModel):
     # Данные участия в этом событии
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
-    topics: Optional[List[str]] = None
+    # Темы выступления. Элемент — строка (только название) ЛИБО объект
+    # {topic, description}: описание хранится отдельно, в программу и в
+    # заголовок письма идёт только название.
+    topics: Optional[List[Union[str, dict]]] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
@@ -587,7 +595,10 @@ class SpeakerEventUpdate(BaseModel):
     """Обновить данные участия спикера в событии (тема, подарок, роль и т.д.)"""
     role: Optional[str] = None
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
-    topics: Optional[List[str]] = None
+    # Темы выступления. Элемент — строка (только название) ЛИБО объект
+    # {topic, description}: описание хранится отдельно, в программу и в
+    # заголовок письма идёт только название.
+    topics: Optional[List[Union[str, dict]]] = None
     # В каких этапах турнира участвует (поимённая привязка к conf_stages).
     # Управляет видимостью в кабинете, распределении и турнирной таблице.
     stage_ids: Optional[List[int]] = None
@@ -660,12 +671,14 @@ async def _load_topics(cse_ids: list, db) -> dict:
     if not cse_ids:
         return {}
     rows = await db.fetch(
-        "SELECT id, cse_id, topic FROM conf_speaker_topics WHERE cse_id = ANY($1::int[]) ORDER BY cse_id, sort_order",
+        "SELECT id, cse_id, topic, description FROM conf_speaker_topics "
+        "WHERE cse_id = ANY($1::int[]) ORDER BY cse_id, sort_order",
         cse_ids
     )
     result: dict = {}
     for r in rows:
-        result.setdefault(r["cse_id"], []).append({"id": r["id"], "topic": r["topic"]})
+        result.setdefault(r["cse_id"], []).append(
+            {"id": r["id"], "topic": r["topic"], "description": r["description"] or ""})
     return result
 
 
@@ -700,8 +713,19 @@ async def _rewrite_speaker_topics(db, cse_id: int, topics: list) -> None:
     текст (id сохраняются), лишние в хвосте удаляем, недостающие добавляем.
     Тема №1 существует всегда — если тем не осталось, держим её пустой
     (заглушка для привязки слота).
+
+    Элемент списка — либо строка (старый формат: только название), либо словарь
+    {topic, description}. Описание (что будет на выступлении) хранится отдельно
+    от названия: в ПРОГРАММУ (лендинг, Mini App, веб, слоты) и в заголовок письма
+    идёт только название, описание — в тело рассылки и на карточку спикера.
     """
-    clean = [t.strip() for t in (topics or []) if (t or "").strip()]
+    def _split(t):
+        if isinstance(t, dict):
+            return (t.get("topic") or "").strip(), (t.get("description") or "").strip()
+        return (t or "").strip(), ""
+
+    # Пустое НАЗВАНИЕ = темы нет (описание без названия не имеет смысла).
+    clean = [(name, desc) for name, desc in (_split(t) for t in (topics or [])) if name]
 
     rows = await db.fetch(
         "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
@@ -715,27 +739,29 @@ async def _rewrite_speaker_topics(db, cse_id: int, topics: list) -> None:
         )]
 
     # Что записываем: реальные темы, а если их нет — одну пустую (заглушку).
-    texts = clean if clean else [""]
+    texts = clean if clean else [("", "")]
 
-    for i, text in enumerate(texts):
+    for i, (name, desc) in enumerate(texts):
         if i < len(ids):
             await db.execute(
-                "UPDATE conf_speaker_topics SET topic = $1, sort_order = $2 WHERE id = $3",
-                text, i, ids[i],
+                "UPDATE conf_speaker_topics SET topic = $1, description = $2, sort_order = $3 WHERE id = $4",
+                name, (desc or None), i, ids[i],
             )
         else:
             await db.execute(
-                "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
-                cse_id, text, i,
+                "INSERT INTO conf_speaker_topics (cse_id, topic, description, sort_order) VALUES ($1, $2, $3, $4)",
+                cse_id, name, (desc or None), i,
             )
     if len(ids) > len(texts):
         await db.execute(
             "DELETE FROM conf_speaker_topics WHERE id = ANY($1::int[])", ids[len(texts):],
         )
 
+    # event_collaborators.speaker_topic — денормализованное НАЗВАНИЕ (без описания):
+    # оно уходит в программу и в заголовки, описание туда не идёт.
     await db.execute(
         "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
-        (clean[0] if clean else ""), cse_id,
+        (clean[0][0] if clean else ""), cse_id,
     )
 
     # ⚠️ Спикер мог занять слот РАНЬШЕ, чем появилась тема (или тему вписал
@@ -2711,7 +2737,10 @@ class SpeakerSelfUpdate(BaseModel):
     personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
     # Данные выступления (таблица event_collaborators)
-    topics: Optional[List[str]] = None
+    # Темы выступления. Элемент — строка (только название) ЛИБО объект
+    # {topic, description}: описание хранится отдельно, в программу и в
+    # заголовок письма идёт только название.
+    topics: Optional[List[Union[str, dict]]] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None

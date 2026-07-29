@@ -118,7 +118,7 @@ _SPEAKER_ONLY_PLACEHOLDERS = (
     "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
     "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
     "speaker_when",
-    "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
+    "speaker_tg", "speaker_instagram", "speaker_topic_full", "speaker_topic", "speaker_achievements",
     "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
     "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
     "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
@@ -173,6 +173,32 @@ def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
     if (website_url or "").strip():
         lines.append(f"Сайт: {website_url.strip()}")
     return "\n".join(lines)
+
+
+async def _speaker_topics_strings(conn, ec_id) -> tuple:
+    """Темы спикера двумя видами — (только названия, названия + описания).
+
+      {speaker_topic}      → названия (по строке на тему). Идёт в ПРОГРАММУ
+                             (лендинг, Mini App, веб, слоты) и в заголовок письма,
+                             поэтому описание сюда НЕ подмешиваем.
+      {speaker_topic_full} → «Название\\n\\nОписание» (описание через пустую строку).
+                             Для тела рассылки: знакомство, за 5 минут и т.п.
+
+    Описания нет → full совпадает с названием (старое поведение).
+    """
+    rows = await conn.fetch(
+        "SELECT topic, description FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order",
+        ec_id,
+    )
+    names, full = [], []
+    for r in rows:
+        name = (r["topic"] or "").strip()
+        if not name:
+            continue
+        names.append(name)
+        desc = (r["description"] or "").strip()
+        full.append(f"{name}\n\n{desc}" if desc else name)
+    return "\n".join(names), "\n\n".join(full)
 
 
 def _msk_ref_date(fire_at):
@@ -251,7 +277,7 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
                                 vk_url=None, max_url=None, website_url=None,
                                 speaker_notes=None, speaker_ask_topics=None,
                                 speaker_time=None, speaker_date=None, speaker_datetime=None,
-                                speaker_when=None):
+                                speaker_when=None, speaker_topic_full=None):
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -276,6 +302,9 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     ask_topics_v = (speaker_ask_topics or "").strip()
 
     if not topic:
+        # _full — первым: {speaker_topic} является его подстрокой, иначе от
+        # «{speaker_topic_full}» осталась бы строка с хвостом «_full}».
+        text = re.sub(r"^[^\n]*\{speaker_topic_full\}[^\n]*\n?", "", text, flags=re.MULTILINE)
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not ach_text:
         text = re.sub(r"^[^\n]*О спикере[^\n]*\n?", "", text, flags=re.MULTILINE)
@@ -361,6 +390,9 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
             f"<b>С какими темами и вопросами можно обратиться?</b>\n{ask_topics_v}")
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_role}", role_label)
+    # {speaker_topic_full} — ДО {speaker_topic} (это его подстрока, иначе от
+    # full осталось бы «…_full» хвостом). Описания нет → full = просто тема.
+    text = text.replace("{speaker_topic_full}", (speaker_topic_full or topic or ""))
     text = text.replace("{speaker_topic}", topic)
     text = text.replace("{speaker_achievements}", ach_text)
     text = text.replace("{gift_after_speech_title}", gift_title_v)
@@ -541,7 +573,7 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
                             personal_tg=None, tg_channel_url=None, instagram_url=None,
                             vk_url=None, max_url=None, website_url=None,
                             achievements=None, role=None, bio=None, positioning=None,
-                            card_link=None, speaker_notes=None):
+                            card_link=None, speaker_notes=None, speaker_topic_desc=None):
     text = tmpl_text or ""
     text = text.replace("{stream_url}", stream_url_val or "")
     # Полный набор спикер-плейсхолдеров (те же, что в speaker_intro), чтобы
@@ -554,7 +586,15 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
     tg_ch = (tg_channel_url or "").strip()
     insta = (instagram_url or "").strip()
     text = text.replace("{speaker_name}", speaker_name or "")
-    text = text.replace("{speaker_topic}", speaker_topic or "")
+    # {speaker_topic_full} = название + описание через ПУСТУЮ строку; ставим ДО
+    # {speaker_topic} (он — подстрока). Описания нет → full = просто название.
+    _topic_v = (speaker_topic or "").strip()
+    _desc_v = (speaker_topic_desc or "").strip()
+    _topic_full = f"{_topic_v}\n\n{_desc_v}" if (_topic_v and _desc_v) else (_topic_v or _desc_v)
+    if not _topic_full:
+        text = re.sub(r"^[^\n]*\{speaker_topic_full\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{speaker_topic_full}", _topic_full)
+    text = text.replace("{speaker_topic}", _topic_v)
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_achievements}", ach_text)
     personal_mention = f"@{(personal_tg or '').strip().lstrip('@')}" if (personal_tg or '').strip() else ""
@@ -834,9 +874,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
     if not sp:
         return text, photo_already, buttons
 
-    topics = await conn.fetch(
-        "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order", ec_id)
-    topic = "\n".join((t["topic"] or "").strip() for t in topics if (t["topic"] or "").strip())
+    topic, topic_full = await _speaker_topics_strings(conn, ec_id)
     card_link = speaker_card_link(sp["event_slug"], sp["ec_id"], sp["default_link_mode"], sp["bot_handle"])
     sp_time, sp_date, sp_dt = _build_speaker_slot_strings(sp["slot_start"], sp["slot_end"], sp["slot_date"])
 
@@ -849,6 +887,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
         speaker_notes=sp["speaker_notes"], speaker_ask_topics=sp["speaker_ask_topics"],
         speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
         speaker_when=relative_when(sp["slot_date"], sp["slot_start"], ref_date),
+        speaker_topic_full=topic_full,
     )
     text = apply_speaker_material(
         text, build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]))
@@ -1387,13 +1426,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             )
             if sp:
                 resolved_speaker_name = sp["speaker_name"] or ""
-                topics = await conn.fetch(
-                    "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order",
-                    session_id
-                )
                 # Все темы спикера через перенос строки (а не первая) —
                 # у спикеров с темами по дням было видно только одну.
-                topic = "\n".join((t["topic"] or "").strip() for t in topics if (t["topic"] or "").strip())
+                # topic — только названия ({speaker_topic}, идёт и в заголовок),
+                # topic_full — с описаниями ({speaker_topic_full}, для тела).
+                topic, topic_full = await _speaker_topics_strings(conn, session_id)
                 # Приоритет фото: фото шаблона → (в зависимости от режима
                 # speaker_photo_mode) афиша спикера ИЛИ фото коллаба → второй как
                 # fallback. Режим 'photo' = сначала фото коллаба (просто аватар),
@@ -1422,6 +1459,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     speaker_ask_topics=sp["speaker_ask_topics"],
                     speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
                     speaker_when=sp_when,
+                    speaker_topic_full=topic_full,
                 )
                 text = apply_speaker_material(
                     text,
@@ -1471,6 +1509,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.role, cse.id AS ec_id, e.slug AS event_slug,
                        cse.notes AS speaker_notes,
                        cst.topic as speaker_topic,
+                       -- Описание темы («что будет») — для {speaker_topic_full}.
+                       cst.description as speaker_topic_desc,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
                        cse.knowledge_base_title, cse.knowledge_base_url,
@@ -1592,6 +1632,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 positioning=session_data.get("positioning"),
                 card_link=card_link,
                 speaker_notes=session_data.get("speaker_notes"),
+                speaker_topic_desc=session_data.get("speaker_topic_desc"),
             )
             text = apply_speaker_material(text, speaker_material)
         btn_url = btn_url.replace("{stream_url}", stream_url)
@@ -1866,7 +1907,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "speaker_name", "speaker_role", "speaker_personal_tg", "speaker_socials",
         "speaker_tg_username", "speaker_time", "speaker_date", "speaker_datetime",
         "speaker_when",
-        "speaker_tg", "speaker_instagram", "speaker_topic", "speaker_achievements",
+        "speaker_tg", "speaker_instagram", "speaker_topic_full", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
         "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",

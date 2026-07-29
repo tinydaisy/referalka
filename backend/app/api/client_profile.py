@@ -448,13 +448,35 @@ async def public_event_landing_redirect(
     параметров. Иначе пустой объект. Используется в mini-app/index.html
     inline-скриптом для мгновенного редиректа на сторонний лендинг."""
     row = await db.fetchrow(
-        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, landing_url, status, registration_mode FROM events WHERE slug = $1 LIMIT 1",
         slug,
     )
     if not row:
         return {}
     if row["status"] != "published":
         return {}
+
+    # ⚠️ Способ регистрации задаётся явно (миграция 262). NULL — как раньше:
+    # есть свой сайт → на него, иначе встроенная форма.
+    mode = row["registration_mode"] or (
+        "external" if (row["landing_url"] or "").strip() else "form")
+
+    if mode == "form":
+        return {}
+
+    # Наш лендинг: ведём на pluson.ru/e/{slug}. Никаких контактных
+    # параметров туда не тащим — форма заказа опознаёт человека сама.
+    if mode == "landing":
+        published = await db.fetchval(
+            "SELECT is_published FROM event_landing_pages "
+            " WHERE event_id = $1 AND kind = 'main'", row["id"])
+        if not published:
+            return {}   # ещё не собран — остаёмся на простой странице
+        url = f"https://pluson.ru/e/{slug}"
+        if pid:
+            url += f"?pid={pid}"
+        return {"redirect_url": url}
+
     landing_url = (row["landing_url"] or "").strip()
     if not landing_url:
         return {}

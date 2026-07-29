@@ -30,7 +30,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_slot_topic}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_slot_topic}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_topic_full}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -38,7 +38,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'expert_day',
     title: 'Экспертный день (вопросы эксперту)',
     hint: 'Анонс сессии вопросов-ответов с экспертом. Раскладывается по каждому выбранному коллабу (жюри/спикер/организатор), как знакомство со спикером. Ссылка на чат события подставляется автоматически.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_ask_topics}', '{speaker_tg_username}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{brand_name}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_positioning}', '{speaker_ask_topics}', '{speaker_tg_username}', '{speaker_socials}', '{speaker_tg}', '{speaker_instagram}', '{speaker_achievements}', '{speaker_topic}', '{speaker_topic_full}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_bio}', '{speaker_card_link}', '{speaker_material}', '{event_chat_tg}', '{event_chat_vk}', '{event_chat_max}', '{brand_name}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -46,7 +46,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
     hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_role}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
+    variables: ['{speaker_name}', '{speaker_topic}', '{speaker_topic_full}', '{speaker_time}', '{speaker_date}', '{speaker_datetime}', '{speaker_role}', '{speaker_socials}', '{speaker_achievements}', '{speaker_bio}', '{speaker_positioning}', '{speaker_card_link}', '{speaker_material}', '{speaker_notes}', '{stream_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -137,7 +137,8 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_socials}', desc: 'Все соцсети спикера списком (личный Telegram, TG-канал, VK, MAX, Instagram, сайт)' },
   { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
   { name: '{speaker_instagram}', desc: 'Нельзяграм спикера' },
-  { name: '{speaker_topic}', desc: 'Тема выступления' },
+  { name: '{speaker_topic}', desc: 'Тема выступления — только НАЗВАНИЕ (одна строка). Идёт в программу и в тему письма' },
+  { name: '{speaker_topic_full}', desc: 'Тема + описание («что будет на выступлении») через пустую строку. Для тела рассылки' },
   { name: '{speaker_slot_topic}', desc: 'Слот + тема одной строкой: «дата/время (жирным): тема». Нет слота — только тема (без двоеточия). Нет ни того, ни другого — строка убирается' },
   { name: '{speaker_time}', desc: 'Время выступления спикера («14:30–15:00 МСК»). Не задано — строка убирается' },
   { name: '{speaker_date}', desc: 'Дата выступления спикера («6 июля»). Не задана — строка убирается' },
@@ -307,7 +308,7 @@ const CUSTOM_PLACEHOLDERS = [
   // «Сегодня в 14:30 МСК» / «Завтра в 14:30 МСК», иначе обычная дата+время.
   '{event_when}', '{speaker_when}',
   // Работают, если шаблон привязан к слоту спикера.
-  '{speaker_name}', '{speaker_topic}', '{speaker_achievements}',
+  '{speaker_name}', '{speaker_topic}', '{speaker_topic_full}', '{speaker_achievements}',
   '{speaker_time}', '{speaker_date}', '{speaker_datetime}',
 ]
 
@@ -920,10 +921,23 @@ export default function TemplatesPage() {
           ? speaker.topics.map((t: any) => (t?.topic || '').trim()).filter(Boolean)
           : ((speaker.topic || '').trim() ? [(speaker.topic || '').trim()] : [])
         const topic = topicsArr.join('\n')
+        // {speaker_topic_full} — название + описание через пустую строку.
+        const topicFullArr: string[] = (Array.isArray(speaker.topics) && speaker.topics.length > 0)
+          ? speaker.topics.map((t: any) => {
+              const n = (t?.topic || '').trim()
+              const d = (t?.description || '').trim()
+              return n ? (d ? `${n}\n\n${d}` : n) : ''
+            }).filter(Boolean)
+          : topicsArr
+        const topicFull = topicFullArr.join('\n\n')
         const achText = achList.map((a: string) => `• ${a}`).join('\n')
 
         // Сначала убираем строки с пустыми плейсхолдерами (пока они ещё в тексте)
-        if (!topic) out = out.replace(/^[^\n]*\{speaker_topic\}[^\n]*\n?/gm, '')
+        if (!topic) {
+          // _full первым — {speaker_topic} является его подстрокой.
+          out = out.replace(/^[^\n]*\{speaker_topic_full\}[^\n]*\n?/gm, '')
+          out = out.replace(/^[^\n]*\{speaker_topic\}[^\n]*\n?/gm, '')
+        }
         if (!achText) {
           out = out.replace(/^[^\n]*О спикере[^\n]*\n?/gm, '')
           out = out.replace(/^[^\n]*\{speaker_achievements\}[^\n]*\n?/gm, '')
@@ -956,6 +970,7 @@ export default function TemplatesPage() {
           .replace(/\{speaker_socials\}/g, socialsBlock)
           .replace(/\{speaker_name\}/g, speaker.name || '')
           .replace(/\{speaker_role\}/g, roleLabel)
+          .replace(/\{speaker_topic_full\}/g, topicFull)
           .replace(/\{speaker_topic\}/g, topic)
           .replace(/\{speaker_achievements\}/g, achText)
           .replace(/\{gift_after_speech_title\}/g, giftTitle)
@@ -990,6 +1005,12 @@ export default function TemplatesPage() {
         out = out.trimEnd() + '\n\n' + giftBlock
         out = out
           .replace(/\{speaker_name\}/g, speaker.name || '')
+          .replace(/\{speaker_topic_full\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0)
+            ? speaker.topics.map((t: any) => {
+                const n = (t?.topic || '').trim(); const d = (t?.description || '').trim()
+                return n ? (d ? `${n}\n\n${d}` : n) : ''
+              }).filter(Boolean).join('\n\n')
+            : speaker.topic) || 'уточняется')
           .replace(/\{speaker_topic\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0) ? speaker.topics.map((t: any) => t?.topic || '').filter(Boolean).join('\n') : speaker.topic) || 'уточняется')
           .replace(/\{stream_url\}/g, getStreamUrl(day))
       } else {
@@ -1013,6 +1034,12 @@ export default function TemplatesPage() {
         }
         out = out
           .replace(/\{speaker_name\}/g, speaker.name || '')
+          .replace(/\{speaker_topic_full\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0)
+            ? speaker.topics.map((t: any) => {
+                const n = (t?.topic || '').trim(); const d = (t?.description || '').trim()
+                return n ? (d ? `${n}\n\n${d}` : n) : ''
+              }).filter(Boolean).join('\n\n')
+            : speaker.topic) || 'уточняется')
           .replace(/\{speaker_topic\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0) ? speaker.topics.map((t: any) => t?.topic || '').filter(Boolean).join('\n') : speaker.topic) || 'уточняется')
           .replace(/\{stream_url\}/g, getStreamUrl(day))
       }
@@ -1251,6 +1278,7 @@ export default function TemplatesPage() {
       .replace(/\{event_chat_vk\}/g, '')
       .replace(/\{event_chat_max\}/g, '')
       .replace(/\{brand_name\}/g, confData?.event_brand_name || eventData?.brand_name || '[бренд]')
+      .replace(/\{speaker_topic_full\}/g, '[тема с описанием]')
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
       .replace(/\{first_name\}/g, '[Имя]')

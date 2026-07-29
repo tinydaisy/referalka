@@ -138,6 +138,9 @@ class UpdateEventRequest(BaseModel):
     hide_stream_button: Optional[bool] = None
     # Куда вести со страницы после оплаты: 'bots' | 'chats' (миграция 261).
     thanks_destination: Optional[str] = None
+    # Как идёт регистрация: 'form' | 'landing' | 'external' (миграция 262).
+    registration_mode: Optional[str] = None
+    landing_require_registration: Optional[bool] = None
     # Что показывать на вкладке «Итоги» при завершении события (миграция 195):
     # 'next_event' (default) — следующее незавершённое событие; 'gift' — подарок.
     end_action: Optional[str] = None

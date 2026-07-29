@@ -217,7 +217,7 @@ async def get_me(
     if not row:
         raise HTTPException(status_code=404, detail="Спикер не найден (возможно, удалён)")
     topics = await db.fetch(
-        "SELECT id, topic FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
+        "SELECT id, topic, description FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
         se_id
     )
     d = dict(row)
@@ -225,6 +225,9 @@ async def get_me(
     # не показываем, поэтому индекс привязанной темы считаем ПО ЭТОМУ ЖЕ списку.
     visible = [t for t in topics if t["topic"]]
     d["topics"] = [t["topic"] for t in visible]
+    # Описание темы («что будет на выступлении») — отдельным параллельным списком.
+    # В программу идёт только НАЗВАНИЕ, описание — в тело рассылки и на карточку.
+    d["topic_descriptions"] = [(t["description"] or "") for t in visible]
     # Какие темы реально стоят в слотах программы (conf_sessions.topic_id) —
     # их текст уходит в программу и рассылки. У спикера может быть НЕСКОЛЬКО
     # слотов (разные туры/дни), каждый со своей темой. Поэтому отдаём для
@@ -357,6 +360,8 @@ class CabinetUpdate(BaseModel):
     media_assets: Optional[List[dict]] = None
     # Выступление (event_collaborators)
     topics: Optional[List[str]] = None
+    # Описания тем — параллельный списку topics массив (индекс в индекс).
+    topic_descriptions: Optional[List[str]] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
@@ -511,7 +516,13 @@ async def patch_me(
     # («занял слот раньше, чем вписал тему») — из всех точек правки одинаково.
     if data.topics is not None:
         from app.api.modules.conference import _rewrite_speaker_topics
-        await _rewrite_speaker_topics(db, se_id, data.topics)
+        # Описания приходят параллельным массивом (индекс в индекс) — склеиваем
+        # в {topic, description}. Не прислали — описания не трогаем (пустые).
+        _descs = data.topic_descriptions or []
+        await _rewrite_speaker_topics(db, se_id, [
+            {"topic": t, "description": (_descs[i] if i < len(_descs) else "")}
+            for i, t in enumerate(data.topics)
+        ])
 
     # 5. Подарки и материал. Различаем «не передано» (не трогаем) и «передано null»
     # (обнуляем) через model_fields_set — иначе нельзя стереть ручной подарок при

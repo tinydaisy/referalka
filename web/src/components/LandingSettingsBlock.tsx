@@ -21,6 +21,8 @@ import { Globe, Layout, Sparkles } from 'lucide-react'
  *
  * Общий компонент для мероприятий (OverviewTab) и конференций/турниров (SettingsTab).
  */
+type RegMode = 'form' | 'landing' | 'external'
+
 export default function LandingSettingsBlock({
   description, onDescription,
   landingUrl, onLandingUrl,
@@ -29,6 +31,10 @@ export default function LandingSettingsBlock({
   allowExternal = true,
   hasLanding = false,
   landingUrlInternal,
+  regMode,
+  onRegMode,
+  landingRequireReg = true,
+  onLandingRequireReg,
 }: {
   description: string
   onDescription: (v: string) => void
@@ -44,20 +50,31 @@ export default function LandingSettingsBlock({
   hasLanding?: boolean
   /** Адрес плюсоновского лендинга — pluson.ru/e/{slug}. */
   landingUrlInternal?: string
+  /** Способ регистрации: form | landing | external (миграция 262). */
+  regMode?: string | null
+  onRegMode?: (v: RegMode) => void
+  /** Требовать регистрацию на нашем лендинге. */
+  landingRequireReg?: boolean
+  onLandingRequireReg?: (v: boolean) => void
 }) {
   // Режим держим в state — иначе, стерев URL, нельзя было бы остаться в «стороннем»
   // и напечатать новый адрес (поле исчезало бы на первом же символе).
-  const [mode, setMode] = useState<'internal' | 'external'>(
-    allowExternal && landingUrl.trim() ? 'external' : 'internal'
-  )
-  // Событие подгрузилось позже — синхронизируем режим один раз, когда пришёл URL.
-  useEffect(() => {
-    if (allowExternal && landingUrl.trim()) setMode('external')
-  }, [allowExternal, landingUrl])
+  // ⚠️ Способ регистрации задаётся ЯВНО (миграция 262), а не угадывается по
+  // заполненности URL: собранный в конструкторе лендинг в старую схему
+  // «пусто = встроенная, заполнено = чужой сайт» не помещался вовсе.
+  const initialMode: RegMode =
+    regMode === 'landing' || regMode === 'external' || regMode === 'form'
+      ? regMode
+      : (allowExternal && landingUrl.trim() ? 'external' : 'form')
+  const [mode, setMode] = useState<RegMode>(initialMode)
+  useEffect(() => { setMode(initialMode) }, [initialMode])
 
-  const chooseInternal = () => {
-    setMode('internal')
-    if (landingUrl) onLandingUrl('')   // внутренний лендинг = стороннего URL нет
+  const choose = (m: RegMode) => {
+    setMode(m)
+    onRegMode?.(m)
+    // Свой сайт больше не используется — адрес чистим, иначе Mini App
+    // продолжит открывать чужую страницу.
+    if (m !== 'external' && landingUrl) onLandingUrl('')
   }
 
   const isExternal = allowExternal && mode === 'external'
@@ -70,7 +87,7 @@ export default function LandingSettingsBlock({
         <div className="grid gap-3 sm:grid-cols-3">
           <button
             type="button"
-            onClick={chooseInternal}
+            onClick={() => choose('form')}
             className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
               !isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
             }`}>
@@ -81,31 +98,30 @@ export default function LandingSettingsBlock({
             </div>
           </button>
 
-          {/* Плюсоновский лендинг — продающая страница из конструктора.
-              Плитка информационная: собирается он на вкладке «Лендинг», а
-              не здесь, поэтому просто показываем состояние и адрес. */}
-          {/* ⚠️ Плитка СПРАВОЧНАЯ, а не выбор: лендинг собирается на своей
-              вкладке. Подсветку не ставим — выделенным может быть только
-              один тип страницы, иначе непонятно, что выбрано. */}
-          <div className="flex items-start gap-3 rounded-xl border-2 border-gray-200 p-3.5 text-left">
-            <Sparkles size={18} className={hasLanding ? 'mt-0.5 text-[#25455D]' : 'mt-0.5 text-gray-400'} />
+          {/* Наш лендинг: регистрация идёт через него — человек попадает
+              на pluson.ru/e/{slug}, а не на простую страницу. */}
+          <button
+            type="button"
+            onClick={() => choose('landing')}
+            className={`flex items-start gap-3 rounded-xl border-2 p-3.5 text-left transition-all ${
+              mode === 'landing'
+                ? 'border-[#25455D] bg-[#25455D]/5'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+            <Sparkles size={18} className={mode === 'landing' ? 'mt-0.5 text-[#25455D]' : 'mt-0.5 text-gray-400'} />
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-900">Плюсоновский лендинг</p>
-              {hasLanding ? (
-                <p className="mt-0.5 truncate text-xs text-gray-400">
-                  Опубликован: {landingUrlInternal || '—'}
-                </p>
-              ) : (
-                <p className="mt-0.5 text-xs text-gray-400">
-                  Соберите на вкладке «Лендинг» — он заменит простую страницу.
-                </p>
-              )}
+              <p className="mt-0.5 truncate text-xs text-gray-400">
+                {hasLanding
+                  ? `Опубликован: ${landingUrlInternal || ''}`
+                  : 'Соберите его на вкладке «Лендинг»'}
+              </p>
             </div>
-          </div>
+          </button>
 
           <button
             type="button"
-            onClick={() => setMode('external')}
+            onClick={() => choose('external')}
             className={`flex items-start gap-3 p-3.5 rounded-xl border-2 text-left transition-all ${
               isExternal ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 hover:border-gray-300'
             }`}>
@@ -118,7 +134,29 @@ export default function LandingSettingsBlock({
         </div>
       )}
 
-      {isExternal ? (
+      {mode === 'landing' ? (
+        /* ── НАШ ЛЕНДИНГ: только галочка регистрации ── */
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">
+            Человек с кнопки события попадёт на{' '}
+            <span className="font-medium text-gray-700">{landingUrlInternal || 'ваш лендинг'}</span>.
+            {!hasLanding && ' Лендинг ещё не опубликован — соберите его на вкладке «Лендинг».'}
+          </p>
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input type="checkbox" checked={landingRequireReg}
+              onChange={e => onLandingRequireReg?.(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <div>
+              <p className="text-sm font-medium text-gray-800">Требовать регистрацию</p>
+              <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
+                Включено — перед покупкой человек заполняет форму с контактами.
+                Выключено — сразу переходит к оплате, а на бесплатный тариф
+                записываем по его аккаунту.
+              </p>
+            </div>
+          </label>
+        </div>
+      ) : isExternal ? (
         /* ── СТОРОННИЙ: только URL ── */
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">URL вашего лендинга</label>
@@ -138,7 +176,7 @@ export default function LandingSettingsBlock({
         /* ── ВНУТРЕННИЙ: описание + текст кнопки + регистрация без контактов ── */
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание для лендинга</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание под афишей</label>
             <textarea
               value={description}
               onChange={e => onDescription(e.target.value)}
