@@ -374,7 +374,6 @@ async def get_conference(
     # вебинар (тогда ссылка чужая) или комнаты может не быть вовсе (тогда
     # пусто и превью должно ругаться). Раньше фронт всегда склеивал
     # pluson.ru/webinar/{slug}/{day} — показывал несуществующую комнату.
-    from app.services.webinar_service import day_stream_url
     _days = await db.fetch(
         "SELECT day_number FROM conf_days WHERE event_id=$1 ORDER BY day_number", event_id)
     d["stream_links"] = {
