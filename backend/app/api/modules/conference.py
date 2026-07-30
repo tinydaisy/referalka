@@ -194,8 +194,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                     "speaker_role": s["speaker_role"],
                     "speaker_title": s["speaker_title"],
                     "photo_url": s["photo_url"],
-                    "gift_title": s["gift_after_speech_title"],
-                    "gift_url": s["gift_after_speech_url"],
+                    "gift_title": s.get("gift_after_speech_title"),
+                    "gift_url": s.get("gift_after_speech_url"),
                 }
                 for s in day_sessions
             ]
@@ -220,8 +220,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                 "photo_url": s["photo_url"] or "",
                 "tg_channel_url": s["tg_channel_url"] or "",
                 "speaker_topic": s["speaker_topic"] or "",
-                "gift_after_speech_title": s["gift_after_speech_title"] or "",
-                "gift_after_speech_url": s["gift_after_speech_url"] or "",
+                "gift_after_speech_title": s.get("gift_after_speech_title") or "",
+                "gift_after_speech_url": s.get("gift_after_speech_url") or "",
                 "gift_raffle_title": s["gift_raffle_title"] or "",
                 "gift_raffle_url": s["gift_raffle_url"] or "",
             }
@@ -1273,13 +1273,12 @@ async def add_speaker_from_base(
             raise HTTPException(status_code=400, detail="poster_id не из библиотеки этого коллаба")
     cse = await db.fetchrow(
         """INSERT INTO event_collaborators
-           (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
+           (speaker_id, event_id, role, speaker_topic,
             gift_raffle_title, gift_raffle_url,
             poster_id, partner_url, extra_info, notes, is_commercial, is_visible, sort_order,
             show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *""",
         data.speaker_id, event_id, data.role, first_topic,
-        data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
         data.poster_id, data.partner_url, data.extra_info, data.notes,
         data.is_commercial, data.is_visible, data.sort_order,
@@ -1443,13 +1442,12 @@ async def create_and_add_speaker(
         show_kb_default = False
         cse = await db.fetchrow(
             """INSERT INTO event_collaborators
-               (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
+               (speaker_id, event_id, role, speaker_topic,
                 gift_raffle_title, gift_raffle_url,
                 partner_url, extra_info, notes, is_commercial, is_visible, sort_order,
                 show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
             sp["id"], event_id, data.role, first_topic,
-            data.gift_after_speech_title, data.gift_after_speech_url,
             data.gift_raffle_title, data.gift_raffle_url,
             data.partner_url, data.extra_info, data.notes,
             data.is_commercial, data.is_visible, data.sort_order,
@@ -1552,14 +1550,12 @@ async def update_speaker_event(
             updates[k] = v
 
     # Выбрали ПЛЮСОН-магнит/пакет → снимаем ручной подарок; 0 = снять ПЛЮСОН-привязки.
+    # ⚠️ Колонок gift_after_speech_* больше НЕТ — в UPDATE их не кладём.
+    # «Взаимоисключение» ручного и плюсоновского живёт в списке подарков.
     if updates.get("gift_lead_magnet_id"):
         updates["gift_package_id"] = None
-        updates["gift_after_speech_title"] = None
-        updates["gift_after_speech_url"] = None
     elif updates.get("gift_package_id"):
         updates["gift_lead_magnet_id"] = None
-        updates["gift_after_speech_title"] = None
-        updates["gift_after_speech_url"] = None
     else:
         if updates.get("gift_lead_magnet_id") == 0:
             updates["gift_lead_magnet_id"] = None
@@ -2679,12 +2675,12 @@ async def generate_broadcasts_from_schedule(
             created += 1
 
         # После выступления — подарок
-        if s["end_time"] and (s["gift_after_speech_title"] or s.get("gift_description")):
+        if s["end_time"] and (s.get("gift_after_speech_title") or s.get("gift_description")):
             eh, em = map(int, str(s["end_time"])[:5].split(":"))
             msk_naive_end = datetime.combine(s["day_date"], time(eh, em))
             utc_end = msk_naive_end - timedelta(hours=3)
-            gift_text = s["gift_after_speech_title"] or s["gift_description"] or "Подарок"
-            gift_url = s["gift_after_speech_url"] or ""
+            gift_text = s.get("gift_after_speech_title") or s.get("gift_description") or "Подарок"
+            gift_url = s.get("gift_after_speech_url") or ""
             existing2 = await db.fetchrow(
                 "SELECT id FROM conf_broadcast_messages WHERE session_id=$1 AND type='post_thanks'",
                 s["id"]
