@@ -222,6 +222,13 @@ function PlaceholderPicker({ common, onInsert }: { common: string[]; onInsert: (
 }
 
 // Роли коллабораторов для выбора в шаблоне «Знакомство со спикерами».
+// Подписи площадок в списке ссылок, когда своей площадки нет и даём чужие.
+// Держим в синхроне с share_links.PLATFORM_LABEL на бэке.
+const PLATFORM_LABEL_RU: Record<string, string> = {
+  telegram: 'Через Телеграм', max: 'Через МАКС', vk: 'Через ВК',
+}
+const MULTI_LINK_ORDER = ['telegram', 'max', 'vk']
+
 const INTRO_ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: 'headliner', label: 'Хедлайнеры' },
   { value: 'speaker', label: 'Спикеры' },
@@ -939,10 +946,12 @@ export default function TemplatesPage() {
     // отправке. Иначе в превью на вкладке ВК стояла вк-ссылка, хотя ВК у
     // события снят галочкой и человека надо уводить в MAX.
     for (const p of ((confData as any)?.disabled_platforms || [])) links[p] = ''
-    const order = platform === 'max' ? ['max', 'vk', 'telegram']
-      : platform === 'vk' ? ['vk', 'max', 'telegram']
-      : ['telegram', 'max', 'vk']
-    for (const p of order) if (links[p]) return links[p]
+    // Правило то же, что на сервере (share_links.pick_signup_link): своя
+    // площадка → только она; своей нет (нет бота или площадка выключена) →
+    // ВСЕ имеющиеся с подписью, чтобы никто не остался без рабочей ссылки.
+    if (links[platform]) return links[platform]
+    const rest = MULTI_LINK_ORDER.filter(p => links[p]).map(p => `${PLATFORM_LABEL_RU[p]}: ${links[p]}`)
+    if (rest.length) return rest.join('\n')
     // Своего бота нет ни на одной площадке — уводим на веб-страницу регистрации
     // (тот же фолбэк, что на сервере), иначе кнопка была бы пустой.
     return landingUrl()
@@ -956,10 +965,12 @@ export default function TemplatesPage() {
   function giftMagnetUrl(g: any, platform: 'telegram' | 'vk' | 'max'): string {
     const ol = g?.owner_links
     if (ol) {
-      const order = platform === 'max' ? ['max', 'vk', 'telegram']
-        : platform === 'vk' ? ['vk', 'max', 'telegram']
-        : ['telegram', 'max', 'vk']
-      for (const p of order) if (ol[p]) return String(ol[p])
+      // Правило то же, что при отправке (share_links.pick_gift_funnel_link):
+      // есть ссылка на площадке получателя → только она; своей нет (у спикера,
+      // скажем, нет ВК) → ВСЕ имеющиеся с подписью площадки.
+      if (ol[platform]) return String(ol[platform])
+      const rest = MULTI_LINK_ORDER.filter(p => ol[p]).map(p => `${PLATFORM_LABEL_RU[p]}: ${ol[p]}`)
+      if (rest.length) return rest.join('\n')
     }
     if (g?.funnel_slug && g?.funnel_kind) return giftFunnelLink(g.funnel_kind, g.funnel_slug, platform)
     return g?.url || ''
@@ -1276,8 +1287,19 @@ export default function TemplatesPage() {
       if (r === 'partner')                         return 11
       return 12
     }
+    // ⚠️ ОДИН спикер — ОДИН блок подарков. Список строится из СЕССИЙ дня, а у
+    // спикера их может быть несколько (у Марго Форбс — 2 в первый день и 3 во
+    // второй) — без этого его подарки повторялись столько же раз. На бэкенде
+    // то же самое делает DISTINCT ON (cse.id) в message_builder.
+    const seenGiftSpeakers = new Set<any>()
     const speakerGiftBlocks = [...daySessions]
       .filter((s: any) => s.speaker_name && !s.exclude_gift_from_broadcast)
+      .filter((s: any) => {
+        const key = s.speaker_id ?? s.speaker_name
+        if (seenGiftSpeakers.has(key)) return false
+        seenGiftSpeakers.add(key)
+        return true
+      })
       .sort((a: any, b: any) => {
         const g = roleOrder(a) - roleOrder(b)
         if (g !== 0) return g

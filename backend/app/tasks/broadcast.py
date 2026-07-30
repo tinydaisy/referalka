@@ -386,6 +386,7 @@ async def _send_broadcast(schedule_id: int):
         # {signup_link} — регистрация в боте ПЛОЩАДКИ ПОЛУЧАТЕЛЯ (deeplink evsignup_).
         needs_signup = ("{signup_link}" in (text or "")) or ("{signup_link}" in (button_url or ""))
         signup_by_platform: dict[str, str] = {}
+        signup_btn_by_platform: dict[str, str] = {}
         support_by_platform: dict[str, str] = {}
         support_all_block = ""
         support_cmd_by_platform: dict[str, str] = {}
@@ -426,15 +427,28 @@ async def _send_broadcast(schedule_id: int):
             for _p in await get_event_disabled_platforms(conn, event_id=schedule["event_id"]):
                 _slinks[_p] = ""
             _web = await resolve_landing_url(conn, schedule["event_id"])
+            from app.services.share_links import pick_single_link
+            # В ТЕКСТЕ: своя площадка → она; нет своей → ВСЕ имеющиеся с подписью
+            # «Через Телеграм»/«Через МАКС» (иначе часть людей получит ссылку в
+            # мессенджер, которым не пользуется).
             signup_by_platform = {
                 p: pick_signup_link(_slinks, p, _web)
                 for p in ("telegram", "vk", "max", "email")
             }
+            # В КНОПКЕ: строго ОДИН адрес — многострочный список Telegram отвергает
+            # («inline keyboard button URL is invalid»), и не доходит всё сообщение.
+            signup_btn_by_platform = {
+                p: pick_single_link(_slinks, p, _web)
+                for p in ("telegram", "vk", "max", "email")
+            }
 
-        def _with_support(txt: str | None, platform: str) -> str:
+        def _with_support(txt: str | None, platform: str, *, as_url: bool = False) -> str:
             """{support_platform}/{support_link} → ОДИН контакт по площадке;
             {support_links} → ВСЯ куча списком; {support_command} → deeplink-кнопка
-            вызова команды support. Единый резолв (support_message.py / share_links)."""
+            вызова команды support. Единый резолв (support_message.py / share_links).
+
+            as_url=True — подставляем в АДРЕС КНОПКИ: там допустим ровно один URL,
+            поэтому {signup_link} резолвится одной ссылкой, а не списком площадок."""
             if not txt:
                 return txt or ""
             if needs_support_link:
@@ -444,7 +458,8 @@ async def _send_broadcast(schedule_id: int):
             if needs_support_cmd:
                 txt = txt.replace("{support_command}", support_cmd_by_platform.get(platform, ""))
             if needs_signup:
-                txt = txt.replace("{signup_link}", signup_by_platform.get(platform, ""))
+                _smap = signup_btn_by_platform if as_url else signup_by_platform
+                txt = txt.replace("{signup_link}", _smap.get(platform, ""))
             return txt
 
         def _clean_url(u: str) -> str:
@@ -484,15 +499,19 @@ async def _send_broadcast(schedule_id: int):
         for _kind, _slug in _gf_slugs:
             _gf_links[(_kind, _slug)] = await build_gift_funnel_links_by_owner(conn, _kind, _slug)
 
-        def _with_gift_funnel(txt: str | None, platform: str) -> str:
-            """Заменить токены ⟦GF:kind:slug⟧ ссылкой на воронку нужной площадки
-            (приоритет + фолбэк — в pick_gift_funnel_link, общая логика)."""
+        def _with_gift_funnel(txt: str | None, platform: str, *, as_url: bool = False) -> str:
+            """Заменить токены ⟦GF:kind:slug⟧ ссылкой на воронку нужной площадки.
+
+            В ТЕКСТЕ: своей площадки у хозяина магнита нет → перечисляем ВСЕ его
+            площадки с подписью «Через Телеграм»/«Через МАКС» (pick_gift_funnel_link).
+            В КНОПКЕ (as_url=True): строго ОДИН адрес — список Telegram отвергает."""
             if not txt or not _gf_slugs:
                 return txt or ""
+            from app.services.share_links import pick_single_link as _pick_one
 
             def _sub(m):
                 links = _gf_links.get((m.group(1), m.group(2))) or {}
-                return pick_gift_funnel_link(links, platform)
+                return _pick_one(links, platform) if as_url else pick_gift_funnel_link(links, platform)
             return _GF_TOKEN.sub(_sub, txt)
 
         def _with_platform_subst(txt: str | None, platform: str) -> str:
@@ -616,7 +635,7 @@ async def _send_broadcast(schedule_id: int):
         async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
                 msg_text = _with_gift_funnel(_with_support(text, "telegram"), "telegram")
-                msg_btn_url = _clean_url(_with_gift_funnel(_with_support(button_url, "telegram"), "telegram"))
+                msg_btn_url = _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True))
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 if needs_game_link:
@@ -754,7 +773,7 @@ async def _send_broadcast(schedule_id: int):
                                 http_extra, default_bot_token, cid,
                                 _with_gift_funnel(_with_support(text, "telegram"), "telegram"),
                                 photo_url, button_text,
-                                _clean_url(_with_gift_funnel(_with_support(button_url, "telegram"), "telegram")),
+                                _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True)),
                                 buttons=buttons,
                                 video_url=video_url if media_type == "video" else None,
                                 on_message_id=lambda mid: _chat_mids.append(mid),
@@ -774,7 +793,7 @@ async def _send_broadcast(schedule_id: int):
             vk_sent = await _send_broadcast_vk_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "vk"), "vk"),
-                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "vk"), "vk")),
+                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "vk", as_url=True), "vk", as_url=True)),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -791,7 +810,7 @@ async def _send_broadcast(schedule_id: int):
             max_sent = await _send_broadcast_max_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "max"), "max"),
-                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "max"), "max")),
+                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "max", as_url=True), "max", as_url=True)),
                 buttons=buttons, target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -807,7 +826,7 @@ async def _send_broadcast(schedule_id: int):
             email_sent = await _send_broadcast_email_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text_for_email, "email"), "email"),
-                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "email"), "email")),
+                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "email", as_url=True), "email", as_url=True)),
                 buttons=buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,

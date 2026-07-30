@@ -231,17 +231,54 @@ SIGNUP_FALLBACK_ORDER = {
     "email": ("telegram", "max", "vk"),
 }
 
+# Подпись площадки в списке ссылок, когда СВОЕЙ площадки нет и даём чужие.
+# Используется и подарками, и ссылкой регистрации — правило общее.
+PLATFORM_LABEL: dict[str, str] = {
+    "telegram": "Через Телеграм",
+    "max": "Через МАКС",
+    "vk": "Через ВК",
+}
 
-def pick_signup_link(links: dict[str, str], platform: str, web_url: str = "") -> str:
-    """Ссылка регистрации для получателя НА ЕГО площадке.
+# Порядок перечисления, когда ссылок несколько. Одинаковый на всех площадках —
+# читателю важна стабильность списка, а не приоритет отправителя.
+_MULTI_ORDER: tuple[str, ...] = ("telegram", "max", "vk")
 
-    Нет своей → берём соседнюю по SIGNUP_FALLBACK_ORDER (например из ВК уводим
-    в MAX). Совсем ничего нет → веб-страница регистрации (web_url).
+
+def pick_single_link(links: dict[str, str], platform: str, fallback: str = "") -> str:
+    """ОДНА ссылка для площадки — для случаев, где список невозможен.
+
+    ⚠️ Нужна для АДРЕСА КНОПКИ: в кнопку помещается ровно один URL, многострочный
+    список туда класть нельзя (Telegram отвергает всё сообщение целиком). В ТЕКСТЕ
+    же правильнее показать все площадки — там работают pick_signup_link /
+    pick_gift_funnel_link.
+
+    Своя площадка → она; иначе ближайшая по SIGNUP_FALLBACK_ORDER; иначе fallback.
     """
     for p in SIGNUP_FALLBACK_ORDER.get(platform, SIGNUP_FALLBACK_ORDER["telegram"]):
         if links.get(p):
             return links[p]
-    return web_url
+    return fallback
+
+
+def pick_signup_link(links: dict[str, str], platform: str, web_url: str = "") -> str:
+    """Ссылка(и) регистрации для получателя НА ЕГО площадке.
+
+    Правило то же, что у подарков (см. pick_gift_funnel_link):
+      • Есть ссылка на площадке получателя → ТОЛЬКО она, без подписи.
+      • Своей нет (нет бота или площадка выключена в настройках события) →
+        ВСЕ имеющиеся, каждая с подписью «Через Телеграм» / «Через МАКС».
+      • Совсем ничего нет → веб-страница регистрации (web_url).
+    """
+    own = links.get(platform)
+    if own:
+        return own
+    rest = [(p, links[p]) for p in _MULTI_ORDER if links.get(p)]
+    if not rest:
+        return web_url
+    if len(rest) == 1:
+        p, url = rest[0]
+        return f"{PLATFORM_LABEL.get(p, p)}: {url}"
+    return "\n".join(f"{PLATFORM_LABEL.get(p, p)}: {url}" for p, url in rest)
 
 
 def build_support_command_links(handles: dict[str, str | None], event_id: int) -> dict[str, str]:
@@ -437,15 +474,32 @@ GIFT_FUNNEL_PLATFORM_PRIORITY: dict[str, tuple[str, ...]] = {
 
 
 def pick_gift_funnel_link(links: dict, platform: str) -> str:
-    """Выбрать ссылку воронки для площадки по приоритету с фолбэком.
+    """Ссылка(и) воронки подарка для площадки получателя.
 
     links — {'telegram'|'vk'|'max' → url}, как отдаёт build_funnel_landing_links
-    (только те площадки, где у клиента подключён свой бот/сообщество).
-    Нет ни одной → '' (ссылка не строится)."""
-    for _p in GIFT_FUNNEL_PLATFORM_PRIORITY.get(platform, GIFT_FUNNEL_PLATFORM_PRIORITY["telegram"]):
-        if links.get(_p):
-            return links[_p]
-    return ""
+    (только те площадки, где у ХОЗЯИНА магнита подключён свой бот/сообщество).
+
+    Правило (2026-07-30):
+      • Есть ссылка на площадке получателя → отдаём ТОЛЬКО её, без подписи.
+        Человек уже в этом мессенджере — уводить его в другой незачем.
+      • Своей нет (у спикера нет, скажем, ВК) → отдаём ВСЕ имеющиеся, каждую
+        с подписью площадки «Через Телеграм» / «Через МАКС», по строке на ссылку.
+        Иначе часть аудитории получила бы ссылку в мессенджер, которым не
+        пользуется, и молча потеряла подарок.
+      • Нет ни одной → '' (строка с плейсхолдером убирается выше по стеку).
+    """
+    own = links.get(platform)
+    if own:
+        return own
+    rest = [(p, links[p]) for p in _MULTI_ORDER if links.get(p)]
+    if not rest:
+        return ""
+    if len(rest) == 1:
+        # Единственная альтернатива — подпись всё равно нужна: получатель должен
+        # понимать, что ссылка уводит в другой мессенджер.
+        p, url = rest[0]
+        return f"{PLATFORM_LABEL.get(p, p)}: {url}"
+    return "\n".join(f"{PLATFORM_LABEL.get(p, p)}: {url}" for p, url in rest)
 
 
 async def gift_funnel_owner_id(db, kind: str, slug: str) -> int | None:
