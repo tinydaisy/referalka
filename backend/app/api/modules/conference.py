@@ -905,7 +905,16 @@ async def _save_single_gift_to_list(db, ec_id: int, title, url) -> None:
     t = (title or "").strip()
     u = (url or "").strip()
     if t and u:
-        await save_ec_gifts(db, ec_id, [{"kind": "manual", "title": t, "url": u}], None)
+        # ⚠️ НЕ save_ec_gifts: она перезаписывает ВЕСЬ список и снесла бы
+        # плюсоновские подарки спикера. Меняем только ручную часть.
+        await db.execute(
+            "DELETE FROM event_collaborator_lead_magnets "
+            " WHERE ec_id=$1 AND manual_title IS NOT NULL", ec_id)
+        await db.execute(
+            "INSERT INTO event_collaborator_lead_magnets (ec_id, manual_title, manual_url, sort_order) "
+            "VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order)+1 FROM "
+            "  event_collaborator_lead_magnets WHERE ec_id=$1), 0))",
+            ec_id, t, u)
     elif not t and not u:
         await db.execute(
             "DELETE FROM event_collaborator_lead_magnets "
