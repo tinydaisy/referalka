@@ -1216,8 +1216,12 @@ export default function TemplatesPage() {
     const d = day ?? testDay
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
     // Для конференции — данные из conf_days/conf_conferences. Для мероприятия —
-    // прямые поля events.title / events.stream_url / events.landing_url.
-    const realStreamUrl = dayObj?.stream_url || ''
+    // прямые поля events.title / events.landing_url.
+    // ⚠️ Ссылка эфира — ТОЛЬКО через getStreamUrl (готовые stream_links с
+    // сервера: сторонний вебинар или наша комната). Поля conf_days.stream_url
+    // больше нет — дневные шаблоны («за 30 минут», «старт дня», «за 2 часа»)
+    // показывали заглушку «[ссылка на эфир]», хотя комната задана.
+    const realStreamUrl = getStreamUrl(d)
     // Ссылка регистрации приходит с бэка уже готовой (registration_link): она
     // учитывает способ регистрации события и НЕ бывает пустой. Сторонний
     // landing_url — фолбэк для старых ответов API.
