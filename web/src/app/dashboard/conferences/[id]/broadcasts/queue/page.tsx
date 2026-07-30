@@ -1039,6 +1039,24 @@ export default function QueuePage() {
                       <span className="text-xs text-gray-400">
                         {audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
                       </span>
+                      {/* Отмеченные чаты — итоговые флаги с сервера (учитывают
+                          наследование от шаблона и правку в очереди). Видно, куда
+                          именно уйдёт рассылка помимо базы. */}
+                      {(() => {
+                        const chats: string[] = []
+                        if (s.eff_send_to_event_chats ?? s.send_to_event_chats) chats.push('чаты события')
+                        if (s.eff_send_to_client_chats ?? s.send_to_client_chats) chats.push('общие чаты')
+                        if (s.eff_send_to_private_chats ?? s.send_to_private_chats) chats.push('личные каналы')
+                        if (!chats.length) return null
+                        return (
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200"
+                            title="Кроме базы рассылка уйдёт ещё сюда"
+                          >
+                            + {chats.join(', ')}
+                          </span>
+                        )
+                      })()}
                     </div>
 
                     {/* Строка 2: спикер + тема */}

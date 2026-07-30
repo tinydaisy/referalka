@@ -539,7 +539,7 @@ async def patch_me(
     if "gift_after_speech_title" in sent_fields or "gift_after_speech_url" in sent_fields:
         from app.api.modules.conference import _save_single_gift_to_list
         await _save_single_gift_to_list(
-            db, ec_id, data.gift_after_speech_title, data.gift_after_speech_url)
+            db, se_id, data.gift_after_speech_title, data.gift_after_speech_url)
     for f in ("gift_raffle_title", "gift_raffle_url",
               "knowledge_base_title", "knowledge_base_url", "notes"):
         if f in sent_fields:
