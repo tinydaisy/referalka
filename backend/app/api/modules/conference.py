@@ -138,7 +138,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     sessions = await db.fetch(
         """SELECT s.*, COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   sp.name AS speaker_name, cse.role AS speaker_role,
-                  sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
+                  sp.title AS speaker_title, sp.photo_url, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
            FROM conf_sessions s
            -- is_visible=FALSE («Исключать из Mini App и лендинга») → слот остаётся,
            -- данные скрытого спикера в публичную выдачу не идут.
@@ -893,6 +893,25 @@ async def save_ec_gifts(db, ec_id: int, items: list, linked_client_id: int | Non
         await db.execute("UPDATE event_collaborators SET gift_lead_magnet_id=NULL, gift_package_id=NULL WHERE id=$1", ec_id)
 
 
+
+async def _save_single_gift_to_list(db, ec_id: int, title, url) -> None:
+    """Одиночный подарок из payload → В СПИСОК event_collaborator_lead_magnets.
+
+    ⚠️ Колонок gift_after_speech_title/url в таблице БОЛЬШЕ НЕТ (перенос
+    2026-07-30): подарков может быть много и любого вида, они живут в списке.
+    Пустые название+ссылка = очистка РУЧНЫХ подарков (плюсоновские спикера
+    не трогаем — их привязывает он сам в своём кабинете).
+    """
+    t = (title or "").strip()
+    u = (url or "").strip()
+    if t and u:
+        await save_ec_gifts(db, ec_id, [{"kind": "manual", "title": t, "url": u}], None)
+    elif not t and not u:
+        await db.execute(
+            "DELETE FROM event_collaborator_lead_magnets "
+            " WHERE ec_id=$1 AND manual_title IS NOT NULL", ec_id)
+
+
 async def apply_default_speaker_stages(ec_id: int, event_id: int, db) -> None:
     """Привязывает нового спикера к этапам «по умолчанию» (conf_conferences.
     default_speaker_stage_ids). Используется при саморегистрации и добавлении из
@@ -963,7 +982,7 @@ async def list_event_speakers(
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_lead_magnet_id, cse.gift_package_id,
                   lm.name AS gift_lm_name, lm.url AS gift_lm_url,
                   lp.name AS gift_lp_name, lp.slug AS gift_lp_slug,
@@ -1120,7 +1139,7 @@ async def list_event_speakers(
 async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.role, cse.speaker_topic,
-                  cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_lead_magnet_id, cse.gift_package_id,
                   lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
@@ -1158,7 +1177,7 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
     """
     row = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.poster_id,
                   cse.use_photo_instead_of_poster,
@@ -1456,16 +1475,16 @@ async def update_speaker_event(
         linked = await db.fetchval(
             "SELECT c.linked_client_id FROM collaborators c JOIN event_collaborators ec ON ec.speaker_id=c.id WHERE ec.id=$1",
             speaker_event_id)
-        # Ручной подарок снимает legacy-поля ручного ввода (взаимоисключение).
-        await db.execute(
-            "UPDATE event_collaborators SET gift_after_speech_title=NULL, gift_after_speech_url=NULL WHERE id=$1 AND event_id=$2",
-            speaker_event_id, event_id)
+        # ⚠️ Одиночных колонок gift_after_speech_* больше НЕТ — все подарки
+        # живут в event_collaborator_lead_magnets (перенос 2026-07-30).
         await save_ec_gifts(db, speaker_event_id, gift_items, linked)
     clear_pluson_gifts = bool(raw.pop("clear_pluson_gifts", None))
     if clear_pluson_gifts:
         # Снимаем ПЛЮСОН-подарки (список + одиночные), привязку linked_client_id
         # не трогаем — она принадлежит спикеру, снимается только в его кабинете.
-        await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id=$1", speaker_event_id)
+        await db.execute(
+            "DELETE FROM event_collaborator_lead_magnets WHERE ec_id=$1 "
+            "  AND (lead_magnet_id IS NOT NULL OR package_id IS NOT NULL)", speaker_event_id)
         await db.execute(
             "UPDATE event_collaborators SET gift_lead_magnet_id=NULL, gift_package_id=NULL WHERE id=$1 AND event_id=$2",
             speaker_event_id, event_id)
@@ -1499,8 +1518,22 @@ async def update_speaker_event(
     # иначе снять ПЛЮСОН-подарок или стереть ручной было бы нельзя (null молча
     # выбрасывался). Плюс взаимоисключение ПЛЮСОН ↔ ручной, как в кабинете спикера.
     fs = data.model_fields_set
-    GIFT_NULLABLE = {"gift_lead_magnet_id", "gift_package_id",
-                     "gift_after_speech_title", "gift_after_speech_url"}
+    GIFT_NULLABLE = {"gift_lead_magnet_id", "gift_package_id"}
+    # ⚠️ Одиночный подарок из payload (старый формат клиента) пишем В СПИСОК —
+    # колонок gift_after_speech_* в таблице больше нет.
+    if "gift_after_speech_title" in fs or "gift_after_speech_url" in fs:
+        _t = (raw.pop("gift_after_speech_title", None) or "").strip()
+        _u = (raw.pop("gift_after_speech_url", None) or "").strip()
+        if _t and _u:
+            await save_ec_gifts(db, speaker_event_id,
+                                [{"kind": "manual", "title": _t, "url": _u}], None)
+        elif not _t and not _u:
+            # очистка: убираем только РУЧНЫЕ подарки, плюсоновские спикера не трогаем
+            await db.execute(
+                "DELETE FROM event_collaborator_lead_magnets "
+                " WHERE ec_id=$1 AND manual_title IS NOT NULL", speaker_event_id)
+    raw.pop("gift_after_speech_title", None)
+    raw.pop("gift_after_speech_url", None)
     updates = {}
     for k, v in raw.items():
         if k in GIFT_NULLABLE:
@@ -2057,7 +2090,7 @@ async def list_sessions(
                   col.photo_url,
                   pu_tg.username AS personal_tg_username,
                   cse.role as speaker_role, cse.is_commercial,
-                  cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.exclude_gift_from_broadcast,
                   -- Список подарков спикера (ручные + плюсоновские). ⚠️ Нужен
                   -- превью «Итогов дня»: оно смотрело только на одиночное
@@ -2120,7 +2153,7 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
                   s.speaker_id AS speaker_event_id,
                   col.name as speaker_name, col.title as speaker_title,
                   col.photo_url, cse.role as speaker_role,
-                  cse.gift_after_speech_title, cse.gift_after_speech_url
+                  (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
@@ -2599,7 +2632,7 @@ async def generate_broadcasts_from_schedule(
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
         """SELECT s.*, d.day_date,
-                  spg.name AS speaker_name, cse.gift_after_speech_title, cse.gift_after_speech_url
+                  spg.name AS speaker_name, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
@@ -2850,7 +2883,7 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
     # Резолв: ref_code → contacts → collaborators → event_collaborators
     row = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial, c.ref_code, cse.keyword_code,
                   sp.name, sp.title, sp.achievements,
@@ -2952,8 +2985,13 @@ async def update_speaker_by_ref_code(
 
     # Обновляем данные выступления (event_collaborators)
     event_updates: dict = {}
-    for f in ("gift_after_speech_title", "gift_after_speech_url",
-              "gift_raffle_title", "gift_raffle_url",
+    if getattr(data, "gift_after_speech_title", None) is not None \
+            or getattr(data, "gift_after_speech_url", None) is not None:
+        await _save_single_gift_to_list(
+            db, speaker_event_id,
+            getattr(data, "gift_after_speech_title", None),
+            getattr(data, "gift_after_speech_url", None))
+    for f in ("gift_raffle_title", "gift_raffle_url",
               "knowledge_base_title", "knowledge_base_url",
               "show_topic_field", "show_gift_after_speech_field",
               "show_knowledge_base_field", "show_notes_field"):
@@ -2990,7 +3028,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
 
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, c.ref_code, cse.keyword_code,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
@@ -3089,8 +3127,13 @@ async def update_speaker_as_editor(
 
     # Выступление
     event_updates: dict = {}
-    for k in ["gift_after_speech_title", "gift_after_speech_url",
-              "gift_raffle_title", "gift_raffle_url",
+    if getattr(data, "gift_after_speech_title", None) is not None \
+            or getattr(data, "gift_after_speech_url", None) is not None:
+        await _save_single_gift_to_list(
+            db, speaker_event_id,
+            getattr(data, "gift_after_speech_title", None),
+            getattr(data, "gift_after_speech_url", None))
+    for k in ["gift_raffle_title", "gift_raffle_url",
               "keyword_code",
               "knowledge_base_title", "knowledge_base_url",
               "show_topic_field", "show_gift_after_speech_field",
@@ -3112,7 +3155,7 @@ async def update_speaker_as_editor(
     # Возвращаем обновлённые данные
     row = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, c.ref_code, cse.keyword_code,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
@@ -3176,7 +3219,7 @@ async def export_salebot(
     # Спикеры
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.role,
-                  cse.gift_after_speech_title, cse.gift_raffle_title,
+                  (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, cse.gift_raffle_title,
                   cse.sort_order, cse.is_visible,
                   sp.name, sp.title, sp.achievements,
                   sp.tg_channel_url, sp.tg_channel_id, sp.instagram_url
@@ -3488,7 +3531,7 @@ async def send_speaker_to_telegram(
     # Данные спикера
     row = await db.fetchrow(
         """SELECT cse.id, cse.role,
-                  cse.gift_after_speech_title, cse.gift_raffle_title,
+                  (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, cse.gift_raffle_title,
                   CASE WHEN cse.use_photo_instead_of_poster THEN NULL
                        ELSE cp_cse.url END AS cse_poster_url,
                   sp.name, sp.achievements,

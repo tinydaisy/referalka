@@ -135,7 +135,13 @@ async def _sync_gift_magnet_list_from_legacy(db: asyncpg.Connection, ec_id: int)
     link = await db.fetchrow(
         "SELECT gift_lead_magnet_id, gift_package_id FROM event_collaborators WHERE id = $1", ec_id
     )
-    await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id = $1", ec_id)
+    # ⚠️ Стираем ТОЛЬКО плюсоновские записи. Ручные подарки (manual_title) —
+    # это подарки, заведённые организатором/спикером вручную; они больше нигде
+    # не дублируются (колонки gift_after_speech_* удалены 2026-07-30), снести их
+    # тут значило бы потерять подарок совсем.
+    await db.execute(
+        "DELETE FROM event_collaborator_lead_magnets "
+        " WHERE ec_id = $1 AND manual_title IS NULL", ec_id)
     if not link:
         return
     if link["gift_lead_magnet_id"]:
@@ -158,7 +164,7 @@ async def get_me(
     se_id = int(session["se_id"])
     row = await db.fetchrow(
         """SELECT cse.id AS speaker_event_id, cse.event_id, cse.role,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.gift_lead_magnet_id, cse.gift_package_id,
                   c.linked_client_id,
@@ -529,8 +535,12 @@ async def patch_me(
     # переключении на ПЛЮСОН-магнит (раньше null игнорировался, оставался старый текст).
     sent_fields = data.model_fields_set
     ev_upd = {}
-    for f in ("gift_after_speech_title", "gift_after_speech_url",
-              "gift_raffle_title", "gift_raffle_url",
+    # ⚠️ Одиночный подарок → В СПИСОК (колонок gift_after_speech_* больше нет).
+    if "gift_after_speech_title" in sent_fields or "gift_after_speech_url" in sent_fields:
+        from app.api.modules.conference import _save_single_gift_to_list
+        await _save_single_gift_to_list(
+            db, ec_id, data.gift_after_speech_title, data.gift_after_speech_url)
+    for f in ("gift_raffle_title", "gift_raffle_url",
               "knowledge_base_title", "knowledge_base_url", "notes"):
         if f in sent_fields:
             ev_upd[f] = getattr(data, f, None)  # может быть и None → SET NULL
@@ -1499,7 +1509,11 @@ async def unlink_pluson(
         "UPDATE event_collaborators SET gift_lead_magnet_id = NULL, gift_package_id = NULL WHERE id = $1",
         se_id,
     )
-    await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id = $1", se_id)
+    # ⚠️ Снимаем только ПЛЮСОНОВСКИЕ подарки: ручные — единственный носитель
+    # такого подарка (колонки gift_after_speech_* удалены), стереть их нельзя.
+    await db.execute(
+        "DELETE FROM event_collaborator_lead_magnets "
+        " WHERE ec_id = $1 AND manual_title IS NULL", se_id)
     return {"ok": True}
 
 

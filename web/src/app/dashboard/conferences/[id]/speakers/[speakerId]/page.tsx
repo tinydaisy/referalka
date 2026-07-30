@@ -45,8 +45,10 @@ function getMissingEventFields(form: any): string[] {
   const hasTopics = form.topics?.length > 0 && form.topics.some((t: string) => t.trim())
   if (!hasTopics) missing.push('Тема выступления')
 
-  if (!form.gift_after_speech_title?.trim()) missing.push('Название подарка после эфира')
-  if (!form.gift_after_speech_url?.trim()) missing.push('Ссылка на подарок после эфира')
+  // ⚠️ Подарок «после эфира» живёт в СПИСКЕ (ручные + плюсоновские, сколько
+  // угодно). Одиночных полей gift_after_speech_* в базе больше нет.
+  const giftCount = (form.__manual_count || 0) + (form.__pluson_count || 0)
+  if (!giftCount) missing.push('Подарок после эфира')
   if (!form.gift_raffle_title?.trim()) missing.push('Название подарка розыгрыша')
   if (!form.gift_raffle_url?.trim()) missing.push('Ссылка на подарок розыгрыша')
 
@@ -658,7 +660,12 @@ export default function ConferenceSpeakerPage() {
   if (!profile) return null
 
   const missingProfile = getMissingProfileFields(profile)
-  const missingEvent = getMissingEventFields(eventForm)
+  // Счётчики подарков — из актуального состояния списков (не из формы).
+  const missingEvent = getMissingEventFields({
+    ...eventForm,
+    __manual_count: manualGifts.filter(g => (g.title || '').trim()).length,
+    __pluson_count: giftMagnets.length,
+  })
   const allMissing = [...missingProfile, ...missingEvent]
 
   return (

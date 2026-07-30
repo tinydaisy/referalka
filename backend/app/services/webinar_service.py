@@ -190,7 +190,7 @@ async def speaker_follow_card(db, event_id: int, ec_id: Optional[int]) -> Option
 async def speaker_gift_card(db, event_id: int, ec_id: Optional[int]) -> Optional[dict]:
     """Подарок спикера для всплытия по таймингу слота.
 
-    Источник — event_collaborators: ручной подарок (gift_after_speech_*) ИЛИ
+    Источник — event_collaborator_lead_magnets (ручные + плюсоновские) ИЛИ
     привязанный лид-магнит/пакет ПЛЮСОНа.
     """
     if not ec_id:
@@ -220,12 +220,13 @@ async def speaker_gift_card(db, event_id: int, ec_id: Optional[int]) -> Optional
     # 2) Fallback на старые одиночные поля event_collaborators (если список пуст)
     if not gifts:
         old = await db.fetchrow(
-            "SELECT gift_after_speech_title, gift_after_speech_url, gift_lead_magnet_id, gift_package_id "
+            "SELECT gift_lead_magnet_id, gift_package_id "
             "FROM event_collaborators WHERE id=$1 AND event_id=$2", ec_id, event_id)
         if old:
-            if old["gift_after_speech_title"] and old["gift_after_speech_url"]:
-                gifts.append({"title": old["gift_after_speech_title"], "url": old["gift_after_speech_url"]})
-            elif old["gift_lead_magnet_id"]:
+            # ⚠️ Одиночные gift_after_speech_* УДАЛЕНЫ: все подарки живут в
+            # event_collaborator_lead_magnets (перенесены 2026-07-30). Остались
+            # только legacy-привязки к магниту/пакету.
+            if old["gift_lead_magnet_id"]:
                 lm = await db.fetchrow("SELECT name, slug FROM lead_magnets WHERE id=$1", old["gift_lead_magnet_id"])
                 if lm and lm["slug"]:
                     gifts.append({"title": lm["name"], "url": f"https://pluson.ru/m/{lm['slug']}"})

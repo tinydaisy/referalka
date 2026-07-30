@@ -507,7 +507,11 @@ async def update_organizer_card(event_id: int, client_id: int, data: OrganizerCa
             if not ok:
                 raise HTTPException(400, "Подарок не найден в вашем ПЛЮСОНе")
             clean.append((kind, iid))
-        await db.execute("DELETE FROM event_collaborator_lead_magnets WHERE ec_id=$1", ec_id)
+        # ⚠️ Перезаписываем только ПЛЮСОНОВСКИЕ: ручные подарки заводятся отдельно
+        # (в дашборде/кабинете) и здесь не приходят — снести их нельзя.
+        await db.execute(
+            "DELETE FROM event_collaborator_lead_magnets "
+            " WHERE ec_id=$1 AND manual_title IS NULL", ec_id)
         for i, (kind, iid) in enumerate(clean):
             if kind == "magnet":
                 await db.execute(

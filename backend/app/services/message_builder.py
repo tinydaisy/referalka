@@ -910,7 +910,13 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                pu_tg.username AS personal_tg_username,
                c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                c.title AS positioning, NULL AS bio, c.achievements,
-               cse.id AS ec_id, cse.role, cse.gift_after_speech_title,
+               cse.id AS ec_id, cse.role,
+               (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_title,
                cse.gift_raffle_title, cse.notes AS speaker_notes,
                c.ask_topics AS speaker_ask_topics,
                cse.knowledge_base_title, cse.knowledge_base_url,
@@ -1360,7 +1366,24 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """
                 SELECT c.name as speaker_name,
                        pu_tg.username AS personal_tg_username,
-                       cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial,
+                       (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_title,
+                       (SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                                   WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                   THEN '⟦GF:p:'||glp.slug||'⟧'
+                                   WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                                   THEN '⟦GF:m:'||glm.slug||'⟧'
+                                   ELSE glm.url END
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_url,
+                       cse.role, cse.is_commercial,
                        (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
                           SELECT eclm.id, eclm.sort_order,
                                  COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
@@ -1486,7 +1509,24 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.vk_url, c.max_url, c.website_url,
                        c.title AS positioning, NULL AS bio,
                        c.achievements,
-                       cse.id AS ec_id, cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                       cse.id AS ec_id, cse.role,
+                       (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_title,
+                       (SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                                   WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                   THEN '⟦GF:p:'||glp.slug||'⟧'
+                                   WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                                   THEN '⟦GF:m:'||glm.slug||'⟧'
+                                   ELSE glm.url END
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_url,
                        cse.gift_raffle_title, cse.notes AS speaker_notes,
                        c.ask_topics AS speaker_ask_topics,
                        cse.knowledge_base_title, cse.knowledge_base_url,
@@ -1605,8 +1645,23 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cst.topic as speaker_topic,
                        -- Описание темы («что будет») — для {speaker_topic_full}.
                        cst.description as speaker_topic_desc,
-                       cse.gift_after_speech_title as gift_title,
-                       cse.gift_after_speech_url as gift_url,
+                       (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_title,
+                       (SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                                   WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                                   THEN '⟦GF:p:'||glp.slug||'⟧'
+                                   WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                                   THEN '⟦GF:m:'||glm.slug||'⟧'
+                                   ELSE glm.url END
+                          FROM event_collaborator_lead_magnets eclm
+                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                         WHERE eclm.ec_id = cse.id
+                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_url,
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        cse.gift_lead_magnet_id, cse.gift_package_id,
                        lm.name AS lm_name, lm.url AS lm_url, lm.slug AS lm_slug,

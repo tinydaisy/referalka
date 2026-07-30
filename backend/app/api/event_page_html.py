@@ -83,7 +83,13 @@ async def _load_collaborators(db, event_id):
     rows = await db.fetch(
         f"""SELECT cse.id AS ec_id, cse.role, cse.speaker_topic,
                    cse.knowledge_base_title, cse.knowledge_base_url,
-                   cse.gift_after_speech_title, cse.gift_raffle_title,
+                   (SELECT COALESCE(e2.manual_title, l2.name, p2.name)
+                      FROM event_collaborator_lead_magnets e2
+                      LEFT JOIN lead_magnets l2 ON l2.id = e2.lead_magnet_id
+                      LEFT JOIN lead_magnet_packages p2 ON p2.id = e2.package_id
+                     WHERE e2.ec_id = cse.id
+                     ORDER BY e2.sort_order, e2.id LIMIT 1) AS gift_after_speech_title,
+                   cse.gift_raffle_title,
                    cse.gift_lead_magnet_id, cse.gift_package_id,
                    lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                    (SELECT string_agg(COALESCE(glm.name, glp.name), ' · ' ORDER BY eclm.sort_order, eclm.id)
