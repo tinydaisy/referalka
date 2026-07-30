@@ -264,7 +264,8 @@ export default function ConferenceSpeakerPage() {
   // подарка нет, хотя он есть.
   const [giftPluson, setGiftPluson] = useState<{ name: string; url: string | null } | null>(null)
   // ПЛЮСОН-подарки спикера (magnet/package, до 4) — read-only на вкладке ПЛЮСОН.
-  const [giftMagnets, setGiftMagnets] = useState<Array<{ name: string; url: string | null; kind: string }>>([])
+  // owner_links — готовые ссылки воронки по каналам ВЛАДЕЛЬЦА подарка (с сервера).
+  const [giftMagnets, setGiftMagnets] = useState<Array<{ name: string; url: string | null; kind: string; owner_links?: Record<string, string> }>>([])
   // Ручные подарки (kind='manual', до 4) — редактируемый список на вкладке
   // «Ввести вручную»: каждый = название + ссылка (миграция 219).
   const [manualGifts, setManualGifts] = useState<Array<{ title: string; url: string }>>([])
@@ -329,7 +330,8 @@ export default function ConferenceSpeakerPage() {
         const plusonG = allGifts.filter((g: any) => g.kind !== 'manual')
         const manualG = allGifts.filter((g: any) => g.kind === 'manual')
           .map((g: any) => ({ title: g.name || '', url: g.url || '' }))
-        setGiftMagnets(plusonG.map((g: any) => ({ name: g.name, url: g.url || null, kind: g.kind })))
+        setGiftMagnets(plusonG.map((g: any) => ({
+          name: g.name, url: g.url || null, kind: g.kind, owner_links: g.owner_links })))
         // Legacy: старый ручной подарок в gift_after_speech_* (одним куском, как у
         // спикеров без структурированного списка) — показываем как ОДИН ручной
         // подарок, если структурированных ручных ещё нет.
@@ -982,10 +984,18 @@ export default function ConferenceSpeakerPage() {
                   {pluslonItems.map((g, i) => (
                     <li key={i} className="text-emerald-900">
                       <span className="font-medium">{g.kind === 'package' ? '📦 ' : ''}{g.name}</span>
-                      {g.url && (
-                        <div><a href={g.url} target="_blank" rel="noreferrer"
-                          className="text-emerald-700 underline break-all text-xs">{g.url}</a></div>
-                      )}
+                      {/* ⚠️ Показываем ссылку через БОТ ВЛАДЕЛЬЦА подарка
+                          (owner_links с сервера) — именно она уходит людям в
+                          рассылке. Прямая ссылка на файл тут вводила в
+                          заблуждение: подарок выдаётся за подписку в боте. */}
+                      {(() => {
+                        const ol = (g as any).owner_links || {}
+                        const link = ol.telegram || ol.max || ol.vk || g.url
+                        return link ? (
+                          <div><a href={link} target="_blank" rel="noreferrer"
+                            className="text-emerald-700 underline break-all text-xs">{link}</a></div>
+                        ) : null
+                      })()}
                     </li>
                   ))}
                 </ol>

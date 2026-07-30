@@ -84,8 +84,16 @@ function getMissingGiftLabels(sp: any, raffleEnabled: boolean): string[] {
   // Подарок «после эфира» проверяем только если показ поля включён
   // (show_gift_after_speech_field !== false — default TRUE для совместимости).
   if (sp.show_gift_after_speech_field !== false) {
-    if (!sp.gift_after_speech_title?.trim()) missing.push('нет названия подарка после эфира')
-    if (!sp.gift_after_speech_url?.trim()) missing.push('нет ссылки подарка после эфира')
+    // ⚠️ Подарок может лежать в СПИСКЕ (gift_magnets: плюсоновские лид-магниты,
+    // пакеты и ручные) — там их сколько угодно. Одиночные поля
+    // gift_after_speech_* — только старый способ. Раньше проверялись лишь они,
+    // и у спикера с плюсоновскими подарками висело «нет подарка».
+    const list = Array.isArray(sp.gift_magnets)
+      ? sp.gift_magnets.filter((g: any) => g && (g.name || g.title)) : []
+    if (!list.length) {
+      if (!sp.gift_after_speech_title?.trim()) missing.push('нет названия подарка после эфира')
+      if (!sp.gift_after_speech_url?.trim()) missing.push('нет ссылки подарка после эфира')
+    }
   }
   // Подарок розыгрыша — только если розыгрыш включён в событии.
   if (raffleEnabled) {
