@@ -948,8 +948,19 @@ export default function TemplatesPage() {
     return landingUrl()
   }
 
-  // Ссылка подарка-магнита для превью: воронка (если funnel_slug) или прямой url.
+  // Ссылка подарка-магнита для превью.
+  // ⚠️ Берём ГОТОВЫЕ ссылки владельца магнита (owner_links с сервера): подарок
+  // выдаётся через бот ТОГО, ЧЕЙ ЭТО ПОДАРОК, а не того, кто шлёт рассылку.
+  // Раньше собиралось из своих ботов — чужой подарок вёл в свой бот.
+  // Ручной подарок — прямая ссылка как есть.
   function giftMagnetUrl(g: any, platform: 'telegram' | 'vk' | 'max'): string {
+    const ol = g?.owner_links
+    if (ol) {
+      const order = platform === 'max' ? ['max', 'vk', 'telegram']
+        : platform === 'vk' ? ['vk', 'max', 'telegram']
+        : ['telegram', 'max', 'vk']
+      for (const p of order) if (ol[p]) return String(ol[p])
+    }
     if (g?.funnel_slug && g?.funnel_kind) return giftFunnelLink(g.funnel_kind, g.funnel_slug, platform)
     return g?.url || ''
   }
@@ -1054,11 +1065,18 @@ export default function TemplatesPage() {
 
         // Список подарков-лид-магнитов спикера (до 4, миграция 200). Приоритет
         // ручному подарку; иначе показываем все магниты «Название\nссылка».
+        // ⚠️ Подарков может быть СКОЛЬКО УГОДНО и любого вида — и ручные, и
+        // плюсоновские, одновременно. Раньше ручной подарок глушил весь список
+        // магнитов (показывался только он), а магнитов брался только первый.
         const magnets: Array<{ title: string; url: string }> = (Array.isArray(speaker.gift_magnets) ? speaker.gift_magnets : [])
           .filter((g: any) => g && g.name)
           .map((g: any) => ({ title: g.name, url: giftMagnetUrl(g, platform) }))
+        // Одиночный ручной подарок (старые поля) — в тот же список, без дублей.
+        if (giftTitle && !magnets.some((m) => m.title === giftTitle)) {
+          magnets.unshift({ title: giftTitle, url: giftUrl || '' })
+        }
         let giftBlock = ''
-        if (!giftTitle && magnets.length) {
+        if (magnets.length) {
           giftBlock = magnets.map((g) => (g.url ? `${g.title}\n${g.url}` : g.title)).join('\n\n')
         } else if (!giftTitle) {
           giftBlock = tgUrl

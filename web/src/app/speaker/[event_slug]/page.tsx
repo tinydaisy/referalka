@@ -811,7 +811,11 @@ export default function SpeakerCabinetPage() {
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
             { key: 'broadcasts' as CabinetTab, label: 'Рекламные интеграции' },
-            ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'slot' as CabinetTab, label: 'Мой слот' }] : []),
+            // «Мой слот» — всем, кто выступает: спикерам, хедлайнерам,
+            // ОРГАНИЗАТОРАМ и ПАРТНЁРАМ (организатор тоже выходит в эфир —
+            // раньше вкладка была ему скрыта). Прячем только у жюри: они
+            // не выступают, а оценивают.
+            ...(me.role !== 'jury' ? [{ key: 'slot' as CabinetTab, label: 'Мой слот' }] : []),
             { key: 'invited'   as CabinetTab, label: 'Приглашённые' },
             ...((me.role === 'jury' || me.role === 'organizer') ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
             ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'myresults' as CabinetTab, label: 'Мои результаты' }] : []),

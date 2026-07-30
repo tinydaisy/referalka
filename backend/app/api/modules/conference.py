@@ -836,8 +836,11 @@ async def save_ec_gifts(db, ec_id: int, items: list, linked_client_id: int | Non
     ⚠️ Привязку linked_client_id НЕ трогает.
     """
     items = items or []
-    if len(items) > 4:
-        raise HTTPException(status_code=400, detail="Можно добавить не более 4 подарков")
+    # ⚠️ Подарков может быть МНОГО — и ручных, и плюсоновских, одновременно.
+    # Прежний предел 4 не давал спикеру выложить весь свой набор. Оставляем
+    # только защиту от явного мусора (случайная пакетная вставка).
+    if len(items) > 30:
+        raise HTTPException(status_code=400, detail="Слишком много подарков — не больше 30")
     clean = []  # [(kind, id|None, title|None, url|None)]
     for it in items:
         kind = (it or {}).get("kind")
@@ -1053,6 +1056,7 @@ async def list_event_speakers(
     for s in slot_rows:
         slot_map.setdefault(s["cse_id"], []).append(dict(s))
 
+    from app.services.share_links import build_gift_funnel_links_by_owner
     result = []
     import json as _json_c
     for r in rows:
@@ -1087,14 +1091,22 @@ async def list_event_speakers(
             except (ValueError, TypeError):
                 gm = None
         d["gift_magnets"] = [g for g in (gm or []) if g and g.get("name")]
+        # ⚠️ Ссылки воронки — по каналам ХОЗЯИНА магнита (общая
+        # build_gift_funnel_links_by_owner, та же что при отправке). Фронт-превью
+        # раньше строил их из ботов ТОГО, КТО СМОТРИТ — показывал чужой подарок
+        # через свой бот. Ручной подарок ссылку не меняет (url как есть).
+        for _g in d["gift_magnets"]:
+            if _g.get("funnel_slug") and _g.get("funnel_kind"):
+                _g["owner_links"] = await build_gift_funnel_links_by_owner(
+                    db, _g["funnel_kind"], _g["funnel_slug"])
         # Подарок спикера (одиночный, обратная совместимость): приоритет ручному
-        # вводу; иначе первый из списка / резолв из ПЛЮСОНа.
+        # вводу; иначе резолв из ПЛЮСОНа по старым одиночным полям.
+        # ⚠️ Первый элемент gift_magnets сюда НЕ копируем: фронт-превью считал
+        # непустое одиночное поле признаком «подарок один» и показывал только его,
+        # пряча остальные. Подарков может быть сколько угодно и любого вида —
+        # список отдаётся целиком в gift_magnets.
         if not (d.get("gift_after_speech_title") or "").strip():
-            if d["gift_magnets"]:
-                first = d["gift_magnets"][0]
-                d["gift_after_speech_title"] = first.get("name")
-                d["gift_after_speech_url"] = first.get("url") or d.get("gift_after_speech_url")
-            elif d.get("gift_lm_name"):
+            if d.get("gift_lm_name"):
                 d["gift_after_speech_title"] = d["gift_lm_name"]
                 d["gift_after_speech_url"] = d.get("gift_lm_url") or d.get("gift_after_speech_url")
             elif d.get("gift_lp_name"):

@@ -524,12 +524,14 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         u = ((g or {}).get("url") or "").strip()
         if t:
             glist.append((t, u))
-    # Если списка нет — используем одиночный подарок как единственный элемент.
-    if not glist:
-        t0 = (gift_title or "").strip()
-        u0 = (gift_url or "").strip()
-        if t0:
-            glist = [(t0, u0)]
+    # Одиночный подарок из старых полей — В ТОТ ЖЕ список, а не «вместо».
+    # ⚠️ Подарков может быть сколько угодно и любого вида (ручные + плюсоновские
+    # одновременно). Раньше при непустом списке ручной подарок из старого поля
+    # молча терялся, а при пустом — показывался только он.
+    t0 = (gift_title or "").strip()
+    u0 = (gift_url or "").strip()
+    if t0 and not any(t == t0 for t, _ in glist):
+        glist.insert(0, (t0, u0))
 
     def _package_block():
         # Формат для ПАКЕТА: ссылка → название пакета → «Ссылка на пакет материалов: ссылка».
