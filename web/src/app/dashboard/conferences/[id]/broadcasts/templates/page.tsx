@@ -860,12 +860,23 @@ export default function TemplatesPage() {
   const currentType = TYPE_DEFS.find(d => d.type === form.type)
   const previewSpeaker = previewSpeakerId ? speakers.find(s => s.id === previewSpeakerId) : null
 
+  // Ссылка эфира — ГОТОВАЯ с сервера (confData.stream_links), считается тем же
+  // резолвером, что при отправке: сторонний вебинар → его адрес, наша комната →
+  // pluson.ru/webinar/{slug}/{day}, комнаты нет → пусто.
+  // ⚠️ Сами адрес НЕ склеиваем: раньше фронт всегда рисовал нашу комнату, даже
+  // когда её не создавали или когда эфир идёт на стороннем сервисе.
   function getStreamUrl(day?: number): string {
-    const d = day ?? 1
-    // Ссылка эфира = вебинарная комната дня (как при реальной отправке). Общего
-    // conf_days.stream_url больше нет. slug из eventData.
-    const slug = eventData?.slug
-    return slug ? `https://pluson.ru/webinar/${slug}/${d}` : '[ссылка на эфир]'
+    const links = (confData as any)?.stream_links || {}
+    return String(links[String(day ?? 1)] || '')
+  }
+
+  // Нет комнаты у дня → в превью ругаемся красным, а не подставляем выдумку.
+  // Смотрим на САМ шаблон (tpl), а не на открытый редактор: превью можно
+  // открыть, ничего не редактируя.
+  function streamMissing(tpl: any, day?: number): boolean {
+    const usesStream = String(tpl?.text || '').includes('{stream_url}')
+      || String(tpl?.button_url || '').includes('{stream_url}')
+    return usesStream && !getStreamUrl(day)
   }
 
   function getGameLink(): string {
@@ -2208,6 +2219,22 @@ export default function TemplatesPage() {
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
+              </div>
+            )}
+
+            {/* ⚠️ Нет комнаты эфира — ссылка в рассылке уйдёт ПУСТОЙ. Ругаемся
+                явно, иначе клиент узнает об этом только от получателей. */}
+            {streamMissing(previewModal.tpl, testDay) && (
+              <div className="mb-3 rounded-xl border-2 border-red-400 bg-red-50 p-3">
+                <p className="text-sm font-semibold text-red-700">
+                  Нет ссылки на эфир!
+                </p>
+                <p className="text-xs text-red-600 mt-1 leading-relaxed">
+                  У этого дня не создана вебинарная комната, поэтому
+                  <b> {'{stream_url}'} </b> подставится пустым — люди не смогут зайти.
+                  Откройте вкладку «Вебинар» и создайте комнату либо укажите
+                  ссылку на сторонний вебинар.
+                </p>
               </div>
             )}
 
