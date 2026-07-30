@@ -1284,14 +1284,29 @@ export default function TemplatesPage() {
         return (a.priority ?? 60) - (b.priority ?? 60)
       })
       .map((s: any) => {
-        const title = (s.gift_after_speech_title || '').trim()
-        const url = (s.gift_after_speech_url || '').trim()
         const tg = (s.personal_tg_username || '').trim()
         const tgMention = tg ? '@' + tg.replace(/^@+/, '') : ''
-        if (!title) return `🎁 <b>${s.speaker_name}:</b> ${tgMention ? 'пишите в личку ' + tgMention : 'уточните у спикера'}`
-        if (!url) return `🎁 <b>${s.speaker_name}:</b> ${title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
-        return `🎁 <b>${s.speaker_name}:</b> ${title}\n${url}`
+        // ⚠️ Подарки берём из СПИСКА (ручные + плюсоновские, сколько угодно),
+        // как при отправке. Раньше смотрели только на одиночное поле
+        // gift_after_speech_title — у всех выходило «пишите в личку», хотя
+        // подарки заданы. Плюсоновский подарок ведёт в бот ЕГО ВЛАДЕЛЬЦА.
+        const list: Array<{ title: string; url: string }> = (Array.isArray(s.gift_magnets) ? s.gift_magnets : [])
+          .filter((g: any) => g && g.title)
+          .map((g: any) => ({ title: String(g.title), url: giftMagnetUrl(g, platform) }))
+        const single = (s.gift_after_speech_title || '').trim()
+        if (single && !list.some((g) => g.title === single)) {
+          list.unshift({ title: single, url: (s.gift_after_speech_url || '').trim() })
+        }
+        // Подарка нет вовсе — спикера в перечне не показываем (как на бэке),
+        // чтобы не было мусорных строк «пишите в личку».
+        if (!list.length) return ''
+        const body = list.length > 1
+          ? list.map((g, i) => (g.url ? `${i + 1}. ${g.title}\n${g.url}` : `${i + 1}. ${g.title}`)).join('\n\n')
+          : (list[0].url ? `${list[0].title}\n${list[0].url}`
+              : `${list[0].title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`)
+        return `🎁 <b>${s.speaker_name}:</b>\n${body}`
       })
+      .filter(Boolean)
     const daySpeakersGifts = speakerGiftBlocks.join('\n\n')
 
     // Умная фраза про следующий день

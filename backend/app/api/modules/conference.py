@@ -2058,7 +2058,25 @@ async def list_sessions(
                   pu_tg.username AS personal_tg_username,
                   cse.role as speaker_role, cse.is_commercial,
                   cse.gift_after_speech_title, cse.gift_after_speech_url,
-                  cse.exclude_gift_from_broadcast
+                  cse.exclude_gift_from_broadcast,
+                  -- Список подарков спикера (ручные + плюсоновские). ⚠️ Нужен
+                  -- превью «Итогов дня»: оно смотрело только на одиночное
+                  -- gift_after_speech_title и у всех писало «пишите в личку»,
+                  -- хотя подарки заданы. Порядок и состав — как в рассылке.
+                  (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
+                     SELECT eclm.id, eclm.sort_order,
+                            COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
+                            CASE WHEN eclm.lead_magnet_id IS NOT NULL THEN glm.slug
+                                 WHEN eclm.package_id IS NOT NULL THEN glp.slug END AS funnel_slug,
+                            CASE WHEN eclm.manual_title IS NOT NULL THEN NULL
+                                 WHEN eclm.lead_magnet_id IS NOT NULL THEN 'm'
+                                 WHEN eclm.package_id IS NOT NULL THEN 'p' END AS funnel_kind,
+                            eclm.manual_url AS url
+                       FROM event_collaborator_lead_magnets eclm
+                       LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                       LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                      WHERE eclm.ec_id = cse.id
+                  ) g) AS gift_magnets_json
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
@@ -2069,7 +2087,27 @@ async def list_sessions(
            ORDER BY s.day, NULLIF(s.start_time,'') NULLS LAST, s.sort_order""",
         event_id
     )
-    return {"sessions": [dict(s) for s in sessions]}
+    # ⚠️ JSONB из asyncpg приходит СТРОКОЙ — разбираем. Ссылки подарков строим
+    # по каналам ХОЗЯИНА магнита (та же функция, что при отправке).
+    import json as _js
+    from app.services.share_links import build_gift_funnel_links_by_owner
+    out = []
+    for s in sessions:
+        d = dict(s)
+        gm = d.pop("gift_magnets_json", None)
+        if isinstance(gm, str):
+            try:
+                gm = _js.loads(gm)
+            except (ValueError, TypeError):
+                gm = None
+        items = [g for g in (gm or []) if g and g.get("title")]
+        for g in items:
+            if g.get("funnel_slug") and g.get("funnel_kind"):
+                g["owner_links"] = await build_gift_funnel_links_by_owner(
+                    db, g["funnel_kind"], g["funnel_slug"])
+        d["gift_magnets"] = items
+        out.append(d)
+    return {"sessions": out}
 
 
 
