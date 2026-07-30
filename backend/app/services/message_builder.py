@@ -1364,7 +1364,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if tpl_type == "day_end":
             gift_sessions = await conn.fetch(
                 """
-                SELECT c.name as speaker_name,
+                SELECT * FROM (
+                SELECT DISTINCT ON (cse.id)
+                       cse.id AS ec_id,
+                       """ + collaborator_sort.role_group_sql("cse") + """ AS _grp,
+                       """ + collaborator_sort.referrals_count_sql("cse") + """ AS _refs,
+                       COALESCE(cse.priority, 60) AS _prio,
+                       c.name as speaker_name,
                        pu_tg.username AS personal_tg_username,
                        (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
                           FROM event_collaborator_lead_magnets eclm
@@ -1409,11 +1415,19 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                   ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 WHERE cs.event_id=$1 AND cs.day=$2
                   AND cse.exclude_gift_from_broadcast = FALSE
-                ORDER BY """ + collaborator_sort.order_by_sql("cse") + """, cs.sort_order
+                -- DISTINCT ON требует, чтобы дедуп-выражение шло первым в ORDER BY,
+                -- поэтому порядок спикеров восстанавливается внешним ORDER BY ниже.
+                ORDER BY cse.id, cs.sort_order
+                ) s
+                ORDER BY s._grp ASC, s._refs DESC, s._prio ASC, s.ec_id ASC
                 """,
                 event_id, day
             )
             gift_blocks = []
+            # ⚠️ Один спикер — ОДИН блок подарков (DISTINCT ON (cse.id) выше).
+            # Запрос идёт по СЛОТАМ программы, а слотов у спикера в одном дне
+            # может быть несколько — без дедупа его подарки повторялись столько
+            # же раз, сколько у него выступлений.
             for gs in gift_sessions:
                 title = (gs["gift_after_speech_title"] or "").strip()
                 url = (gs["gift_after_speech_url"] or "").strip()

@@ -688,6 +688,14 @@ export default function QueuePage() {
     }
   }
 
+  // Отметить только черновики — повторный клик снимает выделение.
+  function selectAllDrafts() {
+    const draftIds = schedules.filter(s => s.status === 'draft').map(s => s.id)
+    const allPicked = draftIds.length > 0
+      && draftIds.every(id => selectedIds.has(id)) && selectedIds.size === draftIds.length
+    setSelectedIds(allPicked ? new Set() : new Set(draftIds))
+  }
+
   // Удаление выбранных
   async function deleteSelected() {
     const selected = schedules.filter(s => selectedIds.has(s.id))
@@ -945,6 +953,12 @@ export default function QueuePage() {
               title="Выбрать все"
             />
             <span className="text-xs text-gray-400">Выбрать все</span>
+            {schedules.some(s => s.status === 'draft') && (
+              <button onClick={selectAllDrafts}
+                className="text-xs text-blue-600 hover:underline ml-2">
+                Выбрать все черновики
+              </button>
+            )}
           </div>
 
           <div className="space-y-2 mb-6">

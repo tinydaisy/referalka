@@ -146,6 +146,13 @@ export default function GeneralBroadcastsPage() {
     if (selectedIds.size === schedules.length) setSelectedIds(new Set())
     else setSelectedIds(new Set(schedules.map(s => s.id)))
   }
+  // Отметить только черновики — повторный клик снимает выделение.
+  function selectAllDrafts() {
+    const draftIds = schedules.filter(s => s.status === 'draft').map(s => s.id)
+    const allPicked = draftIds.length > 0
+      && draftIds.every(id => selectedIds.has(id)) && selectedIds.size === draftIds.length
+    setSelectedIds(allPicked ? new Set() : new Set(draftIds))
+  }
   async function deleteSelected() {
     const ids = [...selectedIds]
     if (ids.length === 0) return
@@ -344,6 +351,12 @@ export default function GeneralBroadcastsPage() {
             className="rounded cursor-pointer"
             title="Выбрать все" />
           <span className="text-xs text-gray-400">Выбрать все</span>
+          {schedules.some(s => s.status === 'draft') && (
+            <button onClick={selectAllDrafts}
+              className="text-xs text-blue-600 hover:underline ml-2">
+              Выбрать все черновики
+            </button>
+          )}
         </div>
         <div className="space-y-2 mb-6">
           {schedules.map((s, idx) => {

@@ -76,6 +76,16 @@ _ROLE_GROUP: Final[str] = """CASE
 END"""
 
 
+def role_group_sql(tbl: str = "cse") -> str:
+    """SQL-выражение жёсткого порядка ГРУПП по роли (int). Меньше — выше.
+
+    Нужно там, где ORDER BY нельзя задать одной строкой: например при
+    DISTINCT ON (дедуп спикеров, у которых несколько слотов в дне) сортировка
+    разносится на подзапрос и внешний ORDER BY по отдельным колонкам.
+    """
+    return _ROLE_GROUP.format(tbl=tbl)
+
+
 def order_by_sql(tbl: str = "cse") -> str:
     """Строка для ORDER BY (без слова ORDER BY).
 
