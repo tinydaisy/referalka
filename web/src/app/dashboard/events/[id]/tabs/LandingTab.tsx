@@ -26,6 +26,14 @@ interface Props {
 
 type PageKind = 'main' | 'post_pay'
 
+/** «12.06.2026 · » перед названием события в списке доноров. Даты нет — пусто. */
+function eventDateLabel(s: any): string {
+  if (!s?.start_at) return ''
+  const d = new Date(s.start_at)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' · '
+}
+
 export default function LandingTab({ eventId, event }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -795,34 +803,29 @@ export default function LandingTab({ eventId, event }: Props) {
               </p>
             ) : (
               <>
-                <div className="my-4 max-h-64 space-y-1.5 overflow-y-auto">
-                  {copySources.map(s => (
-                    <label
-                      key={s.id}
-                      className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${
-                        copySourceId === s.id
-                          ? 'border-brand bg-brand/5'
-                          : 'border-gray-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="copy-src"
-                        checked={copySourceId === s.id}
-                        onChange={() => setCopySourceId(s.id)}
-                        className="mt-1 h-4 w-4 border-gray-300 text-brand focus:ring-brand"
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-gray-900">
-                          {s.title}
-                        </span>
-                        <span className="block text-xs text-gray-500">
-                          секций — {s.blocks_count}
-                          {s.tariffs_count > 0 && <> · тарифов — {s.tariffs_count}</>}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
+                {/* ⚠️ Выпадающий список, а не радио-кнопки: событий у клиента
+                    могут быть сотни, полотном они не читаются. Порядок — от
+                    свежих к старым (сервер сортирует по дате убыванием). */}
+                <div className="my-4">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Взять лендинг из события
+                  </label>
+                  <select
+                    value={copySourceId ?? ''}
+                    onChange={e => setCopySourceId(e.target.value ? Number(e.target.value) : null)}
+                    className="input w-full"
+                  >
+                    <option value="">— выберите событие —</option>
+                    {copySources.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {eventDateLabel(s)}{s.title} · секций {s.blocks_count}
+                        {s.tariffs_count > 0 ? ` · тарифов ${s.tariffs_count}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Показаны только события с готовым лендингом — от новых к старым.
+                  </p>
                 </div>
 
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
