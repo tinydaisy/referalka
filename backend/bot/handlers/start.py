@@ -2104,30 +2104,34 @@ _MERGE_USAGE_TG = (
 
 async def _send_admin_export(message: Message, kind: str) -> None:
     from app.services.admin_export import (
-        is_allowed, fetch_clients, fetch_collabs, build_message,
-        build_grouped_message, EXPORT_BOT_USERNAME,
+        is_allowed, is_export_bot, fetch_clients, fetch_collabs, build_message,
+        build_grouped_message,
     )
-    # ⚠️ ТОЛЬКО @pluson_bot. Диспетчер в polling один на все боты клиентов, и без
-    # этой проверки команда отвечала бы в чужих ботах тоже — выгрузка по всей
-    # платформе не должна быть доступна из бота клиента ни при каких условиях.
-    try:
-        me = await message.bot.get_me()
-    except Exception:
-        return
-    if (me.username or "").lower() != EXPORT_BOT_USERNAME:
-        return
     # Молча игнорируем чужих: подсказка «вам нельзя» только раскрыла бы, что
     # такая команда существует.
-    if not is_allowed(message.from_user.username if message.from_user else None):
+    username = message.from_user.username if message.from_user else None
+    if not is_allowed(username):
+        log.info("admin_export: отказ — ник @%s не в списке", username)
+        return
+    bot_id = message.bot.id if message.bot else None
+    if not bot_id:
         return
     pool = await get_pool()
     async with pool.acquire() as db:
+        # ⚠️ ТОЛЬКО @pluson_bot. Диспетчер в polling один на все боты клиентов,
+        # без этой проверки команда отвечала бы и в боте клиента, отдавая ему
+        # выгрузку по всей платформе.
+        if not await is_export_bot(db, bot_id):
+            log.info("admin_export: отказ — команда пришла не в @pluson_bot (bot_id=%s)", bot_id)
+            return
         if kind == "clients":
             rows = await fetch_clients(db)
             parts = build_grouped_message(rows, "Действующие клиенты")
         else:
             rows = await fetch_collabs(db)
             parts = build_message(rows, "Коллабораторная", with_tariff=False)
+    log.info("admin_export: /%s для @%s — %d записей, %d сообщений",
+                kind, username, len(rows), len(parts))
     for part in parts:
         await message.answer(part, parse_mode="HTML", disable_web_page_preview=True)
 

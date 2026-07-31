@@ -14,6 +14,20 @@ from typing import Optional
 # иначе выгрузка по всей платформе была бы доступна из бота любого клиента.
 EXPORT_BOT_USERNAME: str = "pluson_bot"
 
+
+async def is_export_bot(db, bot_id: int) -> bool:
+    """Это @pluson_bot? Сверяем по bot_id (число до ':' в токене).
+
+    ⚠️ Именно по id, а не через bot.get_me(): сетевой вызов к Telegram на
+    каждую команду мог зависать, и хендлер отваливался по таймауту, ничего
+    не ответив. bot_id известен из апдейта сразу, без обращения наружу.
+    """
+    return bool(await db.fetchval(
+        "SELECT 1 FROM channels WHERE platform_slug='telegram' "
+        "AND bot_token LIKE $1 AND handle ILIKE $2",
+        f"{bot_id}:%", f"%{EXPORT_BOT_USERNAME}",
+    ))
+
 # Кому доступны выгрузки. Сверяем по @нику (регистр не важен, '@' не нужен).
 ALLOWED_USERNAMES: frozenset[str] = frozenset({
     "margo_forbs",
