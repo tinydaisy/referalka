@@ -2051,7 +2051,8 @@ _MERGE_USAGE_TG = (
 
 async def _send_admin_export(message: Message, kind: str) -> None:
     from app.services.admin_export import (
-        is_allowed, fetch_clients, fetch_collabs, build_message, EXPORT_BOT_USERNAME,
+        is_allowed, fetch_clients, fetch_collabs, build_message,
+        build_grouped_message, EXPORT_BOT_USERNAME,
     )
     # ⚠️ ТОЛЬКО @pluson_bot. Диспетчер в polling один на все боты клиентов, и без
     # этой проверки команда отвечала бы в чужих ботах тоже — выгрузка по всей
@@ -2070,7 +2071,7 @@ async def _send_admin_export(message: Message, kind: str) -> None:
     async with pool.acquire() as db:
         if kind == "clients":
             rows = await fetch_clients(db)
-            parts = build_message(rows, "Действующие клиенты", with_tariff=True)
+            parts = build_grouped_message(rows, "Действующие клиенты")
         else:
             rows = await fetch_collabs(db)
             parts = build_message(rows, "Коллабораторная", with_tariff=False)
