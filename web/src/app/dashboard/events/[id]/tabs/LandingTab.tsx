@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 import BlockCard from '@/components/landing/BlockCard'
-import { ADDABLE, metaFor } from '@/components/landing/blockMeta'
+import { REPEATABLE, STANDARD, metaFor } from '@/components/landing/blockMeta'
 import { ColorField, MetallicToggle, FontSelect, BackgroundFields } from '@/components/landing/StyleControls'
 
 interface Props {
@@ -93,6 +93,13 @@ export default function LandingTab({ eventId, event }: Props) {
   // Защита от неверных данных: если nav_items придёт не массивом, .map ниже
   // уронил бы всю вкладку (Application error).
   const navItems: any[] = Array.isArray(page?.nav_items) ? page!.nav_items : []
+
+  // Что предлагать в «Добавить секцию»: повторяемые блоки — всегда, стандартные
+  // — только те, которых на странице сейчас нет (их можно по одной штуке).
+  const addableKinds = useMemo(() => {
+    const present = new Set<string>((page?.blocks || []).map((b: any) => b.kind))
+    return [...REPEATABLE, ...STANDARD.filter(k => !present.has(k))]
+  }, [page])
 
   /* ── правка настроек страницы ─────────────────────────────────────────── */
   // ⚠️ Накопительное сохранение. Раньше в setTimeout уходил ТОЛЬКО последний
@@ -767,16 +774,23 @@ export default function LandingTab({ eventId, event }: Props) {
           ))}
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {ADDABLE.map(k => (
-            <button
-              key={k}
-              onClick={() => addBlock(k)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Plus className="h-4 w-4" /> {metaFor(k).label}
-            </button>
-          ))}
+        <div className="mt-5 border-t border-gray-200 pt-4">
+          <p className="mb-2 text-sm font-medium text-gray-700">Добавить секцию</p>
+          <div className="flex flex-wrap gap-2">
+            {addableKinds.map(k => (
+              <button
+                key={k}
+                onClick={() => addBlock(k)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Plus className="h-4 w-4" /> {metaFor(k).label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Блоки «Текст», «Галерея» и элементы можно добавлять сколько угодно раз.
+            Остальные секции — по одной: те, что уже стоят на странице, в списке не показаны.
+          </p>
         </div>
       </div>
 

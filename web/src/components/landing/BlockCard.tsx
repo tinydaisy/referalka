@@ -122,15 +122,21 @@ export default function BlockCard({
           показывать
         </label>
 
-        {meta.repeatable && (
-          <button
-            onClick={() => { if (confirm(`Удалить секцию «${meta.label}»?`)) onRemove() }}
-            className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
-            title="Удалить секцию"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        )}
+        {/* Удалить можно ЛЮБУЮ секцию, не только повторяемую: ненужные блоки
+            не должны висеть выключенными навсегда. Удалённую из стандартного
+            набора всегда можно вернуть кнопкой «+ Добавить секцию» внизу. */}
+        <button
+          onClick={() => {
+            if (confirm(
+              `Удалить секцию «${meta.label}»?\n\n` +
+              'Её содержимое пропадёт. Пустую секцию потом можно добавить заново.'
+            )) onRemove()
+          }}
+          className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+          title="Удалить секцию"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
 
       {open && (

@@ -181,11 +181,18 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   },
 }
 
-/** Блоки, которые можно добавить кнопкой «Добавить секцию».
- *  ⚠️ «Партнёры» сюда входят: на старых лендингах этой секции нет вовсе
- *  (её не было в наборе по умолчанию), и без кнопки добавить её было нечем. */
-export const ADDABLE: BlockKind[] = [
-  'partners', 'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
+/** Блоки, которых может быть НЕСКОЛЬКО на странице — их добавляем всегда. */
+export const REPEATABLE: BlockKind[] = [
+  'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
+]
+
+/** Стандартные секции — по одной на страницу.
+ *  ⚠️ Раз удалить можно любую секцию, её надо и уметь вернуть: кнопка
+ *  добавления показывает те из них, которых на странице сейчас нет. */
+export const STANDARD: BlockKind[] = [
+  'hero', 'seats', 'gifts', 'audience', 'benefits', 'values', 'mission',
+  'numbers', 'difference', 'speakers', 'organizer', 'program', 'tariffs',
+  'partners', 'support', 'footer',
 ]
 
 export function metaFor(kind: string): BlockMeta {
