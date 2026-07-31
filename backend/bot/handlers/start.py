@@ -2042,6 +2042,46 @@ _MERGE_USAGE_TG = (
 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Выгрузки для владельца платформы: /clients и /collabs
+# Доступ — только у аккаунтов из ALLOWED_USERNAMES (admin_export.py).
+# ⚠️ Сборка списков и формат — в app/services/admin_export.py, здесь только
+# проверка доступа и отправка: команды одинаковые по структуре.
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _send_admin_export(message: Message, kind: str) -> None:
+    from app.services.admin_export import (
+        is_allowed, fetch_clients, fetch_collabs, build_message,
+    )
+    # Молча игнорируем чужих: подсказка «вам нельзя» только раскрыла бы, что
+    # такая команда существует.
+    if not is_allowed(message.from_user.username if message.from_user else None):
+        return
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        if kind == "clients":
+            rows = await fetch_clients(db)
+            parts = build_message(rows, "Действующие клиенты", with_tariff=True)
+        else:
+            rows = await fetch_collabs(db)
+            parts = build_message(rows, "Коллабораторная", with_tariff=False)
+    for part in parts:
+        await message.answer(part, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(Command(commands=["clients"]))
+async def handle_clients_export(message: Message):
+    """Клиенты с активной подпиской Профи+ либо активным модулем
+    (Конференции / Премии / Турниры)."""
+    await _send_admin_export(message, "clients")
+
+
+@router.message(Command(commands=["collabs"]))
+async def handle_collabs_export(message: Message):
+    """Реальные участники Коллабораторной (без демо-карточек и тестовых)."""
+    await _send_admin_export(message, "collabs")
+
+
 @router.message(Command(commands=["merge"]))
 async def handle_merge(message: Message, command: CommandObject):
     """Объединить аккаунты с другой площадки в рамках клиента (главный — самый ранний)."""
