@@ -1837,7 +1837,7 @@ async def handle_event_orders_command(message: Message):
     import re as _re
     from app.services.channels import find_channel_by_bot_id
     from app.services.orders_export import (
-        client_owns_event, fetch_orders, build_orders_message,
+        client_owns_event, can_see_orders, fetch_orders, build_orders_message,
     )
 
     user = message.from_user
@@ -1857,9 +1857,14 @@ async def handle_event_orders_command(message: Message):
         # Клиенты этого бота (у канала может быть несколько привязок).
         client_ids = [r["client_id"] for r in await db.fetch(
             "SELECT client_id FROM client_channels WHERE channel_id = $1", ch["id"])]
+        # Два условия сразу: событие принадлежит клиенту этого бота И пишет
+        # человек, которому можно (владелец / служба поддержки / помощник).
+        # Бот общий для всех участников события — без второй проверки список
+        # заказчиков с телефонами увидел бы любой из них.
         owner_ok = False
         for cid in client_ids:
-            if await client_owns_event(db, cid, event_id):
+            if await client_owns_event(db, cid, event_id) and \
+                    await can_see_orders(db, cid, user.id, user.username):
                 owner_ok = True
                 break
         if not owner_ok:

@@ -14,6 +14,64 @@ from typing import Optional
 from app.services.admin_export import wa_link, tg_link
 
 
+def _nick_from(value: Optional[str]) -> str:
+    """@ник / ссылка telegram.me/ник / голый ник → ник в нижнем регистре.
+
+    Поля в базе заполнены по-разному: 'margo_forbs', '@numerosvetoch',
+    'https://telegram.me/forbs_margo2'.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("http"):
+        raw = raw.rstrip("/").split("/")[-1]
+    return raw.lstrip("@").split("?")[0].lower()
+
+
+async def can_see_orders(db, client_id: int, tg_id: Optional[int],
+                         username: Optional[str]) -> bool:
+    """Может ли этот человек смотреть заказы клиента.
+
+    Разрешено ТОЛЬКО:
+      • владельцу кабинета (clients.telegram_username),
+      • его службе поддержки (clients.work_tg_username / work_tg_id),
+      • помощникам кабинета с доступом (assistant_grants) — они ведут ту же
+        работу с заказами от имени владельца.
+
+    ⚠️ Без этой проверки список видел бы ЛЮБОЙ, кто написал команду в бот
+    клиента: бот-то общий для всех его участников.
+    """
+    row = await db.fetchrow(
+        "SELECT telegram_username, work_tg_username, work_tg_id FROM clients WHERE id = $1",
+        client_id,
+    )
+    if not row:
+        return False
+    if tg_id and row["work_tg_id"] and int(row["work_tg_id"]) == int(tg_id):
+        return True
+    nick = _nick_from(username)
+    if not nick:
+        return False
+    allowed = {_nick_from(row["telegram_username"]), _nick_from(row["work_tg_username"])}
+    allowed.discard("")
+    if nick in allowed:
+        return True
+    # Помощник кабинета: его личность — идентичность контакта, привязанного к
+    # assistant_grants этого клиента.
+    return bool(await db.fetchval(
+        """SELECT 1
+             FROM assistant_grants ag
+             JOIN assistants a ON a.id = ag.assistant_id
+            WHERE ag.client_id = $1
+              AND EXISTS (SELECT 1 FROM platform_users pu
+                           WHERE pu.platform_slug = 'telegram'
+                             AND lower(pu.username) = $2
+                             AND pu.contact_id IN (SELECT id FROM contacts
+                                                    WHERE lower(email) = lower(a.email)))""",
+        client_id, nick,
+    ))
+
+
 async def client_owns_event(db, client_id: int, event_id: int) -> bool:
     """Событие принадлежит этому клиенту? (у events нет client_id — через event_owners)"""
     return bool(await db.fetchval(
