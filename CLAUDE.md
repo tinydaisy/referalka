@@ -194,6 +194,16 @@
 
 Фронт-превью ([templates/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/templates/page.tsx)) повторяет то же правило в `signupLink` и `giftMagnetUrl` — иначе превью расходится с реальной отправкой. Подписи держать в синхроне: `PLATFORM_LABEL_RU` / `MULTI_LINK_ORDER`.
 
+### Заказы события в боте — `/menu{event_id}_orders` (2026-08-01, ПРОД)
+
+Клиент пишет в СВОЁМ боте `/menu24_orders` → приходит список заказов тарифов события (`event_participant_tariffs`) двумя блоками: **НЕ ОПЛАЧЕНО** (сверху — с ними работать) и **ОПЛАЧЕНО**, в шапке сводка и сумма оплат. В карточке — имя, тариф и сумма, контакты готовыми ссылками (TG, ВК, МАКС, WhatsApp, email) + комментарий заказа. Логика — [orders_export.py](backend/app/services/orders_export.py).
+
+⚠️ **Доступ — только владельцу события.** Команда приходит в бот клиента: резолвим клиента по `bot.id` → `channels` → `client_channels` и сверяем с `event_owners (status='accepted')`. Не владелец — **молчание**: иначе, зная id чужого события, любой клиент выгрузил бы себе базу заказчиков с телефонами.
+
+⚠️ **Хендлер объявлен ДО `/menu\d+`** ([start.py](backend/bot/handlers/start.py)) — тот ловит любой `/menu<цифры>` и иначе перехватил бы команду, открыв меню события вместо списка.
+
+Статусы заказа — `unpaid`/`paid` (`event_participant_tariffs.status`); контакт берётся из `contact_id` заказа, для старых записей — через `event_participants.contact_id`.
+
 ### Команды выгрузок в боте — `/clients` и `/collabs` (2026-08-01, ПРОД)
 
 Две команды для владельца платформы. Работают **ТОЛЬКО в @pluson_bot** и **только у четырёх аккаунтов**: `margp_frobs`, `margo_frbs`, `forbs_service2`, `forbs_margo2` (`ALLOWED_USERNAMES` в [admin_export.py](backend/app/services/admin_export.py), сверка по @нику без учёта регистра). Чужим — **молчание**, а не «вам нельзя»: отказ раскрыл бы, что команда существует.

@@ -1823,6 +1823,54 @@ async def handle_pluson_connect_command(message: Message):
         logging.warning(f"/pluson_connect failed: {e!r}")
 
 
+@router.message(F.text.regexp(r"(?i)^/menu\d+_orders\b"))
+async def handle_event_orders_command(message: Message):
+    """`/menu{event_id}_orders` — заказы события: НЕОПЛАЧЕННЫЕ и ОПЛАЧЕННЫЕ.
+
+    ⚠️ Объявлен ДО `/menu\d+`: тот хендлер ловит любой /menu<цифры> и без этого
+    перехватил бы команду, открыв меню события вместо списка заказов.
+
+    Доступ — только владельцу события: команда приходит в бот КЛИЕНТА, поэтому
+    сверяем, что бот принадлежит клиенту-владельцу (event_owners). Чужому —
+    молчим, иначе по номеру события утекли бы контакты заказчиков.
+    """
+    import re as _re
+    from app.services.channels import find_channel_by_bot_id
+    from app.services.orders_export import (
+        client_owns_event, fetch_orders, build_orders_message,
+    )
+
+    user = message.from_user
+    m = _re.match(r"(?i)^/menu(\d+)_orders\b", (message.text or "").strip())
+    if not user or not m:
+        return
+    event_id = int(m.group(1))
+    bot_id = message.bot.id if message.bot else None
+    if not bot_id:
+        return
+
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        ch = await find_channel_by_bot_id(bot_id, db)
+        if not ch:
+            return
+        # Клиенты этого бота (у канала может быть несколько привязок).
+        client_ids = [r["client_id"] for r in await db.fetch(
+            "SELECT client_id FROM client_channels WHERE channel_id = $1", ch["id"])]
+        owner_ok = False
+        for cid in client_ids:
+            if await client_owns_event(db, cid, event_id):
+                owner_ok = True
+                break
+        if not owner_ok:
+            return
+        ev_title = await db.fetchval("SELECT title FROM events WHERE id = $1", event_id) or f"#{event_id}"
+        rows = await fetch_orders(db, event_id)
+
+    for part in build_orders_message(rows, ev_title):
+        await message.answer(part, parse_mode="HTML", disable_web_page_preview=True)
+
+
 @router.message(F.text.regexp(r"^/menu\d+"))
 async def handle_event_menu_command(message: Message):
     """Команда `/menu{event_id}` — открыть событие в чат-боте.
