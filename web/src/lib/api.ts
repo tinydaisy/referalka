@@ -587,6 +587,12 @@ export const api = {
       }),
     removeBlock: (eventId: number, blockId: number) =>
       request(`/api/v1/events/${eventId}/landing/blocks/${blockId}`, { method: 'DELETE' }),
+    copySources: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/landing/copy-sources`),
+    copyFrom: (eventId: number, sourceEventId: number, withTariffs: boolean) =>
+      request(`/api/v1/events/${eventId}/landing/copy-from/${sourceEventId}`, {
+        method: 'POST', body: JSON.stringify({ with_tariffs: withTariffs }),
+      }),
     reorder: (eventId: number, pageId: number, ids: number[]) =>
       request(`/api/v1/events/${eventId}/landing/pages/${pageId}/reorder`, {
         method: 'POST', body: JSON.stringify({ ids }),

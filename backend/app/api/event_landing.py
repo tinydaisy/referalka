@@ -828,3 +828,136 @@ async def set_seats(
     return {"ok": True, "seats_total": total, "seats_label": label,
             "seats_label_position": pos, "seats_size": size,
             "seats_count_mode": mode, "seats_base": base}
+
+
+@router.get("/copy-sources", summary="События, из которых можно скопировать лендинг")
+async def landing_copy_sources(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Список СВОИХ событий с непустым лендингом (кроме текущего).
+
+    Пустые лендинги не показываем: копировать оттуда нечего, а в списке они
+    только сбивают с толку.
+    """
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+
+    rows = await db.fetch(
+        """
+        SELECT e.id, e.title, e.slug, e.start_at,
+               (SELECT COUNT(*) FROM event_landing_blocks b
+                  JOIN event_landing_pages p ON p.id = b.page_id
+                 WHERE p.event_id = e.id) AS blocks_count,
+               (SELECT COUNT(*) FROM event_tariffs t WHERE t.event_id = e.id) AS tariffs_count
+          FROM events e
+         WHERE e.id <> $1
+           AND EXISTS (SELECT 1 FROM event_owners eo
+                        WHERE eo.event_id = e.id AND eo.client_id = $2
+                          AND eo.status = 'accepted')
+           AND EXISTS (SELECT 1 FROM event_landing_blocks b
+                         JOIN event_landing_pages p ON p.id = b.page_id
+                        WHERE p.event_id = e.id)
+         ORDER BY COALESCE(e.start_at, e.created_at) DESC NULLS LAST, e.id DESC
+        """,
+        event_id, client_id,
+    )
+    return {"events": [dict(r) for r in rows]}
+
+
+@router.post("/copy-from/{source_event_id}", summary="Скопировать лендинг из другого события")
+async def landing_copy_from(
+    event_id: int,
+    source_event_id: int,
+    data: dict | None = None,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Перенести лендинг события-донора в ТЕКУЩЕЕ событие.
+
+    Копируются: блоки с оформлением (обе страницы — основная и «Спасибо») и,
+    по галочке, тарифы. Всё делается в одной транзакции: наполовину
+    перенесённый лендинг хуже, чем неперенесённый.
+
+    ⚠️ Замещает, а не дополняет: старые блоки текущего лендинга удаляются.
+    Иначе при повторном копировании секции задвоятся.
+
+    ⚠️ Что НЕ переносим:
+      • адрес страницы (`slug`) и факт публикации — у события свои;
+      • `featured_tariff_id` у блоков — там номера тарифов ДОНОРА;
+      • заказы и оплаты — они принадлежат людям, а не событию.
+    Живые блоки (спикеры, программа, организатор) копию контента не хранят —
+    подтянут данные уже нового события сами.
+    """
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _check_event_access(db, client_id, source_event_id)
+    await _assert_feature(db, client_id)
+
+    with_tariffs = bool((data or {}).get("with_tariffs", True))
+    copied_pages = 0
+    copied_blocks = 0
+    copied_tariffs = 0
+
+    async with db.transaction():
+        for kind in ("main", "post_pay"):
+            src_page = await db.fetchrow(
+                "SELECT * FROM event_landing_pages WHERE event_id = $1 AND kind = $2",
+                source_event_id, kind,
+            )
+            if not src_page:
+                continue
+            dst_page = await _get_or_create_page(db, event_id, kind)
+
+            # Оформление страницы: всё, кроме адреса и признака публикации —
+            # ссылка и статус у каждого события свои.
+            skip_page = {"id", "event_id", "kind", "created_at", "updated_at",
+                         "is_published", "slug"}
+            pcols = [k for k in dict(src_page).keys() if k not in skip_page]
+            if pcols:
+                sets = ", ".join(f"{c} = ${i + 2}" for i, c in enumerate(pcols))
+                await db.execute(
+                    f"UPDATE event_landing_pages SET {sets} WHERE id = $1",
+                    dst_page["id"], *[src_page[c] for c in pcols],
+                )
+            copied_pages += 1
+
+            # Замещаем блоки целиком — иначе секции задвоятся.
+            await db.execute(
+                "DELETE FROM event_landing_blocks WHERE page_id = $1", dst_page["id"])
+            for blk in await db.fetch(
+                "SELECT * FROM event_landing_blocks WHERE page_id = $1 ORDER BY sort_order, id",
+                src_page["id"],
+            ):
+                bcols = [k for k in dict(blk).keys()
+                         if k not in ("id", "page_id", "created_at", "updated_at",
+                                      "featured_tariff_id")]
+                bph = ",".join(f"${i + 2}" for i in range(len(bcols)))
+                await db.execute(
+                    f"INSERT INTO event_landing_blocks (page_id, {','.join(bcols)}) "
+                    f"VALUES ($1, {bph})",
+                    dst_page["id"], *[blk[c] for c in bcols],
+                )
+                copied_blocks += 1
+
+        if with_tariffs:
+            # Тарифы тоже замещаем: блок «Тарифы» на лендинге показывает их из
+            # события, и смесь старых с новыми выглядела бы мусором.
+            await db.execute("DELETE FROM event_tariffs WHERE event_id = $1", event_id)
+            for row in await db.fetch(
+                "SELECT * FROM event_tariffs WHERE event_id = $1 ORDER BY sort_order, id",
+                source_event_id,
+            ):
+                cols = [k for k in dict(row).keys()
+                        if k not in ("id", "event_id", "created_at", "updated_at")]
+                ph = ",".join(f"${i + 2}" for i in range(len(cols)))
+                await db.execute(
+                    f"INSERT INTO event_tariffs (event_id, {','.join(cols)}) VALUES ($1, {ph})",
+                    event_id, *[row[c] for c in cols],
+                )
+                copied_tariffs += 1
+
+    return {"ok": True, "pages": copied_pages, "blocks": copied_blocks,
+            "tariffs": copied_tariffs}

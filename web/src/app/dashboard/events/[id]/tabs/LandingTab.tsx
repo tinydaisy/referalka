@@ -13,7 +13,7 @@
  * Сохранение — по факту правки, с задержкой (не дёргаем сервер на каждую букву).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, Plus, Loader2, ExternalLink, Palette } from 'lucide-react'
+import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 import BlockCard from '@/components/landing/BlockCard'
 import { ADDABLE, metaFor } from '@/components/landing/blockMeta'
@@ -36,6 +36,13 @@ export default function LandingTab({ eventId, event }: Props) {
   const [dragId, setDragId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [seats, setSeats] = useState<string>('')
+  // Копирование лендинга из другого события: список доноров грузим по клику,
+  // а не при открытии вкладки — незачем дёргать сервер ради редкого действия.
+  const [copyOpen, setCopyOpen] = useState(false)
+  const [copySources, setCopySources] = useState<any[]>([])
+  const [copySourceId, setCopySourceId] = useState<number | null>(null)
+  const [copyTariffs, setCopyTariffs] = useState(true)
+  const [copyBusy, setCopyBusy] = useState(false)
   // Списки для выпадающих настроек блоков: какой тариф подсветить и какую
   // оферту показать в подвале. Оба необязательны — раздел может быть закрыт
   // тарифом, тогда список просто пустой.
@@ -179,6 +186,37 @@ export default function LandingTab({ eventId, event }: Props) {
     } catch (e: any) { alert(e?.message || 'Не удалось применить тему') }
   }
 
+  const openCopy = async () => {
+    setCopyOpen(true)
+    if (copySources.length) return
+    try {
+      const res = await api.eventLanding.copySources(eventId)
+      setCopySources(res.events || [])
+    } catch (e: any) { alert(e?.message || 'Не удалось загрузить список событий') }
+  }
+
+  const doCopy = async () => {
+    if (!copySourceId) return
+    const src = copySources.find(s => s.id === copySourceId)
+    // ⚠️ Спрашиваем явно: копирование ЗАМЕЩАЕТ текущий лендинг, а не дополняет.
+    if (!confirm(
+      `Взять лендинг из «${src?.title || 'события'}»?\n\n` +
+      'Текущие блоки этого лендинга будут заменены' +
+      (copyTariffs ? ', тарифы — тоже' : '') + '. Отменить будет нельзя.'
+    )) return
+    setCopyBusy(true)
+    try {
+      const res = await api.eventLanding.copyFrom(eventId, copySourceId, copyTariffs)
+      setCopyOpen(false)
+      setCopySourceId(null)
+      await load()
+      alert(`Готово: перенесено блоков — ${res.blocks}` +
+            (copyTariffs ? `, тарифов — ${res.tariffs}` : ''))
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось скопировать лендинг')
+    } finally { setCopyBusy(false) }
+  }
+
   const saveSeats = async (patch: any = {}) => {
     const v = seats.trim() === '' ? null : Math.max(0, parseInt(seats, 10) || 0)
     const body = {
@@ -263,6 +301,13 @@ export default function LandingTab({ eventId, event }: Props) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={openCopy}
+            title="Перенести блоки и оформление лендинга из другого вашего события"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Copy className="h-4 w-4" /> Скопировать из другого события
+          </button>
           <button
             onClick={applyTheme}
             title="Взять цвета, шрифты и отступы из Настройки → Стили лендингов"
@@ -726,6 +771,96 @@ export default function LandingTab({ eventId, event }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Копирование лендинга из другого события.
+          ⚠️ По правилу проекта модалка-форма НЕ закрывается по клику на фон —
+          только по «Отмена»/крестику, иначе теряется выбор. */}
+      {copyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
+          >
+            <h3 className="text-lg font-semibold text-gray-900">
+              Скопировать лендинг из другого события
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Перенесём блоки с оформлением — обе страницы, основную и «Спасибо».
+              Спикеры, программа и организатор подтянутся уже из этого события.
+            </p>
+
+            {copySources.length === 0 ? (
+              <p className="my-6 text-sm text-gray-500">
+                Готовых лендингов в других ваших событиях пока нет.
+              </p>
+            ) : (
+              <>
+                <div className="my-4 max-h-64 space-y-1.5 overflow-y-auto">
+                  {copySources.map(s => (
+                    <label
+                      key={s.id}
+                      className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${
+                        copySourceId === s.id
+                          ? 'border-brand bg-brand/5'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="copy-src"
+                        checked={copySourceId === s.id}
+                        onChange={() => setCopySourceId(s.id)}
+                        className="mt-1 h-4 w-4 border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-gray-900">
+                          {s.title}
+                        </span>
+                        <span className="block text-xs text-gray-500">
+                          секций — {s.blocks_count}
+                          {s.tariffs_count > 0 && <> · тарифов — {s.tariffs_count}</>}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={copyTariffs}
+                    onChange={e => setCopyTariffs(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                  />
+                  Перенести и тарифы (названия, описания, цены)
+                </label>
+
+                <p className="mt-3 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
+                  Блоки текущего лендинга будут заменены. Адрес страницы и то,
+                  опубликована ли она, останутся своими.
+                </p>
+              </>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => { setCopyOpen(false); setCopySourceId(null) }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={doCopy}
+                disabled={!copySourceId || copyBusy}
+                className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {copyBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {copyBusy ? 'Копируем…' : 'Скопировать'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
