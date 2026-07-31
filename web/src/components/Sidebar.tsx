@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -62,6 +62,17 @@ export default function Sidebar() {
       .catch(() => setCollabEventIds(prev => ({ ...prev, [eventIdInPath]: false })))
   }, [eventIdInPath])
   const inCollabEvent = eventIdInPath ? collabEventIds[eventIdInPath] === true : false
+
+  // Ссылка на закрытый чат Коллабораторной (задаёт админ платформы, миграция 264).
+  // Грузим только тем, у кого раздел есть; ошибку глотаем — без ссылки просто
+  // не будет пункта меню, ломать сайдбар из-за этого нельзя.
+  const [collabChatUrl, setCollabChatUrl] = useState('')
+  useEffect(() => {
+    if (!hasCollabHub) return
+    api.collabHub.settings()
+      .then((r: any) => setCollabChatUrl(r?.chat_url || ''))
+      .catch(() => {})
+  }, [hasCollabHub])
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -127,7 +138,11 @@ export default function Sidebar() {
         { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
         { href: '/dashboard/collab-hub/events', label: 'Коллабы', icon: Calendar },
         { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
-        { href: '/dashboard/collab-hub/matchmaker', label: 'Умный сват', icon: Sparkles },
+        // Закрытый чат участников — внешняя ссылка в Telegram, адрес задаёт
+        // администратор платформы (миграция 264). Не задан → пункта нет.
+        ...(collabChatUrl
+          ? [{ href: collabChatUrl, label: 'Закрытый чат', icon: MessageCircle, external: true }]
+          : []),
         { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
       ],
     }] : []),
@@ -165,9 +180,27 @@ export default function Sidebar() {
               </button>
             )}
             {!isCollapsed && <div className="space-y-0.5">
-              {section.items.map(({ href, label, icon: Icon, exact }: { href: string; label: string; icon: any; exact?: boolean }) => {
+              {section.items.map(({ href, label, icon: Icon, exact, external: itemExternal }: { href: string; label: string; icon: any; exact?: boolean; external?: boolean }) => {
                 const active = isActive(href, exact)
                 const isComingSoon = href === '#'
+                // Внешняя ссылка (например закрытый чат в Telegram) — обычный
+                // <a> в новую вкладку: Link увёл бы на несуществующий роут.
+                if (itemExternal) {
+                  return (
+                    <a
+                      key={href + label}
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => setMobileOpen(false)}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                    >
+                      <Icon size={17} />
+                      <span>{label}</span>
+                      <ExternalLink size={13} className="ml-auto text-white/40" />
+                    </a>
+                  )
+                }
                 return (
                   <Link
                     key={href + label}

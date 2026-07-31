@@ -268,3 +268,21 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
         "my_review": dict(my_review) if my_review else None,
         "is_me": me == client_id,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Закрытый чат Коллабораторной (миграция 264)
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/settings", summary="Настройки Коллабораторной (ссылка на чат)")
+async def get_collab_hub_settings(db=Depends(get_db)):
+    """Ссылка на закрытый Telegram-чат участников.
+
+    Одна на всю Коллабораторную (таблица-одиночка, id=1). Пусто → в кабинете
+    пункт «Закрытый чат» просто не показывается, а не ведёт в никуда.
+    """
+    row = await db.fetchrow(
+        "SELECT chat_url, chat_title FROM collab_hub_settings WHERE id = 1")
+    return {
+        "chat_url": (row["chat_url"] if row else None) or "",
+        "chat_title": (row["chat_title"] if row else None) or "Закрытый чат",
+    }

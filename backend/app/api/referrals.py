@@ -538,3 +538,55 @@ async def admin_update_referral_settings(
         *args,
     )
     return await admin_get_referral_settings(db=db, admin=admin)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Настройки Коллабораторной (миграция 264)
+# ─────────────────────────────────────────────────────────────────────────────
+class CollabHubSettingsUpdate(BaseModel):
+    chat_url: Optional[str] = None
+    chat_title: Optional[str] = None
+
+
+@admin_router.get("/collab-hub-settings", summary="Настройки Коллабораторной")
+async def admin_get_collab_hub_settings(db=Depends(get_db), admin=Depends(get_current_admin)):
+    row = await db.fetchrow(
+        "SELECT chat_url, chat_title, updated_at FROM collab_hub_settings WHERE id = 1")
+    return {
+        "chat_url": (row["chat_url"] if row else None) or "",
+        "chat_title": (row["chat_title"] if row else None) or "",
+        "updated_at": row["updated_at"] if row else None,
+    }
+
+
+@admin_router.patch("/collab-hub-settings", summary="Изменить ссылку на закрытый чат")
+async def admin_update_collab_hub_settings(
+    data: CollabHubSettingsUpdate,
+    db=Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """Ссылка на закрытый Telegram-чат участников Коллабораторной.
+
+    ⚠️ Пустая строка — осмысленное значение (чата нет): пункт «Закрытый чат»
+    в кабинете тогда просто не показывается. Поэтому смотрим на
+    `model_fields_set`, а не на «не None»: иначе очистить поле было бы нельзя.
+    """
+    fields, args = [], []
+    sent = data.model_fields_set
+    if "chat_url" in sent:
+        url = (data.chat_url or "").strip()
+        if url and not url.startswith("http"):
+            raise HTTPException(400, "Ссылка должна начинаться с http:// или https://")
+        args.append(url or None)
+        fields.append(f"chat_url = ${len(args)}")
+    if "chat_title" in sent:
+        args.append((data.chat_title or "").strip() or None)
+        fields.append(f"chat_title = ${len(args)}")
+    if not fields:
+        raise HTTPException(400, "Нечего менять")
+    fields.append("updated_at = now()")
+    await db.execute(
+        f"INSERT INTO collab_hub_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING")
+    await db.execute(
+        f"UPDATE collab_hub_settings SET {', '.join(fields)} WHERE id = 1", *args)
+    return await admin_get_collab_hub_settings(db=db, admin=admin)

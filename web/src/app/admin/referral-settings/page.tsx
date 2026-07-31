@@ -11,6 +11,11 @@ export default function AdminReferralSettingsPage() {
   const [err, setErr] = useState('')
 
   const [percent, setPercent] = useState('10')
+  // Закрытый чат Коллабораторной (миграция 264) — отдельная сущность, но
+  // держим на этой же странице: заводить ради одного поля свой экран незачем.
+  const [chatUrl, setChatUrl] = useState('')
+  const [chatSaving, setChatSaving] = useState(false)
+  const [chatSaved, setChatSaved] = useState(false)
   const [signupUntil, setSignupUntil] = useState('')
   const [accrualUntil, setAccrualUntil] = useState('')
 
@@ -28,6 +33,23 @@ export default function AdminReferralSettingsPage() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    api.adminCollabHubSettings.get()
+      .then((r: any) => setChatUrl(r?.chat_url || ''))
+      .catch(() => {})
+  }, [])
+
+  async function saveChat() {
+    setChatSaving(true); setChatSaved(false); setErr('')
+    try {
+      await api.adminCollabHubSettings.update({ chat_url: chatUrl.trim() })
+      setChatSaved(true)
+      setTimeout(() => setChatSaved(false), 2500)
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось сохранить ссылку на чат')
+    } finally { setChatSaving(false) }
+  }
 
   async function save() {
     setSaving(true); setErr(''); setSaved(false)
@@ -138,6 +160,36 @@ export default function AdminReferralSettingsPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-2xl font-bold text-gray-400">{data?.referred_expired ?? 0}</div>
           <div className="text-xs text-gray-500 mt-1">Срок вышел</div>
+        </div>
+      </div>
+
+      {/* Закрытый чат Коллабораторной */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mt-6">
+        <h2 className="font-semibold text-gray-900">Закрытый чат Коллабораторной</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Ссылка-приглашение в Telegram. Показывается пунктом «Закрытый чат» в разделе
+          Коллабораторная у всех, кому доступен модуль. Пусто — пункта в меню нет.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <input
+            value={chatUrl}
+            onChange={e => setChatUrl(e.target.value)}
+            placeholder="https://t.me/+..."
+            className="flex-1 min-w-[280px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+          />
+          <button
+            onClick={saveChat}
+            disabled={chatSaving}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}
+          >
+            {chatSaving ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+          {chatSaved && (
+            <span className="inline-flex items-center gap-1 text-sm text-green-700">
+              <Check size={15} /> Сохранено
+            </span>
+          )}
         </div>
       </div>
     </div>

@@ -775,6 +775,7 @@ export const api = {
       request(`/api/v1/lead-magnets/${id}/analytics`),
   },
   collabHub: {
+    settings: () => request('/api/v1/collab-hub/settings'),
     niches: () => request('/api/v1/collab-hub/niches'),
     myCard: () => request('/api/v1/collab-hub/me/card'),
     publishCard: (data: any) =>
@@ -1195,6 +1196,13 @@ export const api = {
       }),
   },
 
+  adminCollabHubSettings: {
+    get: () => request('/api/v1/admin/collab-hub-settings'),
+    update: (data: any) =>
+      request('/api/v1/admin/collab-hub-settings', {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+  },
   adminReferralSettings: {
     get: () => request('/api/v1/admin/referral-settings'),
     update: (data: { percent?: number; signup_until?: string; accrual_until?: string }) =>
