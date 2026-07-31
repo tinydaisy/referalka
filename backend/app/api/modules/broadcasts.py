@@ -921,6 +921,12 @@ async def update_template(
     bind = (await _resolve_custom_binding(db, event_id, data, await _client_tz(db, client_id))
             if bind_sent else None)
 
+    # Время отправки: COALESCE не даёт ОЧИСТИТЬ поле (null молча оставляет старое),
+    # а для «итогов дня» пустое значение — осмысленный выбор «считать от конца
+    # программы дня». Поэтому пустую строку от фронта трактуем как явную очистку.
+    _time_sent = "intro_start_time" in data.model_fields_set
+    _time_clear = _time_sent and not (data.intro_start_time or "").strip()
+
     row = await db.fetchrow(
         """
         UPDATE broadcast_templates SET
@@ -931,7 +937,8 @@ async def update_template(
             audience_include = COALESCE($10, audience_include),
             audience_exclude = COALESCE($11, audience_exclude),
             allow_custom_datetime = COALESCE($12, allow_custom_datetime),
-            intro_start_time = COALESCE($13, intro_start_time),
+            intro_start_time = CASE WHEN $33::bool THEN NULL
+                                    ELSE COALESCE($13, intro_start_time) END,
             intro_interval_min = COALESCE($14, intro_interval_min),
             intro_days_before = COALESCE($15, intro_days_before),
             custom_day_ref = COALESCE($16, custom_day_ref),
@@ -975,6 +982,7 @@ async def update_template(
         bind["slot_session_id"] if bind else None,
         bind["slot_offset_min"] if bind else None,
         bind["fire_at"] if bind else None,
+        _time_clear,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -1674,10 +1682,26 @@ async def generate_schedules(
             offset = tmpl["offset_minutes"] or 5
             await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, "day_live", day=day_num)
 
-        if "day_end" in tmpl_map and last_end_utc:
+        if "day_end" in tmpl_map:
             tmpl = tmpl_map["day_end"]
-            offset = tmpl["offset_minutes"] or 30
-            await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end", day=day_num)
+            # Время отправки итогов дня: либо ЯВНОЕ из шаблона (intro_start_time,
+            # «HH:MM» МСК того же дня), либо, как раньше, конец последней сессии
+            # + offset. ⚠️ Без явного времени рассылку было не сформировать, если
+            # день уже идёт: расчётное «конец + 30 мин» оказывалось в прошлом и
+            # add_schedule молча пропускал запись.
+            _raw_time = ""
+            try:
+                _raw_time = (tmpl["intro_start_time"] or "").strip()
+            except (KeyError, TypeError):
+                _raw_time = ""
+            if _raw_time:
+                _h, _m = _tmpl_time_msk(tmpl, 0, 0)
+                _fire = _msk_str_to_utc(last_session.get("day_date"), f"{_h:02d}:{_m:02d}")
+            else:
+                _fire = (last_end_utc + timedelta(minutes=tmpl["offset_minutes"] or 30)
+                         if last_end_utc else None)
+            if _fire:
+                await add_schedule(tmpl, _fire, None, "day_end", day=day_num)
 
         # «За сутки в 09:12 МСК» — тоже на КАЖДЫЙ день программы (раньше создавалась
         # одна запись на всё событие, по первому дню). Отправка накануне дня в 09:12,
