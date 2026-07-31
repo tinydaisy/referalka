@@ -2051,8 +2051,17 @@ _MERGE_USAGE_TG = (
 
 async def _send_admin_export(message: Message, kind: str) -> None:
     from app.services.admin_export import (
-        is_allowed, fetch_clients, fetch_collabs, build_message,
+        is_allowed, fetch_clients, fetch_collabs, build_message, EXPORT_BOT_USERNAME,
     )
+    # ⚠️ ТОЛЬКО @pluson_bot. Диспетчер в polling один на все боты клиентов, и без
+    # этой проверки команда отвечала бы в чужих ботах тоже — выгрузка по всей
+    # платформе не должна быть доступна из бота клиента ни при каких условиях.
+    try:
+        me = await message.bot.get_me()
+    except Exception:
+        return
+    if (me.username or "").lower() != EXPORT_BOT_USERNAME:
+        return
     # Молча игнорируем чужих: подсказка «вам нельзя» только раскрыла бы, что
     # такая команда существует.
     if not is_allowed(message.from_user.username if message.from_user else None):

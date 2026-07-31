@@ -9,6 +9,11 @@
 
 from typing import Optional
 
+# ⚠️ Команды работают ТОЛЬКО в этом боте. Polling-диспетчер один на все боты
+# платформы, поэтому хендлер обязан сверить, из какого бота пришло сообщение:
+# иначе выгрузка по всей платформе была бы доступна из бота любого клиента.
+EXPORT_BOT_USERNAME: str = "pluson_bot"
+
 # Кому доступны выгрузки. Сверяем по @нику (регистр не важен, '@' не нужен).
 ALLOWED_USERNAMES: frozenset[str] = frozenset({
     "margp_frobs", "margo_frbs", "forbs_service2", "forbs_margo2",
