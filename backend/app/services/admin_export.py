@@ -16,8 +16,7 @@ EXPORT_BOT_USERNAME: str = "pluson_bot"
 
 # Кому доступны выгрузки. Сверяем по @нику (регистр не важен, '@' не нужен).
 ALLOWED_USERNAMES: frozenset[str] = frozenset({
-    "margp_frobs",     # из запроса; такого аккаунта в базе нет — оставлен на случай, если заведут
-    "margo_forbs",     # основной аккаунт Марго
+    "margo_forbs",
     "margo_frbs",
     "forbs_service2",
     "forbs_margo2",
