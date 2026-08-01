@@ -16,8 +16,9 @@ import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
+import WebinarTab from '@/app/dashboard/conferences/[id]/tabs/WebinarTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -30,6 +31,11 @@ export default function EventPage() {
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
   const hasLanding = (me?.features || []).includes('event_landing')
+  // Вебинарные комнаты — по фиче webinar_room (своя комната) или webinar_link
+  // (ссылка на сторонний). У события без программы комната одна: бэкенд
+  // отдаёт виртуальный «день 1».
+  const hasWebinar = (me?.features || []).includes('webinar_room')
+    || (me?.features || []).includes('webinar_link')
   // Несколько организаторов у событий — по фиче event_organizers (vip + admin).
   const hasEventOrganizers = (me?.features || []).includes('event_organizers')
 
@@ -66,7 +72,10 @@ export default function EventPage() {
         { key: 'posters',  label: 'Афиши' },
         // Конструктор лендинга — по фиче event_landing (миграция 240).
         // У КОЛЛАБ-события скрыт: страница собирается для одного организатора.
-        ...((hasLanding && !event.is_collab) ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
+        // Лендинг доступен и коллаб-событию: у коллабы такая же продающая
+        // страница, как у обычного события — прятать её было незачем.
+        ...(hasLanding ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
+        ...(hasWebinar ? [{ key: 'webinar' as TabKey, label: 'Вебинар' }] : []),
         { key: 'referral', label: 'Реф-программа' },
         { key: 'nurture',  label: 'Воронка догрева' },
         // «Приветствие» (welcome-email) — у КОЛЛАБ-события не показываем.
@@ -170,7 +179,8 @@ export default function EventPage() {
       {/* Tab content */}
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
-      {activeTab === 'landing' && hasLanding && !event.is_collab && <LandingTab eventId={eventId} event={event} />}
+      {activeTab === 'landing' && hasLanding && <LandingTab eventId={eventId} event={event} />}
+      {activeTab === 'webinar' && hasWebinar && <WebinarTab eventId={eventId} event={event} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}

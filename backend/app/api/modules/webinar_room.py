@@ -113,6 +113,17 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
     rooms = await db.fetch("SELECT * FROM webinar_rooms WHERE event_id=$1", event_id)
     rooms_by_day = {r["day_number"]: dict(r) for r in rooms}
 
+    # Событие БЕЗ программы (обычное мероприятие, коллаба) — эфир у него один.
+    # Отдаём виртуальный «день 1», иначе вкладка «Вебинарные комнаты» пустая и
+    # создать комнату неоткуда. Дата — старт самого события.
+    if not days:
+        start_at = await db.fetchval("SELECT start_at FROM events WHERE id=$1", event_id)
+        days = [{
+            "day_number": 1,
+            "day_date": start_at.date() if start_at else None,
+            "title": None,
+        }]
+
     out = []
     for d in days:
         dn = d["day_number"]

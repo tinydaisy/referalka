@@ -14,7 +14,10 @@ type Subscription = {
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  // ⚠️ Год обязателен: без него «до 20 августа» читается как «в этом году»,
+  // хотя доступ может быть оплачен на год вперёд — клиент шёл в поддержку
+  // выяснять, не заканчивается ли у него всё через пару недель.
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 export default function SubscriptionBadge() {
