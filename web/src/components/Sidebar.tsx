@@ -258,7 +258,7 @@ export default function Sidebar() {
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
             >
               <MessageCircle size={15} />
-              Задать вопрос в Telegram
+              Написать в бот техподдержки
             </a>
             <Link
               href="/dashboard/help"
