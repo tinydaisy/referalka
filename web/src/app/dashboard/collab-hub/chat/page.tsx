@@ -4,8 +4,9 @@ import { MessageCircle, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { HubHeader } from '../_components/shared'
 
-/** Закрытый чат Коллабораторной — площадок две (Telegram и MAX), поэтому пункт
- *  меню ведёт сюда, а не прямо в мессенджер: одной ссылкой их не уместить.
+/** Закрытые чаты Коллабораторной. Это ДВА РАЗНЫХ чата — в Telegram и в MAX,
+ *  переписка в них не общая и не дублируется. Поэтому пункт меню ведёт сюда,
+ *  а не прямо в мессенджер: одной ссылкой два чата не уместить.
  *  Кнопка рисуется только для заполненной площадки — ссылки задаёт админ
  *  платформы (миграции 264 и 266). */
 export default function CollabChatPage() {
@@ -27,7 +28,7 @@ export default function CollabChatPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <HubHeader subtitle="Закрытый чат участников Коллабораторной." />
+      <HubHeader subtitle="Закрытые чаты участников Коллабораторной." />
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 max-w-xl">
         <div className="flex items-center gap-2 mb-1">
@@ -35,8 +36,8 @@ export default function CollabChatPage() {
           <h2 className="font-semibold text-gray-800">Войти в чат</h2>
         </div>
         <p className="text-sm text-gray-500 mb-5">
-          Чат один, просто живёт на двух площадках — выберите удобную. Если вы
-          уже состоите в чате, ссылка просто откроет его.
+          Два отдельных чата — в Telegram и в MAX. Переписка в них разная,
+          заходите куда удобно или сразу в оба.
         </p>
 
         {loading ? (

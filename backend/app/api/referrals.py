@@ -73,18 +73,27 @@ async def get_my_referral_dashboard(
     web_link = f"https://pluson.ru/?pid={ref_code}"
     bot_link = f"https://telegram.me/pluson_bot?start=ref{ref_code}"
 
-    # MAX-ссылка — handle сервисного бота ПЛЮСОНа берём из БД, а не хардкодом:
-    # бот может быть перевыпущен, и захардкоженный ник увёл бы людей в никуда.
-    # Нет бота/handle → ключа в ответе нет, фронт просто не рисует строку.
+    # MAX-ссылка — handle бота ПЛЮСОНа берём из БД, а не хардкодом: бот может
+    # быть перевыпущен, и захардкоженный ник увёл бы людей в никуда.
+    #
+    # ⚠️ ОБЯЗАТЕЛЬНО `bot_token <> ''`. У сервисного клиента есть карточка MAX-
+    # канала БЕЗ токена (`id890306512862_1_bot`) — бот за ней фактически не
+    # заведён: его вебхук не резолвится (`unknown secret` → 404), отвечать
+    # нечем. Ссылка на него молча вела в пустоту.
+    #
+    # Сервисный клиент в приоритете, но при отсутствии у него живого бота
+    # падаем на любой другой MAX-бот ПЛЮСОНа: реф-код разбирается в ЛЮБОМ боте
+    # платформы (см. _handle_max_plusson_ref), поэтому ссылка рабочая.
+    # Нет ни одного бота с токеном → ключа в ответе нет, строка не рисуется.
     max_handle = await db.fetchval(
         """SELECT ch.handle
              FROM channels ch
              JOIN client_channels cc ON cc.channel_id = ch.id
              JOIN clients cl ON cl.id = cc.client_id
             WHERE ch.platform_slug = 'max'
-              AND cl.is_system_service = TRUE
               AND COALESCE(ch.handle, '') <> ''
-            ORDER BY cc.is_active DESC, ch.id
+              AND COALESCE(ch.bot_token, '') <> ''
+            ORDER BY cl.is_system_service DESC, cc.is_active DESC, ch.id
             LIMIT 1"""
     )
     links: dict[str, str] = {"web": web_link, "telegram": bot_link}
