@@ -264,7 +264,7 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
             WHERE rv.client_id=$1 ORDER BY rv.created_at DESC LIMIT 50""", client_id)
     rating = await db.fetchrow(
         """SELECT count(*) AS collabs,
-                  round(avg(win_win_coefficient), 2) FILTER (WHERE win_win_coefficient IS NOT NULL) AS win_win
+                  round(avg(win_win_coefficient) FILTER (WHERE win_win_coefficient IS NOT NULL), 2) AS win_win
              FROM hub_collab_history WHERE client_id=$1""", client_id)
     card = _client_card(row, public=(me != client_id))  # свой профиль — поля видны всегда
     card['telegram_username'] = row.get('telegram_username')
