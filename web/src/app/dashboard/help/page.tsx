@@ -192,8 +192,8 @@ export default function HelpIndexPage() {
       <div className="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
         <div className="text-sm font-semibold text-gray-800 mb-1">Не нашли ответ?</div>
         <p className="text-sm text-gray-600">
-          Напишите разработчику —{' '}
-          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_Плюсон"
+          Задайте вопрос в нашем боте —{' '}
+          <a href="https://telegram.me/pluson_bot?start=question"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             открыть чат в Telegram

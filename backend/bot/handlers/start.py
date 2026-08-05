@@ -305,6 +305,14 @@ async def handle_start(message: Message, command: CommandObject):
         await message.answer("✅ Ваш аккаунт ПЛЮСОН привязан. Приведённые вами люди будут закрепляться за вами.")
         return
 
+    # Вопрос в поддержку ПЛЮСОНа — вход из кабинета (кнопка «Написать
+    # разработчику» в сайдбаре ведёт на ?start=question). Приглашение написать
+    # вопрос; дальше свободное сообщение ловит handle_user_message и уводит его
+    # в Диалоги сервисного клиента + уведомление организатору.
+    if args == "question":
+        if await _send_question_prompt(message):
+            return
+
     # Воронка лид-магнита: прямой формат `/start m_<slug>` (для лид-магнита) или
     # `/start p_<slug>` (для пакета). Опционально с UTM/pid: `m_<slug>_pid<ref>_src<utm>`.
     # Бот сам создаёт funnel_run и запускает run_started. Это заменяет старый
@@ -2042,6 +2050,59 @@ async def handle_support(message: Message):
     except Exception as e:
         log.warning("handle_support answer failed: %s", e)
         await message.answer("Возникли вопросы? Напишите организатору события.")
+
+
+QUESTION_PROMPT_HTML = (
+    "💬 <b>Напишите ваш вопрос по ПЛЮСОН</b> — мы вам ответим.\n\n"
+    "Просто отправьте его следующим сообщением: опишите, что не получается "
+    "или что хотите настроить. Чем подробнее — тем быстрее разберёмся.\n\n"
+    "Если вопрос про конкретное событие — укажите его название."
+)
+
+
+async def _send_question_prompt(message: Message) -> bool:
+    """Приглашение «напишите ваш вопрос» — ТОЛЬКО в @pluson_bot.
+
+    ⚠️ Проверка бота обязательна: polling-диспетчер один на все боты платформы.
+    Без неё приглашение писать «вопрос по ПЛЮСОН» приходило бы и в ботах
+    клиентов, где человек ждёт ответа организатора события, а не нас.
+
+    Возвращает True, если приглашение отправлено (вызывающий прекращает
+    обработку), иначе False — payload/команда обрабатывается дальше как обычно.
+    """
+    bot_id = message.bot.id if message.bot else None
+    if not bot_id:
+        return False
+    try:
+        from app.services.admin_export import is_export_bot
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            if not await is_export_bot(db, bot_id):
+                return False
+    except Exception as e:  # noqa: BLE001 — не знаем бота → молчим, не угадываем
+        log.warning("question prompt bot check failed: %s", e)
+        return False
+    try:
+        await message.answer(QUESTION_PROMPT_HTML, parse_mode="HTML",
+                             disable_web_page_preview=True)
+    except Exception as e:  # noqa: BLE001
+        log.warning("question prompt answer failed: %s", e)
+        return False
+    return True
+
+
+@router.message(Command(commands=["question"]))
+async def handle_question(message: Message):
+    """Команда `/question` — приглашение задать вопрос по ПЛЮСОНу.
+
+    Работает только в @pluson_bot (см. `_send_question_prompt`). В боте клиента
+    команда молчит — там за поддержку отвечает `/support` организатора.
+    """
+    if message.chat and message.chat.type != "private":
+        return
+    if not message.from_user:
+        return
+    await _send_question_prompt(message)
 
 
 @router.message(Command(commands=["getmyid"]))

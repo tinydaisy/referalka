@@ -21,11 +21,15 @@ async def is_export_bot(db, bot_id: int) -> bool:
     ⚠️ Именно по id, а не через bot.get_me(): сетевой вызов к Telegram на
     каждую команду мог зависать, и хендлер отваливался по таймауту, ничего
     не ответив. bot_id известен из апдейта сразу, без обращения наружу.
+
+    ⚠️ Ник сверяется ТОЧНО, а не по `ILIKE '%pluson_bot'`. У клиентов есть боты
+    с этим словом в конце ника (например @renin_pluson_bot) — под маску они
+    подходили, и владелец такого бота мог получить выгрузку по всей платформе.
     """
     return bool(await db.fetchval(
         "SELECT 1 FROM channels WHERE platform_slug='telegram' "
-        "AND bot_token LIKE $1 AND handle ILIKE $2",
-        f"{bot_id}:%", f"%{EXPORT_BOT_USERNAME}",
+        "AND bot_token LIKE $1 AND lower(ltrim(handle, '@')) = $2",
+        f"{bot_id}:%", EXPORT_BOT_USERNAME.lower(),
     ))
 
 # Кому доступны выгрузки. Сверяем по @нику (регистр не важен, '@' не нужен).

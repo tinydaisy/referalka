@@ -251,14 +251,14 @@ export default function Sidebar() {
         {supportOpen && (
           <div className="ml-4 pl-3 border-l border-white/10 mt-0.5 mb-1 space-y-0.5">
             <a
-              href="https://telegram.me/margo_forbs?text=Вопрос_по_Плюсон"
+              href="https://telegram.me/pluson_bot?start=question"
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setMobileOpen(false)}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
             >
               <MessageCircle size={15} />
-              Написать разработчику в Telegram
+              Задать вопрос в Telegram
             </a>
             <Link
               href="/dashboard/help"
