@@ -375,7 +375,11 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 Общие `persist_plusson_referrer_code(conn, client_id, platform, platform_user_id, code)` и `parse_plusson_ref_payload` живут в [plusson_referral.py](backend/app/services/plusson_referral.py) — платформа приходит параметром. Раньше в TG была приватная копия с зашитым `platform_slug='telegram'`; копии больше нет. Точки: **TG** — [start.py](backend/bot/handlers/start.py); **MAX** — `_handle_max_plusson_ref` в [max_webhook.py](backend/app/api/max_webhook.py); **VK — ветки ЕЩЁ НЕТ**, ссылку на VK не показывать, пока не появится.
 
-Реф-ссылки на странице `/dashboard/partner-program` отдаёт [referrals.py](backend/app/api/referrals.py): handle MAX-бота берётся **из БД** (сервисный клиент `is_system_service`), не хардкодом — бот может быть перевыпущен. Ключ `max` появляется в `links`, только если бот подключён; фронт рисует строку по наличию ключа. ⚠️ У MAX-канала сервисного клиента `is_active=f` — запрос его не фильтрует, а **сортирует** (`ORDER BY cc.is_active DESC`), иначе ссылка пропала бы.
+Реф-ссылки на странице `/dashboard/partner-program` отдаёт [referrals.py](backend/app/api/referrals.py): handle MAX-бота берётся **из БД**, не хардкодом — бот может быть перевыпущен. Ключ `max` появляется в `links`, только если бот подключён; фронт рисует строку по наличию ключа.
+
+⚠️ **Канал в БД без `bot_token` — это НЕ подключённый бот.** У сервисного клиента была карточка MAX-канала `id890306512862_1_bot` с пустым токеном: бот в MAX существует, но нашей системе не принадлежит — его вебхук не резолвится (`unknown secret` → 404), отвечать нечем. Ссылка на такого бота **молча ведёт в пустоту**. Поэтому выбор бота фильтруется по `COALESCE(ch.bot_token,'') <> ''`, а при подключении MAX-бота нужны ТРИ вещи: (1) токен в `channels.bot_token`, (2) `max_api.set_webhook` на `pluson.ru/api/v1/max/webhook/{sha256(token)[:32]}`, (3) активная связь в `client_channels` (иначе `client_id_override=None` — бот не знает, в чью базу писать контакт и кому слать уведомление).
+
+⚠️ **`bot_started` MAX шлёт ТОЛЬКО при первом запуске бота.** Человек уже нажимал «Начать» → повторный переход по `?start=…` события НЕ порождает, deeplink молча не срабатывает. Проверять «ссылка не работает» надо на аккаунте, который бота ещё не запускал, либо текстовой командой `/start <payload>` (её ловит `message_created`).
 
 **3. Плейсхолдеры описаний лид-магнитов в шаблоне воронки.** [funnel_service.py](backend/app/services/funnel_service.py) `_format_text`: `{materials_list}` — ЖИРНЫЕ названия (`<b>`) без ссылок; `{materials_list_description}` — «N. <b>Название</b> — описание» БЕЗ ссылок; `{materials_list_description_links}` — то же + ссылка на файл отдельной строкой (без эмодзи 🖐). У всех трёх описание пакета (`lead_magnet_packages.description`, через `_package_description_for_run`) идёт СВЕРХУ списка. Описание берётся из `lead_magnets.description` (колонка была; в форму лид-магнита дашборда добавлено поле «Описание»). Проброс `pkg_description` во все 8 вызовов `_format_text` (text_1/2/3 × TG/VK/MAX). VK срезает `<b>` (как обычно).
 
@@ -677,6 +681,9 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 - **TG** ([start.py](backend/bot/handlers/start.py)) — личка/группа/беседа: `chat.id`+`from_user.id`; для КАНАЛА — переслать сообщение из канала боту → `forward_from_chat.id`.
 - **VK** ([vk_main.py](backend/bot/vk_main.py)) — беседа: peer_id+from_id (прямой `messages.send` по peer_id); личка: VK ID.
 - **MAX** ([max_webhook.py](backend/app/api/max_webhook.py)) — `_is_getmyid_command` ВЫШЕ ветки chat_type, работает в личке/беседе/канале.
+
+⚠️ **В MAX-КАНАЛЕ `/getmyid` может не сработать** (в канал пишет владелец, апдейт боту не приходит). Рабочий способ узнать `chat_id` канала — по ссылке-приглашению через Bot API, ботом, который в этот канал уже добавлен:
+`GET https://botapi.max.ru/chats?link=<ссылка max.ru/join/...>` с заголовком `Authorization: <токен>` → в ответе `chat_id` (у каналов он отрицательный). Метода «вступить по ссылке» у MAX нет (`/chats/join` → `method.not.found`) — бота в канал добавляет человек руками.
 
 ### Правило: тариф trial ВСЕГДА = pro по фичам (2026-06-28)
 
