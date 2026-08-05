@@ -358,6 +358,8 @@ class OrganizerCardUpdate(BaseModel):
     # ⚠️ Подарки в коллабе — ТОЛЬКО из ПЛЮСОНа (до 4). Полей «название текстом + ссылка»
     # здесь НЕТ (в отличие от конференции, где можно задать вручную).
     gift_lead_magnets: Optional[list] = None  # [{kind:'magnet'|'package', id:int}]
+    # Галочка «разрешаю рассылки по моей базе в этом событии» (одноразовая на событие).
+    allow_collab_broadcasts: Optional[bool] = None
 
 
 async def _organizer_ctx(db, event_id: int, client_id: int, me: int):
@@ -444,6 +446,11 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
         "can_edit": can_edit,
         "is_me": can_edit,
         "event_status": ev["status"],
+        # Согласие ЭТОГО организатора на рассылки по его базе + завершено ли событие.
+        "allow_collab_broadcasts": await db.fetchval(
+            "SELECT allow_collab_broadcasts FROM event_owners WHERE event_id=$1 AND client_id=$2",
+            event_id, client_id),
+        "event_ended": ev["status"] == "ended",
         "organizer": d,
         "topics": [dict(t) for t in topics],
         "gift_lead_magnets": gift_list,
@@ -521,6 +528,17 @@ async def update_organizer_card(event_id: int, client_id: int, data: OrganizerCa
                 await db.execute(
                     "INSERT INTO event_collaborator_lead_magnets (ec_id, package_id, sort_order) VALUES ($1,$2,$3)",
                     ec_id, iid, i)
+
+    # Согласие на рассылки по моей базе (галочка на событии). ⚠️ Ставится только про
+    # СЕБЯ (client_id == me — редактируется своя карточка) и только у активного события:
+    # у завершённого рассылок нет, согласия там принудительно сняты.
+    if "allow_collab_broadcasts" in fs:
+        ended = await db.fetchval("SELECT status='ended' FROM events WHERE id=$1", event_id)
+        if ended and data.allow_collab_broadcasts:
+            raise HTTPException(400, "Событие завершено — рассылки в него больше не отправляются")
+        await db.execute(
+            "UPDATE event_owners SET allow_collab_broadcasts=$3 WHERE event_id=$1 AND client_id=$2",
+            event_id, client_id, bool(data.allow_collab_broadcasts))
 
     return {"ok": True}
 

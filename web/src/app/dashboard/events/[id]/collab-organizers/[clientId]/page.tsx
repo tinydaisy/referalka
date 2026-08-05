@@ -53,6 +53,9 @@ export default function CollabOrganizerCardPage() {
   // Каталог своих лид-магнитов/пакетов — для выбора подарков
   const [magnets, setMagnets] = useState<any[]>([])
   const [packages, setPackages] = useState<any[]>([])
+  // Согласие «разрешаю рассылки по моей базе в этом событии» (одноразовое на событие).
+  const [allowBroadcasts, setAllowBroadcasts] = useState(false)
+  const [savingConsent, setSavingConsent] = useState(false)
 
   const load = async () => {
     try {
@@ -61,6 +64,7 @@ export default function CollabOrganizerCardPage() {
       setTopics(r.topics?.length ? r.topics.map((t: any) => t.topic) : [''])
       setGifts(r.gift_lead_magnets || [])
       setPosterId(r.organizer?.poster_id ?? null)
+      setAllowBroadcasts(!!r.allow_collab_broadcasts)
       if (r.can_edit) {
         // Подарки берутся ТОЛЬКО из ПЛЮСОНа — грузим свой каталог
         const [lm, lp]: any[] = await Promise.all([
@@ -75,6 +79,20 @@ export default function CollabOrganizerCardPage() {
     }
   }
   useEffect(() => { load() }, [eventId, clientId])
+
+  // Согласие сохраняем СРАЗУ при клике (не ждём общего «Сохранить»).
+  const toggleConsent = async (next: boolean) => {
+    setAllowBroadcasts(next)          // оптимистично
+    setSavingConsent(true)
+    try {
+      await api.collabHub.updateOrganizerCard(eventId, clientId, { allow_collab_broadcasts: next })
+    } catch (e: any) {
+      setAllowBroadcasts(!next)        // откат
+      alert(e?.message || 'Не удалось сохранить')
+    } finally {
+      setSavingConsent(false)
+    }
+  }
 
   const save = async () => {
     setSaving(true)
@@ -172,6 +190,34 @@ export default function CollabOrganizerCardPage() {
       {/* ── ВЫСТУПЛЕНИЕ ── */}
       {tab === 'talk' && (
         <div className="space-y-5">
+          {/* Согласие на рассылки по моей базе — только в СВОЕЙ карточке.
+              Событие общее, анонсируют все организаторы. Поставил галочку → любая
+              рассылка в этом событии уходит и по моей базе СРАЗУ, без запроса. */}
+          {canEdit && (
+            <div className="rounded-2xl border p-5" style={{ borderColor: PEACH, background: '#FFF8F1' }}>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allowBroadcasts}
+                  disabled={savingConsent || !!data.event_ended}
+                  onChange={e => toggleConsent(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 shrink-0 cursor-pointer disabled:opacity-50"
+                  style={{ accentColor: DARK }}
+                />
+                <span className="text-sm" style={{ color: '#C77B3B' }}>
+                  <b>Разрешаю рассылки по моей базе в этом событии.</b> Любой анонс этого
+                  события будет уходить и по моей базе через моего бота — без отдельного
+                  подтверждения каждый раз. Действует только для этого события.
+                  {data.event_ended && (
+                    <span className="block mt-1 text-gray-500">
+                      Событие завершено — рассылки в него больше не отправляются.
+                    </span>
+                  )}
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* Тема */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="font-bold text-gray-900 mb-1">Тема выступления</h2>

@@ -562,6 +562,11 @@ async def update_event(
             and event["is_collab"]):
         from app.services.collab_history import record_collab_history
         await record_collab_history(db, event_id)
+        # Событие завершено → в него больше не рассылаем. Согласия организаторов на
+        # рассылки по их базам автоматически снимаются (правило: одноразовое на событие).
+        await db.execute(
+            "UPDATE event_owners SET allow_collab_broadcasts = FALSE WHERE event_id = $1",
+            event_id)
 
     updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}

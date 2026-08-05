@@ -30,7 +30,7 @@ _COPY_COLS = [
 
 
 async def other_owner_ids(db, event_id: int, origin_client_id: int) -> list[int]:
-    """ID организаторов коллаб-события, КРОМЕ создателя. Пусто, если не коллаб-событие."""
+    """ID организаторов коллаб-события, КРОМЕ поставившего. Пусто, если не коллаб-событие."""
     ev = await db.fetchval("SELECT is_collab FROM events WHERE id=$1", event_id)
     if not ev:
         return []
@@ -39,6 +39,17 @@ async def other_owner_ids(db, event_id: int, origin_client_id: int) -> list[int]
             WHERE event_id=$1 AND status='accepted' AND client_id<>$2""",
         event_id, origin_client_id)
     return [r["client_id"] for r in rows]
+
+
+async def _consenting_owner_ids(db, event_id: int, exclude_client_id: int) -> set[int]:
+    """Организаторы, заранее РАЗРЕШИВШИЕ рассылки по своей базе (галочка на событии).
+    Их копии уходят СРАЗУ (pending), без запроса подтверждения."""
+    rows = await db.fetch(
+        """SELECT client_id FROM event_owners
+            WHERE event_id=$1 AND status='accepted' AND client_id<>$2
+              AND allow_collab_broadcasts = TRUE""",
+        event_id, exclude_client_id)
+    return {r["client_id"] for r in rows}
 
 
 async def fanout_confirmations(db, event_id: int, origin_client_id: int,
@@ -53,6 +64,10 @@ async def fanout_confirmations(db, event_id: int, origin_client_id: int,
     if not others or not source_schedule_ids:
         return None
 
+    # Кто заранее разрешил рассылки по своей базе (галочка на событии) → его копия
+    # уходит СРАЗУ (pending). Остальным — 'awaiting_confirm' (ждёт подтверждения).
+    consenting = await _consenting_owner_ids(db, event_id, origin_client_id)
+
     batch_id = str(uuid.uuid4())
     cols = ", ".join(_COPY_COLS)
     for sid in source_schedule_ids:
@@ -64,11 +79,12 @@ async def fanout_confirmations(db, event_id: int, origin_client_id: int,
         placeholders = ", ".join(f"${i+1}" for i in range(len(_COPY_COLS)))
         base_n = len(_COPY_COLS)
         for target_cid in others:
+            status = "pending" if target_cid in consenting else "awaiting_confirm"
             await db.execute(
                 f"""INSERT INTO broadcast_schedules
                        ({cols}, client_id, status, confirm_batch_id, origin_client_id)
-                   VALUES ({placeholders}, ${base_n+1}, 'awaiting_confirm', ${base_n+2}, ${base_n+3})""",
-                *values, target_cid, batch_id, origin_client_id)
-    logger.info("collab_broadcast: fanout batch %s → %s owners, %s src rows",
-                batch_id, len(others), len(source_schedule_ids))
+                   VALUES ({placeholders}, ${base_n+1}, ${base_n+2}, ${base_n+3}, ${base_n+4})""",
+                *values, target_cid, status, batch_id, origin_client_id)
+    logger.info("collab_broadcast: fanout batch %s → %s owners (%s pre-approved), %s src rows",
+                batch_id, len(others), len(consenting), len(source_schedule_ids))
     return batch_id
