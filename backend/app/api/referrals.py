@@ -561,16 +561,19 @@ async def admin_update_referral_settings(
 # Настройки Коллабораторной (миграция 264)
 # ─────────────────────────────────────────────────────────────────────────────
 class CollabHubSettingsUpdate(BaseModel):
-    chat_url: Optional[str] = None
+    chat_url: Optional[str] = None       # Telegram
+    chat_url_max: Optional[str] = None   # MAX (миграция 266)
     chat_title: Optional[str] = None
 
 
 @admin_router.get("/collab-hub-settings", summary="Настройки Коллабораторной")
 async def admin_get_collab_hub_settings(db=Depends(get_db), admin=Depends(get_current_admin)):
     row = await db.fetchrow(
-        "SELECT chat_url, chat_title, updated_at FROM collab_hub_settings WHERE id = 1")
+        "SELECT chat_url, chat_url_max, chat_title, updated_at "
+        "FROM collab_hub_settings WHERE id = 1")
     return {
         "chat_url": (row["chat_url"] if row else None) or "",
+        "chat_url_max": (row["chat_url_max"] if row else None) or "",
         "chat_title": (row["chat_title"] if row else None) or "",
         "updated_at": row["updated_at"] if row else None,
     }
@@ -582,20 +585,28 @@ async def admin_update_collab_hub_settings(
     db=Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    """Ссылка на закрытый Telegram-чат участников Коллабораторной.
+    """Ссылки на закрытый чат участников Коллабораторной: Telegram и MAX.
 
-    ⚠️ Пустая строка — осмысленное значение (чата нет): пункт «Закрытый чат»
-    в кабинете тогда просто не показывается. Поэтому смотрим на
-    `model_fields_set`, а не на «не None»: иначе очистить поле было бы нельзя.
+    ⚠️ Пустая строка — осмысленное значение (чата на этой площадке нет): кнопка
+    тогда просто не показывается, а если пусты обе — нет и пункта меню. Поэтому
+    смотрим на `model_fields_set`, а не на «не None»: иначе очистить поле было
+    бы нельзя.
     """
     fields, args = [], []
     sent = data.model_fields_set
-    if "chat_url" in sent:
-        url = (data.chat_url or "").strip()
+
+    def _url_or_none(raw: Optional[str]) -> Optional[str]:
+        url = (raw or "").strip()
         if url and not url.startswith("http"):
             raise HTTPException(400, "Ссылка должна начинаться с http:// или https://")
-        args.append(url or None)
+        return url or None
+
+    if "chat_url" in sent:
+        args.append(_url_or_none(data.chat_url))
         fields.append(f"chat_url = ${len(args)}")
+    if "chat_url_max" in sent:
+        args.append(_url_or_none(data.chat_url_max))
+        fields.append(f"chat_url_max = ${len(args)}")
     if "chat_title" in sent:
         args.append((data.chat_title or "").strip() or None)
         fields.append(f"chat_title = ${len(args)}")

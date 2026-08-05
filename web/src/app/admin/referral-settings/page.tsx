@@ -13,7 +13,8 @@ export default function AdminReferralSettingsPage() {
   const [percent, setPercent] = useState('10')
   // Закрытый чат Коллабораторной (миграция 264) — отдельная сущность, но
   // держим на этой же странице: заводить ради одного поля свой экран незачем.
-  const [chatUrl, setChatUrl] = useState('')
+  const [chatUrl, setChatUrl] = useState('')       // Telegram
+  const [chatUrlMax, setChatUrlMax] = useState('') // MAX (миграция 266)
   const [chatSaving, setChatSaving] = useState(false)
   const [chatSaved, setChatSaved] = useState(false)
   const [signupUntil, setSignupUntil] = useState('')
@@ -36,14 +37,17 @@ export default function AdminReferralSettingsPage() {
 
   useEffect(() => {
     api.adminCollabHubSettings.get()
-      .then((r: any) => setChatUrl(r?.chat_url || ''))
+      .then((r: any) => { setChatUrl(r?.chat_url || ''); setChatUrlMax(r?.chat_url_max || '') })
       .catch(() => {})
   }, [])
 
   async function saveChat() {
     setChatSaving(true); setChatSaved(false); setErr('')
     try {
-      await api.adminCollabHubSettings.update({ chat_url: chatUrl.trim() })
+      await api.adminCollabHubSettings.update({
+        chat_url: chatUrl.trim(),
+        chat_url_max: chatUrlMax.trim(),
+      })
       setChatSaved(true)
       setTimeout(() => setChatSaved(false), 2500)
     } catch (e: any) {
@@ -167,16 +171,31 @@ export default function AdminReferralSettingsPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-5 mt-6">
         <h2 className="font-semibold text-gray-900">Закрытый чат Коллабораторной</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Ссылка-приглашение в Telegram. Показывается пунктом «Закрытый чат» в разделе
-          Коллабораторная у всех, кому доступен модуль. Пусто — пункта в меню нет.
+          Ссылки-приглашения. Пункт «Закрытый чат» в разделе Коллабораторная
+          открывает страницу с кнопками на заполненные площадки. Пусты обе —
+          пункта в меню нет.
         </p>
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 w-20 shrink-0">Telegram</span>
+            <input
+              value={chatUrl}
+              onChange={e => setChatUrl(e.target.value)}
+              placeholder="https://t.me/+..."
+              className="flex-1 min-w-[240px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 w-20 shrink-0">MAX</span>
+            <input
+              value={chatUrlMax}
+              onChange={e => setChatUrlMax(e.target.value)}
+              placeholder="https://max.ru/join/..."
+              className="flex-1 min-w-[240px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            />
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-2 mt-3">
-          <input
-            value={chatUrl}
-            onChange={e => setChatUrl(e.target.value)}
-            placeholder="https://t.me/+..."
-            className="flex-1 min-w-[280px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
-          />
           <button
             onClick={saveChat}
             disabled={chatSaving}

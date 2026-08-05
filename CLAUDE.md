@@ -69,7 +69,38 @@
 - **Тестирование после каждого запроса** — после каждого изменения обязательно протестировать как реальный пользователь через dev-домен и Telegram Mini App. Описать результаты в ответе
 - Полные реквизиты серверов — в `memory/server_access.md` (прод) и `memory/dev_server.md` (dev)
 - **Cloudflare R2** (хранилище афиш и картинок) — бакет `referalka`, ключи и endpoint в `memory/r2_storage.md`. Переменные окружения: `CF_ACCOUNT_ID`, `CF_R2_ACCESS_KEY_ID`, `CF_R2_SECRET_ACCESS_KEY`, `CF_R2_BUCKET_NAME`, `CF_R2_PUBLIC_URL` (лежат в `web/.env.local` на обоих серверах)
-- **Cloudflare DNS/Proxy** (с 2026-05-14) — `pluson.ru`, `www.pluson.ru`, `dev.pluson.ru` за Cloudflare Free с оранжевой тучей (Proxied). Аккаунт `margarita.forbs1@gmail.com` (другой от R2). NS в Reg.ru переключены на `*.ns.cloudflare.com`. SSL/TLS режим **Full (strict)** + Always Use HTTPS. Решает `net::ERR_TIMED_OUT` для пользователей с зарубежным VPN (Beget RU плохо доступен из-за рубежа). Лимит upload через CF = 100 МБ. Подробности — `memory/project_cloudflare_setup.md`. `margoforbs.ru` пока НЕ за CF.
+- **Cloudflare DNS/Proxy** (с 2026-05-14) — аккаунт `margarita.forbs1@gmail.com` (другой от R2), NS в Reg.ru на `*.ns.cloudflare.com`. **⚠️ У `pluson.ru` и `www.pluson.ru` оранжевая туча ВЫКЛЮЧЕНА (DNS only) — так и надо, не включать.** Целевая аудитория — русские пользователи с русских IP, сервер Beget в Москве (AS198610); проксирование через зарубежные узлы CF им только мешает (при включённой туче «у части людей не подключалось»). Оранжевая туча оставлена у `dev.pluson.ru` и `lever.pluson.ru`. Лимит upload через CF = 100 МБ (действует только на проксируемых). Подробности — `memory/project_cloudflare_setup.md`.
+
+### ⚠️ Сертификат pluson.ru — ТОЛЬКО RSA, не ECDSA (2026-08-05)
+
+**Симптом, если нарушить:** «сайт не открывается» у части людей БЕЗ VPN и прокси, вперемешку — у кого-то с макбука работает, у соседа на том же провайдере нет. Сервер при этом полностью исправен (200, нагрузка нулевая) — и поэтому причину легко искать не там (в Cloudflare, в nginx, у провайдера).
+
+**Причина.** Certbot по умолчанию мог выписать **ECDSA**-сертификат, цепочка которого идёт к корню **`ISRG Root X2`** (появился в 2021). Этого корня НЕТ в старых устройствах: Android до 7.1, старые Windows, корпоративные сети с фильтрацией HTTPS, антивирусы с проверкой трафика, телевизоры. Такие клиенты просто обрывают TLS — для человека это «сайт не грузится».
+
+**Правило.** Сертификат `pluson.ru` перевыпускать **только с `--key-type rsa`** — тогда цепочка идёт к **`ISRG Root X1`**, который знают практически все устройства (так же устроен GetCourse: RSA + GlobalSign R3). RSA совместим со всем, где работал ECDSA, — обратной потери нет.
+
+```bash
+certbot certonly --nginx --cert-name pluson.margoforbs.ru \
+  -d pluson.ru -d www.pluson.ru \
+  --key-type rsa --rsa-key-size 2048 --force-renewal
+systemctl reload nginx
+```
+
+Проверка (должен быть `ISRG Root X1`, НЕ `X2`):
+```bash
+echo | openssl s_client -connect pluson.ru:443 -servername pluson.ru -showcerts 2>/dev/null | grep 'i:' | tail -1
+certbot certificates | grep 'Key Type'   # → RSA
+```
+
+⚠️ **`--key-type` не сохраняется в конфиге обновления сам по себе** — при ручном перевыпуске флаг указывать заново, иначе можно молча вернуться на ECDSA и снова потерять часть аудитории.
+
+⚠️ Имя сертификата исторически — `pluson.margoforbs.ru`, но покрывает он **`pluson.ru` + `www.pluson.ru`** (сам `pluson.margoforbs.ru` в него НЕ входит и отдаёт 404 — так было всегда, трафика на него нет).
+
+### ⚠️ Бэкапы конфигов nginx — НЕ в `sites-enabled` (2026-08-05)
+
+Nginx подключает **все** файлы из `sites-enabled`, включая `*.bak*`. Скопился 21 файл, из них 12 бэкапов с тем же `server_name pluson.ru` — nginx ругался `conflicting server name ... ignored` и выбирал конфиг по алфавиту. Работал правильный, но любая правка/рестарт могли переключить сайт на конфиг двухмесячной давности.
+
+Бэкапы перенесены в **`/etc/nginx/sites-disabled-backups/`**. Правило: копию конфига перед правкой класть туда, а не рядом в `sites-enabled`. Проверка после любых изменений — `nginx -t 2>&1 | grep -i conflicting` (должно быть пусто).
 
 ---
 

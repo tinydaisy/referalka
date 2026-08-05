@@ -63,14 +63,16 @@ export default function Sidebar() {
   }, [eventIdInPath])
   const inCollabEvent = eventIdInPath ? collabEventIds[eventIdInPath] === true : false
 
-  // Ссылка на закрытый чат Коллабораторной (задаёт админ платформы, миграция 264).
-  // Грузим только тем, у кого раздел есть; ошибку глотаем — без ссылки просто
+  // Есть ли закрытый чат Коллабораторной хоть на одной площадке (TG/MAX,
+  // миграции 264 и 266). Сам пункт ведёт на внутреннюю страницу с кнопками —
+  // площадок две, прямой ссылкой в меню их не уместить.
+  // Грузим только тем, у кого раздел есть; ошибку глотаем — без ссылок просто
   // не будет пункта меню, ломать сайдбар из-за этого нельзя.
-  const [collabChatUrl, setCollabChatUrl] = useState('')
+  const [hasCollabChat, setHasCollabChat] = useState(false)
   useEffect(() => {
     if (!hasCollabHub) return
     api.collabHub.settings()
-      .then((r: any) => setCollabChatUrl(r?.chat_url || ''))
+      .then((r: any) => setHasCollabChat(!!(r?.chat_url || r?.chat_url_max)))
       .catch(() => {})
   }, [hasCollabHub])
 
@@ -138,10 +140,10 @@ export default function Sidebar() {
         { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
         { href: '/dashboard/collab-hub/events', label: 'Коллабы', icon: Calendar },
         { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
-        // Закрытый чат участников — внешняя ссылка в Telegram, адрес задаёт
-        // администратор платформы (миграция 264). Не задан → пункта нет.
-        ...(collabChatUrl
-          ? [{ href: collabChatUrl, label: 'Закрытый чат', icon: MessageCircle, external: true }]
+        // Закрытый чат участников — страница с кнопками на площадки (TG/MAX),
+        // адреса задаёт администратор платформы. Ни одной ссылки → пункта нет.
+        ...(hasCollabChat
+          ? [{ href: '/dashboard/collab-hub/chat', label: 'Закрытый чат', icon: MessageCircle }]
           : []),
         { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
       ],
