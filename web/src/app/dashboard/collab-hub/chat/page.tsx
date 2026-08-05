@@ -22,8 +22,8 @@ export default function CollabChatPage() {
   }, [])
 
   const platforms = [
-    { key: 'tg', label: 'Telegram', url: tg, bg: 'linear-gradient(45deg,#25455D,#0a1520)' },
-    { key: 'max', label: 'MAX', url: max, bg: 'linear-gradient(45deg,#25455D,#0a1520)' },
+    { key: 'tg', label: 'Telegram', url: tg },
+    { key: 'max', label: 'MAX', url: max },
   ].filter(p => p.url)
 
   return (
@@ -49,13 +49,14 @@ export default function CollabChatPage() {
         ) : (
           <div className="flex flex-col sm:flex-row gap-3">
             {platforms.map(p => (
+              // Единый класс проекта (.btn-gold в globals.css), не свой градиент:
+              // вход в чат — главное действие страницы, оно золотое.
               <a
                 key={p.key}
                 href={p.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90"
-                style={{ background: p.bg }}
+                className="btn-gold flex-1 py-3 text-sm"
               >
                 {p.label}
                 <ExternalLink size={15} />
