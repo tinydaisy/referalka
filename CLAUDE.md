@@ -47,6 +47,7 @@
 
 ### Код и вёрстка
 - **Без внешних UI-библиотек** — все страницы строятся без сторонних компонентных библиотек (без Bootstrap, MUI, Ant Design и подобных). Tailwind CSS — допустим, shadcn/ui — допустим, всё остальное — нет
+- ⚠️ **Кнопки — только классами `.btn-gold` / `.btn-primary`** ([globals.css](web/src/app/globals.css)), НЕ своим `style={{background:'linear-gradient(...)'}}`. Золотая `.btn-gold` (`#FFCFA4`) — главное действие экрана, `.btn-primary` (тёмный градиент) — второстепенное. Копировать хардкод у соседней страницы нельзя: смысл единой точки настройки цветов в том и есть, что цвет меняется в CSS, а не в двадцати файлах. Так уже получилась страница с двумя тёмными плашками без фирменного акцента (2026-08-05).
 - **Адаптивная вёрстка** — каждая страница должна хорошо выглядеть на мобильном экране. Проверять вёрстку на ширине 375px
 - **Модалки НЕ закрываются по клику на затемнённый фон** (с 2026-06-26). Любая модалка-ФОРМА (с полями ввода/действиями) закрывается ТОЛЬКО по кнопке «Отмена»/крестику/«Закрыть» внутри окна — клик мимо окна НЕ закрывает (иначе теряются введённые данные). У внешнего div-оверлея НЕ вешать `onClick={onClose}`. Внутренний `onClick={e => e.stopPropagation()}` — оставлять. **Исключения** (там закрытие по фону норм и оставлено): лайтбоксы/просмотр картинок (ImagePreview, FileUploader, CollaboratorPostersField, posterLightbox, speaker setLightbox) и мобильное меню сайдбара (setMobileOpen).
 
@@ -373,7 +374,11 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Ветка разбора `ref<код>` нужна в боте КАЖДОЙ площадки (2026-08-05, ПРОД).** Формат ссылки один на все площадки, но ловит его только тот бот, где ветка написана. В MAX её не было — payload проваливался в разбор `ref_pg{slug}`, и код рефовода **молча терялся**: человек регистрировался, но за партнёром не закреплялся. Поэтому **показывать реф-ссылку на площадку можно только вместе с веткой её разбора** — ссылка без ветки хуже, чем её отсутствие.
 
-Общие `persist_plusson_referrer_code(conn, client_id, platform, platform_user_id, code)` и `parse_plusson_ref_payload` живут в [plusson_referral.py](backend/app/services/plusson_referral.py) — платформа приходит параметром. Раньше в TG была приватная копия с зашитым `platform_slug='telegram'`; копии больше нет. Точки: **TG** — [start.py](backend/bot/handlers/start.py); **MAX** — `_handle_max_plusson_ref` в [max_webhook.py](backend/app/api/max_webhook.py); **VK — ветки ЕЩЁ НЕТ**, ссылку на VK не показывать, пока не появится.
+Общие `persist_plusson_referrer_code(conn, client_id, platform, platform_user_id, code)` и `parse_plusson_ref_payload` живут в [plusson_referral.py](backend/app/services/plusson_referral.py) — платформа приходит параметром. Раньше в TG была приватная копия с зашитым `platform_slug='telegram'`; копии больше нет. Точки: **TG** — [start.py](backend/bot/handlers/start.py); **MAX** — `_handle_max_plusson_ref` в [max_webhook.py](backend/app/api/max_webhook.py); **VK** — `_vk_handle_plusson_ref` в [vk_main.py](backend/bot/vk_main.py), вызывается в ОБЕИХ точках входа (`message_allow` — первое разрешение ЛС, `message_new` — ЛС уже разрешены), проверка идёт ПЕРВОЙ среди ref-веток.
+
+⚠️ **В VK метка `ref` приходит в 4 разных места** (`message.ref`, `message.ref_source`, `message.payload` как JSON, `object.ref`). Сбор источников — общий `_ref_candidates`; поверх него `_extract_ref_with_prefix` (int-метки: `fnl_`, `evchat_`, `prt_`…) и `_extract_plusson_ref_code` (строковый реф-код). **Не писать свой обход полей** — он разъедется с остальными.
+
+⚠️ **Ссылка на VK в `/dashboard/partner-program` НЕ выводится** — по решению владельца (2026-08-05). Разбор кода в боте при этом работает: ссылку можно собрать руками (`vk.me/{group}?ref=ref<код>`).
 
 Реф-ссылки на странице `/dashboard/partner-program` отдаёт [referrals.py](backend/app/api/referrals.py): handle MAX-бота берётся **из БД**, не хардкодом — бот может быть перевыпущен. Ключ `max` появляется в `links`, только если бот подключён; фронт рисует строку по наличию ключа.
 
