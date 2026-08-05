@@ -287,6 +287,74 @@ async def _vk_handle_evreg(payload: str, vk_user_id: int, username: str | None,
     return True
 
 
+async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
+                                 username: str | None, first_name: str | None,
+                                 last_name: str | None, db, ctx) -> None:
+    """Вход по ПЛЮСОН-реф-ссылке в ВК: `vk.me/{group}?ref=ref<8симв>`.
+
+    Зеркало TG-ветки в bot/handlers/start.py и MAX-ветки в max_webhook.py:
+      1) резолвим код общим `resolve_plusson_referrer` (понимает и клиентский
+         код, и код-контакт спикера с привязанным ПЛЮСОНом);
+      2) заводим контакт человека в базе клиента ЭТОГО сообщества и закрепляем
+         за ним СЫРОЙ код — привязка переживает то, что кнопку регистрации
+         нажмут не сразу; `/register` возьмёт код отсюда, если в URL нет pid;
+      3) шлём приветствие с кнопкой регистрации.
+
+    Код не резолвится (мусор/чужой) → приветствие без имени рефовода: человек
+    уже пришёл, терять его из-за битой ссылки нельзя.
+    """
+    from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
+    from app.services.contact_merge import upsert_contact_with_identity
+    from app.services.plusson_referral import (
+        resolve_plusson_referrer, persist_plusson_referrer_code,
+    )
+
+    referrer_client_id = await resolve_plusson_referrer(db, referral_code)
+    referrer_name = None
+    if referrer_client_id:
+        referrer_name = await db.fetchval(
+            "SELECT name FROM clients WHERE id = $1", referrer_client_id)
+        # Контакт нужен ДО закрепления кода: persist ищет его по platform_users.
+        try:
+            await upsert_contact_with_identity(
+                db, client_id=ctx.client_id, platform_slug="vk",
+                platform_user_id=str(vk_user_id), username=username or None,
+                first_name=first_name or None, last_name=last_name or None,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK plusson ref upsert contact failed: %s", e)
+        await persist_plusson_referrer_code(
+            db, client_id=ctx.client_id, platform="vk",
+            platform_user_id=str(vk_user_id), referral_code=referral_code,
+        )
+
+    hello = (first_name or "").strip()
+    register_url = f"https://pluson.ru/register?pid={referral_code}"
+    if referrer_client_id:
+        text = (
+            f"Привет{', ' + hello if hello else ''}! 👋\n\n"
+            f"Вас пригласил(а) {referrer_name or 'партнёр'} в iViSiON: ПЛЮСОН — "
+            f"платформу для организаторов и экспертов.\n\n"
+            f"Создайте аккаунт и попробуйте всё сами 👇"
+        )
+    else:
+        text = (
+            f"Привет{', ' + hello if hello else ''}! 👋\n\n"
+            f"iViSiON: ПЛЮСОН — платформа для организаторов и экспертов: "
+            f"события, спикеры, рассылки и рефералы в одном месте.\n\n"
+            f"Создайте аккаунт и попробуйте всё сами 👇"
+        )
+    try:
+        await _vk_send(
+            vk_user_id, text, token=ctx.token,
+            keyboard=tg_inline_to_vk_keyboard([[
+                {"text": "📝 Зарегистрироваться", "url": register_url},
+            ]]),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK plusson ref send failed: %s", e)
+
+
 async def _event_belongs_to_client(db, event_id: int, client_id: int) -> bool:
     """Принадлежит ли событие этому клиенту (через event_owners). Защита от
     deeplink на чужое событие через бот другого клиента."""
@@ -742,6 +810,17 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
                 pu_id, cc_id,
             )
     logger.info("VK message_allow: group=%s user=%s recorded", ctx.group_id, user_id)
+
+    # ПЛЮСОН-реф-код: ref=ref<8симв>. Проверяем ПЕРВЫМ среди ref-веток — формат
+    # строгий, с событийным `ref_pg{slug}` не пересекается.
+    _pl_code = _extract_plusson_ref_code(event)
+    if _pl_code:
+        try:
+            await _vk_handle_plusson_ref(
+                _pl_code, int(user_id), None, None, None, db, ctx)
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK plusson ref (message_allow) failed: %s", e)
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>.
     # Ведём сразу на «вступить в чат» — проверка подписки + выдача чат-ссылок.
@@ -1609,6 +1688,17 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             except Exception as e:
                 logger.warning(f"VK fnl_check via message payload failed: {e}")
             return  # payload-action обработан, в #user_message не дублируем
+
+    # ПЛЮСОН-реф-код: ref=ref<8симв> (если ЛС уже разрешены, ref приходит сюда).
+    # Первым среди ref-веток — формат строгий, с `ref_pg{slug}` не пересекается.
+    _pl_code_new = _extract_plusson_ref_code(event_obj)
+    if _pl_code_new:
+        try:
+            await _vk_handle_plusson_ref(
+                _pl_code_new, int(from_id), None, None, None, db, ctx)
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK plusson ref (message_new) failed: %s", e)
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>
     # (если человек уже разрешил ЛС, ref приходит в message_new). Ведём сразу
