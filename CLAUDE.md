@@ -80,7 +80,7 @@
 **Правило.** Сертификат `pluson.ru` перевыпускать **только с `--key-type rsa`** — тогда цепочка идёт к **`ISRG Root X1`**, который знают практически все устройства (так же устроен GetCourse: RSA + GlobalSign R3). RSA совместим со всем, где работал ECDSA, — обратной потери нет.
 
 ```bash
-certbot certonly --nginx --cert-name pluson.margoforbs.ru \
+certbot certonly --nginx --cert-name pluson.ru \
   -d pluson.ru -d www.pluson.ru \
   --key-type rsa --rsa-key-size 2048 --force-renewal
 systemctl reload nginx
@@ -94,7 +94,7 @@ certbot certificates | grep 'Key Type'   # → RSA
 
 ⚠️ **`--key-type` не сохраняется в конфиге обновления сам по себе** — при ручном перевыпуске флаг указывать заново, иначе можно молча вернуться на ECDSA и снова потерять часть аудитории.
 
-⚠️ Имя сертификата исторически — `pluson.margoforbs.ru`, но покрывает он **`pluson.ru` + `www.pluson.ru`** (сам `pluson.margoforbs.ru` в него НЕ входит и отдаёт 404 — так было всегда, трафика на него нет).
+**Старый домен `pluson.margoforbs.ru` удалён везде (2026-08-05).** Его DNS давно уехал на чужие IP (216.198.79.x — не наш сервер), в сертификат он не входил и отдавал 404. Вычищен из `server_name` в nginx, сертификат переименован `pluson.margoforbs.ru` → **`pluson.ru`**, старый удалён (`certbot delete`). В коде/доках новые упоминания не заводить — домена у нас нет.
 
 ### ⚠️ Бэкапы конфигов nginx — НЕ в `sites-enabled` (2026-08-05)
 
