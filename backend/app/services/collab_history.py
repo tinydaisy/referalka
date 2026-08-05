@@ -82,12 +82,16 @@ async def record_collab_history(db, event_id: int) -> int:
         participants_total = await db.fetchval(
             "SELECT count(*) FROM event_participants WHERE event_id = $1", event_id) or 0
 
-        written = 0
+        # ⚠️ Сначала собираем цифры ПО ВСЕМ организаторам и только потом пишем:
+        # Win-Win коэффициент считается от среднего по коллабе, то есть зависит
+        # от того, сколько привели остальные. По одному организатору за раз его
+        # не посчитать.
+        brought_by: dict[int, int] = {}
         for cid in owner_ids:
             # Сколько ЖИВЫХ (дошли до эфира) привёл именно этот организатор:
             # участник события, чей referrer_ref_code принадлежит контакту
             # этого клиента (его реф-код / реф-код его коллаба), и link_clicked_at не пуст.
-            brought_live = await db.fetchval(
+            brought_by[cid] = await db.fetchval(
                 """SELECT count(DISTINCT ep.id)
                      FROM event_participants ep
                      JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
@@ -96,18 +100,30 @@ async def record_collab_history(db, event_id: int) -> int:
                       AND rc.client_id = $2""",
                 event_id, cid) or 0
 
+        all_brought = list(brought_by.values())
+        organizers_count = len(owner_ids)
+
+        written = 0
+        for cid in owner_ids:
+            brought_live = brought_by[cid]
+            coef = win_win_coefficient(brought_live, all_brought, organizers_count)
+
             # «С кем коллабился» — любой другой организатор (для карточки-строки).
             partner_cid = next((o for o in owner_ids if o != cid), None)
 
             await db.execute(
                 """INSERT INTO hub_collab_history
-                       (client_id, event_id, partner_client_id, participants_total, brought_live)
-                   VALUES ($1, $2, $3, $4, $5)
+                       (client_id, event_id, partner_client_id, participants_total,
+                        brought_live, win_win_coefficient, organizers_count)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
                    ON CONFLICT (client_id, event_id) WHERE event_id IS NOT NULL
                    DO UPDATE SET partner_client_id = EXCLUDED.partner_client_id,
                                  participants_total = EXCLUDED.participants_total,
-                                 brought_live = EXCLUDED.brought_live""",
-                cid, event_id, partner_cid, participants_total, brought_live)
+                                 brought_live = EXCLUDED.brought_live,
+                                 win_win_coefficient = EXCLUDED.win_win_coefficient,
+                                 organizers_count = EXCLUDED.organizers_count""",
+                cid, event_id, partner_cid, participants_total,
+                brought_live, coef, organizers_count)
             written += 1
 
         logger.info("collab_history: event %s → %s owner-rows written", event_id, written)

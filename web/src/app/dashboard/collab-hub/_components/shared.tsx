@@ -90,7 +90,9 @@ export function useNicheTitles(): Record<string, string> {
 export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => void }) {
   const isMe = item.is_me
   const hadCollabs = (item.collabs_count || 0) > 0
-  const contribution = hadCollabs && item.avg_contribution != null ? `${item.avg_contribution}%` : '—'
+  // Win-Win коэффициент (миграция 268): 1.00 = сработал вровень с партнёрами.
+  // Не процент: старая метрика наказывала за размер команды.
+  const contribution = hadCollabs && item.win_win != null ? Number(item.win_win).toFixed(2) : '—'
   const achievements: any[] = Array.isArray(item.achievements) ? item.achievements : []
   const [bioOpen, setBioOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -178,9 +180,9 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           <div className="font-bold text-sm" style={{ color: DARK }}>{item.collabs_count ?? 0}</div>
           <div className="text-[10px] text-gray-500 leading-tight">коллабораций</div>
         </div>
-        <div className="rounded-xl bg-gray-50 p-2 text-center" title="Среднее по всем коллаборациям: какую долю участников события организатор приводил сам. Показывает, насколько он вкладывается — надёжный партнёр или нахлебник.">
+        <div className="rounded-xl bg-gray-50 p-2 text-center" title="Win-Win коэффициент: во сколько раз организатор привёл больше или меньше среднего по коллаборации. 1.00 — сработал вровень с партнёрами, выше — вытянул коллабу на себе. Число партнёров на коэффициент не влияет.">
           <div className="font-bold text-sm" style={{ color: DARK }}>{contribution}</div>
-          <div className="text-[10px] text-gray-500 leading-tight">средний вклад</div>
+          <div className="text-[10px] text-gray-500 leading-tight">Win-Win</div>
         </div>
       </div>
       <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">

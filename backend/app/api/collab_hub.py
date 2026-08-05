@@ -190,8 +190,12 @@ async def catalog(
     sql = f"""
         SELECT {_CLIENT_COLS},
                (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,
-               (SELECT round(avg(CASE WHEN h.participants_total>0 THEN 100.0*h.brought_live/h.participants_total ELSE 0 END))
-                  FROM hub_collab_history h WHERE h.client_id=cl.id) AS avg_contribution,
+               -- Win-Win коэффициент: среднее по коллабам клиента (миграция 268).
+               -- Коллабы без коэффициента (один организатор / никто никого не
+               -- привёл) в среднее НЕ входят — иначе тянули бы показатель вниз.
+               (SELECT round(avg(h.win_win_coefficient), 2)
+                  FROM hub_collab_history h
+                 WHERE h.client_id=cl.id AND h.win_win_coefficient IS NOT NULL) AS win_win,
                (SELECT round(avg(rating),1) FROM hub_reviews rv WHERE rv.client_id=cl.id) AS avg_rating
           FROM clients cl
          WHERE {' AND '.join(where)}
@@ -203,7 +207,7 @@ async def catalog(
     for r in rows:
         card = _client_card(r, public=True)  # чужие карточки — уважаем галочки *_public
         card['collabs_count'] = r['collabs_count']
-        card['avg_contribution'] = r['avg_contribution']
+        card['win_win'] = float(r['win_win']) if r['win_win'] is not None else None
         card['avg_rating'] = r['avg_rating']
         if media_tier and card['media_tier'] != media_tier:
             continue
@@ -212,15 +216,19 @@ async def catalog(
     me_row = await db.fetchrow(
         f"""SELECT {_CLIENT_COLS},
                (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,
-               (SELECT round(avg(CASE WHEN h.participants_total>0 THEN 100.0*h.brought_live/h.participants_total ELSE 0 END))
-                  FROM hub_collab_history h WHERE h.client_id=cl.id) AS avg_contribution,
+               -- Win-Win коэффициент: среднее по коллабам клиента (миграция 268).
+               -- Коллабы без коэффициента (один организатор / никто никого не
+               -- привёл) в среднее НЕ входят — иначе тянули бы показатель вниз.
+               (SELECT round(avg(h.win_win_coefficient), 2)
+                  FROM hub_collab_history h
+                 WHERE h.client_id=cl.id AND h.win_win_coefficient IS NOT NULL) AS win_win,
                (SELECT round(avg(rating),1) FROM hub_reviews rv WHERE rv.client_id=cl.id) AS avg_rating
           FROM clients cl WHERE cl.id=$1""", int(client["sub"]))
     me_card = None
     if me_row:
         me_card = _client_card(me_row)
         me_card['collabs_count'] = me_row['collabs_count']
-        me_card['avg_contribution'] = me_row['avg_contribution']
+        me_card['win_win'] = float(me_row['win_win']) if me_row['win_win'] is not None else None
         me_card['avg_rating'] = me_row['avg_rating']
         me_card['is_me'] = True
     return {"me": me_card, "items": out, "total": len(out)}
@@ -256,13 +264,14 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
             WHERE rv.client_id=$1 ORDER BY rv.created_at DESC LIMIT 50""", client_id)
     rating = await db.fetchrow(
         """SELECT count(*) AS collabs,
-                  round(avg(CASE WHEN participants_total>0 THEN 100.0*brought_live/participants_total ELSE 0 END)) AS avg_contribution
+                  round(avg(win_win_coefficient), 2) FILTER (WHERE win_win_coefficient IS NOT NULL) AS win_win
              FROM hub_collab_history WHERE client_id=$1""", client_id)
     card = _client_card(row, public=(me != client_id))  # свой профиль — поля видны всегда
     card['telegram_username'] = row.get('telegram_username')
     return {
         "card": card,
-        "rating": {"collabs_count": rating["collabs"], "avg_contribution": rating["avg_contribution"]},
+        "rating": {"collabs_count": rating["collabs"],
+                   "win_win": float(rating["win_win"]) if rating["win_win"] is not None else None},
         "history": [dict(h) for h in history],
         "reviews": [dict(r) for r in reviews],
         "my_review": dict(my_review) if my_review else None,

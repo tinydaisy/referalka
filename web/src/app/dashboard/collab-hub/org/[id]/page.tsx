@@ -37,7 +37,9 @@ export default function OrgProfilePage() {
   const social = c.social_links || {}
   const tg = social.telegram_channels?.[0]?.url || social.telegram
   const hadCollabs = (data.rating.collabs_count || 0) > 0
-  const contribution = hadCollabs && data.rating.avg_contribution != null ? `${data.rating.avg_contribution}%` : '—'
+  // Win-Win коэффициент (миграция 268): 1.00 = сработал вровень с партнёрами.
+  // Не процент: старая метрика наказывала за размер команды.
+  const contribution = hadCollabs && data.rating.win_win != null ? Number(data.rating.win_win).toFixed(2) : '—'
 
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto">
@@ -104,9 +106,9 @@ export default function OrgProfilePage() {
             <div className="text-xl font-bold" style={{ color: DARK }}>{data.rating.collabs_count}</div>
             <div className="text-xs text-gray-500">коллабораций</div>
           </div>
-          <div className="rounded-xl border p-3 text-center" title="Средняя доля участников, которых организатор приводил сам">
+          <div className="rounded-xl border p-3 text-center" title="Win-Win коэффициент: во сколько раз организатор привёл больше или меньше среднего по коллаборации. 1.00 — сработал вровень с партнёрами, выше — вытянул коллабу на себе. Число партнёров на коэффициент не влияет.">
             <div className="text-xl font-bold" style={{ color: DARK }}>{contribution}</div>
-            <div className="text-xs text-gray-500">средний вклад</div>
+            <div className="text-xs text-gray-500">Win-Win</div>
           </div>
         </div>
 
