@@ -279,7 +279,7 @@ export default function GetCourseRegisterHelpPage() {
         <p className="text-sm text-gray-600">
           Проверьте в карточке контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> — помечена ли регистрация.
           Если нет — посмотрите ответ webhook в логах Процесса GetCourse (поле <code className="bg-white px-1 rounded text-xs">pluson_response</code>, если включили).{' '}
-          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_GetCourse_регистрации"
+          <a href="https://telegram.me/pluson_bot?start=question"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             Написать разработчику

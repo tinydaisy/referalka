@@ -340,7 +340,7 @@ function getQueryParam(name) {
         <p className="text-sm text-gray-600">
           Проверьте в карточке контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> — заполнилось ли поле <code className="bg-white px-1 rounded text-xs">external_ref_param</code>.
           Если пусто — посмотрите ответ webhook в логах Процесса GetCourse.{' '}
-          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_GetCourse_партнёрке"
+          <a href="https://telegram.me/pluson_bot?start=question"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             Написать разработчику

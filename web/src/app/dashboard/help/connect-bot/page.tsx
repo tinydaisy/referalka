@@ -316,7 +316,7 @@ export default function ConnectBotInstructionPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
             Напишите разработчику —{' '}
-            <a href="https://telegram.me/margo_forbs?text=Вопрос_по_подключению_Mini_App"
+            <a href="https://telegram.me/pluson_bot?start=question"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>

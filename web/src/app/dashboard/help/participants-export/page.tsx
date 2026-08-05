@@ -401,7 +401,7 @@ for p in data["participants"]:
         <div className="text-sm font-semibold text-gray-800 mb-1">Нужна помощь с подключением?</div>
         <p className="text-sm text-gray-600">
           Напишите разработчику —{' '}
-          <a href="https://telegram.me/margo_forbs?text=Вопрос_по_выгрузке_участников"
+          <a href="https://telegram.me/pluson_bot?start=question"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             открыть чат в Telegram
