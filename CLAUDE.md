@@ -253,6 +253,16 @@ Nginx подключает **все** файлы из `sites-enabled`, вклю�
 
 Статусы заказа — `unpaid`/`paid` (`event_participant_tariffs.status`); контакт берётся из `contact_id` заказа, для старых записей — через `event_participants.contact_id`.
 
+### Бот техподдержки — `/question` и вход по `?start=question` (2026-08-05, ПРОД)
+
+Пункт **«Написать в бот техподдержки»** в сайдбаре кабинета и кнопка на `/dashboard/help` ведут на `telegram.me/pluson_bot?start=question` (раньше — в личку @margo_forbs с текстом-заглушкой). Бот сразу пишет приглашение «Напишите ваш вопрос по ПЛЮСОН — мы вам ответим».
+
+Дальше **ничего нового не строилось**: свободное сообщение подхватывает существующий `handle_user_message` ([start.py](backend/bot/handlers/start.py)) — оно сохраняется в **Диалоги** сервисного клиента (можно ответить прямо из кабинета) и уходит уведомлением `#user_message` в канал организатора.
+
+⚠️ **Только в @pluson_bot** — `_send_question_prompt` сверяет бота через `is_export_bot`. Polling-диспетчер один на все боты платформы: без проверки приглашение «напишите вопрос по ПЛЮСОН» приходило бы и в ботах клиентов, где человек ждёт ответа организатора события. В боте клиента `/question` молчит — там за поддержку отвечает `/support`.
+
+⚠️ **`is_export_bot` сверяет ник ТОЧНО, а не по `ILIKE '%pluson_bot'`** ([admin_export.py](backend/app/services/admin_export.py)). Под старую маску подходил клиентский **@renin_pluson_bot** — а от этой проверки зависят `/clients` и `/collabs`: владелец такого бота мог получить выгрузку по всей платформе.
+
 ### Команды выгрузок в боте — `/clients` и `/collabs` (2026-08-01, ПРОД)
 
 Две команды для владельца платформы. Работают **ТОЛЬКО в @pluson_bot** и **только у четырёх аккаунтов**: `margp_frobs`, `margo_frbs`, `forbs_service2`, `forbs_margo2` (`ALLOWED_USERNAMES` в [admin_export.py](backend/app/services/admin_export.py), сверка по @нику без учёта регистра). Чужим — **молчание**, а не «вам нельзя»: отказ раскрыл бы, что команда существует.
@@ -353,6 +363,12 @@ Nginx подключает **все** файлы из `sites-enabled`, вклю�
 
 **2. ПЛЮСОН-реф-код из `/start ref<код>` пишется контакту в ЛЮБОМ боте (миграция 206: `contacts.plusson_referrer_code`).** Хендлер `ref<8симв>` в [start.py](backend/bot/handlers/start.py) теперь: (а) резолвит код через `resolve_plusson_referrer` (понимает и `clients.referral_code`, и код-контакт спикера с `linked_client_id`); (б) `_persist_plusson_referrer_code` пишет СЫРОЙ код в контакт человека в базе клиента ЭТОГО бота (bot_id → channels → client_id: системный→client 3, VIP→client_channels), только если поле пустое (первый рефовод выигрывает). `/register` ([auth.py](backend/app/api/auth.py)): если в URL нет `pid`, берёт код фолбэком — ищет контакт по email/телефону/TG-нику с непустым `plusson_referrer_code` → `resolve_plusson_referrer`. Так привязка к рефоводу переживает то, что человек не нажал кнопку регистрации сразу.
 
+⚠️ **Ветка разбора `ref<код>` нужна в боте КАЖДОЙ площадки (2026-08-05, ПРОД).** Формат ссылки один на все площадки, но ловит его только тот бот, где ветка написана. В MAX её не было — payload проваливался в разбор `ref_pg{slug}`, и код рефовода **молча терялся**: человек регистрировался, но за партнёром не закреплялся. Поэтому **показывать реф-ссылку на площадку можно только вместе с веткой её разбора** — ссылка без ветки хуже, чем её отсутствие.
+
+Общие `persist_plusson_referrer_code(conn, client_id, platform, platform_user_id, code)` и `parse_plusson_ref_payload` живут в [plusson_referral.py](backend/app/services/plusson_referral.py) — платформа приходит параметром. Раньше в TG была приватная копия с зашитым `platform_slug='telegram'`; копии больше нет. Точки: **TG** — [start.py](backend/bot/handlers/start.py); **MAX** — `_handle_max_plusson_ref` в [max_webhook.py](backend/app/api/max_webhook.py); **VK — ветки ЕЩЁ НЕТ**, ссылку на VK не показывать, пока не появится.
+
+Реф-ссылки на странице `/dashboard/partner-program` отдаёт [referrals.py](backend/app/api/referrals.py): handle MAX-бота берётся **из БД** (сервисный клиент `is_system_service`), не хардкодом — бот может быть перевыпущен. Ключ `max` появляется в `links`, только если бот подключён; фронт рисует строку по наличию ключа. ⚠️ У MAX-канала сервисного клиента `is_active=f` — запрос его не фильтрует, а **сортирует** (`ORDER BY cc.is_active DESC`), иначе ссылка пропала бы.
+
 **3. Плейсхолдеры описаний лид-магнитов в шаблоне воронки.** [funnel_service.py](backend/app/services/funnel_service.py) `_format_text`: `{materials_list}` — ЖИРНЫЕ названия (`<b>`) без ссылок; `{materials_list_description}` — «N. <b>Название</b> — описание» БЕЗ ссылок; `{materials_list_description_links}` — то же + ссылка на файл отдельной строкой (без эмодзи 🖐). У всех трёх описание пакета (`lead_magnet_packages.description`, через `_package_description_for_run`) идёт СВЕРХУ списка. Описание берётся из `lead_magnets.description` (колонка была; в форму лид-магнита дашборда добавлено поле «Описание»). Проброс `pkg_description` во все 8 вызовов `_format_text` (text_1/2/3 × TG/VK/MAX). VK срезает `<b>` (как обычно).
 
 **4. Системному сервисному аккаунту (client 3) не показываем апсейл «подключите бот».** `/auth/me` отдаёт `is_system_service`. На странице Каналов ([channels/page.tsx](web/src/app/dashboard/channels/page.tsx)): для `is_system_service=TRUE` системный @pluson_bot (и системные VK/MAX) считаются ЕГО собственными ботами — скрыт красный баннер «Подключите хотя бы 1 бот» и апсейл-карточки «Подключите свой Telegram-бот / мастер» (системный канал = «главный» на площадке, показывается карточкой). Тестовые аккаунты рассылки client 3 = скопированы с client 1 (Марго): `test_telegram_ids`/`test_vk_ids`/`test_email_ids`.
@@ -413,6 +429,14 @@ Nginx подключает **все** файлы из `sites-enabled`, вклю�
 **Фронт:** WhatsApp встроен как **обычная площадка** в раздел Каналы (отдельной вкладки НЕТ). (1) Форма «Добавить канал» ([channels/page.tsx](web/src/app/dashboard/channels/page.tsx)): выбираешь платформу WhatsApp → `WhatsAppConnectInline` показывает QR прямо в форме (без Handle/токена). (2) Форма «Добавить чат для рассылок» ([BroadcastChatsTab.tsx](web/src/components/channels/BroadcastChatsTab.tsx)): WhatsApp — 4-я кнопка-площадка рядом с TG/VK/MAX; при выборе вместо «ссылка/ID» грузится список чатов аккаунта с моста (`api.channels.whatsappChats`), отмечаешь конкретные галочками → пишутся в `client_broadcast_chats` platform=whatsapp. ⚠️ ID группы WhatsApp (`...@g.us`) вручную не вписать — только выбор из списка. Рассылка уходит в отмеченные чаты при галочке «слать также в общие чаты».
 
 **⚠️ Прод-требования:** Node 20 + системные libs Chromium (`libnss3` и т.д.) + Chromium из puppeteer (`~/.cache/puppeteer`). swap ≥2G (Chromium прожорлив). Мост — отдельный процесс, основной стек (api/celery/bot/web) не задевает.
+
+### «Закрытый чат» Коллабораторной — страница с кнопками TG и MAX (миграция 266 от 2026-08-05, ПРОД)
+
+Чат один по смыслу, но живёт на **двух площадках**: у части участников нет Telegram, у части — MAX. Раньше в `collab_hub_settings` была одна колонка `chat_url` (Telegram), и пункт меню вёл прямой ссылкой в мессенджер — второй площадке места не было.
+
+**Миграция 266:** `collab_hub_settings.chat_url_max`. ⚠️ Колонку `chat_url` НЕ переименовывали в `chat_url_tg` — на неё завязаны API, админка и сайдбар, а выигрыш косметический.
+
+Пункт «Закрытый чат» ведёт на **`/dashboard/collab-hub/chat`** ([chat/page.tsx](web/src/app/dashboard/collab-hub/chat/page.tsx)) — кнопки рисуются только для заполненных площадок. Пусты обе → пункта в меню нет (как и было). Ссылки задаёт админ платформы в `/admin/referral-settings` (два поля). API — `GET /collab-hub/settings` ([collab_hub.py](backend/app/api/collab_hub.py)) и админские GET/PATCH `/admin/collab-hub-settings` ([referrals.py](backend/app/api/referrals.py), пустая строка = осмысленная очистка через `model_fields_set`).
 
 ### ⚠️ Коллабораторная — КОЛЛАБА СВЯЗАНА С КЛИЕНТАМИ, А НЕ СО СПИКЕРАМИ
 
