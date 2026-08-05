@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { BookOpen } from 'lucide-react'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
@@ -129,12 +130,11 @@ export default function TournamentTaskControlHelpPage() {
       <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
         <div className="text-sm font-semibold text-gray-800 mb-1">Не нашли ответ?</div>
         <p className="text-sm text-gray-600">
-          Напишите разработчику —{' '}
-          <a href="https://telegram.me/pluson_bot?start=question"
-             target="_blank" rel="noopener noreferrer"
+          Напишите в поддержку —{' '}
+          <Link href={SUPPORT_URL}
              className="text-blue-600 hover:underline">
-            открыть чат в Telegram
-          </a>
+            {SUPPORT_LABEL}
+          </Link>
         </p>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, Copy, Check, ArrowRight } from 'lucide-react'
 import { api } from '@/lib/api'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
@@ -340,11 +341,10 @@ function getQueryParam(name) {
         <p className="text-sm text-gray-600">
           Проверьте в карточке контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> — заполнилось ли поле <code className="bg-white px-1 rounded text-xs">external_ref_param</code>.
           Если пусто — посмотрите ответ webhook в логах Процесса GetCourse.{' '}
-          <a href="https://telegram.me/pluson_bot?start=question"
-             target="_blank" rel="noopener noreferrer"
+          <Link href={SUPPORT_URL}
              className="text-blue-600 hover:underline">
-            Написать разработчику
-          </a>
+            {SUPPORT_LABEL}
+          </Link>
         </p>
       </div>
     </div>

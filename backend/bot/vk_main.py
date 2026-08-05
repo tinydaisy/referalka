@@ -91,14 +91,18 @@ async def poll_once(server: str, key: str, ts: str) -> dict[str, Any]:
     return r.json()
 
 
-def _extract_ref_with_prefix(message_or_event: dict, prefix: str) -> int | None:
-    """Ищет `ref={prefix}<int>` в полях VK события и возвращает int-часть.
+def _ref_candidates(message_or_event: dict) -> list[str]:
+    """Все места, куда VK может положить метку `ref` из ссылки vk.me/group?ref=…
 
-    Возможные источники (для message_new + message_allow):
-      - object.message.ref     — VK кладёт сюда метку из vk.me/group?ref=...
-      - object.message.payload — JSON с ключом ref (на случай stub-кнопки «Начать»)
-      - object.ref             — поле самого события (message_allow)
+    Источники (для message_new + message_allow):
+      - object.message.ref        — обычное место
+      - object.message.payload    — JSON с ключом ref (stub-кнопка «Начать»)
+      - object.ref                — поле самого события (message_allow)
       - object.message.ref_source — иногда содержит метку
+
+    ⚠️ Один сборщик на всех потребителей: раньше список источников жил внутри
+    `_extract_ref_with_prefix`, и «строковые» метки (реф-код ПЛЮСОНа) пришлось
+    бы разбирать своей копией — она бы разъехалась с этой.
     """
     candidates: list[Any] = []
     msg = message_or_event.get("message") if isinstance(message_or_event, dict) else None
@@ -113,15 +117,32 @@ def _extract_ref_with_prefix(message_or_event: dict, prefix: str) -> int | None:
             except Exception:
                 pass
     candidates.extend([message_or_event.get("ref"), message_or_event.get("ref_source")])
-    for c in candidates:
-        if not c:
-            continue
-        s = str(c).strip()
+    return [str(c).strip() for c in candidates if c]
+
+
+def _extract_ref_with_prefix(message_or_event: dict, prefix: str) -> int | None:
+    """Ищет `ref={prefix}<int>` в полях VK события и возвращает int-часть."""
+    for s in _ref_candidates(message_or_event):
         if s.startswith(prefix):
             try:
                 return int(s[len(prefix):])
             except ValueError:
                 continue
+    return None
+
+
+def _extract_plusson_ref_code(message_or_event: dict) -> str | None:
+    """Ищет ПЛЮСОН-реф-код: `ref=ref<8симв>` (реф-программа самой платформы).
+
+    ⚠️ Не путать с `ref_pg{slug}` (ссылка на событие) — там после `ref` идёт
+    `_pg`, а строгий формат кода (8 символов безопасного алфавита) его не
+    матчит. Проверять этот код надо ДО разбора ссылок событий.
+    """
+    from app.services.plusson_referral import parse_plusson_ref_payload
+    for s in _ref_candidates(message_or_event):
+        code = parse_plusson_ref_payload(s)
+        if code:
+            return code
     return None
 
 

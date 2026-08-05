@@ -5,6 +5,7 @@ import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu,
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
+import { SUPPORT_URL, SUPPORT_NAV_LABEL } from '@/lib/support'
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -252,21 +253,23 @@ export default function Sidebar() {
 
         {supportOpen && (
           <div className="ml-4 pl-3 border-l border-white/10 mt-0.5 mb-1 space-y-0.5">
-            <a
-              href="https://telegram.me/pluson_bot?start=question"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              href={SUPPORT_URL}
               onClick={() => setMobileOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                pathname === SUPPORT_URL
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
             >
               <MessageCircle size={15} />
-              Написать в бот техподдержки
-            </a>
+              {SUPPORT_NAV_LABEL}
+            </Link>
             <Link
               href="/dashboard/help"
               onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                pathname.startsWith('/dashboard/help')
+                pathname.startsWith('/dashboard/help') && pathname !== SUPPORT_URL
                   ? 'bg-white/15 text-white'
                   : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, ExternalLink, Copy, Check } from 'lucide-react'
 import { api } from '@/lib/api'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
@@ -315,12 +316,11 @@ export default function ConnectBotInstructionPage() {
         <div className="mt-5 p-4 bg-gray-50 rounded-xl border border-gray-200">
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
-            Напишите разработчику —{' '}
-            <a href="https://telegram.me/pluson_bot?start=question"
-               target="_blank" rel="noopener noreferrer"
+            Напишите в поддержку —{' '}
+            <Link href={SUPPORT_URL}
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
-              открыть чат в Telegram <ExternalLink size={12}/>
-            </a>
+              {SUPPORT_LABEL} <ExternalLink size={12}/>
+            </Link>
           </p>
         </div>
       </Section>

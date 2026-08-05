@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, ExternalLink } from 'lucide-react'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
@@ -170,11 +171,10 @@ export default function ConnectMaxChannelInstructionPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
             Напишите в поддержку —{' '}
-            <a href="https://telegram.me/pluson_bot?start=question"
-               target="_blank" rel="noopener noreferrer"
+            <Link href={SUPPORT_URL}
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
-              открыть чат в Telegram <ExternalLink size={12}/>
-            </a>
+              {SUPPORT_LABEL} <ExternalLink size={12}/>
+            </Link>
           </p>
         </div>
       </Section>
