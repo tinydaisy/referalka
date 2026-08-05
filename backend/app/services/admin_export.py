@@ -93,7 +93,7 @@ async def fetch_clients(db) -> list[dict]:
     """
     rows = await db.fetch(
         """
-        SELECT c.id, c.name, c.phone, c.telegram_username, c.work_tg_username,
+        SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.work_tg_username,
                c.work_vk, c.work_max,
                c.social_links->>'vk'  AS soc_vk,
                c.social_links->>'max' AS soc_max,
@@ -162,7 +162,7 @@ async def fetch_collabs(db) -> list[dict]:
     """
     rows = await db.fetch(
         """
-        SELECT c.id, c.name, c.phone, c.telegram_username, c.work_tg_username,
+        SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.work_tg_username,
                c.work_vk, c.work_max,
                c.social_links->>'vk'  AS soc_vk,
                c.social_links->>'max' AS soc_max,
@@ -203,6 +203,12 @@ def format_row(row: dict, idx: int, extra: str = "") -> str:
     wa = wa_link(row.get("phone"))
     if wa:
         parts.append(f"WhatsApp: {wa}")
+    # ⚠️ Email есть у КАЖДОГО клиента (без него нет регистрации), но в карточку
+    # он не попадал — и человек с одной только почтой (как Артемида Эпштейн)
+    # выглядел как «контактов нет».
+    email = (row.get("email") or "").strip()
+    if email:
+        parts.append(f"Email: {email}")
     # Ни одного контакта — говорим прямо. Иначе в списке просто имя без строк,
     # и непонятно: то ли выгрузка сломалась, то ли человек не заполнил профиль.
     if len(parts) == (2 if extra else 1):

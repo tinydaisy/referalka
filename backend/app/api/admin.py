@@ -55,6 +55,7 @@ async def platform_stats(
 async def list_clients(
     search: Optional[str] = None,
     tariff: Optional[str] = None,
+    min_contacts: Optional[int] = None,
     limit: int = 50,
     offset: int = 0,
     admin=Depends(get_current_admin),
@@ -89,6 +90,15 @@ async def list_clients(
         conditions.append(
             f"EXISTS (SELECT 1 FROM client_subscriptions cs JOIN tariffs t ON t.id=cs.tariff_id "
             f"WHERE cs.client_id=c.id AND cs.id=c.current_subscription_id AND t.slug = ${len(params)})"
+        )
+
+    # Фильтр «база не меньше N контактов» — чтобы отделить рабочие кабинеты от
+    # пустых регистраций (их большинство, и они забивают список).
+    if min_contacts is not None and min_contacts > 0:
+        params.append(min_contacts)
+        conditions.append(
+            f"(SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id "
+            f"AND ct.is_active = TRUE) >= ${len(params)}"
         )
 
     where = " AND ".join(conditions)

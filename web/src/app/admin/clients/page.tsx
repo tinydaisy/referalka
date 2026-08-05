@@ -42,13 +42,28 @@ export default function AdminClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
+  // Пагинация: клиентов уже больше сотни, а бэк отдаёт по 50 — без докачки
+  // половина списка была не видна вовсе.
+  const [limit, setLimit] = useState(50)
+  // Фильтр «база не меньше N контактов»: отделяет рабочие кабинеты от пустых
+  // регистраций, которых большинство.
+  const [minContacts, setMinContacts] = useState(0)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
   const [qualityModal, setQualityModal] = useState<EmailQuality | null>(null)
 
   useEffect(() => {
-    const q = search ? `search=${encodeURIComponent(search)}` : ''
-    api.admin.clients(q).then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) }).catch(() => {})
-  }, [search])
+    const qs = new URLSearchParams()
+    if (search) qs.set('search', search)
+    if (minContacts > 0) qs.set('min_contacts', String(minContacts))
+    qs.set('limit', String(limit))
+    api.admin.clients(qs.toString())
+      .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
+      .catch(() => {})
+  }, [search, limit, minContacts])
+
+  // Смена фильтра/поиска — снова с первой страницы, иначе останется раздутый
+  // limit от прошлого просмотра.
+  useEffect(() => { setLimit(50) }, [search, minContacts])
 
   // Метрики качества email-рассылок — отдельным запросом, чтобы не блокировать
   // основной список (миграция 098-099)
@@ -87,6 +102,21 @@ export default function AdminClientsPage() {
               value={search} onChange={e => setSearch(e.target.value)}
               className="w-full pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-brand/30"
             />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">Контактов от</span>
+            <select
+              value={minContacts}
+              onChange={e => setMinContacts(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            >
+              <option value={0}>любое число</option>
+              <option value={1}>1 и больше</option>
+              <option value={10}>10 и больше</option>
+              <option value={50}>50 и больше</option>
+              <option value={100}>100 и больше</option>
+              <option value={500}>500 и больше</option>
+            </select>
           </div>
         </div>
 
@@ -236,6 +266,17 @@ export default function AdminClientsPage() {
       </p>
 
       {/* Модалка с метриками качества email-рассылок */}
+      {clients.length < total && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={() => setLimit(l => l + 50)}
+            className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Показать ещё · {clients.length} из {total}
+          </button>
+        </div>
+      )}
+
       {qualityModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl"
