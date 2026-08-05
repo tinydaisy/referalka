@@ -1382,6 +1382,16 @@ async def _send_broadcast_vk_part(
         rows = [r for r in rows if r["contact_id"] not in _vk_excl]
         if not rows:
             return 0
+    # Фильтр по тегам контакта (миграция 265) — та же семантика, что в TG-ветке.
+    _vk_tag_inc = schedule.get("audience_tags_include") or []
+    _vk_tag_exc = schedule.get("audience_tags_exclude") or []
+    if _vk_tag_inc or _vk_tag_exc:
+        _vk_keep = await _tag_filtered_contact_ids(
+            conn, client_id, _vk_tag_inc, _vk_tag_exc,
+            {r["contact_id"] for r in rows if r["contact_id"] is not None})
+        rows = [r for r in rows if r["contact_id"] in _vk_keep]
+        if not rows:
+            return 0
     # Include-сегменты оплаты (paid_event/unpaid_event): оставляем только нужные.
     _vk_paid_on, _vk_paid_keep = await _paid_filter_contact_ids(conn, event_id, aud_include)
     if _vk_paid_on:
@@ -1690,6 +1700,16 @@ async def _send_broadcast_max_part(
         rows = [r for r in rows if r["contact_id"] not in _max_excl]
         if not rows:
             return 0
+    # Фильтр по тегам контакта (миграция 265) — та же семантика, что в TG-ветке.
+    _max_tag_inc = schedule.get("audience_tags_include") or []
+    _max_tag_exc = schedule.get("audience_tags_exclude") or []
+    if _max_tag_inc or _max_tag_exc:
+        _max_keep = await _tag_filtered_contact_ids(
+            conn, client_id, _max_tag_inc, _max_tag_exc,
+            {r["contact_id"] for r in rows if r["contact_id"] is not None})
+        rows = [r for r in rows if r["contact_id"] in _max_keep]
+        if not rows:
+            return 0
     _max_paid_on, _max_paid_keep = await _paid_filter_contact_ids(conn, event_id, aud_include)
     if _max_paid_on:
         rows = [r for r in rows if r["contact_id"] in _max_paid_keep]
@@ -1981,6 +2001,16 @@ async def _send_broadcast_email_part(
     _em_excl = await _excluded_contact_ids(conn, event_id, schedule.get("audience_exclude"))
     if _em_excl:
         rows = [r for r in rows if r["contact_id"] not in _em_excl]
+        if not rows:
+            return 0
+    # Фильтр по тегам контакта (миграция 265) — та же семантика, что в TG-ветке.
+    _em_tag_inc = schedule.get("audience_tags_include") or []
+    _em_tag_exc = schedule.get("audience_tags_exclude") or []
+    if _em_tag_inc or _em_tag_exc:
+        _em_keep = await _tag_filtered_contact_ids(
+            conn, client_id, _em_tag_inc, _em_tag_exc,
+            {r["contact_id"] for r in rows if r["contact_id"] is not None})
+        rows = [r for r in rows if r["contact_id"] in _em_keep]
         if not rows:
             return 0
     _em_paid_on, _em_paid_keep = await _paid_filter_contact_ids(conn, event_id, aud_include)
@@ -2498,6 +2528,31 @@ async def _build_audience(conn, schedule) -> set:
         )
     include_ids = {r["platform_user_id"] for r in rows}
 
+    # ── Фильтр ПО ТЕГАМ контакта (миграция 265) ───────────────────────────
+    # Теги живут на contacts.tags (jsonb-массив). Семантика «любой из»
+    # (оператор ?|) — та же, что в фильтре контактов в кабинете.
+    # Пустой/NULL список = фильтр не применяется (обратная совместимость).
+    tags_inc = schedule.get("audience_tags_include") or []
+    tags_exc = schedule.get("audience_tags_exclude") or []
+    if tags_inc:
+        rows_t = await conn.fetch(
+            "SELECT pu.platform_user_id FROM platform_users pu "
+            "JOIN contacts ct ON ct.id = pu.contact_id "
+            "WHERE pu.client_id=$1 AND pu.platform_slug='telegram' "
+            "  AND jsonb_typeof(ct.tags)='array' AND ct.tags ?| $2::text[]",
+            client_id, list(tags_inc)
+        )
+        include_ids &= {r["platform_user_id"] for r in rows_t}
+    if tags_exc:
+        rows_t = await conn.fetch(
+            "SELECT pu.platform_user_id FROM platform_users pu "
+            "JOIN contacts ct ON ct.id = pu.contact_id "
+            "WHERE pu.client_id=$1 AND pu.platform_slug='telegram' "
+            "  AND jsonb_typeof(ct.tags)='array' AND ct.tags ?| $2::text[]",
+            client_id, list(tags_exc)
+        )
+        include_ids -= {r["platform_user_id"] for r in rows_t}
+
     exclude_ids: set = set()
     if aud_exclude == "registered_event":
         ex = await conn.fetch(
@@ -2536,6 +2591,34 @@ async def _build_audience(conn, schedule) -> set:
         exclude_ids = {r["platform_user_id"] for r in ex}
 
     return include_ids - exclude_ids
+
+
+async def _tag_filtered_contact_ids(conn, client_id, tags_include, tags_exclude, contact_ids):
+    """Отфильтровать contact_id по тегам контакта (миграция 265).
+
+    Возвращает множество contact_id, которые ПРОХОДЯТ фильтр.
+    include — оставить только тех, у кого есть ХОТЯ БЫ ОДИН из тегов;
+    exclude — выбросить тех, у кого есть ХОТЯ БЫ ОДИН из тегов.
+    Пустые списки = фильтр не применяется (обратная совместимость).
+    Общая точка для VK/MAX/email — у них аудитория собирается по contact_id,
+    а не по platform_user_id (для TG фильтр внутри _build_audience).
+    """
+    keep = set(contact_ids)
+    if not keep:
+        return keep
+    if tags_include:
+        rows = await conn.fetch(
+            "SELECT ct.id FROM contacts ct WHERE ct.client_id=$1 AND ct.id = ANY($2::int[]) "
+            "  AND jsonb_typeof(ct.tags)='array' AND ct.tags ?| $3::text[]",
+            client_id, list(keep), list(tags_include))
+        keep &= {r["id"] for r in rows}
+    if tags_exclude and keep:
+        rows = await conn.fetch(
+            "SELECT ct.id FROM contacts ct WHERE ct.client_id=$1 AND ct.id = ANY($2::int[]) "
+            "  AND jsonb_typeof(ct.tags)='array' AND ct.tags ?| $3::text[]",
+            client_id, list(keep), list(tags_exclude))
+        keep -= {r["id"] for r in rows}
+    return keep
 
 
 async def _excluded_contact_ids(conn, event_id, aud_exclude) -> set:

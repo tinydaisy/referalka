@@ -56,6 +56,9 @@ async def list_clients(
     search: Optional[str] = None,
     tariff: Optional[str] = None,
     min_contacts: Optional[int] = None,
+    subscription: Optional[str] = None,   # active | inactive
+    has_bot: Optional[str] = None,        # yes | no
+    in_collab: Optional[str] = None,      # yes | no
     limit: int = 50,
     offset: int = 0,
     admin=Depends(get_current_admin),
@@ -63,6 +66,29 @@ async def list_clients(
 ):
     conditions = ["1=1"]
     params = []
+
+    # ─── Сегментные фильтры (для рассылок по клиентам платформы) ─────────
+    # Подписка активна = есть текущая подписка со status='active' и не истёкшая.
+    # Смотрим и статус, и дату: статус может отставать до тика Celery.
+    if subscription in ("active", "inactive"):
+        cond = ("EXISTS (SELECT 1 FROM client_subscriptions cs2 WHERE cs2.id = c.current_subscription_id "
+                "AND cs2.status = 'active' AND cs2.expires_at > NOW())")
+        conditions.append(cond if subscription == "active" else f"NOT {cond}")
+
+    # Свой бот = не-системный канал с токеном. Именно токен, а не просто запись:
+    # без токена бот не может ни отвечать, ни рассылать.
+    if has_bot in ("yes", "no"):
+        cond = ("EXISTS (SELECT 1 FROM client_channels cc2 JOIN channels ch2 ON ch2.id = cc2.channel_id "
+                "WHERE cc2.client_id = c.id AND ch2.is_system = FALSE "
+                "AND ch2.bot_token IS NOT NULL AND ch2.bot_token <> '')")
+        conditions.append(cond if has_bot == "yes" else f"NOT {cond}")
+
+    # В Коллабораторной = активный аддон collab_hub ЛИБО опубликован в Хабе.
+    if in_collab in ("yes", "no"):
+        cond = ("(c.is_published_in_hub = TRUE OR EXISTS (SELECT 1 FROM client_addons ca2 "
+                "JOIN features f2 ON f2.id = ca2.feature_id "
+                "WHERE ca2.client_id = c.id AND f2.slug = 'collab_hub' AND ca2.status = 'active'))")
+        conditions.append(cond if in_collab == "yes" else f"NOT {cond}")
 
     if search:
         params.append(f"%{search}%")
@@ -165,6 +191,119 @@ async def list_clients(
         d["channels_breakdown"] = json.loads(raw) if isinstance(raw, str) else (raw or [])
         result.append(d)
     return {"clients": result, "total": total}
+
+
+# Сегменты клиентов платформы → теги в базе получателя.
+# Владелец платформы рассылает по клиентам ПЛЮСОНа СВОИМ ботом (у сервисного
+# @pluson_bot почти нет подписчиков — люди приходили через бот Марго).
+# Поэтому сегмент материализуется тегом на contacts ЦЕЛЕВОГО клиента, а рассылка
+# потом фильтруется по этому тегу штатным движком (миграция 265).
+SEGMENT_TAGS = {
+    "plusson:no_sub":      "Нет активной подписки",
+    "plusson:sub_no_bot":  "Есть подписка, нет своего бота",
+    "plusson:sub_and_bot": "Есть подписка и свой бот",
+    "plusson:in_collab":   "В Коллабораторной",
+}
+
+
+class SyncSegmentTagsRequest(BaseModel):
+    # В чью базу писать теги (contacts.client_id). Обычно 1 — кабинет владельца.
+    target_client_id: int
+    # Исключить самих себя/сервисный аккаунт и тестовые записи.
+    exclude_client_ids: list[int] = [1, 3]
+
+
+@router.post("/clients/sync-segment-tags", summary="Проставить теги сегментов клиентов в базу контактов")
+async def sync_segment_tags(
+    data: SyncSegmentTagsRequest,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Размечает контакты тегами plusson:* по текущему состоянию клиентов.
+
+    Матчинг клиент→контакт идёт по email, телефону и TG-нику — только по этим
+    трём ключам. По ИМЕНИ не сопоставляем принципиально: в базе десятки «Ирин»
+    и «Татьян», совпадение по имени привело бы к рассылке чужому человеку.
+
+    Сегмент один на человека (взаимоисключающие): при двух кабинетах у одного
+    человека выигрывает более «продвинутый» (с ботом > без бота > без подписки),
+    иначе он получил бы два противоречащих письма.
+
+    Идемпотентно: старые plusson:*-теги снимаются и проставляются заново,
+    прочие теги контакта не трогаются.
+    """
+    target = int(data.target_client_id)
+    excl = list(data.exclude_client_ids or [])
+    async with db.transaction():
+        rows = await db.fetch(
+            """
+            WITH seg AS (
+              SELECT c.id AS client_id, c.email, c.telegram_username, c.phone,
+                CASE
+                  WHEN (c.is_published_in_hub = TRUE OR EXISTS (
+                          SELECT 1 FROM client_addons ca JOIN features f ON f.id = ca.feature_id
+                          WHERE ca.client_id = c.id AND f.slug='collab_hub' AND ca.status='active'))
+                    THEN 'plusson:in_collab'
+                  WHEN NOT EXISTS (SELECT 1 FROM client_subscriptions cs
+                          WHERE cs.id = c.current_subscription_id
+                            AND cs.status='active' AND cs.expires_at > NOW())
+                    THEN 'plusson:no_sub'
+                  WHEN NOT EXISTS (SELECT 1 FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                          WHERE cc.client_id = c.id AND ch.is_system = FALSE
+                            AND ch.bot_token IS NOT NULL AND ch.bot_token <> '')
+                    THEN 'plusson:sub_no_bot'
+                  ELSE 'plusson:sub_and_bot'
+                END AS tag
+              FROM clients c
+              WHERE c.is_active = TRUE
+                AND NOT (c.id = ANY($2::int[]))
+                AND c.name NOT ILIKE 'ТЕСТ %'
+                AND c.email NOT LIKE '%@hub.local'
+            ), m AS (
+              SELECT ct.id AS contact_id, s.tag,
+                     CASE s.tag WHEN 'plusson:in_collab' THEN 0
+                                WHEN 'plusson:sub_and_bot' THEN 1
+                                WHEN 'plusson:sub_no_bot' THEN 2 ELSE 3 END AS prio
+              FROM seg s
+              JOIN contacts ct ON ct.client_id = $1 AND (
+                    lower(ct.email) = lower(s.email)
+                 OR (COALESCE(s.phone,'') <> '' AND COALESCE(ct.phone,'') <> ''
+                     AND regexp_replace(ct.phone,'[^0-9]','','g') = regexp_replace(s.phone,'[^0-9]','','g'))
+                 OR (COALESCE(s.telegram_username,'') <> '' AND EXISTS (
+                        SELECT 1 FROM platform_users pu WHERE pu.contact_id = ct.id
+                          AND pu.platform_slug='telegram'
+                          AND lower(pu.username) = lower(regexp_replace(s.telegram_username,'^@|.*/','','g')))))
+            )
+            SELECT DISTINCT ON (contact_id) contact_id, tag FROM m ORDER BY contact_id, prio
+            """,
+            target, excl,
+        )
+        # Снимаем прежние plusson:* — иначе при смене сегмента у человека
+        # остался бы старый тег и он попал бы в обе рассылки.
+        await db.execute(
+            """
+            UPDATE contacts SET tags = COALESCE((
+                SELECT jsonb_agg(e) FROM jsonb_array_elements_text(tags) e
+                 WHERE e NOT LIKE 'plusson:%'), '[]'::jsonb)
+             WHERE client_id = $1 AND jsonb_typeof(tags)='array' AND tags::text LIKE '%plusson:%'
+            """,
+            target,
+        )
+        for r in rows:
+            await db.execute(
+                """
+                UPDATE contacts SET tags = COALESCE((
+                    SELECT jsonb_agg(DISTINCT e) FROM jsonb_array_elements_text(
+                      (CASE WHEN jsonb_typeof(tags)='array' THEN tags ELSE '[]'::jsonb END)
+                      || to_jsonb(ARRAY[$2::text])) e), to_jsonb(ARRAY[$2::text]))
+                 WHERE id = $1
+                """,
+                r["contact_id"], r["tag"],
+            )
+    stats: dict = {}
+    for r in rows:
+        stats[r["tag"]] = stats.get(r["tag"], 0) + 1
+    return {"ok": True, "tagged": len(rows), "by_segment": stats, "labels": SEGMENT_TAGS}
 
 
 @router.get("/clients/{client_id}", summary="Клиент по ID")

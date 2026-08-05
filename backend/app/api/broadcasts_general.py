@@ -39,6 +39,11 @@ class AddCustomRequest(BaseModel):
     # Каналы для отправки: NULL/None = все каналы клиента (default),
     # [] = никуда не слать, [N,M] = только эти channel_id.
     target_channel_ids: Optional[List[int]] = None
+    # Фильтр по тегам контактов (миграция 265): взять только тех, у кого есть
+    # ХОТЯ БЫ ОДИН тег из include, и выбросить тех, у кого есть любой из exclude.
+    # Пусто = фильтр не применяется.
+    audience_tags_include: Optional[List[str]] = None
+    audience_tags_exclude: Optional[List[str]] = None
     # Слать также в общие чаты клиента (client_broadcast_chats, is_private=FALSE).
     send_to_client_chats: bool = False
     # Слать также в личные каналы клиента (client_broadcast_chats, is_private=TRUE).
@@ -57,6 +62,10 @@ class BulkItem(BaseModel):
     # Аудитория на конкретную рассылку (для общих по умолчанию all_client).
     audience_include: Optional[str] = None
     audience_exclude: Optional[str] = None
+    # Фильтр по тегам контактов (миграция 265): включить / исключить.
+    # Семантика «любой из» — как в фильтре контактов кабинета.
+    audience_tags_include: Optional[List[str]] = None
+    audience_tags_exclude: Optional[List[str]] = None
     send_to_client_chats: Optional[bool] = None
     send_to_private_chats: Optional[bool] = None
 
@@ -249,6 +258,7 @@ async def list_schedules(
                  0
                ) AS log_sent,
                audience_include, audience_exclude, started_at, finished_at,
+               audience_tags_include, audience_tags_exclude,
                error_log, snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons,
                snapshot_video, snapshot_media_type,
                target_channel_ids, send_to_client_chats, send_to_private_chats,
@@ -332,17 +342,62 @@ async def add_custom(
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-           snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats)
+           snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats,
+           audience_tags_include, audience_tags_exclude)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
+                $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id, fire_at, status
         """,
         client_id, dt_utc, data.is_test, data.text,
         (data.subject or None), snap_photo, _json.dumps(buttons),
         data.target_channel_ids, snap_video, snap_mtype, data.send_to_client_chats,
         data.send_to_private_chats,
+        (data.audience_tags_include or None), (data.audience_tags_exclude or None),
     )
     return dict(row)
+
+
+class AudienceCountRequest(BaseModel):
+    audience_tags_include: Optional[List[str]] = None
+    audience_tags_exclude: Optional[List[str]] = None
+
+
+@router.post("/audience-count", summary="Сколько человек попадёт в рассылку по фильтру тегов")
+async def audience_count(
+    data: AudienceCountRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Предпросмотр охвата ДО отправки: сколько контактов пройдёт фильтр по тегам.
+
+    Считаем по contact_id (а не по идентичностям), чтобы цифра совпадала с тем,
+    что клиент видит в разделе Контакты: один человек = один контакт, даже если
+    у него и TG, и VK, и email. Реальная доставка идёт по платформам и может быть
+    меньше — у части контактов нет ни одной подписки.
+    """
+    inc = data.audience_tags_include or []
+    exc = data.audience_tags_exclude or []
+    client_id = int(client["sub"])
+    where = ["ct.client_id = $1", "ct.is_active = TRUE"]
+    params: list = [client_id]
+    if inc:
+        params.append(list(inc))
+        where.append(f"jsonb_typeof(ct.tags)='array' AND ct.tags ?| ${len(params)}::text[]")
+    if exc:
+        params.append(list(exc))
+        where.append(
+            f"NOT (jsonb_typeof(ct.tags)='array' AND ct.tags ?| ${len(params)}::text[])"
+        )
+    total = await db.fetchval(
+        f"SELECT COUNT(*) FROM contacts ct WHERE {' AND '.join(where)}", *params
+    )
+    # Из них реально достижимы хотя бы на одной площадке (есть идентичность).
+    reachable = await db.fetchval(
+        f"""SELECT COUNT(*) FROM contacts ct WHERE {' AND '.join(where)}
+            AND EXISTS (SELECT 1 FROM platform_users pu WHERE pu.contact_id = ct.id)""",
+        *params
+    )
+    return {"total": total or 0, "reachable": reachable or 0}
 
 
 class GeneralTestNowRequest(BaseModel):
@@ -421,6 +476,8 @@ async def bulk_add(
             "target_channel_ids": it.target_channel_ids,
             "audience_include": it.audience_include or "all_client",
             "audience_exclude": it.audience_exclude or "none",
+            "audience_tags_include": it.audience_tags_include or None,
+            "audience_tags_exclude": it.audience_tags_exclude or None,
             "send_to_client_chats": bool(it.send_to_client_chats),
             "send_to_private_chats": bool(it.send_to_private_chats),
         })
@@ -454,9 +511,10 @@ async def bulk_add(
                   (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-                   snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats)
+                   snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats,
+                   audience_tags_include, audience_tags_exclude)
                 VALUES (NULL, $1, NULL, 'custom', NULL, $2, $14, $3, $11, $12,
-                        $4, $5, $6, $7::jsonb, $8, $9, $10, $13, $15)
+                        $4, $5, $6, $7::jsonb, $8, $9, $10, $13, $15, $16, $17)
                 RETURNING id
                 """,
                 client_id, p["dt_utc"], data.is_test, p["text"],
@@ -465,6 +523,7 @@ async def bulk_add(
                 p["video_url"], p["media_type"],
                 p["audience_include"], p["audience_exclude"], p["send_to_client_chats"],
                 new_status, p["send_to_private_chats"],
+                (p.get("audience_tags_include") or None), (p.get("audience_tags_exclude") or None),
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}
@@ -679,6 +738,8 @@ class UpdateScheduleRequest(BaseModel):
     photo_url: Optional[str] = None
     buttons: Optional[List[ButtonItem]] = None
     target_channel_ids: Optional[List[int]] = None
+    audience_tags_include: Optional[List[str]] = None
+    audience_tags_exclude: Optional[List[str]] = None
     send_to_client_chats: Optional[bool] = None
     send_to_private_chats: Optional[bool] = None
 
@@ -739,6 +800,16 @@ async def update_schedule(
     if data.target_channel_ids is not None:
         sets.append(f"target_channel_ids=${idx}::int[]")
         args.append(data.target_channel_ids); idx += 1
+
+    # Теги аудитории (миграция 265). Различаем «не прислали» и «прислали пусто»:
+    # пустой список = ЯВНАЯ очистка фильтра (иначе снять теги было бы нельзя).
+    fs = data.model_fields_set
+    if "audience_tags_include" in fs:
+        sets.append(f"audience_tags_include=${idx}::text[]")
+        args.append(data.audience_tags_include or None); idx += 1
+    if "audience_tags_exclude" in fs:
+        sets.append(f"audience_tags_exclude=${idx}::text[]")
+        args.append(data.audience_tags_exclude or None); idx += 1
 
     if data.send_to_client_chats is not None:
         sets.append(f"send_to_client_chats=${idx}"); args.append(data.send_to_client_chats); idx += 1
