@@ -380,7 +380,8 @@ async def prodamus_addon_webhook(
         return {"ok": True, "ignored": "bad order_id"}
 
     order = await db.fetchrow(
-        "SELECT id, client_id, feature_id, months, status, bundle_with_pro FROM addon_orders WHERE id = $1",
+        "SELECT id, client_id, feature_id, months, status, bundle_with_pro, amount_total_kopecks "
+        "FROM addon_orders WHERE id = $1",
         order_id,
     )
     if not order:
@@ -448,6 +449,10 @@ async def _apply_paid_addon_order(
             )
             return {"ok": False, "blocked": True, "order_id": order_id}
 
+    # Сумма оплаты в рублях — пишем её в client_addons.price, чтобы модуль в
+    # отчётах не выглядел бесплатным. В заказе сумма хранится в копейках.
+    paid_rub = int((order["amount_total_kopecks"] or 0) / 100) or None
+
     async with db.transaction():
         await db.execute(
             """UPDATE addon_orders
@@ -465,20 +470,25 @@ async def _apply_paid_addon_order(
         if existing:
             # Коллабораторная — фиксированная дата, срок не накапливается.
             new_expires = fixed_until or (existing["expires_at"] + timedelta(days=add_days))
+            # ⚠️ price — сумма ПОСЛЕДНЕЙ оплаты (в рублях). Раньше колонка не
+            # заполнялась вовсе, и в отчётах по выручке модуль был без суммы,
+            # хотя деньги прошли.
             await db.execute(
-                "UPDATE client_addons SET expires_at=$2, months=months+$3, updated_at=NOW() WHERE id=$1",
-                existing["id"], new_expires, months,
+                "UPDATE client_addons SET expires_at=$2, months=months+$3, price=$4, "
+                "updated_at=NOW() WHERE id=$1",
+                existing["id"], new_expires, months, paid_rub,
             )
             addon_id = existing["id"]
         else:
             addon_id = await db.fetchval(
                 """INSERT INTO client_addons
-                     (client_id, feature_id, started_at, expires_at, status, source, months)
+                     (client_id, feature_id, started_at, expires_at, status, source, months, price)
                    VALUES ($1, $2, NOW(),
                            COALESCE($5::timestamptz, NOW() + ($3 || ' days')::interval),
-                           'active', 'paid', $4)
+                           'active', 'paid', $4, $6)
                    RETURNING id""",
                 order["client_id"], order["feature_id"], str(add_days), months, fixed_until,
+                paid_rub,
             )
 
         # 🔒 Заморозка цены: оплатил в акционный период → фиксируем цену на N месяцев
@@ -566,7 +576,8 @@ async def leadpay_addon_webhook(
         return {"ok": True, "ignored": "bad order_id"}
 
     order = await db.fetchrow(
-        "SELECT id, client_id, feature_id, months, status, bundle_with_pro FROM addon_orders WHERE id = $1",
+        "SELECT id, client_id, feature_id, months, status, bundle_with_pro, amount_total_kopecks "
+        "FROM addon_orders WHERE id = $1",
         order_id,
     )
     if not order:
