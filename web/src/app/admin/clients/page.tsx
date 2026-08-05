@@ -48,6 +48,11 @@ export default function AdminClientsPage() {
   // Фильтр «база не меньше N контактов»: отделяет рабочие кабинеты от пустых
   // регистраций, которых большинство.
   const [minContacts, setMinContacts] = useState(0)
+  // Сегменты для рассылок: подписка / свой бот / Коллабораторная.
+  const [subscription, setSubscription] = useState('')
+  const [hasBot, setHasBot] = useState('')
+  const [inCollab, setInCollab] = useState('')
+  const [syncing, setSyncing] = useState(false)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
   const [qualityModal, setQualityModal] = useState<EmailQuality | null>(null)
 
@@ -55,15 +60,34 @@ export default function AdminClientsPage() {
     const qs = new URLSearchParams()
     if (search) qs.set('search', search)
     if (minContacts > 0) qs.set('min_contacts', String(minContacts))
+    if (subscription) qs.set('subscription', subscription)
+    if (hasBot) qs.set('has_bot', hasBot)
+    if (inCollab) qs.set('in_collab', inCollab)
     qs.set('limit', String(limit))
     api.admin.clients(qs.toString())
       .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
       .catch(() => {})
-  }, [search, limit, minContacts])
+  }, [search, limit, minContacts, subscription, hasBot, inCollab])
 
   // Смена фильтра/поиска — снова с первой страницы, иначе останется раздутый
   // limit от прошлого просмотра.
-  useEffect(() => { setLimit(50) }, [search, minContacts])
+  useEffect(() => { setLimit(50) }, [search, minContacts, subscription, hasBot, inCollab])
+
+  // Разметить контакты тегами plusson:* — после этого сегменты доступны
+  // в рассылках кабинета как обычный фильтр по тегам.
+  async function syncTags() {
+    if (!confirm('Проставить теги сегментов (plusson:*) контактам в вашей базе?\n\nСтарые plusson:*-теги будут пересчитаны заново. Остальные теги не тронутся.')) return
+    setSyncing(true)
+    try {
+      const r: any = await api.admin.syncSegmentTags({ target_client_id: 1 })
+      const by = r.by_segment || {}
+      alert(`Готово. Размечено контактов: ${r.tagged}\n\n` +
+        Object.entries(by).map(([k, v]) => `${k} — ${v}`).join('\n') +
+        `\n\nТеперь в Рассылках выберите фильтр «Теги» → нужный сегмент.`)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось проставить теги')
+    } finally { setSyncing(false) }
+  }
 
   // Метрики качества email-рассылок — отдельным запросом, чтобы не блокировать
   // основной список (миграция 098-099)
@@ -118,6 +142,37 @@ export default function AdminClientsPage() {
               <option value={500}>500 и больше</option>
             </select>
           </div>
+          <select
+            value={subscription} onChange={e => setSubscription(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+          >
+            <option value="">Подписка: любая</option>
+            <option value="active">Есть активная</option>
+            <option value="inactive">Без подписки</option>
+          </select>
+          <select
+            value={hasBot} onChange={e => setHasBot(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+          >
+            <option value="">Бот: любой</option>
+            <option value="yes">Есть свой бот</option>
+            <option value="no">Нет бота</option>
+          </select>
+          <select
+            value={inCollab} onChange={e => setInCollab(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+          >
+            <option value="">Коллаб: все</option>
+            <option value="yes">В Коллабораторной</option>
+            <option value="no">Не в Коллабораторной</option>
+          </select>
+          <button
+            onClick={syncTags} disabled={syncing}
+            title="Проставить контактам теги plusson:no_sub / sub_no_bot / sub_and_bot / in_collab — чтобы рассылать по сегментам из кабинета"
+            className="px-3 py-2 rounded-lg text-sm bg-brand text-white hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+          >
+            {syncing ? 'Размечаю…' : 'Проставить теги сегментам'}
+          </button>
         </div>
 
         <div className="overflow-x-auto">

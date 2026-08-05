@@ -7,6 +7,7 @@ import {
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import BroadcastTagPicker from '@/components/BroadcastTagPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
@@ -102,6 +103,8 @@ export default function GeneralBroadcastsPage() {
     media_type: 'photo' | 'video' | null
     buttons: { text: string; url: string }[]
     target_channel_ids: number[] | null
+    audience_tags_include?: string[] | null
+    audience_tags_exclude?: string[] | null
     send_to_client_chats: boolean
     send_to_private_chats: boolean
   }>(null)
@@ -509,6 +512,8 @@ export default function GeneralBroadcastsPage() {
                               media_type: s.snapshot_media_type || (s.snapshot_photo ? 'photo' : null),
                               buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
                               target_channel_ids: Array.isArray(s.target_channel_ids) ? s.target_channel_ids : null,
+                              audience_tags_include: Array.isArray(s.audience_tags_include) ? s.audience_tags_include : [],
+                              audience_tags_exclude: Array.isArray(s.audience_tags_exclude) ? s.audience_tags_exclude : [],
                               send_to_client_chats: !!s.send_to_client_chats,
                               send_to_private_chats: !!s.send_to_private_chats,
                             })
@@ -613,6 +618,8 @@ export default function GeneralBroadcastsPage() {
             buttons: editModal.buttons,
             is_test: editModal.is_test,
             target_channel_ids: editModal.target_channel_ids,
+            audience_tags_include: editModal.audience_tags_include,
+            audience_tags_exclude: editModal.audience_tags_exclude,
             send_to_client_chats: editModal.send_to_client_chats,
             send_to_private_chats: editModal.send_to_private_chats,
           }}
@@ -779,6 +786,8 @@ function CustomBroadcastModal(props: {
     buttons?: { text: string; url: string }[]
     is_test?: boolean
     target_channel_ids?: number[] | null
+    audience_tags_include?: string[] | null
+    audience_tags_exclude?: string[] | null
     send_to_client_chats?: boolean
     send_to_private_chats?: boolean
   }
@@ -807,6 +816,9 @@ function CustomBroadcastModal(props: {
   const [targetChannels, setTargetChannels] = useState<number[] | null>(
     props.initial?.target_channel_ids ?? null
   )
+  // Фильтр аудитории по тегам контактов (миграция 265).
+  const [tagsInclude, setTagsInclude] = useState<string[]>(props.initial?.audience_tags_include || [])
+  const [tagsExclude, setTagsExclude] = useState<string[]>(props.initial?.audience_tags_exclude || [])
   const [saving, setSaving] = useState(false)
   const [formErrors, setFormErrors] = useState<string[]>([])
   const isEdit = typeof props.editId === 'number'
@@ -907,6 +919,8 @@ function CustomBroadcastModal(props: {
       if (targetChannels !== null) {
         payload.target_channel_ids = targetChannels
       }
+      payload.audience_tags_include = tagsInclude
+      payload.audience_tags_exclude = tagsExclude
       if (isEdit) {
         await api.broadcasts.update(props.editId!, payload)
       } else {
@@ -1035,6 +1049,10 @@ function CustomBroadcastModal(props: {
             </div>
           </div>
           <BroadcastChannelPicker value={targetChannels} onChange={setTargetChannels} />
+          <BroadcastTagPicker
+            include={tagsInclude} exclude={tagsExclude}
+            onChange={(inc, exc) => { setTagsInclude(inc); setTagsExclude(exc) }}
+          />
           {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
             <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
               className="w-4 h-4 mt-0.5 accent-[#25455D]" />

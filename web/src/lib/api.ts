@@ -726,6 +726,9 @@ export const api = {
   },
   broadcasts: {
     list: () => request('/api/v1/broadcasts/schedules'),
+    // Сколько человек попадёт в рассылку при выбранном фильтре тегов
+    audienceCount: (data: { audience_tags_include?: string[]; audience_tags_exclude?: string[] }) =>
+      request('/api/v1/broadcasts/audience-count', { method: 'POST', body: JSON.stringify(data) }),
     addCustom: (data: any) =>
       request('/api/v1/broadcasts/schedules/add-custom', { method: 'POST', body: JSON.stringify(data) }),
     testNow: (data: any) =>
@@ -1127,6 +1130,9 @@ export const api = {
       if (data.collab_hub_blocked !== undefined) params.set('collab_hub_blocked', String(data.collab_hub_blocked))
       return request(`/api/v1/admin/clients/${id}?${params.toString()}`, { method: 'PATCH' })
     },
+    // Разметить контакты тегами сегментов plusson:* (для рассылок по сегментам)
+    syncSegmentTags: (data: { target_client_id: number; exclude_client_ids?: number[] }) =>
+      request('/api/v1/admin/clients/sync-segment-tags', { method: 'POST', body: JSON.stringify(data) }),
     partners: () => request('/api/v1/admin/partners'),
     createPartner: (data: any) =>
       request('/api/v1/admin/partners', { method: 'POST', body: JSON.stringify(data) }),
