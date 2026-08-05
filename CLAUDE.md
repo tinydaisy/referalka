@@ -853,6 +853,20 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 **Гейт по фиче `broadcast_chats`** — раздел **Каналы → «Чаты для рассылок»** (CRUD базы чатов): `broadcast_chats` = безлимит (Экстра vip), `broadcast_chats_one` = по 1 чату на площадку (Профи).
 
+⚠️ **Безлимит чатов даёт ещё и модуль Коллабораторная** (миграция 267): `collab_hub` включает `broadcast_chats` через `feature_bundles`. Профи + купленная Коллабораторная → безлимит; просто Профи → по одному чату. Модуль истёк → безлимит уходит сам (фича вычисляется на лету, не хранится у клиента).
+
+### Модуль может приносить с собой фичи — `feature_bundles` (миграция 267 от 2026-08-06, ПРОД)
+
+`client_addons` хранит ОДНУ строку «клиент купил модуль X» и выдаёт ровно фичу X. Чтобы модуль давал возможности из другого тарифа, есть таблица **`feature_bundles (feature_id → included_feature_id)`**. Сейчас в ней одна связка: `collab_hub → broadcast_chats`.
+
+Зачем понадобилось: положить `broadcast_chats` в тариф Профи было нельзя — безлимит получили бы ВСЕ на Профи, и разница с Экстра стёрлась бы.
+
+⚠️ **Все три источника фич — в одном `_CLIENT_FEATURES_SQL`** ([features.py](backend/app/services/features.py)): тариф (`tariff_features`) + купленный модуль (`client_addons`) + вложенные фичи модуля (`feature_bundles`). Его используют ОБА хелпера — `get_client_features` и `client_has_feature`. Держать их врозь нельзя: раздел открывался бы по одному правилу, а список фич в `/auth/me` показывал другое.
+
+⚠️ **Разворот bundle — ОДИН уровень**, без рекурсии (фича из bundle сама bundle не разворачивает) — чтобы нельзя было случайно построить цепочку A→B→C и зациклить её. CHECK запрещает `feature_id = included_feature_id`.
+
+⚠️ **`addons.py` (что уже входит в тариф) и `admin.py` (витрина фич в списке клиентов) специально читают `tariff_features` НАПРЯМУЮ** — это «что даёт тариф», а не «что доступно клиенту». Вложенные фичи там считаться не должны, иначе модуль перестанет предлагаться к покупке.
+
 ⚠️ **Гейтинг галочек «чаты» в формах рассылок (обновлено 2026-07-15, отменяет правило 2026-06-30):**
 - **«Отправлять в общие чаты» (`send_to_client_chats`) и «в личные каналы» (`send_to_private_chats`)** — снова гейтятся по фиче **`broadcast_chats`** (Экстра/vip). У Профи и ниже галочки НЕ показываются. Единообразно во ВСЕХ формах: произвольные (`/dashboard/broadcasts` — `CustomBroadcastModal`), событийные (`queue/page.tsx` — create + edit модалки), шаблоны (`templates/page.tsx` — edit + create). Флаг во фронте — `hasChatsFeature = me.features.includes('broadcast_chats')`; при снятой фиче payload форсит `false` (чтобы старое включённое значение не «прилипло»).
 - **Гейт продублирован на бэке (движок) — [tasks/broadcast.py](backend/app/tasks/broadcast.py)** после наследования флагов от шаблона: если у клиента нет фичи `broadcast_chats`, `send_to_client_chats`/`send_to_private_chats` принудительно сбрасываются в `False` (закрывает обход через bulk-загрузку / прямой API / старые записи с `true`). «В чаты события» при этом НЕ трогается.
@@ -1790,6 +1804,16 @@ SELECT $new_client_id, ch.id, TRUE
 | `tournaments` | Премии и Турниры | 5000 ₽ | — |
 
 > ⚠️ Тариф `start` теперь «Стандарт» и скрыт; `pro` = «Профи» 1990; `vip` = «Экстра» 2990. Модули Конференции/Коллабораторная/Турниры — **аддоны** (отдельная покупка через Продамус), а не фичи внутри тарифа. Гейтить разделы — **только по фиче** (`client_has_feature`), никогда по `tariff_slug`.
+
+**Чем Экстра отличается от Профи** (состояние на 2026-08-06): `broadcast_chats` (безлимит чатов вместо одного на площадку), `event_organizers` (раздел «Партнёры»), `partner_registration`, `testimonials` (Отзывы и кейсы), `payments`, `event_tariffs` (платные тарифы мероприятия). Общие у обоих: `channels`, `lead_magnets`, `export_contacts`, `contests`, `webinar_link`, `webinar_room`, `broadcast_chats_one`, `event_landing` (Конструктор лендинга), `offers` (Оферты).
+
+⚠️ **Матрицу фич сверять с БД, а не с этим списком** — она меняется данными, без миграций:
+```sql
+SELECT f.slug, MAX(CASE WHEN t.slug='pro' THEN 'X' END) pro, MAX(CASE WHEN t.slug='vip' THEN 'X' END) vip
+  FROM features f LEFT JOIN tariff_features tf ON tf.feature_id=f.id
+  LEFT JOIN tariffs t ON t.id=tf.tariff_id GROUP BY f.slug ORDER BY f.slug;
+```
+⚠️ **`awards` и `email_broadcasts` не входят НИ В ОДИН продаваемый тариф** (только `admin`) — разделы существуют, но платящим клиентам недоступны. Если это не задумано — привязать к тарифу (данными).
 
 **Три режима клиента:**
 1. **Активна** — `cs.status='active' AND cs.expires_at > NOW()` — всё работает.
