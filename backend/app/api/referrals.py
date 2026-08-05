@@ -67,9 +67,29 @@ async def get_my_referral_dashboard(
     elif not sub_is_paid:
         block_reason = "Для вывода нужна активная платная подписка (не trial)"
 
-    # Реф-ссылки
-    web_link = f"https://pluson.ru/?pid={client['referral_code']}"
-    bot_link = f"https://telegram.me/pluson_bot?start=ref{client['referral_code']}"
+    # Реф-ссылки. Payload `ref<код>` — один формат на все площадки; ветку его
+    # разбора обязан иметь бот КАЖДОЙ площадки, иначе код молча теряется.
+    ref_code = client["referral_code"]
+    web_link = f"https://pluson.ru/?pid={ref_code}"
+    bot_link = f"https://telegram.me/pluson_bot?start=ref{ref_code}"
+
+    # MAX-ссылка — handle сервисного бота ПЛЮСОНа берём из БД, а не хардкодом:
+    # бот может быть перевыпущен, и захардкоженный ник увёл бы людей в никуда.
+    # Нет бота/handle → ключа в ответе нет, фронт просто не рисует строку.
+    max_handle = await db.fetchval(
+        """SELECT ch.handle
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+             JOIN clients cl ON cl.id = cc.client_id
+            WHERE ch.platform_slug = 'max'
+              AND cl.is_system_service = TRUE
+              AND COALESCE(ch.handle, '') <> ''
+            ORDER BY cc.is_active DESC, ch.id
+            LIMIT 1"""
+    )
+    links: dict[str, str] = {"web": web_link, "telegram": bot_link}
+    if max_handle:
+        links["max"] = f"https://max.ru/{max_handle.lstrip('@')}?start=ref{ref_code}"
 
     # История бонусных операций — последние 100
     tx_rows = await db.fetch(
@@ -116,10 +136,7 @@ async def get_my_referral_dashboard(
 
     return {
         "referral_code": client["referral_code"],
-        "links": {
-            "web": web_link,
-            "telegram": bot_link,
-        },
+        "links": links,
         "balance_kopecks": balance,
         "balance_rub": balance / 100,
         "can_withdraw": can_withdraw,

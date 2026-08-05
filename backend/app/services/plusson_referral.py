@@ -33,9 +33,62 @@
 нужного клиента. Никакой подмены кода на стороне подарка — любой сервис умеет
 резолвить коды ПЛЮСОНа единообразно через эту функцию.
 """
+import logging
 from typing import Optional
 
 import asyncpg
+
+log = logging.getLogger(__name__)
+
+# Формат ПЛЮСОН-реф-кода в deeplink: `ref` + 8 символов безопасного алфавита
+# (без визуально похожих 0/o/1/l/i). Один и тот же во всех ботах.
+PLUSSON_REF_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
+PLUSSON_REF_RE = r"ref([" + PLUSSON_REF_ALPHABET + r"]{8})"
+
+
+def parse_plusson_ref_payload(payload: Optional[str]) -> Optional[str]:
+    """Из deeplink-payload `ref<8симв>` достать сам код. Не подошло → None."""
+    import re as _re
+    if not payload:
+        return None
+    m = _re.fullmatch(PLUSSON_REF_RE, payload.strip())
+    return m.group(1) if m else None
+
+
+async def persist_plusson_referrer_code(
+    conn: asyncpg.Connection,
+    *,
+    client_id: Optional[int],
+    platform: str,
+    platform_user_id: Optional[str],
+    referral_code: str,
+) -> None:
+    """Закрепить ПЛЮСОН-реф-код за контактом человека в базе клиента этого бота.
+
+    ⚠️ Одна функция на ВСЕ площадки (TG/MAX/VK) — платформа приходит параметром.
+    Раньше жила приватной копией в bot/handlers/start.py с зашитым
+    `platform_slug='telegram'`, из-за чего на других площадках код терялся.
+
+    Первый рефовод выигрывает: перезаписываем, только если поле пустое
+    (миграция 206). Ошибки глушим — это вспомогательная привязка, она не должна
+    ронять обработку /start.
+    """
+    if not client_id or not platform_user_id or not referral_code:
+        return
+    try:
+        await conn.execute(
+            """UPDATE contacts c
+                  SET plusson_referrer_code = $1
+                 FROM platform_users p
+                WHERE p.contact_id = c.id
+                  AND p.client_id = $2
+                  AND p.platform_slug = $3
+                  AND p.platform_user_id = $4
+                  AND (c.plusson_referrer_code IS NULL OR c.plusson_referrer_code = '')""",
+            referral_code, client_id, platform, str(platform_user_id),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("persist_plusson_referrer_code failed: %s", e)
 
 
 async def resolve_plusson_referrer(

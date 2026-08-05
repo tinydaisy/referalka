@@ -5,7 +5,8 @@ import { api } from '@/lib/api'
 
 interface RefData {
   referral_code: string
-  links: { web: string; telegram: string }
+  // max приходит, только если у ПЛЮСОНа подключён MAX-бот с handle
+  links: { web: string; telegram: string; max?: string }
   balance_kopecks: number
   balance_rub: number
   can_withdraw: boolean
@@ -138,6 +139,8 @@ export default function PartnerProgramPage() {
               {[
                 { key: 'web', label: 'Сайт', url: data.links.web },
                 { key: 'telegram', label: 'Telegram', url: data.links.telegram },
+                // MAX — только если бэкенд прислал (у ПЛЮСОНа подключён MAX-бот)
+                ...(data.links.max ? [{ key: 'max', label: 'MAX', url: data.links.max }] : []),
               ].map(({ key, label, url }) => (
                 <div key={key} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
                   <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>

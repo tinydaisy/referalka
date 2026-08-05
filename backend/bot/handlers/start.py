@@ -225,19 +225,16 @@ async def _upgrade_pseudo_identities(user) -> None:
 
 
 async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: str) -> None:
-    """Закрепить ПЛЮСОН-реф-код за контактом человека в базе клиента ЭТОГО бота.
+    """Закрепить ПЛЮСОН-реф-код за TG-контактом человека в базе клиента ЭТОГО бота.
 
-    Работает в любом боте: bot_id → channels → client_id (системный → системный
-    клиент, VIP → client_channels). Контакт человека уже создан в _record_subscription,
-    поэтому просто находим его по tg_id + client_id и пишем contacts.plusson_referrer_code.
-
-    Первый рефовод выигрывает: перезаписываем только если поле пустое (миграция 206).
-    Любая ошибка глушится — это вспомогательная привязка, не должна ронять /start.
+    Резолвит клиента по боту (bot_id → channels → client_channels) и передаёт
+    работу общей `persist_plusson_referrer_code` — она одна на все площадки.
     """
     if not bot_id or not tg_id or not referral_code:
         return
     try:
         from app.services.channels import find_channel_by_bot_id
+        from app.services.plusson_referral import persist_plusson_referrer_code
         ch = await find_channel_by_bot_id(bot_id, conn)
         if not ch:
             return
@@ -246,18 +243,9 @@ async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: 
                 WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
             ch["id"],
         )
-        if not client_id:
-            return
-        await conn.execute(
-            """UPDATE contacts c
-                  SET plusson_referrer_code = $1
-                 FROM platform_users p
-                WHERE p.contact_id = c.id
-                  AND p.client_id = $2
-                  AND p.platform_slug = 'telegram'
-                  AND p.platform_user_id = $3
-                  AND (c.plusson_referrer_code IS NULL OR c.plusson_referrer_code = '')""",
-            referral_code, client_id, str(tg_id),
+        await persist_plusson_referrer_code(
+            conn, client_id=client_id, platform="telegram",
+            platform_user_id=str(tg_id), referral_code=referral_code,
         )
     except Exception as e:
         log.warning("persist_plusson_referrer_code failed: %s", e)

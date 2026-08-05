@@ -26,6 +26,10 @@ from fastapi import APIRouter, HTTPException, Request
 from ..config import settings
 from ..database import get_pool
 from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
+# ⚠️ Модуль целиком — часть кода зовёт `max_api.send_message(...)`; без этого
+# импорта такие вызовы падали NameError (в ветке чёрного списка при /start
+# заблокированный получал контент вместо заглушки).
+from ..services import max_api
 from ..services.max_api import send_message as max_send_message, tg_inline_to_max_keyboard
 from ..services.max_auth import parse_startapp_ref_payload
 from ..services.share_links import max_link as build_max_link
@@ -1261,6 +1265,24 @@ async def _process_start(
                 logger.exception(f"MAX spkinv handler failed: {e}")
             return
 
+    # Партнёрский реф-код ПЛЮСОНа: `?start=ref<8симв>` (миграция 206). Зеркало
+    # TG-ветки в bot/handlers/start.py — формат ссылки один на все площадки.
+    # Без этой ветки payload проваливался в разбор `ref_pg{slug}` и код рефовода
+    # молча терялся: человек регистрировался, но за партнёром не закреплялся.
+    if payload:
+        from app.services.plusson_referral import parse_plusson_ref_payload
+        _ref_code = parse_plusson_ref_payload(payload)
+        if _ref_code:
+            try:
+                await _handle_max_plusson_ref(
+                    _ref_code, user_id=user_id, chat_id=chat_id,
+                    username=username, first_name=first_name, last_name=last_name,
+                    bot_token=bot_token, client_id_override=client_id_override,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.exception(f"MAX plusson ref handler failed: {e}")
+            return
+
     # Воронка лид-магнита: прямой формат `?start=m_<slug>` (лид-магнит) или
     # `?start=p_<slug>` (пакет), опционально `_pid<ref>_src<utm>`. Это тот же
     # формат, что у TG-бота (max.ru/{handle}?start=m_<slug>) — MAX присылает его
@@ -1771,6 +1793,96 @@ async def _handle_max_live(
     rows.append([{"text": "Программа", "url": f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"}])
     rows.append([{"text": "Меню", "callback_data": f"evmenu_{event_id}"}])
     await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
+
+
+async def _handle_max_plusson_ref(
+    referral_code: str, *, user_id: int, chat_id: int,
+    username: str | None, first_name: str | None, last_name: str | None,
+    bot_token: str, client_id_override: int | None,
+) -> None:
+    """Вход по ПЛЮСОН-реф-ссылке в MAX: `max.ru/{handle}?start=ref<8симв>`.
+
+    Зеркало TG-ветки в bot/handlers/start.py:
+      1) резолвим код через общий `resolve_plusson_referrer` — он понимает и
+         клиентский код, и код-контакт спикера с привязанным ПЛЮСОНом;
+      2) заводим контакт человека в базе клиента ЭТОГО бота и закрепляем за ним
+         СЫРОЙ код (contacts.plusson_referrer_code) — чтобы привязка пережила то,
+         что кнопку регистрации нажмут не сразу. `/register` возьмёт код отсюда,
+         если в URL нет pid;
+      3) шлём приветствие с кнопкой регистрации.
+
+    Код не резолвится (мусор/чужой) → приветствие без имени рефовода, регистрация
+    всё равно предлагается: человек уже пришёл, терять его из-за битой ссылки нельзя.
+    """
+    from app.services.plusson_referral import (
+        resolve_plusson_referrer, persist_plusson_referrer_code,
+    )
+    pool = await get_pool()
+    if not pool:
+        return
+
+    referrer_name: str | None = None
+    referrer_client_id: int | None = None
+    async with pool.acquire() as conn:
+        # Клиент этого бота: явный override (VIP-бот) → системный сервисный клиент.
+        client_id = client_id_override or await conn.fetchval(
+            "SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1"
+        )
+
+        # ЧЁРНЫЙ СПИСОК — до выдачи любого контента (миграция 228).
+        try:
+            from app.services.blacklist import is_identity_blacklisted, blocked_message
+            if client_id and await is_identity_blacklisted(conn, client_id, "max", str(user_id)):
+                await max_api.send_message(
+                    user_id, await blocked_message(conn, client_id, platform="max"),
+                    token=bot_token, recipient_kind="user",
+                )
+                return
+        except Exception as e:  # noqa: BLE001 — fail-open
+            logger.warning(f"MAX blacklist check (ref) failed: {e}")
+
+        referrer_client_id = await resolve_plusson_referrer(conn, referral_code)
+        if referrer_client_id:
+            referrer_name = await conn.fetchval(
+                "SELECT name FROM clients WHERE id = $1", referrer_client_id
+            )
+            # Контакт нужен ДО закрепления кода: persist ищет его по platform_users.
+            if client_id:
+                try:
+                    await upsert_contact_with_identity(
+                        conn, client_id=client_id, platform_slug="max",
+                        platform_user_id=str(user_id), username=username or None,
+                        first_name=first_name or None, last_name=last_name or None,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"MAX ref upsert contact failed: {e}")
+            await persist_plusson_referrer_code(
+                conn, client_id=client_id, platform="max",
+                platform_user_id=str(user_id), referral_code=referral_code,
+            )
+
+    register_url = f"https://pluson.ru/register?pid={referral_code}"
+    hello = (first_name or "").strip()
+    if referrer_client_id:
+        text = (
+            f"Привет{', ' + hello if hello else ''}! 👋\n\n"
+            f"Вас пригласил(а) {referrer_name or 'партнёр'} в iViSiON: ПЛЮСОН — "
+            f"платформу для организаторов и экспертов.\n\n"
+            f"Создайте аккаунт и попробуйте всё сами 👇"
+        )
+    else:
+        text = (
+            f"Привет{', ' + hello if hello else ''}! 👋\n\n"
+            f"iViSiON: ПЛЮСОН — платформа для организаторов и экспертов: "
+            f"события, спикеры, рассылки и рефералы в одном месте.\n\n"
+            f"Создайте аккаунт и попробуйте всё сами 👇"
+        )
+    await max_api.send_message(
+        user_id, text, token=bot_token, recipient_kind="user",
+        buttons=tg_inline_to_max_keyboard([[
+            {"text": "📝 Зарегистрироваться", "url": register_url},
+        ]]),
+    )
 
 
 async def _start_max_lead_magnet_funnel(
