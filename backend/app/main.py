@@ -1,3 +1,5 @@
+import logging as _logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,6 +26,18 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await close_pool()
 
+
+# ⚠️ Логи приложения. Без этой настройки uvicorn пишет только строки доступа
+# ("POST /api/v1/... 200 OK"), а `logger.info/warning` из наших модулей НЕ
+# попадают в journalctl вовсе. Из-за этого сбои, погашенные `except`, были не
+# видны: в MAX-вебхуке ошибка уведомления организатору выглядела как «просто
+# ничего не пришло», без единой строки в логе. Диагностика шла вслепую.
+_logging.basicConfig(
+    level=_logging.INFO,
+    format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
+)
+# httpx на каждый запрос пишет INFO-строку — на рассылках это тысячи строк.
+_logging.getLogger("httpx").setLevel(_logging.WARNING)
 
 app = FastAPI(
     title="PLUSSON API",
