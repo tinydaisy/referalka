@@ -94,7 +94,9 @@ async def _send_broadcast(schedule_id: int):
             """
             SELECT bs.*, COALESCE(bs.client_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)) AS client_id,
                    COALESCE(bs.audience_include, 'all_event') as audience_include,
-                   COALESCE(bs.audience_exclude, 'none') as audience_exclude
+                   COALESCE(bs.audience_exclude, 'none') as audience_exclude,
+                   e.is_collab AS ev_is_collab,
+                   (e.status = 'ended' OR (e.end_at IS NOT NULL AND e.end_at < NOW())) AS ev_ended
             FROM broadcast_schedules bs
             LEFT JOIN events e ON e.id = bs.event_id
             WHERE bs.id = $1
@@ -102,6 +104,19 @@ async def _send_broadcast(schedule_id: int):
             schedule_id
         )
         if not schedule:
+            return
+
+        # 🚫 КОЛЛАБ: в ЗАВЕРШЁННОЕ событие рассылки соорганизаторам не уходят.
+        # «Завершено» = статус ended ИЛИ прошла дата окончания. Копия соорганизатора
+        # опознаётся по origin_client_id (её поставил другой организатор по чужой базе).
+        # Собственные рассылки владельца события этим НЕ режем — только фанаут-копии.
+        if schedule["ev_is_collab"] and schedule["origin_client_id"] is not None and schedule["ev_ended"]:
+            await conn.execute(
+                "UPDATE broadcast_schedules SET status='cancelled', "
+                "error_log='Событие завершено — рассылка соорганизаторам не отправлена', "
+                "finished_at=NOW() WHERE id=$1",
+                schedule_id,
+            )
             return
 
         # Защита от race-condition: подписка могла истечь между планированием и отправкой.
