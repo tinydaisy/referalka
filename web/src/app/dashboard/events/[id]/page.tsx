@@ -17,8 +17,16 @@ import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 import WebinarTab from '@/app/dashboard/conferences/[id]/tabs/WebinarTab'
+// Программа и отчёт по привлечению — те же компоненты, что у конференции.
+// Бэкенд у них не привязан к типу события: check_conference_access проверяет
+// владение через event_owners, а не module_slug.
+import ProgramTab from '@/app/dashboard/conferences/[id]/tabs/ProgramTab'
+// Отчёт у коллабы СВОЙ: конференционный ReportTab считает клики по соцсетям
+// спикеров и завязан на снимки-отчёты, а в коллабе нужен вклад организаторов
+// в привлечение людей + Win-Win коэффициент.
+import CollabReportTab from './tabs/CollabReportTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -63,19 +71,24 @@ export default function EventPage() {
 
   // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь).
   // Группировка вкладок в разделы: Настройки / Люди / Платежи / Рассылки.
-  type GroupKey = 'settings_grp' | 'people' | 'payments'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments' | 'webinar_grp'
   const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
       tabs: [
         { key: 'overview', label: 'Описание' },
+        // Программа — у КОЛЛАБ-события: организаторы выступают по очереди,
+        // им нужно расписание, как у конференции. У обычного мероприятия
+        // программы нет (там одно выступление), поэтому вкладка только в коллабе.
+        ...(event.is_collab ? [{ key: 'program' as TabKey, label: 'Программа' }] : []),
         { key: 'posters',  label: 'Афиши' },
         // Конструктор лендинга — по фиче event_landing (миграция 240).
         // У КОЛЛАБ-события скрыт: страница собирается для одного организатора.
         // Лендинг доступен и коллаб-событию: у коллабы такая же продающая
         // страница, как у обычного события — прятать её было незачем.
         ...(hasLanding ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
-        ...(hasWebinar ? [{ key: 'webinar' as TabKey, label: 'Вебинар' }] : []),
+        // ⚠️ Вебинар вынесен ОТДЕЛЬНЫМ разделом первого уровня (как в
+        // конференции) — внутри «Настроек» его не найти.
         { key: 'referral', label: 'Реф-программа' },
         { key: 'nurture',  label: 'Воронка догрева' },
         // «Приветствие» (welcome-email) — у КОЛЛАБ-события не показываем.
@@ -94,6 +107,14 @@ export default function EventPage() {
         { key: 'participants', label: 'Участники' },
       ],
     },
+    // «Отслеживания» — отчёт по привлечению. У КОЛЛАБ-события это главный
+    // раздел: видно, кто из организаторов сколько людей привёл и каков его
+    // Win-Win коэффициент. У обычного мероприятия отчёт не показываем —
+    // привлекает один человек, сравнивать не с кем.
+    ...(event.is_collab ? [{
+      key: 'tracking' as GroupKey, label: 'Отслеживания',
+      tabs: [{ key: 'report' as TabKey, label: 'Отчёт по привлечению' }],
+    }] : []),
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
     // ⚠️ У КОЛЛАБ-события платежей нет — раздел скрыт.
     ...((isVip && !event.is_collab) ? [{
@@ -102,6 +123,13 @@ export default function EventPage() {
         { key: 'tariffs' as TabKey, label: 'Тарифы' },
         { key: 'tariff_orders' as TabKey, label: 'Заказы' },
       ],
+    }] : []),
+    // «Вебинары» — отдельный раздел первого уровня, как в конференции.
+    // Событие без программы тоже поддержано: бэкенд отдаёт виртуальный «день 1»
+    // (webinar_room.py), поэтому комната создаётся и без conf_days.
+    ...(hasWebinar ? [{
+      key: 'webinar_grp' as GroupKey, label: 'Вебинары',
+      tabs: [{ key: 'webinar' as TabKey, label: 'Вебинарные комнаты' }],
     }] : []),
   ]
 
@@ -181,6 +209,8 @@ export default function EventPage() {
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
       {activeTab === 'landing' && hasLanding && <LandingTab eventId={eventId} event={event} />}
       {activeTab === 'webinar' && hasWebinar && <WebinarTab eventId={eventId} event={event} />}
+      {activeTab === 'program' && event.is_collab && <ProgramTab eventId={eventId} />}
+      {activeTab === 'report'  && event.is_collab && <CollabReportTab eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}

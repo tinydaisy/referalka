@@ -809,6 +809,8 @@ export const api = {
       request(`/api/v1/collab/events/${eventId}/organizers/${clientId}`),
     updateOrganizerCard: (eventId: number, clientId: number, data: any) =>
       request(`/api/v1/collab/events/${eventId}/organizers/${clientId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    attractionReport: (eventId: number) =>
+      request(`/api/v1/collab/events/${eventId}/attraction-report`),
     collabs: () => request('/api/v1/collab/collabs'),
     leaveCollab: (eventId: number) =>
       request(`/api/v1/collab/events/${eventId}/leave`, { method: 'POST' }),

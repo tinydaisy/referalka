@@ -17,6 +17,9 @@ from typing import Optional
 from app.auth import get_current_client
 from app.database import get_db
 from app.api.collab_hub import require_collab_hub
+# Win-Win коэффициент — ОДНА функция на отчёт в событии и карточку в Хабе,
+# иначе цифры в двух местах разойдутся.
+from app.services.collab_history import win_win_coefficient
 import asyncpg
 
 router = APIRouter(prefix="/collab", tags=["Коллаборации"],
@@ -570,6 +573,75 @@ async def my_collabs(client=Depends(get_current_client), db: asyncpg.Connection 
             except Exception: d["organizers"] = []
         out.append(d)
     return {"collabs": out}
+
+
+@router.get("/events/{event_id}/attraction-report")
+async def collab_attraction_report(event_id: int, client=Depends(get_current_client),
+                                   db: asyncpg.Connection = Depends(get_db)):
+    """Отчёт по привлечению в коллаб-событии: кто из организаторов сколько привёл.
+
+    ⚠️ Видит ЛЮБОЙ организатор события, и видит ВСЕХ — в этом смысл Win-Win:
+    обмен аудиториями честен, только когда вклад каждого на виду.
+
+    Считается ВЖИВУЮ, по ходу события. Таблица `hub_collab_history` наполняется
+    только в момент завершения коллабы (`record_collab_history`), поэтому по ней
+    отчёт строить нельзя — до финала она пуста.
+
+    «Привёл» — тот же критерий, что при записи истории: участник пришёл по
+    реф-коду контакта ЭТОГО клиента и дошёл до эфира (`link_clicked_at`).
+    Отдельно считаем зарегистрировавшихся — привести и довести до регистрации
+    это разные результаты.
+    """
+    me = int(client["sub"])
+    iam = await db.fetchval(
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'",
+        event_id, me)
+    if not iam:
+        raise HTTPException(403, "Вы не организатор этого события")
+
+    rows = await db.fetch(
+        """SELECT o.client_id,
+                  COALESCE(c.brand_name, c.name) AS name,
+                  (SELECT count(DISTINCT ep.id)
+                     FROM event_participants ep
+                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                    WHERE ep.event_id = $1
+                      AND ep.link_clicked_at IS NOT NULL
+                      AND rc.client_id = o.client_id) AS brought,
+                  (SELECT count(DISTINCT ep.id)
+                     FROM event_participants ep
+                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                    WHERE ep.event_id = $1
+                      AND ep.is_registered = TRUE
+                      AND rc.client_id = o.client_id) AS registered
+             FROM event_owners o
+             LEFT JOIN clients c ON c.id = o.client_id
+            WHERE o.event_id = $1 AND o.status = 'accepted'
+            ORDER BY 3 DESC, name""",
+        event_id)
+
+    participants_total = await db.fetchval(
+        "SELECT count(*) FROM event_participants WHERE event_id=$1", event_id) or 0
+
+    brought_list = [int(r["brought"] or 0) for r in rows]
+    organizers_count = len(rows)
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["coefficient"] = win_win_coefficient(
+            int(r["brought"] or 0), brought_list, organizers_count)
+        d["is_me"] = (r["client_id"] == me)
+        out.append(d)
+
+    return {
+        "organizers": out,
+        "participants_total": participants_total,
+        "brought_total": sum(brought_list),
+        # Сколько участников пришло без реф-метки (зашли напрямую: из своего
+        # бота, из списка событий, по ссылке без pid). Их никто себе не
+        # засчитывает — показываем отдельно, чтобы цифры сходились.
+        "without_referrer": participants_total - sum(brought_list),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
