@@ -1927,6 +1927,7 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
         row = await db.fetchrow(
             """SELECT c.notifications_telegram_chat_id,
                       c.notifications_max_chat_id, c.notifications_vk_peer_id,
+                      COALESCE(NULLIF(c.brand_name,''), c.name) AS brand,
                       pu.contact_id, ct.name AS contact_name, ct.utm_source
                  FROM clients c
             LEFT JOIN platform_users pu
@@ -1969,7 +1970,7 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
             "#user_message 💬",
             "",
             f"<b>Когда:</b> {when_str}",
-            f"<b>Платформа:</b> ВКонтакте",
+            f"<b>Платформа:</b> ВКонтакте · {_html.escape(row['brand'] or '—')}",
             "",
             "<b>Кто написал</b>",
             f"<b>Никнейм:</b> {user_nick}",

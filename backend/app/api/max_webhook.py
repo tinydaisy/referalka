@@ -385,6 +385,7 @@ async def _forward_max_user_message_to_organizer(
         row = await conn.fetchrow(
             """SELECT c.notifications_telegram_chat_id,
                       c.notifications_max_chat_id, c.notifications_vk_peer_id,
+                      COALESCE(NULLIF(c.brand_name,''), c.name) AS brand,
                       pu.contact_id, ct.name AS contact_name, ct.utm_source
                  FROM clients c
             LEFT JOIN platform_users pu
@@ -418,7 +419,8 @@ async def _forward_max_user_message_to_organizer(
         "#user_message 💬",
         "",
         f"<b>Когда:</b> {when_str}",
-        "<b>Платформа:</b> MAX",
+        # Платформа + бренд кабинета: сразу видно, В КАКОЙ кабинет пришло сообщение.
+        f"<b>Платформа:</b> MAX · {_html.escape(row['brand'] or '—')}",
         "",
         "<b>Кто написал</b>",
         f"<b>Никнейм:</b> {user_nick}",
