@@ -70,7 +70,8 @@ async def _load_tariff(db, tariff_id: int):
                   e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
                   e.skip_contact_form,
                   cl.id AS client_id, cl.name AS client_name,
-                  cl.pay_provider, cl.pay_leadpay_login, cl.pay_leadpay_token
+                  cl.pay_provider, cl.pay_leadpay_login, cl.pay_leadpay_token,
+                  cl.pay_prodamus_url, cl.pay_prodamus_secret
              FROM event_tariffs t
              JOIN events e ON e.id = t.event_id
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status = 'accepted'
@@ -271,6 +272,8 @@ async def create_order(
         "pay_provider": t["pay_provider"],
         "pay_leadpay_login": t["pay_leadpay_login"],
         "pay_leadpay_token": t["pay_leadpay_token"],
+        "pay_prodamus_url": t["pay_prodamus_url"],
+        "pay_prodamus_secret": t["pay_prodamus_secret"],
     }
 
     # Платёжная система не подключена → ведём на внешнюю ссылку тарифа.
@@ -286,16 +289,21 @@ async def create_order(
 
     base = str(request.base_url).rstrip("/")
     try:
-        pay_url = await client_payments.create_payment_link(
+        # ⚠️ Адрес вебхука сервис подставляет сам — он у каждой системы свой.
+        pay_url, provider = await client_payments.create_payment_link(
             client=client,
             order_id=order_id,
             product_id=t["pay_product_id"],
-            notification_url=f"{base}/api/v1/integrations/client-pay/leadpay",
+            base_url=base,
             # ⚠️ Номер ЗАКАЗА в самом ПУТИ, а не параметром: параметр
             # терялся по дороге. По заказу видно и событие, и конкретного
             # человека — имя, сумму, статус оплаты.
             redirect_url_ok=f"{base}/thanks/order/{order_id}",
             redirect_url_error=f"{base}/thanks/order/{order_id}?fail=1",
+            # Продамусу товар заранее заводить не нужно — название и цену
+            # он берёт прямо из ссылки.
+            title=t["title"],
+            price=price,
             email=email,
             phone=phone,
             fio=name or None,
@@ -305,9 +313,9 @@ async def create_order(
         raise HTTPException(status_code=502, detail=str(e))
 
     await db.execute(
-        "UPDATE event_participant_tariffs SET payment_url = $1, payment_provider = 'leadpay' "
-        "WHERE id = $2",
-        pay_url, order_id,
+        "UPDATE event_participant_tariffs SET payment_url = $1, payment_provider = $2 "
+        "WHERE id = $3",
+        pay_url, provider, order_id,
     )
 
     # Письмо со ссылкой на оплату: человек часто уходит подумать и теряет
@@ -569,37 +577,44 @@ async def get_order(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Вебхук оплаты
+# Вебхуки оплаты
+#
+# ⚠️ У каждой платёжной системы свой роут: форматы оповещения и способы
+# подписи разные. А вот всё, что происходит ПОСЛЕ подтверждения оплаты,
+# одинаково — это `_mark_order_paid`. При добавлении третьей системы пишется
+# только разбор её оповещения, дальше вызывается общая функция.
 # ─────────────────────────────────────────────────────────────────────────────
-@webhook_router.post("/leadpay", summary="Оплата тарифа события (LeadPay)")
-async def leadpay_order_webhook(
-    request: Request,
-    db: asyncpg.Connection = Depends(get_db),
-):
-    """LeadPay возвращает наш `order_id` в виде `evt-<id>` — по нему находим
-    заказ. Ключи для проверки подписи берём у ВЛАДЕЛЬЦА события, а не из
-    переменных окружения: у каждого клиента своя платёжная система."""
-    form = await request.form()
-    data = {k: str(v) for k, v in form.items()}
+async def _parse_order_data(request: Request) -> dict:
+    """Тело вебхука — форма или JSON, у разных систем по-разному."""
+    try:
+        form = await request.form()
+        data = {k: str(v) for k, v in form.items()}
+    except Exception:
+        data = {}
     if not data:
         try:
             data = await request.json()
         except Exception:
             data = {}
+    return data
 
-    raw_id = str(data.get("order_id") or "").strip()
-    if not raw_id.startswith("evt-"):
-        # Не наш заказ (подписка платформы обрабатывается другим роутером).
-        return {"ok": True, "skipped": True}
 
+def _our_order_id(raw: str) -> Optional[int]:
+    """Номер нашего заказа из `evt-<id>`. Чужой номер → None (это оплата
+    подписки на платформу, её обрабатывает другой роутер)."""
+    raw = str(raw or "").strip()
+    if not raw.startswith("evt-"):
+        return None
     try:
-        order_id = int(raw_id[4:])
+        return int(raw[4:])
     except ValueError:
-        raise HTTPException(status_code=400, detail="Неверный номер заказа")
+        return None
 
-    order = await db.fetchrow(
+
+async def _load_order_for_webhook(db, order_id: int):
+    return await db.fetchrow(
         """SELECT o.id, o.status, o.event_id, o.contact_id, o.participant_id,
-                  cl.pay_leadpay_token
+                  cl.pay_leadpay_token, cl.pay_prodamus_secret
              FROM event_participant_tariffs o
              JOIN events e ON e.id = o.event_id
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status = 'accepted'
@@ -608,27 +623,24 @@ async def leadpay_order_webhook(
             ORDER BY eo.id LIMIT 1""",
         order_id,
     )
-    if not order:
-        raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    if not client_payments.verify_leadpay_webhook(data, order["pay_leadpay_token"] or ""):
-        logger.error("Вебхук заказа %s: подпись не сошлась", order_id)
-        raise HTTPException(status_code=403, detail="Подпись неверна")
 
-    if str(data.get("status") or "").lower() != "success":
-        logger.info("Заказ %s: оплата не прошла (%s)", order_id, data.get("status"))
-        return {"ok": True, "paid": False}
+async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) -> dict:
+    """Отмечает заказ оплаченным и регистрирует участника.
 
-    # Идемпотентность: повторный вебхук не должен ничего ломать.
+    Идемпотентно: повторный вебхук ничего не ломает — платёжные системы
+    присылают оповещение по нескольку раз, это норма.
+    """
+    order_id = order["id"]
     if order["status"] == "paid":
         return {"ok": True, "paid": True, "already": True}
 
     await db.execute(
         """UPDATE event_participant_tariffs
-              SET status = 'paid', paid_at = NOW(), source = 'leadpay',
-                  external_payment_id = $2
+              SET status = 'paid', paid_at = NOW(), source = $2,
+                  external_payment_id = $3
             WHERE id = $1""",
-        order_id, str(data.get("payment_id") or data.get("id") or "") or None,
+        order_id, provider, payment_id or None,
     )
 
     # Оплата = регистрация на событие.
@@ -652,5 +664,79 @@ async def leadpay_order_webhook(
     except Exception as e:
         logger.warning("Письмо об оплате заказа %s не отправлено: %s", order_id, e)
 
-    logger.info("Заказ %s оплачен", order_id)
+    logger.info("Заказ %s оплачен (%s)", order_id, provider)
     return {"ok": True, "paid": True}
+
+
+@webhook_router.post("/leadpay", summary="Оплата тарифа события (LeadPay)")
+async def leadpay_order_webhook(
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """LeadPay возвращает наш `order_id` в виде `evt-<id>` — по нему находим
+    заказ. Ключи для проверки подписи берём у ВЛАДЕЛЬЦА события, а не из
+    переменных окружения: у каждого клиента своя платёжная система."""
+    data = await _parse_order_data(request)
+
+    order_id = _our_order_id(data.get("order_id"))
+    if order_id is None:
+        return {"ok": True, "skipped": True}
+
+    order = await _load_order_for_webhook(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    if not client_payments.verify_leadpay_webhook(data, order["pay_leadpay_token"] or ""):
+        logger.error("Вебхук заказа %s: подпись не сошлась", order_id)
+        raise HTTPException(status_code=403, detail="Подпись неверна")
+
+    if str(data.get("status") or "").lower() != "success":
+        logger.info("Заказ %s: оплата не прошла (%s)", order_id, data.get("status"))
+        return {"ok": True, "paid": False}
+
+    return await _mark_order_paid(
+        db, order, "leadpay",
+        str(data.get("payment_id") or data.get("id") or "") or None,
+    )
+
+
+@webhook_router.post("/prodamus", summary="Оплата тарифа события (Продамус)")
+async def prodamus_order_webhook(
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Продамус шлёт форму с полями `order_id`, `payment_status`, `payment_id`,
+    подпись — в заголовке `Sign`.
+
+    ⚠️ Ключ для проверки берём у ВЛАДЕЛЬЦА события, а не из переменных
+    окружения: там лежит ключ самого ПЛЮСОНа, которым оплачивают подписку на
+    платформу. Перепутать их — значит принять чужую оплату за свою.
+    """
+    data = await _parse_order_data(request)
+    signature = (request.headers.get("Sign") or request.headers.get("sign")
+                 or request.headers.get("Signature"))
+
+    order_id = _our_order_id(data.get("order_id"))
+    if order_id is None:
+        return {"ok": True, "skipped": True}
+
+    order = await _load_order_for_webhook(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    if not client_payments.verify_prodamus_webhook(
+            data, signature, order["pay_prodamus_secret"] or ""):
+        logger.error("Вебхук заказа %s (Продамус): подпись не сошлась", order_id)
+        raise HTTPException(status_code=403, detail="Подпись неверна")
+
+    # ⚠️ Продамус шлёт оповещение и о незавершённой оплате — оплаченной
+    # считается только `success`.
+    status = str(data.get("payment_status") or "").strip().lower()
+    if status != "success":
+        logger.info("Заказ %s: оплата не прошла (%s)", order_id, status or "нет статуса")
+        return {"ok": True, "paid": False}
+
+    return await _mark_order_paid(
+        db, order, "prodamus",
+        str(data.get("payment_id") or data.get("order_num") or "") or None,
+    )

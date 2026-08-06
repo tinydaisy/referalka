@@ -77,6 +77,7 @@ export default function TariffsTab({
   // Подключена ли своя платёжная система: от этого зависит, что спрашивать
   // у тарифа — код товара (мы сами создаём заказ) или внешнюю ссылку.
   const [payReady, setPayReady] = useState(false)
+  const [needsProductId, setNeedsProductId] = useState(false)
   // подвкладка: настройка тарифов / сводная таблица заказов (запоминается в URL ?sub=).
   // Если subTab передан сверху (родитель управляет через группировку вкладок) —
   // используем его и прячем свою панель подвкладок (hideSubNav).
@@ -97,7 +98,12 @@ export default function TariffsTab({
   // Молча: раздел может быть недоступен на тарифе — тогда остаётся ссылка.
   useEffect(() => {
     api.paymentSettings.get()
-      .then(r => setPayReady(!!r?.is_configured))
+      .then(r => {
+        setPayReady(!!r?.is_configured)
+        // Код товара нужен только LeadPay. Продамус берёт название и цену
+        // прямо из ссылки — заводить товар заранее не надо.
+        setNeedsProductId(!!r?.needs_product_id)
+      })
       .catch(() => {})
   }, [])
 
@@ -342,10 +348,12 @@ export default function TariffsTab({
                         onChange={e => setForm({ ...form, excluded_description: e.target.value })}
                         rows={3} className="input-tar resize-none" />
             </Field>
-            {/* Развилка: платёжная система подключена → код товара, мы сами
-                создаём заказ и ловим оплату вебхуком. Не подключена →
-                внешняя ссылка, оплаты отмечаются вручную. */}
-            {payReady ? (
+            {/* Развилка: платёжная система подключена → мы сами создаём
+                заказ и ловим оплату вебхуком. Не подключена → внешняя
+                ссылка, оплаты отмечаются вручную.
+                ⚠️ Код товара просим только там, где он нужен (LeadPay);
+                Продамусу хватает названия и цены выше. */}
+            {payReady ? (needsProductId ? (
               <Field label="Код товара в платёжной системе"
                      hint="Номер карточки товара — например 63959. Заказ и оплата отметятся сами">
                 <input value={form.pay_product_id}
@@ -353,6 +361,11 @@ export default function TariffsTab({
                        className="input-tar" placeholder="63959" inputMode="numeric" />
               </Field>
             ) : (
+              <p className="text-xs text-gray-500 -mt-1">
+                Оплата подключена — ссылку создадим сами по названию и сумме
+                тарифа. Заводить товар в платёжной системе не нужно.
+              </p>
+            )) : (
               <Field label="Ссылка на оплату"
                      hint="Оплаты придётся отмечать вручную. Подключите платёжную систему в Настройках, чтобы это происходило само">
                 <input value={form.pay_url} onChange={e => setForm({ ...form, pay_url: e.target.value })}

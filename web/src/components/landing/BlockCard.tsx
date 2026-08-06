@@ -990,7 +990,7 @@ function ListEditor({
               onChange={e => {
                 const next = [...list]; next[i] = e.target.value; onChange(next)
               }}
-              className="input"
+              className="input min-w-0 flex-1"
             />
             <button
               onClick={() => onChange(list.filter((_, j) => j !== i))}
@@ -1146,7 +1146,7 @@ function AudienceEditor({
                 type="text" value={c.title || ''}
                 onChange={e => upd(i, { title: e.target.value })}
                 placeholder="Например: Предпринимателям в операционке"
-                className="input font-semibold"
+                className="input min-w-0 flex-1 font-semibold"
               />
               <button
                 onClick={() => onChange(items.filter((_, j) => j !== i))}
@@ -1207,7 +1207,7 @@ function CardsEditor({
                 type="text" value={c.title || ''}
                 onChange={e => upd(i, { title: e.target.value })}
                 placeholder="Название"
-                className="input font-semibold"
+                className="input min-w-0 flex-1 font-semibold"
               />
               <button
                 onClick={() => onChange(items.filter((_, j) => j !== i))}
@@ -1254,26 +1254,34 @@ function NumbersEditor({
         Цифры (от 2 до 4)
       </label>
       <div className="space-y-2">
+        {/* ⚠️ Полю подписи нужны `flex-1 min-w-0`: у `.input` есть width:100%,
+            но во flex-строке ширина считается от содержимого, и без этих
+            классов поле схлопывалось в узкий столбик — текст в нём был, но
+            его не было видно. На узком экране пара переносится в две строки:
+            рядом два поля просто не помещаются. */}
         {items.map((n, i) => (
-          <div key={i} className="flex gap-2">
+          <div key={i} className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
             <input
               type="text" value={n.value || ''}
               onChange={e => upd(i, { value: e.target.value })}
               placeholder="500+"
-              className="input w-32 shrink-0 font-semibold"
+              className="input w-full font-semibold sm:w-32 sm:shrink-0"
             />
-            <input
-              type="text" value={n.label || ''}
-              onChange={e => upd(i, { label: e.target.value })}
-              placeholder="участников"
-              className="input"
-            />
-            <button
-              onClick={() => onChange(items.filter((_, j) => j !== i))}
-              className="shrink-0 rounded px-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
-            >
-              ✕
-            </button>
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              <input
+                type="text" value={n.label || ''}
+                onChange={e => upd(i, { label: e.target.value })}
+                placeholder="участников"
+                className="input min-w-0 flex-1"
+              />
+              <button
+                onClick={() => onChange(items.filter((_, j) => j !== i))}
+                className="shrink-0 rounded px-2 py-2 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                title="Удалить цифру"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         ))}
       </div>

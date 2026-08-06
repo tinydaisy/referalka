@@ -4,11 +4,11 @@
  * Вкладка «Платёжные системы» (миграция 257).
  *
  * Клиент подключает СВОЙ кабинет платёжной системы — деньги за тарифы его
- * событий идут ему. Нужно всего два значения из кабинета LeadPay:
- * «Настройки → Для внешних систем» → адрес лендинга и секретный ключ.
+ * событий идут ему. Поддержаны LeadPay и Продамус (миграция 269), в обоих
+ * случаях нужно два значения из кабинета системы.
  *
- * Вебхук настраивать не нужно: его адрес мы передаём сами в каждом запросе
- * за ссылкой оплаты.
+ * Вебхук настраивать не нужно ни в той, ни в другой: его адрес мы передаём
+ * сами вместе с заказом.
  */
 import { useEffect, useState } from 'react'
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
@@ -22,6 +22,9 @@ export default function PaymentSettingsTab() {
   const [data, setData] = useState<any>(null)
   const [login, setLogin] = useState('')
   const [token, setToken] = useState('')
+  // Продамус: адрес формы оплаты и секретный ключ магазина.
+  const [pdUrl, setPdUrl] = useState('')
+  const [pdSecret, setPdSecret] = useState('')
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
   // Куда слать уведомления об оплатах: у каждой площадки свой канал.
   const [me, setMe] = useState<any>(null)
@@ -38,6 +41,7 @@ export default function PaymentSettingsTab() {
       const res = await api.paymentSettings.get()
       setData(res)
       setLogin(res.pay_leadpay_login || '')
+      setPdUrl(res.pay_prodamus_url || '')
     } catch (e: any) {
       if (String(e?.message || '').includes('недоступен')) setDenied(true)
     } finally { setLoading(false) }
@@ -71,8 +75,9 @@ export default function PaymentSettingsTab() {
     try {
       const res = await api.paymentSettings.update(patch)
       setData(res)
-      // Ключ обратно не приходит — очищаем поле, чтобы не смущал плейсхолдер.
+      // Ключи обратно не приходят — очищаем поля, чтобы не смущал плейсхолдер.
       if (patch.pay_leadpay_token !== undefined) setToken('')
+      if (patch.pay_prodamus_secret !== undefined) setPdSecret('')
     } catch (e: any) {
       alert(e?.message || 'Не удалось сохранить')
     } finally { setSaving(false) }
@@ -83,8 +88,11 @@ export default function PaymentSettingsTab() {
     setResult(null)
     try {
       const res = await api.paymentSettings.check({
+        pay_provider: data?.pay_provider || undefined,
         pay_leadpay_login: login || undefined,
         pay_leadpay_token: token || undefined,
+        pay_prodamus_url: pdUrl || undefined,
+        pay_prodamus_secret: pdSecret || undefined,
       })
       setResult(res)
     } catch (e: any) {
@@ -108,7 +116,7 @@ export default function PaymentSettingsTab() {
     )
   }
 
-  const on = data?.pay_provider === 'leadpay'
+  const provider = data?.pay_provider || ''
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -134,8 +142,9 @@ export default function PaymentSettingsTab() {
             <>
               <div className="font-medium text-green-900">Подключено</div>
               <div className="mt-0.5 text-green-800">
-                В тарифах указывайте код товара — заказы и оплаты будут
-                отмечаться сами.
+                {data?.needs_product_id
+                  ? 'В тарифах указывайте код товара — заказы и оплаты будут отмечаться сами.'
+                  : 'Заказы и оплаты будут отмечаться сами — от вас нужны только название и сумма тарифа.'}
               </div>
             </>
           ) : (
@@ -162,10 +171,11 @@ export default function PaymentSettingsTab() {
         >
           <option value="">Не подключена</option>
           <option value="leadpay">LeadPay</option>
+          <option value="prodamus">Продамус</option>
         </select>
       </div>
 
-      {on && (
+      {provider === 'leadpay' && (
         <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-sm text-gray-600">
             Оба значения — в кабинете LeadPay:{' '}
@@ -217,6 +227,97 @@ export default function PaymentSettingsTab() {
               onClick={() => save({
                 pay_leadpay_login: login.trim(),
                 ...(token.trim() ? { pay_leadpay_token: token.trim() } : {}),
+              })}
+              disabled={saving || checking}
+              className="btn-primary disabled:opacity-60"
+            >
+              Сохранить
+            </button>
+            <button
+              onClick={check} disabled={checking || saving}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              {checking && <Loader2 className="h-4 w-4 animate-spin" />}
+              Проверить связь
+            </button>
+            {saving && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Сохраняем…
+              </span>
+            )}
+          </div>
+
+          {result && (
+            <div className={`rounded-lg p-3 text-sm ${
+              result.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'
+            }`}>
+              {result.message}
+            </div>
+          )}
+        </div>
+      )}
+
+      {provider === 'prodamus' && (
+        <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-sm text-gray-600">
+            Оба значения — в личном кабинете Продамуса:{' '}
+            <a href="https://prodamus.ru" target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1 font-medium text-brand hover:underline">
+              Настройки → Интеграции <ExternalLink className="h-3 w-3" />
+            </a>
+          </p>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Адрес формы оплаты
+            </label>
+            {/* ⚠️ Автозаполнение выключено: Chrome принимал пару полей за
+                форму входа и подставлял сюда имя менеджера паролей, а в ключ —
+                сохранённый пароль. */}
+            <input
+              type="text" value={pdUrl}
+              onChange={e => setPdUrl(e.target.value)}
+              autoComplete="off" name="pd-url-x" data-lpignore="true"
+              data-1p-ignore="true" data-form-type="other"
+              placeholder="https://вашмагазин.payform.ru/"
+              className="input font-mono text-[13px]"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Тот самый адрес, по которому открывается ваша платёжная форма.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Секретный ключ
+            </label>
+            <input
+              type="text" value={pdSecret}
+              onChange={e => setPdSecret(e.target.value)}
+              autoComplete="off" name="pd-secret-x" data-lpignore="true"
+              data-1p-ignore="true" data-form-type="other"
+              spellCheck={false}
+              placeholder={data?.has_prodamus_secret
+                ? `сохранён, оканчивается на ${data.prodamus_secret_tail}`
+                : 'вставьте ключ'}
+              className="input font-mono text-[13px]"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Храним у себя и наружу не показываем. Вебхук в Продамусе
+              настраивать не нужно — его адрес мы передаём сами с каждым заказом.
+            </p>
+          </div>
+
+          <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+            Товары в Продамусе заводить не нужно: название и сумму мы берём
+            из вашего тарифа и передаём прямо в ссылку на оплату.
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => save({
+                pay_prodamus_url: pdUrl.trim(),
+                ...(pdSecret.trim() ? { pay_prodamus_secret: pdSecret.trim() } : {}),
               })}
               disabled={saving || checking}
               className="btn-primary disabled:opacity-60"

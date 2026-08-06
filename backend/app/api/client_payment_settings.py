@@ -1,14 +1,15 @@
 """
 Настройки платёжной системы клиента (миграция 257).
 
-Клиент подключает свой кабинет LeadPay — двумя значениями из раздела
-«Настройки → Для внешних систем»: адрес лендинга и секретный ключ.
-Вебхук настраивать не нужно: его адрес мы передаём сами в каждом запросе
-за ссылкой оплаты.
+Клиент подключает свой кабинет платёжной системы — LeadPay или Продамус
+(миграция 269). Вебхук настраивать не нужно ни в той, ни в другой: его адрес
+мы передаём сами вместе с заказом.
 
-Подключено → в тарифе указывается код товара, ссылку создаём сами, оплата
-приходит вебхуком. Не подключено → в тарифе внешняя ссылка, оплаты
-отмечаются вручную.
+Подключено → ссылку на оплату создаём сами, оплата приходит вебхуком. Не
+подключено → в тарифе внешняя ссылка, оплаты отмечаются вручную.
+
+⚠️ Код товара в тарифе нужен только LeadPay. У Продамуса название и цена
+уходят прямо в ссылке — заводить товар заранее не надо (`needs_product_id`).
 
 Гейт — фича `payments` (никогда по tariff_slug). Ассистенту запись закрыта
 общим middleware.
@@ -38,11 +39,17 @@ class SettingsIn(BaseModel):
     pay_provider: Optional[str] = None
     pay_leadpay_login: Optional[str] = None
     pay_leadpay_token: Optional[str] = None
+    pay_prodamus_url: Optional[str] = None
+    pay_prodamus_secret: Optional[str] = None
 
 
 class CheckIn(BaseModel):
+    # Какую систему проверяем. Не прислали — берём выбранную у клиента.
+    pay_provider: Optional[str] = None
     pay_leadpay_login: Optional[str] = None
     pay_leadpay_token: Optional[str] = None
+    pay_prodamus_url: Optional[str] = None
+    pay_prodamus_secret: Optional[str] = None
 
 
 @router.get("", summary="Настройки приёма оплаты")
@@ -53,21 +60,30 @@ async def get_settings(
     client_id = int(client["sub"])
     await _assert_feature(db, client_id)
     row = await db.fetchrow(
-        "SELECT pay_provider, pay_leadpay_login, pay_leadpay_token FROM clients WHERE id = $1",
+        """SELECT pay_provider, pay_leadpay_login, pay_leadpay_token,
+                  pay_prodamus_url, pay_prodamus_secret
+             FROM clients WHERE id = $1""",
         client_id,
     )
     d = dict(row or {})
-    # ⚠️ Секретный ключ целиком наружу не отдаём — только признак, что он задан,
-    # и хвост для узнавания. Иначе он утечёт в любой лог фронта.
+    # ⚠️ Секретные ключи целиком наружу не отдаём — только признак, что они
+    # заданы, и хвост для узнавания. Иначе утекут в любой лог фронта.
     token = (d.pop("pay_leadpay_token", None) or "").strip()
+    secret = (d.pop("pay_prodamus_secret", None) or "").strip()
     d["has_token"] = bool(token)
     d["token_tail"] = token[-4:] if len(token) >= 4 else ""
+    d["has_prodamus_secret"] = bool(secret)
+    d["prodamus_secret_tail"] = secret[-4:] if len(secret) >= 4 else ""
     d["is_configured"] = client_payments.is_configured({
         "pay_provider": d.get("pay_provider"),
         "pay_leadpay_login": d.get("pay_leadpay_login"),
         "pay_leadpay_token": token,
+        "pay_prodamus_url": d.get("pay_prodamus_url"),
+        "pay_prodamus_secret": secret,
     })
     d["providers"] = client_payments.PROVIDERS
+    # Нужен ли в тарифе код товара — у Продамуса не нужен.
+    d["needs_product_id"] = (d.get("pay_provider") or "") in client_payments.NEEDS_PRODUCT_ID
     return d
 
 
@@ -82,15 +98,18 @@ async def patch_settings(
 
     fs = data.model_fields_set
     sets, vals = [], []
-    for field in ("pay_provider", "pay_leadpay_login", "pay_leadpay_token"):
+    for field in ("pay_provider", "pay_leadpay_login", "pay_leadpay_token",
+                  "pay_prodamus_url", "pay_prodamus_secret"):
         if field not in fs:
             continue
         val = getattr(data, field)
         if isinstance(val, str):
             val = val.strip() or None
         # Пустая строка в системе = «отключить приём оплаты».
-        if field == "pay_provider" and val not in (None, "leadpay"):
-            val = None
+        if field == "pay_provider":
+            val = (val or "").lower() or None
+            if val not in client_payments.PROVIDERS:
+                val = None
         vals.append(val)
         sets.append(f"{field} = ${len(vals)}")
 
@@ -110,20 +129,24 @@ async def check_settings(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Проверяем ключи, не создавая настоящей оплаты. Если поля пришли
-    пустыми — берём сохранённые (клиент жмёт «Проверить» после сохранения)."""
+    """Проверяем настройки, не создавая настоящей оплаты. Незаполненные поля
+    берём из сохранённых — клиент обычно жмёт «Проверить» после сохранения."""
     client_id = int(client["sub"])
     await _assert_feature(db, client_id)
 
-    login = (data.pay_leadpay_login or "").strip()
-    token = (data.pay_leadpay_token or "").strip()
-    if not login or not token:
-        row = await db.fetchrow(
-            "SELECT pay_leadpay_login, pay_leadpay_token FROM clients WHERE id = $1",
-            client_id,
-        )
-        login = login or (row["pay_leadpay_login"] or "")
-        token = token or (row["pay_leadpay_token"] or "")
+    row = await db.fetchrow(
+        """SELECT pay_provider, pay_leadpay_login, pay_leadpay_token,
+                  pay_prodamus_url, pay_prodamus_secret
+             FROM clients WHERE id = $1""",
+        client_id,
+    )
+    saved = dict(row or {})
+    provider = (data.pay_provider or saved.get("pay_provider") or "").strip().lower()
 
-    ok, message = await client_payments.check_credentials(login, token)
+    creds = {}
+    for field in ("pay_leadpay_login", "pay_leadpay_token",
+                  "pay_prodamus_url", "pay_prodamus_secret"):
+        creds[field] = (getattr(data, field) or "").strip() or (saved.get(field) or "")
+
+    ok, message = await client_payments.check_credentials(provider, creds)
     return {"ok": ok, "message": message}
