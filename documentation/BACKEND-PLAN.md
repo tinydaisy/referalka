@@ -891,3 +891,45 @@ REDIS_URL=
 SERVICE_KEY=          ← секрет для запросов от бота к API
 WEBHOOK_SECRET=       ← секрет для входящих webhook от лендингов
 ```
+
+---
+
+## Свои домены клиента (миграция 270, ПРОД 2026-08-07)
+
+### Таблица `client_domains`
+
+| Колонка | Что |
+|---|---|
+| `client_id` | владелец |
+| `kind` | `landing` — публичные страницы; `mail` — адрес отправителя писем |
+| `domain` | нормализованный домен, `UNIQUE(domain, kind)` |
+| `status` | `pending` → `dns_ok` → `active`, либо `error` |
+| `is_primary` | один основной домен каждого вида на клиента (частичный UNIQUE) |
+| `dns_ok` / `dns_checked_at` / `dns_details` | результат последней проверки DNS |
+| `cert_issued_at` / `cert_expires_at` / `cert_name` | сертификат (только `landing`) |
+| `dkim_selector` / `dkim_public_key` | DKIM (только `mail`); приватный ключ — на сервере |
+| `mail_from_local` / `mail_from_name` | адрес и имя отправителя |
+| `last_error` / `last_error_at` | диагностика |
+
+Доступ — фича `custom_domain`.
+
+### Эндпоинты `/api/v1/clients/me/domains`
+
+| Метод | Что делает |
+|---|---|
+| `GET /` | список доменов + что прописать в DNS |
+| `POST /` | добавить домен (для `mail` сразу генерит DKIM-ключ) |
+| `POST /{id}/check-dns` | проверка CNAME (landing) или SPF/DKIM/DMARC (mail) |
+| `POST /{id}/issue-cert` | выпуск сертификата; доступен только при `dns_ok` |
+| `PATCH /{id}` | адрес и имя отправителя (только `mail`) |
+| `DELETE /{id}` | отключить домен |
+
+Правки — только владелец кабинета (ассистенту 403).
+
+### Правила
+
+- Публичные ссылки — только через `client_public_url` / `client_public_link` / `public_url_for`. Литералов домена в коде быть не должно.
+- Ссылки на платформу (регистрация клиента, дашборд, Mini App, вебхуки платёжек) — `platform_base_url()`.
+- Сертификаты только RSA (`--key-type rsa`), иначе часть аудитории не откроет сайт.
+- Выпуск сертификата и генерация DKIM требуют root → только API-процесс, не Celery.
+- Новый публичный маршрут — дописать в `deploy/nginx-public-locations.conf`.
