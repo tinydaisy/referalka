@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, Send } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, ChevronLeft, ChevronUp, Send } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 import { useMe } from '@/hooks/useMe'
@@ -260,6 +260,8 @@ export default function ContactsPage() {
   const [duplicates, setDuplicates] = useState<DuplicateContact[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  // Ошибка deep-link (?contact=ID указывает на чужой контакт → 404).
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
   const [merging, setMerging] = useState(false)
   // Свёрнутость секций «События» и «Лид-магниты» в карточке (по умолчанию свёрнуты для компактности)
@@ -329,6 +331,7 @@ export default function ContactsPage() {
 
   const selectContact = async (id: number) => {
     setLoadingDetail(true)
+    setDeepLinkError(null)
     try {
       const [detail, dups] = await Promise.all([
         api.contacts.get(id),
@@ -336,8 +339,15 @@ export default function ContactsPage() {
       ])
       setSelected(detail)
       setDuplicates(dups.items || [])
-    } catch (e) {
+    } catch (e: any) {
       console.error(e)
+      // Контакт из ЧУЖОЙ базы (напр. уведомление пришло через @pluson_bot —
+      // сервисного клиента, а вы залогинены в своём кабинете) → API 404.
+      // Показываем это понятно, а не пустой экран.
+      const msg = (e?.message || '')
+      if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+        setDeepLinkError('Этот контакт не в вашей базе. Возможно, сообщение пришло через другого бота (не ваш кабинет).')
+      }
     } finally {
       setLoadingDetail(false)
     }
@@ -361,8 +371,11 @@ export default function ContactsPage() {
 
   return (
     <div className="flex h-[calc(100vh-80px)] gap-4">
-      {/* Левая колонка — список */}
-      <div className="w-80 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Левая колонка — список.
+          ⚠️ Мобильный: три колонки на узкий экран не помещаются — показываем ЧТО-ТО ОДНО.
+          Выбран контакт → список СКРЫВАЕМ (видна карточка+чат с кнопкой «Назад»). Не выбран
+          → список во всю ширину. На десктопе (md:) список виден всегда рядом с чатом. */}
+      <div className={`${(selected || deepLinkError) ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 flex-col bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden`}>
         <div className="p-3 border-b border-gray-100">
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -516,9 +529,24 @@ export default function ContactsPage() {
         )}
       </div>
 
-      {/* Правая колонка — параметры контакта (на десктопе уже, в одну колонку) */}
-      <div className="flex-1 md:flex-none md:w-[380px] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto">
-        {!selected && !loadingDetail && (
+      {/* Правая колонка — параметры контакта (на десктопе уже, в одну колонку).
+          Мобильный: если контакт не выбран — колонку прячем (виден список во всю ширину). */}
+      <div className={`${(selected || deepLinkError) ? 'flex flex-col w-full' : 'hidden md:block'} md:flex-none md:w-[380px] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto`}>
+        {/* Мобильная кнопка «Назад к списку» — только когда контакт открыт. */}
+        {selected && (
+          <button
+            onClick={() => setSelected(null)}
+            className="md:hidden flex items-center gap-1 text-sm text-gray-600 px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+            <ChevronLeft size={18} /> Назад к списку
+          </button>
+        )}
+        {!selected && !loadingDetail && deepLinkError && (
+          <div className="h-full flex flex-col items-center justify-center text-center px-6 text-gray-500">
+            <AlertCircle size={40} className="mb-3 text-amber-400" />
+            <p className="text-sm">{deepLinkError}</p>
+          </div>
+        )}
+        {!selected && !loadingDetail && !deepLinkError && (
           <div className="h-full flex flex-col items-center justify-center text-gray-400">
             <UserCircle size={48} className="mb-3 opacity-30" />
             <p className="text-sm">Выберите контакт из списка</p>

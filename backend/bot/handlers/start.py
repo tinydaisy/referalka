@@ -2330,13 +2330,15 @@ async def handle_user_message(message: Message):
                 return
 
             client_row = await db.fetchrow(
-                """SELECT notifications_telegram_chat_id, work_tg_username, work_vk, work_max
+                """SELECT notifications_telegram_chat_id, work_tg_username, work_vk, work_max,
+                          COALESCE(NULLIF(brand_name,''), name) AS brand
                      FROM clients WHERE id = $1""",
                 client_id,
             )
             if not client_row:
                 return
             notif_chat_id = client_row["notifications_telegram_chat_id"]
+            client_brand = client_row["brand"] or ""
             work_tg = (client_row["work_tg_username"] or "").lstrip("@")
             work_vk = client_row["work_vk"]
             work_max = client_row["work_max"]
@@ -2377,7 +2379,10 @@ async def handle_user_message(message: Message):
                 "#user_message 💬",
                 "",
                 f"<b>Когда:</b> {when_str}",
-                f"<b>Бот:</b> {bot_handle or '—'}",
+                # Бот + бренд кабинета: сразу видно, ЧЕРЕЗ КОГО пришло сообщение
+                # (напр. через сервисный @pluson_bot, а не ваш бот).
+                (f"<b>Бот:</b> {bot_handle} — {_html.escape(client_brand)}"
+                 if bot_handle else f"<b>Бот:</b> {_html.escape(client_brand) or '—'}"),
                 "",
                 "<b>Кто написал</b>",
                 f"<b>Никнейм:</b> {user_nick}",
