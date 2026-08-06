@@ -9,6 +9,7 @@ from aiogram.types import (
     CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
 from app.database import get_pool
+from app.services.client_domains import client_public_link
 import html as _html
 import logging
 
@@ -540,7 +541,11 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
 
         cid_q = f"?c={contact_id}" if contact_id else ""
         # Кнопка «Программа» — Mini App или веб по глобальной настройке клиента.
-        prog_url = f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"
+        # Веб-страница программы — публичная страница клиента (Mini App-ветка
+        # ниже её перебивает: адрес Mini App на домен клиента не переезжает).
+        prog_url = await client_public_link(
+            db, ev["client_id"], f"event/{ev['slug']}{cid_q}#program"
+        )
         if (ev["default_link_mode"] or "miniapp") == "miniapp" and ev["client_id"]:
             from app.services.share_links import get_client_bot_handles, telegram_link
             handles = await get_client_bot_handles(db, ev["client_id"])

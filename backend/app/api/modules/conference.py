@@ -5,6 +5,7 @@ from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
 from app.services.webinar_service import day_stream_url
+from app.services.client_domains import client_public_link
 import asyncpg
 import re
 import json
@@ -995,6 +996,7 @@ async def list_event_speakers(
                   cse.gift_lead_magnet_id, cse.gift_package_id,
                   lm.name AS gift_lm_name, lm.url AS gift_lm_url,
                   lp.name AS gift_lp_name, lp.slug AS gift_lp_slug,
+                  lp.client_id AS gift_lp_client_id,
                   (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
                      SELECT eclm.id, eclm.sort_order, eclm.lead_magnet_id, eclm.package_id,
                             COALESCE(eclm.manual_title, glm.name, glp.name) AS name,
@@ -1008,9 +1010,13 @@ async def list_event_speakers(
                             CASE WHEN eclm.manual_title IS NOT NULL THEN NULL
                                  WHEN eclm.lead_magnet_id IS NOT NULL THEN 'm'
                                  WHEN eclm.package_id IS NOT NULL THEN 'p' END AS funnel_kind,
+                            -- Владелец пакета: домен воронки принадлежит ЕМУ, а не
+                            -- владельцу события. Ссылка собирается в Python после
+                            -- fetch — в SQL домен захардкодить нельзя.
+                            glp.client_id AS funnel_pkg_client_id,
                             CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
                                  WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                 THEN 'https://pluson.ru/p/'||glp.slug ELSE glm.url END AS url
+                                 THEN NULL ELSE glm.url END AS url
                        FROM event_collaborator_lead_magnets eclm
                        LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
                        LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
@@ -1126,6 +1132,11 @@ async def list_event_speakers(
             if _g.get("funnel_slug") and _g.get("funnel_kind"):
                 _g["owner_links"] = await build_gift_funnel_links_by_owner(
                     db, _g["funnel_kind"], _g["funnel_slug"])
+            # Веб-ссылка на воронку пакета — на домене ЕГО владельца.
+            if not _g.get("url") and _g.get("funnel_kind") == "p" and _g.get("funnel_slug"):
+                _g["url"] = await client_public_link(
+                    db, _g.get("funnel_pkg_client_id"), f"p/{_g['funnel_slug']}")
+            _g.pop("funnel_pkg_client_id", None)   # служебное поле резолва домена
         # Подарок спикера (одиночный, обратная совместимость): приоритет ручному
         # вводу; иначе резолв из ПЛЮСОНа по старым одиночным полям.
         # ⚠️ Первый элемент gift_magnets сюда НЕ копируем: фронт-превью считал
@@ -1139,7 +1150,10 @@ async def list_event_speakers(
             elif d.get("gift_lp_name"):
                 d["gift_after_speech_title"] = d["gift_lp_name"]
                 if d.get("gift_lp_slug"):
-                    d["gift_after_speech_url"] = f"https://pluson.ru/p/{d['gift_lp_slug']}"
+                    # Воронка пакета — на домене его владельца (см. выше).
+                    d["gift_after_speech_url"] = await client_public_link(
+                        db, d.get("gift_lp_client_id"), f"p/{d['gift_lp_slug']}")
+        d.pop("gift_lp_client_id", None)   # служебное поле резолва домена
         result.append(d)
     return {"speakers": result}
 

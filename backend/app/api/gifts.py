@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.client_domains import client_public_link
 import asyncpg
 
 router = APIRouter(prefix="/events/{event_id}/gifts", tags=["Подарки"])
@@ -158,6 +159,7 @@ async def _fetch_gifts_for_event(
                t.threshold_count                       AS points_cost,
                lm.url                                  AS link_url,
                lm.slug                                 AS lm_slug,
+               lm.client_id                            AS lm_client_id,
                t.certificate_url                       AS certificate_url,
                t.sort                                  AS sort_order
           FROM event_referral_thresholds t
@@ -170,9 +172,10 @@ async def _fetch_gifts_for_event(
     gifts = [dict(r) for r in rows]
 
     # Галочка «выдавать подарки через воронку» (event_referral_settings.
-    # gift_via_funnel). Вкл → link_url подарка ведёт на воронку pluson.ru/m/{slug}
+    # gift_via_funnel). Вкл → link_url подарка ведёт на воронку /m/{slug}
     # (проверка подписки + follow-up), а не сразу на файл. Плейсхолдеры {plsn_ref}/
     # {ext_ref} тогда раскрывает сама воронка (funnel_service).
+    # ⚠️ Домен — у ВЛАДЕЛЬЦА магнита: воронку обслуживает его кабинет и его бот.
     via_funnel = await db.fetchval(
         "SELECT gift_via_funnel FROM event_referral_settings WHERE event_id = $1",
         event_id,
@@ -180,7 +183,8 @@ async def _fetch_gifts_for_event(
     if via_funnel:
         for g in gifts:
             if g.get("lm_slug"):
-                g["link_url"] = f"https://pluson.ru/m/{g['lm_slug']}"
+                g["link_url"] = await client_public_link(
+                    db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
 
     # Подставляем плейсхолдеры только если они реально встречаются — иначе не
     # трогаем БД лишним запросом рефовода. (При via_funnel прямые url заменены на
@@ -198,6 +202,7 @@ async def _fetch_gifts_for_event(
 
     for g in gifts:
         g.pop("lm_slug", None)
+        g.pop("lm_client_id", None)   # служебное поле резолва домена
     return gifts
 
 

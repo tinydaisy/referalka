@@ -11,9 +11,10 @@ import LandingThemeTab from '@/components/settings/LandingThemeTab'
 import AssistantTab from '@/components/settings/AssistantTab'
 import ChatGatesTab from '@/components/settings/ChatGatesTab'
 import PaymentSettingsTab from '@/components/settings/PaymentSettingsTab'
+import DomainsTab from '@/components/settings/DomainsTab'
 import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
-type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'payments'
+type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'payments' | 'domains'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -38,7 +39,7 @@ export default function SettingsPage() {
     if (typeof window === 'undefined') return 'profile'
     // (тип Tab расширен — добавлен legal)
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
-    return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates' || t === 'landing-theme') ? t : 'profile'
+    return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates' || t === 'landing-theme' || t === 'payments' || t === 'domains') ? t : 'profile'
   })
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
@@ -180,6 +181,8 @@ export default function SettingsPage() {
   const hasLandingTheme = clientFeatures.includes('event_landing')
   // Приём оплаты за тарифы своей платёжной системой (миграция 257).
   const hasPayments = clientFeatures.includes('payments')
+  // Свой домен для публичных страниц и адреса отправителя писем (миграция 270).
+  const hasCustomDomain = clientFeatures.includes('custom_domain')
 
   const isAnyAssistant = role === 'assistant'
   const isRestrictedAssistant = isAnyAssistant && assistantLevel !== 'full'
@@ -191,6 +194,7 @@ export default function SettingsPage() {
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     ...(hasLandingTheme ? [{ id: 'landing-theme' as Tab, label: 'Стили лендингов', icon: Palette }] : []),
     ...(hasPayments ? [{ id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard }] : []),
+    ...(hasCustomDomain ? [{ id: 'domains' as Tab, label: 'Свой домен', icon: Globe }] : []),
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     // Управлять ассистентом может только владелец — даже полный ассистент не может
     // сменить себе пароль или отключить себя.
@@ -257,6 +261,9 @@ export default function SettingsPage() {
       {/* Гейт по подписке в TG-чатах — миграция 115 */}
       {effectiveTab === 'chat-gates' && <ChatGatesTab />}
       {effectiveTab === 'payments' && <PaymentSettingsTab />}
+
+      {/* Свой домен: публичные страницы + адрес отправителя писем — миграция 270 */}
+      {effectiveTab === 'domains' && hasCustomDomain && <DomainsTab />}
 
       {/* Интеграция — токен для чат-ботов (только vip) */}
       {effectiveTab === 'integration' && <IntegrationTab />}

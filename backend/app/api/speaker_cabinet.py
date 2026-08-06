@@ -1040,7 +1040,9 @@ async def get_me_broadcasts(
     expert_day. Черновики (status='draft') не показываем — только «в очереди»
     (pending) и «отправлено» (done). У каждой — превью (текст+фото+кнопка)."""
     from zoneinfo import ZoneInfo
-    from app.services.message_builder import build_message_content, speaker_card_link
+    from app.services.message_builder import (
+        build_message_content, event_public_base, speaker_card_link)
+    from app.services.client_domains import public_url_for
 
     se_id = int(session["se_id"])
     me = await db.fetchrow(
@@ -1062,13 +1064,17 @@ async def get_me_broadcasts(
         raise HTTPException(status_code=404, detail="Спикер не найден")
     event_id = me["event_id"]
 
+    # Спикер шлёт эти ссылки СВОЕЙ аудитории → домен клиента, не платформы.
+    _base = await event_public_base(db, event_id)
     # Ссылка на карточку спикера в кабинете участника (Mini App или веб —
     # по глобальной настройке клиента default_link_mode).
     card_link = speaker_card_link(me["event_slug"], se_id,
-                                  me["default_link_mode"], me["bot_handle"])
+                                  me["default_link_mode"], me["bot_handle"],
+                                  base_url=_base)
     # Ссылка на лендинг события: сторонний лендинг клиента, если задан,
     # иначе — публичная веб-страница события.
-    landing_link = (me["landing_url"] or "").strip() or f"https://pluson.ru/event/{me['event_slug']}"
+    landing_link = (me["landing_url"] or "").strip() or \
+        public_url_for(_base, f"event/{me['event_slug']}")
 
     rows = await db.fetch(
         """

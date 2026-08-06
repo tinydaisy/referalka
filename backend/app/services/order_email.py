@@ -16,6 +16,8 @@
 import logging
 from typing import Optional
 
+from app.services.client_domains import platform_base_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,18 +80,32 @@ async def _send(db, ctx: dict, subject: str, body: str) -> bool:
     o, channel = ctx["order"], ctx["channel"]
     try:
         from app.services.email_sender import EmailSender
+        from app.services.client_domains import client_mail_domain, client_public_url
+
         token = make_email_unsubscribe_token(
             client_id=o["client_id"],
             contact_id=o["contact_id"],
             client_channel_id=channel["client_channel_id"],
         )
+
+        # Свой почтовый домен клиента (миграция 270) — письмо от него,
+        # отписка на тот же домен. Не подключён → всё как раньше.
+        channel_dict = dict(channel)
+        _mail = await client_mail_domain(db, o["client_id"])
+        if _mail:
+            channel_dict["email_domain"] = _mail["domain"]
+            channel_dict["email_from_local"] = _mail["local"]
+            if _mail["from_name"]:
+                channel_dict["email_from_name"] = _mail["from_name"]
+
         EmailSender().send(
-            channel=channel,
+            channel=channel_dict,
             client_brand_name=o["brand_name"] or o["client_name"],
             to_email=o["email"],
             subject=subject,
             body_text=body,
             unsubscribe_token=token,
+            public_base_url=await client_public_url(db, o["client_id"]),
         )
         return True
     except Exception as e:
@@ -263,9 +279,12 @@ async def notify_organizer_new_order(db, order_id: int, *, paid: bool = False) -
     lines += ident_lines
     if row["utm_source"]:
         lines.append(f"Источник: {row['utm_source']}")
+    # ⚠️ Ссылка на ДАШБОРД — всегда на домене платформы: там JWT и cookies
+    # завязаны на один origin, на домене клиента дашборда нет.
+    _dash = platform_base_url()
     lines += [
         "",
-        f'<a href="https://pluson.ru/dashboard/clients?contact_id={row["contact_id"]}">'
+        f'<a href="{_dash}/dashboard/clients?contact_id={row["contact_id"]}">'
         f'Карточка контакта #{row["contact_id"]}</a>',
         f"Заказ №{row['id']}",
     ]

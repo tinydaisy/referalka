@@ -1076,7 +1076,7 @@ async def collaborator_invite_message(
     Возвращает {access_code, message, links} — текст для копирования и
     отправки спикеру вручную (Margo шлёт в личку, потому что спикера ещё нет
     в боте). Спикер кликает любую из 3 ссылок → бот шлёт ему код + ссылку
-    на лендинг pluson.ru/speaker/<event_slug>.
+    на лендинг {домен клиента}/speaker/<event_slug>.
 
     Какой бот в ссылке: клиентский VIP-бот если есть подключённый канал
     на платформе, иначе системный.
@@ -1100,7 +1100,9 @@ async def collaborator_invite_message(
     speaker_name = row["name"] or "Спикер"
 
     links = await build_invite_links_for_collaborator(db, client_id, access_code, event_id)
-    landing_url = f"https://pluson.ru/speaker/{event_slug}"
+    # Кабинет спикера — публичная страница клиента: открываем на его домене.
+    from app.services.client_domains import client_public_link
+    landing_url = await client_public_link(db, client_id, f"speaker/{event_slug}")
 
     lines = [
         f"{speaker_name}, нужно будет заполнить свои данные.",

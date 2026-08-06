@@ -18,6 +18,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from app.database import get_db
 from app.services.collaborator_sort import order_by_sql
+from app.services.client_domains import (
+    client_public_link,
+    client_public_url,
+    platform_base_url,
+    public_url_for,
+)
 import asyncpg
 import html as _html
 import re as _re
@@ -159,6 +165,7 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
                   t.gift_template_text AS description,
                   lm.url AS link_url,
                   lm.slug AS lm_slug,
+                  lm.client_id AS lm_client_id,
                   t.certificate_url
              FROM event_referral_thresholds t
              LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
@@ -168,7 +175,9 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
     )
     gifts = [dict(r) for r in rows]
 
-    # Галочка «выдавать через воронку»: link_url → pluson.ru/m/{slug} вместо файла.
+    # Галочка «выдавать через воронку»: link_url → /m/{slug} вместо файла.
+    # ⚠️ Домен берём у ВЛАДЕЛЬЦА лид-магнита, а не у владельца события: воронку
+    # обслуживает его кабинет и его бот (см. правило про бот хозяина магнита).
     via_funnel = await db.fetchval(
         "SELECT gift_via_funnel FROM event_referral_settings WHERE event_id = $1",
         event_id,
@@ -176,7 +185,8 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
     if via_funnel:
         for g in gifts:
             if g.get("lm_slug"):
-                g["link_url"] = f"https://pluson.ru/m/{g['lm_slug']}"
+                g["link_url"] = await client_public_link(
+                    db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
 
     def _has_ph(s):
         return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")
@@ -203,6 +213,8 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
                 if g.get(field):
                     for k, v in params.items():
                         g[field] = g[field].replace("{" + k + "}", v or "")
+    for g in gifts:
+        g.pop("lm_client_id", None)   # служебное поле для резолва домена
     return gifts
 
 
@@ -1095,7 +1107,7 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
     # Реф-программа: подарки + ссылки + материалы — только если включена
     links = rc.get("links") or {}
     ref_link = (links.get("telegram") or links.get("vk") or links.get("max") or
-                ("https://pluson.ru/l/" + str(event.get("slug") or "")
+                (public_url_for(event.get("_public_base"), "l/" + str(event.get("slug") or ""))
                  + "?app=tg&pid=" + str(rc.get("ref_code") or "")))
 
     if ref_enabled:
@@ -2241,6 +2253,10 @@ async def event_page(slug: str, c: str = "", email: str = "",
         raise HTTPException(status_code=404, detail="Событие не найдено")
     event_id = event["id"]
     ev = dict(event)
+    # Домен клиента — рендер страницы синхронный и в БД сходить не может,
+    # поэтому кладём базу в ev один раз здесь. Все ссылки внутри вёрстки
+    # клеятся от неё, чтобы у клиента со своим доменом не всплыл pluson.ru.
+    ev["_public_base"] = await client_public_url(db, ev.get("client_id"))
 
     collabs = await _load_collaborators(db, event_id)
     days, stages, sessions = await _load_program(db, event_id)
@@ -2465,7 +2481,10 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
     # подменён на организатора, через которого пришёл человек (см. event_register_page).
     mkt_to = brand
     if client_id:
-        pd_link = (f'<a href="https://pluson.ru/c/{int(client_id)}/privacy" '
+        # Политика — публичная страница клиента, значит и открываться должна
+        # на его домене: человек согласия даёт ему, а не платформе.
+        _pd_url = public_url_for(event.get("_public_base"), f"c/{int(client_id)}/privacy")
+        pd_link = (f'<a href="{esc(_pd_url)}" '
                    f'target="_blank" rel="noopener">Политикой обработки '
                    f'персональных данных</a>')
     else:
@@ -2795,6 +2814,8 @@ async def event_register_page(slug: str, c: str = "",
 
     # ВЕТКА 3: contact_id нет (или невалиден) → форма с email-проверкой.
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
+    # Домен того же клиента-оператора: рендер синхронный, поэтому базу кладём в ev.
+    ev["_public_base"] = await client_public_url(db, ev.get("client_id"))
     poster_url = await _load_event_poster(db, ev["id"])
 
     html_str = render_register_page(ev, client, poster_url, prefill=prefill)
@@ -3009,7 +3030,9 @@ async def event_register_submit(slug: str, request: Request,
 
 # ════════════════ Публичная турнирная таблица: /t/{slug}/{stage_id} ════════════════
 
-PLUSON_LOGO_URL = "https://pluson.ru/images/logo_no_ivision_wwhite.png"
+# Логотип и реф-ссылка ПЛЮСОНа — ВСЕГДА на домене платформы (это промо самой
+# платформы, а не публичная страница клиента).
+PLUSON_LOGO_URL = platform_base_url() + "/images/logo_no_ivision_wwhite.png"
 
 
 def _fmt_num(v):
@@ -3056,7 +3079,8 @@ async def public_tournament_table(slug: str, stage_id: int,
     brand = esc(brand_name)
     brand_logo = (cli["brand_logo_url"] if cli else None) or ""
     ref_code = (cli["referral_code"] if cli else None) or ""
-    pluson_ref_url = f"https://pluson.ru/?pid={esc(ref_code)}" if ref_code else "https://pluson.ru/"
+    _plsn = platform_base_url()
+    pluson_ref_url = f"{_plsn}/?pid={esc(ref_code)}" if ref_code else _plsn + "/"
 
     title = esc(event.get("title") or event.get("slug"))
     stage_title = esc(stage["title"] or "")
@@ -3452,7 +3476,8 @@ async def public_tournament_reglament(slug: str, stage_id: int,
     brand = esc(((cli["brand_name"] if cli else None) or (cli["name"] if cli else None) or ""))
     brand_logo = (cli["brand_logo_url"] if cli else None) or ""
     ref_code = (cli["referral_code"] if cli else None) or ""
-    pluson_ref_url = f"https://pluson.ru/?pid={esc(ref_code)}" if ref_code else "https://pluson.ru/"
+    _plsn = platform_base_url()
+    pluson_ref_url = f"{_plsn}/?pid={esc(ref_code)}" if ref_code else _plsn + "/"
     title = esc(event.get("title") or event.get("slug"))
     stage_title = esc(stage["title"] or "")
 

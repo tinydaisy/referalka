@@ -914,6 +914,24 @@ export const api = {
       checkBot: (id: number) =>
         request(`/api/v1/clients/me/broadcast-chats/${id}/check-bot`, { method: 'POST' }),
     },
+    // Свои домены клиента (миграция 270, фича custom_domain):
+    // kind='landing' — публичные страницы через CNAME + сертификат,
+    // kind='mail'    — адрес отправителя писем через SPF/DKIM/DMARC.
+    domains: {
+      list:   () => request('/api/v1/clients/me/domains'),
+      create: (data: { kind: 'landing' | 'mail'; domain: string }) =>
+        request('/api/v1/clients/me/domains', { method: 'POST', body: JSON.stringify(data) }),
+      checkDns: (id: number) =>
+        request(`/api/v1/clients/me/domains/${id}/check-dns`, { method: 'POST' }),
+      // Выпуск доступен только после успешной проверки DNS — иначе Let's Encrypt
+      // упрётся в лимит неудачных попыток (5 в час на домен).
+      issueCert: (id: number) =>
+        request(`/api/v1/clients/me/domains/${id}/issue-cert`, { method: 'POST' }),
+      update: (id: number, data: any) =>
+        request(`/api/v1/clients/me/domains/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (id: number) =>
+        request(`/api/v1/clients/me/domains/${id}`, { method: 'DELETE' }),
+    },
   },
   referralProgram: {
     posters: {

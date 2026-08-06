@@ -20,6 +20,8 @@ from __future__ import annotations
 import html as _html
 from typing import Any
 
+from app.services.client_domains import client_public_url, public_url_for
+
 
 async def resolve_start_greeting(
     conn,
@@ -50,13 +52,17 @@ async def resolve_start_greeting(
              FROM clients WHERE id = $1""",
         client_id,
     )
+    # Страница «/o/{client_id}» (события клиента + карточка основателя) —
+    # публичная витрина клиента, поэтому открываем её на его домене.
+    base_url = await client_public_url(conn, client_id)
+
     if not client:
         return {"kind": "greeting", "text": "",
-                "buttons": _default_buttons(client_id, None, None),
+                "buttons": _default_buttons(client_id, None, None, base_url),
                 "events_label": "📅 Все события",
-                "events_url": f"https://pluson.ru/o/{client_id}",
+                "events_url": _events_url(client_id, base_url),
                 "owner_label": "🌐 Об основателе",
-                "owner_url": f"https://pluson.ru/o/{client_id}?tab=ecosystem",
+                "owner_url": _owner_url(client_id, base_url),
                 "photo_url": None}
 
     # Режим «открывать конкретное событие» — отдаём slug, адаптер запустит штатный
@@ -118,6 +124,7 @@ async def resolve_start_greeting(
         client["start_buttons"],
         client["start_btn_events_label"],
         client["start_btn_owner_label"],
+        base_url,
     )
 
     return {
@@ -126,9 +133,9 @@ async def resolve_start_greeting(
         "buttons": buttons,
         # legacy-поля — оставлены для старых вызовов, которые ещё их читают
         "events_label": events_label,
-        "events_url": f"https://pluson.ru/o/{client_id}",
+        "events_url": _events_url(client_id, base_url),
         "owner_label": owner_label,
-        "owner_url": f"https://pluson.ru/o/{client_id}?tab=ecosystem",
+        "owner_url": _owner_url(client_id, base_url),
         "photo_url": photo_url,
     }
 
@@ -180,25 +187,30 @@ def normalize_button_url(raw: str) -> str:
     return urlunsplit((parts.scheme.lower(), parts.netloc, path, query, fragment))
 
 
-def _events_url(client_id: int) -> str:
-    return f"https://pluson.ru/o/{client_id}"
+# ⚠️ base_url — уже отрезолвленный публичный адрес клиента. Эти хелперы
+# синхронные (их зовут и из TG-бота, и отсюда), поэтому в БД не ходят: базу
+# передаёт вызывающий, а без неё падаем на основной домен платформы.
+def _events_url(client_id: int, base_url: str | None = None) -> str:
+    return public_url_for(base_url, f"o/{client_id}")
 
 
-def _owner_url(client_id: int) -> str:
-    return f"https://pluson.ru/o/{client_id}?tab=ecosystem"
+def _owner_url(client_id: int, base_url: str | None = None) -> str:
+    return public_url_for(base_url, f"o/{client_id}?tab=ecosystem")
 
 
-def _default_buttons(client_id: int, events_label, owner_label) -> list[dict]:
+def _default_buttons(client_id: int, events_label, owner_label,
+                     base_url: str | None = None) -> list[dict]:
     """Две дефолтные кнопки (события + об основателе) — обратная совместимость."""
     ev = (events_label or "").strip() or "📅 Все события"
     ow = (owner_label or "").strip() or "🌐 Об основателе"
     return [
-        {"kind": "events", "label": ev, "url": _events_url(client_id)},
-        {"kind": "owner", "label": ow, "url": _owner_url(client_id)},
+        {"kind": "events", "label": ev, "url": _events_url(client_id, base_url)},
+        {"kind": "owner", "label": ow, "url": _owner_url(client_id, base_url)},
     ]
 
 
-def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label) -> list[dict]:
+def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label,
+                     base_url: str | None = None) -> list[dict]:
     """Разбирает clients.start_buttons (JSONB) в список готовых кнопок.
 
     Каждая кнопка: {'kind': 'events'|'owner'|'custom', 'label': str, 'url': str}.
@@ -216,7 +228,7 @@ def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label) -
         except Exception:
             raw = None
     if not isinstance(raw, list) or not raw:
-        return _default_buttons(client_id, events_label, owner_label)
+        return _default_buttons(client_id, events_label, owner_label, base_url)
 
     out: list[dict] = []
     for item in raw:
@@ -227,11 +239,11 @@ def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label) -
         if kind == "events":
             out.append({"kind": "events",
                         "label": label or "📅 Все события",
-                        "url": _events_url(client_id)})
+                        "url": _events_url(client_id, base_url)})
         elif kind == "owner":
             out.append({"kind": "owner",
                         "label": label or "🌐 Об основателе",
-                        "url": _owner_url(client_id)})
+                        "url": _owner_url(client_id, base_url)})
         else:  # custom
             # Кривой URL (напр. `https//t.me/…` без двоеточия) не должен ронять
             # ВСЁ приветствие: чиним что можем, безнадёжную кнопку — пропускаем.
@@ -241,7 +253,7 @@ def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label) -
         if len(out) >= 5:
             break
 
-    return out or _default_buttons(client_id, events_label, owner_label)
+    return out or _default_buttons(client_id, events_label, owner_label, base_url)
 
 
 def greeting_text_plain(html_text: str) -> str:

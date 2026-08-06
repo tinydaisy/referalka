@@ -33,6 +33,9 @@ from ..services import max_api
 from ..services.max_api import send_message as max_send_message, tg_inline_to_max_keyboard
 from ..services.max_auth import parse_startapp_ref_payload
 from ..services.share_links import max_link as build_max_link
+from ..services.client_domains import (
+    client_public_link, client_public_url, platform_base_url, public_url_for,
+)
 from ..services.event_welcome import _send_event_organizer_notification
 from ..services.webinar_service import day_stream_url
 
@@ -1244,7 +1247,12 @@ async def _process_start(
                         event_slug = ev["slug"] if ev else ""
                         event_title = ev["title"] if ev else "событие"
                         sp_name = (coll["name"] or "").strip() or "спикер"
-                        cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+                        # Кабинет спикера — публичная страница клиента, который
+                        # завёл коллаба.
+                        cabinet_url = await client_public_link(
+                            conn0, coll["created_by_client_id"],
+                            f"speaker/{event_slug}" if event_slug else "speaker/",
+                        )
                         spk_buttons = None
                         if event_slug:
                             spk_buttons = tg_inline_to_max_keyboard([[
@@ -1476,7 +1484,11 @@ async def _process_start(
             from app.services.message_builder import resolve_landing_url
             _reg_page = await resolve_landing_url(conn, event_id) if event_id else ""
             if not _reg_page:
-                _reg_page = f"https://pluson.ru/event/{event_slug}/register"
+                # Встроенная страница регистрации — публичная страница клиента,
+                # поэтому открываем её на его домене.
+                _reg_page = await client_public_link(
+                    conn, client_id, f"event/{event_slug}/register"
+                )
             _sep = "&" if "?" in _reg_page else "?"
             internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
             _reg_mode = await conn.fetchval(
@@ -1684,12 +1696,14 @@ async def _send_max_event_menu(
     prog_label = ("Программа и Спикеры"
                   if ev["module_slug"] in ("conference", "turnir")
                   else "Программа")
+    # Страницы события — публичные страницы клиента: домен клиента, если есть.
+    _pub_base = await client_public_url(conn, ev["client_id"])
     tg_rows.append([{"text": prog_label,
-                     "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
+                     "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#program")}])
 
     # 5. Кабинет и подарки → вкладка кабинета (#cabinet).
     tg_rows.append([{"text": "Кабинет и подарки",
-                     "url": f"https://pluson.ru/event/{slug}{cid_q}#cabinet"}])
+                     "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
 
     # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
     tg_rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])
@@ -1723,8 +1737,13 @@ async def _handle_max_live(
     stream_url и не скрыт) + кнопка Программа + Меню."""
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
+    # client_id владельца нужен, чтобы страница программы открылась на домене
+    # клиента, если он подключён.
     ev = await conn.fetchrow(
-        """SELECT id, slug, title, start_at, module_slug, landing_url, hide_stream_button
+        """SELECT id, slug, title, start_at, module_slug, landing_url, hide_stream_button,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )
@@ -1792,7 +1811,11 @@ async def _handle_max_live(
     else:
         text += "\n\nКнопка на стрим появится тут перед эфиром."
     cid_q = f"?c={contact_id}" if contact_id else ""
-    rows.append([{"text": "Программа", "url": f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"}])
+    # Страница программы — публичная страница клиента → его домен.
+    _prog_url = await client_public_link(
+        conn, ev["client_id"], f"event/{ev['slug']}{cid_q}#program"
+    )
+    rows.append([{"text": "Программа", "url": _prog_url}])
     rows.append([{"text": "Меню", "callback_data": f"evmenu_{event_id}"}])
     await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
 
@@ -1863,7 +1886,8 @@ async def _handle_max_plusson_ref(
                 platform_user_id=str(user_id), referral_code=referral_code,
             )
 
-    register_url = f"https://pluson.ru/register?pid={referral_code}"
+    # Регистрация в САМОЙ платформе — всегда основной домен, не клиентский.
+    register_url = f"{platform_base_url()}/register?pid={referral_code}"
     hello = (first_name or "").strip()
     if referrer_client_id:
         text = (

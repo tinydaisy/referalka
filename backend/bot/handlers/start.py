@@ -12,6 +12,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, W
 from aiogram.filters import CommandStart, CommandObject, Command
 from app.config import settings
 from app.database import get_pool
+from app.services.client_domains import client_public_link, platform_base_url
 import html as _html
 import json
 import logging
@@ -416,8 +417,15 @@ async def handle_start(message: Message, command: CommandObject):
             pool = await get_pool()
             try:
                 async with pool.acquire() as db:
+                    # client_id владельца нужен, чтобы кабинет спикера открылся
+                    # на домене клиента, а не на pluson.ru.
                     ev = await db.fetchrow(
-                        "SELECT slug, title FROM events WHERE id = $1", event_id
+                        """SELECT slug, title,
+                                  (SELECT eo.client_id FROM event_owners eo
+                                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
+                             FROM events WHERE id = $1""",
+                        event_id,
                     )
                     if not ev:
                         await message.answer("😕 Событие не найдено.")
@@ -458,7 +466,11 @@ async def handle_start(message: Message, command: CommandObject):
                         return
                     sp_name = (sp["name"] or "").strip() or "спикер"
                     access_code = sp["access_code"]
-                    cabinet_url = f"https://pluson.ru/speaker/{ev['slug']}"
+                    # Кабинет спикера — публичная страница клиента: открываем на
+                    # его домене, если он подключён.
+                    cabinet_url = await client_public_link(
+                        db, ev["client_id"], f"speaker/{ev['slug']}"
+                    )
                     if role_label == "assistant":
                         text_lines = [
                             f"Здравствуйте! Вы менеджер спикера <b>{sp_name}</b> («{ev['title']}»).",
@@ -538,7 +550,10 @@ async def handle_start(message: Message, command: CommandObject):
                         name = (existing["name"] or "").strip() or "спикер"
                         slug = existing["event_slug"]
                         access_code = existing["access_code"]
-                        cabinet_url = f"https://pluson.ru/speaker/{slug}"
+                        # Кабинет спикера — на домене клиента-владельца события.
+                        cabinet_url = await client_public_link(
+                            db, ev["client_id"], f"speaker/{slug}"
+                        )
                         text_lines = [
                             f"Здравствуйте, {name}!",
                             "",
@@ -708,7 +723,12 @@ async def handle_start(message: Message, command: CommandObject):
                     event_title = ev["title"] if ev else "событие"
 
                     name = (coll["name"] or "").strip() or "спикер"
-                    cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+                    # Кабинет спикера — на домене клиента, который завёл коллаба
+                    # (событие могло ещё не найтись, поэтому берём владельца карточки).
+                    cabinet_url = await client_public_link(
+                        db, coll["created_by_client_id"],
+                        f"speaker/{event_slug}" if event_slug else "speaker/",
+                    )
                     if is_assistant:
                         text_lines = [
                             f"Здравствуйте! Вы менеджер спикера <b>{name}</b> («{event_title}»).",
@@ -832,7 +852,9 @@ async def handle_start(message: Message, command: CommandObject):
                                   AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''""",
                             event["client_id"],
                         )
-                        base = "https://pluson.ru"
+                        # Mini App НЕ переезжает на домен клиента: его адрес вбит
+                        # в @BotFather и на лету не меняется — всегда pluson.ru.
+                        base = platform_base_url()
                         path = f"/c/{event['client_id']}/tg/event/{event_slug}" if is_vip_bot else f"/tg/event/{event_slug}"
                         mini_app_url = f"{base}{path}?_reg=1"
                         kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -885,7 +907,9 @@ async def handle_start(message: Message, command: CommandObject):
                         referral_code=referral_code,
                     )
             if referrer_client_id:
-                register_url = f"https://pluson.ru/register?pid={referral_code}"
+                # Регистрация в САМОЙ платформе — всегда основной домен,
+                # доменом клиента тут не пахнет.
+                register_url = f"{platform_base_url()}/register?pid={referral_code}"
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="📝 Зарегистрироваться", url=register_url)
                 ]])
@@ -1324,7 +1348,9 @@ async def _send_finished_event_menu(message: Message, ev, contact_id: int | None
         # Ссылка на следующее событие — тем же способом, что «Кабинет·Подарки»:
         # Mini App клиента, если default_link_mode='miniapp' и есть свой бот,
         # иначе веб-страница события.
-        succ_url = f"https://pluson.ru/event/{succ['slug']}"
+        # Веб-страница события — публичная страница клиента: домен клиента,
+        # если подключён (Mini App-ветка ниже её перебивает).
+        succ_url = await client_public_link(db, ev["client_id"], f"event/{succ['slug']}")
         if (ev["default_link_mode"] or "miniapp") == "miniapp" and ev["client_id"]:
             from app.services.share_links import get_client_bot_handles, telegram_link
             handles = await get_client_bot_handles(db, ev["client_id"])
@@ -1402,7 +1428,12 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
     # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
     # (clients.default_link_mode). miniapp → Mini App клиента; иначе → веб события.
     link_mode = (ev["default_link_mode"] or "miniapp")
-    cabinet_url = f"https://pluson.ru/event/{slug}{cid_q}#cabinet"
+    # Веб-страница события — публичная страница клиента: домен клиента,
+    # если подключён. Mini App-ветка ниже её перебивает (адрес Mini App
+    # на домен клиента не переезжает).
+    cabinet_url = await client_public_link(
+        db, ev["client_id"], f"event/{slug}{cid_q}#cabinet"
+    )
     if link_mode == "miniapp" and ev["client_id"]:
         from app.services.share_links import get_client_bot_handles, telegram_link
         handles = await get_client_bot_handles(db, ev["client_id"])
@@ -1635,7 +1666,9 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         brand_name = (client["brand_name"] or client["name"] or "").strip()
         greet_name = (user.first_name or "").strip()
         web_mode = (client["default_link_mode"] or "miniapp") == "bot"
-        base = f"https://pluson.ru/c/{client_id}/tg"
+        # Адрес Mini App: всегда основной домен — он вбит в @BotFather и на
+        # домен клиента не переезжает (web-ссылки кнопок резолвятся отдельно).
+        base = f"{platform_base_url()}/c/{client_id}/tg"
 
         # ── Режим «конкретное событие»: запускаем СТАНДАРТНЫЙ флоу события,
         # ровно как по ссылке t.me/<bot>?start=ref_pg<slug> — афиша + кнопка
@@ -1687,11 +1720,18 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         # Кнопки приветствия — из clients.start_buttons (до 5, типы events/owner/custom),
         # с фолбэком на 2 дефолтные кнопки из старых полей.
         from app.services.start_greeting import _resolve_buttons
+        # Веб-ссылки кнопок («Все события», «Об основателе») — публичные
+        # страницы клиента, поэтому резолвим его домен.
+        from app.services.client_domains import client_public_url
+        pool = await get_pool()
+        async with pool.acquire() as _db:
+            greet_base = await client_public_url(_db, client_id)
         btns = _resolve_buttons(
             client_id,
             client["start_buttons"],
             client["start_btn_events_label"],
             client["start_btn_owner_label"],
+            greet_base,
         )
         rows: list[list[InlineKeyboardButton]] = []
         for b in btns:

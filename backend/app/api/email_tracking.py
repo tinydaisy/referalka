@@ -26,6 +26,7 @@ from jose import jwt, JWTError
 
 from app.database import get_db
 from app.config import settings
+from app.services.client_domains import platform_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,8 @@ async def email_click_redirect(
                 )
         except Exception as e:
             logger.warning(f"email_click log failed: {e}")
-    # Если URL невалидный — возвращаем на главную ПЛЮСОНа
+    # Если URL невалидный — возвращаем на главную ПЛЮСОНа. Домен клиента тут
+    # не нужен: это аварийный фолбэк, ссылка уже потеряна.
     if not target_url.startswith(("http://", "https://")):
-        target_url = "https://pluson.ru/"
+        target_url = platform_base_url() + "/"
     return RedirectResponse(url=target_url, status_code=302)

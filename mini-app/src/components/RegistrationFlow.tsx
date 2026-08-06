@@ -30,14 +30,22 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
   // Человек пришёл через бота конкретного организатора (botClientId из `/c/{N}/tg/`),
   // в его базу и попадают данные — значит показываем ЕГО бренд и ссылку на ЕГО политику.
   // В обычном событии организатор один (владелец), и botClientId совпадает с ним.
-  const owners: { client_id: number; name: string }[] = event?.collab_owners || []
+  const owners: { client_id: number; name: string; public_base?: string }[] = event?.collab_owners || []
   const fromBot = botClientId ? owners.find(o => o.client_id === botClientId) : undefined
-  const organizer: { client_id: number; name: string } | undefined =
+  const organizer: { client_id: number; name: string; public_base?: string } | undefined =
     fromBot
     || (botClientId ? { client_id: botClientId, name: event?.client_brand_name || event?.client_name || 'организатора' } : undefined)
     || (event?.client_id
         ? { client_id: event.client_id, name: event.client_brand_name || event.client_name || 'организатора' }
         : undefined)
+
+  // ⚠️ Политика ПД должна открываться на домене ТОГО организатора, в чью базу
+  // уходят данные (миграция 270). Mini App работает внутри мессенджера и всегда
+  // живёт на pluson.ru, поэтому домен приходит с бэкенда: по каждому
+  // организатору свой (`public_base`), иначе — домен события, иначе pluson.ru.
+  const privacyBase = (
+    organizer?.public_base || event?.client_public_base || 'https://pluson.ru'
+  ).replace(/\/+$/, '')
 
   function next() {
     if (!name.trim())  { setError('Укажите имя'); return }
@@ -144,7 +152,7 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
                   {/* Политика — ТОГО организатора, чей бот (в его базу идут данные). */}
                   Я согласен на обработку моих персональных данных. С{' '}
                   {organizer ? (
-                    <a href={`https://pluson.ru/c/${organizer.client_id}/privacy`} target="_blank" rel="noreferrer"
+                    <a href={`${privacyBase}/c/${organizer.client_id}/privacy`} target="_blank" rel="noreferrer"
                        style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
                       Политикой обработки персональных данных
                     </a>

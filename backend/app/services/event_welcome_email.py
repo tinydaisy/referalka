@@ -9,7 +9,7 @@ Welcome-email при регистрации на событие.
     {name}              — имя контакта
     {event_title}       — название события
     {event_date}        — дата старта события (МСК)
-    {event_landing_url} — публичный лендинг pluson.ru/l/{slug}
+    {event_landing_url} — публичный лендинг {домен клиента}/l/{slug}
     {tg_url}            — t.me/{client_bot или pluson_bot}?startapp=ref_pg{slug}
     {vk_url}            — vk.me/{client_handle} (если у клиента есть VK-сообщество)
 """
@@ -141,7 +141,11 @@ async def send_welcome_email_if_needed(
     )
     vk_url = f"https://vk.me/{vk_handle}" if vk_handle else ""
 
-    landing_url = f"https://pluson.ru/l/{event['slug']}"
+    # Письмо уходит участнику клиента → лендинг и ссылка отписки на ЕГО домене,
+    # а не на pluson.ru. Базу резолвим один раз и переиспользуем ниже.
+    from app.services.client_domains import client_public_url, public_url_for
+    _public_base = await client_public_url(db, event["client_id"])
+    landing_url = public_url_for(_public_base, f"l/{event['slug']}")
 
     # Подставляем плейсхолдеры в шаблон
     body = (event["welcome_text"] or "")
@@ -168,14 +172,28 @@ async def send_welcome_email_if_needed(
     # Отправка
     try:
         from app.services.email_sender import EmailSender, EmailSendError
+        from app.services.client_domains import client_mail_domain
+
+        # Свой почтовый домен клиента (миграция 270): письмо уходит от него,
+        # и отписка ведёт туда же — ссылка на посторонний домен в письме от
+        # его бренда выглядит подозрительно и для человека, и для спам-фильтра.
+        channel_dict = dict(channel)
+        _mail = await client_mail_domain(db, event["client_id"])
+        if _mail:
+            channel_dict["email_domain"] = _mail["domain"]
+            channel_dict["email_from_local"] = _mail["local"]
+            if _mail["from_name"]:
+                channel_dict["email_from_name"] = _mail["from_name"]
+
         sender = EmailSender()
         sender.send(
-            channel=dict(channel),
+            channel=channel_dict,
             client_brand_name=contact.get("brand_name") or contact.get("client_name"),
             to_email=contact["email"],
             subject=subject,
             body_text=body,
             unsubscribe_token=unsub_token,
+            public_base_url=_public_base,
         )
         await db.execute(
             "UPDATE event_participants SET welcome_email_sent_at = NOW() WHERE id = $1",

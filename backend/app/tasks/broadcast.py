@@ -1903,6 +1903,21 @@ async def _send_broadcast_email_part(
         return 0
 
     channel_dict = dict(channel)
+
+    # ⚠️ Свой почтовый домен клиента (миграция 270). Если подключён и проверен —
+    # письма уходят от него (noreply@его-домен), а не с *.pluson.ru. Ссылки
+    # отписки и трекинга при этом тоже переводим на его домен: ссылка на чужой
+    # домен в письме от его бренда выглядит подозрительно и для человека, и для
+    # спам-фильтра. Не подключён → всё как раньше.
+    from app.services.client_domains import client_mail_domain, client_public_url
+    _mail = await client_mail_domain(conn, client_id)
+    if _mail:
+        channel_dict["email_domain"] = _mail["domain"]
+        channel_dict["email_from_local"] = _mail["local"]
+        if _mail["from_name"]:
+            channel_dict["email_from_name"] = _mail["from_name"]
+    public_base = await client_public_url(conn, client_id)
+
     # Имя для From-заголовка и subject — короткий вариант (бренд если есть, иначе имя).
     client_brand_name = channel_dict.get("brand_name") or channel_dict.get("client_name") or "ПЛЮСОН"
     # Полное имя для подвала отписки — «{ИмяФамилия} и {Бренд}»; если бренд
@@ -2299,7 +2314,10 @@ async def _send_broadcast_email_part(
             f"{(b.get('text') or b.get('label') or 'Открыть')}: {b.get('url','')}" for b in buttons
         )
 
-    frontend_url = settings.frontend_url.rstrip("/")
+    # Домен клиента, если подключён (миграция 270) — иначе основной.
+    # Пиксель и клик-редирект должны жить на домене отправителя: ссылка,
+    # уводящая на посторонний домен, снижает доверие почтовых фильтров.
+    frontend_url = (public_base or settings.frontend_url).rstrip("/")
     pixel_base = f"{frontend_url}/api/v1/email/pixel"
     click_base = f"{frontend_url}/api/v1/email/click"
     unsub_base = f"{frontend_url}/api/v1/email/unsubscribe"
@@ -2428,6 +2446,7 @@ async def _send_broadcast_email_part(
                 body_html=msg_html_final,
                 inline_images=inline_images_arg,
                 footer_brand_label=footer_brand_label,
+                public_base_url=public_base,
             )
             ok = True
         except EmailSendError as e:

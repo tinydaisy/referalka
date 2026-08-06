@@ -30,6 +30,9 @@ from app.config import settings
 from app.database import get_pool
 from app.services.vk_api import vk_call, send_message as vk_send_message, tg_inline_to_vk_keyboard, get_user_info
 from app.services.contact_merge import upsert_contact_with_identity
+from app.services.client_domains import (
+    client_public_link, client_public_url, platform_base_url, public_url_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +332,8 @@ async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
         )
 
     hello = (first_name or "").strip()
-    register_url = f"https://pluson.ru/register?pid={referral_code}"
+    # Регистрация в САМОЙ платформе — всегда основной домен, не клиентский.
+    register_url = f"{platform_base_url()}/register?pid={referral_code}"
     if referrer_client_id:
         text = (
             f"Привет{', ' + hello if hello else ''}! 👋\n\n"
@@ -513,6 +517,10 @@ async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
     (кастомный/дефолт) + кнопки «Все события» и «Об основателе»."""
     from app.services.start_greeting import resolve_start_greeting, greeting_text_plain
 
+    # Витрина «/o/{client_id}» — публичная страница клиента: если у него
+    # подключён свой домен, кнопки приветствия ведут туда.
+    greet_base = await client_public_url(db, ctx.client_id)
+
     g = await resolve_start_greeting(db, ctx.client_id, greet_name="")
     if g.get("kind") == "event":
         ev_id = await db.fetchval("SELECT id FROM events WHERE slug = $1 LIMIT 1", g["event_slug"])
@@ -521,9 +529,9 @@ async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
         # событие не отдалось — падаем в обычное приветствие ниже
         g = {**g, "kind": "greeting", "text": "",
              "events_label": "📅 Все события",
-             "events_url": f"https://pluson.ru/o/{ctx.client_id}",
+             "events_url": public_url_for(greet_base, f"o/{ctx.client_id}"),
              "owner_label": "🌐 Об основателе",
-             "owner_url": f"https://pluson.ru/o/{ctx.client_id}?tab=ecosystem"}
+             "owner_url": public_url_for(greet_base, f"o/{ctx.client_id}?tab=ecosystem")}
 
     # Режим «лид-магнит»: создаём funnel_run и запускаем VK-воронку (Текст 1).
     if g.get("kind") == "lead_magnet":
@@ -560,9 +568,9 @@ async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
         # не вышло — общее приветствие ниже
         g = {**g, "kind": "greeting", "text": "",
              "events_label": "📅 Все события",
-             "events_url": f"https://pluson.ru/o/{ctx.client_id}",
+             "events_url": public_url_for(greet_base, f"o/{ctx.client_id}"),
              "owner_label": "🌐 Об основателе",
-             "owner_url": f"https://pluson.ru/o/{ctx.client_id}?tab=ecosystem"}
+             "owner_url": public_url_for(greet_base, f"o/{ctx.client_id}?tab=ecosystem")}
 
     txt = greeting_text_plain(g.get("text") or "")
     btns = g.get("buttons") or [
@@ -722,7 +730,11 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
     event_slug = ev["slug"] if ev else ""
     event_title = ev["title"] if ev else "событие"
     name = (coll["name"] or "").strip() or "спикер"
-    cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+    # Кабинет спикера — публичная страница клиента, который завёл коллаба.
+    cabinet_url = await client_public_link(
+        db, coll["created_by_client_id"],
+        f"speaker/{event_slug}" if event_slug else "speaker/",
+    )
 
     text = (
         f"Здравствуйте, {name}!\n\n"

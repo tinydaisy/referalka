@@ -25,6 +25,7 @@ from app.services.vk_api import (
     is_user_member_of_group,
     vk_call,
 )
+from app.services.client_domains import client_public_link
 
 logger = logging.getLogger(__name__)
 
@@ -333,8 +334,13 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«📺 Ссылка на эфир» (VK) — ближайший эфир + кнопка стрима. Порт
     funnel.py:handle_event_live."""
     from app.services.webinar_service import day_stream_url
+    # client_id владельца нужен, чтобы страница программы открылась на домене
+    # клиента, если он подключён.
     ev = await db.fetchrow(
-        """SELECT id, slug, title, module_slug, start_at, hide_stream_button
+        """SELECT id, slug, title, module_slug, start_at, hide_stream_button,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )
@@ -411,8 +417,11 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
 
     text += "\n\nЧтобы посмотреть всю программу — нажмите на кнопку 👇"
     cid_q = f"?c={contact_id}" if contact_id else ""
-    rows.append([{"text": "Программа",
-                  "url": f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"}])
+    # Страница программы — публичная страница события: домен клиента.
+    prog_url = await client_public_link(
+        db, ev["client_id"], f"event/{ev['slug']}{cid_q}#program"
+    )
+    rows.append([{"text": "Программа", "url": prog_url}])
     rows.append([{"text": "⬅️ Вернуться в меню", "callback_data": f"evmenu_{event_id}"}])
 
     keyboard = tg_inline_to_vk_keyboard(rows)

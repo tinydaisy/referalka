@@ -37,6 +37,7 @@ from app.services.external_landing import (
     resolve_or_create_participant,
 )
 from app.services.webinar_service import day_stream_url
+from app.services.client_domains import client_public_link
 from app.config import settings
 
 
@@ -464,7 +465,7 @@ async def public_event_landing_redirect(
     if mode == "form":
         return {}
 
-    # Наш лендинг: ведём на pluson.ru/e/{slug}. Никаких контактных
+    # Наш лендинг: ведём на /e/{slug} НА ДОМЕНЕ КЛИЕНТА. Никаких контактных
     # параметров туда не тащим — форма заказа опознаёт человека сама.
     if mode == "landing":
         published = await db.fetchval(
@@ -472,7 +473,7 @@ async def public_event_landing_redirect(
             " WHERE event_id = $1 AND kind = 'main'", row["id"])
         if not published:
             return {}   # ещё не собран — остаёмся на простой странице
-        url = f"https://pluson.ru/e/{slug}"
+        url = await client_public_link(db, row["client_id"], f"e/{slug}")
         if pid:
             url += f"?pid={pid}"
         return {"redirect_url": url}
@@ -874,9 +875,12 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                 end_row["end_gift_package_id"],
             )
             if lp:
+                # Воронка пакета — на домене клиента: ссылку видит его участник.
+                _pkg_url = await client_public_link(db, d["client_id"], f"p/{lp['slug']}") \
+                    if lp["slug"] else None
                 d["end_gift"] = {"kind": "package", "id": lp["id"],
                                  "title": lp["name"], "description": None,
-                                 "url": f"https://pluson.ru/p/{lp['slug']}" if lp["slug"] else None}
+                                 "url": _pkg_url}
 
     # Successor — автоматически: ближайшее опубликованное событие того же
     # клиента, начинающееся ПОСЛЕ конца текущего. Для конференций start_at
@@ -948,6 +952,16 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
             row["id"],
         )
         d["collab_owners"] = [dict(o) for o in owners]
+
+    # ⚠️ Публичный домен организатора (миграция 270). Нужен Mini App: оно
+    # открывается внутри мессенджера и всегда живёт на pluson.ru, поэтому само
+    # определить домен клиента не может — а ссылку на политику ПД обязано вести
+    # на домен того, в чью базу уходят данные. У каждого организатора коллабы
+    # домен может быть свой, поэтому отдаём по каждому отдельно.
+    from app.services.client_domains import client_public_url
+    d["client_public_base"] = await client_public_url(db, d.get("client_id"))
+    for _o in d["collab_owners"]:
+        _o["public_base"] = await client_public_url(db, _o.get("client_id"))
 
     return d
 

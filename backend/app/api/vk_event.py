@@ -28,6 +28,7 @@ from ..services.vk_api import (
     get_user_info,
 )
 from ..services.share_links import vk_link as build_vk_link
+from ..services.client_domains import client_public_link, client_public_url, public_url_for
 from ..services.event_welcome import _send_event_organizer_notification
 from ..services.entry_link_log import log_entry_link
 
@@ -473,7 +474,11 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
         event_slug = ev["slug"] if ev else ""
         event_title = ev["title"] if ev else "событие"
         sp_name = (coll["name"] or "").strip() or "спикер"
-        cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+        # Кабинет спикера — публичная страница клиента, который завёл коллаба.
+        cabinet_url = await client_public_link(
+            conn, coll["created_by_client_id"],
+            f"speaker/{event_slug}" if event_slug else "speaker/",
+        )
 
         from app.services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
         if foreign_owner:
@@ -597,7 +602,10 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
             access_code = existing["access_code"]
             slug = existing["event_slug"]
             sp_name = (existing["name"] or "").strip() or "спикер"
-            cabinet_url = f"https://pluson.ru/speaker/{slug}"
+            # Кабинет спикера — на домене клиента-владельца события.
+            cabinet_url = await client_public_link(
+                conn, ev["client_id"], f"speaker/{slug}"
+            )
             text = (
                 f"Здравствуйте, {sp_name}!\n\n"
                 f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:\n"
@@ -617,7 +625,10 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
                 contact_id=contact_id,
                 contact_name=contact_name or "Спикер",
             )
-            cabinet_url = f"https://pluson.ru/speaker/{slug}"
+            # Кабинет спикера — на домене клиента-владельца события.
+            cabinet_url = await client_public_link(
+                conn, ev["client_id"], f"speaker/{slug}"
+            )
             text = (
                 f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
                 f"Откройте свой кабинет и заполните данные:\n{cabinet_url}\n\n"
@@ -1320,8 +1331,10 @@ async def send_vk_event_funnel(
             rows.append([{"text": "📝 Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
 
         # 3. Кабинет и подарки → веб-страница, вкладка кабинета.
+        #    Публичная страница клиента → открываем на его домене.
+        _pub_base = await client_public_url(conn, client_id)
         rows.append([{"text": "🎁 Кабинет и подарки",
-                      "url": f"https://pluson.ru/event/{slug}{cid_q}#cabinet"}])
+                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
 
         # 4. Ссылка на эфир — callback.
         rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
@@ -1331,7 +1344,7 @@ async def send_vk_event_funnel(
                       if event_row["module_slug"] in ("conference", "turnir")
                       else "Программа")
         rows.append([{"text": prog_label,
-                      "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
+                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#program")}])
 
         # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
         rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])
@@ -1356,7 +1369,11 @@ async def send_vk_event_funnel(
     # resolve_landing_url, та же во всех ботах и в рассылках). Раньше ВК про
     # наш лендинг-конструктор не знал и всегда вёл на страницу события.
     from app.services.message_builder import resolve_landing_url
-    _reg_page = await resolve_landing_url(conn, event_id) or f"https://pluson.ru/event/{slug}/register"
+    # Встроенная страница регистрации — публичная страница клиента → его домен
+    # (свой лендинг клиента из resolve_landing_url, если задан, главнее).
+    _reg_page = await resolve_landing_url(conn, event_id) or await client_public_link(
+        conn, client_id, f"event/{slug}/register"
+    )
     _sep = "&" if "?" in _reg_page else "?"
     internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
     landing_url = (event_row["landing_url"] or "").strip()

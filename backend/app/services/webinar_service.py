@@ -15,10 +15,22 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.services.client_domains import client_public_link
+
 # Московское время — вся программа проекта в МСК (см. правило "время HH:MM МСК").
 MSK = timezone(timedelta(hours=3))
 
 _KEY_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"  # без похожих 0/o/1/l/i
+
+
+async def _event_public_link(db, event_id: int, path: str) -> str:
+    """Публичная ссылка события на домене его ВЛАДЕЛЬЦА (у events нет client_id)."""
+    client_id = await db.fetchval(
+        """SELECT eo.client_id FROM event_owners eo
+            WHERE eo.event_id=$1 AND eo.status='accepted'
+            ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
+        event_id)
+    return await client_public_link(db, client_id, path)
 
 
 def make_stream_key(n: int = 16) -> str:
@@ -68,7 +80,7 @@ async def day_stream_url(db, event_id: int, day: Optional[int],
 
     Источник — вебинарная комната дня (webinar_rooms по event_id+day_number):
       • сторонний вебинар (stream_type='external_link') → её external_url;
-      • наша комната (encoder) → https://pluson.ru/webinar/{slug}/{day}
+      • наша комната (encoder) → {домен клиента}/webinar/{slug}/{day}
         (+ ?c={contact_id} для сквозной идентификации зрителя).
     Нет дня / нет комнаты / пусто → ''. Общей events.stream_url больше нет.
 
@@ -90,7 +102,8 @@ async def day_stream_url(db, event_id: int, day: Optional[int],
     slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
     if not slug:
         return ""
-    url = f"https://pluson.ru/webinar/{slug}/{day}"
+    # Зритель приходит из рассылки клиента → комната открывается на его домене.
+    url = await _event_public_link(db, event_id, f"webinar/{slug}/{day}")
     if contact_id:
         url += f"?c={contact_id}"
     return url
@@ -205,17 +218,21 @@ async def speaker_gift_card(db, event_id: int, ec_id: Optional[int]) -> Optional
     rows = await db.fetch(
         "SELECT lead_magnet_id, package_id, manual_title, manual_url "
         "FROM event_collaborator_lead_magnets WHERE ec_id=$1 ORDER BY sort_order, id", ec_id)
+    # ⚠️ Домен воронки — у ВЛАДЕЛЬЦА магнита/пакета (у спикера может быть свой
+    # ПЛЮСОН-аккаунт), а не у владельца события: воронку обслуживает его кабинет.
     for r in rows:
         if r["manual_title"] and r["manual_url"]:
             gifts.append({"title": r["manual_title"], "url": r["manual_url"]})
         elif r["lead_magnet_id"]:
-            lm = await db.fetchrow("SELECT name, slug FROM lead_magnets WHERE id=$1", r["lead_magnet_id"])
+            lm = await db.fetchrow("SELECT name, slug, client_id FROM lead_magnets WHERE id=$1", r["lead_magnet_id"])
             if lm and lm["slug"]:
-                gifts.append({"title": lm["name"], "url": f"https://pluson.ru/m/{lm['slug']}"})
+                gifts.append({"title": lm["name"],
+                              "url": await client_public_link(db, lm["client_id"], f"m/{lm['slug']}")})
         elif r["package_id"]:
-            pk = await db.fetchrow("SELECT name, slug FROM lead_magnet_packages WHERE id=$1", r["package_id"])
+            pk = await db.fetchrow("SELECT name, slug, client_id FROM lead_magnet_packages WHERE id=$1", r["package_id"])
             if pk and pk["slug"]:
-                gifts.append({"title": pk["name"], "url": f"https://pluson.ru/p/{pk['slug']}"})
+                gifts.append({"title": pk["name"],
+                              "url": await client_public_link(db, pk["client_id"], f"p/{pk['slug']}")})
 
     # 2) Fallback на старые одиночные поля event_collaborators (если список пуст)
     if not gifts:
@@ -227,13 +244,15 @@ async def speaker_gift_card(db, event_id: int, ec_id: Optional[int]) -> Optional
             # event_collaborator_lead_magnets (перенесены 2026-07-30). Остались
             # только legacy-привязки к магниту/пакету.
             if old["gift_lead_magnet_id"]:
-                lm = await db.fetchrow("SELECT name, slug FROM lead_magnets WHERE id=$1", old["gift_lead_magnet_id"])
+                lm = await db.fetchrow("SELECT name, slug, client_id FROM lead_magnets WHERE id=$1", old["gift_lead_magnet_id"])
                 if lm and lm["slug"]:
-                    gifts.append({"title": lm["name"], "url": f"https://pluson.ru/m/{lm['slug']}"})
+                    gifts.append({"title": lm["name"],
+                                  "url": await client_public_link(db, lm["client_id"], f"m/{lm['slug']}")})
             elif old["gift_package_id"]:
-                pk = await db.fetchrow("SELECT name, slug FROM lead_magnet_packages WHERE id=$1", old["gift_package_id"])
+                pk = await db.fetchrow("SELECT name, slug, client_id FROM lead_magnet_packages WHERE id=$1", old["gift_package_id"])
                 if pk and pk["slug"]:
-                    gifts.append({"title": pk["name"], "url": f"https://pluson.ru/p/{pk['slug']}"})
+                    gifts.append({"title": pk["name"],
+                                  "url": await client_public_link(db, pk["client_id"], f"p/{pk['slug']}")})
 
     if not gifts:
         return None

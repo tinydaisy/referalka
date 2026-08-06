@@ -58,6 +58,11 @@ SMTP_HOST = "127.0.0.1"
 SMTP_PORT = 25
 SMTP_TIMEOUT_SEC = 30
 
+# Почтовый домен самой платформы — им подписан системный DKIM-ключ
+# (mail._domainkey.pluson.ru). Клиентские домены живут в client_domains
+# и приходят сюда полем channel['email_domain'].
+PLATFORM_MAIL_DOMAIN = "pluson.ru"
+
 
 class EmailSendError(Exception):
     """Любая ошибка отправки email — SMTPException / socket / etc."""
@@ -66,14 +71,24 @@ class EmailSendError(Exception):
 def _build_from_address(channel: dict) -> str:
     """
     Финальный email-адрес отправителя.
-    - email_subdomain == NULL → systемный канал → '<local>@pluson.ru'
+    - email_domain задан      → СВОЙ домен клиента → '<local>@<его домен>'
+    - email_subdomain == NULL → системный канал    → '<local>@pluson.ru'
     - email_subdomain != NULL → '<local>@<subdomain>.pluson.ru'
+
+    ⚠️ `email_domain` (миграция 270) — чужой домен клиента, подтверждённый
+    SPF+DKIM+DMARC в его DNS. Он ГЛАВНЕЕ поддомена: если клиент подключил
+    свою почту, письма должны уходить от него, а не от *.pluson.ru.
+    Подпись ставит OpenDKIM по своей SigningTable — для каждого клиентского
+    домена там заведён отдельный ключ (см. services/client_mail_domain.py).
     """
     local = (channel.get("email_from_local") or "noreply").strip()
+    own_domain = (channel.get("email_domain") or "").strip().lower()
+    if own_domain:
+        return f"{local}@{own_domain}"
     subdomain = (channel.get("email_subdomain") or "").strip()
     if subdomain:
-        return f"{local}@{subdomain}.pluson.ru"
-    return f"{local}@pluson.ru"
+        return f"{local}@{subdomain}.{PLATFORM_MAIL_DOMAIN}"
+    return f"{local}@{PLATFORM_MAIL_DOMAIN}"
 
 
 def _build_from_header(channel: dict, client_brand_name: Optional[str]) -> str:
@@ -96,9 +111,14 @@ def _build_from_header(channel: dict, client_brand_name: Optional[str]) -> str:
     return formataddr((safe_name, addr))
 
 
-def _unsubscribe_url(token: str) -> str:
-    """https://pluson.ru/api/v1/email/unsubscribe?token=..."""
-    base = settings.frontend_url.rstrip("/")
+def _unsubscribe_url(token: str, base_url: Optional[str] = None) -> str:
+    """https://<домен клиента или pluson.ru>/api/v1/email/unsubscribe?token=...
+
+    ⚠️ Отписка ведёт на ТОТ ЖЕ домен, с которого пришло письмо. Ссылка на
+    чужой домен в письме от бренда клиента выглядит как фишинг и снижает
+    доверие почтовиков (ссылка вне домена отправителя — сигнал для спам-фильтра).
+    """
+    base = (base_url or settings.frontend_url or "").rstrip("/")
     return f"{base}/api/v1/email/unsubscribe?token={token}"
 
 
@@ -198,6 +218,7 @@ class EmailSender:
         body_html: Optional[str] = None,
         inline_images: Optional[list] = None,
         footer_brand_label: Optional[str] = None,
+        public_base_url: Optional[str] = None,
     ) -> str:
         """
         Отправляет одно письмо. Возвращает Message-ID при успехе.
@@ -224,7 +245,7 @@ class EmailSender:
 
         from_address = _build_from_address(channel)
         from_header = _build_from_header(channel, client_brand_name)
-        unsub_url = _unsubscribe_url(unsubscribe_token)
+        unsub_url = _unsubscribe_url(unsubscribe_token, public_base_url)
         msg_id = make_msgid(domain=from_address.split("@", 1)[1])
 
         # В подвале используем footer_brand_label если он задан (это «{Имя} и

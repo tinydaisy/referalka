@@ -32,6 +32,7 @@ from aiogram.types import (
 )
 
 from app.database import get_pool
+from app.services.client_domains import client_public_link, platform_base_url
 
 log = logging.getLogger(__name__)
 router = Router(name="medialift")
@@ -202,15 +203,21 @@ async def prompt_add_channel(message: Message, event_id: int, db) -> None:
                   AND pu.platform_user_id=$2::text LIMIT 1""",
             client_id, str(tg_id))
         slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
-        cab_url = f"https://pluson.ru/medialift/me?slug={slug}&c={contact_row}"
+        # Кабинет участника — публичная страница клиента → его домен.
+        cab_url = await client_public_link(
+            db, client_id, f"medialift/me?slug={slug}&c={contact_row}"
+        )
         await message.answer(
             "✅ <b>Вы уже в системе, канал добавлен.</b>\n\n"
             "Откройте кабинет — там ваша ссылка, готовые материалы и статистика.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔗 Мой кабинет и материалы", url=cab_url)],
-                [InlineKeyboardButton(text="🎁 ПЛЮСОН с лид-магнитом", url="https://pluson.ru/register")],
-                [InlineKeyboardButton(text="🤝 Коллабораторная", url="https://pluson.ru/dashboard/collab-hub")],
+                # Регистрация в платформе и дашборд — всегда основной домен.
+                [InlineKeyboardButton(text="🎁 ПЛЮСОН с лид-магнитом",
+                                      url=f"{platform_base_url()}/register")],
+                [InlineKeyboardButton(text="🤝 Коллабораторная",
+                                      url=f"{platform_base_url()}/dashboard/collab-hub")],
             ]))
         return
 
@@ -467,11 +474,17 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
                 "UPDATE collaborators SET linked_client_id=$1 WHERE id=$2 AND linked_client_id IS NULL",
                 linked, coll_id)
 
+        # Кабинет участника — «страница рефералок»: его ссылка, материалы,
+        # статистика. Публичная страница клиента → резолвим его домен, пока
+        # соединение с БД ещё живо (ниже блок уже закрыт).
+        cab_url = await client_public_link(
+            db, client_id, f"medialift/me?slug={ev_slug}&c={contact_id}"
+        )
+
     st["await_channel"] = False
     ok_title = f' «{title}»' if title else ""
-    reg_url = f"https://pluson.ru/register?ml_tg_id={tg_id}"
-    # Кабинет участника — «страница рефералок»: его ссылка, материалы, статистика.
-    cab_url = f"https://pluson.ru/medialift/me?slug={ev_slug}&c={contact_id}"
+    # Регистрация в САМОЙ платформе — всегда основной домен.
+    reg_url = f"{platform_base_url()}/register?ml_tg_id={tg_id}"
     await message.answer(
         f"✅ <b>Канал добавлен{ok_title}!</b>\n\n"
         "Теперь вы в цепочке — вас увидят все, кто зайдёт под вами.\n\n"
@@ -481,8 +494,9 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔗 Мой кабинет и материалы", url=cab_url)],
             [InlineKeyboardButton(text="🎁 ПЛЮСОН с лид-магнитом (14 дней бесплатно)", url=reg_url)],
+            # Дашборд ПЛЮСОНа — всегда основной домен (там JWT и cookies).
             [InlineKeyboardButton(text="🤝 Коллабораторная — закрытый Хаб",
-                                  url="https://pluson.ru/dashboard/collab-hub")],
+                                  url=f"{platform_base_url()}/dashboard/collab-hub")],
         ]))
 
 

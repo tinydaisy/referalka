@@ -17,6 +17,11 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from app.services import collaborator_sort
+from app.services.client_domains import (
+    client_public_url,
+    platform_base_url,
+    public_url_for,
+)
 
 
 # Telegram parse_mode=HTML понимает только узкий набор тегов:
@@ -141,17 +146,39 @@ def _fmt_time_msk(val) -> str:
 
 # ─── Ссылка на карточку спикера + соцсети (общие хелперы) ────────────────────
 
-def speaker_card_link(event_slug, ec_id, link_mode=None, bot_handle=None):
+async def event_public_base(conn, event_id: int) -> str:
+    """Базовый адрес публичных страниц ЭТОГО события — домен его владельца.
+
+    Рассылка уходит аудитории клиента, значит и ссылки в ней должны быть на
+    его домене. Владелец берётся из `event_owners` (у `events` нет client_id).
+    Один вызов на сборку сообщения — дальше ссылки клеятся `public_url_for`.
+    """
+    if not event_id:
+        return platform_base_url()
+    client_id = await conn.fetchval(
+        """SELECT eo.client_id FROM event_owners eo
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
+        event_id,
+    )
+    return await client_public_url(conn, client_id)
+
+
+def speaker_card_link(event_slug, ec_id, link_mode=None, bot_handle=None, base_url=None):
     """Ссылка на карточку конкретного спикера/жюри.
     link_mode='miniapp' + есть бот клиента → Mini App (t.me/{bot}?startapp=ref_pg{slug}_spk{ec}).
-    Иначе → веб-страница события pluson.ru/event/{slug}?spk={ec}."""
+    Иначе → веб-страница события {домен клиента}/event/{slug}?spk={ec}.
+
+    `base_url` — уже отрезолвленный домен клиента (`event_public_base`). Не
+    передали → основной адрес платформы: функция синхронная, сходить в БД сама
+    не может, а молча вернуть чужой домен хуже, чем вернуть платформенный."""
     slug = (event_slug or "").strip()
     if not slug or not ec_id:
         return ""
     if link_mode == "miniapp" and bot_handle:
         h = str(bot_handle).lstrip("@")
         return f"https://telegram.me/{h}?startapp=ref_pg{slug}_spk{ec_id}"
-    return f"https://pluson.ru/event/{slug}?spk={ec_id}"
+    return public_url_for(base_url, f"event/{slug}?spk={ec_id}")
 
 
 def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
@@ -181,8 +208,8 @@ async def resolve_landing_url(conn, event_id: int) -> str:
     ⚠️ ПУСТЫМ не бывает: у события ВСЕГДА есть страница регистрации.
     Порядок — по способу регистрации (events.registration_mode, миграция 262):
       'external' → сторонний сайт клиента (events.landing_url);
-      'landing'  → наш лендинг-конструктор pluson.ru/e/{slug};
-      'form'     → встроенная страница события pluson.ru/event/{slug}.
+      'landing'  → наш лендинг-конструктор {домен клиента}/e/{slug};
+      'form'     → встроенная страница события {домен клиента}/event/{slug}.
     Способ не задан (старые события) — угадываем как раньше: заполнен
     landing_url → сторонний, иначе опубликованный конструктор, иначе встроенная.
 
@@ -204,20 +231,23 @@ async def resolve_landing_url(conn, event_id: int) -> str:
         return ""
     mode = row["registration_mode"]
     ext, slug, has_lp = row["ext"], row["slug"], row["has_lp"]
+    # Ссылка уходит аудитории клиента → собираем на ЕГО домене.
+    base = await event_public_base(conn, event_id)
     # ⚠️ Простая страница = СРАЗУ ФОРМА /event/{slug}/register, а не /event/{slug}:
     # на странице события кнопки «Зарегистрироваться» нет (только мелкая ссылка
     # внутри блока подарков), человек с рассылки упирался бы в тупик.
-    form_url = f"https://pluson.ru/event/{slug}/register"
+    form_url = public_url_for(base, f"event/{slug}/register")
+    lp_url = public_url_for(base, f"e/{slug}")
     if mode == "external":
-        return ext or (f"https://pluson.ru/e/{slug}" if has_lp else form_url)
+        return ext or (lp_url if has_lp else form_url)
     if mode == "landing":
-        return f"https://pluson.ru/e/{slug}" if has_lp else form_url
+        return lp_url if has_lp else form_url
     if mode == "form":
         return form_url
     # Режим не задан — прежнее поведение + непустой фолбэк.
     if ext:
         return ext
-    return f"https://pluson.ru/e/{slug}" if has_lp else form_url
+    return lp_url if has_lp else form_url
 
 
 async def _speaker_topics_strings(conn, ec_id) -> tuple:
@@ -954,7 +984,8 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
     topic, topic_full, topic_desc = await _speaker_topics_strings(conn, ec_id)
     # Ссылка регистрации — общий резолвер (непустой, учитывает способ регистрации).
     _reg_link = await resolve_landing_url(conn, sp["event_id"])
-    card_link = speaker_card_link(sp["event_slug"], sp["ec_id"], sp["default_link_mode"], sp["bot_handle"])
+    card_link = speaker_card_link(sp["event_slug"], sp["ec_id"], sp["default_link_mode"], sp["bot_handle"],
+                                  base_url=await event_public_base(conn, sp["event_id"]))
     sp_time, sp_date, sp_dt = _build_speaker_slot_strings(sp["slot_start"], sp["slot_end"], sp["slot_date"])
 
     text = build_speaker_intro_message(
@@ -1048,6 +1079,8 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
         event_id, row["day_number"],
     )
     lines, lines_links = [], []
+    # Домен клиента резолвим один раз на всю программу дня, а не на каждого спикера.
+    _base = await event_public_base(conn, event_id)
     for s in sessions:
         t_start = _fmt_time(s["start_time"]); t_end = _fmt_time(s["end_time"])
         time_part = f"{t_start}–{t_end} МСК" if t_start and t_end else (f"{t_start} МСК" if t_start else "")
@@ -1058,7 +1091,8 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
         speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
         lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
         if name:
-            _link = speaker_card_link(row["event_slug"], s["ec_id"], row["default_link_mode"], row["bot_handle"])
+            _link = speaker_card_link(row["event_slug"], s["ec_id"], row["default_link_mode"], row["bot_handle"],
+                                      base_url=_base)
             name_html = f'<a href="{_link}">{name}</a>' if _link else name
             speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
         else:
@@ -1221,6 +1255,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     text = tmpl_text or ""
     photo = photo_url
     btn_url = btn_url or ""
+    # Домен клиента-владельца события — один резолв на всю сборку сообщения.
+    # Все публичные ссылки ниже (карточки спикеров, программа) клеятся от него,
+    # чтобы у клиента со своим доменом в рассылке не оказалось pluson.ru.
+    _pub_base = await event_public_base(conn, event_id)
     # {signup_link} в тексте и в адресе кнопки шаблона (превью/тест: площадка
     # неизвестна, ссылка приходит уже выбранной).
     if signup_link is not None:
@@ -1350,7 +1388,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
             # Версия со ссылкой: имя спикера — <a href=карточка>Имя</a>
             if name:
-                _link = speaker_card_link(_prog_slug, s["ec_id"], _prog_link_mode, _prog_bot)
+                _link = speaker_card_link(_prog_slug, s["ec_id"], _prog_link_mode, _prog_bot,
+                                          base_url=_pub_base)
                 name_html = f'<a href="{_link}">{name}</a>' if _link else name
                 speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
             else:
@@ -1589,7 +1628,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     else:
                         photo = sp["speaker_poster"] or sp["speaker_photo"]
                 card_link = speaker_card_link(sp["event_slug"], sp["ec_id"],
-                                              sp["default_link_mode"], sp["bot_handle"])
+                                              sp["default_link_mode"], sp["bot_handle"],
+                                              base_url=_pub_base)
                 sp_time, sp_date, sp_dt = _build_speaker_slot_strings(
                     sp["slot_start"], sp["slot_end"], sp["slot_date"])
                 # «Сегодня/Завтра» считаем от ДАТЫ ОТПРАВКИ (fire_at, МСК), а не от
@@ -1786,7 +1826,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 _pre_when = relative_when(_pre_date, session_data["start_time"],
                                           _msk_ref_date(fire_at))
             card_link = speaker_card_link(session_data.get("event_slug"), session_data.get("ec_id"),
-                                          session_data.get("default_link_mode"), session_data.get("bot_handle"))
+                                          session_data.get("default_link_mode"), session_data.get("bot_handle"),
+                                          base_url=_pub_base)
             text = build_pre_start_message(
                 text,
                 session_data.get("speaker_name"),
@@ -1969,7 +2010,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
                 program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
                 if name:
-                    _link = speaker_card_link(_c_slug, s["ec_id"], _c_link_mode, _c_bot)
+                    _link = speaker_card_link(_c_slug, s["ec_id"], _c_link_mode, _c_bot,
+                                              base_url=_pub_base)
                     name_html = f'<a href="{_link}">{name}</a>' if _link else name
                     speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
                 else:

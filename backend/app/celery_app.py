@@ -6,7 +6,8 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention", "app.tasks.webinar_recording"]
+    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
+        "app.tasks.client_domains", "app.tasks.webinar_recording"]
 )
 
 celery.conf.update(
@@ -59,6 +60,12 @@ celery.conf.update(
         "archive-old-dialogs": {
             "task": "app.tasks.dialog_retention.archive_old_dialogs",
             "schedule": crontab(hour=4, minute=10),
+        },
+        # Раз в сутки в 05:20 МСК — сроки сертификатов своих доменов клиентов
+        # и предупреждения за 14/7/3/1 день (миграция 270).
+        "check-client-domains": {
+            "task": "app.tasks.client_domains.check_domains",
+            "schedule": crontab(hour=5, minute=20),
         },
     }
 )
