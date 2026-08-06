@@ -116,7 +116,7 @@ export default function DomainsTab() {
   const load = async () => {
     setLoading(true)
     try {
-      const r = await api.clients.domains.list()
+      const r = await api.miniApp.domains.list()
       setDomains(r.domains || [])
       setPlatformDomain(r.platform_domain || 'pluson.ru')
       setNoAccess(false)
@@ -136,7 +136,7 @@ export default function DomainsTab() {
     const d = newDomain.trim()
     if (!d) { setError('Укажите домен'); return }
     try {
-      await api.clients.domains.create({ kind, domain: d })
+      await api.miniApp.domains.create({ kind, domain: d })
       setNewDomain('')
       setAdding(null)
       await load()
@@ -148,7 +148,7 @@ export default function DomainsTab() {
   const checkDns = async (id: number) => {
     setBusyId(id)
     try {
-      const r = await api.clients.domains.checkDns(id)
+      const r = await api.miniApp.domains.checkDns(id)
       await load()
       const res = r.result || {}
       if (res.ok) {
@@ -175,7 +175,7 @@ export default function DomainsTab() {
   const issueCert = async (id: number) => {
     setBusyId(id)
     try {
-      await api.clients.domains.issueCert(id)
+      await api.miniApp.domains.issueCert(id)
       await load()
       alert('Сертификат выпущен — домен работает.')
     } catch (e: any) {
@@ -191,7 +191,7 @@ export default function DomainsTab() {
     if (!confirm(`Отключить ${d.domain}?\n\nПосле отключения ${what}.`)) return
     setBusyId(d.id)
     try {
-      await api.clients.domains.delete(d.id)
+      await api.miniApp.domains.delete(d.id)
       await load()
     } catch (e: any) {
       alert(e?.message || 'Не удалось отключить домен')
@@ -203,7 +203,7 @@ export default function DomainsTab() {
   const saveMailSettings = async (d: Domain, local: string, name: string) => {
     setBusyId(d.id)
     try {
-      await api.clients.domains.update(d.id, { mail_from_local: local, mail_from_name: name })
+      await api.miniApp.domains.update(d.id, { mail_from_local: local, mail_from_name: name })
       await load()
     } catch (e: any) {
       alert(e?.message || 'Не удалось сохранить')
