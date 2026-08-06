@@ -316,6 +316,16 @@ export default function LandingThemeTab() {
                   </p>
                 </div>
               </div>
+              {/* Нужен, когда фон страницы и карточки контрастны: тёмная
+                  страница + светлые карточки одним общим цветом не собирались. */}
+              <div>
+                <ColorField label="Цвет текста в карточках" value={theme.card_text_color}
+                  onChange={v => set({ card_text_color: v })} />
+                <p className="mt-1 text-xs text-gray-500">
+                  Оставьте пустым — текст в карточках будет как везде на странице.
+                  Задайте свой, если карточки светлее или темнее фона.
+                </p>
+              </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Стиль рамки

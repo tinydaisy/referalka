@@ -50,6 +50,7 @@ _FIELDS = {
     "border_style": "lp_border_style",
     "card_bg": "lp_card_bg",
     "card_bg_opacity": "lp_card_bg_opacity",
+    "card_text_color": "lp_card_text_color",
     "icon_color": "lp_icon_color",
     "icon_metallic": "lp_icon_metallic",
     "radius": "lp_radius",
@@ -89,6 +90,8 @@ class ThemeUpdate(BaseModel):
     border_style: Optional[str] = None
     card_bg: Optional[str] = None
     card_bg_opacity: Optional[int] = None
+    # Пусто → текст карточек наследует общий color_body страницы.
+    card_text_color: Optional[str] = None
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None

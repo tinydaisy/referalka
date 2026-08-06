@@ -177,6 +177,12 @@ export default function LandingRenderer({
   const cardFill = hexToRgba(page.card_bg || '#0F1E2E', (page.card_bg_opacity ?? 55) / 100)
   const brd = page.border_color || '#FFCFA4'
 
+  // Цвет текста ВНУТРИ карточек. Пусто → наследуем общий текст страницы.
+  // ⚠️ Нужен, когда фон страницы и карточки контрастны друг другу: тёмная
+  // страница + светлые карточки одним color_body не собирались — текст
+  // совпадал по цвету с карточкой и пропадал.
+  const cardText = page.card_text_color || undefined
+
   const cardStyle: React.CSSProperties = page.border_style === 'fade'
     // «Растворяющаяся» рамка: яркая по углам, к середине сторон уходит в ноль.
     // Делается двумя слоями фона — заливка в padding-box, рамка в border-box.
@@ -186,11 +192,13 @@ export default function LandingRenderer({
         background:
           `linear-gradient(${cardFill}, ${cardFill}) padding-box, ` +
           `conic-gradient(from 45deg at 50% 50%, ${brd}, transparent 25%, ${brd} 50%, transparent 75%, ${brd}) border-box`,
+        ...(cardText ? { color: cardText } : {}),
       }
     : {
         borderRadius: radius,
         border: `1px solid ${brd}`,
         background: cardFill,
+        ...(cardText ? { color: cardText } : {}),
       }
 
   const iconColor = page.icon_color || '#FFCFA4'

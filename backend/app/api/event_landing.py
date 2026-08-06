@@ -133,6 +133,8 @@ class PagePatch(BaseModel):
     border_style: Optional[str] = None
     card_bg: Optional[str] = None
     card_bg_opacity: Optional[int] = None
+    # Свой цвет текста ВНУТРИ карточек. Пусто → берётся общий color_body.
+    card_text_color: Optional[str] = None
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
@@ -274,7 +276,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_border_color,
                   cl.lp_btn_border_width, cl.lp_btn_border_metallic, cl.lp_btn_radius,
                   cl.lp_border_color, cl.lp_border_metallic, cl.lp_border_style,
-                  cl.lp_card_bg, cl.lp_card_bg_opacity,
+                  cl.lp_card_bg, cl.lp_card_bg_opacity, cl.lp_card_text_color,
                   cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius, cl.lp_body_size,
                   cl.lp_content_width, cl.lp_pad_x, cl.lp_section_gap
              FROM event_owners eo
@@ -296,9 +298,10 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   btn_color_2, btn_angle, btn_border_color,
                   btn_border_width, btn_border_metallic, btn_radius,
                   border_color, border_metallic, border_style, card_bg, card_bg_opacity,
+                  card_text_color,
                   icon_color, icon_metallic, radius, body_size,
                   content_width, pad_x, section_gap)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
                ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
@@ -330,6 +333,7 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             t.get("lp_border_style") or "solid",
             t.get("lp_card_bg") or "#0F1E2E",
             t.get("lp_card_bg_opacity") if t.get("lp_card_bg_opacity") is not None else 55,
+            t.get("lp_card_text_color"),  # NULL → текст карточек наследует color_body
             t.get("lp_icon_color") or "#FFCFA4",
             bool(t.get("lp_icon_metallic", True)),
             t.get("lp_radius") if t.get("lp_radius") is not None else 5,
@@ -449,7 +453,7 @@ async def patch_page(
         "btn_color_2", "btn_angle", "btn_border_color",
         "btn_border_width", "btn_border_metallic", "btn_radius",
         "border_color", "border_metallic", "border_style",
-        "card_bg", "card_bg_opacity",
+        "card_bg", "card_bg_opacity", "card_text_color",
         "icon_color", "icon_metallic", "radius",
         "body_size", "content_width", "pad_x", "section_gap",
         "nav_enabled", "nav_button_label", "nav_button_target",
@@ -477,6 +481,10 @@ async def patch_page(
             val = "solid"
         if field == "card_bg_opacity" and val is not None:
             val = max(0, min(100, int(val)))
+        # Пустая строка = ЯВНЫЙ сброс на наследование общего цвета текста.
+        # Без этого вернуть «как у всей страницы» было бы нечем.
+        if field == "card_text_color" and not (val or "").strip():
+            val = None
         if field == "radius" and val is not None:
             val = max(0, min(64, int(val)))
         if field == "body_size" and val is not None:
@@ -516,6 +524,7 @@ async def patch_page(
         "color_body", "color_link", "price_color", "btn_color", "btn_text_color", "btn_metallic",
         "btn_color_2", "btn_angle", "btn_border_color", "btn_border_width",
         "btn_border_metallic", "border_color", "border_metallic", "border_style", "card_bg", "card_bg_opacity",
+        "card_text_color",
         "icon_color", "icon_metallic", "radius", "body_size",
         "content_width", "pad_x", "section_gap",
     }
@@ -774,6 +783,7 @@ async def apply_theme(
              border_style = COALESCE(c.lp_border_style, 'solid'),
              card_bg = c.lp_card_bg,
              card_bg_opacity = COALESCE(c.lp_card_bg_opacity, 55),
+             card_text_color = c.lp_card_text_color,
              icon_color = c.lp_icon_color, icon_metallic = c.lp_icon_metallic,
              radius = COALESCE(c.lp_radius, 5),
              body_size = COALESCE(c.lp_body_size, 16),
