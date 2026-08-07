@@ -711,8 +711,22 @@ function BlockBody({
       // кнопки на ботов клиента вместо кнопки регистрации, плюс свой текст.
       const bots = content.bots
       const isThanks = Array.isArray(bots)
+      // Куда прижат текст шапки. По умолчанию центр — как было всегда.
+      // ⚠️ Нужно для фонов со смысловым объектом сбоку: текст по центру
+      // ложится прямо на него. Сдвиг решает это без правки картинки.
+      const hAlign = block.hero_align === 'left' || block.hero_align === 'right'
+        ? block.hero_align : 'center'
+      const heroAlignCls =
+        hAlign === 'left' ? 'text-left items-start'
+        : hAlign === 'right' ? 'text-right items-end'
+        : 'text-center items-center'
+      // При сдвиге в сторону колонка занимает половину ширины, иначе строки
+      // растянулись бы на весь экран и «прижатость» была бы не видна.
+      const heroWidthCls = hAlign === 'center' ? '' : 'md:max-w-[56%]'
+      const heroSelfCls =
+        hAlign === 'right' ? 'md:ml-auto' : hAlign === 'left' ? 'md:mr-auto' : ''
       return (
-        <div className="text-center">
+        <div className={`flex flex-col ${heroAlignCls} ${heroWidthCls} ${heroSelfCls}`}>
           {/* Формат и дата — двумя овалами в один ряд над заголовком.
               Цвет рамки и текста — основного текста страницы, заливка
               полупрозрачная и сгущается к центру. */}
@@ -726,6 +740,19 @@ function BlockBody({
               size={block.date_size}
               className="mb-5"
             />
+          )}
+          {/* Надзаголовок — тип события НАД названием («Фестиваль практик и
+              медитаций» над «Г.У.Р.У.»). Цветом основного текста, чтобы не
+              спорить с золотым названием. */}
+          {!isThanks && block.overline && (
+            <p
+              className="mb-2 font-bold uppercase leading-tight tracking-wide"
+              style={{
+                fontSize: `clamp(${Math.round((block.overline_size || 30) * 0.6)}px, ${((block.overline_size || 30) / 24).toFixed(1)}vw, ${block.overline_size || 30}px)`,
+              }}
+            >
+              {block.overline}
+            </p>
           )}
           {/* Размер задаётся в блоке «Шапка» (title_size). Дефолт крупнее,
               чем у обычных секций; clamp — чтобы не вылезал на телефоне. */}
@@ -768,7 +795,9 @@ function BlockBody({
                   Отдельного поля в конструкторе нет: название и описание
                   правятся в одном месте, на лендинге не дублируются. */}
               {event.description && (
-                <p className="mx-auto mt-5 max-w-3xl opacity-90"
+                // ⚠️ mx-auto только при центре: при сдвиге влево/вправо он
+                // вернул бы абзац на середину и выравнивание не сработало бы.
+                <p className={`mt-5 max-w-3xl opacity-90 ${hAlign === 'center' ? 'mx-auto' : ''}`}
                    style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}>
                   {event.description}
                 </p>
@@ -786,7 +815,9 @@ function BlockBody({
               )}
               {/* Счётчик мест — рядом с кнопкой, а не отдельной секцией.
                   Положение задаётся в блоке «Шапка»: над кнопкой или сбоку. */}
-              <div className={`mt-8 flex flex-wrap items-center justify-center gap-5 ${
+              <div className={`mt-8 flex flex-wrap items-center gap-5 ${
+                hAlign === 'left' ? 'justify-start' : hAlign === 'right' ? 'justify-end' : 'justify-center'
+              } ${
                 block.seats_position === 'side' ? 'flex-row' : 'flex-col'
               }`}>
                 {block.show_seats && content.seats && (

@@ -206,6 +206,10 @@ class BlockPatch(BaseModel):
     date_position: Optional[str] = None
     date_size: Optional[int] = None
     kicker: Optional[str] = None
+    # Шапка: строка НАД названием события (тип события) + куда прижат текст.
+    overline: Optional[str] = None
+    overline_size: Optional[int] = None
+    hero_align: Optional[str] = None
     featured_glow: Optional[int] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
@@ -603,6 +607,7 @@ async def patch_block(
         "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source",
         "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
         "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
+        "overline", "overline_size", "hero_align",
         "featured_glow",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
@@ -628,6 +633,9 @@ async def patch_block(
             val = max(20, min(80, int(val)))
         if field == "pad_y" and val is not None:
             val = max(0, min(200, int(val)))
+        # Мусорное значение сломало бы вёрстку шапки — приводим к центру.
+        if field == "hero_align" and val not in ("left", "center", "right"):
+            val = "center"
         if field == "title_align" and val not in ("left", "center", "right"):
             val = "left"
         if field == "title_size" and val is not None:
