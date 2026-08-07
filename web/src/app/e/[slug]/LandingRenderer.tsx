@@ -237,21 +237,26 @@ export default function LandingRenderer({
       {page.bg_image_url && (
         <div className="fixed inset-0 -z-10">
           {/* Фон — картинкой блока, а НЕ <img> с transform: scale.
-              ⚠️ scale() ужимал саму картинку внутри контейнера: при масштабе
-              меньше 100% по краям появлялись пустые поля (картинка «карточкой»),
-              а сдвиг переставал что-либо менять — двигать было уже нечего.
-              background-size так не делает: 100% = cover (картинка всегда
-              покрывает экран), больше — приближает, и кадр остаётся полным.
-              Точка фокуса и масштаб на телефоне переопределяются медиазапросом
-              ниже — инлайн-стилем его не задать. */}
+              ⚠️ scale() ужимал саму картинку внутри контейнера: по краям
+              появлялись пустые поля, а сдвиг переставал что-либо менять.
+
+              ⚠️ Масштаб = cover × коэффициент, а НЕ «N% ширины»:
+              `N% auto` считает высоту от ширины, и на узком высоком экране
+              телефона широкая картинка выходила НИЖЕ экрана — сдвигать её
+              по вертикали было физически нечего (ползунок не работал).
+              Задавать `N% N%` тоже нельзя: это растягивает картинку и ломает
+              пропорции. Поэтому cover (пропорции целы, экран перекрыт) плюс
+              увеличение самого слоя — запас для сдвига появляется по обеим
+              осям. Слой растёт от центра, поэтому вылезающие края уходят
+              за пределы экрана и обрезаются родителем. */}
           <div
-            className="lp-bg-img absolute inset-0 bg-no-repeat"
+            className="lp-bg-img absolute inset-0 bg-cover bg-no-repeat"
             style={{
               backgroundImage: `url(${page.bg_image_url})`,
               backgroundPosition: page.bg_position || '50% 50%',
-              backgroundSize: (page.bg_scale ?? 300) === 100
-                ? 'cover'
-                : `${page.bg_scale ?? 300}% auto`,
+              ...(Math.max(100, page.bg_scale ?? 300) !== 100
+                ? { transform: `scale(${Math.max(100, page.bg_scale ?? 300) / 100})` }
+                : {}),
             }}
           />
           <div
@@ -343,7 +348,7 @@ export default function LandingRenderer({
         @media (max-width: 767px) {
           .lp-bg-img {
             ${page.bg_position_mobile ? `background-position: ${page.bg_position_mobile} !important;` : ''}
-            ${page.bg_scale_mobile ? `background-size: ${page.bg_scale_mobile === 100 ? 'cover' : `${page.bg_scale_mobile}% auto`} !important;` : ''}
+            ${page.bg_scale_mobile ? `transform: scale(${Math.max(100, page.bg_scale_mobile) / 100}) !important;` : ''}
           }
         }` : ''}
         .lp-root { max-width: 100vw; }
