@@ -184,13 +184,13 @@ export default function OrderForm({
 
   if (candidates) {
     return (
-      <div className="min-h-screen px-4 py-8"
+      <div className="min-h-screen px-5 py-10 sm:px-6"
            style={{
              background: page.bg_css_screen || page.bg_css || '#25455D',
              color: page.color_body || '#FFFFFF',
              fontFamily: page.font_body_css,
            }}>
-        <div className="mx-auto w-full max-w-lg">
+        <div className="mx-auto w-full max-w-xl">
           <h1 className="text-center text-[1.5em] font-bold uppercase"
               style={{ fontFamily: page.font_heading_css, color: page.color_heading || '#FFCFA4' }}>
             Это вы?
@@ -273,14 +273,14 @@ export default function OrderForm({
 
   return (
     <div
-      className="min-h-screen px-4 py-8"
+      className="min-h-screen px-5 py-10 sm:px-6"
       style={{
         background: page.bg_css_screen || page.bg_css || '#25455D',
         color: page.color_body || '#FFFFFF',
         fontFamily: page.font_body_css,
       }}
     >
-      <div className="mx-auto w-full max-w-lg">
+      <div className="mx-auto w-full max-w-xl">
         {/* Афиша события */}
         {event.poster_url && (
           <img
@@ -293,11 +293,11 @@ export default function OrderForm({
 
         {/* Что покупаем */}
         <div className="mb-6 text-center">
-          <div className="text-[.9em] uppercase tracking-wide opacity-70">
+          <div className="text-[1em] uppercase tracking-wide opacity-70">
             {event.title}
           </div>
           <h1
-            className="mt-2 text-[1.8em] font-bold uppercase leading-tight"
+            className="mt-2 text-[2.4em] font-bold uppercase leading-tight"
             style={{ fontFamily: page.font_heading_css, color: page.color_heading || '#FFCFA4' }}
           >
             {tariff.title}
