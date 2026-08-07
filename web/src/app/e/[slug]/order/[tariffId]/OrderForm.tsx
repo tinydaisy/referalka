@@ -476,10 +476,16 @@ function Consent({
   checked, onChange, children,
 }: { checked: boolean; onChange: (v: boolean) => void; children: React.ReactNode }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2.5 text-[.8em] leading-snug opacity-90">
+    // ⚠️ mb/py заданы и утилитами, и стилем: если CSS не догрузился, согласия
+    // слипались в сплошной абзац — по ним нельзя было понять, где какое.
+    <label
+      className="mb-3 flex cursor-pointer items-start gap-2.5 text-[.8em] leading-snug opacity-90"
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}
+    >
       <input type="checkbox" checked={checked}
              onChange={e => onChange(e.target.checked)}
-             className="mt-0.5 h-4 w-4 shrink-0" />
+             className="mt-0.5 h-4 w-4 shrink-0"
+             style={{ width: 16, height: 16, marginTop: 3, flexShrink: 0 }} />
       <span>{children}</span>
     </label>
   )
