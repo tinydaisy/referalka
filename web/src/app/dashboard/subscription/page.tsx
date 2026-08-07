@@ -92,6 +92,17 @@ export default function SubscriptionPage() {
     }
   }
 
+  // Пришли по ссылке с якорем (#modules / #tariffs) — подводим к блоку плавно.
+  // Блоки грузятся асинхронно, поэтому один raf-кадр ждём, иначе якоря ещё нет.
+  useEffect(() => {
+    const id = window.location.hash.slice(1)
+    if (!id) return
+    const t = setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 350)
+    return () => clearTimeout(t)
+  }, [])
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
@@ -167,7 +178,7 @@ export default function SubscriptionPage() {
       {/* Выбор тарифа */}
       {tariffs.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="font-semibold text-gray-800 mb-2">Продлить или сменить тариф</h3>
+          <h3 id="tariffs" className="scroll-mt-24 font-semibold text-gray-800 mb-2">Продлить или сменить тариф</h3>
           <p className="text-sm text-gray-500 mb-4">
             Оплата идёт через Prodamus, чек 54-ФЗ приходит на email автоматически.
           </p>
@@ -304,7 +315,7 @@ function ModulesBlock() {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-      <h3 className="font-semibold text-gray-800 mb-1">Модули</h3>
+      <h3 id="modules" className="scroll-mt-24 font-semibold text-gray-800 mb-1">Модули</h3>
       <p className="text-sm text-gray-500 mb-5">
         Подключаются поверх тарифа. Оплата помесячно.
       </p>

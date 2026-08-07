@@ -215,17 +215,18 @@ export function metaFor(kind: string): BlockMeta {
  * данными, а фича — стабильный признак. Названия и цены здесь не хардкодим,
  * подпись собирается из справочника фич, который отдаёт бэк.
  *
- * `feature`  — что должно быть у клиента, чтобы секция работала;
- * `where`    — куда вести за покупкой (раздел подписки / модулей).
+ * `anyOf` — секция работает, если у клиента есть ХОТЯ БЫ ОДНА из фич.
+ * Куда вести за покупкой, решает сам FeatureLock: модуль → к модулям,
+ * тарифная возможность → к смене тарифа.
  */
-export const BLOCK_FEATURE: Partial<Record<BlockKind, { anyOf: string[]; where: string }>> = {
+export const BLOCK_FEATURE: Partial<Record<BlockKind, { anyOf: string[] }>> = {
   // Спикеры и программа приходят из модулей, где эти сущности вообще есть:
   // конференции, премии/турниры и коллаборации. Хватает ЛЮБОГО из них.
-  speakers: { anyOf: ['conference', 'tournaments', 'collab_hub'], where: '/dashboard/settings?tab=subscription' },
-  program:  { anyOf: ['conference', 'tournaments', 'collab_hub'], where: '/dashboard/settings?tab=subscription' },
+  speakers: { anyOf: ['conference', 'tournaments', 'collab_hub'] },
+  program:  { anyOf: ['conference', 'tournaments', 'collab_hub'] },
   // ⚠️ Партнёры — ТОЛЬКО модуль «Конференции». У коллаборации партнёров нет:
   // там участники равноправные организаторы, а не спонсоры события.
-  partners: { anyOf: ['conference'], where: '/dashboard/settings?tab=subscription' },
+  partners: { anyOf: ['conference'] },
   // Платные тарифы мероприятия — возможность старшего тарифа.
-  tariffs:  { anyOf: ['event_tariffs'], where: '/dashboard/settings?tab=subscription' },
+  tariffs:  { anyOf: ['event_tariffs'] },
 }

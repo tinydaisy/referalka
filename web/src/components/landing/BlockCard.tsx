@@ -155,7 +155,7 @@ export default function BlockCard({
       {open && locked && (
         <div className="border-t border-gray-100 p-4">
           <p className="mb-3 text-sm text-gray-500">{meta.hint}</p>
-          <FeatureLock anyOf={gate!.anyOf} where={gate!.where} />
+          <FeatureLock anyOf={gate!.anyOf} />
         </div>
       )}
 

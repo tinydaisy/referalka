@@ -52,9 +52,10 @@ export function useFeatureCatalog() {
  * @param compact короткая строка вместо крупной плашки
  */
 export default function FeatureLock({
-  anyOf, where = '/dashboard/settings?tab=subscription', compact = false, className = '',
+  anyOf, where, compact = false, className = '',
 }: {
   anyOf: string[]
+  /** Куда вести. Не задано — подбираем сами: модуль → к модулям, иначе к тарифам. */
   where?: string
   compact?: boolean
   className?: string
@@ -78,10 +79,18 @@ export default function FeatureLock({
     ? (names.length > 1 ? 'модулях' : 'модуле')
     : 'тарифе'
 
+  // ⚠️ Ведём на СТРАНИЦУ подписки (отдельный пункт меню), а не во вкладку
+  // настроек — там подписки нет. И сразу к нужному блоку: модули покупаются
+  // в одном месте, смена тарифа — в другом, иначе человек попадает в начало
+  // длинной страницы и ищет сам.
+  const href = where || (allAddons
+    ? '/dashboard/subscription#modules'
+    : '/dashboard/subscription#tariffs')
+
   if (compact) {
     return (
       <Link
-        href={where}
+        href={href}
         className={`inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-brand ${className}`}
       >
         <Lock className="h-3.5 w-3.5 shrink-0" />
@@ -92,7 +101,7 @@ export default function FeatureLock({
 
   return (
     <Link
-      href={where}
+      href={href}
       className={`flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100 ${className}`}
     >
       <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
