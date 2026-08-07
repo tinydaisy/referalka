@@ -169,8 +169,8 @@ export function BgFramingFields({ page, patchPage }: { page: any; patchPage: (v:
           <Row label="По вертикали" value={d.y} min={0} max={100}
             hint="0 — верх, 100 — низ"
             onChange={(v: number) => patchPage({ bg_position: `${d.x}% ${v}%` })} />
-          <Row label="Масштаб" value={page.bg_scale ?? 100} min={50} max={300} step={5}
-            hint="100 — как есть, больше — приблизить"
+          <Row label="Масштаб" value={page.bg_scale ?? 100} min={100} max={300} step={5}
+            hint="100 — картинка вписана в экран, больше — приблизить"
             onChange={(v: number) => patchPage({ bg_scale: v })} />
         </div>
       </div>
@@ -184,8 +184,8 @@ export function BgFramingFields({ page, patchPage }: { page: any; patchPage: (v:
           <Row label="По вертикали" value={m.y} min={0} max={100}
             onChange={(v: number) => patchPage({ bg_position_mobile: `${m.x}% ${v}%` })} />
           <Row label="Масштаб" value={page.bg_scale_mobile ?? page.bg_scale ?? 100}
-            min={50} max={300} step={5}
-            hint="меньше 100 — отдалить, войдёт больше кадра"
+            min={100} max={300} step={5}
+            hint="увеличьте, если объект попадает в кадр не целиком"
             onChange={(v: number) => patchPage({ bg_scale_mobile: v })} />
         </div>
       </div>

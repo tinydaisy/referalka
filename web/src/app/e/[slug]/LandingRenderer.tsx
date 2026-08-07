@@ -236,20 +236,24 @@ export default function LandingRenderer({
       {/* Фоновая картинка страницы с перекрытием — чтобы текст читался. */}
       {page.bg_image_url && (
         <div className="fixed inset-0 -z-10">
-          {/* ⚠️ object-position задаётся отдельно для телефона: на узком
-              экране object-cover обрезает БОКА, и объект сбоку (человек,
-              предмет) уходит за край. Мобильное значение — через CSS-класс
-              ниже, инлайн-стилем медиазапрос не задать. */}
-          {/* Масштаб — через transform: scale поверх object-cover. Меньше
-              100% открывает больше кадра (по краям станет виден фон
-              страницы), больше — приближает. */}
-          <img src={page.bg_image_url} alt="" className="lp-bg-img h-full w-full object-cover"
-               style={{
-                 objectPosition: page.bg_position || '50% 50%',
-                 ...((page.bg_scale ?? 100) !== 100
-                   ? { transform: `scale(${(page.bg_scale ?? 100) / 100})` }
-                   : {}),
-               }} />
+          {/* Фон — картинкой блока, а НЕ <img> с transform: scale.
+              ⚠️ scale() ужимал саму картинку внутри контейнера: при масштабе
+              меньше 100% по краям появлялись пустые поля (картинка «карточкой»),
+              а сдвиг переставал что-либо менять — двигать было уже нечего.
+              background-size так не делает: 100% = cover (картинка всегда
+              покрывает экран), больше — приближает, и кадр остаётся полным.
+              Точка фокуса и масштаб на телефоне переопределяются медиазапросом
+              ниже — инлайн-стилем его не задать. */}
+          <div
+            className="lp-bg-img absolute inset-0 bg-no-repeat"
+            style={{
+              backgroundImage: `url(${page.bg_image_url})`,
+              backgroundPosition: page.bg_position || '50% 50%',
+              backgroundSize: (page.bg_scale ?? 100) === 100
+                ? 'cover'
+                : `${page.bg_scale ?? 100}% auto`,
+            }}
+          />
           <div
             className="absolute inset-0"
             style={{
@@ -334,12 +338,12 @@ export default function LandingRenderer({
            От горизонтальной прокрутки защищаемся иначе: ограничиваем ширину
            содержимого (max-width на картинках, перенос длинных слов). */
         ${(page.bg_position_mobile || page.bg_scale_mobile) ? `
-        /* Свой кадр фона на телефоне: на узком экране object-cover срезает
-           бока, и объект сбоку пропадает. Фокус и масштаб задаются отдельно. */
+        /* Свой кадр фона на телефоне: на узком экране картинка срезается по
+           БОКАМ, и объект сбоку пропадает. Фокус и масштаб — отдельно. */
         @media (max-width: 767px) {
           .lp-bg-img {
-            ${page.bg_position_mobile ? `object-position: ${page.bg_position_mobile} !important;` : ''}
-            ${page.bg_scale_mobile ? `transform: scale(${page.bg_scale_mobile / 100}) !important;` : ''}
+            ${page.bg_position_mobile ? `background-position: ${page.bg_position_mobile} !important;` : ''}
+            ${page.bg_scale_mobile ? `background-size: ${page.bg_scale_mobile === 100 ? 'cover' : `${page.bg_scale_mobile}% auto`} !important;` : ''}
           }
         }` : ''}
         .lp-root { max-width: 100vw; }
@@ -948,7 +952,11 @@ function BlockBody({
               >
                 {String(i + 1).padStart(2, '0')}
               </span>
-              <span className="pt-1 font-medium uppercase">{t}</span>
+              {/* ⚠️ Без uppercase: капс был зашит намертво и «съедал» пункты
+                  из нескольких предложений — заголовок и описание в них
+                  сливались в сплошную кричащую строку. Регистр задаёт сам
+                  текст: КАПС в поле → капс на странице. */}
+              <span className="pt-1 font-medium">{t}</span>
             </div>
           ))}
         </div>
