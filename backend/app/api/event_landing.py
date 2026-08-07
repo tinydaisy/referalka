@@ -135,6 +135,10 @@ class PagePatch(BaseModel):
     card_bg_opacity: Optional[int] = None
     # Свой цвет текста ВНУТРИ карточек. Пусто → берётся общий color_body.
     card_text_color: Optional[str] = None
+    # Точка фокуса фоновой картинки (CSS object-position), своя для телефона:
+    # на узком экране обрезаются бока и объект сбоку уходит за край.
+    bg_position: Optional[str] = None
+    bg_position_mobile: Optional[str] = None
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
@@ -458,6 +462,7 @@ async def patch_page(
         "btn_border_width", "btn_border_metallic", "btn_radius",
         "border_color", "border_metallic", "border_style",
         "card_bg", "card_bg_opacity", "card_text_color",
+        "bg_position", "bg_position_mobile",
         "icon_color", "icon_metallic", "radius",
         "body_size", "content_width", "pad_x", "section_gap",
         "nav_enabled", "nav_button_label", "nav_button_target",

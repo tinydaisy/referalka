@@ -236,7 +236,12 @@ export default function LandingRenderer({
       {/* Фоновая картинка страницы с перекрытием — чтобы текст читался. */}
       {page.bg_image_url && (
         <div className="fixed inset-0 -z-10">
-          <img src={page.bg_image_url} alt="" className="h-full w-full object-cover" />
+          {/* ⚠️ object-position задаётся отдельно для телефона: на узком
+              экране object-cover обрезает БОКА, и объект сбоку (человек,
+              предмет) уходит за край. Мобильное значение — через CSS-класс
+              ниже, инлайн-стилем медиазапрос не задать. */}
+          <img src={page.bg_image_url} alt="" className="lp-bg-img h-full w-full object-cover"
+               style={{ objectPosition: page.bg_position || '50% 50%' }} />
           <div
             className="absolute inset-0"
             style={{
@@ -320,6 +325,12 @@ export default function LandingRenderer({
            перестаёт работать — она уезжает вместе со страницей.
            От горизонтальной прокрутки защищаемся иначе: ограничиваем ширину
            содержимого (max-width на картинках, перенос длинных слов). */
+        ${page.bg_position_mobile ? `
+        /* Своя точка фокуса фона на телефоне: на узком экране object-cover
+           срезает бока, и объект сбоку пропадает из кадра. */
+        @media (max-width: 767px) {
+          .lp-bg-img { object-position: ${page.bg_position_mobile} !important; }
+        }` : ''}
         .lp-root { max-width: 100vw; }
         .lp-root img { max-width: 100%; }
         .lp-root h1, .lp-root h2, .lp-root h3 { overflow-wrap: anywhere; }
