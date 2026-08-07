@@ -940,7 +940,20 @@ function BlockBody({
 
     /* ── Список пунктов ────────────────────────────────────────────────── */
     case 'benefits': {
-      const list: string[] = Array.isArray(items) ? items.filter((i: any) => typeof i === 'string' && i) : []
+      // Пункт — объект {title, text}: название и описание двумя полями.
+      // ⚠️ Строки поддерживаем и дальше: так пункты лежат у всех, кто
+      // заполнял блок раньше. Строку с переносом делим на название и описание,
+      // строку без переноса показываем как одно название.
+      const list = (Array.isArray(items) ? items : [])
+        .map((i: any) => {
+          if (i && typeof i === 'object') return { title: i.title || '', text: i.text || '' }
+          if (typeof i === 'string' && i) {
+            const [head, ...rest] = i.split('\n')
+            return { title: head, text: rest.join('\n').trim() }
+          }
+          return null
+        })
+        .filter(Boolean) as Array<{ title: string; text: string }>
       return (
         <div className={`space-y-3 ${glowCls}`} style={glowVars}>
           {list.map((t, i) => (
@@ -952,30 +965,22 @@ function BlockBody({
               >
                 {String(i + 1).padStart(2, '0')}
               </span>
-              {/* Пункт = название + описание, разделённые переносом строки.
-                  Первая строка — цветом заголовков (акцент), остальное —
-                  обычным текстом под ним. Переноса нет → весь пункт идёт
-                  одной строкой, как раньше.
+              {/* Название — цветом заголовков (акцент), описание под ним
+                  обычным текстом.
                   ⚠️ Без uppercase: капс был зашит намертво и «съедал» пункты
                   из нескольких предложений — название и описание сливались
                   в сплошную кричащую строку. Регистр задаёт сам текст. */}
-              {(() => {
-                const [head, ...rest] = String(t).split('\n')
-                const body = rest.join('\n').trim()
-                return (
-                  <span className="min-w-0 pt-1">
-                    <span className="block font-bold"
-                          style={{ color: page.color_heading || '#FFCFA4' }}>
-                      {head}
-                    </span>
-                    {body && (
-                      <span className="mt-1 block whitespace-pre-line font-normal opacity-90">
-                        {body}
-                      </span>
-                    )}
+              <span className="min-w-0 pt-1">
+                <span className="block font-bold"
+                      style={{ color: page.color_heading || '#FFCFA4' }}>
+                  {t.title}
+                </span>
+                {t.text && (
+                  <span className="mt-1 block whitespace-pre-line font-normal opacity-90">
+                    {t.text}
                   </span>
-                )
-              })()}
+                )}
+              </span>
             </div>
           ))}
         </div>
