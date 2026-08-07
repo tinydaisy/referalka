@@ -139,6 +139,9 @@ class PagePatch(BaseModel):
     # на узком экране обрезаются бока и объект сбоку уходит за край.
     bg_position: Optional[str] = None
     bg_position_mobile: Optional[str] = None
+    # Масштаб фона в %: 100 — как есть, больше — приблизить, меньше — отдалить.
+    bg_scale: Optional[int] = None
+    bg_scale_mobile: Optional[int] = None
     icon_color: Optional[str] = None
     icon_metallic: Optional[bool] = None
     radius: Optional[int] = None
@@ -462,7 +465,7 @@ async def patch_page(
         "btn_border_width", "btn_border_metallic", "btn_radius",
         "border_color", "border_metallic", "border_style",
         "card_bg", "card_bg_opacity", "card_text_color",
-        "bg_position", "bg_position_mobile",
+        "bg_position", "bg_position_mobile", "bg_scale", "bg_scale_mobile",
         "icon_color", "icon_metallic", "radius",
         "body_size", "content_width", "pad_x", "section_gap",
         "nav_enabled", "nav_button_label", "nav_button_target",
@@ -490,6 +493,10 @@ async def patch_page(
             val = "solid"
         if field == "card_bg_opacity" and val is not None:
             val = max(0, min(100, int(val)))
+        # Масштаб фона: ниже 50% картинка не закрывает экран, выше 300%
+        # рассыпается в пиксели.
+        if field in ("bg_scale", "bg_scale_mobile") and val is not None:
+            val = max(50, min(300, int(val)))
         # Пустая строка = ЯВНЫЙ сброс на наследование общего цвета текста.
         # Без этого вернуть «как у всей страницы» было бы нечем.
         if field == "card_text_color" and not (val or "").strip():

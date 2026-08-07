@@ -122,6 +122,77 @@ export function BackgroundFields({
   )
 }
 
+/**
+ * Кадр фоновой картинки: сдвиг и масштаб, ОТДЕЛЬНО для компьютера и телефона.
+ *
+ * ⚠️ Зачем отдельно. Фон заполняет экран по правилу object-cover: лишнее
+ * обрезается по краям. На узком экране телефона срезаются именно БОКА —
+ * и объект, стоящий сбоку (человек, предмет), уходит из кадра. Одной общей
+ * настройки не хватает: на широком экране кадр обычно хорош как есть.
+ */
+export function BgFramingFields({ page, patchPage }: { page: any; patchPage: (v: any) => void }) {
+  // object-position хранится строкой «X% Y%» — разбираем на два числа.
+  const parse = (v: string | null | undefined, fallback = 50) => {
+    const m = String(v || '').match(/(-?\d+)%\s+(-?\d+)%/)
+    return m ? { x: Number(m[1]), y: Number(m[2]) } : { x: fallback, y: fallback }
+  }
+  const d = parse(page.bg_position)
+  const m = parse(page.bg_position_mobile ?? page.bg_position)
+
+  const Row = ({ label, hint, value, min, max, step = 1, suffix = '%', onChange }: any) => (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">
+        {label}: {value}{suffix}
+      </label>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))} className="w-full" />
+      {hint && <p className="mt-0.5 text-xs text-gray-500">{hint}</p>}
+    </div>
+  )
+
+  return (
+    <div className="mt-4 space-y-4 border-t border-gray-100 pt-4">
+      <div>
+        <h4 className="font-medium text-gray-900">Кадр фоновой картинки</h4>
+        <p className="mt-0.5 text-xs text-gray-500">
+          Картинка заполняет экран, лишнее обрезается по краям. Сдвиньте кадр, если
+          нужный объект оказался за краем — особенно на телефоне, там срезаются бока.
+        </p>
+      </div>
+
+      <div className="rounded-lg bg-gray-50 p-3">
+        <p className="mb-2 text-sm font-medium text-gray-800">На компьютере</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Row label="По горизонтали" value={d.x} min={0} max={100}
+            hint="0 — левый край, 100 — правый"
+            onChange={(v: number) => patchPage({ bg_position: `${v}% ${d.y}%` })} />
+          <Row label="По вертикали" value={d.y} min={0} max={100}
+            hint="0 — верх, 100 — низ"
+            onChange={(v: number) => patchPage({ bg_position: `${d.x}% ${v}%` })} />
+          <Row label="Масштаб" value={page.bg_scale ?? 100} min={50} max={300} step={5}
+            hint="100 — как есть, больше — приблизить"
+            onChange={(v: number) => patchPage({ bg_scale: v })} />
+        </div>
+      </div>
+
+      <div className="rounded-lg bg-gray-50 p-3">
+        <p className="mb-2 text-sm font-medium text-gray-800">На телефоне</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Row label="По горизонтали" value={m.x} min={0} max={100}
+            hint="сдвиньте к объекту — бока обрезаются"
+            onChange={(v: number) => patchPage({ bg_position_mobile: `${v}% ${m.y}%` })} />
+          <Row label="По вертикали" value={m.y} min={0} max={100}
+            onChange={(v: number) => patchPage({ bg_position_mobile: `${m.x}% ${v}%` })} />
+          <Row label="Масштаб" value={page.bg_scale_mobile ?? page.bg_scale ?? 100}
+            min={50} max={300} step={5}
+            hint="меньше 100 — отдалить, войдёт больше кадра"
+            onChange={(v: number) => patchPage({ bg_scale_mobile: v })} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Выбор шрифта. Список приходит с бэка (landing_fonts.py) — одна точка истины. */
 export function FontSelect({
   label, value, onChange, fonts,

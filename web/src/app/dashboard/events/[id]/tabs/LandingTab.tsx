@@ -17,7 +17,7 @@ import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 import BlockCard from '@/components/landing/BlockCard'
 import { REPEATABLE, STANDARD, metaFor } from '@/components/landing/blockMeta'
-import { ColorField, MetallicToggle, FontSelect, BackgroundFields } from '@/components/landing/StyleControls'
+import { ColorField, MetallicToggle, FontSelect, BackgroundFields, BgFramingFields } from '@/components/landing/StyleControls'
 
 interface Props {
   eventId: number
@@ -712,6 +712,11 @@ export default function LandingTab({ eventId, event }: Props) {
               onOverlay={v => patchPage({ bg_overlay: v })}
               onOpacity={v => patchPage({ bg_overlay_opacity: v })}
             />
+            {/* Кадр фоновой картинки. Показываем только когда картинка есть —
+                у цветного фона двигать нечего. */}
+            {page.bg_image_url && (
+              <BgFramingFields page={page} patchPage={patchPage} />
+            )}
           </div>
         </div>
       </details>

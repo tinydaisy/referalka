@@ -240,8 +240,16 @@ export default function LandingRenderer({
               экране object-cover обрезает БОКА, и объект сбоку (человек,
               предмет) уходит за край. Мобильное значение — через CSS-класс
               ниже, инлайн-стилем медиазапрос не задать. */}
+          {/* Масштаб — через transform: scale поверх object-cover. Меньше
+              100% открывает больше кадра (по краям станет виден фон
+              страницы), больше — приближает. */}
           <img src={page.bg_image_url} alt="" className="lp-bg-img h-full w-full object-cover"
-               style={{ objectPosition: page.bg_position || '50% 50%' }} />
+               style={{
+                 objectPosition: page.bg_position || '50% 50%',
+                 ...((page.bg_scale ?? 100) !== 100
+                   ? { transform: `scale(${(page.bg_scale ?? 100) / 100})` }
+                   : {}),
+               }} />
           <div
             className="absolute inset-0"
             style={{
@@ -325,11 +333,14 @@ export default function LandingRenderer({
            перестаёт работать — она уезжает вместе со страницей.
            От горизонтальной прокрутки защищаемся иначе: ограничиваем ширину
            содержимого (max-width на картинках, перенос длинных слов). */
-        ${page.bg_position_mobile ? `
-        /* Своя точка фокуса фона на телефоне: на узком экране object-cover
-           срезает бока, и объект сбоку пропадает из кадра. */
+        ${(page.bg_position_mobile || page.bg_scale_mobile) ? `
+        /* Свой кадр фона на телефоне: на узком экране object-cover срезает
+           бока, и объект сбоку пропадает. Фокус и масштаб задаются отдельно. */
         @media (max-width: 767px) {
-          .lp-bg-img { object-position: ${page.bg_position_mobile} !important; }
+          .lp-bg-img {
+            ${page.bg_position_mobile ? `object-position: ${page.bg_position_mobile} !important;` : ''}
+            ${page.bg_scale_mobile ? `transform: scale(${page.bg_scale_mobile / 100}) !important;` : ''}
+          }
         }` : ''}
         .lp-root { max-width: 100vw; }
         .lp-root img { max-width: 100%; }
