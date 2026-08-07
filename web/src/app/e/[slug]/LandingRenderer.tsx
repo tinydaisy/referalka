@@ -952,11 +952,30 @@ function BlockBody({
               >
                 {String(i + 1).padStart(2, '0')}
               </span>
-              {/* ⚠️ Без uppercase: капс был зашит намертво и «съедал» пункты
-                  из нескольких предложений — заголовок и описание в них
-                  сливались в сплошную кричащую строку. Регистр задаёт сам
-                  текст: КАПС в поле → капс на странице. */}
-              <span className="pt-1 font-medium">{t}</span>
+              {/* Пункт = название + описание, разделённые переносом строки.
+                  Первая строка — цветом заголовков (акцент), остальное —
+                  обычным текстом под ним. Переноса нет → весь пункт идёт
+                  одной строкой, как раньше.
+                  ⚠️ Без uppercase: капс был зашит намертво и «съедал» пункты
+                  из нескольких предложений — название и описание сливались
+                  в сплошную кричащую строку. Регистр задаёт сам текст. */}
+              {(() => {
+                const [head, ...rest] = String(t).split('\n')
+                const body = rest.join('\n').trim()
+                return (
+                  <span className="min-w-0 pt-1">
+                    <span className="block font-bold"
+                          style={{ color: page.color_heading || '#FFCFA4' }}>
+                      {head}
+                    </span>
+                    {body && (
+                      <span className="mt-1 block whitespace-pre-line font-normal opacity-90">
+                        {body}
+                      </span>
+                    )}
+                  </span>
+                )
+              })()}
             </div>
           ))}
         </div>
