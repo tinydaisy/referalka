@@ -999,7 +999,13 @@ function BlockBody({
                 <div className="mx-auto mt-3 h-px w-10"
                      style={{ background: page.color_body || '#FFFFFF', opacity: .6 }} />
               )}
-              <div className="mt-3 text-[.9em] opacity-85">{n.label}</div>
+              {/* Подпись под цифрой слушается настройки «размер текста»
+                  блока: .9em было зашито намертво, и «спикеров»/«практик»
+                  нельзя было укрупнить под крупную цифру. */}
+              <div className="mt-3 opacity-85"
+                   style={{ fontSize: block.text_size ? `${block.text_size}px` : '.9em' }}>
+                {n.label}
+              </div>
             </div>
           ))}
         </div>
