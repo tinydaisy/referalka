@@ -249,9 +249,9 @@ export default function LandingRenderer({
             style={{
               backgroundImage: `url(${page.bg_image_url})`,
               backgroundPosition: page.bg_position || '50% 50%',
-              backgroundSize: (page.bg_scale ?? 100) === 100
+              backgroundSize: (page.bg_scale ?? 300) === 100
                 ? 'cover'
-                : `${page.bg_scale ?? 100}% auto`,
+                : `${page.bg_scale ?? 300}% auto`,
             }}
           />
           <div
