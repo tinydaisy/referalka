@@ -10,9 +10,11 @@
  * тянут данные события. У них правится только заголовок и оформление.
  */
 import { useState } from 'react'
-import { GripVertical, ChevronDown, ChevronRight, Trash2, Zap, X } from 'lucide-react'
+import { GripVertical, ChevronDown, ChevronRight, Trash2, Zap, X, Lock } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
-import { metaFor } from './blockMeta'
+import { metaFor, BLOCK_FEATURE } from './blockMeta'
+import FeatureLock from '@/components/FeatureLock'
+import { useMe } from '@/hooks/useMe'
 import { ColorField, BackgroundFields } from './StyleControls'
 import { CARD_ICONS, CardIcon, ICON_GROUPS } from './icons'
 
@@ -45,6 +47,14 @@ export default function BlockCard({
   const [tab, setTab] = useState<'content' | 'style'>('content')
   const meta = metaFor(block.kind)
   const has = (f: string) => meta.fields.includes(f as any)
+
+  // ⚠️ Гейт секции — по фиче, не по тарифу (состав тарифов меняется данными).
+  // Хватает ЛЮБОЙ из перечисленных: спикеры есть и в конференциях, и в
+  // турнирах, и в коллаборациях.
+  const { me } = useMe()
+  const gate = BLOCK_FEATURE[block.kind as keyof typeof BLOCK_FEATURE]
+  const myFeatures: string[] = me?.features || []
+  const locked = !!gate && !gate.anyOf.some(f => myFeatures.includes(f))
 
   const items = Array.isArray(block.items) ? block.items : []
 
@@ -94,6 +104,9 @@ export default function BlockCard({
           {open
             ? <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
             : <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />}
+          {/* Замок виден и в свёрнутой карточке — иначе про недоступность
+              секции узнаёшь только раскрыв её. */}
+          {locked && <Lock className="h-4 w-4 shrink-0 text-amber-500" />}
           <span className={`font-medium truncate ${block.is_active ? 'text-gray-900' : 'text-gray-400'}`}>
             {block.admin_name || meta.label}
           </span>
@@ -139,7 +152,14 @@ export default function BlockCard({
         </button>
       </div>
 
-      {open && (
+      {open && locked && (
+        <div className="border-t border-gray-100 p-4">
+          <p className="mb-3 text-sm text-gray-500">{meta.hint}</p>
+          <FeatureLock anyOf={gate!.anyOf} where={gate!.where} />
+        </div>
+      )}
+
+      {open && !locked && (
         <div className="border-t border-gray-100 p-4">
           <p className="mb-4 text-sm text-gray-500">{meta.hint}</p>
 

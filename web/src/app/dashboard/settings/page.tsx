@@ -193,7 +193,9 @@ export default function SettingsPage() {
     ...(hasPartnerRegistration ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     ...(hasLandingTheme ? [{ id: 'landing-theme' as Tab, label: 'Стили лендингов', icon: Palette }] : []),
-    ...(hasPayments ? [{ id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard }] : []),
+    // ⚠️ Вкладка видна ВСЕГДА: скрытый раздел выглядит как «у нас такого нет».
+    // Без фичи внутри показывается замок с объяснением и ссылкой на тариф.
+    { id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard },
     ...(hasCustomDomain ? [{ id: 'domains' as Tab, label: 'Свой домен', icon: Globe }] : []),
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     // Управлять ассистентом может только владелец — даже полный ассистент не может

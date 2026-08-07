@@ -207,3 +207,25 @@ export function metaFor(kind: string): BlockMeta {
     fields: ['title', 'body'],
   }
 }
+
+/**
+ * Какие секции лендинга требуют платной возможности.
+ *
+ * ⚠️ Гейт ТОЛЬКО по фиче (slug), никогда по тарифу: состав тарифов меняется
+ * данными, а фича — стабильный признак. Названия и цены здесь не хардкодим,
+ * подпись собирается из справочника фич, который отдаёт бэк.
+ *
+ * `feature`  — что должно быть у клиента, чтобы секция работала;
+ * `where`    — куда вести за покупкой (раздел подписки / модулей).
+ */
+export const BLOCK_FEATURE: Partial<Record<BlockKind, { anyOf: string[]; where: string }>> = {
+  // Спикеры и программа приходят из модулей, где эти сущности вообще есть:
+  // конференции, премии/турниры и коллаборации. Хватает ЛЮБОГО из них.
+  speakers: { anyOf: ['conference', 'tournaments', 'collab_hub'], where: '/dashboard/settings?tab=subscription' },
+  program:  { anyOf: ['conference', 'tournaments', 'collab_hub'], where: '/dashboard/settings?tab=subscription' },
+  // ⚠️ Партнёры — ТОЛЬКО модуль «Конференции». У коллаборации партнёров нет:
+  // там участники равноправные организаторы, а не спонсоры события.
+  partners: { anyOf: ['conference'], where: '/dashboard/settings?tab=subscription' },
+  // Платные тарифы мероприятия — возможность старшего тарифа.
+  tariffs:  { anyOf: ['event_tariffs'], where: '/dashboard/settings?tab=subscription' },
+}

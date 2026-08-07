@@ -1,5 +1,7 @@
 'use client'
 
+import FeatureLock from '@/components/FeatureLock'
+
 /**
  * Раздел «Оферты» (миграция 249).
  *
@@ -70,8 +72,15 @@ export default function OffersPage() {
 
   if (!hasFeature && !loading) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-gray-600">
-        Раздел «Оферты» недоступен на вашем тарифе.
+      <div className="max-w-2xl space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Оферты</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Документ с условиями участия: показывается галочкой при оплате
+            платного тарифа события.
+          </p>
+        </div>
+        <FeatureLock anyOf={['offers']} />
       </div>
     )
   }

@@ -1,5 +1,7 @@
 'use client'
 
+import FeatureLock from '@/components/FeatureLock'
+
 /**
  * Вкладка «Платёжные системы» (миграция 257).
  *
@@ -109,9 +111,19 @@ export default function PaymentSettingsTab() {
   }
 
   if (denied) {
+    // ⚠️ Не просто «недоступно»: показываем ЧТО подключить и ведём туда,
+    // где это делается. Название возможности берётся из справочника фич —
+    // в коде тарифов не хардкодим.
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-gray-600">
-        Раздел «Платёжные системы» недоступен на вашем тарифе.
+      <div className="max-w-2xl space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Приём оплаты за тарифы</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Здесь подключается платёжная система, через которую участники
+            оплачивают платные тарифы ваших событий.
+          </p>
+        </div>
+        <FeatureLock anyOf={['payments']} />
       </div>
     )
   }
