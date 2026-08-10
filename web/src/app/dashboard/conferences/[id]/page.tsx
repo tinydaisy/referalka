@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
+import ChangeEventTypeButton from '@/components/ChangeEventTypeButton'
 import SettingsTab  from './tabs/SettingsTab'
 import SpeakersTab  from './tabs/SpeakersTab'
 import ProgramTab   from './tabs/ProgramTab'
@@ -52,6 +53,16 @@ export default function ConferencePage() {
   // Конструктор лендинга — по фиче event_landing (миграция 240).
   const hasLanding = (me?.features || []).includes('event_landing')
   const hasWebinar = (me?.features || []).includes('webinar_room') || (me?.features || []).includes('webinar_link')
+  // ⚠️ Модуль события. Без него — только просмотр: данные видны, но менять
+  // и запускать ничего нельзя (2026-08-10). Фича зависит от типа: турнир
+  // открывается по 'tournaments', конференция по 'conference' — путать их
+  // нельзя, иначе клиент с одним модулем потеряет доступ к другому.
+  const hasModule = (me?.features || []).includes(isTournament ? 'tournaments' : 'conference')
+  // Что остаётся доступным без модуля: это НЕ функции модуля, а данные
+  // клиента — участники, статистика привлечения и заказы есть у любого
+  // события. Отбирать их за неоплату модуля неправильно.
+  const OPEN_WITHOUT_MODULE: Tab[] = ['participants', 'report', 'tariff_orders']
+  const tabLocked = (id: Tab) => !hasModule && !OPEN_WITHOUT_MODULE.includes(id)
 
   async function handleSalebotExport() {
     setExporting(true)
@@ -150,6 +161,13 @@ export default function ConferencePage() {
     },
   ]
 
+  // ⚠️ Без модуля закрытую вкладку нельзя открыть и по прямой ссылке
+  // (?tab=program) — иначе серые кнопки были бы просто картинкой.
+  // Переключаем на «Участников»: это данные клиента, они открыты всегда.
+  useEffect(() => {
+    if (tabLocked(tab)) setTab('participants')
+  }, [tab, hasModule])
+
   // Активная группа = та, что содержит текущий tab.
   const activeGroup = GROUPS.find(g => g.tabs.some(tb => tb.id === tab)) || GROUPS[0]
 
@@ -185,6 +203,7 @@ export default function ConferencePage() {
           status={event?.status || 'draft'}
           onChange={(s) => setEvent((e: any) => ({ ...e, status: s }))}
         />
+        <ChangeEventTypeButton eventId={eventId} currentType={event?.module_slug || 'base'} />
         <button
           onClick={handleSalebotExport}
           disabled={exporting}
@@ -207,18 +226,41 @@ export default function ConferencePage() {
         </div>
       )}
 
+      {!hasModule && (
+        <div className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 leading-relaxed">
+          🔒 <b>Модуль {isTournament ? '«Премии и Турниры»' : '«Конференции»'} не подключён.</b>{' '}
+          Данные события сохранены — участники, отчёт и заказы открыты для просмотра.
+          Чтобы снова редактировать программу и спикеров и отправлять рассылки,{' '}
+          <a href="/dashboard/subscription#modules" className="underline font-semibold">подключите модуль</a>.
+        </div>
+      )}
+
       {/* Уровень 1 — разделы (группы), включая «Рассылки» (внутри карточки) */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
           {GROUPS.map(g => (
-            <button key={g.key}
-              onClick={() => { if (!g.tabs.some(tb => tb.id === tab)) setTab(g.tabs[0].id) }}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
-                activeGroup.key === g.key ? 'shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-              style={activeGroup.key === g.key ? { backgroundColor: '#FFCFA4', color: '#25455D' } : undefined}>
-              {g.label}
-            </button>
+            {(() => {
+              // Группа закрыта, если ВСЕ её вкладки закрыты (например «Программа»
+              // и «Оценки»). Группа с хотя бы одной открытой вкладкой остаётся
+              // доступной — иначе «Участники» стали бы недостижимы.
+              const gLocked = g.tabs.every(tb => tabLocked(tb.id))
+              return (
+                <button key={g.key} disabled={gLocked}
+                  title={gLocked ? 'Модуль не подключён — раздел закрыт' : undefined}
+                  onClick={() => {
+                    if (gLocked) return
+                    const first = g.tabs.find(tb => !tabLocked(tb.id)) || g.tabs[0]
+                    if (!g.tabs.some(tb => tb.id === tab)) setTab(first.id)
+                  }}
+                  className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
+                    gLocked ? 'text-gray-300 cursor-not-allowed'
+                    : activeGroup.key === g.key ? 'shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  style={!gLocked && activeGroup.key === g.key ? { backgroundColor: '#FFCFA4', color: '#25455D' } : undefined}>
+                  {gLocked && '🔒 '}{g.label}
+                </button>
+              )
+            })()}
           ))}
         </div>
       </div>
@@ -230,7 +272,9 @@ export default function ConferencePage() {
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6 border-b border-gray-200">
           <div className="flex gap-1 w-max sm:w-fit">
             {activeGroup.tabs.map(tb => (
-              <ConfTabBtn key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} label={tb.label} />
+              <ConfTabBtn key={tb.id} active={tab === tb.id}
+                          onClick={() => { if (!tabLocked(tb.id)) setTab(tb.id) }}
+                          label={tb.label} locked={tabLocked(tb.id)} />
             ))}
           </div>
         </div>
@@ -266,13 +310,20 @@ export default function ConferencePage() {
 
 // Кнопка вкладки с автоскроллом в видимую область, когда она активна
 // (в т.ч. после F5 — чтобы выделенная вкладка не оставалась за кадром).
-function ConfTabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+function ConfTabBtn({ active, onClick, label, locked = false }:
+  { active: boolean; onClick: () => void; label: string; locked?: boolean }) {
   const ref = useActiveTabRef<HTMLButtonElement>(active)
   return (
-    <button ref={ref} onClick={onClick}
-      className="px-3 sm:px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap"
-      style={active ? { borderBottomColor: '#25455D', color: '#25455D' } : { borderBottomColor: 'transparent', color: '#6b7280' }}>
-      {label}
+    <button ref={ref} onClick={onClick} disabled={locked}
+      title={locked ? 'Модуль не подключён — раздел закрыт' : undefined}
+      className={`px-3 sm:px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap
+                  ${locked ? 'cursor-not-allowed' : ''}`}
+      style={locked
+        ? { borderBottomColor: 'transparent', color: '#c2c7cf' }
+        : active
+        ? { borderBottomColor: '#25455D', color: '#25455D' }
+        : { borderBottomColor: 'transparent', color: '#6b7280' }}>
+      {locked && '🔒 '}{label}
     </button>
   )
 }

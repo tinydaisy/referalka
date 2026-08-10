@@ -127,6 +127,24 @@ def _auth_session(authorization: Optional[str] = Header(None)) -> dict:
     return _decode(token)
 
 
+async def _auth_session_write(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+) -> dict:
+    """Сессия спикера для действий, которые СОХРАНЯЮТ данные.
+
+    Если у организатора не подключён модуль события — сохранение блокируется
+    (module_access.BLOCKED_EXTERNAL_MSG). Просмотр кабинета при этом остаётся:
+    спикер видит свою карточку и материалы, просто не может их менять.
+
+    ⚠️ Вход в кабинет (`/auth`) НЕ блокируем — иначе человек упрётся в отказ
+    на логине и не увидит объяснения, что происходит.
+    """
+    from app.services.module_access import assert_module_write_by_event
+    await assert_module_write_by_event(db, event_id=int(session["e_id"]))
+    return session
+
+
 async def _sync_gift_magnet_list_from_legacy(db: asyncpg.Connection, ec_id: int):
     """Синхронизировать список event_collaborator_lead_magnets с одиночной legacy-
     привязкой event_collaborators.gift_lead_magnet_id/gift_package_id. Нужен когда
@@ -330,6 +348,12 @@ async def get_me(
     d["gift_lead_magnets"] = gift_list
     # Первый — для обратной совместимости старого одиночного поля gift_lead_magnet.
     d["gift_lead_magnet"] = gift_list[0] if gift_list else None
+
+    # Может ли спикер сохранять правки: зависит от того, подключён ли модуль
+    # у организатора. Флаг нужен интерфейсу, чтобы показать плашку сразу, а не
+    # после того, как человек заполнит форму и упрётся в отказ при сохранении.
+    from app.services.module_access import module_write_allowed_by_event
+    d["can_edit"] = await module_write_allowed_by_event(db, event_id=int(session["e_id"]))
     return d
 
 
@@ -394,7 +418,7 @@ class CabinetUpdate(BaseModel):
 @router.patch("/me", summary="Сохранить правки спикера")
 async def patch_me(
     data: CabinetUpdate,
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     from app.api.collaborators import (
@@ -603,7 +627,7 @@ async def patch_me(
 
 @router.post("/me/verify-channel", summary="Проверить, что бот в канале спикера + резолвить tg_channel_id")
 async def verify_channel(
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     """
@@ -716,7 +740,7 @@ async def verify_channel(
 async def upload_me(
     file: UploadFile = File(...),
     kind: str = Form(...),  # 'speaker_photo' | 'speaker_poster'
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Загрузка фото профиля и афиши через cabinet-JWT (без client-JWT).
@@ -1244,7 +1268,7 @@ async def get_broadcast_test_targets(
              summary="Отправить тест рассылки самому спикеру в его аккаунты")
 async def send_broadcast_test(
     schedule_id: int,
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Собирает сообщение рассылки ТОЧНО как оно уйдёт (тот же build_message_content,
@@ -1441,7 +1465,7 @@ class LinkPlusonIn(BaseModel):
 @router.post("/me/link-pluson", summary="Подключить существующий ПЛЮСОН-аккаунт спикера")
 async def link_pluson(
     data: LinkPlusonIn,
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     from app.auth import verify_password
@@ -1467,7 +1491,7 @@ async def link_pluson(
 @router.post("/me/register-pluson", summary="Зарегистрировать новый ПЛЮСОН-аккаунт и привязать")
 async def register_pluson(
     data: LinkPlusonIn,
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Создаёт новый кабинет ПЛЮСОН (тариф trial) и сразу привязывает к спикеру.
@@ -1501,7 +1525,7 @@ async def register_pluson(
 
 @router.post("/me/unlink-pluson", summary="Отвязать ПЛЮСОН-аккаунт")
 async def unlink_pluson(
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     c_id = int(session["c_id"])
@@ -1704,7 +1728,7 @@ class ClaimSlotIn(BaseModel):
 @router.post("/me/claim-slot", summary="Занять слот программы (один на спикера, с пересадкой)")
 async def claim_slot(
     data: ClaimSlotIn,
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     se_id = int(session["se_id"])
@@ -1792,7 +1816,7 @@ async def claim_slot(
 
 @router.post("/me/release-slot", summary="Освободить свой слот")
 async def release_slot(
-    session: dict = Depends(_auth_session),
+    session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
     se_id = int(session["se_id"])

@@ -582,6 +582,100 @@ async def _refresh_chat_url_shadow(db: asyncpg.Connection, event_id: int) -> Non
     return
 
 
+class ChangeTypeRequest(BaseModel):
+    module_slug: str          # base | conference | turnir
+
+
+@router.post("/{event_id}/change-type", summary="Сменить тип события")
+async def change_event_type(
+    event_id: int,
+    data: ChangeTypeRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Перевести событие между «Мероприятием», «Конференцией» и «Турниром».
+
+    Все типы — это одна таблица `events` с разным `module_slug`; участники,
+    подарки, реф-программа, рассылки, лендинг, тарифы и афиши висят на
+    `event_id` и от типа не зависят. Поэтому смена типа ничего не ломает:
+    меняется только набор доступных разделов.
+
+    ⚠️ Данные ПОНИЖЕНИЯ не удаляются. Программа, спикеры и оценки остаются в
+    базе — просто перестают показываться. Вернули тип обратно — всё на месте.
+    Удалять их молча было бы худшим вариантом: клиент не может знать заранее,
+    что «сделать мероприятием» сотрёт месяц работы.
+
+    ⚠️ Повышение — только на ОПЛАЧЕННЫЙ модуль, иначе любой клиент на Профи
+    переводил бы обычное событие в конференцию и получал платный модуль даром.
+    Понижение до `base` не гейтим никогда: уйти с платного типа можно всегда.
+    """
+    from app.services.module_access import MODULE_FEATURE as _MOD_FEAT
+    from app.services.features import client_has_feature
+
+    client_id = int(client["sub"])
+    if await assistant_is_restricted(client):
+        raise HTTPException(status_code=403,
+                            detail="Смена типа события доступна только владельцу кабинета.")
+
+    target = (data.module_slug or "").strip()
+    ALLOWED = ("base", "conference", "turnir")
+    if target not in ALLOWED:
+        raise HTTPException(
+            status_code=400,
+            detail="Тип можно менять между мероприятием, конференцией и турниром.",
+        )
+
+    ev = await db.fetchrow(
+        """SELECT e.id, e.module_slug, e.title
+             FROM events e
+            WHERE e.id = $1
+              AND EXISTS(SELECT 1 FROM event_owners eo
+                          WHERE eo.event_id = e.id AND eo.client_id = $2
+                            AND eo.status = 'accepted')""",
+        event_id, client_id,
+    )
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    current = ev["module_slug"] or "base"
+    if current == target:
+        return {"ok": True, "module_slug": current, "changed": False}
+
+    # ⚠️ Из «чужих» типов (конкурс, МедиаЛифт, коллаба) не переводим: у них своя
+    # логика голосования и своя структура, и молчаливый перевод её сломает.
+    if current not in ALLOWED:
+        raise HTTPException(
+            status_code=400,
+            detail="У этого типа события смена типа не поддерживается.",
+        )
+
+    # Повышение — только с оплаченным модулем.
+    if target in _MOD_FEAT:
+        feature_slug, title = _MOD_FEAT[target]
+        if not await client_has_feature(db, client_id, feature_slug):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Модуль «{title}» не подключён. Подключите его в разделе "
+                       f"«Подписка» — и событие можно будет перевести.",
+            )
+
+    async with db.transaction():
+        await db.execute(
+            "UPDATE events SET module_slug = $2, updated_at = NOW() WHERE id = $1",
+            event_id, target,
+        )
+        # Надстройка конференции/турнира — общая таблица для обоих типов.
+        # Создаём при повышении; при понижении НЕ удаляем (см. выше).
+        if target in ("conference", "turnir"):
+            await db.execute(
+                "INSERT INTO conf_conferences (event_id) VALUES ($1) "
+                "ON CONFLICT (event_id) DO NOTHING",
+                event_id,
+            )
+
+    return {"ok": True, "module_slug": target, "changed": True, "was": current}
+
+
 @router.post("/{event_id}/copy", summary="Скопировать событие со всеми настройками")
 async def copy_event(
     event_id: int,

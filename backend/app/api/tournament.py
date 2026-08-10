@@ -60,13 +60,23 @@ DEFAULT_EXPERTISE_CRITERIA = [
 
 # ───────────────────────── вспомогательное ─────────────────────────
 
-async def _check_access(event_id: int, client_id: int, db: asyncpg.Connection):
+async def _check_access(event_id: int, client_id: int, db: asyncpg.Connection,
+                        *, write: bool = False):
+    """Доступ клиента к турниру.
+
+    `write=True` — действие МЕНЯЕТ данные; разрешено только с подключённым
+    модулем «Премии и Турниры». Просмотр своих данных не гейтим (2026-08-10).
+    """
     ev = await db.fetchrow(
         "SELECT id, module_slug FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
+    if write:
+        from app.services.module_access import assert_module_write
+        await assert_module_write(db, client_id=client_id,
+                                  module_slug=ev["module_slug"])
     return ev
 
 
@@ -660,7 +670,7 @@ def _legacy_from_scheme(scheme: str):
 
 @router.post("/packages", summary="Создать пакет")
 async def create_package(event_id: int, data: PackageIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название пакета обязательно")
     if data.scheme not in _VALID_SCHEMES:
@@ -686,7 +696,7 @@ class PackageUpdate(BaseModel):
 
 @router.patch("/packages/{package_id}", summary="Обновить пакет")
 async def update_package(event_id: int, package_id: int, data: PackageUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     payload = data.model_dump(exclude_unset=True)
     if payload.get("scheme") and payload["scheme"] not in _VALID_SCHEMES:
         raise HTTPException(status_code=422, detail="scheme должен быть s1/s2/s3/s4")
@@ -715,7 +725,7 @@ async def update_package(event_id: int, package_id: int, data: PackageUpdate, cl
 
 @router.delete("/packages/{package_id}", summary="Удалить пакет")
 async def delete_package(event_id: int, package_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     await db.execute("DELETE FROM tournament_packages WHERE id=$1 AND event_id=$2", package_id, event_id)
     return {"ok": True}
 
@@ -756,7 +766,7 @@ class CriterionIn(BaseModel):
 
 @router.post("/criteria", summary="Создать критерий")
 async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название критерия обязательно")
     if data.scorer not in ("jury", "vote", "manual", "auto", "auto_number"):
@@ -810,7 +820,7 @@ class CriterionUpdate(BaseModel):
 
 @router.patch("/criteria/{criterion_id}", summary="Обновить критерий")
 async def update_criterion(event_id: int, criterion_id: int, data: CriterionUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     payload = data.model_dump(exclude_unset=True)
     # lead_count_since приходит строкой (datetime-local) — парсим в datetime/None.
     if "lead_count_since" in payload:
@@ -834,7 +844,7 @@ async def update_criterion(event_id: int, criterion_id: int, data: CriterionUpda
 
 @router.delete("/criteria/{criterion_id}", summary="Удалить критерий")
 async def delete_criterion(event_id: int, criterion_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     await db.execute("DELETE FROM tournament_criteria WHERE id=$1 AND event_id=$2", criterion_id, event_id)
     return {"ok": True}
 
@@ -964,7 +974,7 @@ class AssignIn(BaseModel):
 
 @router.post("/assignments", summary="Назначить/снять одну пару (на этапе)")
 async def set_assignment(event_id: int, data: AssignIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     kind, sid = data.key.split(":", 1)
     if data.assigned:
         await db.execute(
@@ -1004,7 +1014,7 @@ class AssignAllIn(BaseModel):
 
 @router.post("/assignments/all", summary="Назначить всех всем / очистить (на этапе)")
 async def set_all_assignments(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db), clear: bool = False, stage_id: Optional[int] = None):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     if stage_id is None:
         await db.execute("DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id IS NULL", event_id)
     else:
@@ -1056,7 +1066,7 @@ async def auto_assign_suggest(event_id: int, include_speakers: bool = False,
 
 @router.post("/assignments/auto", summary="Автораспределение участников по жюри")
 async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, data.stage_id, db)
     subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
                                include_unregistered=include_unreg, stage_id=data.stage_id)
@@ -1379,7 +1389,7 @@ class ManualScoreIn(BaseModel):
 
 @router.post("/manual-score", summary="Ручной/народный балл (организатор)")
 async def set_manual_score(event_id: int, data: ManualScoreIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     if data.value < 0:
         raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
     crit = await db.fetchrow("SELECT scorer FROM tournament_criteria WHERE id=$1 AND event_id=$2", data.criterion_id, event_id)
@@ -1430,7 +1440,7 @@ class SnapshotIn(BaseModel):
 
 @router.post("/snapshots", summary="Сохранить отчёт (снимок результатов)")
 async def create_snapshot(event_id: int, data: SnapshotIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     result = await _compute(event_id, data.stage_id, db)
     fb = await db.fetch(
         """SELECT f.subject_kind, f.subject_id, f.body, jc.name AS juror_name
@@ -1488,7 +1498,7 @@ async def get_snapshot(event_id: int, snapshot_id: int, client=Depends(get_curre
 
 @router.delete("/snapshots/{snapshot_id}", summary="Удалить снимок")
 async def delete_snapshot(event_id: int, snapshot_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     await db.execute("DELETE FROM tournament_snapshots WHERE id=$1 AND event_id=$2", snapshot_id, event_id)
     return {"ok": True}
 
@@ -1608,7 +1618,7 @@ class TaskListenToggle(BaseModel):
 
 @router.patch("/task-control", summary="Контроль заданий: вкл/выкл слушание")
 async def task_control_toggle(event_id: int, data: TaskListenToggle, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     await db.execute("UPDATE events SET task_listen_enabled=$2 WHERE id=$1", event_id, data.enabled)
     return {"ok": True, "enabled": data.enabled}
 
@@ -1631,7 +1641,7 @@ async def task_control_verify_chat(
     VK/MAX: проверяем только что chat_id задан (их слушание устроено иначе).
     """
     import httpx
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     cid_client = int(client["sub"])
 
     ref_col = {"telegram": "tg_chat_ref", "vk": "vk_chat_ref", "max": "max_chat_ref"}.get(platform)
@@ -1742,7 +1752,7 @@ _AUDIENCE_VALUES = {"all", "registered", "speakers", "jury"}
 
 @router.patch("/stages/{stage_id}/listen-audience", summary="Кого слушаем в этапе")
 async def stage_listen_audience(event_id: int, stage_id: int, data: StageAudienceUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    await _check_access(event_id, int(client["sub"]), db)
+    await _check_access(event_id, int(client["sub"]), db, write=True)
     # нормализуем: уникальные валидные значения. Пустой набор = не слушать.
     auds = [a for a in dict.fromkeys(data.listen_audiences) if a in _AUDIENCE_VALUES]
     # ось «участники»: 'all' (зарег+незарег) и 'registered' (только зарег) — оставляем 'all'.
@@ -1755,7 +1765,15 @@ async def stage_listen_audience(event_id: int, stage_id: int, data: StageAudienc
 
 # ════════════════════════ КАБИНЕТ ЖЮРИ ════════════════════════
 
-async def _ensure_juror(session: dict, db: asyncpg.Connection) -> dict:
+async def _ensure_juror(session: dict, db: asyncpg.Connection, *,
+                        write: bool = False) -> dict:
+    """Жюри в кабинете оценок.
+
+    `write=True` — жюри что-то СОХРАНЯЕТ (балл, фиксацию, обратную связь).
+    Такое разрешено, только пока у организатора подключён модуль: без него
+    сохранение блокируется с понятным текстом (module_access.BLOCKED_EXTERNAL_MSG),
+    а просмотр уже выставленных оценок остаётся.
+    """
     se_id = int(session["se_id"]); event_id = int(session["e_id"])
     row = await db.fetchrow(
         """SELECT cse.id, cse.event_id, cse.role, c.name
@@ -1765,6 +1783,9 @@ async def _ensure_juror(session: dict, db: asyncpg.Connection) -> dict:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
     if row["role"] not in ("jury", "organizer"):
         raise HTTPException(status_code=403, detail="Этот раздел только для жюри и организаторов")
+    if write:
+        from app.services.module_access import assert_module_write_by_event
+        await assert_module_write_by_event(db, event_id=row["event_id"])
     return dict(row)
 
 
@@ -1844,7 +1865,11 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
     for k, vals in tmp.items():
         avg_by_key[k] = round(sum(vals) / len(vals), 2) if vals else None
 
+    # Флаг для интерфейса: показать плашку сразу, а не после нажатия кнопки.
+    from app.services.module_access import module_write_allowed_by_event
+    _can_edit = await module_write_allowed_by_event(db, event_id=event_id)
     return {
+        "can_edit": _can_edit,
         "juror_name": juror["name"],
         "subjects": [{"key": s["key"], "name": s["name"], "material": s["material"]} for s in subjects],
         "criteria": [{**dict(c), "scale_max": float(c["scale_max"]), "scale_min": float(c["scale_min"] or 0)} for c in jcrits],
@@ -1875,7 +1900,7 @@ def _words(text: Optional[str]) -> int:
 
 @jury_router.post("/score", summary="Кабинет жюри: поставить балл")
 async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
-    juror = await _ensure_juror(session, db)
+    juror = await _ensure_juror(session, db, write=True)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
     if data.value < 0:
         raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
@@ -1925,7 +1950,7 @@ class JuryLockIn(BaseModel):
 
 @jury_router.post("/lock", summary="Кабинет жюри: зафиксировать оценку участнику")
 async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
-    juror = await _ensure_juror(session, db)
+    juror = await _ensure_juror(session, db, write=True)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
     kind, sid = data.key.split(":", 1)
     # Требуем развёрнутую обратную связь (≥10 слов) — зеркалит фронт-валидацию.
@@ -1988,7 +2013,7 @@ class JuryFeedbackIn(BaseModel):
 
 @jury_router.post("/feedback", summary="Кабинет жюри: обратная связь участнику")
 async def jury_feedback(data: JuryFeedbackIn, session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
-    juror = await _ensure_juror(session, db)
+    juror = await _ensure_juror(session, db, write=True)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
     kind, sid = data.key.split(":", 1)
     ok = await db.fetchval(

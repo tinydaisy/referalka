@@ -96,6 +96,7 @@ async def _send_broadcast(schedule_id: int):
                    COALESCE(bs.audience_include, 'all_event') as audience_include,
                    COALESCE(bs.audience_exclude, 'none') as audience_exclude,
                    e.is_collab AS ev_is_collab,
+                   e.module_slug AS ev_module_slug,
                    (e.status = 'ended' OR (e.end_at IS NOT NULL AND e.end_at < NOW())) AS ev_ended
             FROM broadcast_schedules bs
             LEFT JOIN events e ON e.id = bs.event_id
@@ -137,6 +138,33 @@ async def _send_broadcast(schedule_id: int):
 
         event_id = schedule["event_id"]
         tpl_type = schedule.get("type", "")
+
+        # 🚫 Спикерские рассылки (за 5 минут до выступления, знакомство со
+        # спикером, подарок, итоги дня) существуют только благодаря платному
+        # модулю «Конференции»/«Премии и Турниры». Без него они не уходят.
+        #
+        # ⚠️ Проверяем И тип, И module_slug события: типы 5min_before и
+        # day_live доступны и обычным мероприятиям — гейт только по типу
+        # остановил бы рассылки тем, кто ничего не должен.
+        #
+        # Статус 'cancelled' с понятной причиной, а не тихий пропуск: клиент
+        # должен видеть в очереди, почему рассылка не ушла, и иметь возможность
+        # запустить её снова после оплаты.
+        from app.services.module_access import broadcast_blocked_by_module
+        _blocked = await broadcast_blocked_by_module(
+            conn,
+            client_id=client_id_for_check,
+            module_slug=schedule.get("ev_module_slug"),
+            broadcast_type=tpl_type,
+        )
+        if _blocked:
+            logger.info("Рассылка %s не отправлена: %s", schedule_id, _blocked)
+            await conn.execute(
+                "UPDATE broadcast_schedules SET status='cancelled', error_log=$2, "
+                "finished_at=NOW() WHERE id=$1",
+                schedule_id, _blocked,
+            )
+            return
 
         # Читаем шаблон отдельным свежим запросом — максимально близко к отправке,
         # чтобы правки шаблона применились даже если очередь уже активирована

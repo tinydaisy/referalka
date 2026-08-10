@@ -7,7 +7,7 @@ celery = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
-        "app.tasks.client_domains", "app.tasks.webinar_recording"]
+        "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording"]
 )
 
 celery.conf.update(
@@ -30,6 +30,12 @@ celery.conf.update(
         # Раз в час — уведомления за 7/3/1 день до истечения подписки
         "notify-expiring-subscriptions": {
             "task": "app.tasks.subscriptions.notify_expiring",
+            "schedule": 3600.0,
+        },
+        # Раз в час — предупреждения за 7/3/1 день об истечении КУПЛЕННОГО МОДУЛЯ
+        # (Конференции, Премии/Турниры, Коллабораторная). Миграция 276.
+        "notify-expiring-addons": {
+            "task": "app.tasks.addon_expiry.notify_expiring_addons",
             "schedule": 3600.0,
         },
         # Каждые 5 минут — удаление временных broadcast_photo:

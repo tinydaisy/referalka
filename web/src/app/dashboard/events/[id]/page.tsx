@@ -14,6 +14,7 @@ import TariffsTab from './tabs/TariffsTab'
 import LandingTab from './tabs/LandingTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
+import ChangeEventTypeButton from '@/components/ChangeEventTypeButton'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 import WebinarTab from '@/app/dashboard/conferences/[id]/tabs/WebinarTab'
@@ -159,6 +160,9 @@ export default function EventPage() {
             status={event.status || 'draft'}
             onChange={(s) => setEvent((e: any) => ({ ...e, status: s }))}
           />
+          {/* Событие могло перерасти обычное мероприятие — переводим в
+              конференцию или турнир без потери заполненного. */}
+          <ChangeEventTypeButton eventId={eventId} currentType={event?.module_slug || 'base'} />
           {isConference && (
             <Link href={`/dashboard/conferences/${id}`}
                   className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-300 hover:bg-gray-50">

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional, List, Union
 from app.auth import get_current_client
@@ -52,7 +52,19 @@ def _normalize_hhmm(val):
     return s
 
 
-async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Connection):
+async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Connection,
+                                  *, write: bool = False):
+    """Доступ клиента к событию модуля «Конференции».
+
+    `write=True` — действие МЕНЯЕТ данные (создание, правка, удаление,
+    отправка). Такое разрешено только с подключённым модулем: без него
+    клиент может смотреть свои данные, но не менять их (2026-08-10).
+    Просмотр (`write=False`) не гейтим никогда — это его собственные данные.
+
+    ⚠️ Три роута ниже формально GET, но реально ОТПРАВЛЯЮТ сообщения в
+    Telegram (карточка спикера, расписание, подарки розыгрыша) — им тоже
+    нужен `write=True`. Гейт «по HTTP-методу» их бы пропустил.
+    """
     # Владелец — только через event_owners (events.client_id удалён миграцией 137).
     event = await db.fetchrow(
         "SELECT id, module_slug FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status='accepted')",
@@ -60,7 +72,34 @@ async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Con
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
+    if write:
+        from app.services.module_access import assert_module_write
+        await assert_module_write(db, client_id=client_id,
+                                  module_slug=event["module_slug"])
     return event
+
+
+async def _assert_send_allowed(db: asyncpg.Connection, *, client_id: int,
+                               event_id: int, token: Optional[str]) -> None:
+    """Проверка для эндпоинтов, которые ОТПРАВЛЯЮТ сообщения наружу.
+
+    Два рубежа:
+      1. токен интеграции клиента — иначе слать чужим ботом мог бы кто угодно,
+         зная только номер события и чата;
+      2. подключённый модуль — отправка это платное действие, как и рассылки.
+    """
+    if not token:
+        raise HTTPException(status_code=401, detail="Нужен заголовок X-Integration-Token")
+    ok = await db.fetchval(
+        "SELECT 1 FROM clients WHERE id = $1 AND integration_token = $2 AND is_active = TRUE",
+        client_id, token,
+    )
+    if not ok:
+        raise HTTPException(status_code=403, detail="Токен не подходит к этому событию")
+
+    module_slug = await db.fetchval("SELECT module_slug FROM events WHERE id = $1", event_id)
+    from app.services.module_access import assert_module_write
+    await assert_module_write(db, client_id=client_id, module_slug=module_slug)
 
 
 async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connection) -> str:
@@ -390,7 +429,7 @@ async def init_conference(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     existing = await db.fetchrow("SELECT id FROM conf_conferences WHERE event_id = $1", event_id)
     if existing:
         conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
@@ -408,7 +447,7 @@ async def update_conference(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
 
     # Создаём если не существует
     existing = await db.fetchrow("SELECT id FROM conf_conferences WHERE event_id = $1", event_id)
@@ -546,7 +585,7 @@ async def regenerate_landing(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     data = await regenerate_landing_data(event_id, db)
     return {"landing_data": data, "message": "JSON лендинга обновлён"}
 
@@ -1245,7 +1284,7 @@ async def add_speaker_from_base(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     # Проверяем что спикер существует
     sp = await db.fetchrow("SELECT id FROM collaborators WHERE id = $1", data.speaker_id)
     if not sp:
@@ -1330,7 +1369,7 @@ async def create_and_add_speaker(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     client_id = int(client["sub"])
     name = (data.name or "").strip()
     if not name:
@@ -1484,7 +1523,7 @@ async def update_speaker_event(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     raw = data.model_dump()
     topics_list = raw.pop("topics", None)
     stage_ids = raw.pop("stage_ids", None)  # этапы участия — отдельной таблицей
@@ -1689,7 +1728,7 @@ async def verify_speaker_channel(
     Telegram расскажет почему (бот не в канале, нет прав, и т.п.).
     """
     client_id = int(client["sub"])
-    await check_conference_access(event_id, client_id, db)
+    await check_conference_access(event_id, client_id, db, write=True)
 
     from app.config import settings
     from app.services.channels import get_client_telegram_token
@@ -1788,7 +1827,7 @@ async def remove_speaker_from_event(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     await db.execute(
         "DELETE FROM event_collaborators WHERE id = $1 AND event_id = $2",
         speaker_event_id, event_id
@@ -1844,7 +1883,7 @@ async def create_stage(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название этапа обязательно")
     stage = await db.fetchrow(
@@ -1865,7 +1904,7 @@ async def update_stage(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     payload = data.model_dump(exclude_unset=True)
     if "start_date" in payload:
         payload["start_date"] = _parse_date(payload["start_date"])
@@ -1895,7 +1934,7 @@ async def delete_stage(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     # ON DELETE SET NULL на conf_days.stage_id — дни не теряются, просто становятся «вне этапа»
     res = await db.execute("DELETE FROM conf_stages WHERE id=$1 AND event_id=$2", stage_id, event_id)
     if res.endswith("0"):
@@ -2011,7 +2050,7 @@ async def upsert_day(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     day_date = date.fromisoformat(data.day_date) if data.day_date else None
     # open_time / close_time теперь — простые строки "HH:MM" (МСК по соглашению).
     open_time = _normalize_hhmm(data.open_time)
@@ -2042,7 +2081,7 @@ async def delete_day(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     # Сначала каскадно удаляем сессии этого дня (на conf_sessions.day нет FK,
     # только колонка INT, поэтому удаляем вручную).
     await db.execute("DELETE FROM conf_sessions WHERE event_id=$1 AND day=$2", event_id, day_number)
@@ -2191,7 +2230,7 @@ async def create_session(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     start_t = _normalize_hhmm(data.start_time)
     end_t   = _normalize_hhmm(data.end_time)
 
@@ -2232,7 +2271,7 @@ async def update_session(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     # ⚠️ Различаем «поле не прислали» и «прислали null»: явный null у speaker_id /
     # topic_id — это ОСВОБОЖДЕНИЕ слота (снять спикера / отвязать тему). Раньше
     # тут стояло `if v is not None` — null молча выбрасывался, и слот навсегда
@@ -2282,7 +2321,7 @@ async def delete_session(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     await db.execute("DELETE FROM conf_sessions WHERE id = $1 AND event_id = $2", session_id, event_id)
     await regenerate_landing_data(event_id, db)
     return {"message": "Сессия удалена"}
@@ -2295,7 +2334,7 @@ async def generate_schedule(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
 
     # Удаляем старые сессии этого дня
     await db.execute(
@@ -2355,7 +2394,7 @@ async def generate_day_timing(
     """Генерит N ПУСТЫХ слотов дня (без спикеров — их займут сами) и ДОБАВЛЯЕТ к
     уже существующим слотам этого дня. Слот = выступление + перерыв. Тема пустая —
     «Тема будет уточнена позже». Для конференций и турниров."""
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
 
     if data.speaker_count < 1 or data.speaker_count > 100:
         raise HTTPException(status_code=400, detail="Количество спикеров должно быть от 1 до 100")
@@ -2420,7 +2459,7 @@ async def shift_sessions_timing(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
 
     if data.minutes == 0:
         raise HTTPException(status_code=400, detail="Сдвиг на 0 минут ничего не изменит")
@@ -2526,7 +2565,7 @@ async def create_broadcast(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     scheduled = datetime.fromisoformat(data.scheduled_at) if data.scheduled_at else None
     row = await db.fetchrow(
         """INSERT INTO conf_broadcast_messages
@@ -2545,7 +2584,7 @@ async def update_broadcast(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     updates = {}
     if data.text is not None:
         updates["text"] = data.text
@@ -2575,7 +2614,7 @@ async def approve_broadcast(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     row = await db.fetchrow(
         """UPDATE conf_broadcast_messages
            SET status='approved', approved_at=NOW(), approved_by=$3
@@ -2594,7 +2633,7 @@ async def cancel_broadcast(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     row = await db.fetchrow(
         "UPDATE conf_broadcast_messages SET status='cancelled' WHERE id=$1 AND event_id=$2 RETURNING *",
         broadcast_id, event_id
@@ -2609,7 +2648,7 @@ async def test_broadcast(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     broadcast = await db.fetchrow(
         "SELECT * FROM conf_broadcast_messages WHERE id=$1 AND event_id=$2", broadcast_id, event_id
     )
@@ -2648,7 +2687,7 @@ async def generate_broadcasts_from_schedule(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     sessions = await db.fetch(
         """SELECT s.*, d.day_date,
                   spg.name AS speaker_name, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
@@ -2738,7 +2777,7 @@ async def create_commercial_item(
     event_id: int, data: CommercialItemCreate,
     client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     item = await db.fetchrow(
         """INSERT INTO conf_commercial_items (event_id, type, title, description, is_paid, action_url, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
@@ -2752,7 +2791,7 @@ async def delete_commercial_item(
     event_id: int, item_id: int,
     client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     await db.execute("DELETE FROM conf_commercial_items WHERE id=$1 AND event_id=$2", item_id, event_id)
     return {"message": "Удалено"}
 
@@ -2790,7 +2829,7 @@ async def create_secret_code(
     event_id: int, data: SecretCodeCreate,
     client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     code = await db.fetchrow(
         "INSERT INTO conf_secret_codes (event_id, speaker_id, code_word, tickets_reward) VALUES ($1,$2,$3,$4) RETURNING *",
         event_id, data.speaker_id, data.code_word.lower().strip(), data.tickets_reward
@@ -2838,7 +2877,7 @@ async def create_promo_partner(
     event_id: int, data: PromoPartnerCreate,
     client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     partner = await db.fetchrow(
         "INSERT INTO conf_promo_partners (event_id, name, telegram_url, partner_code) VALUES ($1,$2,$3,$4) RETURNING *",
         event_id, data.name, data.telegram_url, data.partner_code.upper()
@@ -3211,7 +3250,7 @@ async def generate_editor_code(
     db: asyncpg.Connection = Depends(get_db)
 ):
     """Генерирует или обновляет editor_code для конференции."""
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
     import random, string
     new_code = "edit_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
     await db.execute(
@@ -3520,18 +3559,22 @@ def _build_speaker_caption(sp: dict, topics: list) -> str:
 
 
 @router.get("/speakers/{speaker_event_id}/send-to-telegram",
-            summary="Отправить карточку спикера в Telegram (публичный, без авторизации)")
+            summary="Отправить карточку спикера в Telegram (нужен токен интеграции)")
 async def send_speaker_to_telegram(
     event_id: int,
     speaker_event_id: int,
     chat_id: str,
+    x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db)
 ):
     """
-    Публичный endpoint — отправляет карточку спикера (афиша + текст) в Telegram-чат.
-    chat_id — Telegram ID получателя (например, 5725111966).
-    Использует bot_token из настроек клиента-владельца события.
-    Вызывается из кнопок SaleBot без авторизации.
+    Отправляет карточку спикера (афиша + текст) в Telegram-чат.
+    chat_id — Telegram ID получателя. Бот берётся у клиента-владельца события.
+
+    ⚠️ Раньше эндпоинт работал БЕЗ всякой авторизации: любой, кто знал номер
+    события и номер чата, мог заставить систему слать сообщения чужим ботом.
+    По логам за две недели обращений не было ни одного, поэтому закрыт токеном
+    интеграции (`clients.integration_token`), как остальные внешние точки.
     """
     import httpx, os
 
@@ -3540,6 +3583,9 @@ async def send_speaker_to_telegram(
     if not event_row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
+
+    await _assert_send_allowed(db, client_id=client_id, event_id=event_id,
+                               token=x_integration_token)
 
     # Получаем bot_token из channels (telegram-канал клиента)
     from app.services.channels import get_client_telegram_token
@@ -3715,6 +3761,7 @@ def _build_schedule_text(days_data: list) -> str:
 async def send_schedule_to_telegram(
     event_id: int,
     chat_id: int,
+    x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     """
@@ -3730,6 +3777,8 @@ async def send_schedule_to_telegram(
     if not event_row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
+    await _assert_send_allowed(db, client_id=client_id, event_id=event_id,
+                               token=x_integration_token)
 
     # bot_token из channels (telegram-канал клиента)
     from app.services.channels import get_client_telegram_token
@@ -3866,6 +3915,7 @@ RAFFLE_ROLE_LABELS_RU = {
 async def send_raffle_gifts_to_telegram(
     event_id: int,
     chat_id: int,
+    x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     """
@@ -3881,6 +3931,8 @@ async def send_raffle_gifts_to_telegram(
     if not event_row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
+    await _assert_send_allowed(db, client_id=client_id, event_id=event_id,
+                               token=x_integration_token)
 
     # bot_token из channels (telegram-канал клиента)
     from app.services.channels import get_client_telegram_token
@@ -4051,7 +4103,7 @@ async def create_report(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
 
     # Все спикеры/организаторы конференции с трафиком по реф-коду
     # ref_code теперь живёт в contacts (через collaborators.contact_id)
@@ -4358,7 +4410,7 @@ async def delete_report(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    await check_conference_access(event_id, int(client["sub"]), db)
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
 
     deleted = await db.fetchval(
         "DELETE FROM conf_reports WHERE id = $1 AND event_id = $2 RETURNING id",

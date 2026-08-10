@@ -125,7 +125,30 @@ type SpeakerMe = {
   raffle_enabled: boolean | null
   // subscribers — число в тысячах (float, например 19.9 = 19.9к)
   media_assets: { platform: string; subscribers: number }[] | null
+  // Гейт платных модулей: у организатора отключены «Конференции»/«Премии и
+  // Турниры» → бэкенд отдаёт 403 на любую запись. Спикер при этом ДОЛЖЕН
+  // видеть свои данные, поэтому блокируем только кнопки сохранения.
+  // Поле опционально: старый бэк его не отдаёт → трактуем как «можно».
+  can_edit?: boolean
 }
+
+// Плашка «сохранять нельзя» — одна на кабинет спикера и кабинет жюри, текст
+// согласован с заказчиком, менять формулировку нельзя.
+function ModuleLockedBanner() {
+  return (
+    <div style={{
+      border: '1px solid #fcd34d', background: '#fffbeb', color: '#78350f',
+      borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+      fontSize: 13.5, lineHeight: 1.55,
+    }}>
+      🔒 Пока нельзя сохранять изменения — у организатора приостановлена подписка
+      на этот раздел. Ваши данные сохранены. Напишите организатору события, он всё восстановит.
+    </div>
+  )
+}
+
+// Общий визуальный стиль заблокированной кнопки — серая и «мимо».
+const lockedBtnCss: React.CSSProperties = { opacity: 0.5, cursor: 'not-allowed' }
 
 const MEDIA_PLATFORMS: { slug: string; label: string }[] = [
   { slug: 'tg',        label: 'Telegram' },
@@ -566,6 +589,10 @@ export default function SpeakerCabinetPage() {
 
   const update = (patch: Partial<SpeakerMe>) => setMe((m) => m ? ({ ...m, ...patch }) : m)
 
+  // Модуль у организатора отключён → запись запрещена (бэк вернёт 403).
+  // Старый бэк поле не отдаёт (undefined) → считаем, что редактировать можно.
+  const canEdit = me.can_edit !== false
+
   // ── Привязка ПЛЮСОН-аккаунта (миграция 167). Загрузка магнитов — в useEffect
   // выше early-return (см. комментарий там). Здесь только обработчики действий. ──
 
@@ -730,6 +757,7 @@ export default function SpeakerCabinetPage() {
               id={fileInputId}
               type="file"
               accept="image/jpeg,image/png,image/webp"
+              disabled={!canEdit}
               style={{ display: 'none' }}
               onChange={(e) => {
                 const f = e.target.files?.[0]
@@ -737,13 +765,22 @@ export default function SpeakerCabinetPage() {
                 e.target.value = ''
               }}
             />
-            <label htmlFor={fileInputId} style={{
-              ...buttonSmall,
-              cursor: uploading === kind ? 'wait' : 'pointer',
-              opacity: uploading === kind ? 0.6 : 1,
-            }}>
-              {uploading === kind ? 'Загружаем…' : (url ? '📤 Заменить' : '📤 Загрузить')}
-            </label>
+            {/* Загрузка — это запись, при выключенном модуле недоступна.
+                <label htmlFor> нельзя «задизейблить», поэтому при !canEdit
+                рисуем неактивный <span> без привязки к input. */}
+            {canEdit ? (
+              <label htmlFor={fileInputId} style={{
+                ...buttonSmall,
+                cursor: uploading === kind ? 'wait' : 'pointer',
+                opacity: uploading === kind ? 0.6 : 1,
+              }}>
+                {uploading === kind ? 'Загружаем…' : (url ? '📤 Заменить' : '📤 Загрузить')}
+              </label>
+            ) : (
+              <span style={{ ...buttonSmall, ...lockedBtnCss }}>
+                {url ? '📤 Заменить' : '📤 Загрузить'}
+              </span>
+            )}
             {url && (
               <>
                 <button type="button" onClick={() => setLightbox(url)} style={buttonSmall}>
@@ -772,7 +809,11 @@ export default function SpeakerCabinetPage() {
                 <button
                   type="button"
                   onClick={onDeletePhoto}
-                  style={{ ...buttonSmall, color: '#c0392b', borderColor: '#f0c0b8' }}
+                  disabled={!canEdit}
+                  style={{
+                    ...buttonSmall, color: '#c0392b', borderColor: '#f0c0b8',
+                    ...(canEdit ? {} : lockedBtnCss),
+                  }}
                 >
                   🗑 Удалить
                 </button>
@@ -799,6 +840,9 @@ export default function SpeakerCabinetPage() {
             <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
           </div>
         </div>
+
+        {/* Плашка над вкладками: просмотр остаётся, сохранение недоступно */}
+        {!canEdit && <ModuleLockedBanner />}
 
         {/* Вкладки кабинета — горизонтальный скролл, все в одну строку */}
         <div style={{
@@ -852,11 +896,13 @@ export default function SpeakerCabinetPage() {
           />
         )}
 
+        {/* JudgingTab свой can_edit получает из /tournament-jury/me — там гейт
+            считается по тому же событию, отдельно прокидывать не нужно. */}
         {activeTab === 'judging' && token && <JudgingTab token={token} />}
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
         {activeTab === 'invited' && token && <InvitedTab token={token} />}
-        {activeTab === 'slot' && token && <SlotTab token={token} myName={me.name || ''} />}
-        {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} />}
+        {activeTab === 'slot' && token && <SlotTab token={token} myName={me.name || ''} canEdit={canEdit} />}
+        {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} canEdit={canEdit} />}
 
         {activeTab === 'profile' && <>
         <Section title="Профиль">
@@ -1007,13 +1053,14 @@ export default function SpeakerCabinetPage() {
             <button
               type="button"
               onClick={onVerifyChannel}
-              disabled={verifying}
+              disabled={verifying || !canEdit}
               style={{
                 marginTop: 12, padding: '10px 16px',
                 background: me.bot_in_channel ? '#e6f4ea' : DARK,
                 color: me.bot_in_channel ? '#2e6e3f' : '#fff',
                 fontWeight: 700, border: 'none', borderRadius: 10,
-                cursor: verifying ? 'wait' : 'pointer', fontSize: 13,
+                cursor: !canEdit ? 'not-allowed' : verifying ? 'wait' : 'pointer', fontSize: 13,
+                opacity: canEdit ? 1 : 0.5,
               }}
             >
               {verifying
@@ -1137,15 +1184,16 @@ export default function SpeakerCabinetPage() {
           })}
           <button
             onClick={addMedia}
-            disabled={availablePlatforms.length === 0}
+            disabled={availablePlatforms.length === 0 || !canEdit}
             style={{
               padding: '8px 14px',
               background: '#fff',
               border: `1px dashed ${PEACH}`,
               color: availablePlatforms.length === 0 ? '#9aaab8' : DARK,
               borderRadius: 8,
-              cursor: availablePlatforms.length === 0 ? 'not-allowed' : 'pointer',
+              cursor: (availablePlatforms.length === 0 || !canEdit) ? 'not-allowed' : 'pointer',
               fontSize: 13,
+              opacity: canEdit ? 1 : 0.5,
             }}
           >
             {availablePlatforms.length === 0 ? 'Все платформы добавлены' : '+ добавить актив'}
@@ -1188,16 +1236,19 @@ export default function SpeakerCabinetPage() {
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button onClick={() => { setPlusonModal('login'); setPlError(null) }}
-                        style={{ ...btnCss, background: DARK, color: '#fff' }}>Войти в ПЛЮСОН</button>
+                        disabled={!canEdit}
+                        style={{ ...btnCss, background: DARK, color: '#fff', ...(canEdit ? {} : lockedBtnCss) }}>Войти в ПЛЮСОН</button>
                       <button onClick={() => { setPlusonModal('register'); setPlError(null) }}
-                        style={{ ...btnCss }}>Создать кабинет</button>
+                        disabled={!canEdit}
+                        style={{ ...btnCss, ...(canEdit ? {} : lockedBtnCss) }}>Создать кабинет</button>
                     </div>
                   </>
                 ) : (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                       <div style={{ fontSize: 12.5, color: '#1d6b3a', fontWeight: 600 }}>✓ Подключён ПЛЮСОН: {me.linked_client_email}</div>
-                      <button onClick={unlinkPluson} style={{ background: 'none', border: 'none', color: '#b04a4a', fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline' }}>отвязать</button>
+                      <button onClick={unlinkPluson} disabled={!canEdit}
+                        style={{ background: 'none', border: 'none', color: '#b04a4a', fontSize: 11.5, cursor: canEdit ? 'pointer' : 'not-allowed', textDecoration: 'underline', opacity: canEdit ? 1 : 0.5 }}>отвязать</button>
                     </div>
                     <label style={labelCss}>Подарки-лид-магниты (до 4, в порядке показа)</label>
                     {/* Список выбранных с управлением порядком/удалением */}
@@ -1217,19 +1268,21 @@ export default function SpeakerCabinetPage() {
                                 👤 {stat.known ?? 0}/{stat.delivered ?? 0}
                               </span>
                             )}
-                            <button onClick={() => moveGiftMagnet(i, -1)} disabled={i === 0} title="Выше"
-                              style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px' }}>↑</button>
-                            <button onClick={() => moveGiftMagnet(i, 1)} disabled={i === (me.gift_lead_magnets || []).length - 1} title="Ниже"
-                              style={{ background: 'none', border: 'none', cursor: i === (me.gift_lead_magnets || []).length - 1 ? 'default' : 'pointer', color: i === (me.gift_lead_magnets || []).length - 1 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px' }}>↓</button>
-                            <button onClick={() => removeGiftMagnet(i)} title="Убрать"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b04a4a', fontSize: 15, padding: '0 3px' }}>×</button>
+                            {/* Порядок и удаление сохраняются сразу (saveGiftMagnets) — это запись */}
+                            <button onClick={() => moveGiftMagnet(i, -1)} disabled={i === 0 || !canEdit} title="Выше"
+                              style={{ background: 'none', border: 'none', cursor: (i === 0 || !canEdit) ? 'default' : 'pointer', color: i === 0 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px', opacity: canEdit ? 1 : 0.5 }}>↑</button>
+                            <button onClick={() => moveGiftMagnet(i, 1)} disabled={i === (me.gift_lead_magnets || []).length - 1 || !canEdit} title="Ниже"
+                              style={{ background: 'none', border: 'none', cursor: (i === (me.gift_lead_magnets || []).length - 1 || !canEdit) ? 'default' : 'pointer', color: i === (me.gift_lead_magnets || []).length - 1 ? '#cbd5db' : '#5b7286', fontSize: 14, padding: '0 3px', opacity: canEdit ? 1 : 0.5 }}>↓</button>
+                            <button onClick={() => removeGiftMagnet(i)} disabled={!canEdit} title="Убрать"
+                              style={{ background: 'none', border: 'none', cursor: canEdit ? 'pointer' : 'not-allowed', color: '#b04a4a', fontSize: 15, padding: '0 3px', opacity: canEdit ? 1 : 0.5 }}>×</button>
                           </div>
                           )
                         })}
                       </div>
                     )}
                     {(me.gift_lead_magnets || []).length < 4 ? (
-                      <select style={inputCss} value=""
+                      <select style={{ ...inputCss, ...(canEdit ? {} : lockedBtnCss) }} value=""
+                        disabled={!canEdit}
                         onChange={(e) => { addGiftMagnet(e.target.value); e.currentTarget.value = '' }}>
                         <option value="">+ Добавить лид-магнит / пакет…</option>
                         {(myMagnets?.magnets || [])
@@ -1375,15 +1428,15 @@ export default function SpeakerCabinetPage() {
 
         <button
           onClick={onSave}
-          disabled={saving}
+          disabled={saving || !canEdit}
           style={{
             width: '100%', padding: '16px',
             background: PEACH, color: DARK, fontWeight: 700, fontSize: 16,
             border: 'none', borderRadius: 12,
-            cursor: saving ? 'wait' : 'pointer', marginBottom: 24,
+            cursor: !canEdit ? 'not-allowed' : saving ? 'wait' : 'pointer', marginBottom: 24,
             position: 'sticky', bottom: 12,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            opacity: saving ? 0.85 : 1,
+            opacity: !canEdit ? 0.5 : saving ? 0.85 : 1,
           }}
         >
           {saving && (
@@ -1467,8 +1520,8 @@ export default function SpeakerCabinetPage() {
             <input style={inputCss} type="password" value={plPassword} onChange={(e) => setPlPassword(e.target.value)} placeholder="••••••••" />
             {plError && <div style={{ color: '#b04a4a', fontSize: 12.5, marginTop: 10 }}>{plError}</div>}
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-              <button onClick={doPlusonAuth} disabled={plBusy || !plEmail.trim() || !plPassword}
-                style={{ ...btnCss, background: DARK, color: '#fff', opacity: (plBusy || !plEmail.trim() || !plPassword) ? 0.6 : 1, flex: 1 }}>
+              <button onClick={doPlusonAuth} disabled={plBusy || !plEmail.trim() || !plPassword || !canEdit}
+                style={{ ...btnCss, background: DARK, color: '#fff', opacity: (plBusy || !plEmail.trim() || !plPassword || !canEdit) ? 0.6 : 1, flex: 1 }}>
                 {plBusy ? '…' : plusonModal === 'register' ? 'Создать и подключить' : 'Подключить'}
               </button>
               <button onClick={() => !plBusy && setPlusonModal(null)} style={{ ...btnCss }}>Отмена</button>
@@ -2090,7 +2143,7 @@ function InvitedTab({ token }: { token: string }) {
 }
 
 // ─────────────────────── Вкладка РЕКЛАМНЫЕ ИНТЕГРАЦИИ ───────────────────────
-function MyBroadcastsTab({ token }: { token: string }) {
+function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<any[]>([])
   const [cardLink, setCardLink] = useState<string | null>(null)
@@ -2234,14 +2287,17 @@ function MyBroadcastsTab({ token }: { token: string }) {
                 )}
               </div>
               {statusChip(b.status)}
+              {/* Тест-отправка реально шлёт сообщение — при выключенном модуле недоступна */}
               <button
                 type="button"
                 onClick={() => openTest(b)}
-                title="Отправить тест себе"
+                disabled={!canEdit}
+                title={canEdit ? 'Отправить тест себе' : 'Недоступно — у организатора приостановлена подписка'}
                 style={{
                   padding: '8px 12px', borderRadius: 10, border: '1px solid #d4dee5',
-                  background: '#f6f9fb', cursor: 'pointer', flexShrink: 0,
+                  background: '#f6f9fb', cursor: canEdit ? 'pointer' : 'not-allowed', flexShrink: 0,
                   fontSize: 13, fontWeight: 600, color: DARK, whiteSpace: 'nowrap',
+                  opacity: canEdit ? 1 : 0.5,
                 }}
               >
                 Протестировать
@@ -2321,10 +2377,10 @@ function MyBroadcastsTab({ token }: { token: string }) {
               </button>
               {!testResult && (
                 <button type="button" onClick={runTest}
-                  disabled={testBusy || !testTargets || testTargets.length === 0}
+                  disabled={testBusy || !testTargets || testTargets.length === 0 || !canEdit}
                   style={{ padding: '9px 16px', borderRadius: 10, border: 'none',
-                    background: (testBusy || !testTargets || testTargets.length === 0) ? '#c9d4dc' : DARK,
-                    color: '#fff', cursor: (testBusy || !testTargets || testTargets.length === 0) ? 'default' : 'pointer',
+                    background: (testBusy || !testTargets || testTargets.length === 0 || !canEdit) ? '#c9d4dc' : DARK,
+                    color: '#fff', cursor: (testBusy || !testTargets || testTargets.length === 0 || !canEdit) ? 'default' : 'pointer',
                     fontSize: 14, fontWeight: 700 }}>
                   {testBusy ? 'Отправляем…' : 'Отправить мне'}
                 </button>
@@ -2392,7 +2448,7 @@ function MyBroadcastsTab({ token }: { token: string }) {
   )
 }
 
-function SlotTab({ token, myName }: { token: string; myName: string }) {
+function SlotTab({ token, myName, canEdit = true }: { token: string; myName: string; canEdit?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [activeStage, setActiveStage] = useState<number | null>(null)
@@ -2538,7 +2594,8 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         padding: '10px 0', marginBottom: 8,
       }}>
         {(() => {
-          const canSave = selectedId != null || mySlot != null
+          // Занять/освободить слот — запись в программу, при выключенном модуле нельзя
+          const canSave = (selectedId != null || mySlot != null) && canEdit
           return (
             <button
               type="button"
@@ -2549,6 +2606,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
                 color: DARK, border: 'none', borderRadius: 12,
                 padding: '11px 22px', fontWeight: 800, fontSize: 14,
                 cursor: !canSave ? 'not-allowed' : 'pointer',
+                opacity: canEdit ? 1 : 0.5,
               }}
             >
               {saving ? 'Сохраняю…' : 'Сохранить'}
@@ -2565,8 +2623,9 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
             <span style={{ fontSize: 13, color: DARK, fontWeight: 600 }}>Тема выступления:</span>
             <select
               value={selectedTopicId ?? ''}
+              disabled={!canEdit}
               onChange={e => setSelectedTopicId(e.target.value ? Number(e.target.value) : null)}
-              style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 10, border: '1px solid #d4dee5', fontSize: 13, background: '#fff' }}
+              style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 10, border: '1px solid #d4dee5', fontSize: 13, background: '#fff', ...(canEdit ? {} : lockedBtnCss) }}
             >
               <option value="">— по умолчанию (первая тема) —</option>
               {myTopics.map(t => <option key={t.id} value={t.id}>{t.topic}</option>)}
@@ -2607,8 +2666,8 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
               : ''
             return <>Ваш слот: <b>{dateStr}</b> · <b>{timeStr(mySlot)}</b> · {mySlot.topic || 'Тема будет уточнена позже'}.{' '}</>
           })()}
-          <button type="button" onClick={release} disabled={saving}
-            style={{ background: 'none', border: 'none', color: '#b3261e', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>
+          <button type="button" onClick={release} disabled={saving || !canEdit}
+            style={{ background: 'none', border: 'none', color: '#b3261e', textDecoration: 'underline', cursor: canEdit ? 'pointer' : 'not-allowed', fontSize: 13, padding: 0, opacity: canEdit ? 1 : 0.5 }}>
             освободить
           </button>
         </div>
@@ -2728,7 +2787,9 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
                       <button
                         key={s.id}
                         type="button"
-                        disabled={!free && !mine}
+                        // выбор слота ведёт к записи через «Сохранить» — при
+                        // выключенном модуле выбирать нечего, слоты только смотрим
+                        disabled={(!free && !mine) || !canEdit}
                         onClick={() => { if (free) setSelectedId(prev => prev === s.id ? null : s.id) }}
                         style={{
                           textAlign: 'left', width: '100%',
@@ -2821,6 +2882,10 @@ function JudgingTab({ token }: { token: string }) {
   }
   const saveScore = async (criterionId: number, key: string, value: string, scaleMax: number,
                            inputEl?: HTMLInputElement, comment?: string) => {
+    // ⚠️ Не только `disabled` на поле: сохранение вызывается и по onBlur, и из
+    // lockSubject — на выключенном модуле бэкенд ответит 403, и спикер увидел
+    // бы ошибку вместо понятной плашки.
+    if (data?.can_edit === false) return
     if (value === '') return
     let num = Number(value)
     if (isNaN(num)) return
@@ -2859,6 +2924,10 @@ function JudgingTab({ token }: { token: string }) {
   }
   const lockedKeys: string[] = data?.locked_keys || []
   const isLocked = (key: string) => lockedKeys.includes(key)
+  // Модуль «Премии и Турниры» у организатора отключён → бэк вернёт 403 на
+  // сохранение балла/фиксацию. Оценки при этом остаются видны — блокируем ввод.
+  // undefined (старый бэк) → считаем, что редактировать можно.
+  const canEdit = data?.can_edit !== false
   const myAvg = (key: string): string => {
     const v = data?.my_avg_by_key?.[key]
     return v == null ? '—' : String(v)
@@ -2866,6 +2935,7 @@ function JudgingTab({ token }: { token: string }) {
   // Фиксация оценки ОДНОГО участника. Требуем: ВСЕ баллы проставлены +
   // развёрнутая обратная связь (≥10 слов). Комментарии к критериям — по желанию.
   const lockSubject = async (key: string, name: string) => {
+    if (data?.can_edit === false) return
     // БАЛЛЫ по всем критериям — ОБЯЗАТЕЛЬНЫ (частичная оценка не фиксируется).
     // Актуальное значение берём из поля (может быть ещё не сохранено onBlur).
     const crits = data?.criteria || []
@@ -2920,7 +2990,12 @@ function JudgingTab({ token }: { token: string }) {
   }
 
   if (loading) return <div style={{ padding: 20, textAlign: 'center', color: '#7a8c9c' }}>Загрузка…</div>
-  if (!data?.subjects?.length) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Вам пока не назначили участников для оценки. Обратитесь к организатору.</div>
+  if (!data?.subjects?.length) return (
+    <div>
+      {!canEdit && <ModuleLockedBanner />}
+      <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Вам пока не назначили участников для оценки. Обратитесь к организатору.</div>
+    </div>
+  )
 
   const done = (data.subjects || []).filter((s: any) =>
     (data.criteria || []).some((c: any) => scoreVal(c.id, s.key) !== '')
@@ -2928,6 +3003,9 @@ function JudgingTab({ token }: { token: string }) {
 
   return (
     <div>
+      {/* Плашка вверху вкладки: оценки видны, но сохранять их нельзя */}
+      {!canEdit && <ModuleLockedBanner />}
+
       {data.stages?.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           {/* Этапы — вкладками (как в «Моём слоте»): выпадающий список читался как
@@ -3001,10 +3079,13 @@ function JudgingTab({ token }: { token: string }) {
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {/* Балл сохраняется по onBlur — при выключенном модуле
+                              поле только для чтения, чтобы не терять введённое в 403 */}
                           <input type="number" min={Number(c.scale_min) || 0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
                             ref={(el) => { scoreRefs.current[`${c.id}|${s.key}`] = el }}
+                            disabled={!canEdit}
                             onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
-                            style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', background: '#fff' }} />
+                            style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', background: canEdit ? '#fff' : '#f1f5f9', ...(canEdit ? {} : lockedBtnCss) }} />
                           <span style={{ color: '#94a3b8', fontSize: 13 }}>/ {c.scale_max}</span>
                         </div>
                         {Number(c.scale_min) > 0 && (
@@ -3019,9 +3100,11 @@ function JudgingTab({ token }: { token: string }) {
                       <textarea defaultValue={cmtVal(c.id, s.key)}
                         placeholder="Можно пояснить оценку по этому критерию…"
                         ref={(el) => { cmtRefs.current[`${c.id}|${s.key}`] = el }}
+                        disabled={!canEdit}
                         onBlur={(e) => saveComment(c.id, s.key, e.target.value, Number(c.scale_max))}
                         style={{ width: '100%', minHeight: 52, padding: 8, borderRadius: 8, border: '1px solid #d4dee5',
-                                 fontSize: 13, fontFamily: 'inherit', background: '#fff', boxSizing: 'border-box' }} />
+                                 fontSize: 13, fontFamily: 'inherit', background: canEdit ? '#fff' : '#f1f5f9', boxSizing: 'border-box',
+                                 ...(canEdit ? {} : lockedBtnCss) }} />
                     </div>
                   </div>
                 ))}
@@ -3029,8 +3112,10 @@ function JudgingTab({ token }: { token: string }) {
                   <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 4 }}>💬 Обратная связь участнику <span style={{ color: '#dc2626', fontWeight: 400 }}>— обязательна, минимум 10 слов</span></div>
                   <textarea defaultValue={fbVal(s.key)} placeholder="Почему такие оценки и что рекомендую развивать (развёрнуто, минимум 10 слов)…"
                     ref={(el) => { fbRefs.current[s.key] = el }}
+                    disabled={!canEdit}
                     onBlur={(e) => saveFb(s.key, e.target.value)}
-                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit', background: '#fff' }} />
+                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit',
+                             background: canEdit ? '#fff' : '#f1f5f9', ...(canEdit ? {} : lockedBtnCss) }} />
                 </div>
                 {/* Фиксация по участнику. Оценки можно менять всегда — фиксация лишь
                     отмечает «готово» (участник видит, что жюри завершило). */}
@@ -3038,7 +3123,9 @@ function JudgingTab({ token }: { token: string }) {
                   <div style={{ marginTop: 10, fontSize: 13, color: '#047857', fontWeight: 600 }}>🔒 Оценка зафиксирована. Можно поправить и зафиксировать заново.</div>
                 )}
                 <button onClick={() => lockSubject(s.key, s.name)}
-                  style={{ marginTop: 10, width: '100%', padding: '10px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                  disabled={!canEdit}
+                  style={{ marginTop: 10, width: '100%', padding: '10px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 14, fontWeight: 700,
+                           cursor: canEdit ? 'pointer' : 'not-allowed', opacity: canEdit ? 1 : 0.5 }}>
                   🔒 {locked ? 'Обновить фиксацию' : 'Зафиксировать оценку этого участника'}
                 </button>
               </div>

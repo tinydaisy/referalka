@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -98,12 +98,16 @@ export default function Sidebar() {
       label: t.nav.eventsSection,
       items: [
         { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
-        // Конференции — только для тарифов с фичей 'conference' (ПРОФИ, VIP, Пробный)
-        ...(hasConference ? [{ href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic }] : []),
+        // ⚠️ Конференции и Турниры показываем ВСЕГДА — с замочком, если модуль
+        // не подключён (2026-08-10). Раньше пункт просто исчезал, и вместе с
+        // фильтром в общем списке событие становилось ненаходимым: у клиента
+        // «пропадал раздел» без единого объяснения, хотя данные были целы.
+        // Замочек честнее: видно, что раздел есть, и понятно, что сделать.
+        { href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic, locked: !hasConference },
         // Премии/Турниры — multi-day программы (этапы / недели / дни) поверх тех же таблиц
         // conf_* что и конференции, но семантика и UI заточены под чемпионаты/премии.
         // ⚠️ Доступ — по СВОЕЙ фиче 'tournaments' (модуль-аддон), не по 'conference'.
-        ...(hasTournaments ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
+        { href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy, locked: !hasTournaments },
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
         // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),
@@ -185,7 +189,7 @@ export default function Sidebar() {
               </button>
             )}
             {!isCollapsed && <div className="space-y-0.5">
-              {section.items.map(({ href, label, icon: Icon, exact, external: itemExternal }: { href: string; label: string; icon: any; exact?: boolean; external?: boolean }) => {
+              {section.items.map(({ href, label, icon: Icon, exact, external: itemExternal, locked }: { href: string; label: string; icon: any; exact?: boolean; external?: boolean; locked?: boolean }) => {
                 const active = isActive(href, exact)
                 const isComingSoon = href === '#'
                 // Внешняя ссылка (например закрытый чат в Telegram) — обычный
@@ -220,7 +224,10 @@ export default function Sidebar() {
                     }`}
                   >
                     <Icon size={17} />
-                    <span>{label}</span>
+                    <span className={locked ? 'text-white/45' : undefined}>{label}</span>
+                    {/* Замочек = модуль не подключён. Пункт НЕ отключаем: клик
+                        ведёт на страницу раздела, где объяснено, что делать. */}
+                    {locked && <Lock size={12} className="ml-auto text-white/35" />}
                     {isComingSoon && (
                       <span className="ml-auto text-[9px] font-semibold bg-white/10 text-white/40 px-1.5 py-0.5 rounded">
                         {t.nav.comingSoon}

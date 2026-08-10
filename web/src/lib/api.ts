@@ -163,6 +163,13 @@ export const api = {
       request(`/api/v1/events/${id}`, { method: 'DELETE' }),
     copy: (id: number) =>
       request(`/api/v1/events/${id}/copy`, { method: 'POST' }),
+    // Смена типа: мероприятие ↔ конференция ↔ турнир. Данные не теряются —
+    // участники, подарки, рассылки и лендинг висят на событии, а не на типе.
+    // Повышение возможно только на оплаченный модуль (проверяет бэкенд).
+    changeType: (id: number, moduleSlug: 'base' | 'conference' | 'turnir') =>
+      request(`/api/v1/events/${id}/change-type`, {
+        method: 'POST', body: JSON.stringify({ module_slug: moduleSlug }),
+      }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
     shareLinks: (slug: string, pid?: string, mode?: 'miniapp' | 'bot') => {
       const p = new URLSearchParams()

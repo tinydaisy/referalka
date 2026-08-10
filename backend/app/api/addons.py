@@ -473,8 +473,13 @@ async def _apply_paid_addon_order(
             # ⚠️ price — сумма ПОСЛЕДНЕЙ оплаты (в рублях). Раньше колонка не
             # заполнялась вовсе, и в отчётах по выручке модуль был без суммы,
             # хотя деньги прошли.
+            # ⚠️ Флаги предупреждений сбрасываем при продлении (миграция 276):
+            # продление — это UPDATE той же строки, и без сброса клиент больше
+            # никогда не получил бы предупреждений об истечении — таск считал бы,
+            # что уже уведомлял.
             await db.execute(
                 "UPDATE client_addons SET expires_at=$2, months=months+$3, price=$4, "
+                "notified_7d=FALSE, notified_3d=FALSE, notified_1d=FALSE, "
                 "updated_at=NOW() WHERE id=$1",
                 existing["id"], new_expires, months, paid_rub,
             )
