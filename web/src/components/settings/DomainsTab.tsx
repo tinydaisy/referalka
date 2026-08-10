@@ -223,8 +223,8 @@ export default function DomainsTab() {
           <Globe className="text-slate-400 mb-3" size={28} />
           <h3 className="text-lg font-semibold text-slate-800 mb-2">Свой домен</h3>
           <p className="text-slate-600 text-sm leading-relaxed mb-4">
-            Лендинги, кабинет спикера и турнирные таблицы могут открываться
-            на вашем домене, а письма — уходить с вашего адреса.
+            Лендинги событий и все ссылки для партнёров и участников могут
+            открываться на вашем домене, а письма — уходить с вашего адреса.
             Возможность входит в тариф Экстра.
           </p>
           <a href="/dashboard/subscription" className="btn-gold inline-block">Посмотреть тариф</a>
@@ -246,8 +246,8 @@ export default function DomainsTab() {
           <h3 className="text-lg font-semibold text-slate-800">Домен для страниц</h3>
         </div>
         <p className="text-sm text-slate-600 mb-4">
-          Лендинги событий, кабинет спикера и жюри, турнирные таблицы, воронки
-          подарков и оферта откроются на вашем домене.
+          Лендинги событий, оферта и все ссылки для партнёров и участников
+          откроются на вашем домене.
           {' '}Кабинет останется на {platformDomain} — там вход и оплаты.
         </p>
 
@@ -367,7 +367,7 @@ export default function DomainsTab() {
         </div>
         <p className="text-sm text-slate-600 mb-4">
           Рассылки будут приходить с вашего адреса вместо адреса ПЛЮСОНа.
-          Письма по-прежнему отправляем мы — меняется только адрес и подпись.
+          Но с IP-адреса нашего сервиса.
         </p>
 
         {mail.length === 0 && adding !== 'mail' && (
