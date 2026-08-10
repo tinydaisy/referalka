@@ -6,6 +6,8 @@ import { Plus, Users, Calendar, ChevronRight, Mic, Trash2, Copy, Trophy } from '
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import ViewToggle, { ViewMode } from '@/components/ViewToggle'
+import FeatureLock from '@/components/FeatureLock'
+import { useMe } from '@/hooks/useMe'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -52,6 +54,14 @@ export default function ConferencesPage() {
   const emptySubtitle = isTournament ? 'Создайте первый турнир или премию' : t.conferences.empty.subtitle
   const emptyBtn = isTournament ? 'Создать первый турнир' : t.conferences.empty.btn
   const HeaderIcon = isTournament ? Trophy : Mic
+
+  // ⚠️ Модуль платный. Замка в сайдбаре мало: по прямой ссылке раздел
+  // открывался целиком, и кнопка «Создать» вела в форму — там клиент упирался
+  // в 403 от бэкенда вместо понятного объяснения. Своё видно всегда
+  // («смотреть можно, менять нельзя»), создание — только с модулем.
+  // Хук объявлен ДО early-return по loading.
+  const { me } = useMe()
+  const hasModule = !me || (me.features || []).includes(moduleSlug === 'turnir' ? 'tournaments' : 'conference')
 
   const [events, setEvents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -133,13 +143,23 @@ export default function ConferencesPage() {
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle view={view} onChange={setViewPersist} />
-          <Link href={`${basePath}/new`}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
-                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Plus size={16} /> {addNewLabel}
-          </Link>
+          {hasModule && (
+            <Link href={`${basePath}/new`}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+              <Plus size={16} /> {addNewLabel}
+            </Link>
+          )}
         </div>
       </div>
+
+      {/* Модуль не подключён — объясняем, что подключить, и ведём в оплату.
+          Уже созданные события ниже остаются видимыми. */}
+      {!hasModule && (
+        <div className="mb-6">
+          <FeatureLock anyOf={[moduleSlug === 'turnir' ? 'tournaments' : 'conference']} />
+        </div>
+      )}
 
       {events.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
@@ -149,11 +169,16 @@ export default function ConferencesPage() {
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-3">{emptyTitle}</h2>
           <p className="text-gray-500 mb-8 max-w-sm mx-auto">{emptySubtitle}</p>
-          <Link href={`${basePath}/new`}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white"
-                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Plus size={16} /> {emptyBtn}
-          </Link>
+          {/* Без модуля кнопку не рисуем: она вела в форму создания, где
+              клиент получал 403 вместо объяснения. Что подключить — написано
+              в замке выше. */}
+          {hasModule && (
+            <Link href={`${basePath}/new`}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+              <Plus size={16} /> {emptyBtn}
+            </Link>
+          )}
         </div>
       ) : view === 'list' ? (
         <div className="bg-white rounded-xl border border-gray-200 divide-y">

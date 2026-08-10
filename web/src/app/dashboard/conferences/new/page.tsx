@@ -6,6 +6,8 @@ import { ArrowLeft, Mic, Trophy } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
+import FeatureLock from '@/components/FeatureLock'
+import { useMe } from '@/hooks/useMe'
 
 export default function NewConferencePage() {
   const router = useRouter()
@@ -19,6 +21,13 @@ export default function NewConferencePage() {
   const [title, setTitle] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // ⚠️ Форма доступна по прямой ссылке, поэтому проверка нужна и здесь, а не
+  // только на списке: без модуля создание всё равно упрётся в 403 на бэкенде,
+  // и клиент увидел бы ошибку вместо объяснения. Хук — выше early-return.
+  const { me } = useMe()
+  const featureSlug = isTournament ? 'tournaments' : 'conference'
+  const hasModule = !me || (me.features || []).includes(featureSlug)
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -44,6 +53,9 @@ export default function NewConferencePage() {
         <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
       </div>
 
+      {!hasModule && <FeatureLock anyOf={[featureSlug]} />}
+
+      {hasModule && <>
       <div className="flex justify-center mb-8">
         <div className="w-20 h-20 rounded-2xl gradient-bg flex items-center justify-center">
           <HeaderIcon size={36} className="text-white" />
@@ -87,6 +99,7 @@ export default function NewConferencePage() {
           {t.conferences.new.cancel}
         </Link>
       </form>
+      </>}
     </div>
   )
 }
