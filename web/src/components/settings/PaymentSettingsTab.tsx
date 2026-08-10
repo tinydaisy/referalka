@@ -6,11 +6,15 @@ import FeatureLock from '@/components/FeatureLock'
  * Вкладка «Платёжные системы» (миграция 257).
  *
  * Клиент подключает СВОЙ кабинет платёжной системы — деньги за тарифы его
- * событий идут ему. Поддержаны LeadPay и Продамус (миграция 269), в обоих
- * случаях нужно два значения из кабинета системы.
+ * событий идут ему. Поддержаны LeadPay, Продамус (миграция 269) и эквайринг
+ * Т-Банка (миграция 276); всюду нужно два значения из кабинета системы.
  *
- * Вебхук настраивать не нужно ни в той, ни в другой: его адрес мы передаём
- * сами вместе с заказом.
+ * Вебхук настраивать не нужно ни в одной: его адрес мы передаём сами вместе
+ * с заказом.
+ *
+ * ⚠️ У Т-Банка тестовый терминал — ОТДЕЛЬНАЯ пара ключей, а не режим в
+ * запросе. Держим обе пары рядом и переключаем галочкой: иначе после проверки
+ * клиент стирал бы тестовые ключи, и вернуться к проверке было бы нечем.
  */
 import { useEffect, useState } from 'react'
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
@@ -27,6 +31,14 @@ export default function PaymentSettingsTab() {
   // Продамус: адрес формы оплаты и секретный ключ магазина.
   const [pdUrl, setPdUrl] = useState('')
   const [pdSecret, setPdSecret] = useState('')
+  // Т-Банк: две пары ключей (боевая и тестовая) + режим работы.
+  const [tbKey, setTbKey] = useState('')
+  const [tbPass, setTbPass] = useState('')
+  const [tbTestKey, setTbTestKey] = useState('')
+  const [tbTestPass, setTbTestPass] = useState('')
+  const [tbTest, setTbTest] = useState(false)
+  const [tbTax, setTbTax] = useState('')
+  const [tbVat, setTbVat] = useState('')
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
   // Куда слать уведомления об оплатах: у каждой площадки свой канал.
   const [me, setMe] = useState<any>(null)
@@ -44,6 +56,11 @@ export default function PaymentSettingsTab() {
       setData(res)
       setLogin(res.pay_leadpay_login || '')
       setPdUrl(res.pay_prodamus_url || '')
+      setTbKey(res.pay_tbank_terminal_key || '')
+      setTbTestKey(res.pay_tbank_test_terminal_key || '')
+      setTbTest(!!res.pay_tbank_test_mode)
+      setTbTax(res.pay_tbank_taxation || '')
+      setTbVat(res.pay_tbank_vat || '')
     } catch (e: any) {
       if (String(e?.message || '').includes('недоступен')) setDenied(true)
     } finally { setLoading(false) }
@@ -80,6 +97,8 @@ export default function PaymentSettingsTab() {
       // Ключи обратно не приходят — очищаем поля, чтобы не смущал плейсхолдер.
       if (patch.pay_leadpay_token !== undefined) setToken('')
       if (patch.pay_prodamus_secret !== undefined) setPdSecret('')
+      if (patch.pay_tbank_password !== undefined) setTbPass('')
+      if (patch.pay_tbank_test_password !== undefined) setTbTestPass('')
     } catch (e: any) {
       alert(e?.message || 'Не удалось сохранить')
     } finally { setSaving(false) }
@@ -95,6 +114,13 @@ export default function PaymentSettingsTab() {
         pay_leadpay_token: token || undefined,
         pay_prodamus_url: pdUrl || undefined,
         pay_prodamus_secret: pdSecret || undefined,
+        pay_tbank_terminal_key: tbKey || undefined,
+        pay_tbank_password: tbPass || undefined,
+        pay_tbank_test_terminal_key: tbTestKey || undefined,
+        pay_tbank_test_password: tbTestPass || undefined,
+        // ⚠️ Режим шлём всегда: клиент жмёт «Проверить» сразу после
+        // переключения галочки, и проверить надо НОВЫЙ режим, а не сохранённый.
+        pay_tbank_test_mode: tbTest,
       })
       setResult(res)
     } catch (e: any) {
@@ -184,8 +210,20 @@ export default function PaymentSettingsTab() {
           <option value="">Не подключена</option>
           <option value="leadpay">LeadPay</option>
           <option value="prodamus">Продамус</option>
+          <option value="tbank">Эквайринг Т-Банка</option>
         </select>
       </div>
+
+      {provider === 'tbank' && tbTest && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-medium">Включён тестовый терминал</div>
+          <div className="mt-0.5">
+            Оплаты проходят понарошку, деньги вам не приходят. Закончите
+            проверку — снимите галочку, иначе настоящие покупатели заплатят
+            в никуда.
+          </div>
+        </div>
+      )}
 
       {provider === 'leadpay' && (
         <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
@@ -330,6 +368,184 @@ export default function PaymentSettingsTab() {
               onClick={() => save({
                 pay_prodamus_url: pdUrl.trim(),
                 ...(pdSecret.trim() ? { pay_prodamus_secret: pdSecret.trim() } : {}),
+              })}
+              disabled={saving || checking}
+              className="btn-primary disabled:opacity-60"
+            >
+              Сохранить
+            </button>
+            <button
+              onClick={check} disabled={checking || saving}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              {checking && <Loader2 className="h-4 w-4 animate-spin" />}
+              Проверить связь
+            </button>
+            {saving && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Сохраняем…
+              </span>
+            )}
+          </div>
+
+          {result && (
+            <div className={`rounded-lg p-3 text-sm ${
+              result.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'
+            }`}>
+              {result.message}
+            </div>
+          )}
+        </div>
+      )}
+
+      {provider === 'tbank' && (
+        <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-sm text-gray-600">
+            Оба значения — в кабинете Т-Бизнеса:{' '}
+            <a href="https://business.tbank.ru" target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1 font-medium text-brand hover:underline">
+              Магазины → Терминалы <ExternalLink className="h-3 w-3" />
+            </a>
+            {' '}Там же рядом лежат ключи тестового терминала.
+          </p>
+
+          {/* Боевые ключи */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Terminal Key (боевой)
+            </label>
+            {/* ⚠️ Автозаполнение выключено: Chrome принимает пару полей за
+                форму входа и подставляет в ключ сохранённый пароль. */}
+            <input
+              type="text" value={tbKey}
+              onChange={e => setTbKey(e.target.value)}
+              autoComplete="off" name="tb-key-x" data-lpignore="true"
+              data-1p-ignore="true" data-form-type="other"
+              placeholder="1234567890123"
+              className="input font-mono text-[13px]"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Пароль терминала (боевой)
+            </label>
+            <input
+              type="text" value={tbPass}
+              onChange={e => setTbPass(e.target.value)}
+              autoComplete="off" name="tb-pass-x" data-lpignore="true"
+              data-1p-ignore="true" data-form-type="other"
+              spellCheck={false}
+              placeholder={data?.has_tbank_password
+                ? `сохранён, оканчивается на ${data.tbank_password_tail}`
+                : 'вставьте пароль'}
+              className="input font-mono text-[13px]"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Храним у себя и наружу не показываем. Вебхук в Т-Банке настраивать
+              не нужно — его адрес мы передаём сами с каждым заказом.
+            </p>
+          </div>
+
+          {/* Тестовый терминал */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox" checked={tbTest}
+                onChange={e => setTbTest(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+              />
+              <span className="text-sm">
+                <span className="font-medium text-gray-800">
+                  Работать на тестовом терминале
+                </span>
+                <span className="mt-0.5 block text-gray-500">
+                  Проверка без настоящих денег. Ключи тестового терминала — свои,
+                  их выдаёт Т-Банк в том же разделе кабинета.
+                </span>
+              </span>
+            </label>
+
+            {tbTest && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Terminal Key (тестовый)
+                  </label>
+                  <input
+                    type="text" value={tbTestKey}
+                    onChange={e => setTbTestKey(e.target.value)}
+                    autoComplete="off" name="tb-tkey-x" data-lpignore="true"
+                    data-1p-ignore="true" data-form-type="other"
+                    placeholder="1234567890123DEMO"
+                    className="input font-mono text-[13px]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Пароль терминала (тестовый)
+                  </label>
+                  <input
+                    type="text" value={tbTestPass}
+                    onChange={e => setTbTestPass(e.target.value)}
+                    autoComplete="off" name="tb-tpass-x" data-lpignore="true"
+                    data-1p-ignore="true" data-form-type="other"
+                    spellCheck={false}
+                    placeholder={data?.has_tbank_test_password
+                      ? `сохранён, оканчивается на ${data.tbank_test_password_tail}`
+                      : 'вставьте пароль'}
+                    className="input font-mono text-[13px]"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Чек. Нужен, только если у клиента подключён сервис «Чеки». */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Система налогообложения
+              </label>
+              <select value={tbTax} onChange={e => setTbTax(e.target.value)}
+                      className="input bg-white">
+                <option value="">УСН «Доходы» (по умолчанию)</option>
+                {Object.entries(data?.tbank_taxations || {}).map(([k, v]) => (
+                  <option key={k} value={k}>{String(v)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Ставка НДС
+              </label>
+              <select value={tbVat} onChange={e => setTbVat(e.target.value)}
+                      className="input bg-white">
+                <option value="">Без НДС (по умолчанию)</option>
+                {Object.entries(data?.tbank_vats || {}).map(([k, v]) => (
+                  <option key={k} value={k}>{String(v)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+            Товары в Т-Банке заводить не нужно: название и сумму мы берём из
+            вашего тарифа и передаём прямо в запрос на оплату. Если у вас
+            подключён сервис «Чеки от Т-Бизнеса», банк выдаст покупателю чек
+            сам — для этого и нужны налогообложение со ставкой НДС.
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => save({
+                pay_tbank_terminal_key: tbKey.trim(),
+                ...(tbPass.trim() ? { pay_tbank_password: tbPass.trim() } : {}),
+                pay_tbank_test_terminal_key: tbTestKey.trim(),
+                ...(tbTestPass.trim() ? { pay_tbank_test_password: tbTestPass.trim() } : {}),
+                pay_tbank_test_mode: tbTest,
+                pay_tbank_taxation: tbTax || null,
+                pay_tbank_vat: tbVat || null,
               })}
               disabled={saving || checking}
               className="btn-primary disabled:opacity-60"

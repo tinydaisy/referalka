@@ -23,8 +23,17 @@
   • Продамус (миграция 269) — метода «дай ссылку» НЕТ. Ссылку собираем сами
     из адреса формы, параметров заказа и подписи; кода товара не нужно —
     название и цену передаём в самой ссылке.
-Наружу оба ведут себя одинаково: `create_payment_link` возвращает адрес
+  • Т-Банк (миграция 277) — ссылку выдаёт по сети (метод Init), но кода товара
+    не требует: название и цена уходят в запросе. Сумма — В КОПЕЙКАХ.
+Наружу все три ведут себя одинаково: `create_payment_link` возвращает адрес
 оплаты, вебхук приходит с номером нашего заказа.
+
+⚠️ Про «Т-Чеки». Это НЕ отдельная система, а сервис фискализации поверх
+эквайринга Т-Банка: клиент включает его у себя в кабинете, и банк сам выдаёт
+покупателям чеки. От нас нужно лишь передать состав заказа (объект `Receipt`)
+в том же запросе `Init`. Поэтому мы передаём его ВСЕГДА: у кого сервис
+включён — чек уйдёт, у кого нет — банк поле проигнорирует. Отдельной
+настройки «включить Т-Чеки» у нас нет и не нужно.
 """
 import hmac
 import hashlib
@@ -37,13 +46,40 @@ import httpx
 logger = logging.getLogger(__name__)
 
 LEADPAY_GETLINK_URL = "https://app.leadpay.ru/api/v1/getLink/"
+TBANK_INIT_URL = "https://securepay.tinkoff.ru/v2/Init"
 
 # Названия платёжных систем для интерфейса.
-PROVIDERS = {"leadpay": "LeadPay", "prodamus": "Продамус"}
+PROVIDERS = {
+    "leadpay": "LeadPay",
+    "prodamus": "Продамус",
+    "tbank": "Эквайринг Т-Банка",
+}
 
-# У какой системы в тарифе нужен код товара. У Продамуса название и цена
-# уходят прямо в ссылке — заводить товар заранее не нужно.
+# У какой системы в тарифе нужен код товара. У Продамуса и Т-Банка название и
+# цена уходят прямо в запросе — заводить товар заранее не нужно.
 NEEDS_PRODUCT_ID = {"leadpay"}
+
+# Системы налогообложения и ставки НДС для чека Т-Банка — значения из его
+# документации. Нужны, только если у клиента включён сервис «Чеки».
+TBANK_TAXATIONS = {
+    "usn_income": "УСН «Доходы»",
+    "usn_income_outcome": "УСН «Доходы минус расходы»",
+    "osn": "Общая (ОСН)",
+    "patent": "Патент",
+    "esn": "ЕСХН",
+}
+TBANK_VATS = {
+    "none": "Без НДС",
+    "vat0": "НДС 0%",
+    "vat5": "НДС 5%",
+    "vat7": "НДС 7%",
+    "vat10": "НДС 10%",
+    "vat20": "НДС 20%",
+}
+# ⚠️ Пустые поля не должны срывать оплату — берём самый частый у наших
+# клиентов случай.
+TBANK_DEFAULT_TAXATION = "usn_income"
+TBANK_DEFAULT_VAT = "none"
 
 
 def provider_of(client: dict) -> Optional[str]:
@@ -61,6 +97,11 @@ def is_configured(client: dict) -> bool:
     if provider == "prodamus":
         return bool((client.get("pay_prodamus_url") or "").strip()
                     and (client.get("pay_prodamus_secret") or "").strip())
+    if provider == "tbank":
+        # ⚠️ Проверяем ту пару, которой реально будем платить: с включённой
+        # галочкой теста боевые ключи не спасут — запрос уйдёт с тестовыми.
+        terminal, password = tbank_keys(client)
+        return bool(terminal and password)
     return False
 
 
@@ -189,6 +230,233 @@ def _prodamus_link(
     return f"{base}/?{urlencode(params)}"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Эквайринг Т-Банка (миграция 277)
+# ─────────────────────────────────────────────────────────────────────────────
+def tbank_keys(client: dict) -> tuple[str, str]:
+    """Какой парой ключей работаем: тестовой или боевой.
+
+    ⚠️ Тестовый терминал у Т-Банка — ОТДЕЛЬНАЯ пара ключей, а не флаг в
+    запросе; адрес API один и тот же. Обе пары лежат рядом, выбор — галочкой.
+
+    ⚠️ Единственная точка выбора. Если брать ключи напрямую из полей в разных
+    местах, где-нибудь останется боевая пара при включённом тесте — и клиент
+    проведёт настоящую оплату, думая, что проверяет.
+    """
+    if client.get("pay_tbank_test_mode"):
+        return ((client.get("pay_tbank_test_terminal_key") or "").strip(),
+                (client.get("pay_tbank_test_password") or "").strip())
+    return ((client.get("pay_tbank_terminal_key") or "").strip(),
+            (client.get("pay_tbank_password") or "").strip())
+
+
+def _tbank_token(params: dict, password: str) -> str:
+    """Подпись запроса по правилам Т-Банка.
+
+    Алгоритм из документации: берём пары ключ-значение, добавляем `Password`,
+    сортируем по КЛЮЧУ, склеиваем только ЗНАЧЕНИЯ без разделителей и берём
+    SHA-256.
+
+    ⚠️ Вложенные объекты (`Receipt`, `DATA`) в подписи НЕ участвуют — только
+    поля верхнего уровня. Если их не исключить, подпись не сойдётся и банк
+    ответит отказом.
+    """
+    flat = {
+        k: v for k, v in params.items()
+        if k != "Token" and not isinstance(v, (dict, list, tuple)) and v is not None
+    }
+    flat["Password"] = password
+    raw = "".join(_tbank_str(flat[k]) for k in sorted(flat.keys()))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _tbank_str(value) -> str:
+    """Значение в том виде, в каком оно уходит в запросе.
+
+    ⚠️ Булево у Т-Банка — «true»/«false» строчными, а не питоновские
+    «True»/«False»: иначе подпись разойдётся с тем, что посчитает банк.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def verify_tbank_webhook(payload: dict, *passwords: Optional[str]) -> bool:
+    """Проверяет подпись нотификации Т-Банка (поле `Token` в теле).
+
+    Считается так же, как подпись запроса: вложенные объекты не участвуют.
+
+    ⚠️ Паролей может быть два — боевой и тестовый. Подходит любой: нотификация
+    приходит с того терминала, на котором прошла оплата, а клиент мог
+    переключить галочку уже после того, как заказ ушёл в оплату. Сверять
+    только с текущим режимом значило бы терять такие оплаты.
+
+    Ни одного пароля → False: приём оплаты не настроен, доверять нельзя.
+    """
+    received = str(payload.get("Token") or "").strip()
+    if not received:
+        return False
+    for password in passwords:
+        password = (password or "").strip()
+        if not password:
+            continue
+        if hmac.compare_digest(
+                _tbank_token(payload, password).lower(), received.lower()):
+            return True
+    return False
+
+
+def _tbank_receipt(
+    *,
+    client: dict,
+    title: str,
+    amount_kop: int,
+    email: Optional[str],
+    phone: Optional[str],
+) -> Optional[dict]:
+    """Состав заказа для чека.
+
+    ⚠️ Чеки выдаёт САМ банк (сервис «Чеки от Т-Бизнеса»), от нас нужны только
+    данные. Передаём всегда: у кого сервис включён — чек уйдёт, у кого нет —
+    банк поле проигнорирует.
+
+    Нужен хотя бы один контакт покупателя (email или телефон) — без него банк
+    чек не примет. Нет ни одного → чек не передаём вовсе, оплата пройдёт без
+    фискализации (лучше принять деньги, чем сорвать оплату).
+    """
+    email = (email or "").strip()
+    phone = (phone or "").strip()
+    if not email and not phone:
+        return None
+
+    taxation = (client.get("pay_tbank_taxation") or "").strip() or TBANK_DEFAULT_TAXATION
+    vat = (client.get("pay_tbank_vat") or "").strip() or TBANK_DEFAULT_VAT
+    if taxation not in TBANK_TAXATIONS:
+        taxation = TBANK_DEFAULT_TAXATION
+    if vat not in TBANK_VATS:
+        vat = TBANK_DEFAULT_VAT
+
+    receipt: dict = {
+        "Taxation": taxation,
+        "Items": [{
+            # Ограничение банка — 128 символов на название.
+            "Name": (title or "Участие в событии")[:128],
+            "Price": amount_kop,
+            "Quantity": 1,
+            "Amount": amount_kop,
+            "Tax": vat,
+            # Участие в событии — услуга, а не товар.
+            "PaymentMethod": "full_payment",
+            "PaymentObject": "service",
+        }],
+    }
+    if email:
+        receipt["Email"] = email
+    if phone:
+        receipt["Phone"] = phone
+    return receipt
+
+
+async def _tbank_link(
+    *,
+    client: dict,
+    order_id: int,
+    title: str,
+    price,
+    notification_url: str,
+    redirect_url_ok: str,
+    redirect_url_error: str,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+) -> str:
+    """Просит у Т-Банка ссылку на оплату (метод Init)."""
+    terminal, password = tbank_keys(client)
+
+    # ⚠️ Сумма у Т-Банка В КОПЕЙКАХ. Округляем через Decimal: float дал бы
+    # 1990.0 * 100 = 198999.99… и заказ ушёл бы на копейку дешевле.
+    from decimal import Decimal, ROUND_HALF_UP
+    try:
+        amount_kop = int(
+            (Decimal(str(price)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        )
+    except Exception:
+        raise RuntimeError("У тарифа не указана цена")
+    if amount_kop <= 0:
+        raise RuntimeError("У тарифа не указана цена")
+
+    params: dict = {
+        "TerminalKey": terminal,
+        "Amount": amount_kop,
+        # Тот же префикс, что у остальных систем: по нему вебхук отличает
+        # оплату тарифа события от оплаты подписки на платформу.
+        "OrderId": f"evt-{order_id}",
+        # Ограничение банка — 140 символов.
+        "Description": (title or "Участие в событии")[:140],
+        "NotificationURL": notification_url,
+        "SuccessURL": redirect_url_ok,
+        "FailURL": redirect_url_error,
+    }
+    params["Token"] = _tbank_token(params, password)
+
+    # ⚠️ Receipt добавляется ПОСЛЕ подписи — вложенные объекты в неё не входят.
+    receipt = _tbank_receipt(client=client, title=title, amount_kop=amount_kop,
+                             email=email, phone=phone)
+    if receipt:
+        params["Receipt"] = receipt
+
+    async with httpx.AsyncClient(timeout=20.0) as cli:
+        resp = await cli.post(TBANK_INIT_URL, json=params)
+
+    try:
+        body = resp.json()
+    except Exception:
+        logger.error("Т-Банк (клиент %s): не JSON (%s): %s",
+                     client.get("id"), resp.status_code, resp.text[:300])
+        raise RuntimeError(f"Платёжная система вернула непонятный ответ (HTTP {resp.status_code})")
+
+    if body.get("Success") and body.get("PaymentURL"):
+        return body["PaymentURL"]
+
+    desc = (body.get("Details") or body.get("Message")
+            or body.get("ErrorCode") or "неизвестная ошибка")
+    logger.error("Т-Банк (клиент %s) Init: %s", client.get("id"), desc)
+    raise RuntimeError(f"Платёжная система: {desc}")
+
+
+async def check_tbank_credentials(terminal_key: str, password: str) -> tuple[bool, str]:
+    """Проверка ключей кнопкой «Проверить связь».
+
+    Настоящую оплату не создаём — шлём заведомо негодную сумму (0). Если ключи
+    верны, банк ответит про сумму; если неверны — про подпись или терминал.
+    Ответ про сумму = ключи рабочие.
+    """
+    terminal_key = (terminal_key or "").strip()
+    password = (password or "").strip()
+    if not terminal_key or not password:
+        return False, "Заполните Terminal Key и пароль терминала"
+
+    params = {"TerminalKey": terminal_key, "Amount": 0, "OrderId": "check-0"}
+    params["Token"] = _tbank_token(params, password)
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cli:
+            resp = await cli.post(TBANK_INIT_URL, json=params)
+        body = resp.json()
+    except Exception as e:
+        return False, f"Не удалось связаться с платёжной системой: {e}"
+
+    if body.get("Success"):
+        return True, "Связь есть"
+
+    code = str(body.get("ErrorCode") or "").strip()
+    text = str(body.get("Details") or body.get("Message") or "").strip()
+    # 9 — «неверный токен», 7 — терминал не найден/заблокирован.
+    if code in ("9", "7") or "токен" in text.lower() or "termina" in text.lower():
+        return False, f"Ключи не подошли: {text or f'код {code}'}"
+    # Всё остальное (жалоба на сумму) значит, что подпись принята.
+    return True, "Связь есть, ключи приняты"
+
+
 async def check_prodamus_credentials(url: str, secret: str) -> tuple[bool, str]:
     """Проверка настроек Продамуса.
 
@@ -265,6 +533,18 @@ async def create_payment_link(
             email=email, phone=phone, fio=fio,
         ), provider
 
+    if provider == "tbank":
+        return await _tbank_link(
+            client=client,
+            order_id=order_id,
+            title=title or "",
+            price=price,
+            notification_url=notification_url,
+            redirect_url_ok=redirect_url_ok,
+            redirect_url_error=redirect_url_error,
+            email=email, phone=phone,
+        ), provider
+
     if not product_id:
         raise RuntimeError("У тарифа не указан код товара в платёжной системе")
 
@@ -316,6 +596,10 @@ async def check_credentials(provider: Optional[str], creds: dict) -> tuple[bool,
     if provider == "leadpay":
         return await check_leadpay_credentials(
             creds.get("pay_leadpay_login") or "", creds.get("pay_leadpay_token") or "")
+    if provider == "tbank":
+        # Проверяем ту пару ключей, которой будем платить.
+        terminal, password = tbank_keys(creds)
+        return await check_tbank_credentials(terminal, password)
     return False, "Сначала выберите платёжную систему"
 
 

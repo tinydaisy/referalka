@@ -15,6 +15,7 @@
 Иначе в «Заказах» копился бы мусор из нулевых оплат.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -71,7 +72,11 @@ async def _load_tariff(db, tariff_id: int):
                   e.skip_contact_form,
                   cl.id AS client_id, cl.name AS client_name,
                   cl.pay_provider, cl.pay_leadpay_login, cl.pay_leadpay_token,
-                  cl.pay_prodamus_url, cl.pay_prodamus_secret
+                  cl.pay_prodamus_url, cl.pay_prodamus_secret,
+                  cl.pay_tbank_terminal_key, cl.pay_tbank_password,
+                  cl.pay_tbank_test_terminal_key, cl.pay_tbank_test_password,
+                  cl.pay_tbank_test_mode,
+                  cl.pay_tbank_taxation, cl.pay_tbank_vat
              FROM event_tariffs t
              JOIN events e ON e.id = t.event_id
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status = 'accepted'
@@ -274,6 +279,13 @@ async def create_order(
         "pay_leadpay_token": t["pay_leadpay_token"],
         "pay_prodamus_url": t["pay_prodamus_url"],
         "pay_prodamus_secret": t["pay_prodamus_secret"],
+        "pay_tbank_terminal_key": t["pay_tbank_terminal_key"],
+        "pay_tbank_password": t["pay_tbank_password"],
+        "pay_tbank_test_terminal_key": t["pay_tbank_test_terminal_key"],
+        "pay_tbank_test_password": t["pay_tbank_test_password"],
+        "pay_tbank_test_mode": t["pay_tbank_test_mode"],
+        "pay_tbank_taxation": t["pay_tbank_taxation"],
+        "pay_tbank_vat": t["pay_tbank_vat"],
     }
 
     # Платёжная система не подключена → ведём на внешнюю ссылку тарифа.
@@ -599,6 +611,12 @@ async def _parse_order_data(request: Request) -> dict:
     return data
 
 
+def _is_true(value) -> bool:
+    """Признак успеха в вебхуке. Тело приходит и JSON-ом (там `true`), и
+    формой (там строка «true») — сравнивать с `True` напрямую нельзя."""
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
 def _our_order_id(raw: str) -> Optional[int]:
     """Номер нашего заказа из `evt-<id>`. Чужой номер → None (это оплата
     подписки на платформу, её обрабатывает другой роутер)."""
@@ -614,7 +632,8 @@ def _our_order_id(raw: str) -> Optional[int]:
 async def _load_order_for_webhook(db, order_id: int):
     return await db.fetchrow(
         """SELECT o.id, o.status, o.event_id, o.contact_id, o.participant_id,
-                  cl.pay_leadpay_token, cl.pay_prodamus_secret
+                  cl.pay_leadpay_token, cl.pay_prodamus_secret,
+                  cl.pay_tbank_password, cl.pay_tbank_test_password
              FROM event_participant_tariffs o
              JOIN events e ON e.id = o.event_id
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status = 'accepted'
@@ -740,3 +759,50 @@ async def prodamus_order_webhook(
         db, order, "prodamus",
         str(data.get("payment_id") or data.get("order_num") or "") or None,
     )
+
+
+@webhook_router.post("/tbank", summary="Оплата тарифа события (Т-Банк)")
+async def tbank_order_webhook(
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Т-Банк шлёт JSON с полями `OrderId`, `Status`, `Success`, `PaymentId`,
+    подпись — в поле `Token` того же тела.
+
+    ⚠️ В ответ надо вернуть РОВНО «OK» текстом (не JSON): иначе банк считает
+    нотификацию недоставленной и будет слать её повторно сутки. Поэтому здесь
+    `PlainTextResponse`, а не словарь, как у остальных систем.
+
+    ⚠️ Пароль терминала берём у ВЛАДЕЛЬЦА события, а не из переменных
+    окружения — там ключи самого ПЛЮСОНа, которыми оплачивают подписку на
+    платформу.
+    """
+    data = await _parse_order_data(request)
+
+    order_id = _our_order_id(data.get("OrderId"))
+    if order_id is None:
+        return PlainTextResponse("OK")
+
+    order = await _load_order_for_webhook(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    # ⚠️ Сверяем с ОБОИМИ паролями — боевым и тестовым. Нотификация приходит с
+    # того терминала, на котором прошла оплата, а клиент мог переключить режим
+    # уже после того, как заказ ушёл в оплату.
+    if not client_payments.verify_tbank_webhook(
+            data, order["pay_tbank_password"], order["pay_tbank_test_password"]):
+        logger.error("Вебхук заказа %s (Т-Банк): подпись не сошлась", order_id)
+        raise HTTPException(status_code=403, detail="Подпись неверна")
+
+    # ⚠️ Банк шлёт нотификации на каждый шаг оплаты (AUTHORIZED и др.).
+    # Оплаченным считается только CONFIRMED — деньги списаны.
+    status = str(data.get("Status") or "").strip().upper()
+    if status != "CONFIRMED" or not _is_true(data.get("Success")):
+        logger.info("Заказ %s: оплата не завершена (%s)", order_id, status or "нет статуса")
+        return PlainTextResponse("OK")
+
+    await _mark_order_paid(
+        db, order, "tbank", str(data.get("PaymentId") or "") or None,
+    )
+    return PlainTextResponse("OK")
