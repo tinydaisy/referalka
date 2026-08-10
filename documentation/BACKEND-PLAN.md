@@ -933,3 +933,34 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 - Сертификаты только RSA (`--key-type rsa`), иначе часть аудитории не откроет сайт.
 - Выпуск сертификата и генерация DKIM требуют root → только API-процесс, не Celery.
 - Новый публичный маршрут — дописать в `deploy/nginx-public-locations.conf`.
+
+## Гейт платных модулей (миграция 276)
+
+`services/module_access.py` — `module_write_allowed_by_event(db, event_id)`: у владельца события (`event_owners status='accepted'`) проверяется фича модуля (`conference` / `tournaments`) через `client_has_feature`.
+
+- Чтение своих данных — всегда разрешено.
+- Запись — 403 без модуля.
+- Публичные эндпоинты для участников — не гейтятся.
+- `GET /public/speaker-cabinet/me` и `GET /public/tournament-jury/me` отдают `can_edit` для плашки во фронте.
+- Celery `app.tasks.addon_expiry.notify_expiring_addons` — предупреждения за 7/3/1 день, раз в час.
+
+### Правила
+
+- Гейт ставится по тому, КТО зовёт, а не по типу запроса — не размазывать проверку по эндпоинтам, звать общий хелпер.
+- Новый пишущий эндпоинт модуля — сразу под гейт, иначе платная функция работает мимо оплаты.
+- `can_edit` во фронте трактуется как `!== false`: старый бэк поля не отдаёт.
+- Три эндпоинта отправки в Telegram требуют заголовок `X-Integration-Token`.
+
+## Платёжная система клиента: Т-Банк (миграция 277)
+
+`POST https://securepay.tinkoff.ru/v2/Init` → `PaymentURL`. Вебхук — `/api/v1/integrations/client-pay/tbank`.
+
+Поля `clients`: `pay_tbank_terminal_key`, `pay_tbank_password`, `pay_tbank_test_terminal_key`, `pay_tbank_test_password`, `pay_tbank_test_mode`, `pay_tbank_taxation`, `pay_tbank_vat`.
+
+### Правила
+
+- Сумма в копейках, считать через `Decimal` — `float` теряет копейку.
+- Подпись: SHA-256 от значений, отсортированных по ключу, + `Password`; вложенные объекты (`Receipt`, `DATA`) исключаются, поэтому `Receipt` кладётся в тело после расчёта.
+- Выбор пары ключей — только через `tbank_keys(client)`, одна точка на все вызовы.
+- Вебхук проверяется обоими паролями; оплачено = `Status=CONFIRMED` при `Success=true`; в ответ вернуть ровно `OK` текстом.
+- «Т-Чеки» — не отдельная система, а фискализация поверх эквайринга: от нас только `Receipt`, чек выдаёт банк.
