@@ -238,13 +238,12 @@ export default function ConferencePage() {
       {/* Уровень 1 — разделы (группы), включая «Рассылки» (внутри карточки) */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
-          {GROUPS.map(g => (
-            {(() => {
-              // Группа закрыта, если ВСЕ её вкладки закрыты (например «Программа»
-              // и «Оценки»). Группа с хотя бы одной открытой вкладкой остаётся
-              // доступной — иначе «Участники» стали бы недостижимы.
-              const gLocked = g.tabs.every(tb => tabLocked(tb.id))
-              return (
+          {GROUPS.map(g => {
+            // Группа закрыта, если ВСЕ её вкладки закрыты (например «Программа»
+            // и «Оценки»). Группа с хотя бы одной открытой вкладкой остаётся
+            // доступной — иначе «Участники» стали бы недостижимы.
+            const gLocked = g.tabs.every(tb => tabLocked(tb.id))
+            return (
                 <button key={g.key} disabled={gLocked}
                   title={gLocked ? 'Модуль не подключён — раздел закрыт' : undefined}
                   onClick={() => {
@@ -259,9 +258,8 @@ export default function ConferencePage() {
                   style={!gLocked && activeGroup.key === g.key ? { backgroundColor: '#FFCFA4', color: '#25455D' } : undefined}>
                   {gLocked && '🔒 '}{g.label}
                 </button>
-              )
-            })()}
-          ))}
+            )
+          })}
         </div>
       </div>
 
