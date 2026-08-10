@@ -248,14 +248,25 @@ export default function SubscriptionPage() {
                     ))}
                   </div>
 
+                  {/* ⚠️ На ТЕКУЩЕМ тарифе это ПРОДЛЕНИЕ, а не покупка: слово
+                      «Оплатить» на уже оплаченном тарифе читается как «вы не
+                      оплатили» и путает. Золотую кнопку-призыв тоже убираем —
+                      призывать покупать то, что уже есть, незачем. */}
+                  {isCurrent && (
+                    <div className="mt-4 text-center text-xs font-semibold text-[#25455D]">
+                      ✓ Ваш текущий тариф
+                    </div>
+                  )}
                   <button
                     onClick={() => pay(t.slug, t)}
                     disabled={busy}
-                    className="btn-gold w-full mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    className={`w-full ${isCurrent ? 'mt-2 border border-[#25455D]/30 text-[#25455D] hover:bg-blue-50' : 'btn-gold mt-4'} px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5`}
                   >
                     {busy && loading
                       ? <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
-                      : `Оплатить ${Number(t.price).toLocaleString('ru-RU')} ₽`}
+                      : isCurrent
+                        ? `Продлить за ${Number(t.price).toLocaleString('ru-RU')} ₽`
+                        : `Оплатить ${Number(t.price).toLocaleString('ru-RU')} ₽`}
                   </button>
                   {canBonus && (
                     <button
@@ -401,21 +412,29 @@ function ModulesBlock() {
                   <p className="mt-4 text-xs text-amber-600">🔒 Нужен тариф Профи или выше</p>
                 )
               ) : (
-                <div className="mt-4 flex gap-2">
+                {/* Кнопки с суммами длиннее прежних «На месяц» — в столбик,
+                    иначе в узкой карточке текст сжимается и рвётся. */}
+                <div className="mt-4 flex flex-col gap-2">
                   {a.monthly_payable && (
                     <button onClick={() => buy(a.slug, 1, false, a.monthly_provider || 'prodamus')} disabled={!!loadingSlug}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      className="w-full px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {/* ⚠️ «На месяц» само по себе не говорит ни что это
+                          оплата, ни сколько платить — сумма была только в
+                          заголовке карточки. Пишем на кнопке. */}
                       {loadingSlug === a.slug + ':1'
                         ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
-                        : 'На месяц'}
+                        : `Оплатить ${a.price_monthly?.toLocaleString('ru-RU')} ₽ / мес`}
                     </button>
                   )}
+                  {/* ⚠️ Вторая золотая кнопка рядом конкурировала с первой:
+                      две одинаковые «главные» кнопки читаются как одна
+                      сломанная. Полгода — второстепенное действие. */}
                   {a.price_6mo && a.sixmo_payable && (
                     <button onClick={() => buy(a.slug, 6, false, a.sixmo_provider || 'prodamus')} disabled={!!loadingSlug}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      className="w-full px-3 py-2 rounded-lg text-xs font-semibold border border-[#25455D]/30 text-[#25455D] hover:bg-blue-50 disabled:opacity-50 flex items-center justify-center gap-1.5">
                       {loadingSlug === a.slug + ':6'
                         ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
-                        : 'На 6 мес −20%'}
+                        : `6 мес — ${a.price_6mo?.toLocaleString('ru-RU')} ₽ (−20%)`}
                     </button>
                   )}
                   {!a.monthly_payable && !a.sixmo_payable && (
