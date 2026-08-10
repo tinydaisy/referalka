@@ -412,8 +412,8 @@ function ModulesBlock() {
                   <p className="mt-4 text-xs text-amber-600">🔒 Нужен тариф Профи или выше</p>
                 )
               ) : (
-                {/* Кнопки с суммами длиннее прежних «На месяц» — в столбик,
-                    иначе в узкой карточке текст сжимается и рвётся. */}
+                // Кнопки с суммами длиннее прежних «На месяц» — в столбик,
+                // иначе в узкой карточке текст сжимается и рвётся.
                 <div className="mt-4 flex flex-col gap-2">
                   {a.monthly_payable && (
                     <button onClick={() => buy(a.slug, 1, false, a.monthly_provider || 'prodamus')} disabled={!!loadingSlug}
