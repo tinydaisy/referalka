@@ -92,15 +92,27 @@ export default function SubscriptionPage() {
     }
   }
 
-  // Пришли по ссылке с якорем (#modules / #tariffs) — подводим к блоку плавно.
-  // Блоки грузятся асинхронно, поэтому один raf-кадр ждём, иначе якоря ещё нет.
+  // Пришли по ссылке с якорем (#module-conference / #modules / #tariffs) —
+  // подводим к нужному блоку.
+  //
+  // ⚠️ ЖДЁМ ПОЯВЛЕНИЯ ЯКОРЯ, а не фиксированную задержку. Карточки модулей
+  // грузятся отдельным запросом (`api.addons.list`), и по таймеру в 350 мс
+  // якоря `#module-…` ещё не существовало: страница оставалась на тарифах, а
+  // выделенным выглядел текущий тариф (Экстра) — ровно то, на что жаловались.
   useEffect(() => {
     const id = window.location.hash.slice(1)
     if (!id) return
-    const t = setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 350)
-    return () => clearTimeout(t)
+    let tries = 0
+    const iv = setInterval(() => {
+      const el = document.getElementById(id)
+      if (el) {
+        clearInterval(iv)
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } else if (++tries > 40) {   // ~6 c — дальше ждать бессмысленно
+        clearInterval(iv)
+      }
+    }, 150)
+    return () => clearInterval(iv)
   }, [])
 
   return (
