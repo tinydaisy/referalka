@@ -83,8 +83,12 @@ export default function FeatureLock({
   // настроек — там подписки нет. И сразу к нужному блоку: модули покупаются
   // в одном месте, смена тарифа — в другом, иначе человек попадает в начало
   // длинной страницы и ищет сам.
+  // ⚠️ У модуля якорь ИМЕННОЙ (`#module-conference`), а не общий `#modules`:
+  // иначе человек попадал в начало блока модулей и сам искал нужный среди
+  // трёх, а выделенным выглядел тариф. Именной якорь подводит к его карточке
+  // и подсвечивает её.
   const href = where || (allAddons
-    ? '/dashboard/subscription#modules'
+    ? `/dashboard/subscription#module-${anyOf[0]}`
     : '/dashboard/subscription#tariffs')
 
   if (compact) {

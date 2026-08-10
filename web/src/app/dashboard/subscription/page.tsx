@@ -311,6 +311,14 @@ function ModulesBlock() {
     }
   }
 
+  // Пришли по ссылке вида `#module-conference` — подсвечиваем именно эту
+  // карточку. Иначе человек попадал в блок модулей и искал нужный сам.
+  const [highlight, setHighlight] = useState<string>('')
+  useEffect(() => {
+    const h = window.location.hash.slice(1)
+    if (h.startsWith('module-')) setHighlight(h.slice('module-'.length))
+  }, [])
+
   if (addons.length === 0) return null
 
   return (
@@ -330,8 +338,14 @@ function ModulesBlock() {
         {addons.map(a => {
           const owned = a.owned || a.included_in_tariff
           const locked = !a.available
+          const isTarget = highlight === a.slug
           return (
-            <div key={a.slug} className={`rounded-xl border p-4 flex flex-col ${owned ? 'border-emerald-200 bg-emerald-50/40' : locked ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
+            <div key={a.slug}
+                 id={`module-${a.slug}`}
+                 className={`scroll-mt-24 rounded-xl border p-4 flex flex-col transition-shadow ${
+                   isTarget ? 'border-[#FFCFA4] ring-2 ring-[#FFCFA4] shadow-md bg-amber-50/40'
+                   : owned ? 'border-emerald-200 bg-emerald-50/40'
+                   : locked ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
               <div className="flex items-center justify-between">
                 <h4 className="font-semibold text-gray-900">{a.name}</h4>
                 {owned && <span className="text-xs font-semibold text-emerald-600">Подключён</span>}
