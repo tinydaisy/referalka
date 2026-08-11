@@ -41,6 +41,9 @@ interface Domain {
   cert_expires_at?: string | null
   cert_days_left?: number | null
   dns_instruction?: { type: string; host: string; value: string; note?: string }
+  /** Что открывается на корне домена: events | about | event (миграция 278). */
+  home_kind?: string
+  home_event_id?: number | null
   // mail
   mail_from_local?: string | null
   mail_from_name?: string | null
@@ -99,6 +102,117 @@ function RecordRow({ rec }: { rec: DnsRecord | { type: string; host: string; val
         </div>
       </div>
       {rec.note && <p className="text-xs text-slate-500 mt-2">{rec.note}</p>}
+    </div>
+  )
+}
+
+/**
+ * Что открывается на КОРНЕ домена (миграция 278).
+ *
+ * ⚠️ Без этой настройки на корне клиентского домена открывался лендинг
+ * ПЛЮСОНа — клиент платил за домен и показывал на нём нашу рекламу.
+ * Варианты: витрина событий, витрина на вкладке «О проекте», лендинг события.
+ */
+function HomePagePicker({ domain, onSaved }: { domain: Domain; onSaved: () => void }) {
+  const [kind, setKind] = useState(domain.home_kind || 'events')
+  const [eventId, setEventId] = useState<number | null>(domain.home_event_id ?? null)
+  const [events, setEvents] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [err, setErr] = useState('')
+
+  // Список событий грузим только когда он реально нужен — при выборе «лендинг
+  // события», а не при каждом открытии вкладки настроек.
+  useEffect(() => {
+    if (kind !== 'event' || events.length) return
+    api.miniApp.domains.homeEvents()
+      .then((r: any) => setEvents(r?.items || []))
+      .catch(() => setEvents([]))
+  }, [kind])
+
+  const dirty = kind !== (domain.home_kind || 'events')
+    || (kind === 'event' && eventId !== (domain.home_event_id ?? null))
+
+  const save = async () => {
+    setSaving(true); setErr('')
+    try {
+      await api.miniApp.domains.setHome(domain.id, {
+        home_kind: kind,
+        home_event_id: kind === 'event' ? eventId : null,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+      onSaved()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const OPTIONS = [
+    { v: 'events', t: 'Календарь событий', d: 'Все ваши события карточками' },
+    { v: 'about',  t: 'О проекте',         d: 'Ваша визитка: фото, описание, регалии' },
+    { v: 'event',  t: 'Лендинг события',   d: 'Сразу страница выбранного события' },
+  ]
+
+  return (
+    <div className="mt-4 pt-4 border-t border-slate-200">
+      <div className="text-sm font-medium text-slate-800 mb-1">Главная страница</div>
+      <p className="text-xs text-slate-500 mb-3">
+        Что увидит человек, открыв <span className="font-mono">{domain.domain}</span> без адреса страницы.
+      </p>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {OPTIONS.map(o => (
+          <button
+            key={o.v}
+            onClick={() => setKind(o.v)}
+            className={`text-left rounded-lg border p-3 transition ${
+              kind === o.v
+                ? 'border-brand bg-brand/5 ring-1 ring-brand'
+                : 'border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <div className="text-sm font-medium text-slate-800">{o.t}</div>
+            <div className="text-xs text-slate-500 mt-0.5">{o.d}</div>
+          </button>
+        ))}
+      </div>
+
+      {kind === 'event' && (
+        <div className="mt-3">
+          <select
+            value={eventId ?? ''}
+            onChange={e => setEventId(e.target.value ? Number(e.target.value) : null)}
+            className="input"
+          >
+            <option value="">— выберите событие —</option>
+            {events.map(ev => (
+              <option key={ev.id} value={ev.id}>{ev.title}</option>
+            ))}
+          </select>
+          {!events.length && (
+            <p className="text-xs text-slate-500 mt-1">
+              Здесь только события с опубликованным лендингом — черновик на главную поставить нельзя.
+            </p>
+          )}
+        </div>
+      )}
+
+      {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={!dirty || saving || (kind === 'event' && !eventId)}
+          className="btn-primary inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saving ? <Loader2 size={15} className="animate-spin" /> : null}
+          Сохранить
+        </button>
+        {saved && <span className="text-xs text-emerald-600">Сохранено</span>}
+      </div>
     </div>
   )
 }
@@ -374,6 +488,8 @@ export default function DomainsTab() {
                   <Clock size={12} /> Сертификат можно выпустить после того, как домен начнёт вести на нас.
                 </p>
               )}
+
+              {d.status === 'active' && <HomePagePicker domain={d} onSaved={load} />}
             </div>
           ))}
         </div>

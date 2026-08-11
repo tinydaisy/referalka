@@ -139,6 +139,7 @@ app.include_router(events_list_page.router)                                    #
 app.include_router(client_chat_gates.router, prefix="/api/v1")                 # /api/v1/clients/me/chat-gates — гейт по подписке в TG-чатах (миграция 115)
 app.include_router(client_broadcast_chats.router, prefix="/api/v1")            # /api/v1/clients/me/broadcast-chats — база чатов клиента для рассылок (миграция 170)
 app.include_router(client_domains_api.router, prefix="/api/v1")                # /api/v1/clients/me/domains — свои домены клиента: страницы + почта (миграция 270)
+app.include_router(client_domains_api.public_router, prefix="/api/v1")        # /api/v1/public/domain/home — что открывать на корне клиентского домена (миграция 278)
 app.include_router(pricing_public.router)                                      # /api/v1/public/tariffs, /api/v1/public/promotions/active — для лендинга pluson.ru (миграции 116-119)
 app.include_router(subscriptions.router,         prefix="/api/v1")              # /api/v1/subscriptions/order, /orders — оплата подписки клиентом (миграция 120)
 app.include_router(subscriptions.webhook_router, prefix="/api/v1")              # /api/v1/integrations/prodamus/webhook — webhook от Prodamus (миграция 120)

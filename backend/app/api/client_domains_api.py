@@ -42,6 +42,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/clients/me/domains", tags=["Свои домены"])
 
+# Публичный роутер: одна ручка, которой Next.js спрашивает «что показать на
+# корне этого домена». Без авторизации — её зовёт серверный код страницы `/`
+# ещё до того, как известно, кто пришёл.
+public_router = APIRouter(prefix="/public/domain", tags=["Свои домены"])
+
+
+@public_router.get("/home", summary="Что открывать на корне домена")
+async def domain_home(host: str, db: asyncpg.Connection = Depends(get_db)):
+    """Путь главной страницы клиентского домена: `/o/62`, `/o/62?tab=about`
+    или `/e/{slug}`. `null` → домен не наш, показываем лендинг ПЛЮСОНа.
+    """
+    return {"path": await cd.domain_home_path(db, host)}
+
 
 # ── Доступ ──────────────────────────────────────────────────────────────────
 
@@ -83,6 +96,12 @@ class DomainIn(BaseModel):
 class MailSettingsIn(BaseModel):
     mail_from_local: Optional[str] = None    # noreply → noreply@домен
     mail_from_name: Optional[str] = None     # отображаемое имя отправителя
+
+
+class HomePageIn(BaseModel):
+    """Что открывать на корне домена: events | about | event (миграция 278)."""
+    home_kind: str = "events"
+    home_event_id: Optional[int] = None      # только для home_kind='event'
 
 
 # ── Сериализация ────────────────────────────────────────────────────────────
@@ -138,6 +157,10 @@ def _serialize(row: asyncpg.Record) -> dict:
             "cert_issued_at": row["cert_issued_at"],
             "cert_expires_at": exp,
             "cert_days_left": _days_left(exp),
+            # Главная страница домена (миграция 278). Через .get(): если
+            # миграция ещё не накатана, колонок нет — отдаём дефолт, а не 500.
+            "home_kind": dict(row).get("home_kind") or "events",
+            "home_event_id": dict(row).get("home_event_id"),
             # Что показать клиенту в инструкции по DNS.
             # ⚠️ Корню — только A-запись: CNAME на корне запрещён стандартом
             # DNS, его не даст НИ ОДИН регистратор. Поддомену — CNAME: при
@@ -414,6 +437,81 @@ async def update_domain(domain_id: int, data: MailSettingsIn,
     )
     cd.invalidate_cache(client_id=client_id, domain=row["domain"])
     return _serialize(updated)
+
+
+@router.put("/{domain_id}/home", summary="Главная страница домена")
+async def set_domain_home(domain_id: int, data: HomePageIn,
+                          user: dict = Depends(get_current_client),
+                          db: asyncpg.Connection = Depends(get_db)):
+    """Что открывается на КОРНЕ домена (миграция 278).
+
+    events — витрина событий, about — витрина на вкладке «О проекте»,
+    event — лендинг конкретного события клиента.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_edit(user)
+    row = await _get_row(db, client_id, domain_id)
+
+    if row["kind"] != "landing":
+        raise HTTPException(status_code=400,
+                            detail="Главная страница есть только у домена страниц")
+
+    kind = (data.home_kind or "events").strip()
+    if kind not in ("events", "about", "event"):
+        raise HTTPException(status_code=400, detail="Неизвестный тип главной страницы")
+
+    event_id = data.home_event_id if kind == "event" else None
+    if kind == "event":
+        if not event_id:
+            raise HTTPException(status_code=400, detail="Выберите событие")
+        # ⚠️ Проверяем ВЛАДЕНИЕ: иначе, зная id, можно было бы повесить на свой
+        # домен чужой лендинг — и продавать чужое событие под своим брендом.
+        owns = await db.fetchval(
+            """SELECT 1 FROM event_owners
+                WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
+            event_id, client_id,
+        )
+        if not owns:
+            raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    updated = await db.fetchrow(
+        """UPDATE client_domains
+              SET home_kind = $1, home_event_id = $2, updated_at = NOW()
+            WHERE id = $3
+        RETURNING *""",
+        kind, event_id, domain_id,
+    )
+    cd.invalidate_cache(client_id=client_id, domain=row["domain"])
+    return _serialize(updated)
+
+
+@router.get("/home-events", summary="События для выбора главной страницы")
+async def home_events(user: dict = Depends(get_current_client),
+                      db: asyncpg.Connection = Depends(get_db)):
+    """События клиента с опубликованным лендингом — их можно поставить на корень.
+
+    ⚠️ Только те, у кого лендинг реально опубликован: поставить на главную
+    черновик значит отдать посетителям 404.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    rows = await db.fetch(
+        """
+        SELECT e.id, e.title, e.slug, e.start_at, e.status
+          FROM events e
+          JOIN event_owners eo
+            ON eo.event_id = e.id AND eo.client_id = $1 AND eo.status = 'accepted'
+         WHERE EXISTS (SELECT 1 FROM event_landing_pages lp
+                        WHERE lp.event_id = e.id
+                          AND lp.kind = 'main'
+                          AND lp.is_published)
+      ORDER BY COALESCE(e.start_at, e.created_at) DESC
+         LIMIT 100
+        """,
+        client_id,
+    )
+    return {"items": [dict(r) for r in rows]}
 
 
 @router.delete("/{domain_id}")

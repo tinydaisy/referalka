@@ -226,6 +226,54 @@ async def client_id_by_domain(db, host: str | None) -> Optional[int]:
     return cid
 
 
+async def domain_home_path(db, host: str | None) -> Optional[str]:
+    """Куда вести с КОРНЯ клиентского домена (миграция 278).
+
+    Возвращает путь вида `/o/62?tab=about` или `/e/e2rw7`, либо None —
+    домен не наш, тогда `/` отдаёт лендинг ПЛЮСОНа, как и раньше.
+
+    ⚠️ Без этой ветки на корне клиентского домена открывалась НАША продающая
+    страница: nginx отдаёт всё неизвестное в Next.js, а `/` там занят
+    лендингом платформы. Клиент платил за домен и рекламировал нас.
+
+    ⚠️ Кеш здесь НЕ используется: настройку меняют в кабинете и сразу идут
+    проверять на домене. Запрос лёгкий и только на корень — не на каждую
+    страницу, поэтому 60-секундный кеш только мешал бы.
+    """
+    d = normalize_domain(host)
+    if not d or d == normalize_domain(platform_base_url()):
+        return None
+
+    try:
+        row = await db.fetchrow(
+            """
+            SELECT cd.client_id, cd.home_kind, e.slug AS event_slug
+              FROM client_domains cd
+              LEFT JOIN events e ON e.id = cd.home_event_id
+             WHERE cd.domain = $1
+               AND cd.kind = 'landing'
+               AND cd.status = 'active'
+             LIMIT 1
+            """,
+            d,
+        )
+    except Exception:
+        # Миграция не накатана или БД недоступна — пусть откроется хоть что-то.
+        return None
+
+    if not row:
+        return None
+
+    kind = row["home_kind"] or "events"
+    # Событие удалили (home_event_id → NULL) или у него нет адреса — не роняем
+    # корень в 404, а показываем витрину: там есть всё остальное.
+    if kind == "event" and row["event_slug"]:
+        return f"/e/{row['event_slug']}"
+    if kind == "about":
+        return f"/o/{row['client_id']}?tab=about"
+    return f"/o/{row['client_id']}"
+
+
 def public_url_for(base_url: str | None, path: str = "") -> str:
     """Склеить базовый адрес и путь, не плодя двойные слеши.
 

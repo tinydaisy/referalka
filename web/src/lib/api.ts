@@ -936,6 +936,11 @@ export const api = {
         request(`/api/v1/clients/me/domains/${id}/issue-cert`, { method: 'POST' }),
       update: (id: number, data: any) =>
         request(`/api/v1/clients/me/domains/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      // Что открывается на КОРНЕ домена (миграция 278): витрина событий,
+      // витрина на вкладке «О проекте» или лендинг конкретного события.
+      setHome: (id: number, data: { home_kind: string; home_event_id?: number | null }) =>
+        request(`/api/v1/clients/me/domains/${id}/home`, { method: 'PUT', body: JSON.stringify(data) }),
+      homeEvents: () => request('/api/v1/clients/me/domains/home-events'),
       delete: (id: number) =>
         request(`/api/v1/clients/me/domains/${id}`, { method: 'DELETE' }),
     },
