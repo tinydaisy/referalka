@@ -23,6 +23,8 @@ type LandingEvent = {
   client_id: number | null
   client_bot_handle: string | null
   landing_url: string | null
+  /** form | landing | external — на сторонний сайт уводим только при 'external'. */
+  registration_mode: string | null
 }
 
 // У клиента без своего бота вход идёт на веб-страницу события ПЛЮСОНа
