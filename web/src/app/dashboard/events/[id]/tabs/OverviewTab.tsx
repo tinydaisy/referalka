@@ -269,7 +269,7 @@ export default function OverviewTab({
         onCtaLabel={setLandingCtaLabel}
         skipContactForm={skipContactForm}
         hasLanding={!!event?.landing_published}
-        landingUrlInternal={event?.slug ? `${publicHost}/e/${event.slug}` : ''}
+        landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}
         regMode={regMode}
         onRegMode={setRegMode}
         onSkipContactForm={setSkipContactForm}

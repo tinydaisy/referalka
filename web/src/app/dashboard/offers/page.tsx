@@ -177,7 +177,7 @@ export default function OffersPage() {
                   Адрес страницы
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-sm text-gray-500">{publicHost}/o/</span>
+                  <span className="shrink-0 text-sm text-gray-500">https://{publicHost}/o/</span>
                   <input
                     type="text" value={editing.slug || ''}
                     onChange={e => setEditing({ ...editing, slug: e.target.value })}

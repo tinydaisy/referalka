@@ -412,7 +412,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
         allowExternal={!event?.is_collab}
         hasLanding={!!event?.landing_published}
-        landingUrlInternal={event?.slug ? `${publicHost}/e/${event.slug}` : ''}
+        landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}
         regMode={form.registration_mode}
         onRegMode={(v) => setForm(f => ({ ...f, registration_mode: v }))}
       />

@@ -755,7 +755,7 @@ export default function ConferenceSpeakerPage() {
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
               <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
-              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">{publicHost}/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
+              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">https://{publicHost}/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
             </div>
           </div>
           <div className="flex items-center gap-2 mt-3">
@@ -869,7 +869,7 @@ export default function ConferenceSpeakerPage() {
         {/* Что спикер видит в своей форме — сразу после галочки «Коммерческое» */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm">Что спикер видит в своей форме</h3>
-          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">{publicHost}/speaker/{eventSlug || '…'}</code>.</p>
+          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">https://{publicHost}/speaker/{eventSlug || '…'}</code>.</p>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_topic_field}
               onChange={e => setEventForm(f => ({ ...f, show_topic_field: e.target.checked }))}

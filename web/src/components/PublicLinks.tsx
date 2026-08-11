@@ -306,7 +306,7 @@ export default function PublicLinks({
           <div className="flex items-stretch gap-2">
             <div className="flex-1 flex items-center rounded-lg border border-gray-200 bg-white overflow-hidden">
               <span className="px-3 py-2 text-xs text-gray-400 font-mono whitespace-nowrap border-r border-gray-100">
-                {publicHost}/l/
+                https://{publicHost}/l/
               </span>
               <input
                 value={draft}

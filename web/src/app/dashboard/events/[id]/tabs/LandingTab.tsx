@@ -315,7 +315,7 @@ export default function LandingTab({ eventId, event }: Props) {
           </label>
           <p className="mt-1 text-sm text-gray-500">
             {page.is_published
-              ? <>Доступна по ссылке <span className="font-mono text-gray-700">{publicHost}{publicUrl}</span></>
+              ? <>Доступна по ссылке <span className="font-mono text-gray-700">https://{publicHost}{publicUrl}</span></>
               : 'Пока черновик — посторонние страницу не увидят.'}
           </p>
         </div>
@@ -335,7 +335,9 @@ export default function LandingTab({ eventId, event }: Props) {
             <Palette className="h-4 w-4" /> Применить стили
           </button>
           <a
-            href={publicUrl}
+            /* ⚠️ Полный адрес на домене клиента, а не путь: относительная
+               ссылка открылась бы на pluson.ru — кабинет-то там. */
+            href={`https://${publicHost}${publicUrl}`}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -751,7 +753,7 @@ export default function LandingTab({ eventId, event }: Props) {
           </div>
           <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
             Под текстом сами появятся кнопки на ваших ботов — чтобы человек
-            не потерялся после оплаты. Ссылку <span className="font-mono">{publicHost}{publicUrl}</span>
+            не потерялся после оплаты. Ссылку <span className="font-mono">https://{publicHost}{publicUrl}</span>
             {' '}укажите как страницу возврата в платёжной системе.
           </p>
         </div>
