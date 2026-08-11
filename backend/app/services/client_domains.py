@@ -264,14 +264,14 @@ async def domain_home_path(db, host: str | None) -> Optional[str]:
     if not row:
         return None
 
-    kind = row["home_kind"] or "events"
+    kind = row["home_kind"] or "about"
     # Событие удалили (home_event_id → NULL) или у него нет адреса — не роняем
     # корень в 404, а показываем витрину: там есть всё остальное.
     if kind == "event" and row["event_slug"]:
         return f"/e/{row['event_slug']}"
-    if kind == "about":
-        return f"/o/{row['client_id']}?tab=about"
-    return f"/o/{row['client_id']}"
+    if kind == "events":
+        return f"/o/{row['client_id']}"
+    return f"/o/{row['client_id']}?tab=about"
 
 
 def public_url_for(base_url: str | None, path: str = "") -> str:

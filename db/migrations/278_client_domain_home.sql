@@ -6,18 +6,28 @@
 -- «зарегистрируйтесь». Работали только адреса с путём (/e/…, /speaker/… и т.д.).
 --
 -- Теперь клиент сам выбирает главную страницу:
---   events  — витрина его событий  (/o/{client_id})            ← по умолчанию
---   about   — та же витрина, вкладка «О проекте» (?tab=about)
+--   about   — витрина, вкладка «О проекте» (?tab=about)         ← по умолчанию
+--   events  — витрина его событий  (/o/{client_id})
 --   event   — лендинг конкретного события (/e/{slug} этого события)
+--
+-- Дефолт `about`, а не календарь: на главную заходит человек, который про
+-- клиента ещё ничего не знает — ему сначала визитка, кто это и чем полезен,
+-- а события он посмотрит соседней вкладкой.
 --
 -- ⚠️ home_event_id без ON DELETE CASCADE, а SET NULL: удалённое событие не
 -- должно уносить с собой настройку домена. Слетело на NULL → корень отдаёт
 -- витрину (см. резолвер), а не 404.
 
 ALTER TABLE client_domains
-    ADD COLUMN IF NOT EXISTS home_kind TEXT NOT NULL DEFAULT 'events',
+    ADD COLUMN IF NOT EXISTS home_kind TEXT NOT NULL DEFAULT 'about',
     ADD COLUMN IF NOT EXISTS home_event_id INTEGER
         REFERENCES events(id) ON DELETE SET NULL;
+
+-- Колонка могла быть создана с прежним дефолтом 'events' — приводим к 'about'
+-- и переводим уже существующие домены, которые ещё никто не настраивал.
+ALTER TABLE client_domains ALTER COLUMN home_kind SET DEFAULT 'about';
+UPDATE client_domains SET home_kind = 'about'
+ WHERE kind = 'landing' AND home_kind = 'events';
 
 DO $$
 BEGIN

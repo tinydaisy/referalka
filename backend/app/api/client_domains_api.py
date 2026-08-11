@@ -99,8 +99,8 @@ class MailSettingsIn(BaseModel):
 
 
 class HomePageIn(BaseModel):
-    """Что открывать на корне домена: events | about | event (миграция 278)."""
-    home_kind: str = "events"
+    """Что открывать на корне домена: about | events | event (миграция 278)."""
+    home_kind: str = "about"
     home_event_id: Optional[int] = None      # только для home_kind='event'
 
 
@@ -159,7 +159,7 @@ def _serialize(row: asyncpg.Record) -> dict:
             "cert_days_left": _days_left(exp),
             # Главная страница домена (миграция 278). Через .get(): если
             # миграция ещё не накатана, колонок нет — отдаём дефолт, а не 500.
-            "home_kind": dict(row).get("home_kind") or "events",
+            "home_kind": dict(row).get("home_kind") or "about",
             "home_event_id": dict(row).get("home_event_id"),
             # Что показать клиенту в инструкции по DNS.
             # ⚠️ Корню — только A-запись: CNAME на корне запрещён стандартом
@@ -457,7 +457,7 @@ async def set_domain_home(domain_id: int, data: HomePageIn,
         raise HTTPException(status_code=400,
                             detail="Главная страница есть только у домена страниц")
 
-    kind = (data.home_kind or "events").strip()
+    kind = (data.home_kind or "about").strip()
     if kind not in ("events", "about", "event"):
         raise HTTPException(status_code=400, detail="Неизвестный тип главной страницы")
 

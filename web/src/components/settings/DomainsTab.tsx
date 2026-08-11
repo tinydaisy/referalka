@@ -114,7 +114,7 @@ function RecordRow({ rec }: { rec: DnsRecord | { type: string; host: string; val
  * Варианты: витрина событий, витрина на вкладке «О проекте», лендинг события.
  */
 function HomePagePicker({ domain, onSaved }: { domain: Domain; onSaved: () => void }) {
-  const [kind, setKind] = useState(domain.home_kind || 'events')
+  const [kind, setKind] = useState(domain.home_kind || 'about')
   const [eventId, setEventId] = useState<number | null>(domain.home_event_id ?? null)
   const [events, setEvents] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
@@ -130,7 +130,7 @@ function HomePagePicker({ domain, onSaved }: { domain: Domain; onSaved: () => vo
       .catch(() => setEvents([]))
   }, [kind])
 
-  const dirty = kind !== (domain.home_kind || 'events')
+  const dirty = kind !== (domain.home_kind || 'about')
     || (kind === 'event' && eventId !== (domain.home_event_id ?? null))
 
   const save = async () => {
@@ -150,9 +150,11 @@ function HomePagePicker({ domain, onSaved }: { domain: Domain; onSaved: () => vo
     }
   }
 
+  // Первым — дефолт: на главную заходит человек, который про клиента ещё
+  // ничего не знает, ему сначала визитка, а события — соседней вкладкой.
   const OPTIONS = [
-    { v: 'events', t: 'Календарь событий', d: 'Все ваши события карточками' },
     { v: 'about',  t: 'О проекте',         d: 'Ваша визитка: фото, описание, регалии' },
+    { v: 'events', t: 'Календарь событий', d: 'Все ваши события карточками' },
     { v: 'event',  t: 'Лендинг события',   d: 'Сразу страница выбранного события' },
   ]
 
