@@ -87,6 +87,37 @@ class MailSettingsIn(BaseModel):
 
 # ── Сериализация ────────────────────────────────────────────────────────────
 
+def _dns_instruction(domain: str) -> dict:
+    """Что именно клиенту прописать у регистратора.
+
+    ⚠️ Разные записи для корня и поддомена — не «два способа на выбор»:
+    на КОРНЕ домена CNAME невозможен (стандарт DNS: у корня обязаны быть
+    NS и SOA, а CNAME означает «других записей нет»). Регистратор такую
+    запись просто не сохранит. Раньше кабинет показывал CNAME всем, а
+    A-запись прятал в примечание «если провайдер не даёт» — клиент с
+    корневым доменом упирался в тупик.
+    """
+    platform = cd.normalize_domain(cd.platform_base_url())
+    if cd.is_apex_domain(domain):
+        return {
+            "type": "A",
+            "host": "@",
+            "value": cmd.SENDING_IP,
+            "note": f"«@» — это сам домен {domain}. "
+                    "CNAME на корне домена поставить нельзя — так устроен "
+                    "DNS, поэтому здесь именно A-запись. "
+                    "Если у домена уже есть A-запись (обычно на заглушку "
+                    "регистратора) — её нужно удалить или изменить на этот IP.",
+        }
+    return {
+        "type": "CNAME",
+        "host": domain,
+        "value": platform,
+        "note": "Если регистратор просит указать только первую часть имени — "
+                f"впишите «{domain.split('.')[0]}».",
+    }
+
+
 def _serialize(row: asyncpg.Record) -> dict:
     kind = row["kind"]
     out = {
@@ -107,14 +138,12 @@ def _serialize(row: asyncpg.Record) -> dict:
             "cert_issued_at": row["cert_issued_at"],
             "cert_expires_at": exp,
             "cert_days_left": _days_left(exp),
-            # Что показать клиенту в инструкции по DNS
-            "dns_instruction": {
-                "type": "CNAME",
-                "host": row["domain"],
-                "value": cd.normalize_domain(cd.platform_base_url()),
-                "note": "Если провайдер не даёт CNAME на корне домена — "
-                        f"поставьте A-запись на {cmd.SENDING_IP}",
-            },
+            # Что показать клиенту в инструкции по DNS.
+            # ⚠️ Корню — только A-запись: CNAME на корне запрещён стандартом
+            # DNS, его не даст НИ ОДИН регистратор. Поддомену — CNAME: при
+            # переезде сервера меняется IP у pluson.ru, и клиентские домены
+            # переезжают сами, без просьбы «поправьте у себя запись».
+            "dns_instruction": _dns_instruction(row["domain"]),
         })
     else:
         out.update({

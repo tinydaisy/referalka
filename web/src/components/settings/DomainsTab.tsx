@@ -324,11 +324,31 @@ export default function DomainsTab() {
 
               {d.status !== 'active' && d.dns_instruction && (
                 <div className="mb-3">
-                  <p className="text-sm text-slate-700 mb-2">
-                    Добавьте эту запись там, где куплен домен:
-                  </p>
+                  {/* Найденные чужие записи показываем ПЕРВЫМ шагом: пока они
+                      на месте, добавленная новая работать не будет — домен
+                      продолжит вести на заглушку регистратора. */}
+                  {(d.dns_details?.a?.length || d.dns_details?.cname?.length) && !d.dns_ok ? (
+                    <div className="mb-2 text-sm text-slate-700">
+                      <p className="mb-1">
+                        <span className="font-medium">Шаг 1.</span> Удалите записи, которые
+                        сейчас стоят у домена — они ведут не на нас:
+                      </p>
+                      <ul className="list-disc pl-5 text-xs text-slate-600 font-mono">
+                        {(d.dns_details?.cname || []).map((v: string) => <li key={`c${v}`}>CNAME → {v}</li>)}
+                        {(d.dns_details?.a || []).map((v: string) => <li key={`a${v}`}>A → {v}</li>)}
+                      </ul>
+                      <p className="mt-2 mb-2">
+                        <span className="font-medium">Шаг 2.</span> Добавьте эту запись:
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-700 mb-2">
+                      Добавьте эту запись там, где куплен домен:
+                    </p>
+                  )}
                   <RecordRow rec={{ ...d.dns_instruction, title: undefined }} />
                   <p className="text-xs text-slate-500 mt-2">
+                    NS-серверы менять не нужно — домен остаётся под вашим управлением.
                     Запись расходится по интернету не сразу — обычно от нескольких минут до пары часов.
                   </p>
                 </div>

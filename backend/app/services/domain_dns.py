@@ -21,11 +21,17 @@ import asyncio
 import logging
 from typing import Optional
 
+from app.services import client_domains
+
 logger = logging.getLogger(__name__)
 
 # Публичные резолверы: Google и Cloudflare.
 PUBLIC_RESOLVERS = ["8.8.8.8", "1.1.1.1"]
 DNS_TIMEOUT_SEC = 5.0
+
+# Наш IP — на случай, если вызывающий не передал expect_ip (тогда в тексте
+# ошибки клиенту всё равно должен быть конкретный адрес, а не пустое место).
+SENDING_IP_FALLBACK = "194.156.119.17"
 
 
 def _resolver():
@@ -77,9 +83,13 @@ async def check_landing_dns(domain: str, *, expect_host: str,
     """Ведёт ли домен клиента на нас.
 
     Принимаем оба варианта:
-      • CNAME → pluson.ru (как в инструкции);
-      • A-запись → наш IP (некоторые провайдеры не дают CNAME на корне домена,
-        и клиент прописывает A вручную — это тоже рабочий вариант).
+      • CNAME → pluson.ru — для ПОДДОМЕНА (lp.example.ru);
+      • A-запись → наш IP — для КОРНЯ домена (example.ru), где CNAME
+        невозможен в принципе (стандарт DNS).
+
+    ⚠️ Текст ошибки зависит от того, корень это или поддомен: советовать
+    владельцу корневого домена «поставьте CNAME» — отправлять его в тупик,
+    такую запись регистратор не сохранит.
     """
     domain = domain.strip().lower().rstrip(".")
     expect_host = expect_host.strip().lower().rstrip(".")
@@ -90,20 +100,26 @@ async def check_landing_dns(domain: str, *, expect_host: str,
     cname_ok = any(c == expect_host or c.endswith("." + expect_host) for c in cnames)
     ip_ok = bool(expect_ip) and expect_ip in a_records
 
+    apex = client_domains.is_apex_domain(domain)
+    if apex:
+        need = f"A-запись «@» → {expect_ip or SENDING_IP_FALLBACK}"
+    else:
+        need = f"CNAME {domain} → {expect_host}"
+
     ok = cname_ok or ip_ok
     if ok:
         message = "DNS настроен верно"
     elif cnames or a_records:
         found = ", ".join(cnames + a_records) or "—"
-        message = (
-            f"Домен ведёт не на нас (сейчас: {found}). "
-            f"Нужна запись CNAME на {expect_host}"
-        )
+        extra = (" Старую запись нужно удалить или изменить — "
+                 "две разные записи одновременно работать не будут."
+                 if apex and a_records else "")
+        message = f"Домен ведёт не на нас (сейчас: {found}). Нужна {need}.{extra}"
     else:
         message = (
-            "Записи не найдены. Добавьте у регистратора CNAME "
-            f"{domain} → {expect_host} и подождите — обновление занимает "
-            "от нескольких минут до пары часов"
+            f"Записи не найдены. Добавьте у регистратора {need} "
+            "и подождите — обновление занимает от нескольких минут "
+            "до пары часов"
         )
 
     return {

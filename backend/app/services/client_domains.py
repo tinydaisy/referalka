@@ -116,6 +116,33 @@ def validate_domain(raw: str | None) -> tuple[str, str]:
     return d, ""
 
 
+# Домены второго уровня, где «корень» на самом деле третий уровень:
+# example.co.uk / example.com.ru — это корень, а не поддомен.
+_MULTI_LEVEL_TLDS = {
+    "co.uk", "org.uk", "me.uk", "com.au", "net.au", "co.nz", "co.jp",
+    "com.br", "com.tr", "com.ua", "com.ru", "net.ru", "org.ru", "pp.ru",
+}
+
+
+def is_apex_domain(domain: str | None) -> bool:
+    """Корень домена (example.ru) или поддомен (lp.example.ru)?
+
+    ⚠️ От этого зависит инструкция в кабинете: на КОРНЕ CNAME невозможен
+    в принципе (запрет стандарта DNS — у корня обязаны быть NS и SOA, а
+    CNAME означает «других записей нет»). Ни один регистратор его не даст.
+    Поэтому корню показываем A-запись, поддомену — CNAME.
+    """
+    d = normalize_domain(domain)
+    if not d:
+        return False
+    parts = d.split(".")
+    if len(parts) <= 2:
+        return True
+    if ".".join(parts[-2:]) in _MULTI_LEVEL_TLDS:
+        return len(parts) == 3
+    return False
+
+
 # ── Резолв ──────────────────────────────────────────────────────────────────
 
 async def client_public_url(db, client_id: int | None) -> str:
