@@ -286,14 +286,18 @@ async def create_event(
         INSERT INTO events (slug, title, description, landing_url, address,
                             start_at, end_at, webhook_url,
                             module_slug, points_free, points_paid, require_subscription,
-                            skip_contact_form, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft')
+                            skip_contact_form, registration_mode, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft')
         RETURNING *
         """,
         slug, data.title, data.description, data.landing_url, data.address,
         _parse_dt(data.start_at), _parse_dt(data.end_at), data.webhook_url,
         data.module_slug, data.points_free, data.points_paid, data.require_subscription,
         default_skip_contact_form,
+        # ⚠️ По умолчанию — встроенная форма: она есть у любого события и
+        # работает всегда. Сторонний сайт ставим сразу, только если клиент
+        # прямо при создании указал его адрес (тогда выбор очевиден).
+        "external" if (data.landing_url or "").strip() else "form",
     )
     # владелец события — в event_owners (источник истины)
     await db.execute(
@@ -709,7 +713,7 @@ async def copy_event(
                   vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
-                  skip_contact_form, landing_cta_label)
+                  skip_contact_form, landing_cta_label, registration_mode)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
@@ -718,7 +722,7 @@ async def copy_event(
                        $17,$18,
                        $19,$20,
                        $21,$22,
-                       $23,$24)
+                       $23,$24,$25)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -737,6 +741,9 @@ async def copy_event(
             src.get('accent_button'),
             src.get('skip_contact_form') or False,
             src.get('landing_cta_label'),
+            # Способ регистрации переносим как есть: раньше он терялся, и копия
+            # события молча уезжала на дефолт вместо настройки оригинала.
+            src.get('registration_mode') or 'form',
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

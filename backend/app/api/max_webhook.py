@@ -1461,13 +1461,15 @@ async def _process_start(
             # «Регистрировать без ввода контактных данных»: кнопка
             # «ЗАРЕГИСТРИРОВАТЬСЯ» ОСТАЁТСЯ, но ведёт на callback `evsignup_<id>` —
             # регистрируем по НАЖАТИЮ и присылаем меню (как в TG). Меню само, без
-            # нажатия, НЕ шлём. Сторонний лендинг главнее — там своя форма.
-            # ⚠️ Лендинг главнее — см. тот же порядок в TG/VK.
+            # нажатия, НЕ шлём.
+            # ⚠️ Уступаем дорогу лендингу, только если он ВЫБРАН способом
+            # регистрации. Просто заполненное поле landing_url выбором не
+            # считается — см. тот же порядок в TG/VK.
             reg_in_bot = bool(
                 event_skip_contact_form and contact_id and event_id
-                and not event_landing_url
                 and (await conn.fetchval(
-                    "SELECT registration_mode FROM events WHERE id=$1", event_id)) != "landing"
+                    "SELECT registration_mode FROM events WHERE id=$1", event_id))
+                    not in ("landing", "external")
             )
 
             # НЕ зарегистрирован → 1 кнопка «ЗАРЕГИСТРИРОВАТЬСЯ» + афиша (как в TG).
@@ -1493,7 +1495,8 @@ async def _process_start(
             internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
             _reg_mode = await conn.fetchval(
                 "SELECT registration_mode FROM events WHERE id=$1", event_id) if event_id else None
-            if event_landing_url and event_status == "published" and _reg_mode != "landing":
+            # ⚠️ Сторонний лендинг — только при явно выбранном способе.
+            if event_landing_url and event_status == "published" and _reg_mode == "external":
                 from app.services.external_landing import (
                     build_external_landing_url,
                     get_contact_landing_params,

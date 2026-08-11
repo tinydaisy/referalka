@@ -1290,14 +1290,14 @@ async def send_vk_event_funnel(
     # ── «Регистрировать без ввода контактных данных»: кнопка «ЗАРЕГИСТРИРОВАТЬСЯ»
     # ОСТАЁТСЯ, но ведёт на callback `evsignup_<id>` — регистрируем по НАЖАТИЮ и
     # присылаем меню (как в TG и MAX). Меню само, без нажатия, НЕ шлём.
-    # Сторонний лендинг главнее — там своя форма и свой webhook.
-    # ⚠️ Лендинг главнее — тот же порядок, что в TG/MAX.
+    # ⚠️ Уступаем дорогу лендингу, только если он ВЫБРАН способом регистрации:
+    # у него своя форма и свой webhook. Просто заполненное поле landing_url
+    # выбором не считается — там часто лежит ссылка на бота или чужое событие.
     _rm = await conn.fetchval("SELECT registration_mode FROM events WHERE id=$1", event_id)
     reg_in_bot = bool(
         not is_registered and contact_id
         and event_row["skip_contact_form"]
-        and not (event_row["landing_url"] or "").strip()
-        and _rm != "landing"
+        and _rm not in ("landing", "external")
     )
 
     # ── Зарегистрирован → меню кабинета (порт send_event_menu) ────────────────
@@ -1378,7 +1378,10 @@ async def send_vk_event_funnel(
     internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
     landing_url = (event_row["landing_url"] or "").strip()
     _reg_mode = await conn.fetchval("SELECT registration_mode FROM events WHERE id=$1", event_id)
-    if landing_url and event_row["status"] == "published" and _reg_mode != "landing":
+    # ⚠️ Сторонний лендинг — только когда способ регистрации ВЫБРАН явно.
+    # Заполненное поле само по себе больше не считается выбором: у многих там
+    # лежит ссылка на бота или на чужое событие, и человека уводило не туда.
+    if landing_url and event_row["status"] == "published" and _reg_mode == "external":
         contact_params = await get_contact_landing_params(conn, contact_id) if contact_id else {}
         erp = await resolve_referrer_external_ref_param(conn, client_id, pid=pid or None, contact_id=contact_id)
         # participant_id ОБЯЗАТЕЛЕН в URL: GetCourse/Tilda кладут его в скрытое

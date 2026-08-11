@@ -571,8 +571,13 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   // пользователь на долю секунды видит «Хочу участвовать» (иногда платное
   // событие — кнопка опасна). Поэтому ДО рендера прячем всё под loader, пока
   // редирект ещё не сработал.
+  // ⚠️ Уводим на сторонний лендинг ТОЛЬКО когда он выбран способом регистрации
+  // (registration_mode='external'). Раньше хватало заполненного landing_url —
+  // у многих там ссылка на бота или на чужое событие, и человека уносило туда.
   const willRedirectToLanding =
-    !!event && !!(event.landing_url || '').trim() && !registered && !ended && !regFromLanding && !noLanding
+    !!event && !!(event.landing_url || '').trim()
+    && (event as any).registration_mode === 'external'
+    && !registered && !ended && !regFromLanding && !noLanding
   if (willRedirectToLanding) {
     return (
       <div style={{

@@ -1215,14 +1215,13 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         # веб-форму, а на callback `evsignup_<id>` — по нажатию регистрируем прямо в
         # боте и присылаем меню события. Спрашивать нечего: человек уже в боте.
         # ⚠️ Меню НЕ шлём само, без нажатия — это осознанное действие пользователя.
-        # Сторонний лендинг главнее: задан → ведём туда (своя форма + свой webhook).
-        # ⚠️ Лендинг главнее: выбран способ «наш лендинг» или задан сторонний
-        # сайт → ведём ТУДА (там своя форма и свой заказ), внутри бота не
-        # регистрируем. Иначе человек с лендинга не увидел бы тарифы.
+        # ⚠️ Уступаем дорогу лендингу, только если он ВЫБРАН способом регистрации
+        # ('landing' или 'external'): там своя форма и свой заказ, иначе человек
+        # не увидел бы тарифы. Просто заполненное поле landing_url выбором НЕ
+        # считается — у многих там ссылка на бота или на чужое событие.
         reg_in_bot = bool(
             ev["skip_contact_form"] and contact_id
-            and not (ev["landing_url"] or "").strip()
-            and ev["registration_mode"] != "landing"
+            and ev["registration_mode"] not in ("landing", "external")
         )
 
         # ── НЕ зарегистрирован → три кнопки (Mini App / Веб / Регистрация) ────
@@ -1244,8 +1243,9 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         _reg_page = await resolve_landing_url(db, ev["id"])
         _sep = "&" if "?" in _reg_page else "?"
         internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
-        # Сторонний сайт ведём прежним путём (там свои параметры и webhook).
-        if landing_url and ev["status"] == "published" and ev["registration_mode"] != "landing":
+        # Сторонний сайт ведём прежним путём (там свои параметры и webhook),
+        # но ТОЛЬКО когда он выбран способом регистрации.
+        if landing_url and ev["status"] == "published" and ev["registration_mode"] == "external":
             contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
             erp = await resolve_referrer_external_ref_param(
                 db, ev["client_id"], pid=pid, contact_id=contact_id,

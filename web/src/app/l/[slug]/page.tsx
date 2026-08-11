@@ -102,11 +102,12 @@ export default async function EventLandingPage({
   const flags = extractFlags(searchParams)
   const appParam = spStr('app')
 
-  // Веб-вход без ?app=tg на лендинг клиента: 301-редирект на сторонний лендинг,
-  // если у события заполнено events.landing_url. С ?app=tg — оставляем обычный
-  // flow (redirect_web_app.js откроет Telegram, дальше Mini App сам через
-  // Telegram.WebApp.openLink покажет лендинг клиента).
-  if (event.landing_url && !appParam) {
+  // Веб-вход без ?app=tg: 301-редирект на сторонний лендинг клиента.
+  // ⚠️ Только когда сторонний сайт ВЫБРАН способом регистрации
+  // (registration_mode='external'). Раньше хватало заполненного поля
+  // landing_url, но у многих там лежит ссылка на бота или на чужое событие —
+  // и человека уводило не туда. С ?app=tg — обычный flow через Telegram.
+  if (event.landing_url && event.registration_mode === 'external' && !appParam) {
     const url = new URL(event.landing_url)
     const pid = spStr('pid') || spStr('new_partner_id')
     const utmSource = spStr('utm_source')

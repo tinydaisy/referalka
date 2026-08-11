@@ -457,10 +457,11 @@ async def public_event_landing_redirect(
     if row["status"] != "published":
         return {}
 
-    # ⚠️ Способ регистрации задаётся явно (миграция 262). NULL — как раньше:
-    # есть свой сайт → на него, иначе встроенная форма.
-    mode = row["registration_mode"] or (
-        "external" if (row["landing_url"] or "").strip() else "form")
+    # ⚠️ Способ регистрации задаётся явно (миграция 262). NULL → простая форма.
+    # Раньше при пустом режиме угадывали «заполнен landing_url → сторонний»,
+    # но у большинства он пуст, а у кого заполнен — там бывает ссылка на бота
+    # или на чужое событие, и человека уводило не туда.
+    mode = row["registration_mode"] or "form"
 
     if mode == "form":
         return {}
@@ -757,6 +758,10 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                               END, sort, id
                      LIMIT 1) AS poster_url,
                    e.landing_url, e.address, e.status,
+                   -- ⚠️ Способ регистрации нужен фронту: на сторонний лендинг
+                   -- уводим ТОЛЬКО при выбранном 'external'. Заполненное поле
+                   -- landing_url само по себе выбором не считается.
+                   e.registration_mode,
                    CASE WHEN e.module_slug IN ('conference','turnir')
                         THEN cd.start_at ELSE e.start_at END AS start_at,
                    CASE WHEN e.module_slug IN ('conference','turnir')
