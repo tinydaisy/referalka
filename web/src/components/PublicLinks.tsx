@@ -2,9 +2,8 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, Globe, Save } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import QrLinkButton from '@/components/QrLinkButton'
-
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
 
 interface LinkRow {
   key: string
@@ -49,6 +48,10 @@ export default function PublicLinks({
    *  (сохранение делает общая кнопка «Сохранить» на странице). Иначе — авто-сохранение. */
   onLinkModeChange?: (mode: 'miniapp' | 'bot') => void
 }) {
+  // ⚠️ Эти ссылки клиент копирует и раздаёт своей аудитории — значит его
+  // домен, если подключён. Раньше домен брался из NEXT_PUBLIC_APP_URL, то
+  // есть всегда pluson.ru: клиент со своим доменом раздавал наш адрес.
+  const { publicBase, publicHost } = useMe()
   const isDraft = eventStatus === 'draft'
   // Выключенные площадки. Управляемый режим (передан колбэк) — состояние живёт
   // на странице; иначе держим локально и сохраняем сразу (блок вне общей формы).
@@ -124,7 +127,7 @@ export default function PublicLinks({
     // ссылки на лендинг в кабинете не было вовсе.
     rows.push({
       key: `${kind}-web`, platform: 'web', label: 'Простая страница события', badge: 'WEB', color: '#25455D',
-      url: `${APP_URL}/l/${slug}`,
+      url: `${publicBase}/l/${slug}`,
       hint: 'Афиша, описание и кнопка записаться — есть у любого события',
     })
     // Плюсоновский лендинг — продающая страница, собранная в конструкторе.
@@ -133,7 +136,7 @@ export default function PublicLinks({
     if (hasLanding) {
       rows.push({
         key: `${kind}-landing`, platform: 'landing', label: 'Плюсоновский лендинг', badge: 'LP', color: '#FFCFA4',
-        url: `${APP_URL}/e/${slug}`,
+        url: `${publicBase}/e/${slug}`,
         hint: 'Продающая страница из конструктора. Для реферальной ссылки допишите ?pid=КОД',
       })
     }
@@ -303,7 +306,7 @@ export default function PublicLinks({
           <div className="flex items-stretch gap-2">
             <div className="flex-1 flex items-center rounded-lg border border-gray-200 bg-white overflow-hidden">
               <span className="px-3 py-2 text-xs text-gray-400 font-mono whitespace-nowrap border-r border-gray-100">
-                {APP_URL.replace(/^https?:\/\//, '')}/l/
+                {publicHost}/l/
               </span>
               <input
                 value={draft}

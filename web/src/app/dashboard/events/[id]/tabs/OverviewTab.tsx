@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import PublicLinks from '@/components/PublicLinks'
 import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
@@ -14,6 +15,8 @@ export default function OverviewTab({
   eventId: number
   onReload: () => Promise<void>
 }) {
+  // Домен клиента, а не наш: эту ссылку он отдаёт своей аудитории.
+  const { publicHost } = useMe()
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
@@ -266,7 +269,7 @@ export default function OverviewTab({
         onCtaLabel={setLandingCtaLabel}
         skipContactForm={skipContactForm}
         hasLanding={!!event?.landing_published}
-        landingUrlInternal={event?.slug ? `pluson.ru/e/${event.slug}` : ''}
+        landingUrlInternal={event?.slug ? `${publicHost}/e/${event.slug}` : ''}
         regMode={regMode}
         onRegMode={setRegMode}
         onSkipContactForm={setSkipContactForm}

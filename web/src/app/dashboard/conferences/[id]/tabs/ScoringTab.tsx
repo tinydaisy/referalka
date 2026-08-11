@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, Camera, Pencil, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react'
 
@@ -621,8 +622,10 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
 
 function PublicTableLink({ eventId, stageId, stageTitle }: { eventId: number; stageId: number; stageTitle?: string }) {
   const [copied, setCopied] = useState(false)
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru'
-  const url = `${origin}/t/${eventId}/${stageId}`
+  // ⚠️ Не window.location.origin: кабинет открыт на pluson.ru, а таблицу
+  // клиент отдаёт участникам — она должна быть на ЕГО домене.
+  const { publicBase } = useMe()
+  const url = `${publicBase}/t/${eventId}/${stageId}`
   const copy = async () => {
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
   }

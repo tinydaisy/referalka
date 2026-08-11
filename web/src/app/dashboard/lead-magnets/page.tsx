@@ -49,11 +49,6 @@ interface Package {
   updated_at: string
 }
 
-function getPublicBase() {
-  if (typeof window === 'undefined') return 'https://pluson.ru'
-  return window.location.origin.replace(/^http:\/\/localhost:3000/, 'https://dev.pluson.ru')
-}
-
 // Готовность выдачи воронки: бот админ во ВСЕХ каналах основателя. Пока не
 // готов — ссылки на воронку показываем размыто. Хук, т.к. статус нужен и в
 // списке лид-магнитов, и в списке пакетов (это разные компоненты).

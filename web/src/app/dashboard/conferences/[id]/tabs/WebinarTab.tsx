@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio } from 'lucide-react'
 import WebinarAnalytics from './WebinarAnalytics'
@@ -202,6 +203,8 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 
 // ─────────────────────────── настройки комнаты дня ───────────────────────────
 function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void }) {
+  // Домен клиента: ссылку на комнату он отдаёт своим зрителям.
+  const { publicBase } = useMe()
   const r = day.room
   const [f, setF] = useState<any>({
     title: r?.title || day.day_title || '',
@@ -345,8 +348,8 @@ function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number;
           <div className="text-xs text-gray-500 mb-1">Ссылка на комнату дня (для зрителей)</div>
           <div className="flex gap-2 items-center">
             <input readOnly className="input flex-1 font-mono text-xs"
-              value={`https://pluson.ru/webinar/${slug}/${day.day_number}`} />
-            <button onClick={() => { navigator.clipboard.writeText(`https://pluson.ru/webinar/${slug}/${day.day_number}`); setCopied('roomlink'); setTimeout(() => setCopied(''), 1500) }}
+              value={`${publicBase}/webinar/${slug}/${day.day_number}`} />
+            <button onClick={() => { navigator.clipboard.writeText(`${publicBase}/webinar/${slug}/${day.day_number}`); setCopied('roomlink'); setTimeout(() => setCopied(''), 1500) }}
               className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50 shrink-0 flex items-center gap-1">
               <Copy size={13} /> {copied === 'roomlink' ? '✓' : ''}
             </button>
@@ -964,6 +967,8 @@ function BlocksLive({ eventId, day, onSettingsChanged }: { eventId: number; day:
 }
 
 function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
+  // Домен клиента: комнату смотрят его зрители.
+  const { publicBase } = useMe()
   const [pollQ, setPollQ] = useState('')
   const [pollOpts, setPollOpts] = useState(['', ''])
   const [battleTitle, setBattleTitle] = useState('')
@@ -975,7 +980,9 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
     api.conference.speakers.list(eventId).then(r => setSpeakers(r.speakers || [])).catch(() => {})
   }, [eventId])
 
-  const roomUrl = slug ? `${(typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru')}/webinar/${slug}/${day.day_number}` : ''
+  // ⚠️ Не window.location.origin: кабинет открыт на pluson.ru, а комнату
+  // смотрят зрители клиента — ссылка должна быть на ЕГО домене.
+  const roomUrl = slug ? `${publicBase}/webinar/${slug}/${day.day_number}` : ''
 
   async function launchPoll() {
     const opts = pollOpts.map(o => o.trim()).filter(Boolean)
@@ -1178,6 +1185,9 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
 
 // ─────────────────────────── реферальный отчёт вебинара ───────────────────────────
 function ReferralsTab({ eventId, day, slug }: { eventId: number; day: number; slug?: string }) {
+  // ⚠️ Хук — до early-return по loading. Домен клиента: реф-ссылку на комнату
+  // раздают его зрители.
+  const { publicBase } = useMe()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -1186,7 +1196,7 @@ function ReferralsTab({ eventId, day, slug }: { eventId: number; day: number; sl
   }, [eventId, day])
 
   if (loading) return <Spinner />
-  const base = (typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru')
+  const base = publicBase
   const refs = data?.referrers || []
 
   return (

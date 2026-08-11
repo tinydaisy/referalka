@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Copy, Check, RotateCcw, Trophy, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 
 const BRAND = '#25455D'
@@ -375,6 +376,8 @@ function SettingsPane({
 
 /* ─────── Participants ─────── */
 function ParticipantsPane({ eventId, eventSlug }: { eventId: number; eventSlug: string }) {
+  // Домен клиента: ссылку он показывает участникам розыгрыша.
+  const { publicBase } = useMe()
   const [items, setItems] = useState<Participant[]>([])
   const [onlyLive, setOnlyLive] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -391,11 +394,12 @@ function ParticipantsPane({ eventId, eventSlug }: { eventId: number; eventSlug: 
 
   useEffect(() => { load() }, [eventId, onlyLive])
 
+  // ⚠️ Не window.location.origin: кабинет открыт на pluson.ru, а ссылку
+  // клиент показывает участникам — она должна быть на ЕГО домене.
   const liveLink = useMemo(() => {
     if (!eventSlug) return ''
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru'
-    return `${origin}/l/${eventSlug}?app=tg&live=1`
-  }, [eventSlug])
+    return `${publicBase}/l/${eventSlug}?app=tg&live=1`
+  }, [eventSlug, publicBase])
 
   return (
     <div className="space-y-5">

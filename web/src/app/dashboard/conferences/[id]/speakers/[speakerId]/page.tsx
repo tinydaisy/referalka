@@ -4,6 +4,7 @@ import { useRouter, useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
@@ -168,7 +169,9 @@ function FieldLabel({ label, empty }: { label: string; empty: boolean }) {
 
 // Прямые ссылки на карточку конкретного спикера: веб-страница события и Mini App.
 function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number; botHandle: string }) {
-  const webUrl = `https://pluson.ru/event/${slug}?spk=${ecId}`
+  // Домен клиента: эту ссылку спикер отдаёт своей аудитории.
+  const { publicBase } = useMe()
+  const webUrl = `${publicBase}/event/${slug}?spk=${ecId}`
   // Mini App-ссылка — только при своём боте клиента. Системный @pluson_bot
   // не подставляем (с 2026-07-08): нет бота → показываем только веб-ссылку.
   const tgUrl = botHandle
@@ -197,6 +200,9 @@ function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number
 }
 
 export default function ConferenceSpeakerPage() {
+  // Домен клиента: кабинет спикера открывает сам спикер, ссылку он получает
+  // от организатора — она должна быть на домене организатора, а не на нашем.
+  const { publicHost } = useMe()
   const router = useRouter()
   const pathname = usePathname()
   const { id, speakerId } = useParams()
@@ -749,7 +755,7 @@ export default function ConferenceSpeakerPage() {
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
               <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
-              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
+              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">{publicHost}/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
             </div>
           </div>
           <div className="flex items-center gap-2 mt-3">
@@ -863,7 +869,7 @@ export default function ConferenceSpeakerPage() {
         {/* Что спикер видит в своей форме — сразу после галочки «Коммерческое» */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm">Что спикер видит в своей форме</h3>
-          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>.</p>
+          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">{publicHost}/speaker/{eventSlug || '…'}</code>.</p>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_topic_field}
               onChange={e => setEventForm(f => ({ ...f, show_topic_field: e.target.checked }))}

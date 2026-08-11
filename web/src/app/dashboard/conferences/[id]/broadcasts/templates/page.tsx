@@ -535,7 +535,8 @@ function CustomBindingFields({ form, setForm, dayRefOptions, sessions }: {
 export default function TemplatesPage() {
   const { id } = useParams()
   const eventId = Number(id)
-  const { me } = useMe()
+  // publicBase — домен клиента: эти ссылки уходят получателям рассылки.
+  const { me, publicBase } = useMe()
   // Сегменты по оплате — только при фиче платных тарифов события.
   const hasPayments = (me?.features || []).includes('event_tariffs')
   // База чатов клиента (общие/личные каналы) — только с фичей broadcast_chats (Экстра/vip).
@@ -896,7 +897,7 @@ export default function TemplatesPage() {
     const slug = eventData?.slug || '{slug}'
     const handle = (eventData as any)?.client_bot_handle || (confData as any)?.client_bot_handle || ''
     if (handle) return `https://telegram.me/${handle}?startapp=ref_pg${slug}_tabgame`
-    return `https://pluson.ru/event/${slug}#game`
+    return `${publicBase}/event/${slug}#game`
   }
 
   // Ссылка на воронку подарка-лид-магнита по площадке (тот же формат, что бэк
@@ -924,9 +925,9 @@ export default function TemplatesPage() {
     const slug = (confData as any)?.event_slug || ''
     const ext = ((confData as any)?.event_landing_url || '').trim()
     const mode = (confData as any)?.registration_mode
-    const form = slug ? `https://pluson.ru/event/${slug}/register` : ''
+    const form = slug ? `${publicBase}/event/${slug}/register` : ''
     if (mode === 'external') return ext || form
-    if (mode === 'landing') return slug ? `https://pluson.ru/e/${slug}` : form
+    if (mode === 'landing') return slug ? `${publicBase}/e/${slug}` : form
     if (mode === 'form') return form
     // Способ не задан (старые события) — как раньше: сторонний, иначе форма.
     return ext || form

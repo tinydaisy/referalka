@@ -522,6 +522,17 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.
     # Без него ссылка вела бы на системный 54592404, а не на клиентский.
+    # ⚠️ Адрес, на котором открываются ПУБЛИЧНЫЕ страницы этого клиента
+    # (миграция 270): его домен, если подключён и активен, иначе pluson.ru.
+    # Кабинет обязан показывать клиенту ЕГО домен везде, где он копирует
+    # ссылку для своей аудитории — лендинги, витрина, кабинет спикера,
+    # воронки, виджеты. Иначе клиент платит за домен, а раздаёт наш.
+    # Внутреннее (вебхуки, регистрация в ПЛЮСОН, Mini App) остаётся на
+    # platform_base_url() — см. `public_base` vs `platform_base` ниже.
+    from app.services.client_domains import client_public_url, platform_base_url
+    out["public_base"] = await client_public_url(db, client_id)
+    out["platform_base"] = platform_base_url().rstrip("/")
+
     from app.services.share_links import get_client_vk_app_id, get_active_platforms, get_client_bot_handles
     out["vk_app_id"] = await get_client_vk_app_id(db, client_id)
     # Handles per-platform: ник клиентского бота/сообщества (или None если у клиента

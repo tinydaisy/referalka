@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Save, Check } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
@@ -37,6 +38,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   onEventUpdated?: (patch: any) => void
 }) {
   const { t } = useLang()
+  // Домен клиента, а не наш: эту ссылку он отдаёт своей аудитории.
+  const { publicHost } = useMe()
   const [form, setForm] = useState({
     title: event?.title || '',
     description: event?.description || '',
@@ -409,7 +412,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
         allowExternal={!event?.is_collab}
         hasLanding={!!event?.landing_published}
-        landingUrlInternal={event?.slug ? `pluson.ru/e/${event.slug}` : ''}
+        landingUrlInternal={event?.slug ? `${publicHost}/e/${event.slug}` : ''}
         regMode={form.registration_mode}
         onRegMode={(v) => setForm(f => ({ ...f, registration_mode: v }))}
       />

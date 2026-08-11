@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
 import { REPEATABLE, STANDARD, metaFor } from '@/components/landing/blockMeta'
 import { ColorField, MetallicToggle, FontSelect, BackgroundFields, BgFramingFields } from '@/components/landing/StyleControls'
@@ -35,6 +36,9 @@ function eventDateLabel(s: any): string {
 }
 
 export default function LandingTab({ eventId, event }: Props) {
+  // ⚠️ Хук — до любых early-return. Домен клиента, а не наш: эту ссылку он
+  // копирует и отдаёт своей аудитории.
+  const { publicHost } = useMe()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pages, setPages] = useState<any[]>([])
@@ -311,7 +315,7 @@ export default function LandingTab({ eventId, event }: Props) {
           </label>
           <p className="mt-1 text-sm text-gray-500">
             {page.is_published
-              ? <>Доступна по ссылке <span className="font-mono text-gray-700">pluson.ru{publicUrl}</span></>
+              ? <>Доступна по ссылке <span className="font-mono text-gray-700">{publicHost}{publicUrl}</span></>
               : 'Пока черновик — посторонние страницу не увидят.'}
           </p>
         </div>
@@ -747,7 +751,7 @@ export default function LandingTab({ eventId, event }: Props) {
           </div>
           <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
             Под текстом сами появятся кнопки на ваших ботов — чтобы человек
-            не потерялся после оплаты. Ссылку <span className="font-mono">pluson.ru{publicUrl}</span>
+            не потерялся после оплаты. Ссылку <span className="font-mono">{publicHost}{publicUrl}</span>
             {' '}укажите как страницу возврата в платёжной системе.
           </p>
         </div>

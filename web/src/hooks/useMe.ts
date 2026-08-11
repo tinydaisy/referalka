@@ -14,7 +14,16 @@ export interface Me {
   /** Только у role='assistant': 'full' — права как у владельца, 'limited' — урезанные. */
   assistant_access_level?: AssistantAccessLevel | null
   is_system_service?: boolean
+  /** Адрес ПУБЛИЧНЫХ страниц клиента: его домен, если подключён, иначе pluson.ru. */
+  public_base?: string
+  /** Адрес самой платформы — всегда pluson.ru (вебхуки, регистрация, Mini App). */
+  platform_base?: string
   [k: string]: any
+}
+
+/** Домен без схемы: «https://peregovorka.online» → «peregovorka.online». */
+export function hostOf(url?: string | null): string {
+  return (url || '').replace(/^https?:\/\//, '').replace(/\/+$/, '')
 }
 
 /**
@@ -60,5 +69,18 @@ export function useMe() {
   // «Ограниченный» ассистент — тот, кому режем UI. Полный ведёт себя как владелец.
   const isAssistant = isAnyAssistant && !isFullAssistant
   const isOwner = !isAssistant
-  return { me, isAssistant, isOwner, isAnyAssistant, isFullAssistant }
+
+  // ⚠️ Ссылку, которую клиент копирует и отдаёт СВОЕЙ аудитории, собирать
+  // только через publicBase/publicHost — иначе он раздаёт наш домен вместо
+  // своего. Внутреннее (вебхуки, регистрация в ПЛЮСОН, адрес Mini App)
+  // остаётся на platformBase: там смена домена сломала бы приём данных.
+  const publicBase = me?.public_base || me?.platform_base || 'https://pluson.ru'
+  const platformBase = me?.platform_base || 'https://pluson.ru'
+  return {
+    me, isAssistant, isOwner, isAnyAssistant, isFullAssistant,
+    publicBase, platformBase,
+    publicHost: hostOf(publicBase),
+    platformHost: hostOf(platformBase),
+    hasCustomDomain: !!me?.public_base && me.public_base !== me?.platform_base,
+  }
 }

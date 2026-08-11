@@ -19,10 +19,16 @@ import asyncpg
 import secrets
 
 
-def _public_base() -> str:
-    """База публичных landing-ссылок воронок. На dev — https://dev.pluson.ru, на проде https://pluson.ru.
-    В локалке `frontend_url=http://localhost:3000` тоже подходит — landing проксируется через nginx."""
-    return (settings.frontend_url or 'https://pluson.ru').rstrip('/')
+async def _public_base(db, client_id: int) -> str:
+    """База публичных landing-ссылок воронок — домен КЛИЕНТА (миграция 270).
+
+    ⚠️ Раньше отдавали `settings.frontend_url`, то есть всегда pluson.ru:
+    клиент со своим доменом раздавал аудитории наш адрес. Ссылку `/m/…`
+    он копирует и рассылает — значит она должна быть на его домене.
+    Нет своего домена → резолвер сам вернёт pluson.ru, поведение прежнее.
+    """
+    from app.services.client_domains import client_public_url
+    return (await client_public_url(db, client_id)).rstrip('/')
 
 router = APIRouter(prefix="/lead-magnets", tags=["Лид-магниты"])
 
@@ -66,7 +72,7 @@ async def list_lead_magnets(
         cid
     )
     items = [dict(r) for r in rows]
-    base = _public_base()
+    base = await _public_base(db, cid)
     for it in items:
         it["platform_links"] = await build_funnel_landing_links(
             db, client_id=cid, slug=it["slug"], kind='m', base_url=base
@@ -90,7 +96,7 @@ async def create_lead_magnet(
     )
     out = dict(row)
     out["platform_links"] = await build_funnel_landing_links(
-        db, client_id=cid, slug=out["slug"], kind='m', base_url=_public_base()
+        db, client_id=cid, slug=out["slug"], kind='m', base_url=await _public_base(db, cid)
     )
     return out
 
@@ -156,7 +162,7 @@ async def get_lead_magnet(
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
     out = dict(row)
     out["platform_links"] = await build_funnel_landing_links(
-        db, client_id=cid, slug=out["slug"], kind='m', base_url=_public_base()
+        db, client_id=cid, slug=out["slug"], kind='m', base_url=await _public_base(db, cid)
     )
     return out
 
@@ -181,7 +187,7 @@ async def update_lead_magnet(
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
     out = dict(row)
     out["platform_links"] = await build_funnel_landing_links(
-        db, client_id=cid, slug=out["slug"], kind='m', base_url=_public_base()
+        db, client_id=cid, slug=out["slug"], kind='m', base_url=await _public_base(db, cid)
     )
     return out
 

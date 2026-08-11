@@ -37,7 +37,8 @@ async def _serialize_package(row, db: asyncpg.Connection) -> dict:
         row["id"]
     )
     platform_links = await build_funnel_landing_links(
-        db, client_id=row["client_id"], slug=row["slug"], kind='p', base_url=_public_base()
+        db, client_id=row["client_id"], slug=row["slug"], kind='p',
+        base_url=await _public_base(db, row["client_id"])
     )
     return {
         "id": row["id"],

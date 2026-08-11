@@ -17,7 +17,8 @@ import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 
 export default function OffersPage() {
-  const { me } = useMe()
+  // publicBase/publicHost — домен клиента: оферту он отдаёт своим покупателям.
+  const { me, publicBase, publicHost } = useMe()
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<any>(null)
@@ -110,7 +111,9 @@ export default function OffersPage() {
       ) : (
         <div className="space-y-3">
           {items.map(o => {
-            const url = o.external_url || `${location.origin}/o/${o.slug}`
+            // ⚠️ Не location.origin: кабинет открыт на pluson.ru, а оферту
+            // клиент отдаёт покупателям — она должна быть на ЕГО домене.
+            const url = o.external_url || `${publicBase}/o/${o.slug}`
             return (
               <div key={o.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white p-4">
                 <FileText className="h-5 w-5 shrink-0 text-gray-400" />
@@ -174,7 +177,7 @@ export default function OffersPage() {
                   Адрес страницы
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-sm text-gray-500">pluson.ru/o/</span>
+                  <span className="shrink-0 text-sm text-gray-500">{publicHost}/o/</span>
                   <input
                     type="text" value={editing.slug || ''}
                     onChange={e => setEditing({ ...editing, slug: e.target.value })}
