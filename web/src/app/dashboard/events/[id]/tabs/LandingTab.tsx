@@ -695,9 +695,9 @@ export default function LandingTab({ eventId, event }: Props) {
                   связи). Название поля обязано это называть — иначе клиент
                   правит «Цвет кнопки» и не понимает, почему не меняется. */}
               <ColorField
-                label="Цвет иконок и кнопок блока «Вопросы»" value={page.icon_color}
+                label="Цвет иконок и кнопок обратной связи" value={page.icon_color}
                 onChange={v => patchPage({ icon_color: v })}
-                hint="Кнопки блока «Вопросы» — способы связи, не призыв к действию. Они красятся этим цветом."
+                hint="Кнопки обратной связи (Telegram, ВКонтакте, MAX в блоке «Есть вопросы?») — способы связи, а не призыв к действию. Они красятся этим цветом."
               />
               <div className="flex items-end pb-2">
                 <MetallicToggle
