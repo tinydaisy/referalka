@@ -668,7 +668,7 @@ export default function LandingTab({ eventId, event }: Props) {
           </div>
 
           <div className="border-t border-gray-100 pt-4">
-            <h4 className="mb-3 font-medium text-gray-900">Кнопки</h4>
+            <h4 className="mb-3 font-medium text-gray-900">Кнопки призыва к действию (CTA)</h4>
             <div className="grid gap-4 sm:grid-cols-2">
               <ColorField
                 label="Цвет кнопки" value={page.btn_color}
@@ -691,9 +691,13 @@ export default function LandingTab({ eventId, event }: Props) {
           <div className="border-t border-gray-100 pt-4">
             <h4 className="mb-3 font-medium text-gray-900">Иконки</h4>
             <div className="grid gap-4 sm:grid-cols-2">
+              {/* ⚠️ Этим же цветом красятся кнопки блока «Вопросы» (способы
+                  связи). Название поля обязано это называть — иначе клиент
+                  правит «Цвет кнопки» и не понимает, почему не меняется. */}
               <ColorField
-                label="Цвет иконок" value={page.icon_color}
+                label="Цвет иконок и кнопок блока «Вопросы»" value={page.icon_color}
                 onChange={v => patchPage({ icon_color: v })}
+                hint="Кнопки блока «Вопросы» — способы связи, не призыв к действию. Они красятся этим цветом."
               />
               <div className="flex items-end pb-2">
                 <MetallicToggle

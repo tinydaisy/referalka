@@ -220,7 +220,7 @@ export default function LandingThemeTab() {
             </div>
           </Card>
 
-          <Card title="Кнопки">
+          <Card title="Кнопки призыва к действию (CTA)">
             <div className="grid gap-4 sm:grid-cols-2">
               <ColorField label="Цвет кнопки" value={theme.btn_color}
                 onChange={v => set({ btn_color: v })} />
@@ -295,8 +295,14 @@ export default function LandingThemeTab() {
             <div className="grid gap-4 sm:grid-cols-2">
               <ColorField label="Цвет границ карточек" value={theme.border_color}
                 onChange={v => set({ border_color: v })} />
-              <ColorField label="Цвет иконок" value={theme.icon_color}
-                onChange={v => set({ icon_color: v })} />
+              {/* ⚠️ Этим же цветом красятся кнопки блока «Вопросы» (способы
+                  связи). Название поля обязано это называть: иначе клиент
+                  правит «Цвет кнопки», ничего не меняется, и он не понимает,
+                  почему на кнопки влияет поле про иконки. */}
+              <ColorField label="Цвет иконок и кнопок блока «Вопросы»"
+                value={theme.icon_color}
+                onChange={v => set({ icon_color: v })}
+                hint="Кнопки блока «Вопросы» — это способы связи, не призыв к действию. Они красятся этим цветом." />
             </div>
             <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
               <h4 className="font-medium text-gray-900">Заливка карточек</h4>

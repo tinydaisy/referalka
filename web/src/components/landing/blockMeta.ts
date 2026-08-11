@@ -172,7 +172,7 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   support: {
     kind: 'support',
     label: 'Есть вопросы?',
-    hint: 'Кнопки связи — из полей «Служба поддержки» в Настройках.',
+    hint: 'Кнопки связи — из полей «Служба поддержки» в Настройках. Их цвет — «Оформление страницы» → «Цвет иконок и кнопок блока „Вопросы“».',
     live: true,
     fields: ['title', 'body', 'button'],
   },
