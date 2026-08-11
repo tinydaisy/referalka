@@ -86,6 +86,14 @@ SELECT e.id, e.slug, e.title, e.module_slug,
                   END, sort, id
          LIMIT 1) AS poster_url,
        e.status,
+       -- Куда вести с карточки: способ регистрации + есть ли опубликованный
+       -- лендинг. Раньше карточка жёстко вела на /event/{slug} (внутреннюю
+       -- страницу), и человек не попадал на продающий лендинг события.
+       e.registration_mode,
+       NULLIF(btrim(e.landing_url), '') AS landing_url,
+       EXISTS (SELECT 1 FROM event_landing_pages lp
+                WHERE lp.event_id = e.id AND lp.kind = 'main'
+                  AND lp.is_published) AS has_landing,
        COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at) AS start_at,
        COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)   AS end_at,
        CASE
@@ -132,6 +140,27 @@ def _date_range(start_at, end_at):
     return s
 
 
+def _card_href(e: dict) -> str:
+    """Куда ведёт карточка события на витрине.
+
+    ⚠️ Раньше здесь был жёсткий `/event/{slug}` — внутренняя страница события.
+    Человек с витрины попадал сразу «внутрь», минуя продающий лендинг, ради
+    которого событие и собиралось. Теперь ведём туда же, куда и все остальные
+    кнопки регистрации, — по способу регистрации (`events.registration_mode`):
+      landing  → наш конструктор /e/{slug};
+      external → сторонний сайт клиента;
+      form     → внутренняя страница /event/{slug}, как было.
+    Лендинг выбран, но не опубликован → внутренняя страница (иначе 404).
+    """
+    slug = e.get("slug") or ""
+    mode = e.get("registration_mode") or "form"
+    if mode == "landing" and e.get("has_landing"):
+        return f"/e/{slug}"
+    if mode == "external" and e.get("landing_url"):
+        return e["landing_url"]
+    return f"/event/{slug}"
+
+
 def _card_html(e: dict) -> str:
     bucket = e.get("bucket")
     if bucket == "now":
@@ -147,7 +176,7 @@ def _card_html(e: dict) -> str:
     date_str = _date_range(e.get("start_at"), e.get("end_at"))
     date_html = f'<div class="meta">{esc(date_str)}</div>' if date_str else ""
 
-    return f"""<a class="card" href="/event/{esc(e['slug'])}">
+    return f"""<a class="card" href="{esc(_card_href(e))}">
   {poster_html}
   <div class="body">
     <span class="badge {badge_cls}">{badge_txt}</span>
