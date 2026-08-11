@@ -40,7 +40,7 @@ async function getEvent(slug: string): Promise<LandingEvent> {
       cache: 'no-store',
     })
     if (!res.ok) {
-      return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null, landing_url: null }
+      return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null, landing_url: null, registration_mode: null }
     }
     const data = await res.json()
     return {
@@ -51,9 +51,10 @@ async function getEvent(slug: string): Promise<LandingEvent> {
       client_id: data.client_id ?? null,
       client_bot_handle: data.client_bot_handle ?? null,
       landing_url: data.landing_url ?? null,
+      registration_mode: data.registration_mode ?? null,
     }
   } catch {
-    return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null, landing_url: null }
+    return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null, landing_url: null, registration_mode: null }
   }
 }
 
