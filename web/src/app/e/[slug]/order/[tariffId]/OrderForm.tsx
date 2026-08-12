@@ -33,6 +33,24 @@ export default function OrderForm({
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [tg, setTg] = useState('')
+  // Пришёл из бота или Mini App — мы его уже знаем. Подставляем данные, чтобы
+  // он их только проверил: набирая заново, человек путает свои же аккаунты
+  // (ник от одного, почта от другого) и упирается в экран «Это вы?».
+  useEffect(() => {
+    if (!contactId) return
+    fetch(`/api/v1/public/event-orders/known/${tariff.id}/${contactId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const k = d?.known
+        if (!k) return
+        // Не затираем то, что человек успел набрать сам.
+        setName(v => v || k.name || '')
+        setEmail(v => v || k.email || '')
+        setPhone(v => v || k.phone || '')
+        setTg(v => v || k.telegram_username || '')
+      })
+      .catch(() => {})
+  }, [contactId, tariff.id])
   const [pd, setPd] = useState(false)
   const [offer, setOffer] = useState(false)
   const [mkt, setMkt] = useState(false)

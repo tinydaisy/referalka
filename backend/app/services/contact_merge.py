@@ -1055,6 +1055,46 @@ async def resolve_or_ask(db, client_id: int, email, phone, tg_username,
     return None, [], True
 
 
+async def known_contact_fields(db, client_id: int, contact_id) -> dict:
+    """Что мы уже знаем о человеке — для предзаполнения форм.
+
+    ⚠️ Одна точка на ВСЕ формы с ручным вводом (заказ тарифа, анкета,
+    авторизация в вебинарной комнате). Пришедший из Mini App или бота уже
+    опознан, и заставлять его набирать имя, почту и ник заново — значит
+    провоцировать опечатки: так появляются записи, где ник от одного аккаунта,
+    а почта от другого, и форма спрашивает «это вы?» вместо дела.
+
+    ⚠️ Контакт обязан принадлежать этому клиенту: иначе по чужому id из
+    адресной строки можно было бы подсмотреть почту и телефон постороннего.
+
+    Пустой словарь — контакт не найден или чужой.
+    """
+    if not contact_id:
+        return {}
+    row = await db.fetchrow(
+        """SELECT c.name, c.phone,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                    LIMIT 1) AS email,
+                  (SELECT COALESCE(NULLIF(pu.username, ''),
+                                   NULLIF(LTRIM(pu.platform_user_id, '@'), ''))
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                    ORDER BY (pu.username IS NULL), pu.id LIMIT 1) AS tg
+             FROM contacts c
+            WHERE c.id = $1 AND c.client_id = $2
+              AND c.is_active = TRUE AND c.merged_into IS NULL""",
+        int(contact_id), client_id)
+    if not row:
+        return {}
+    return {
+        "name": row["name"] or "",
+        "email": row["email"] or "",
+        "phone": row["phone"] or "",
+        "telegram_username": (row["tg"] or "").lstrip("@"),
+    }
+
+
 async def find_contact_candidates(
     db, client_id: int, email, phone, tg_username, known_contact_id=None,
 ):

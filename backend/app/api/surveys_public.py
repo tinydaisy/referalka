@@ -74,18 +74,13 @@ async def get_public_survey(
     known: dict = {}
     already: list = []
     if c:
-        # ⚠️ Контакт обязан принадлежать владельцу анкеты — иначе по чужому
-        # id можно было бы подсмотреть имя и телефон постороннего человека.
-        row = await db.fetchrow(
-            """SELECT c.id, c.name, c.phone,
-                      (SELECT pu.platform_user_id FROM platform_users pu
-                        WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
-                        LIMIT 1) AS email
-                 FROM contacts c
-                WHERE c.id = $1 AND c.client_id = $2 AND c.is_active = TRUE""",
-            c, s["client_id"])
-        if row:
-            known = {"name": row["name"], "phone": row["phone"], "email": row["email"]}
+        # ⚠️ Общая точка предзаполнения (contact_merge) — она же питает форму
+        # заказа тарифа и авторизацию вебинарной комнаты. Внутри проверка, что
+        # контакт принадлежит владельцу: иначе по чужому id можно было бы
+        # подсмотреть имя и телефон постороннего человека.
+        from app.services.contact_merge import known_contact_fields
+        known = await known_contact_fields(db, s["client_id"], c)
+        if known:
             # Уже заполненные значения полей — подставим в форму, чтобы человек
             # только проверил, а не вводил заново.
             vals = await db.fetch(
@@ -202,6 +197,9 @@ async def submit_survey(
         # телефон — на другой. Молча взять первый нельзя, слить автоматически
         # тоже. Спрашиваем человека — та же механика, что в вебинарной
         # авторизации и форме заказа тарифа (общая точка `contact_merge`).
+        #
+        # Сюда попадаем, только когда контакта входа НЕТ (или он чужой) —
+        # подмешивать его в кандидаты нечего, ветка выше уже забрала бы его.
         if not data.force_new:
             candidates = await find_contact_candidates(
                 db, client_id,

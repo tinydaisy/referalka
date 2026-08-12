@@ -93,6 +93,27 @@ async def _opts(response: Response):
     return {}
 
 
+@router.get("/known/{tariff_id}/{contact_id}", summary="Известные данные заказчика")
+async def order_known(
+    tariff_id: int, contact_id: int, response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Что мы уже знаем о пришедшем — чтобы подставить в форму заказа.
+
+    Данные собирает общая `known_contact_fields` (contact_merge) — та же, что
+    питает анкету и авторизацию вебинарной комнаты. Своего SELECT тут быть не
+    должно: разъедется с остальными формами.
+    """
+    _cors(response)
+    t = await _load_tariff(db, tariff_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    from app.services.contact_merge import known_contact_fields
+    return {"ok": True,
+            "known": await known_contact_fields(db, t["client_id"], contact_id)}
+
+
 @router.post("/create", summary="Оформить заказ тарифа")
 async def create_order(
     data: OrderIn,
@@ -191,15 +212,20 @@ async def create_order(
     # два аккаунта в базе. Молча брать первый нельзя (заказ уйдёт не тому),
     # сливать их автоматически — тем более. Показываем найденных и просим
     # выбрать, ровно как вебинарная авторизация.
-    if not contact_id and not data.force_new:
+    # ⚠️ Резолв идёт и тогда, когда человек пришёл с известным контактом:
+    # он мог вписать почту или ник ДРУГОГО своего аккаунта. Контакт входа
+    # передаём как ещё одного кандидата — тогда на экране «Это вы?» человек
+    # увидит и тот аккаунт, под которым сидит, а не только то, что набрал
+    # руками. Совпало всё на него одного — вопроса не будет.
+    if not data.force_new and not data.chosen_contact_id:
         from app.services.contact_merge import resolve_or_ask
         found, cands, can_new = await resolve_or_ask(
-            db, t["client_id"], email, phone, tg)
-        if found:
-            contact_id = found
-        elif cands:
+            db, t["client_id"], email, phone, tg, known_contact_id=known_cid)
+        if cands:
             return {"ok": False, "need_choice": True,
                     "candidates": cands, "can_create_new": can_new}
+        if found:
+            contact_id = found
 
     if not contact_id:
         if data.force_new:
