@@ -832,22 +832,9 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
             primary_id, secondary_id
         )
 
-        # Если у primary в результате остался email — убедимся, что
-        # email-идентичность и подписка на главный email-канал на месте.
-        # (мог быть кейс: secondary имел email, primary — нет → теперь у
-        # primary email есть, identity ещё не было)
-        primary_email_after = await db.fetchval(
-            "SELECT email FROM contacts WHERE id = $1",
-            primary_id,
-        )
-        if primary_email_after:
-            primary_name_after = await db.fetchval(
-                "SELECT name FROM contacts WHERE id = $1", primary_id
-            )
-            await sync_email_identity_and_subscription(
-                db, client_id=client_id, contact_id=primary_id,
-                email=primary_email_after, first_name=primary_name_after,
-            )
+        # Email-идентичность переносится вместе с остальными platform_users выше
+        # (почта живёт только там, колонки contacts.email нет — миграция 282),
+        # поэтому досинхронизировать её отдельно больше не нужно.
 
     return {"primary_id": primary_id, "secondary_id": secondary_id, "merged_ref_code": secondary_ref}
 

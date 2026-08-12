@@ -74,9 +74,12 @@ export default async function OfferPage({ params }: { params: { slug: string } }
             должен видеть, с кем её заключает, ещё до текста. */}
         {hasBrand && (
           <div className="mb-5 flex items-center gap-3 border-b border-black/10 pb-4">
+            {/* ⚠️ object-contain, а не cover: логотипы бывают широкие, и
+                квадратная обрезка съедала им бока. Ширину не фиксируем —
+                картинка сама займёт столько, сколько нужно при высоте 48px. */}
             {brand.logo_url && (
               <img src={brand.logo_url} alt=""
-                   className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                   className="h-12 w-auto max-w-[160px] shrink-0 object-contain" />
             )}
             <div className="min-w-0">
               {brand.brand_name && (
