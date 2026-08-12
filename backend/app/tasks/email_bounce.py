@@ -116,8 +116,8 @@ def human_reason(dsn: str | None, message: str | None, recipient: str | None = N
     # ⚠️ «Отклонено», а не «попало в спам»: письмо развернули на входе,
     # у получателя его нет НИГДЕ — даже в папке «Спам».
     if "spam" in msg or "spam message rejected" in msg:
-        return (f"Отклонено почтовым сервисом ({provider}) с подозрением на спам — "
-                f"письмо не дошло даже в папку «Спам»")
+        return (f"Отклонено — {provider} заподозрил спам. Письмо не дошло "
+                f"до получателя, его нет даже в папке «Спам»")
     if any(t in msg for t in ("user unknown", "does not exist", "no such user",
                               "mailbox not found", "recipient address rejected",
                               "unknown user", "no mailbox")):
@@ -125,7 +125,7 @@ def human_reason(dsn: str | None, message: str | None, recipient: str | None = N
     if "mailbox full" in msg or "out of storage" in msg or "quota" in msg or "over quota" in msg:
         return "Ящик получателя переполнен"
     if "blocked" in msg or "blacklist" in msg or "block list" in msg:
-        return f"Отклонено почтовым сервисом ({provider}) — отправитель заблокирован"
+        return f"Отклонено — {provider} заблокировал отправителя"
     if "greylist" in msg or "greylisted" in msg or "try again" in msg:
         return "Временно отложено получателем (повторим позже)"
     if "relay access denied" in msg or "relay not permitted" in msg:
@@ -133,7 +133,7 @@ def human_reason(dsn: str | None, message: str | None, recipient: str | None = N
     if "connection timed out" in msg or "connection refused" in msg or "no route" in msg:
         return "Сервер получателя недоступен"
     if dsn and dsn.startswith("5"):
-        return f"Отклонено почтовым сервисом ({provider}) — письмо не дошло до получателя"
+        return f"Отклонено — {provider} не принял письмо"
     if dsn and dsn.startswith("4"):
         return "Временная ошибка доставки (повторим позже)"
     return "Письмо не доставлено получателю"

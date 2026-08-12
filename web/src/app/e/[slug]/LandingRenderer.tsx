@@ -1293,13 +1293,24 @@ function BlockBody({
     /* ── Галерея / отзывы ──────────────────────────────────────────────── */
     // Вынесена в отдельный компонент: карусели нужен свой стейт (стрелки
     // прокрутки), а хук нельзя объявлять внутри switch.
-    // ⚠️ Отдаём `cards`, а не сырой `cardStyle`: иначе выбор «Вид карточек →
-    // без оформления» на галерею не действовал — рамка оставалась всегда.
-    case 'gallery':
+    // ⚠️ Считаем вид карточек здесь же, а не берём сырой `cardStyle`: иначе
+    // выбор «Вид карточек → без оформления» на галерею не действовал —
+    // рамка оставалась всегда. Та же логика, что в Section выше.
+    case 'gallery': {
+      const gcs = block.card_style || (block.cards_bordered === false ? 'plain' : 'border')
+      const gCards: React.CSSProperties =
+        gcs === 'divider'
+          ? { borderRadius: 0, border: 'none',
+              borderBottom: `1px solid ${page.border_color || '#FFCFA4'}40`,
+              background: 'transparent' }
+          : gcs === 'plain'
+            ? { borderRadius: radius, border: 'none', background: 'transparent' }
+            : cardStyle
       return <GalleryBlock
-        block={block} content={content} cardStyle={cards}
+        block={block} content={content} cardStyle={gCards}
         radius={radius} iconColor={iconColor}
       />
+    }
 
     /* ── Есть вопросы ──────────────────────────────────────────────────── */
     case 'support': {
