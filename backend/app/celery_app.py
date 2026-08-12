@@ -7,7 +7,8 @@ celery = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
-        "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording"]
+        "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
+        "app.tasks.collab_finish"]
 )
 
 celery.conf.update(
@@ -30,6 +31,14 @@ celery.conf.update(
         # Раз в час — уведомления за 7/3/1 день до истечения подписки
         "notify-expiring-subscriptions": {
             "task": "app.tasks.subscriptions.notify_expiring",
+            "schedule": 3600.0,
+        },
+        # Раз в час — автозавершение коллаб-событий после последнего эфира
+        # программы. Без него рейтинг за коллабу не начисляется вовсе: вклад
+        # пишется только при переходе в 'ended', а руками статус переключают
+        # далеко не всегда.
+        "finish-ended-collabs": {
+            "task": "app.tasks.collab_finish.finish_ended_collabs",
             "schedule": 3600.0,
         },
         # Раз в час — предупреждения за 7/3/1 день об истечении КУПЛЕННОГО МОДУЛЯ
