@@ -117,7 +117,7 @@ export default function PublicSurveyPage() {
   }
 
   if (loading) {
-    return <Shell><p className="text-sm text-gray-500">Загружаем…</p></Shell>
+    return <Shell><p className="text-sm opacity-70">Загружаем…</p></Shell>
   }
   if (error && !data) {
     return <Shell><p className="text-sm text-red-600">{error}</p></Shell>
@@ -128,8 +128,8 @@ export default function PublicSurveyPage() {
   if (data.already_filled && !data.allow_repeat) {
     return (
       <Shell theme={data.theme}>
-        <h1 className="mb-2 text-xl font-bold text-gray-900">{data.title}</h1>
-        <p className="text-sm text-gray-600">
+        <h1 className="mb-2 text-xl font-bold">{data.title}</h1>
+        <p className="text-sm opacity-80">
           Вы уже заполняли эту анкету — спасибо! Отвечать второй раз не нужно.
         </p>
       </Shell>
@@ -145,12 +145,12 @@ export default function PublicSurveyPage() {
         <img src={data.image_url} alt=""
              className="mb-4 w-full rounded-xl object-cover" />
       )}
-      <h1 className="mb-2 text-xl font-bold text-gray-900">{data.title}</h1>
+      <h1 className="mb-2 text-xl font-bold">{data.title}</h1>
       {data.intro && (
-        <p className="mb-5 whitespace-pre-wrap text-sm text-gray-600">{data.intro}</p>
+        <p className="mb-5 whitespace-pre-wrap text-sm opacity-80">{data.intro}</p>
       )}
       {data.has_gift && (
-        <div className="mb-5 rounded-xl border border-[#FFCFA4] bg-[#FFF8F0] p-3 text-sm text-gray-700">
+        <div className="mb-5 rounded-xl border border-[#FFCFA4] bg-[#FFCFA4]/10 p-3 text-sm">
           Подарок придёт сразу после отправки — ссылкой здесь и сообщением в боте.
         </div>
       )}
@@ -186,16 +186,26 @@ export default function PublicSurveyPage() {
       {/* ⚠️ Вызов обёрнут: submit принимает выбор контакта ({chosen_contact_id}),
           а onClick передал бы объект события мыши — и в разбор выбора попал бы мусор. */}
       <button onClick={() => submit()} disabled={sending}
-              className="mt-6 w-full rounded-xl bg-[#25455D] px-6 py-3 font-medium text-white disabled:opacity-50">
+              style={{
+                background: data.theme?.lp_btn_color || '#25455D',
+                color: data.theme?.lp_btn_text_color || '#fff',
+                borderRadius: data.theme?.lp_btn_radius ?? 12,
+              }}
+              className="mt-6 w-full px-6 py-3 font-medium disabled:opacity-50">
         {sending ? 'Отправляем…' : (data.submit_label || 'Отправить')}
       </button>
 
       <style jsx global>{`
+        /* ⚠️ Поля прозрачные и наследуют цвет карточки: у клиента карточка
+           тёмная (#0F1E2E), и белое поле с тёмным текстом на ней выглядело
+           заплаткой. currentColor даёт читаемость на любом фоне. */
         .fld {
-          width: 100%; padding: 10px 12px; border: 1px solid #e5e7eb;
-          border-radius: 10px; font-size: 15px; background: #fff; color: #111827;
+          width: 100%; padding: 10px 12px; border-radius: 10px; font-size: 15px;
+          background: rgba(127,127,127,.12); color: inherit;
+          border: 1px solid currentColor; border-color: color-mix(in srgb, currentColor 25%, transparent);
         }
-        .fld:focus { outline: none; border-color: #25455D; }
+        .fld::placeholder { color: currentColor; opacity: .45; }
+        .fld:focus { outline: none; border-color: currentColor; }
       `}</style>
     </Shell>
   )
@@ -230,10 +240,10 @@ function Shell({ children, theme }: { children: React.ReactNode; theme?: any }) 
 function Labeled({ label, hint, required, image, children }: any) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-gray-700">
+      <span className="mb-1 block text-sm font-medium">
         {label}{required && <span className="ml-0.5 text-red-500">*</span>}
       </span>
-      {hint && <span className="mb-1 block text-xs text-gray-500">{hint}</span>}
+      {hint && <span className="mb-1 block text-xs opacity-60">{hint}</span>}
       {/* Картинка вопроса — над полем ответа: сначала смотрят, потом отвечают. */}
       {image && <img src={image} alt="" className="mb-2 w-full rounded-lg object-cover" />}
       {children}
@@ -249,7 +259,7 @@ function Question({ q, value, onChange }: any) {
       <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <div className="space-y-1.5">
           {opts.map(o => (
-            <label key={o} className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 p-2.5 text-sm hover:bg-gray-50">
+            <label key={o} className="flex cursor-pointer items-center gap-2 rounded-lg border border-current/20 p-2.5 text-sm hover:bg-current/5">
               <input type="radio" name={`q${q.id}`} checked={value === o}
                      onChange={() => onChange(o)} className="h-4 w-4" />
               <span className="text-gray-800">{o}</span>
@@ -266,7 +276,7 @@ function Question({ q, value, onChange }: any) {
       <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <div className="space-y-1.5">
           {opts.map(o => (
-            <label key={o} className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 p-2.5 text-sm hover:bg-gray-50">
+            <label key={o} className="flex cursor-pointer items-center gap-2 rounded-lg border border-current/20 p-2.5 text-sm hover:bg-current/5">
               <input type="checkbox" checked={arr.includes(o)}
                      onChange={e => onChange(e.target.checked
                        ? [...arr, o] : arr.filter(x => x !== o))}
@@ -287,8 +297,8 @@ function Question({ q, value, onChange }: any) {
             <button key={o} type="button" onClick={() => onChange(o)}
                     className={`flex-1 rounded-lg border p-2.5 text-sm ${
                       value === o
-                        ? 'border-[#25455D] bg-[#25455D] text-white'
-                        : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                        ? 'border-current bg-current/15 font-medium'
+                        : 'border-current/20 opacity-80 hover:bg-current/5'
                     }`}>
               {o}
             </button>
@@ -309,8 +319,8 @@ function Question({ q, value, onChange }: any) {
             <button key={n} type="button" onClick={() => onChange(String(n))}
                     className={`h-10 w-10 rounded-lg border text-sm ${
                       String(value) === String(n)
-                        ? 'border-[#25455D] bg-[#25455D] text-white'
-                        : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                        ? 'border-current bg-current/15 font-medium'
+                        : 'border-current/20 opacity-80 hover:bg-current/5'
                     }`}>
               {n}
             </button>
@@ -344,8 +354,8 @@ function DoneView({ result, survey }: any) {
   if (materials.length) {
     return (
       <div>
-        <h1 className="mb-2 text-xl font-bold text-gray-900">Спасибо! Ваш подарок</h1>
-        <p className="mb-4 text-sm text-gray-600">
+        <h1 className="mb-2 text-xl font-bold">Спасибо! Ваш подарок</h1>
+        <p className="mb-4 text-sm opacity-80">
           {result.sent_to_bot
             ? 'Мы также отправили его вам в бот — не потеряется.'
             : 'Сохраните ссылки, чтобы не потерять.'}
@@ -353,10 +363,10 @@ function DoneView({ result, survey }: any) {
         <div className="space-y-2">
           {materials.map((m: any, i: number) => (
             <a key={i} href={m.url} target="_blank" rel="noreferrer"
-               className="block rounded-xl border border-gray-200 p-3 hover:bg-gray-50">
+               className="block rounded-xl border border-current/20 p-3 hover:bg-current/5">
               <div className="font-medium text-[#25455D]">{m.name}</div>
               {m.description && (
-                <div className="mt-0.5 text-sm text-gray-500">{m.description}</div>
+                <div className="mt-0.5 text-sm opacity-70">{m.description}</div>
               )}
             </a>
           ))}
@@ -367,8 +377,8 @@ function DoneView({ result, survey }: any) {
 
   return (
     <div>
-      <h1 className="mb-2 text-xl font-bold text-gray-900">Спасибо!</h1>
-      <p className="whitespace-pre-wrap text-sm text-gray-600">
+      <h1 className="mb-2 text-xl font-bold">Спасибо!</h1>
+      <p className="whitespace-pre-wrap text-sm opacity-80">
         {survey?.thanks_text || result.thanks_text || 'Мы получили ваши ответы.'}
       </p>
     </div>
