@@ -2170,11 +2170,10 @@ function CustomBroadcastModal(props: {
   const [testMsg, setTestMsg] = useState('')
 
   async function sendTestNow() {
-    // ⚠️ Текст берём из редактора: onChange срабатывает на blur, и сразу
-    // после набора в state ещё пусто — тест ложно ругался «Пустой текст».
-    const liveText = editorRef.current?.getValue() ?? text
-    if (liveText !== text) setText(liveText)
-    const plainTest = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+    // Здесь текст набирается в обычной <textarea> с onChange на каждый
+    // символ — state всегда актуален, читать редактор отдельно не нужно
+    // (в форме общих рассылок стоит WYSIWYG, там приходится брать из ref).
+    const plainTest = (text || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
     if (!plainTest) { setTestMsg('Сначала напишите текст рассылки'); return }
     if (htmlErrors.length > 0) { setTestMsg('Исправьте HTML-ошибки в тексте'); return }
     if (hasButtonErrors) { setTestMsg('Исправьте ошибки в кнопках'); return }
