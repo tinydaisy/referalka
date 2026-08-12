@@ -1700,6 +1700,25 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 Общий wrapper-layout с auth (JWT 24ч), внутри подстраницы. Архитектурно — это **мини-личный-кабинет спикера**, не одноразовая форма правки.
 
+### ⚠️ Почта человека — ТОЛЬКО идентичность, колонки `contacts.email` НЕТ (миграция 282 от 2026-08-12, ПРОД)
+
+Email живёт в **`platform_users(platform_slug='email')`**, где адрес лежит в `platform_user_id`. Колонки `contacts.email` и `contacts.email_normalized` **удалены** вместе с индексом `idx_contacts_email_norm`.
+
+**Почему.** Они остались хвостом от миграции 036 (та переносила почту из `platform_users.email` в контакт). Резолв контакта, дедуп и рассылки давно работали по идентичности ([contact_merge.py](backend/app/services/contact_merge.py):116, [tasks/broadcast.py](backend/app/tasks/broadcast.py) берёт адрес из `platform_users`), а колонка жила параллельно и расходилась с реальностью: у 1446 контактов почта была только в идентичности, у 1407 — только в колонке.
+
+⚠️ **Это было источником дублей людей.** Импорт, искавший человека по `contacts.email`, не видел тех, у кого почта лежит в идентичности, и заводил вторую карточку. На импорте базы GetCourse так родилось 1300 дублей (откачены). **Искать человека по почте — только через `platform_users`.**
+
+```sql
+-- как получить почту контакта
+(SELECT pe.platform_user_id FROM platform_users pe
+  WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+  ORDER BY pe.id LIMIT 1) AS email
+```
+
+⚠️ **Уникальность почты гарантирует БД** — `UNIQUE(client_id, platform_slug, platform_user_id)`. Одна почта не может принадлежать двум контактам, поэтому «дублей почт» технически не бывает; бывают дубли людей, у которых почта записана по-разному.
+
+**Переведены на идентичность:** [auth.py](backend/app/api/auth.py) (поиск реф-кода при регистрации), [admin.py](backend/app/api/admin.py) (поиск клиента), [subscriptions.py](backend/app/api/subscriptions.py), [integrations.py](backend/app/api/integrations.py) (вебхуки больше не пишут email в контакт — идентичность синхронизирует `sync_email_identity_and_subscription`), [contacts.py](backend/app/api/contacts.py) (обезличивание). ⚠️ `c.email` в коде почти везде — это **`clients.email`** (почта клиента платформы), её не трогать.
+
 ### ⚠️ Резолв контакта — ВСЕГДА через `upsert_contact_with_identity` (2026-07-29, ПРОД)
 
 **Единая точка опознания человека во ВСЕХ формах и точках входа** — [`upsert_contact_with_identity`](backend/app/services/contact_merge.py). Своих `SELECT ... FROM contacts WHERE email = ...` не писать: каждая самодельная версия по-своему решает, кого считать одним человеком, и плодит дубли.

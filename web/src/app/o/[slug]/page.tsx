@@ -49,12 +49,55 @@ export default async function OfferPage({ params }: { params: { slug: string } }
 
   if (offer.external_url) redirect(offer.external_url)
 
+  // Оформление — как у лендингов клиента (те же настройки, что у анкеты):
+  // человек пришёл из его воронки и не должен упереться в чужую страницу.
+  const t = offer.theme || {}
+  const bg = t.lp_bg_color
+    ? `linear-gradient(${t.lp_bg_angle ?? 45}deg, ${t.lp_bg_color}, ${t.lp_bg_color_2 || t.lp_bg_color})`
+    : 'linear-gradient(45deg, #25455D, #0a1520)'
+  const brand = offer.brand || {}
+  const hasBrand = brand.logo_url || brand.brand_name || brand.owner_name
+
   return (
-    <div className="min-h-screen bg-white py-10">
-      <div className="mx-auto max-w-3xl px-5">
-        <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">{offer.title}</h1>
+    <div className="min-h-screen px-4 py-8" style={{ background: bg }}>
+      {/* Шрифты лежат у нас, не на Google CDN (в РФ он у части людей режется). */}
+      <link rel="stylesheet" href="/fonts/landing-fonts.css" />
+      <div
+        className="mx-auto w-full max-w-3xl rounded-2xl p-6 shadow-sm sm:p-8"
+        style={{
+          background: t.lp_card_bg || '#fff',
+          color: t.lp_card_text_color || t.lp_color_body || undefined,
+          fontFamily: t.lp_font_body || undefined,
+        }}
+      >
+        {/* ⚠️ Та же шапка, что на анкете: человек читает условия сделки и
+            должен видеть, с кем её заключает, ещё до текста. */}
+        {hasBrand && (
+          <div className="mb-5 flex items-center gap-3 border-b border-black/10 pb-4">
+            {brand.logo_url && (
+              <img src={brand.logo_url} alt=""
+                   className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+            )}
+            <div className="min-w-0">
+              {brand.brand_name && (
+                <div className="truncate font-semibold">{brand.brand_name}</div>
+              )}
+              {brand.owner_name && (
+                <div className="truncate text-sm opacity-70">{brand.owner_name}</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <h1 className="text-2xl font-bold sm:text-3xl"
+            style={{
+              color: t.lp_color_heading || undefined,
+              fontFamily: t.lp_font_heading || undefined,
+            }}>
+          {offer.title}
+        </h1>
         <div
-          className="prose prose-sm mt-6 max-w-none whitespace-pre-wrap text-[15px] leading-relaxed text-gray-800"
+          className="mt-6 whitespace-pre-wrap text-[15px] leading-relaxed"
           // Текст оферты пишет сам клиент в своём кабинете — это его документ,
           // не пользовательский ввод с улицы.
           dangerouslySetInnerHTML={{ __html: offer.body || '' }}
