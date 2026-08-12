@@ -824,6 +824,8 @@ export const api = {
       request(`/api/v1/surveys/${id}/questions/${qid}`, { method: 'DELETE' }),
     analytics: (id: number) => request(`/api/v1/surveys/${id}/analytics`),
     responses: (id: number) => request(`/api/v1/surveys/${id}/responses`),
+    response: (id: number, responseId: number) =>
+      request(`/api/v1/surveys/${id}/responses/${responseId}`),
   },
   collabHub: {
     settings: () => request('/api/v1/collab-hub/settings'),

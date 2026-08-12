@@ -702,7 +702,7 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
 
     # Проверяем что оба контакта принадлежат тому же клиенту
     rows = await db.fetch(
-        "SELECT id, client_id, ref_code, name, email, phone FROM contacts WHERE id = ANY($1::int[])",
+        "SELECT id, client_id, ref_code, name, phone FROM contacts WHERE id = ANY($1::int[])",
         [primary_id, secondary_id]
     )
     by_id = {r['id']: r for r in rows}

@@ -8,7 +8,7 @@
  * поля, чтобы накопленные значения не разъехались.
  */
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -96,6 +96,9 @@ export default function SurveyPage() {
 
 function EditTab({ survey, fields, onChanged, readOnly }: any) {
   const [adding, setAdding] = useState(false)
+  // Быстрое добавление уже заведённого поля контакта отдельной кнопкой:
+  // внутри формы вопроса эту возможность не находят (замечание владельца).
+  const [addingField, setAddingField] = useState(false)
   const [copied, setCopied] = useState('')
 
   const copy = (url: string, key: string) => {
@@ -132,14 +135,29 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
       <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} />
 
       <div>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-gray-800">Вопросы</h3>
-          {!readOnly && !adding && (
-            <button onClick={() => setAdding(true)} className="btn-gold inline-flex items-center gap-2">
-              <Plus size={16} /> Добавить вопрос
-            </button>
+          {!readOnly && !adding && !addingField && (
+            <div className="flex flex-wrap gap-2">
+              {fields.length > 0 && (
+                <button onClick={() => setAddingField(true)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  <Plus size={16} /> Добавить поле контакта
+                </button>
+              )}
+              <button onClick={() => setAdding(true)} className="btn-gold inline-flex items-center gap-2">
+                <Plus size={16} /> Добавить вопрос
+              </button>
+            </div>
           )}
         </div>
+
+        {addingField && (
+          <AddFieldBlock surveyId={survey.id} fields={fields}
+                         used={(survey.questions || []).map((q: any) => q.field_id).filter(Boolean)}
+                         onClose={() => setAddingField(false)}
+                         onSaved={() => { setAddingField(false); onChanged() }} />
+        )}
 
         {adding && (
           <QuestionForm surveyId={survey.id} fields={fields}
@@ -258,6 +276,91 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
     </div>
   )
 }
+
+/**
+ * Добавление уже заведённых полей контакта прямо в анкету.
+ *
+ * ⚠️ Отмечать можно СРАЗУ НЕСКОЛЬКО: поля заводятся пачкой («Доход», «Ниша»,
+ * «Статус»), и добавлять их по одному через форму вопроса — лишняя возня.
+ * Тип и варианты берутся у поля, поэтому вопрос собирается сам.
+ *
+ * Уже добавленные в эту анкету поля показываются отмеченными и заблокированы —
+ * второй раз тот же вопрос не нужен.
+ */
+function AddFieldBlock({ surveyId, fields, used, onClose, onSaved }: any) {
+  const [picked, setPicked] = useState<number[]>([])
+  const [saving, setSaving] = useState(false)
+  const usedSet = new Set<number>(used || [])
+
+  const save = async () => {
+    if (!picked.length) { onClose(); return }
+    setSaving(true)
+    try {
+      // Последовательно, а не пачкой: порядок вопросов должен совпасть с
+      // порядком, в котором клиент их отметил.
+      for (const id of picked) {
+        const f = fields.find((x: any) => x.id === id)
+        if (!f) continue
+        await api.surveys.addQuestion(surveyId, {
+          title: f.title, field_id: f.id, is_required: false,
+        })
+      }
+      onSaved()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="mb-3 rounded-xl border border-[#25455D]/30 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="font-semibold text-gray-800">Поля контакта</h4>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <X size={18} />
+        </button>
+      </div>
+      <p className="mb-3 text-sm text-gray-500">
+        Отметьте, что спросить. Ответы лягут в карточку человека и будут
+        фильтровать базу.
+      </p>
+
+      <div className="space-y-1.5">
+        {fields.map((f: any) => {
+          const already = usedSet.has(f.id)
+          return (
+            <label key={f.id}
+                   className={`flex items-center gap-2 rounded-lg border p-2.5 text-sm ${
+                     already
+                       ? 'cursor-default border-gray-100 bg-gray-50 text-gray-400'
+                       : 'cursor-pointer border-gray-200 hover:bg-gray-50'
+                   }`}>
+              <input type="checkbox" disabled={already}
+                     checked={already || picked.includes(f.id)}
+                     onChange={e => setPicked(
+                       e.target.checked
+                         ? [...picked, f.id]
+                         : picked.filter(x => x !== f.id))}
+                     className="h-4 w-4 rounded border-gray-300" />
+              <span className="text-gray-800">{f.title}</span>
+              <span className="text-xs text-gray-400">{kindLabel(f.kind)}</span>
+              {already && <span className="ml-auto text-xs">уже в анкете</span>}
+            </label>
+          )
+        })}
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600">
+          Отмена
+        </button>
+        <button onClick={save} disabled={saving || !picked.length}
+                className="btn-gold disabled:opacity-50">
+          {saving ? 'Добавляем…' : `Добавить${picked.length ? ` (${picked.length})` : ''}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 
 /**
  * Список вопросов с перетаскиванием.
@@ -620,12 +723,12 @@ function ReportTab({ surveyId }: { surveyId: number }) {
  * клику на строку.
  */
 function AnswersTab({ surveyId }: { surveyId: number }) {
+  const router = useRouter()
   const [rows, setRows] = useState<any[]>([])
   const [questions, setQuestions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [desc, setDesc] = useState(true)
-  const [openId, setOpenId] = useState<number | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -658,8 +761,6 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
     const tb = new Date(b.created_at).getTime()
     return desc ? tb - ta : ta - tb
   })
-
-  const opened = sorted.find(r => r.id === openId)
 
   return (
     <div>
@@ -698,7 +799,7 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
           <tbody>
             {sorted.map(r => (
               <tr key={r.id}
-                  onClick={() => setOpenId(r.id)}
+                  onClick={() => router.push(`/dashboard/surveys/${surveyId}/responses/${r.id}`)}
                   className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50">
                 <td className="px-3 py-2 font-medium text-gray-900">{r.name || 'Без имени'}</td>
                 <td className="px-3 py-2 text-gray-600">{r.email || '—'}</td>
@@ -719,71 +820,6 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
         </table>
       </div>
 
-      {opened && (
-        <AnswerModal row={opened} questions={questions} onClose={() => setOpenId(null)} />
-      )}
-    </div>
-  )
-}
-
-/** Ответы одного человека — открывается кликом по строке таблицы. */
-function AnswerModal({ row, questions, onClose }: any) {
-  const titleById = new Map<number, string>(
-    (questions || []).map((x: any) => [x.id, x.title]))
-
-  const contacts: Array<[string, string]> = [
-    ['Почта', row.email], ['Телефон', row.phone],
-    ['Telegram', row.telegram], ['ВКонтакте', row.vk], ['MAX', row.max_nick],
-  ].filter(([, v]) => !!v) as Array<[string, string]>
-
-  return (
-    // ⚠️ Клик по затемнению НЕ закрывает — правило проекта для окон с данными.
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="mt-10 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <Link href={`/dashboard/clients?contact=${row.contact_id}`}
-                  className="text-lg font-bold text-gray-900 hover:text-[#25455D] hover:underline">
-              {row.name || 'Без имени'}
-            </Link>
-            <div className="mt-0.5 text-xs text-gray-500">
-              {new Date(row.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
-            </div>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X size={20} />
-          </button>
-        </div>
-
-        {contacts.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-            {contacts.map(([label, val]) => (
-              <span key={label}>{label}: <span className="text-gray-800">{val}</span></span>
-            ))}
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {(row.answers || []).map((a: any, i: number) => (
-            <div key={i}>
-              <div className="text-xs text-gray-500">
-                {titleById.get(a.question_id) || 'Вопрос'}
-              </div>
-              <div className="text-sm text-gray-900">{a.value}</div>
-            </div>
-          ))}
-          {!(row.answers || []).length && (
-            <p className="text-sm text-gray-400">Ответов нет.</p>
-          )}
-        </div>
-
-        <div className="mt-5 flex justify-end">
-          <button onClick={onClose}
-                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
-            Закрыть
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

@@ -696,6 +696,61 @@ async def survey_analytics(
     return {"responses_total": total, "people_total": people, "questions": out}
 
 
+@router.get("/surveys/{survey_id}/responses/{response_id}")
+async def get_response(
+    survey_id: int, response_id: int,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Одно заполнение целиком — для страницы ответа конкретного человека."""
+    client_id = int(client["sub"])
+    await _assert_own_survey(db, survey_id, client_id)
+
+    r = await db.fetchrow(
+        """SELECT r.id, r.created_at, r.platform_slug, r.contact_id,
+                  c.name, c.phone,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='email'
+                    LIMIT 1) AS email,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='telegram'
+                    LIMIT 1) AS telegram,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='vk'
+                    LIMIT 1) AS vk,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='max'
+                    LIMIT 1) AS max_nick
+             FROM survey_responses r
+             JOIN contacts c ON c.id = r.contact_id
+            WHERE r.id = $1 AND r.survey_id = $2""",
+        response_id, survey_id)
+    if not r:
+        raise HTTPException(404, "Заполнение не найдено")
+
+    # Все вопросы анкеты, чтобы показать и те, на которые не ответили:
+    # пустой ответ — тоже информация.
+    rows = await db.fetch(
+        """SELECT q.id, q.title, q.kind, q.sort_order, a.value
+             FROM survey_questions q
+             LEFT JOIN survey_answers a
+                    ON a.question_id = q.id AND a.response_id = $1
+            WHERE q.survey_id = $2
+            ORDER BY q.sort_order, q.id""",
+        response_id, survey_id)
+
+    survey = await db.fetchrow(
+        "SELECT id, title FROM surveys WHERE id = $1", survey_id)
+
+    return {
+        **dict(r),
+        "survey": dict(survey) if survey else None,
+        "answers": [dict(x) for x in rows],
+    }
+
+
 @router.get("/surveys/{survey_id}/responses")
 async def list_responses(
     survey_id: int, client=Depends(get_current_client), db=Depends(get_db),
