@@ -122,7 +122,9 @@ export default function Sidebar() {
         // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
         ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
-        // Анкеты + доп. поля контакта (миграция 280). Доступны всем тарифам.
+        // Анкеты + доп. поля контакта (миграция 280) — фича `surveys` (Экстра).
+        // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».
+        // Без фичи страница покажет замок с объяснением и ссылкой на тариф.
         { href: '/dashboard/surveys', label: 'Анкеты', icon: ClipboardList },
         // Отзывы/кейсы и оферты — по своим фичам (миграция 249).
         ...(hasTestimonials ? [{ href: '/dashboard/testimonials', label: 'Отзывы и кейсы', icon: MessageSquareQuote }] : []),

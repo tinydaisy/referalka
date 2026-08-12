@@ -403,7 +403,14 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   const [surveyId, setSurveyId] = useState<number | ''>(
     (initial as any)?.require_survey_id || '')
   const [surveys, setSurveys] = useState<any[]>([])
-  useEffect(() => { api.surveys.list().then(setSurveys).catch(() => setSurveys([])) }, [])
+  // ⚠️ Анкета-шлагбаум — фича `surveys` (Экстра). Без неё поле не показываем
+  // вовсе: выбор, который всё равно упрётся в 403, только путает.
+  const { me: meForSurveys } = useMe()
+  const hasSurveys = (meForSurveys?.features || []).includes('surveys')
+  useEffect(() => {
+    if (!hasSurveys) return
+    api.surveys.list().then(setSurveys).catch(() => setSurveys([]))
+  }, [hasSurveys])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -440,7 +447,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="Короткое описание — покажется в воронке под названием подарка (плейсхолдер {materials_list_description})" />
         </Field>
-        <Field label="Сначала заполнить анкету">
+        {hasSurveys && <Field label="Сначала заполнить анкету">
           <select value={surveyId}
                   onChange={e => setSurveyId(e.target.value ? Number(e.target.value) : '')}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -454,7 +461,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
                 ? 'Выберите анкету, если подарок нужно выдавать только после её заполнения.'
                 : 'Анкет пока нет — создайте их в разделе «Анкеты».'}
           </p>
-        </Field>
+        </Field>}
         {err && <div className="text-sm text-red-600">{err}</div>}
         <FormActions saving={saving} onClose={onClose} />
       </form>

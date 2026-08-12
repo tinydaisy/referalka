@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import FeatureLock from '@/components/FeatureLock'
 import {
   Plus, Trash2, Copy, Check, BarChart3, Settings2, ClipboardList, X,
 } from 'lucide-react'
@@ -35,8 +36,25 @@ function kindLabel(k: string) {
 }
 
 export default function SurveysPage() {
-  const { isAssistant } = useMe()
+  const { me, isAssistant } = useMe()
   const [tab, setTab] = useState<'surveys' | 'fields'>('surveys')
+
+  // ⚠️ Гейт по фиче, не по тарифу (состав тарифов меняется данными).
+  // Замок нужен на САМОЙ странице: пункт меню не мешает открыть раздел
+  // по прямой ссылке (правило проекта, найдено на кабинете Виктории).
+  const hasFeature = (me?.features || []).includes('surveys')
+  if (me && !hasFeature) {
+    return (
+      <div className="max-w-3xl">
+        <h1 className="mb-1 text-2xl font-bold text-gray-900">Анкеты</h1>
+        <p className="mb-6 text-sm text-gray-500">
+          Соберите анкету, отправьте ссылку — и смотрите, кто и как ответил.
+          Ответы попадают в карточку человека и фильтруют базу.
+        </p>
+        <FeatureLock anyOf={['surveys']} />
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-5xl">

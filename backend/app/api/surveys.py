@@ -27,8 +27,26 @@ from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.assistant_access import assistant_is_restricted
+from app.services.features import client_has_feature
 
 router = APIRouter(tags=["Анкеты"])
+
+
+async def _assert_feature(db, client_id: int) -> None:
+    """Гейт раздела «Анкеты» — фича `surveys` (Экстра и админ).
+
+    ⚠️ Ставится только на ЗАПИСЬ. Читать своё можно всегда: это данные
+    клиента, отбирать у него собранные ответы при смене тарифа нельзя
+    (общее правило проекта «смотреть можно, менять нельзя»).
+
+    ⚠️ Публичная страница анкеты (`surveys_public`) не гейтится вовсе —
+    человек, заполняющий анкету, не виноват в тарифе организатора.
+    """
+    if not await client_has_feature(db, client_id, "surveys"):
+        raise HTTPException(
+            status_code=403,
+            detail="Раздел «Анкеты» доступен на тарифе Экстра.",
+        )
 
 _SLUG_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
 
@@ -125,6 +143,7 @@ async def create_contact_field(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     client_id = int(client["sub"])
     if data.kind not in KINDS:
         raise HTTPException(400, "Неизвестный тип поля")
@@ -169,6 +188,7 @@ async def update_contact_field(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     client_id = int(client["sub"])
     own = await db.fetchval(
         "SELECT 1 FROM contact_fields WHERE id=$1 AND client_id=$2", field_id, client_id)
@@ -219,6 +239,7 @@ async def delete_contact_field(
     Чтобы просто убрать поле из карточки — снимите «Показывать в карточке»."""
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     res = await db.execute(
         "DELETE FROM contact_fields WHERE id=$1 AND client_id=$2",
         field_id, int(client["sub"]))
@@ -309,6 +330,7 @@ async def create_survey(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     client_id = int(client["sub"])
     title = (data.title or '').strip()
     if not title:
@@ -357,6 +379,7 @@ async def update_survey(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     own = await db.fetchval(
         "SELECT 1 FROM surveys WHERE id=$1 AND client_id=$2",
         survey_id, int(client["sub"]))
@@ -402,6 +425,7 @@ async def delete_survey(
     перестать её показывать — снимите «Активна»."""
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     res = await db.execute(
         "DELETE FROM surveys WHERE id=$1 AND client_id=$2",
         survey_id, int(client["sub"]))
@@ -426,6 +450,7 @@ async def add_question(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     client_id = int(client["sub"])
     await _assert_own_survey(db, survey_id, client_id)
     if data.kind not in KINDS:
@@ -474,6 +499,7 @@ async def update_question(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     await _assert_own_survey(db, survey_id, int(client["sub"]))
 
     fs = data.model_fields_set
@@ -530,6 +556,7 @@ async def reorder_questions(
     """
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     await _assert_own_survey(db, survey_id, int(client["sub"]))
     ids = data.get("ids") or []
     if not isinstance(ids, list):
@@ -553,6 +580,7 @@ async def delete_question(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
     await _assert_own_survey(db, survey_id, int(client["sub"]))
     res = await db.execute(
         "DELETE FROM survey_questions WHERE id=$1 AND survey_id=$2",
