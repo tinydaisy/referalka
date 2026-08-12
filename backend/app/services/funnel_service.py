@@ -1546,7 +1546,8 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
     Для VK: проверка подписки на VK-сообщество (`groups.isMember`) + отправка через VK API.
     """
     run = await db.fetchrow(
-        """SELECT id, client_id, stage, lead_magnet_id, package_id
+        """SELECT id, client_id, stage, lead_magnet_id, package_id,
+                  contact_id, platform_slug
              FROM funnel_runs WHERE id = $1""",
         run_id
     )
@@ -1562,6 +1563,25 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         vk_sub = await check_vk_channels_subscription(client_id, str(tg_id), db)
         if not vk_sub["ok"]:
             return "not_subscribed"
+
+    # ⚠️ Анкета-шлагбаум проверяется ПОСЛЕ подписки и ДО выдачи материалов
+    # (порядок задан владельцем: подписка → анкета → файл). Общая точка на все
+    # площадки — `survey_gate`; своей копии в каждом боте быть не должно.
+    # Подарок человек получит сразу после отправки анкеты: в ссылке зашит его
+    # contact_id, номер подарка и площадка, поэтому возвращать его вручную
+    # не нужно. Забег остаётся в текущей стадии — вернётся сюда же, если
+    # нажмёт «ГОТОВО» повторно, и уже пройдёт шлагбаум.
+    try:
+        from app.services.survey_gate import required_survey_for_run
+        _survey = await required_survey_for_run(db, dict(run))
+    except Exception:
+        # ⚠️ fail-open: сбой проверки не должен лишать человека подарка.
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            "survey gate: проверка анкеты не удалась, выдаём материалы")
+        _survey = None
+    if _survey:
+        return "survey_required"
 
         from app.services.vk_api import send_message_with_media as vk_send_with_media
         # Шлём от того же сообщества, через которое прилетел клик. Токен этого

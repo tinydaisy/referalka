@@ -1062,6 +1062,30 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             # короткое подтверждение через snackbar — оно нужно VK чтобы убрать
             # «вращающийся индикатор» на кнопке.
             await _send_event_answer("Готово! Проверяйте сообщения 🎁")
+        elif result == "survey_required":
+            # Перед подарком нужна анкета. В ссылке зашиты человек, номер
+            # подарка и площадка — после отправки файл придёт сразу и сюда же.
+            await _send_event_answer("Остался один шаг 📝")
+            try:
+                from app.services.survey_gate import (
+                    required_survey_for_run, survey_link_for_run,
+                )
+                run_row = await db.fetchrow(
+                    """SELECT id, client_id, contact_id, lead_magnet_id,
+                              package_id, platform_slug
+                         FROM funnel_runs WHERE id = $1""", run_id)
+                survey = await required_survey_for_run(db, dict(run_row)) if run_row else None
+                if survey:
+                    url = await survey_link_for_run(db, survey, dict(run_row))
+                    await vk_send_message(
+                        user_id,
+                        f"Чтобы забрать подарок, заполните короткую анкету: "
+                        f"{survey['title']}\n\n{url}\n\n"
+                        f"Подарок придёт сразу после отправки.",
+                        token=ctx.token,
+                    )
+            except Exception as e:
+                logger.warning(f"VK survey gate failed (run={run_id}): {e}")
         elif result == "not_subscribed":
             client_id = await db.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)
             brand_ctx = await _get_brand_context(client_id, db, platform="vk") if client_id else {}

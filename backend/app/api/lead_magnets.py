@@ -57,6 +57,10 @@ class LeadMagnetIn(BaseModel):
     name: str
     description: Optional[str] = None
     url: str
+    # Анкета-шлагбаум перед выдачей (миграция 280). NULL = не требуется,
+    # это поведение по умолчанию у всех существующих лид-магнитов.
+    # ⚠️ Порядок в воронке: подписка на канал → анкета → файл.
+    require_survey_id: Optional[int] = None
 
 
 @router.get("", summary="Список лид-магнитов клиента")
@@ -66,7 +70,7 @@ async def list_lead_magnets(
 ):
     cid = int(client["sub"])
     rows = await db.fetch(
-        """SELECT id, name, description, url, slug, created_at, updated_at
+        """SELECT id, name, description, url, slug, require_survey_id, created_at, updated_at
            FROM lead_magnets WHERE client_id = $1
            ORDER BY name""",
         cid
@@ -91,7 +95,7 @@ async def create_lead_magnet(
     row = await db.fetchrow(
         """INSERT INTO lead_magnets (client_id, name, description, url, slug)
            VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, name, description, url, slug, created_at, updated_at""",
+           RETURNING id, name, description, url, slug, require_survey_id, created_at, updated_at""",
         cid, data.name.strip(), data.description, data.url.strip(), slug
     )
     out = dict(row)
@@ -154,7 +158,7 @@ async def get_lead_magnet(
 ):
     cid = int(client["sub"])
     row = await db.fetchrow(
-        """SELECT id, name, description, url, slug, created_at, updated_at
+        """SELECT id, name, description, url, slug, require_survey_id, created_at, updated_at
            FROM lead_magnets WHERE id = $1 AND client_id = $2""",
         lead_magnet_id, cid
     )
@@ -176,12 +180,18 @@ async def update_lead_magnet(
 ):
     cid = int(client["sub"])
     row = await db.fetchrow(
+        # ⚠️ `require_survey_id` меняем только если фронт его прислал
+        # (`model_fields_set`) — иначе сохранение формы без этого поля молча
+        # снимало бы уже настроенный шлагбаум.
         """UPDATE lead_magnets
-              SET name = $1, description = $2, url = $3, updated_at = NOW()
+              SET name = $1, description = $2, url = $3,
+                  require_survey_id = CASE WHEN $6 THEN $7 ELSE require_survey_id END,
+                  updated_at = NOW()
             WHERE id = $4 AND client_id = $5
-            RETURNING id, name, description, url, slug, created_at, updated_at""",
+            RETURNING id, name, description, url, slug, require_survey_id, created_at, updated_at""",
         data.name.strip(), data.description, data.url.strip(),
-        lead_magnet_id, cid
+        lead_magnet_id, cid,
+        'require_survey_id' in data.model_fields_set, data.require_survey_id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")

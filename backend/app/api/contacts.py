@@ -71,6 +71,7 @@ def _build_contacts_filter(
     date_from: str | None = None,
     date_to: str | None = None,
     blacklisted: str | None = None,
+    field_filter: str | None = None,
 ) -> tuple[str, list]:
     """Собирает WHERE-клозу и список параметров (без фильтра по subscription state).
 
@@ -170,6 +171,37 @@ def _build_contacts_filter(
         params.append(tags_list)
         idx = len(params)
         where += f" AND c.tags ?| ${idx}::text[]"
+
+    # Фильтр по дополнительному полю контакта (миграция 280).
+    # Формат: "field_id:значение" — например "3:Свыше 1 000 000".
+    # Пустое значение после двоеточия = «поле заполнено чем угодно».
+    if field_filter and ':' in field_filter:
+        f_id_raw, _, f_val = field_filter.partition(':')
+        try:
+            f_id = int(f_id_raw)
+        except ValueError:
+            f_id = None
+        if f_id:
+            params.append(f_id)
+            idx_f = len(params)
+            if f_val.strip():
+                params.append(f_val.strip())
+                idx_v = len(params)
+                where += f"""
+                  AND EXISTS (
+                    SELECT 1 FROM contact_field_values v
+                     WHERE v.contact_id = c.id AND v.field_id = ${idx_f}
+                       AND v.value = ${idx_v}
+                  )
+                """
+            else:
+                where += f"""
+                  AND EXISTS (
+                    SELECT 1 FROM contact_field_values v
+                     WHERE v.contact_id = c.id AND v.field_id = ${idx_f}
+                       AND COALESCE(v.value,'') <> ''
+                  )
+                """
 
     def _ints(val):
         out = []
@@ -306,6 +338,7 @@ async def get_contacts(
     date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
     date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
     blacklisted: str | None = Query(default=None, description="yes — только в чёрном списке, no — только не в нём, пусто — все"),
+    field_filter: str | None = Query(default=None, description="Доп. поле контакта: 'field_id:значение'"),
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
@@ -333,6 +366,7 @@ async def get_contacts(
         date_from=date_from,
         date_to=date_to,
         blacklisted=blacklisted,
+        field_filter=field_filter,
     )
     UNSUB_EXISTS = UNSUB_EXISTS_SQL
     where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
@@ -435,6 +469,7 @@ async def export_contacts_csv(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
     blacklisted: str | None = Query(default=None),
+    field_filter: str | None = Query(default=None),
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
@@ -461,6 +496,7 @@ async def export_contacts_csv(
         date_from=date_from,
         date_to=date_to,
         blacklisted=blacklisted,
+        field_filter=field_filter,
     )
     where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
 
@@ -807,6 +843,37 @@ async def get_contact(
          LIMIT 100
     """, contact_id)
 
+    # Дополнительные поля контакта (миграция 280): «Доход», «Ниша», «Статус».
+    # ⚠️ Отдаём ВСЕ поля клиента, а не только заполненные — иначе клиент не
+    # увидит, что поле вообще существует, и не сможет вписать значение.
+    custom_fields = await db.fetch(
+        """SELECT f.id, f.title, f.kind, f.options, f.scale_min, f.scale_max,
+                  v.value, v.updated_at
+             FROM contact_fields f
+             LEFT JOIN contact_field_values v
+                    ON v.field_id = f.id AND v.contact_id = $1
+            WHERE f.client_id = $2 AND f.is_active = TRUE AND f.show_in_card = TRUE
+            ORDER BY f.sort_order, f.id""",
+        contact_id, client_id)
+
+    # Какие анкеты человек заполнял и что отвечал.
+    survey_history = await db.fetch(
+        """SELECT r.id, r.created_at, r.platform_slug,
+                  s.id AS survey_id, s.title AS survey_title,
+                  COALESCE(json_agg(json_build_object(
+                      'question', q.title, 'value', a.value
+                  ) ORDER BY q.sort_order, q.id)
+                    FILTER (WHERE a.id IS NOT NULL), '[]') AS answers
+             FROM survey_responses r
+             JOIN surveys s ON s.id = r.survey_id
+             LEFT JOIN survey_answers a ON a.response_id = r.id
+             LEFT JOIN survey_questions q ON q.id = a.question_id
+            WHERE r.contact_id = $1
+            GROUP BY r.id, s.id
+            ORDER BY r.created_at DESC
+            LIMIT 50""",
+        contact_id)
+
     # Если этот контакт — также коллаборатор, отдадим краткую инфу
     collaborator_row = await db.fetchrow(
         """SELECT id, name, title, photo_url
@@ -867,6 +934,8 @@ async def get_contact(
         "events": [dict(e) for e in events],
         "lead_magnet_runs": lead_magnet_runs_list,
         "webinar_history": [dict(w) for w in webinar_history],
+        "custom_fields": [dict(f) for f in custom_fields],
+        "survey_history": [dict(r) for r in survey_history],
         "collaborator": dict(collaborator_row) if collaborator_row else None,
     }
 
@@ -1175,6 +1244,48 @@ async def delete_contact(
 
 
 # ─── 152-ФЗ: экспорт и удаление персональных данных ──────────────────────
+
+
+class ContactFieldValueIn(BaseModel):
+    field_id: int
+    value: Optional[str] = None
+
+
+@router.put("/contacts/{contact_id}/fields")
+async def set_contact_field_value(
+    contact_id: int, data: ContactFieldValueIn,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Проставить значение дополнительного поля вручную в карточке контакта.
+
+    ⚠️ Пустое значение = очистка (строка удаляется, а не хранится пустой):
+    иначе «заполнено у N человек» считало бы пустышки.
+    """
+    client_id = int(client["sub"])
+    own = await db.fetchval(
+        """SELECT 1 FROM contacts c
+             JOIN contact_fields f ON f.id = $3 AND f.client_id = c.client_id
+            WHERE c.id = $1 AND c.client_id = $2""",
+        contact_id, client_id, data.field_id)
+    if not own:
+        raise HTTPException(404, "Контакт или поле не найдены")
+
+    val = (data.value or "").strip()
+    if not val:
+        await db.execute(
+            "DELETE FROM contact_field_values WHERE contact_id=$1 AND field_id=$2",
+            contact_id, data.field_id)
+        return {"ok": True, "value": None}
+
+    await db.execute(
+        """INSERT INTO contact_field_values (contact_id, field_id, value, value_json, updated_at)
+           VALUES ($1,$2,$3,$4::jsonb,NOW())
+           ON CONFLICT (contact_id, field_id)
+           DO UPDATE SET value = EXCLUDED.value,
+                         value_json = EXCLUDED.value_json,
+                         updated_at = NOW()""",
+        contact_id, data.field_id, val, json.dumps(val))
+    return {"ok": True, "value": val}
 
 
 @router.post("/contacts/import")

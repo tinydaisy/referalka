@@ -796,6 +796,32 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
             except Exception as e:
                 logger.warning(f"MAX fnl_check failed (run={run_id}, user={user_id}): {e}")
                 return
+            if status == "survey_required":
+                # Перед подарком нужна анкета. В ссылке зашиты человек, номер
+                # подарка и площадка — файл придёт сразу после отправки.
+                try:
+                    from app.services.survey_gate import (
+                        required_survey_for_run, survey_link_for_run,
+                    )
+                    run_row = await conn.fetchrow(
+                        """SELECT id, client_id, contact_id, lead_magnet_id,
+                                  package_id, platform_slug
+                             FROM funnel_runs WHERE id = $1""", run_id)
+                    survey = await required_survey_for_run(conn, dict(run_row)) \
+                        if run_row else None
+                    if survey:
+                        url = await survey_link_for_run(conn, survey, dict(run_row))
+                        await max_api.send_message(
+                            int(user_id),
+                            f"Чтобы забрать подарок, заполните короткую анкету: "
+                            f"{survey['title']}\n\n{url}\n\n"
+                            f"Подарок придёт сразу после отправки.",
+                            token=bot_token, recipient_kind="user",
+                        )
+                except Exception as e:
+                    logger.warning(f"MAX survey gate failed (run={run_id}): {e}")
+                return
+
             if status == "not_subscribed":
                 # Не подписан на канал(ы) основателя — просим подписаться и жать снова.
                 not_sub = []

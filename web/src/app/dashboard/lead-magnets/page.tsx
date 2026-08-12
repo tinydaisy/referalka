@@ -399,6 +399,11 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   const [description, setDescription] = useState(initial?.description || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Анкета-шлагбаум перед выдачей. По умолчанию не требуется.
+  const [surveyId, setSurveyId] = useState<number | ''>(
+    (initial as any)?.require_survey_id || '')
+  const [surveys, setSurveys] = useState<any[]>([])
+  useEffect(() => { api.surveys.list().then(setSurveys).catch(() => setSurveys([])) }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -406,7 +411,10 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
     if (!name.trim() || !url.trim()) { setErr('Название и ссылка обязательны'); return }
     setSaving(true)
     try {
-      const payload = { name: name.trim(), description: description.trim() || null, url: url.trim() }
+      const payload = {
+        name: name.trim(), description: description.trim() || null, url: url.trim(),
+        require_survey_id: surveyId ? Number(surveyId) : null,
+      }
       if (initial) await api.leadMagnets.update(initial.id, payload)
       else await api.leadMagnets.create(payload)
       onSaved()
@@ -431,6 +439,21 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
                  rows={2}
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="Короткое описание — покажется в воронке под названием подарка (плейсхолдер {materials_list_description})" />
+        </Field>
+        <Field label="Сначала заполнить анкету">
+          <select value={surveyId}
+                  onChange={e => setSurveyId(e.target.value ? Number(e.target.value) : '')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Не требовать — выдавать сразу</option>
+            {surveys.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            {surveyId
+              ? 'Человек сначала подпишется на канал, потом заполнит анкету — и получит подарок сразу после отправки, ссылкой и сообщением в бот.'
+              : surveys.length
+                ? 'Выберите анкету, если подарок нужно выдавать только после её заполнения.'
+                : 'Анкет пока нет — создайте их в разделе «Анкеты».'}
+          </p>
         </Field>
         {err && <div className="text-sm text-red-600">{err}</div>}
         <FormActions saving={saving} onClose={onClose} />

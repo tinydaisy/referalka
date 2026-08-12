@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -122,6 +122,8 @@ export default function Sidebar() {
         // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
         ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
+        // Анкеты + доп. поля контакта (миграция 280). Доступны всем тарифам.
+        { href: '/dashboard/surveys', label: 'Анкеты', icon: ClipboardList },
         // Отзывы/кейсы и оферты — по своим фичам (миграция 249).
         ...(hasTestimonials ? [{ href: '/dashboard/testimonials', label: 'Отзывы и кейсы', icon: MessageSquareQuote }] : []),
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».

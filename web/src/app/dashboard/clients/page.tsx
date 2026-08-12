@@ -1046,6 +1046,51 @@ export default function ContactsPage() {
               </details>
             )}
 
+            {/* Дополнительные поля контакта (миграция 280). Показываем ВСЕ
+                поля кабинета, в том числе пустые — иначе не видно, что поле
+                вообще есть, и его нечем заполнить вручную. */}
+            {(selected as any).custom_fields?.length > 0 && (
+              <div className="mb-3 rounded-xl border border-gray-200 bg-white p-4">
+                <h4 className="mb-3 text-sm font-semibold text-gray-800">Дополнительные поля</h4>
+                <div className="space-y-2">
+                  {(selected as any).custom_fields.map((f: any) => (
+                    <ContactFieldRow key={f.id} field={f} contactId={(selected as any).id} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Что человек отвечал в анкетах */}
+            {(selected as any).survey_history?.length > 0 && (
+              <details className="mb-3 group rounded-xl border border-gray-200 bg-white overflow-hidden">
+                <summary className="flex items-center justify-between cursor-pointer list-none select-none px-4 py-3 hover:bg-gray-50">
+                  <span className="text-sm font-semibold text-gray-800">
+                    Анкеты
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[#FFCFA4] text-[#25455D] text-[11px] font-bold">
+                      {(selected as any).survey_history.length}
+                    </span>
+                  </span>
+                  <span className="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
+                </summary>
+                <div className="px-4 pb-4 space-y-3">
+                  {(selected as any).survey_history.map((r: any) => (
+                    <div key={r.id} className="rounded-lg bg-gray-50 p-3">
+                      <div className="text-sm font-medium text-gray-800">{r.survey_title}</div>
+                      <div className="mb-2 text-xs text-gray-500">
+                        {new Date(r.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
+                      </div>
+                      {(r.answers || []).map((a: any, i: number) => (
+                        <div key={i} className="text-sm">
+                          <span className="text-gray-500">{a.question}: </span>
+                          <span className="text-gray-900">{a.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
             {/* Вебинары — где контакт реально был в эфире (webinar_presence) */}
             {(selected as any).webinar_history && (selected as any).webinar_history.length > 0 && (
               <details className="mb-3 group rounded-xl border border-[#FFCFA4] bg-[#FFF6EE] overflow-hidden">
@@ -1768,3 +1813,59 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   )
 }
 
+
+/**
+ * Строка дополнительного поля в карточке контакта (миграция 280).
+ *
+ * ⚠️ Показывается и когда значение пустое: иначе клиент не увидит, что поле
+ * вообще существует, и не сможет вписать его вручную. Основной способ
+ * заполнения — анкета, здесь правка одного человека.
+ */
+function ContactFieldRow({ field, contactId }: { field: any; contactId: number }) {
+  const [value, setValue] = useState<string>(field.value || '')
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const opts: string[] = Array.isArray(field.options) ? field.options : []
+  const isChoice = field.kind === 'select' || field.kind === 'bool'
+  const choices = field.kind === 'bool' ? ['Да', 'Нет'] : opts
+
+  const save = async (v: string) => {
+    setSaving(true)
+    try {
+      await api.contacts.setField(contactId, { field_id: field.id, value: v })
+      setValue(v)
+      setEditing(false)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-sm text-gray-500">{field.title}</span>
+      {editing ? (
+        <div className="flex min-w-0 flex-1 justify-end gap-2">
+          {isChoice ? (
+            <select autoFocus disabled={saving} value={value}
+                    onChange={e => save(e.target.value)}
+                    className="min-w-0 rounded-lg border border-gray-300 px-2 py-1 text-sm bg-white">
+              <option value="">— не указано —</option>
+              {choices.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input autoFocus disabled={saving} defaultValue={value}
+                   type={field.kind === 'number' || field.kind === 'scale' ? 'number'
+                         : field.kind === 'date' ? 'date' : 'text'}
+                   onBlur={e => save(e.target.value)}
+                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                   className="min-w-0 rounded-lg border border-gray-300 px-2 py-1 text-sm" />
+          )}
+        </div>
+      ) : (
+        <button onClick={() => setEditing(true)}
+                className="min-w-0 text-right text-sm text-gray-900 hover:underline">
+          {value || <span className="text-gray-400">не указано</span>}
+        </button>
+      )}
+    </div>
+  )
+}

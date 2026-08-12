@@ -454,6 +454,12 @@ export const api = {
     },
   },
   contacts: {
+    // Значение дополнительного поля у одного человека (миграция 280).
+    // Пустая строка = очистка.
+    setField: (contactId: number, data: { field_id: number; value: string | null }) =>
+      request(`/api/v1/contacts/${contactId}/fields`, {
+        method: 'PUT', body: JSON.stringify(data),
+      }),
     list: (search: string, limit: number, offset: number, showUnsubscribed = false, filters?: ContactFilters) => {
       const params = buildContactsParams(search, limit, offset, showUnsubscribed, filters)
       return request(`/api/v1/contacts?${params.toString()}`)
@@ -783,6 +789,37 @@ export const api = {
       request(`/api/v1/lead-magnets/${id}`, { method: 'DELETE' }),
     analytics: (id: number) =>
       request(`/api/v1/lead-magnets/${id}/analytics`),
+  },
+  // Дополнительные поля контакта («Доход», «Ниша», «Статус») — создаются один
+  // раз на весь кабинет и существуют сразу у всех контактов.
+  contactFields: {
+    list: () => request('/api/v1/contact-fields'),
+    create: (data: any) =>
+      request('/api/v1/contact-fields', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/contact-fields/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/contact-fields/${id}`, { method: 'DELETE' }),
+  },
+  surveys: {
+    list: () => request('/api/v1/surveys'),
+    create: (data: any) =>
+      request('/api/v1/surveys', { method: 'POST', body: JSON.stringify(data) }),
+    get: (id: number) => request(`/api/v1/surveys/${id}`),
+    update: (id: number, data: any) =>
+      request(`/api/v1/surveys/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/surveys/${id}`, { method: 'DELETE' }),
+    addQuestion: (id: number, data: any) =>
+      request(`/api/v1/surveys/${id}/questions`, { method: 'POST', body: JSON.stringify(data) }),
+    updateQuestion: (id: number, qid: number, data: any) =>
+      request(`/api/v1/surveys/${id}/questions/${qid}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    deleteQuestion: (id: number, qid: number) =>
+      request(`/api/v1/surveys/${id}/questions/${qid}`, { method: 'DELETE' }),
+    analytics: (id: number) => request(`/api/v1/surveys/${id}/analytics`),
+    responses: (id: number) => request(`/api/v1/surveys/${id}/responses`),
   },
   collabHub: {
     settings: () => request('/api/v1/collab-hub/settings'),

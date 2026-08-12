@@ -17,6 +17,37 @@ router = Router()
 log = logging.getLogger(__name__)
 
 
+async def _send_survey_gate_tg(callback, run_id: int, db) -> None:
+    """Человек упёрся в анкету по дороге за подарком — шлём ссылку кнопкой.
+
+    ⚠️ Никакого «спасибо и вернитесь сами»: в ссылке зашиты contact_id, номер
+    подарка и площадка, поэтому после отправки анкеты подарок выдаётся сразу —
+    и на странице, и сообщением сюда же, в бот.
+    """
+    from app.services.survey_gate import (
+        required_survey_for_run, survey_link_for_run, survey_prompt_text,
+    )
+    run = await db.fetchrow(
+        """SELECT id, client_id, contact_id, lead_magnet_id, package_id, platform_slug
+             FROM funnel_runs WHERE id = $1""", run_id)
+    if not run:
+        return
+    survey = await required_survey_for_run(db, dict(run))
+    if not survey:
+        return
+    url = await survey_link_for_run(db, survey, dict(run))
+    try:
+        await callback.message.answer(
+            survey_prompt_text(survey),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📝 Заполнить анкету", url=url),
+            ]]),
+        )
+    except Exception:
+        log.exception("survey gate: не удалось отправить анкету в TG (run=%s)", run_id)
+
+
 # Группы ролей для вывода каналов при проверке подписки на чат события.
 # (заголовок, набор ролей). Порядок = порядок вывода.
 _ROLE_GROUPS: list[tuple[str, set[str]]] = [
@@ -580,6 +611,12 @@ async def handle_check_subscription(callback: CallbackQuery):
         result = await run_check_subscription(run_id, str(callback.from_user.id), db)
         if result == "subscribed":
             await callback.answer("Готово! Проверяйте сообщения 🎁", show_alert=False)
+        elif result == "survey_required":
+            # Перед подарком нужно заполнить анкету. Кидаем ссылку кнопкой —
+            # в ней зашиты человек, номер подарка и площадка, поэтому файл
+            # выдастся сразу после отправки, возвращать сюда не нужно.
+            await callback.answer()
+            await _send_survey_gate_tg(callback, run_id, db)
         elif result == "not_subscribed":
             client_id = await db.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)
             # Перепроверяем, чтобы перечислить КАКИЕ именно каналы не подписаны
