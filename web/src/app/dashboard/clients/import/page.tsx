@@ -38,10 +38,22 @@ export default function ContactsImportPage() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       })
-      if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка')
+      if (!r.ok) {
+        let detail = ''
+        try { detail = (await r.json()).detail || '' } catch { /* тело не JSON */ }
+        if (r.status === 401) throw new Error('Сессия истекла. Обновите страницу и войдите заново.')
+        if (r.status === 413) throw new Error('Файл слишком большой. Максимум — 10 МБ.')
+        throw new Error(detail || `Сервер ответил ошибкой ${r.status}. Попробуйте ещё раз.`)
+      }
       setResult(await r.json())
     } catch (e: any) {
-      setError(e.message)
+      // «Failed to fetch» — браузер не получил ответ (обрыв связи, закрытая вкладка,
+      // блокировка расширением). Показывать это клиенту как есть нельзя: непонятно
+      // и, главное, часть контактов могла уже загрузиться.
+      const isNetwork = e instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(e?.message || '')
+      setError(isNetwork
+        ? 'Связь с сервером прервалась — ответ не дошёл. Часть контактов могла уже загрузиться: откройте список контактов и проверьте, прежде чем загружать файл снова.'
+        : e.message)
     } finally {
       setUploading(false)
     }
@@ -54,10 +66,36 @@ export default function ContactsImportPage() {
       </Link>
 
       <h1 className="text-2xl font-bold text-gray-900 mb-2">Импорт контактов из CSV</h1>
-      <p className="text-sm text-gray-500 mb-8">
-        Колонки: <code>name</code>, <code>email</code>, <code>phone</code>, <code>telegram_username</code>.
-        Любой порядок, регистр заголовков. Дубликаты по email или телефону объединяются автоматически.
-      </p>
+      <div className="text-sm text-gray-600 mb-8 space-y-4">
+        <p>Загрузите файл со списком контактов — система добавит их в вашу базу.</p>
+
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+          <p className="font-semibold text-gray-800 mb-1">Если у вас только почты</p>
+          <p className="mb-2">
+            Впишите по одной почте в строку и загружайте файл как есть — больше ничего делать не нужно.
+          </p>
+          <pre className="bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-700 overflow-x-auto">{`ivan@mail.ru
+maria@yandex.ru`}</pre>
+        </div>
+
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+          <p className="font-semibold text-gray-800 mb-1">Если данных несколько (имя, телефон, ник)</p>
+          <p className="mb-2">
+            Добавьте в файл самую первую строку и напишите в ней, что лежит в каждом столбце.
+            Пишите эти слова: <code>name</code> — имя, <code>email</code> — почта,{' '}
+            <code>phone</code> — телефон, <code>telegram_username</code> — ник в Telegram.
+            Ставьте столбцы в любом порядке и берите только нужные.
+          </p>
+          <pre className="bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-700 overflow-x-auto">{`name,email,phone
+Иван Петров,ivan@mail.ru,+79001234567
+Мария Сидорова,maria@yandex.ru,`}</pre>
+        </div>
+
+        <p className="text-gray-500">
+          Если человек уже есть в базе с такой же почтой или телефоном — система дополнит его карточку,
+          а не создаст второго. После загрузки вы увидите, что именно прочиталось из файла.
+        </p>
+      </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
@@ -89,6 +127,12 @@ export default function ContactsImportPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="font-semibold text-gray-800 mb-4">Результат импорта</h2>
           <dl className="space-y-2 text-sm">
+            {typeof result.rows_total === 'number' && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500">Строк с данными в файле</dt>
+                <dd className="font-semibold text-gray-700">{result.rows_total}</dd>
+              </div>
+            )}
             <div className="flex justify-between">
               <dt className="text-gray-500">Создано новых контактов</dt>
               <dd className="font-semibold text-green-700">{result.created}</dd>
@@ -97,11 +141,86 @@ export default function ContactsImportPage() {
               <dt className="text-gray-500">Объединено с существующими</dt>
               <dd className="font-semibold text-blue-700">{result.merged}</dd>
             </div>
+            {result.skipped_empty > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500">Пропущено пустых строк</dt>
+                <dd className="font-semibold text-gray-500">{result.skipped_empty}</dd>
+              </div>
+            )}
             <div className="flex justify-between">
               <dt className="text-gray-500">Конфликтов</dt>
               <dd className="font-semibold text-amber-600">{result.conflicts?.length || 0}</dd>
             </div>
           </dl>
+
+          {result.created === 0 && result.merged === 0 && (
+            <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+              <b>Ни один контакт не загружен.</b>{' '}
+              {result.invalid_emails?.length > 0
+                ? 'Похоже, почты записаны с ошибкой — список ниже.'
+                : 'Проверьте, что в файле есть колонка с почтой или телефоном.'}
+            </div>
+          )}
+
+          {result.recognized && (
+            <div className="mt-4 text-sm">
+              <h3 className="font-semibold text-gray-700 mb-2">Что система прочитала в файле</h3>
+              <ul className="space-y-1">
+                {[
+                  ['email', 'Почта'],
+                  ['phone', 'Телефон'],
+                  ['name', 'Имя'],
+                  ['telegram_username', 'Telegram-ник'],
+                ].map(([key, label]) => {
+                  const col = result.recognized[key]
+                  const used = result.has_header ? !!col : key === 'email' || key === 'phone'
+                  return (
+                    <li key={key} className="flex justify-between gap-3">
+                      <span className="text-gray-500">{label}</span>
+                      <span className={used ? 'text-green-700' : 'text-gray-400'}>
+                        {result.has_header
+                          ? (col ? `колонка «${col}»` : 'нет в файле')
+                          : (used ? 'определено по содержимому' : 'нет в файле')}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+              {!result.has_header && (
+                <p className="text-xs text-gray-500 mt-2">
+                  В файле нет строки с названиями колонок — это нормально, мы определили данные по их виду.
+                </p>
+              )}
+            </div>
+          )}
+
+          {result.unknown_columns?.length > 0 && (
+            <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
+              <h3 className="font-semibold text-amber-800 mb-1">Колонки, которые не распознаны</h3>
+              <p className="text-xs text-amber-700 mb-2">
+                Данные из них не загружены. Переименуйте колонку в <code>name</code>, <code>email</code>,{' '}
+                <code>phone</code> или <code>telegram_username</code> и загрузите файл снова.
+              </p>
+              <ul className="list-disc pl-5 text-amber-900">
+                {result.unknown_columns.map((c: any, i: number) => (
+                  <li key={i}>«{c.column}» — {c.position}-я колонка</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.invalid_emails?.length > 0 && (
+            <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4 text-sm">
+              <h3 className="font-semibold text-red-800 mb-1">
+                Строки с ошибкой в почте — не загружены ({result.invalid_emails.length})
+              </h3>
+              <ul className="list-disc pl-5 text-red-900">
+                {result.invalid_emails.map((c: any, i: number) => (
+                  <li key={i}>Строка {c.row}: «{c.value}»</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {result.conflicts && result.conflicts.length > 0 && (
             <div className="mt-6">

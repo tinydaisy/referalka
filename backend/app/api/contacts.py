@@ -1151,11 +1151,17 @@ async def import_contacts_csv(
     Колонки: name, email, phone, telegram_username (любые опционально, регистр любой).
     Разделитель — авто (запятая, точка с запятой, табуляция).
 
+    ⚠️ Файл БЕЗ строки-заголовка поддержан: голый список почт/телефонов —
+    самый частый формат выгрузки у клиентов. Если первая строка сама похожа
+    на данные (почта/телефон), заголовка нет — колонку определяем по содержимому,
+    и первая строка НЕ теряется. Раньше она молча съедалась как «название колонки»,
+    остальные строки не распознавались, и импорт возвращал 0 без объяснения.
+
     Логика:
     - Каждая строка → find_or_create_contact (автомердж по email/phone)
     - Если совпало только по одному полю (e.g. тот же email, но другой phone)
       — создаём новый контакт + помечаем строкой в conflicts отчёте
-    - Возвращает {created, updated, conflicts: [{row, csv_name, db_match_id, reason}]}
+    - Возвращает {created, merged, conflicts, skipped, rows_total, ...}
     """
     import csv as _csv
     import io as _io
@@ -1186,33 +1192,104 @@ async def import_contacts_csv(
     except _csv.Error:
         dialect = _csv.excel
 
-    reader = _csv.DictReader(_io.StringIO(text), dialect=dialect)
-    if not reader.fieldnames:
-        raise HTTPException(status_code=400, detail="CSV без заголовка")
+    rows_raw = list(_csv.reader(_io.StringIO(text), dialect=dialect))
+    rows_raw = [r for r in rows_raw if any((c or "").strip() for c in r)]
+    if not rows_raw:
+        raise HTTPException(status_code=400, detail="Файл пустой — в нём нет ни одной строки с данными.")
+
+    header = [(h or "").strip() for h in rows_raw[0]]
 
     # Алиасы колонок
-    cols = {h.strip().lower(): h for h in reader.fieldnames}
+    cols = {h.lower(): idx for idx, h in enumerate(header)}
     def pick(*names):
         for n in names:
             if n in cols:
                 return cols[n]
         return None
 
-    col_name  = pick("name", "имя", "фио", "full_name")
-    col_email = pick("email", "e-mail", "почта")
-    col_phone = pick("phone", "телефон", "tel")
-    col_tg    = pick("telegram_username", "telegram", "tg", "username")
+    idx_name  = pick("name", "имя", "фио", "full_name")
+    idx_email = pick("email", "e-mail", "почта", "емейл", "емаил", "mail")
+    idx_phone = pick("phone", "телефон", "tel", "тел")
+    idx_tg    = pick("telegram_username", "telegram", "tg", "username", "никнейм")
+
+    # ⚠️ Файл БЕЗ заголовка (голый список почт/телефонов) — самый частый формат
+    # выгрузки. Раньше первая строка съедалась как «название колонки», остальные
+    # не распознавались, и импорт возвращал 0 без единого объяснения.
+    has_header = any(x is not None for x in (idx_name, idx_email, idx_phone, idx_tg))
+    data_rows = rows_raw[1:] if has_header else rows_raw
+    first_row_offset = 2 if has_header else 1
+
+    if not has_header:
+        # Определяем колонку по СОДЕРЖИМОМУ первой строки.
+        for idx, cell in enumerate(header):
+            if "@" in cell:
+                idx_email = idx
+                break
+        if idx_email is None:
+            for idx, cell in enumerate(header):
+                if sum(ch.isdigit() for ch in cell) >= 10:
+                    idx_phone = idx
+                    break
+        if idx_email is None and idx_phone is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Не удалось понять, что в файле. Ожидались почты или телефоны, "
+                    "но в первой строке их нет. Либо добавьте первой строкой название "
+                    "колонки — email, phone, name или telegram_username, — либо "
+                    "загрузите файл, где в каждой строке одна почта."
+                ),
+            )
+        # Одна колонка данных — если рядом есть ещё, вторую считаем именем.
+        if len(header) > 1 and idx_name is None:
+            for idx in range(len(header)):
+                if idx not in (idx_email, idx_phone) and (header[idx] or "").strip():
+                    idx_name = idx
+                    break
+
+    # Колонки, которые есть в файле, но мы не поняли, что в них лежит.
+    # Клиент должен видеть их поимённо, а не гадать, почему импортировано 0.
+    used_idx = {x for x in (idx_name, idx_email, idx_phone, idx_tg) if x is not None}
+    unknown_columns = [
+        {"column": header[idx] or f"колонка {idx + 1}", "position": idx + 1}
+        for idx in range(len(header))
+        if idx not in used_idx and (header[idx] or "").strip()
+    ] if has_header else []
+
+    recognized = {
+        "name": header[idx_name] if has_header and idx_name is not None else None,
+        "email": header[idx_email] if has_header and idx_email is not None else None,
+        "phone": header[idx_phone] if has_header and idx_phone is not None else None,
+        "telegram_username": header[idx_tg] if has_header and idx_tg is not None else None,
+    }
 
     client_id = int(client["sub"])
-    stats = {"created": 0, "merged": 0, "conflicts": []}
+    stats = {
+        "created": 0, "merged": 0, "conflicts": [],
+        "rows_total": len(data_rows), "skipped_empty": 0,
+        "invalid_emails": [], "has_header": has_header,
+        "unknown_columns": unknown_columns, "recognized": recognized,
+    }
 
-    for i, row in enumerate(reader, start=2):
-        name = (row.get(col_name) or "").strip() if col_name else None
-        email = (row.get(col_email) or "").strip() if col_email else None
-        phone = (row.get(col_phone) or "").strip() if col_phone else None
-        tg_username = (row.get(col_tg) or "").strip().lstrip("@") if col_tg else None
+    def cell(row: list, idx) -> Optional[str]:
+        if idx is None or idx >= len(row):
+            return None
+        return (row[idx] or "").strip() or None
+
+    for i, row in enumerate(data_rows, start=first_row_offset):
+        name = cell(row, idx_name)
+        email = cell(row, idx_email)
+        phone = cell(row, idx_phone)
+        tg_username = (cell(row, idx_tg) or "").lstrip("@") or None
+
+        # Явная опечатка в почте — не заводим мусор молча, показываем клиенту.
+        if email and ("@" not in email or "." not in email.split("@")[-1] or " " in email):
+            if len(stats["invalid_emails"]) < 50:
+                stats["invalid_emails"].append({"row": i, "value": email})
+            continue
 
         if not (email or phone or tg_username):
+            stats["skipped_empty"] += 1
             continue
 
         email_n = normalize_email(email)
@@ -1247,6 +1324,7 @@ async def import_contacts_csv(
 
         contact_id, is_new = await find_or_create_contact(
             db, client_id=client_id, name=name, email=email, phone=phone,
+            lookup_telegram_username=tg_username,
         )
         if is_new:
             stats["created"] += 1
