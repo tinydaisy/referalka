@@ -1293,9 +1293,11 @@ function BlockBody({
     /* ── Галерея / отзывы ──────────────────────────────────────────────── */
     // Вынесена в отдельный компонент: карусели нужен свой стейт (стрелки
     // прокрутки), а хук нельзя объявлять внутри switch.
+    // ⚠️ Отдаём `cards`, а не сырой `cardStyle`: иначе выбор «Вид карточек →
+    // без оформления» на галерею не действовал — рамка оставалась всегда.
     case 'gallery':
       return <GalleryBlock
-        block={block} content={content} cardStyle={cardStyle}
+        block={block} content={content} cardStyle={cards}
         radius={radius} iconColor={iconColor}
       />
 
@@ -1552,6 +1554,17 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
   const cardW = block.media_size || ((isVideo ?? false) ? 420 : 320)
   const showCaptions = block.show_captions !== false
 
+  // Две НЕЗАВИСИМЫЕ настройки вида карточек (решение клиента 2026-08-12):
+  //   photo_fit: 'crop' — фото заполняет карточку, края обрезаются
+  //              'fit'  — фото видно целиком, пустое место прозрачное
+  //   caption_align: 'top' — подписи начинаются на одной линии
+  //                  'bottom' — подписи заканчиваются на одной линии
+  // В обоих случаях фото занимает окно одной высоты, поэтому ряд ровный.
+  const photoFit: 'crop' | 'fit' = g.photo_fit || 'crop'
+  const captionAlign: 'top' | 'bottom' = g.caption_align || 'bottom'
+  // Форма окна под фото. Пусто → 4/3.
+  const ratio = g.ratio || '4 / 3'
+
   const scrollBy = (dir: 1 | -1) => {
     const el = scroller.current
     if (!el) return
@@ -1559,15 +1572,16 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
   }
 
   const cards = list.map((x: any, i: number) => (
-    // ⚠️ Карточка — колонка, подпись прижата вниз через mt-auto. Фото у
-    // клиента разных пропорций, высота у каждого своя; без этого подпись
-    // вставала сразу под своей картинкой и подписи соседних карточек
-    // оказывались на разных уровнях — ряд «плясал» (жалоба 2026-08-12).
+    // ⚠️ Фото лежит в окне ФИКСИРОВАННЫХ пропорций (`aspectRatio`), поэтому у
+    // всех карточек ряда оно одной высоты — подписи встают на одну линию сами.
+    // `cover` заполняет окно и режет края, `contain` показывает фото целиком
+    // (пустое место остаётся прозрачным — сквозь него виден фон секции).
     //
-    // ⚠️ Именно БЕЗ h-full. Контейнер (и flex-карусель, и grid) по умолчанию
-    // растягивает карточки на высоту ряда сам (align-items: stretch), а
-    // height:100% от родителя без заданной высоты это растягивание ломает —
-    // карточка снова сжимается по своему фото, и подпись уезжает вверх.
+    // ⚠️ Подпись «по нижнему краю» прижимается через mt-auto — именно БЕЗ
+    // h-full. Контейнер (и flex-карусель, и grid) растягивает карточки на
+    // высоту ряда сам (align-items: stretch), а height:100% от родителя без
+    // заданной высоты это растягивание ломает: карточка снова сжимается по
+    // своему фото, и подпись уезжает вверх (жалоба 2026-08-12).
     <figure
       key={i}
       className={`flex flex-col ${carousel ? 'shrink-0 snap-start' : ''}`}
@@ -1585,10 +1599,18 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
             playsInline
             preload="metadata"
             className="w-full"
-            style={{ borderRadius: radius, background: '#000', aspectRatio: '9 / 16' }}
+            style={{
+              borderRadius: radius,
+              background: '#000',
+              aspectRatio: ratio,
+              objectFit: photoFit === 'crop' ? 'cover' : 'contain',
+            }}
           />
         ) : (
-          <div className="aspect-video w-full overflow-hidden" style={{ borderRadius: radius }}>
+          <div
+            className="w-full overflow-hidden"
+            style={{ borderRadius: radius, aspectRatio: ratio }}
+          >
             <iframe
               src={embedUrl(x.url)}
               className="h-full w-full"
@@ -1603,12 +1625,20 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
           src={x.url}
           alt={x.caption || ''}
           loading="lazy"
-          className="w-full object-cover"
-          style={{ borderRadius: radius }}
+          className="w-full"
+          style={{
+            borderRadius: radius,
+            aspectRatio: ratio,
+            objectFit: photoFit === 'crop' ? 'cover' : 'contain',
+          }}
         />
       )}
       {showCaptions && x.caption && (
-        <figcaption className="mt-auto p-3 text-[.9em] opacity-80">{x.caption}</figcaption>
+        <figcaption
+          className={`p-3 text-[.9em] opacity-80 ${captionAlign === 'bottom' ? 'mt-auto' : ''}`}
+        >
+          {x.caption}
+        </figcaption>
       )}
     </figure>
   ))

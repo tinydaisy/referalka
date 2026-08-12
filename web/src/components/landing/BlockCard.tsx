@@ -70,8 +70,17 @@ export default function BlockCard({
   /* ── галерея {mode, media, list:[{url,caption}]} ─────────────────────── */
   const gal = (block.items && !Array.isArray(block.items)) ? block.items : {}
   const galList: Array<{ url: string; caption?: string }> = Array.isArray(gal.list) ? gal.list : []
+  // ⚠️ Раскладываем ВЕСЬ `gal`, а не три поля поимённо: иначе любая правка
+  // (например смена режима показа) затирала бы остальные настройки галереи —
+  // вид фото, форму карточки, положение подписи.
   const setGal = (patch: any) => onPatch({
-    items: { mode: gal.mode || 'carousel', media: gal.media || 'image', list: galList, ...patch },
+    items: {
+      ...gal,
+      mode: gal.mode || 'carousel',
+      media: gal.media || 'image',
+      list: galList,
+      ...patch,
+    },
   })
 
   return (
@@ -333,6 +342,44 @@ export default function BlockCard({
                       </Field>
                     </div>
                   )}
+                  {/* Две независимые настройки вида карточек. Фото у клиента
+                      разных пропорций, поэтому «как показать фото» и «где
+                      подпись» решаются отдельно друг от друга. */}
+                  <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                    <Field label="Фото в карточке">
+                      <select
+                        value={gal.photo_fit || 'crop'}
+                        onChange={e => setGal({ photo_fit: e.target.value })}
+                        className="input bg-white"
+                      >
+                        <option value="crop">Обрезается по краям — заполняет карточку</option>
+                        <option value="fit">Вписывается целиком — по краям пусто</option>
+                      </select>
+                    </Field>
+                    <Field label="Форма карточки">
+                      <select
+                        value={gal.ratio || '4 / 3'}
+                        onChange={e => setGal({ ratio: e.target.value })}
+                        className="input bg-white"
+                      >
+                        <option value="1 / 1">Квадрат</option>
+                        <option value="4 / 3">Горизонтальная 4:3</option>
+                        <option value="16 / 9">Широкая 16:9</option>
+                        <option value="3 / 4">Вертикальная 3:4</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <Field label="Подпись под фото">
+                    <select
+                      value={gal.caption_align || 'bottom'}
+                      onChange={e => setGal({ caption_align: e.target.value })}
+                      className="input bg-white"
+                    >
+                      <option value="top">Сразу под фото — начинаются на одной линии</option>
+                      <option value="bottom">У нижнего края — заканчиваются на одной линии</option>
+                    </select>
+                  </Field>
+                  <div className="mb-3" />
                   <Field label={`Ширина карточки: ${block.media_size || 320} px`}>
                     <input type="range" min={160} max={900} step={20}
                       value={block.media_size || 320}
