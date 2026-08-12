@@ -323,87 +323,6 @@ export default function BlockCard({
                 />
               )}
 
-              {/* Размер карточек и подписи — общие для обоих источников. */}
-              {has('gallery') && (
-                <div className="rounded-lg border border-gray-200 p-3">
-                  {/* Когда содержимое берётся из базы, режим показа задаётся
-                      здесь: у блока нет своего списка с этими переключателями. */}
-                  {block.gallery_source === 'testimonials' && (
-                    <div className="mb-3 grid gap-3 sm:grid-cols-2">
-                      <Field label="Как показываем">
-                        <select
-                          value={gal.mode || 'carousel'}
-                          onChange={e => setGal({ mode: e.target.value })}
-                          className="input bg-white"
-                        >
-                          <option value="carousel">Каруселью — листается вбок</option>
-                          <option value="grid">Сеткой — всё сразу</option>
-                        </select>
-                      </Field>
-                    </div>
-                  )}
-                  {/* Две независимые настройки вида карточек. Фото у клиента
-                      разных пропорций, поэтому «как показать фото» и «где
-                      подпись» решаются отдельно друг от друга. */}
-                  <div className="mb-3 grid gap-3 sm:grid-cols-2">
-                    <Field label="Фото в карточке">
-                      <select
-                        value={gal.photo_fit || 'crop'}
-                        onChange={e => setGal({ photo_fit: e.target.value })}
-                        className="input bg-white"
-                      >
-                        <option value="crop">Обрезается по краям — заполняет карточку</option>
-                        <option value="fit">Вписывается целиком — по краям пусто</option>
-                      </select>
-                    </Field>
-                    <Field label="Форма карточки">
-                      <select
-                        value={gal.ratio || '4 / 3'}
-                        onChange={e => setGal({ ratio: e.target.value })}
-                        className="input bg-white"
-                      >
-                        <option value="1 / 1">Квадрат</option>
-                        <option value="4 / 3">Горизонтальная 4:3</option>
-                        <option value="16 / 9">Широкая 16:9</option>
-                        <option value="3 / 4">Вертикальная 3:4</option>
-                      </select>
-                    </Field>
-                  </div>
-                  <Field label="Подпись под фото">
-                    <select
-                      value={gal.caption_align || 'bottom'}
-                      onChange={e => setGal({ caption_align: e.target.value })}
-                      className="input bg-white"
-                    >
-                      <option value="top">Сразу под фото — начинаются на одной линии</option>
-                      <option value="bottom">У нижнего края — заканчиваются на одной линии</option>
-                    </select>
-                  </Field>
-                  <div className="mb-3" />
-                  <Field label={`Ширина карточки: ${block.media_size || 320} px`}>
-                    <input type="range" min={160} max={900} step={20}
-                      value={block.media_size || 320}
-                      onChange={e => onPatch({ media_size: Number(e.target.value) })}
-                      className="w-full" />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Работает в режиме карусели. На узком экране карточка
-                      сожмётся по ширине экрана.
-                    </p>
-                  </Field>
-                  <label className="mt-3 flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={block.show_captions !== false}
-                      onChange={e => onPatch({ show_captions: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
-                    />
-                    <span className="text-sm text-gray-700">Показывать подписи под карточками</span>
-                  </label>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Подписи берутся из названия отзыва в разделе «Отзывы и кейсы».
-                  </p>
-                </div>
-              )}
 
               {/* Какой тариф подсветить — выбирается здесь, а не в разделе «Тарифы». */}
               {block.kind === 'tariffs' && (
@@ -751,6 +670,91 @@ export default function BlockCard({
             <div className="space-y-4">
               {/* Раскладка: где стоит заголовок относительно содержимого.
                   На телефоне всегда одна колонка — заголовок сверху. */}
+              {/* ⚠️ Вид карточек галереи — это оформление, поэтому поля
+                  живут здесь, а не в «Содержимом» (там только список фото).
+                  Перенесено по просьбе заказчика 2026-08-12. */}
+              {/* Размер карточек и подписи — общие для обоих источников. */}
+              {has('gallery') && (
+                <div className="rounded-lg border border-gray-200 p-3">
+                  {/* Когда содержимое берётся из базы, режим показа задаётся
+                      здесь: у блока нет своего списка с этими переключателями. */}
+                  {block.gallery_source === 'testimonials' && (
+                    <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                      <Field label="Как показываем">
+                        <select
+                          value={gal.mode || 'carousel'}
+                          onChange={e => setGal({ mode: e.target.value })}
+                          className="input bg-white"
+                        >
+                          <option value="carousel">Каруселью — листается вбок</option>
+                          <option value="grid">Сеткой — всё сразу</option>
+                        </select>
+                      </Field>
+                    </div>
+                  )}
+                  {/* Две независимые настройки вида карточек. Фото у клиента
+                      разных пропорций, поэтому «как показать фото» и «где
+                      подпись» решаются отдельно друг от друга. */}
+                  <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                    <Field label="Фото в карточке">
+                      <select
+                        value={gal.photo_fit || 'crop'}
+                        onChange={e => setGal({ photo_fit: e.target.value })}
+                        className="input bg-white"
+                      >
+                        <option value="crop">Обрезается по краям — заполняет карточку</option>
+                        <option value="fit">Вписывается целиком — по краям пусто</option>
+                      </select>
+                    </Field>
+                    <Field label="Форма карточки">
+                      <select
+                        value={gal.ratio || '4 / 3'}
+                        onChange={e => setGal({ ratio: e.target.value })}
+                        className="input bg-white"
+                      >
+                        <option value="1 / 1">Квадрат</option>
+                        <option value="4 / 3">Горизонтальная 4:3</option>
+                        <option value="16 / 9">Широкая 16:9</option>
+                        <option value="3 / 4">Вертикальная 3:4</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <Field label="Подпись под фото">
+                    <select
+                      value={gal.caption_align || 'bottom'}
+                      onChange={e => setGal({ caption_align: e.target.value })}
+                      className="input bg-white"
+                    >
+                      <option value="top">Сразу под фото — начинаются на одной линии</option>
+                      <option value="bottom">У нижнего края — заканчиваются на одной линии</option>
+                    </select>
+                  </Field>
+                  <div className="mb-3" />
+                  <Field label={`Ширина карточки: ${block.media_size || 320} px`}>
+                    <input type="range" min={160} max={900} step={20}
+                      value={block.media_size || 320}
+                      onChange={e => onPatch({ media_size: Number(e.target.value) })}
+                      className="w-full" />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Работает в режиме карусели. На узком экране карточка
+                      сожмётся по ширине экрана.
+                    </p>
+                  </Field>
+                  <label className="mt-3 flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={block.show_captions !== false}
+                      onChange={e => onPatch({ show_captions: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                    />
+                    <span className="text-sm text-gray-700">Показывать подписи под карточками</span>
+                  </label>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Подписи берутся из названия отзыва в разделе «Отзывы и кейсы».
+                  </p>
+                </div>
+              )}
+
               {/* Заголовок: размер, выравнивание, свой цвет — доступно у ВСЕХ
                   блоков, а не только у тех, где правится текст заголовка. */}
               <div className="grid gap-4 sm:grid-cols-2">
@@ -903,6 +907,10 @@ export default function BlockCard({
                 </Field>
               )}
 
+              {/* ⚠️ У галереи своя лента картинок — отдельная картинка сбоку там
+                  не нужна и только путает: клиент видит два разных загрузчика
+                  и не понимает, какой из них наполняет галерею (2026-08-12). */}
+              {!has('gallery') && (
               <div className="border-t border-gray-100 pt-4">
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Картинка в секции
@@ -953,6 +961,7 @@ export default function BlockCard({
                   </div>
                 )}
               </div>
+              )}
 
               <BackgroundFields
                 eventId={eventId}
