@@ -40,6 +40,9 @@ export default function PublicSurveyPage() {
   const [done, setDone] = useState<any>(null)
   // Экран «Это вы?»: данные совпали с несколькими людьми в базе.
   const [candidates, setCandidates] = useState<any[] | null>(null)
+  // Согласия: обработка ПД обязательна, рассылки — по желанию.
+  const [pd, setPd] = useState(false)
+  const [mkt, setMkt] = useState(false)
 
   useEffect(() => {
     const qs = new URLSearchParams()
@@ -70,6 +73,10 @@ export default function PublicSurveyPage() {
   }, [slug, contactId, lm, pkg])
 
   const submit = async (choice?: { chosen_contact_id?: number; force_new?: boolean }) => {
+    if (!pd) {
+      setError('Без согласия на обработку персональных данных отправить анкету нельзя')
+      return
+    }
     setSending(true); setError('')
     try {
       const r = await fetch(`${API_BASE}/api/v1/public/surveys/${slug}/submit`, {
@@ -84,6 +91,8 @@ export default function PublicSurveyPage() {
           lead_magnet_id: lm ? Number(lm) : null,
           package_id: pkg ? Number(pkg) : null,
           platform: PLATFORM_BY_SHORT[to] || null,
+          consent_pd: pd,
+          consent_marketing: mkt,
           ...(choice || {}),
         }),
       })
@@ -131,6 +140,7 @@ export default function PublicSurveyPage() {
 
   return (
     <Shell>
+      <BrandHeader brand={data.brand} />
       {data.image_url && (
         <img src={data.image_url} alt=""
              className="mb-4 w-full rounded-xl object-cover" />
@@ -360,5 +370,53 @@ function DoneView({ result, survey }: any) {
         {survey?.thanks_text || result.thanks_text || 'Мы получили ваши ответы.'}
       </p>
     </div>
+  )
+}
+
+/** Кому принадлежит анкета — для текста согласия на рассылки. */
+function brandLabel(brand: any): string {
+  if (!brand) return ''
+  const parts = [brand.owner_name, brand.brand_name && `«${brand.brand_name}»`]
+  return parts.filter(Boolean).join(', ')
+}
+
+/**
+ * Шапка анкеты: логотип клиента, бренд и имя основателя.
+ *
+ * ⚠️ Та же шапка, что на остальных публичных страницах: человек должен
+ * понимать, чью анкету заполняет, ещё до первого вопроса.
+ */
+function BrandHeader({ brand }: { brand: any }) {
+  if (!brand || (!brand.logo_url && !brand.brand_name && !brand.owner_name)) return null
+  return (
+    <div className="mb-5 flex items-center gap-3 border-b border-black/10 pb-4">
+      {brand.logo_url && (
+        <img src={brand.logo_url} alt=""
+             className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+      )}
+      <div className="min-w-0">
+        {brand.brand_name && (
+          <div className="truncate font-semibold">{brand.brand_name}</div>
+        )}
+        {brand.owner_name && (
+          <div className="truncate text-sm opacity-70">{brand.owner_name}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Галочка согласия — та же форма, что в заказе тарифа. */
+function Consent({ checked, onChange, children }: any) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 text-[.85em] leading-snug">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+      />
+      <span className="opacity-80">{children}</span>
+    </label>
   )
 }

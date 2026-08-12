@@ -95,21 +95,42 @@ async def get_public_survey(
 
     # Оформление берём из «Стилей лендингов» клиента — анкета должна выглядеть
     # как его лендинг, а не как чужая страница (решение владельца 2026-08-12).
+    # Оттуда же — шапка: логотип, бренд и имя основателя.
     theme = {}
+    brand = {}
     try:
         t = await db.fetchrow(
             """SELECT lp_bg_color, lp_bg_color_2, lp_bg_angle, lp_color_heading,
                       lp_color_body, lp_card_bg, lp_card_text_color,
                       lp_btn_color, lp_btn_text_color, lp_btn_radius,
-                      lp_font_heading, lp_font_body, lp_content_width
+                      lp_font_heading, lp_font_body, lp_content_width,
+                      lp_color_link,
+                      name, brand_name, brand_logo_url, profile_photo_url
                  FROM clients WHERE id = $1""", s["client_id"])
         if t:
-            theme = {k: v for k, v in dict(t).items() if v is not None}
+            d = dict(t)
+            theme = {k: v for k, v in d.items() if k.startswith("lp_") and v is not None}
+            brand = {
+                "owner_name": d.get("name"),
+                "brand_name": d.get("brand_name"),
+                "logo_url": d.get("brand_logo_url") or d.get("profile_photo_url"),
+            }
     except Exception:
         logger.exception("survey: не удалось получить тему клиента")
 
+    # Ссылка на политику ПД — на домене клиента, как и вся страница.
+    privacy_url = None
+    try:
+        from app.services.client_domains import client_public_link
+        privacy_url = await client_public_link(
+            db, s["client_id"], f"/c/{s['client_id']}/privacy")
+    except Exception:
+        logger.exception("survey: не удалось собрать ссылку на политику")
+
     return {
         "theme": theme,
+        "brand": brand,
+        "privacy_url": privacy_url,
         "id": s["id"], "slug": s["slug"], "title": s["title"],
         "intro": s["intro"], "submit_label": s["submit_label"],
         "image_url": s["image_url"],
@@ -138,6 +159,9 @@ class SurveySubmit(BaseModel):
     # Экран «Это вы?»: человек выбрал себя из найденных / сказал «я впервые».
     chosen_contact_id: Optional[int] = None
     force_new: Optional[bool] = None
+    # Согласия: обработка ПД (обязательно) и рассылки (по желанию).
+    consent_pd: Optional[bool] = None
+    consent_marketing: Optional[bool] = None
 
 
 @router.post("/{slug}/submit")
@@ -244,6 +268,25 @@ async def submit_survey(
             s["id"], contact_id)
         if seen:
             return await _after_submit(db, s, contact_id, data, repeated=True)
+
+    # ⚠️ Согласия фиксируем с IP и временем — того же вида, что в остальных
+    # формах (регистрация участника, заказ тарифа). COALESCE: первое согласие
+    # не перезаписывается повторным заполнением.
+    ip = (request.client.host if request and request.client else "") or ""
+    if data.consent_pd is True:
+        await db.execute(
+            """UPDATE contacts
+                  SET consent_pd_at = COALESCE(consent_pd_at, NOW()),
+                      consent_pd_ip = COALESCE(consent_pd_ip, $2)
+                WHERE id = $1""",
+            contact_id, ip[:64])
+    if data.consent_marketing is True:
+        await db.execute(
+            """UPDATE contacts
+                  SET consent_marketing_at = COALESCE(consent_marketing_at, NOW()),
+                      consent_marketing_ip = COALESCE(consent_marketing_ip, $2)
+                WHERE id = $1""",
+            contact_id, ip[:64])
 
     async with db.transaction():
         resp_id = await db.fetchval(

@@ -241,7 +241,12 @@ async def resolve_landing_url(conn, event_id: int) -> str:
     # на странице события кнопки «Зарегистрироваться» нет (только мелкая ссылка
     # внутри блока подарков), человек с рассылки упирался бы в тупик.
     form_url = public_url_for(base, f"event/{slug}/register")
-    lp_url = public_url_for(base, f"e/{slug}")
+    # ⚠️ Метка `?c=__CT__` заменяется на contact_id ПОЛУЧАТЕЛЯ при отправке
+    # (tasks/broadcast.py) — тот же приём, что у ссылки эфира. Без неё человек
+    # приходил на лендинг неопознанным, и форма заказа тарифа встречала его
+    # пустыми полями, хотя мы его знаем. Контакт не резолвился — метка
+    # вырезается, ссылка остаётся рабочей.
+    lp_url = public_url_for(base, f"e/{slug}?c=__CT__")
     if mode == "external":
         return ext or (lp_url if has_lp else form_url)
     if mode == "landing":

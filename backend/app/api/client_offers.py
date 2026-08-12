@@ -197,10 +197,35 @@ async def public_offer(slug: str, db: asyncpg.Connection = Depends(get_db)):
     Берём активную оферту с таким адресом — коллизия между клиентами
     маловероятна, а адрес можно сменить в кабинете."""
     row = await db.fetchrow(
-        "SELECT title, body, external_url FROM client_offers "
+        "SELECT client_id, title, body, external_url FROM client_offers "
         "WHERE slug = $1 AND is_active ORDER BY id LIMIT 1",
         slug,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Документ не найден")
-    return dict(row)
+
+    out = dict(row)
+    client_id = out.pop("client_id")
+
+    # Оформление — как у лендингов клиента: человек пришёл из его воронки и не
+    # должен упереться в чужую белую страницу. Общая точка на все публичные
+    # страницы (та же питает анкету).
+    from app.services.client_landing_theme_public import client_landing_theme
+    out["theme"] = await client_landing_theme(db, client_id)
+
+    # Шапка: чей это документ. Без неё оферта выглядит ничьей — человек читает
+    # условия сделки и должен видеть, с кем её заключает.
+    # ⚠️ Формат тот же, что у анкеты (`surveys_public`): owner_name / brand_name
+    # / logo_url с фолбэком на фото бренда. Шапки этих страниц обязаны совпадать
+    # — человек ходит между ними в одной воронке.
+    b = await db.fetchrow(
+        "SELECT name, brand_name, brand_logo_url, profile_photo_url "
+        "  FROM clients WHERE id = $1",
+        client_id,
+    )
+    out["brand"] = {
+        "owner_name": b["name"],
+        "brand_name": b["brand_name"],
+        "logo_url": b["brand_logo_url"] or b["profile_photo_url"],
+    } if b else {}
+    return out
