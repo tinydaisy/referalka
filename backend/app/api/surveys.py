@@ -744,10 +744,23 @@ async def get_response(
     survey = await db.fetchrow(
         "SELECT id, title FROM surveys WHERE id = $1", survey_id)
 
+    # ⚠️ Дополнительные поля контакта — ОТДЕЛЬНЫМ блоком, а не вперемешку с
+    # ответами (решение владельца): ответ на анкету — что человек сказал
+    # ОДИН раз, поле — его текущее свойство, которое могло измениться позже.
+    fields = await db.fetch(
+        """SELECT f.id, f.title, f.kind, v.value, v.updated_at
+             FROM contact_fields f
+             LEFT JOIN contact_field_values v
+                    ON v.field_id = f.id AND v.contact_id = $1
+            WHERE f.client_id = $2 AND f.is_active = TRUE
+            ORDER BY f.sort_order, f.id""",
+        r["contact_id"], client_id)
+
     return {
         **dict(r),
         "survey": dict(survey) if survey else None,
         "answers": [dict(x) for x in rows],
+        "contact_fields": [dict(x) for x in fields],
     }
 
 
