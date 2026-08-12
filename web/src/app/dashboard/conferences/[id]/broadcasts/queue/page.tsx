@@ -2166,11 +2166,19 @@ function CustomBroadcastModal(props: {
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
   const hasButtonErrors = buttonErrors.some(errs => errs.length > 0)
   const [testing, setTesting] = useState(false)
+  // Итог теста показываем ВНУТРИ модалки — родительская плашка перекрыта окном.
+  const [testMsg, setTestMsg] = useState('')
 
   async function sendTestNow() {
-    if (!text.trim()) { props.onError('Пустой текст'); return }
-    if (htmlErrors.length > 0) { props.onError('Исправьте HTML-ошибки в тексте'); return }
-    if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
+    // ⚠️ Текст берём из редактора: onChange срабатывает на blur, и сразу
+    // после набора в state ещё пусто — тест ложно ругался «Пустой текст».
+    const liveText = editorRef.current?.getValue() ?? text
+    if (liveText !== text) setText(liveText)
+    const plainTest = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+    if (!plainTest) { setTestMsg('Сначала напишите текст рассылки'); return }
+    if (htmlErrors.length > 0) { setTestMsg('Исправьте HTML-ошибки в тексте'); return }
+    if (hasButtonErrors) { setTestMsg('Исправьте ошибки в кнопках'); return }
+    setTestMsg('')
     setTesting(true)
     try {
       // Тест шлётся по СОХРАНЁННОЙ рассылке (её снапшоту) — так плейсхолдеры
@@ -2201,17 +2209,18 @@ function CustomBroadcastModal(props: {
         const created = await api.conference.schedules.addCustom(props.eventId, payload)
         schedId = created?.id
       }
-      if (!schedId) { props.onError('Не удалось сохранить черновик для теста'); return }
+      if (!schedId) { setTestMsg('Не удалось сохранить черновик для теста'); props.onError('Не удалось сохранить черновик для теста'); return }
       const r = await api.conference.schedules.testScheduleNow(props.eventId, schedId)
       const failed = (r.results || []).filter((x: any) => !x.ok)
       if (failed.length > 0) {
-        props.onError(`Тест: доставлено ${r.sent}/${r.total}. Ошибки: ${failed.map((f: any) => `${f.platform}:${f.error}`).join('; ')}`)
+        { const m = `Доставлено ${r.sent} из ${r.total}. Не ушло: ${failed.map((f: any) => `${f.platform} — ${f.error}`).join('; ')}`; setTestMsg(m); props.onError(m) }
       } else {
-        props.onError(`✅ Тест отправлен (${r.sent} шт) на ваши тестовые ID. Рассылка сохранена черновиком.`)
+        { const m = `✅ Тест отправлен (${r.sent} шт) на ваши тестовые адреса. Рассылка сохранена черновиком.`; setTestMsg(m); props.onError(m) }
       }
       props.onSaved()
     } catch (e: any) {
-      props.onError(e.message || 'Ошибка тестовой отправки')
+      const m = e.message || 'Ошибка тестовой отправки'
+      setTestMsg(m); props.onError(m)
     } finally {
       setTesting(false)
     }
@@ -2484,7 +2493,16 @@ function CustomBroadcastModal(props: {
           className="w-full mt-4 py-2 rounded-xl text-sm font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60">
           {testing ? 'Отправляю тест...' : '🧪 Отправить тестовую рассылку немедленно'}
         </button>
-        <p className="text-[11px] text-gray-400 mt-1 text-center">Уйдёт сразу на ваши тестовые Telegram/VK/MAX ID (Настройки → Технические).</p>
+        {testMsg && (
+          <p className={`text-xs mt-2 text-center rounded-lg px-3 py-2 ${
+            testMsg.startsWith('✅')
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}>
+            {testMsg}
+          </p>
+        )}
+        <p className="text-[11px] text-gray-400 mt-1 text-center">Уйдёт сразу на ваши тестовые Telegram/VK/MAX/Email из настроек (Настройки → Технические).</p>
         <div className="flex gap-2 mt-3">
           <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
