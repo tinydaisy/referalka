@@ -76,30 +76,6 @@ export default function SurveyResponsePage() {
         </div>
       )}
 
-      {/* ⚠️ Дополнительные поля — ОТДЕЛЬНЫМ блоком, а не вперемешку с
-          ответами: ответ на анкету человек дал один раз, а поле — его
-          текущее свойство, которое могло измениться позже (например,
-          доход обновился в другой анкете). */}
-      {(data.contact_fields || []).some((f: any) => f.value) && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
-          <h2 className="mb-1 text-sm font-semibold text-gray-800">
-            Дополнительные поля контакта
-          </h2>
-          <p className="mb-3 text-xs text-gray-500">
-            Текущие значения в карточке человека — могли обновиться после
-            этого заполнения.
-          </p>
-          <div className="space-y-1.5">
-            {(data.contact_fields || []).filter((f: any) => f.value).map((f: any) => (
-              <div key={f.id} className="flex justify-between gap-3 text-sm">
-                <span className="text-gray-500">{f.title}</span>
-                <span className="text-gray-900">{f.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold text-gray-800">Ответы на анкету</h2>
         <div className="space-y-4">
