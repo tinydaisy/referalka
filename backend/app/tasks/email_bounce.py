@@ -205,6 +205,11 @@ async def _process_bounces_async():
                 continue
 
             to_email = m.group("to").strip().lower()
+            # Служебные ящики: туда Postfix шлёт свои же уведомления о
+            # недоставке. Это не контакты клиентов — в статистике недоставки
+            # им не место (раньше давали 1928 строк мусора).
+            if to_email in ("devnull@pluson.ru", "noreply@pluson.ru"):
+                continue
             dsn = m.group("dsn")
             message = m.group("message")
             bounce_type = _classify(dsn, message, status)
