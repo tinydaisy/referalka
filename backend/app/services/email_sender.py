@@ -245,18 +245,25 @@ class EmailSender:
 
         from_address = _build_from_address(channel)
         from_header = _build_from_header(channel, client_brand_name)
-        unsub_url = _unsubscribe_url(unsubscribe_token, public_base_url)
+        # ⚠️ Токена нет → подвал отписки НЕ добавляем вовсе. Раньше сюда
+        # прилетала строка "test" из тестовой отправки, ссылка собиралась
+        # заведомо битой, и человек упирался в «Ссылка недействительна»
+        # (жалоба 2026-08-12). Лучше письмо без подвала, чем с обманкой.
+        unsub_url = _unsubscribe_url(unsubscribe_token, public_base_url) \
+            if unsubscribe_token else None
         msg_id = make_msgid(domain=from_address.split("@", 1)[1])
 
         # В подвале используем footer_brand_label если он задан (это «{Имя} и
         # {Бренд}»), иначе fallback на client_brand_name (только бренд).
         footer_label = (footer_brand_label or client_brand_name or "").strip() or None
-        plain_body = (body_text or "") + _build_plain_footer(unsub_url, footer_label)
+        plain_body = (body_text or "")
+        if unsub_url:
+            plain_body += _build_plain_footer(unsub_url, footer_label)
 
         # HTML-версия — есть ВСЕГДА, даже если caller передал только plain-text.
         # Подвал отписки вставляется ВНУТРИ <body>, перед </body> — иначе
         # некоторые клиенты игнорируют HTML после </html>.
-        html_footer = _build_html_footer(unsub_url, footer_label)
+        html_footer = _build_html_footer(unsub_url, footer_label) if unsub_url else ""
 
         if body_html:
             html_outer = body_html
@@ -323,8 +330,12 @@ class EmailSender:
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = msg_id
         # Gmail one-click отписка (RFC 8058)
-        msg["List-Unsubscribe"] = f"<{unsub_url}>"
-        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        # ⚠️ Без рабочей ссылки заголовки не ставим: иначе кнопка «Отписаться»
+        # в самом Gmail дёрнула бы битый URL и человек решил бы, что отписка
+        # не работает.
+        if unsub_url:
+            msg["List-Unsubscribe"] = f"<{unsub_url}>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
         try:
             with smtplib.SMTP(self.host, self.port, timeout=self.timeout) as smtp:

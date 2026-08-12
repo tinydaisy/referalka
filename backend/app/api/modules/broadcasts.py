@@ -3098,6 +3098,47 @@ async def _load_test_targets(db, client_id: int):
     return bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz, test_email_ids
 
 
+async def _test_unsubscribe_token(db, client_id: int, addr: str, ch_dict: dict):
+    """Рабочий токен отписки для ТЕСТОВОГО письма.
+
+    ⚠️ Тестовое письмо клиент шлёт себе, чтобы проверить, как оно выглядит, —
+    и жмёт в нём «Отписаться». Раньше туда писали строку "test", и человек
+    упирался в «Ссылка недействительна» (жалоба 2026-08-12). Собираем
+    настоящий токен по контакту с этим адресом.
+
+    Не нашли контакт (адрес не из базы) → возвращаем None: подвал с отпиской
+    в письмо не попадёт вовсе. Это честнее заведомо битой ссылки, а для
+    проверки вёрстки подвал не обязателен.
+    """
+    try:
+        from app.services.contact_merge import normalize_email
+        from app.services.unsubscribe_token import make_email_unsubscribe_token
+
+        email_norm = normalize_email(addr)
+        if not email_norm:
+            return None
+        row = await db.fetchrow(
+            """SELECT pu.contact_id, cc.id AS client_channel_id
+                 FROM platform_users pu
+                 JOIN contacts c ON c.id = pu.contact_id AND c.is_active = TRUE
+                 JOIN client_channels cc ON cc.client_id = c.client_id
+                 JOIN channels ch ON ch.id = cc.channel_id AND ch.platform_slug = 'email'
+                WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
+                  AND pu.platform_user_id = $2
+                LIMIT 1""",
+            client_id, email_norm)
+        if not row:
+            return None
+        return make_email_unsubscribe_token(
+            client_id=client_id,
+            contact_id=row["contact_id"],
+            client_channel_id=row["client_channel_id"],
+        )
+    except Exception:
+        logger.warning("Не удалось собрать токен отписки для тестового письма %s", addr)
+        return None
+
+
 async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
                                  db=None, client_id: int | None = None,
                                  event_id: int | None = None,
@@ -3218,12 +3259,20 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
             html = str(email_body).replace("\n", "<br>")
             subj = content.get("subject") or "Тестовая рассылка"
             sender = EmailSender()
+            pub_base = await client_public_url(db, client_id)
             for addr in test_email_ids:
                 addr = str(addr).strip()
                 if not addr:
                     continue
                 try:
-                    # send() возвращает Message-ID и КИДАЕТ исключение при сбое.
+                    # ⚠️ Ссылка отписки в тестовом письме должна быть РАБОЧЕЙ.
+                    # Раньше сюда жёстко писали `unsubscribe_token="test"` — и
+                    # клиент, проверяя рассылку на себе, жал «Отписаться» и
+                    # получал «Ссылка недействительна» (жалоба 2026-08-12).
+                    # Токен собираем по реальному контакту с этим адресом;
+                    # не нашли — пробуем контакт самого клиента, иначе шлём
+                    # письмо вовсе без подвала отписки.
+                    unsub = await _test_unsubscribe_token(db, client_id, addr, ch_dict)
                     sender.send(
                         channel=ch_dict,
                         client_brand_name=(cl_row["brand"] if cl_row else None),
@@ -3231,8 +3280,8 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                         subject=subj,
                         body_text=str(email_body),
                         body_html=html,
-                        unsubscribe_token="test",
-                        public_base_url=await client_public_url(db, client_id),
+                        unsubscribe_token=unsub,
+                        public_base_url=pub_base,
                     )
                     out.append({"platform": "email", "chat_id": addr,
                                 "ok": True, "error": None})
