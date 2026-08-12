@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, ChevronLeft, ChevronUp, Send } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, MailX, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, ChevronLeft, ChevronUp, Send } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 import { useMe } from '@/hooks/useMe'
@@ -28,6 +28,8 @@ interface Contact {
   linked_client_email?: string | null
   is_staff?: boolean
   is_blacklisted?: boolean
+  /** Почтовик вернул отказ по адресу — письма на него не уходят. */
+  email_is_dead?: boolean
   is_unsubscribed: boolean
   last_contact_at: string | null
   created_at: string | null
@@ -60,6 +62,9 @@ interface IdentityWithSubs extends Identity {
 }
 
 interface ContactDetail extends Contact {
+  /** Причина отказа почтовика, уже переведённая бэкендом на русский. */
+  email_dead_reason?: string | null
+  email_dead_at?: string | null
   identities: IdentityWithSubs[]
   events: {
     id: number
@@ -482,6 +487,14 @@ export default function ContactsPage() {
                         className="shrink-0 w-2 h-2 rounded-full bg-red-600"
                       />
                     )}
+                    {c.email_is_dead && (
+                      <span
+                        title="Адрес не работает — письма на него не отправляются"
+                        className="shrink-0 text-red-500"
+                      >
+                        <MailX size={13} />
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-gray-400 truncate block">
                     {getMetaLine(c)}
@@ -708,6 +721,23 @@ export default function ContactsPage() {
                   setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, email: v } : c))
                 }}
               />
+              {/* Почтовик вернул отказ по этому адресу — письма на него не уходят.
+                  Показываем причину и дату, чтобы клиент понял, что делать. */}
+              {selected.email_is_dead && (
+                <div className="-mt-2 ml-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                  <p className="text-xs font-semibold text-red-700">
+                    Адрес не работает — письма на него не отправляются
+                  </p>
+                  {selected.email_dead_reason && (
+                    <p className="text-xs text-red-600 mt-0.5">{selected.email_dead_reason}</p>
+                  )}
+                  {selected.email_dead_at && (
+                    <p className="text-[11px] text-red-500 mt-0.5">
+                      Проверено {new Date(selected.email_dead_at).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}
+                    </p>
+                  )}
+                </div>
+              )}
               <ContactFieldEditor
                 contactId={selected.id}
                 field="phone"

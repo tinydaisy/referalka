@@ -353,6 +353,11 @@ async def get_contacts(
           (SELECT pe.platform_user_id FROM platform_users pe
             WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
             ORDER BY pe.id LIMIT 1) AS email,
+          -- Почтовик вернул отказ по этому адресу: писать на него бесполезно.
+          -- Показываем клиенту в списке и в карточке контакта.
+          COALESCE((SELECT pe.email_is_dead FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1), FALSE) AS email_is_dead,
           c.phone,
           c.utm_source,
           c.tags,
@@ -466,6 +471,11 @@ async def export_contacts_csv(
           (SELECT pe.platform_user_id FROM platform_users pe
             WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
             ORDER BY pe.id LIMIT 1) AS email,
+          -- Почтовик вернул отказ по этому адресу: писать на него бесполезно.
+          -- Показываем клиенту в списке и в карточке контакта.
+          COALESCE((SELECT pe.email_is_dead FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1), FALSE) AS email_is_dead,
           c.phone,
           c.utm_source,
           c.tags,
@@ -663,6 +673,17 @@ async def get_contact(
           (SELECT pe.platform_user_id FROM platform_users pe
             WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
             ORDER BY pe.id LIMIT 1) AS email,
+          -- Почтовик вернул отказ по этому адресу: писать на него бесполезно.
+          -- Показываем клиенту в списке и в карточке контакта.
+          COALESCE((SELECT pe.email_is_dead FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1), FALSE) AS email_is_dead,
+          (SELECT pe.email_dead_reason FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1) AS email_dead_reason,
+          (SELECT pe.email_dead_at FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1) AS email_dead_at,
           c.phone,
           c.utm_source,
           c.tags,
@@ -810,6 +831,22 @@ async def get_contact(
     row_dict["tags"] = parse_tags(row_dict.get("tags"))
     if row_dict.get("merged_ref_codes") and isinstance(row_dict["merged_ref_codes"], str):
         row_dict["merged_ref_codes"] = json.loads(row_dict["merged_ref_codes"])
+
+    # Причина «битого» адреса лежит в БД сырым ответом почтовика
+    # («hard_bounce: host gmail-smtp-in… said: 550-5.1.1 …») — клиенту такое
+    # показывать нельзя. Переводим той же функцией, что и в отчёте по рассылке,
+    # чтобы формулировки в карточке и в рассылке совпадали.
+    if row_dict.get("email_is_dead"):
+        raw = row_dict.get("email_dead_reason") or ""
+        if raw == "multiple_soft_bounces":
+            row_dict["email_dead_reason"] = (
+                "Почтовый сервис несколько раз подряд не принял письмо"
+            )
+        else:
+            from app.tasks.email_bounce import human_reason
+            row_dict["email_dead_reason"] = human_reason(
+                None, raw, row_dict.get("email")
+            )
 
     # Для обратной совместимости с UI: первая идентичность как fallback
     if identities_list:

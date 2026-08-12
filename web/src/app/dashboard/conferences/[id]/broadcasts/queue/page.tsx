@@ -1173,7 +1173,7 @@ export default function QueuePage() {
                             <span className="text-red-500 font-bold text-sm leading-none">✕</span>
                             <span className="text-sm font-semibold text-red-500">{(s.recipients_failed || 0) + (s.recipients_bounced || 0)}</span>
                             <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none leading-snug">
-                              Не доставлено {(s.recipients_failed || 0) + (s.recipients_bounced || 0)} получателям. Нажмите «список» — увидите разбивку по причинам (письмо отклонено как спам, адрес не существует, бот заблокирован, и т.д.).
+                              Не доставлено {(s.recipients_failed || 0) + (s.recipients_bounced || 0)} получателям. Нажмите «список» — увидите разбивку по причинам (отклонено почтовым сервисом с подозрением на спам, адрес не существует, бот заблокирован, и т.д.).
                             </div>
                           </div>
                         )}
