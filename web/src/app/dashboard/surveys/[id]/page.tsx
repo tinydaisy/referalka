@@ -489,11 +489,15 @@ function QuestionRow({
               «Поля контакта», а не здесь: поле общее для всех анкет и для
               карточек всех контактов. Правка тут развалила бы накопленные
               значения. Отсюда его можно только убрать из анкеты. */}
+          {/* ⚠️ Открываем в НОВОЙ вкладке: клик по кнопке рядом с «Изменить»
+              читается как правка вопроса, а уход со страницы терял место в
+              длинном списке (жалоба владельца: «меня выбило в список анкет»). */}
           {isField ? (
-            <Link href="/dashboard/surveys?tab=fields"
-                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50">
-              Поля контакта
-            </Link>
+            <a href="/dashboard/surveys?tab=fields" target="_blank" rel="noreferrer"
+               title="Название, тип и варианты у доп. поля меняются в разделе «Поля контакта» — оно общее для всех анкет"
+               className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50">
+              Настроить поле ↗
+            </a>
           ) : (
           <button onClick={() => setEditing(true)}
                   className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
