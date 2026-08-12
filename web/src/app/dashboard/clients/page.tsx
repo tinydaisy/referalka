@@ -1060,38 +1060,37 @@ export default function ContactsPage() {
               </div>
             )}
 
-            {/* Что человек отвечал в анкетах */}
+            {/* ⚠️ Только СПИСОК анкет со ссылками, без самих ответов: в
+                карточке контакта и так плотно, а развёрнутые ответы
+                превращают её в помойку (замечание владельца). Ответы
+                смотрим на своей странице. */}
             {(selected as any).survey_history?.length > 0 && (
-              <details className="mb-3 group rounded-xl border border-gray-200 bg-white overflow-hidden">
-                <summary className="flex items-center justify-between cursor-pointer list-none select-none px-4 py-3 hover:bg-gray-50">
-                  <span className="text-sm font-semibold text-gray-800">
-                    Анкеты
-                    <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[#FFCFA4] text-[#25455D] text-[11px] font-bold">
-                      {(selected as any).survey_history.length}
-                    </span>
+              <div className="mb-3 rounded-xl border border-gray-200 bg-white p-4">
+                <h4 className="mb-3 text-sm font-semibold text-gray-800">
+                  Анкеты
+                  <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[#FFCFA4] text-[#25455D] text-[11px] font-bold">
+                    {(selected as any).survey_history.length}
                   </span>
-                  <span className="text-gray-400 group-open:rotate-180 transition-transform">▾</span>
-                </summary>
-                <div className="px-4 pb-4 space-y-3">
+                </h4>
+                <div className="space-y-2">
                   {(selected as any).survey_history.map((r: any) => (
-                    <div key={r.id} className="rounded-lg bg-gray-50 p-3">
-                      <Link href={`/dashboard/surveys/${r.survey_id}?tab=report`}
-                            className="text-sm font-medium text-gray-800 hover:text-[#25455D] hover:underline">
+                    <Link key={r.id}
+                          href={`/dashboard/surveys/${r.survey_id}/responses/${r.id}`}
+                          className="block rounded-lg border border-gray-100 p-2.5 hover:bg-gray-50">
+                      <div className="text-sm font-medium text-[#25455D]">
                         {r.survey_title}
-                      </Link>
-                      <div className="mb-2 text-xs text-gray-500">
-                        {new Date(r.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
                       </div>
-                      {(r.answers || []).map((a: any, i: number) => (
-                        <div key={i} className="text-sm">
-                          <span className="text-gray-500">{a.question}: </span>
-                          <span className="text-gray-900">{a.value}</span>
-                        </div>
-                      ))}
-                    </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(r.created_at).toLocaleString('ru-RU', {
+                          timeZone: 'Europe/Moscow',
+                          day: '2-digit', month: '2-digit', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })} МСК
+                      </div>
+                    </Link>
                   ))}
                 </div>
-              </details>
+              </div>
             )}
 
             {/* Вебинары — где контакт реально был в эфире (webinar_presence) */}
