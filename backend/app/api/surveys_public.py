@@ -93,30 +93,27 @@ async def get_public_survey(
                     "WHERE survey_id=$1 AND contact_id=$2 ORDER BY id DESC LIMIT 1",
                     s["id"], c)]
 
-    # Оформление берём из «Стилей лендингов» клиента — анкета должна выглядеть
-    # как его лендинг, а не как чужая страница (решение владельца 2026-08-12).
-    # Оттуда же — шапка: логотип, бренд и имя основателя.
-    theme = {}
+    # ⚠️ Тема — из ОБЩЕЙ точки `client_landing_theme`, а не своим SELECT по
+    # lp_*: иначе публичные страницы разъедутся между собой (оферта уже
+    # выглядела иначе, чем лендинг того же клиента).
+    from app.services.client_landing_theme_public import client_landing_theme
+    theme = await client_landing_theme(db, s["client_id"])
+
+    # Шапка: логотип, бренд и имя основателя — человек должен понимать, чью
+    # анкету заполняет, ещё до первого вопроса.
     brand = {}
     try:
-        t = await db.fetchrow(
-            """SELECT lp_bg_color, lp_bg_color_2, lp_bg_angle, lp_color_heading,
-                      lp_color_body, lp_card_bg, lp_card_text_color,
-                      lp_btn_color, lp_btn_text_color, lp_btn_radius,
-                      lp_font_heading, lp_font_body, lp_content_width,
-                      lp_color_link,
-                      name, brand_name, brand_logo_url, profile_photo_url
-                 FROM clients WHERE id = $1""", s["client_id"])
-        if t:
-            d = dict(t)
-            theme = {k: v for k, v in d.items() if k.startswith("lp_") and v is not None}
+        b = await db.fetchrow(
+            "SELECT name, brand_name, brand_logo_url, profile_photo_url "
+            "FROM clients WHERE id = $1", s["client_id"])
+        if b:
             brand = {
-                "owner_name": d.get("name"),
-                "brand_name": d.get("brand_name"),
-                "logo_url": d.get("brand_logo_url") or d.get("profile_photo_url"),
+                "owner_name": b["name"],
+                "brand_name": b["brand_name"],
+                "logo_url": b["brand_logo_url"] or b["profile_photo_url"],
             }
     except Exception:
-        logger.exception("survey: не удалось получить тему клиента")
+        logger.exception("survey: не удалось получить бренд клиента")
 
     # Ссылка на политику ПД — на домене клиента, как и вся страница.
     privacy_url = None

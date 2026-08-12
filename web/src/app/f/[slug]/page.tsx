@@ -208,9 +208,10 @@ export default function PublicSurveyPage() {
  */
 function Shell({ children, theme }: { children: React.ReactNode; theme?: any }) {
   const t = theme || {}
-  const bg = t.lp_bg_color
-    ? `linear-gradient(${t.lp_bg_angle ?? 45}deg, ${t.lp_bg_color}, ${t.lp_bg_color_2 || t.lp_bg_color})`
-    : 'linear-gradient(45deg, #25455D, #0a1520)'
+  // ⚠️ Готовую заливку считает бэкенд (`bg_css` в client_landing_theme) — тем
+  // же правилом, что у лендинга. Собирать градиент здесь заново нельзя:
+  // страницы разъедутся между собой.
+  const bg = t.bg_css || t.lp_bg_color || 'linear-gradient(45deg, #25455D, #0a1520)'
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: bg }}>
       <div className="mx-auto w-full max-w-xl rounded-2xl p-6 shadow-sm"
