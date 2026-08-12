@@ -1559,9 +1559,13 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
   }
 
   const cards = list.map((x: any, i: number) => (
+    // ⚠️ Карточка — колонка на всю высоту ряда (h-full), подпись внизу через
+    // mt-auto. Фото у клиента разных пропорций, высота у них своя; без этого
+    // подпись вставала сразу под своей картинкой и подписи соседних карточек
+    // оказывались на разных уровнях — ряд «плясал» (жалоба 2026-08-12).
     <figure
       key={i}
-      className={carousel ? 'shrink-0 snap-start' : ''}
+      className={`flex h-full flex-col ${carousel ? 'shrink-0 snap-start' : ''}`}
       style={{ ...cardStyle, ...(carousel ? { width: `min(${cardW}px, 82vw)` } : {}) }}
     >
       {(isVideo ?? x.kind === 'video') ? (
@@ -1599,7 +1603,7 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
         />
       )}
       {showCaptions && x.caption && (
-        <figcaption className="p-3 text-[.9em] opacity-80">{x.caption}</figcaption>
+        <figcaption className="mt-auto p-3 text-[.9em] opacity-80">{x.caption}</figcaption>
       )}
     </figure>
   ))

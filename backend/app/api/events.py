@@ -665,7 +665,8 @@ async def change_event_type(
 
     async with db.transaction():
         await db.execute(
-            "UPDATE events SET module_slug = $2, updated_at = NOW() WHERE id = $1",
+            # ⚠️ У таблицы `events` НЕТ колонки updated_at — только created_at.
+            "UPDATE events SET module_slug = $2 WHERE id = $1",
             event_id, target,
         )
         # Надстройка конференции/турнира — общая таблица для обоих типов.
