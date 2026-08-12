@@ -9,7 +9,7 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, surveys, surveys_public
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, surveys, surveys_public, analytics_dashboards
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
@@ -96,6 +96,9 @@ app.include_router(medialift.router)  # /api/v1/public/medialift/... — Мед�
 app.include_router(medialift.client_router)  # /api/v1/clients/me/medialift/my-card — карточка клиента в МедиаЛифте
 app.include_router(contacts.router,     prefix="/api/v1")
 app.include_router(analytics.router,    prefix="/api/v1")  # /api/v1/analytics/utm — сводка по UTM
+# ⚠️ Объявлять ПОСЛЕ analytics: у обоих префикс /analytics, но пути не
+# пересекаются (/utm против /dashboards, /sources).
+app.include_router(analytics_dashboards.router, prefix="/api/v1")  # дашборды-квадратики
 app.include_router(lead_magnets.router, prefix="/api/v1")
 # Анкеты (миграция 280): кабинет + публичная страница /f/{slug}.
 app.include_router(surveys.router, prefix="/api/v1")

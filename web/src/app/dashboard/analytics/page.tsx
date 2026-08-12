@@ -1,7 +1,10 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { BarChart3, TrendingUp, Users } from 'lucide-react'
+import { BarChart3, TrendingUp, Users, LayoutGrid } from 'lucide-react'
+import Link from 'next/link'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
+import DashboardView from '@/components/analytics/DashboardView'
 
 const DARK = '#25455D'
 const PEACH = '#FFCFA4'
@@ -36,16 +39,25 @@ interface UtmResponse {
   packages: { id: number; name: string }[]
 }
 
+type SubTab = 'dashboard' | 'utm'
+
 export default function AnalyticsPage() {
+  const { me } = useMe()
   const [data, setData] = useState<UtmResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [sub, setSub] = useState<SubTab>('dashboard')
 
   const [groupBy, setGroupBy] = useState('utm_source')
   // Фильтр по источнику: '' = все, 'm:<id>' = лид-магнит, 'p:<id>' = пакет.
   const [scope, setScope] = useState('')
 
+  // Дашборды — Экстра и админ. Сводка по UTM остаётся доступна всем.
+  const hasDashboards = (me?.features || []).includes('analytics_dashboard')
+
   const load = useCallback(async () => {
+    // Пока открыт дашборд, сводку по UTM не тянем — лишний запрос.
+    if (sub !== 'utm') return
     setLoading(true)
     setErr(null)
     try {
@@ -59,7 +71,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [groupBy, scope])
+  }, [groupBy, scope, sub])
 
   useEffect(() => { load() }, [load])
 
@@ -74,10 +86,59 @@ export default function AnalyticsPage() {
         <BarChart3 size={26} style={{ color: DARK }} />
         <h1 className="text-2xl font-bold text-gray-900">Аналитика</h1>
       </div>
-      <p className="text-sm text-gray-500 mb-6">
-        Откуда приходят люди и какой источник даёт лучшую конверсию. Данные — из воронок лид-магнитов и базы контактов.
+      <p className="text-sm text-gray-500 mb-5">
+        {sub === 'dashboard'
+          ? 'Свои срезы базы: разрез по полю контакта или вопросу анкеты, с пересечением условий.'
+          : 'Откуда приходят люди и какой источник даёт лучшую конверсию. Данные — из воронок лид-магнитов и базы контактов.'}
       </p>
 
+      {/* ── Подвкладки ── */}
+      <div className="mb-5 flex gap-2 border-b border-gray-200">
+        <button
+          onClick={() => setSub('dashboard')}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm ${
+            sub === 'dashboard'
+              ? 'border-b-2 font-semibold text-[#25455D]'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          style={sub === 'dashboard' ? { borderColor: DARK } : undefined}
+        >
+          <LayoutGrid size={15} /> Дашборд
+        </button>
+        <button
+          onClick={() => setSub('utm')}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm ${
+            sub === 'utm'
+              ? 'border-b-2 font-semibold text-[#25455D]'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          style={sub === 'utm' ? { borderColor: DARK } : undefined}
+        >
+          <TrendingUp size={15} /> Источники (UTM)
+        </button>
+      </div>
+
+      {sub === 'dashboard' && (
+        hasDashboards ? (
+          <DashboardView />
+        ) : (
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center">
+            <div className="mb-2 text-lg font-semibold text-[#25455D]">
+              Дашборды — на тарифе Экстра
+            </div>
+            <p className="mx-auto mb-4 max-w-md text-sm text-gray-500">
+              Соберите свои срезы базы: сколько людей с каким доходом, кто готов
+              работать с наставником, и как одно пересекается с другим.
+            </p>
+            <Link href="/dashboard/subscription" className="btn-gold inline-block px-4 py-2">
+              Посмотреть тариф
+            </Link>
+          </div>
+        )
+      )}
+
+      {sub === 'utm' && (
+      <>
       {/* ── Фильтры ── */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="flex flex-col gap-1">
@@ -201,6 +262,8 @@ export default function AnalyticsPage() {
             )}
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   )

@@ -26,8 +26,9 @@ import ProgramTab from '@/app/dashboard/conferences/[id]/tabs/ProgramTab'
 // спикеров и завязан на снимки-отчёты, а в коллабе нужен вклад организаторов
 // в привлечение людей + Win-Win коэффициент.
 import CollabReportTab from './tabs/CollabReportTab'
+import DashboardView from '@/components/analytics/DashboardView'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -40,6 +41,7 @@ export default function EventPage() {
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
   const hasLanding = (me?.features || []).includes('event_landing')
+  const hasAnalyticsDashboard = (me?.features || []).includes('analytics_dashboard')
   // Вебинарные комнаты — по фиче webinar_room (своя комната) или webinar_link
   // (ссылка на сторонний). У события без программы комната одна: бэкенд
   // отдаёт виртуальный «день 1».
@@ -112,9 +114,14 @@ export default function EventPage() {
     // раздел: видно, кто из организаторов сколько людей привёл и каков его
     // Win-Win коэффициент. У обычного мероприятия отчёт не показываем —
     // привлекает один человек, сравнивать не с кем.
-    ...(event.is_collab ? [{
+    // ⚠️ Раздел появляется, если внутри есть хоть одна вкладка: отчёт (только
+    // у коллабы) или дашборд (по фиче). Иначе получилась бы пустая группа.
+    ...((event.is_collab || hasAnalyticsDashboard) ? [{
       key: 'tracking' as GroupKey, label: 'Отслеживания',
-      tabs: [{ key: 'report' as TabKey, label: 'Отчёт по привлечению' }],
+      tabs: [
+        ...(event.is_collab ? [{ key: 'report' as TabKey, label: 'Отчёт по привлечению' }] : []),
+        ...(hasAnalyticsDashboard ? [{ key: 'dashboard' as TabKey, label: 'Дашборд' }] : []),
+      ],
     }] : []),
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
     // ⚠️ У КОЛЛАБ-события платежей нет — раздел скрыт.
@@ -215,6 +222,9 @@ export default function EventPage() {
       {activeTab === 'webinar' && hasWebinar && <WebinarTab eventId={eventId} event={event} />}
       {activeTab === 'program' && event.is_collab && <ProgramTab eventId={eventId} />}
       {activeTab === 'report'  && event.is_collab && <CollabReportTab eventId={eventId} />}
+      {/* Дашборд события: движок общий с «Аналитикой», но считает только по
+          участникам этого события — условие подставляет бэк. */}
+      {activeTab === 'dashboard' && hasAnalyticsDashboard && <DashboardView eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}
       {activeTab === 'co_organizers' && !isConference && !event.is_collab && hasEventOrganizers && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}

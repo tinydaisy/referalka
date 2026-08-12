@@ -18,6 +18,7 @@ import PostersTab from './tabs/PostersTab'
 import AnnouncementTrackerTab from './tabs/AnnouncementTrackerTab'
 import { CriteriaTab, AssignmentsTab, LeaderboardTab, JuryReviewTab, ReportsTab, TaskControlTab } from './tabs/ScoringTab'
 import ReportTab from './tabs/ReportTab'
+import DashboardView from '@/components/analytics/DashboardView'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
@@ -31,7 +32,7 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing'
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard'
 const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing']
 
 export default function ConferencePage() {
@@ -52,6 +53,7 @@ export default function ConferencePage() {
   // Раздел «Вебинары» — по фиче webinar_room (Экстра, своя комната) или webinar_link (Профи, ссылка).
   // Конструктор лендинга — по фиче event_landing (миграция 240).
   const hasLanding = (me?.features || []).includes('event_landing')
+  const hasAnalyticsDashboard = (me?.features || []).includes('analytics_dashboard')
   const hasWebinar = (me?.features || []).includes('webinar_room') || (me?.features || []).includes('webinar_link')
   // ⚠️ Модуль события. Без него — только просмотр: данные видны, но менять
   // и запускать ничего нельзя (2026-08-10). Фича зависит от типа: турнир
@@ -120,6 +122,8 @@ export default function ConferencePage() {
       tabs: [
         { id: 'announcements', label: 'Анонсы спикеров' },
         { id: 'report', label: 'Отчёт по привлечению' },
+        // Дашборд-квадратики по участникам события. Гейт — фича Экстра.
+        ...(hasAnalyticsDashboard ? [{ id: 'dashboard' as Tab, label: 'Дашборд' }] : []),
       ],
     },
     // «Турнир» — раздел 1-го уровня (только для турниров). Внутри ровно 2-й уровень:
@@ -299,6 +303,9 @@ export default function ConferencePage() {
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
+      {/* Дашборд события: тот же движок, что в «Аналитике», но считает
+          только по участникам этого события (условие добавляет бэк). */}
+      {tab === 'dashboard'    && hasAnalyticsDashboard && <DashboardView eventId={eventId} />}
       {tab === 'broadcast_templates' && <BroadcastTemplatesView />}
       {tab === 'broadcast_queue'     && <BroadcastQueueView />}
       {tab === 'webinar'      && <WebinarTab eventId={eventId} event={event} />}

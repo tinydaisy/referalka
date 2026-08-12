@@ -776,6 +776,29 @@ export const api = {
       const s = qs.toString()
       return request(`/api/v1/analytics/utm${s ? `?${s}` : ''}`)
     },
+    // Дашборды-квадратики. Разрез — поле контакта ИЛИ вопрос анкеты
+    // (ключ вида 'field:3' / 'question:24').
+    sources: () => request('/api/v1/analytics/sources'),
+    dashboards: (eventId?: number) =>
+      request(`/api/v1/analytics/dashboards${eventId ? `?event_id=${eventId}` : ''}`),
+    createDashboard: (data: { title?: string; event_id?: number }) =>
+      request('/api/v1/analytics/dashboards', { method: 'POST', body: JSON.stringify(data) }),
+    renameDashboard: (id: number, title: string) =>
+      request(`/api/v1/analytics/dashboards/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+    deleteDashboard: (id: number) =>
+      request(`/api/v1/analytics/dashboards/${id}`, { method: 'DELETE' }),
+    // Отдаёт квадратики уже с посчитанными цифрами.
+    dashboard: (id: number) => request(`/api/v1/analytics/dashboards/${id}`),
+    addCard: (dashId: number, data: any) =>
+      request(`/api/v1/analytics/dashboards/${dashId}/cards`, { method: 'POST', body: JSON.stringify(data) }),
+    updateCard: (dashId: number, cardId: number, data: any) =>
+      request(`/api/v1/analytics/dashboards/${dashId}/cards/${cardId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteCard: (dashId: number, cardId: number) =>
+      request(`/api/v1/analytics/dashboards/${dashId}/cards/${cardId}`, { method: 'DELETE' }),
+    reorderCards: (dashId: number, ids: number[]) =>
+      request(`/api/v1/analytics/dashboards/${dashId}/cards/reorder`, { method: 'POST', body: JSON.stringify({ ids }) }),
+    autofill: (dashId: number) =>
+      request(`/api/v1/analytics/dashboards/${dashId}/autofill`, { method: 'POST' }),
   },
   leadMagnets: {
     list: () => request('/api/v1/lead-magnets'),
