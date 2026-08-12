@@ -3069,7 +3069,8 @@ async def preview_schedule(
 async def _load_test_targets(db, client_id: int):
     """Тестовые ID клиента + токены платформ. Кидает 400, если тестовых нет."""
     client_row = await db.fetchrow(
-        "SELECT test_telegram_ids, test_vk_ids, test_max_ids, timezone FROM clients WHERE id=$1",
+        "SELECT test_telegram_ids, test_vk_ids, test_max_ids, test_email_ids, timezone "
+        "FROM clients WHERE id=$1",
         client_id
     )
     from app.services.channels import get_client_telegram_token
@@ -3078,7 +3079,8 @@ async def _load_test_targets(db, client_id: int):
     test_tg_ids = client_row["test_telegram_ids"] or []
     test_vk_ids = client_row["test_vk_ids"] or []
     test_max_ids = client_row["test_max_ids"] or []
-    if not (test_tg_ids or test_vk_ids or test_max_ids):
+    test_email_ids = client_row["test_email_ids"] or []
+    if not (test_tg_ids or test_vk_ids or test_max_ids or test_email_ids):
         raise HTTPException(status_code=400,
             detail="Тестовые ID не заданы. Откройте Настройки → Технические → «Тестовые рассылки».")
     if test_tg_ids and not bot_token:
@@ -3091,12 +3093,15 @@ async def _load_test_targets(db, client_id: int):
         client_id)
     max_token = client_max_token or _settings.max_system_bot_token
     tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
-    return bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz
+    # test_email_ids отдаём последним — вызывающие, которым email не нужен,
+    # распаковывают первые 6 значений как раньше.
+    return bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz, test_email_ids
 
 
 async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
                                  db=None, client_id: int | None = None,
-                                 event_id: int | None = None):
+                                 event_id: int | None = None,
+                                 test_email_ids=None):
     """Шлёт готовый content (text/photo/video/buttons) во все тестовые ID всех платформ.
 
     db/client_id — чтобы раскрыть токены воронки подарков ⟦GF⟧ ссылкой СВОЕЙ
@@ -3175,6 +3180,62 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 out.append({"platform": "max", "chat_id": mid, "ok": bool(res), "error": None if res else "MAX send returned None"})
             except Exception as e:
                 out.append({"platform": "max", "chat_id": mid, "ok": False, "error": str(e)})
+
+    # ── Email ───────────────────────────────────────────────────────────────
+    # ⚠️ Раньше тестовая отправка email не умела ВОВСЕ: поле «Email» в
+    # настройках было, галочка обещала письма, а код слал только TG/VK/MAX —
+    # клиент видел «в бот пришло, на почту нет» и не понимал, почему.
+    # Шлём напрямую по адресам из настроек, не требуя контакта в базе:
+    # это проверка вёрстки письма, а не боевая рассылка.
+    if test_email_ids and db and client_id:
+        try:
+            from app.services.email_sender import EmailSender, _build_from_header
+            from app.services.client_domains import client_public_url
+            ch_row = await db.fetchrow(
+                """SELECT ch.email_from_local, ch.email_from_name, ch.email_subdomain
+                     FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id=$1 AND ch.platform_slug='email' LIMIT 1""",
+                client_id)
+            cl_row = await db.fetchrow(
+                "SELECT COALESCE(brand_name, name) AS brand FROM clients WHERE id=$1", client_id)
+            # Свой почтовый домен клиента (если подключён) — письмо уйдёт от него.
+            dom = await db.fetchrow(
+                """SELECT domain, mail_from_local, mail_from_name FROM client_domains
+                    WHERE client_id=$1 AND kind='mail' AND status='active' LIMIT 1""",
+                client_id)
+            ch_dict = dict(ch_row) if ch_row else {}
+            if dom:
+                ch_dict["email_domain"] = dom["domain"]
+                ch_dict["email_from_local"] = dom["mail_from_local"] or "noreply"
+                if dom["mail_from_name"]:
+                    ch_dict["email_from_name"] = dom["mail_from_name"]
+            html = (await _txt("email")).replace("\n", "<br>")
+            subj = content.get("subject") or "Тестовая рассылка"
+            sender = EmailSender()
+            for addr in test_email_ids:
+                addr = str(addr).strip()
+                if not addr:
+                    continue
+                try:
+                    # send() возвращает Message-ID и КИДАЕТ исключение при сбое.
+                    sender.send(
+                        channel=ch_dict,
+                        client_brand_name=(cl_row["brand"] if cl_row else None),
+                        to_email=addr,
+                        subject=subj,
+                        body_text=await _txt("email"),
+                        body_html=html,
+                        unsubscribe_token="test",
+                        public_base_url=await client_public_url(db, client_id),
+                    )
+                    out.append({"platform": "email", "chat_id": addr,
+                                "ok": True, "error": None})
+                except Exception as e:
+                    out.append({"platform": "email", "chat_id": addr,
+                                "ok": False, "error": str(e)})
+        except Exception as e:
+            logger.warning("Тестовая email-отправка не удалась: %s", e)
+            out.append({"platform": "email", "chat_id": "-", "ok": False, "error": str(e)})
     return out
 
 
@@ -3208,7 +3269,7 @@ async def test_existing_schedule_now(
         raise HTTPException(status_code=404, detail="Задача не найдена")
 
     tpl_type = schedule["tmpl_type"] or schedule["type"]
-    bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz = await _load_test_targets(db, client_id)
+    bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz, test_email_ids = await _load_test_targets(db, client_id)
 
     snap = None
     if tpl_type == "custom":
@@ -3249,7 +3310,7 @@ async def test_existing_schedule_now(
         content = dict(content)
         content["text"] = f"<b>{subj}</b>\n\n{content.get('text') or ''}"
     results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
-                                           db=db, client_id=client_id, event_id=event_id)
+                                           db=db, client_id=client_id, event_id=event_id, test_email_ids=test_email_ids)
     sent = sum(1 for r in results if r.get("ok"))
     return {"ok": True, "sent": sent, "total": len(results), "results": results}
 

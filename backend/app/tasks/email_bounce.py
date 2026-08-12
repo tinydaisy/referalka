@@ -61,10 +61,25 @@ MSGID_RE = re.compile(
     r'postfix/cleanup\[\d+\]:\s+(?P<qid>[A-Z0-9]+):\s+message-id=<(?P<msgid>[^>]+)>'
 )
 
+# Адреса НЕТ — письма на него не пойдут никогда. Только эти случаи дают hard.
+# ⚠️ «blocked» отсюда УБРАН: так почтовики пишут про блокировку ОТПРАВИТЕЛЯ
+# («your network address is blocked»), а не про несуществующий ящик.
 HARD_TRIGGERS = (
     "user unknown", "account does not exist", "mailbox not found",
-    "no such user", "address rejected", "blocked", "domain does not exist",
+    "no such user", "address rejected", "domain does not exist",
     "no mx", "host or domain name not found",
+)
+
+# Нас не пустили из-за репутации ОТПРАВИТЕЛЯ. Получатель тут ни при чём —
+# адрес живой, и вычёркивать его нельзя. Такие отказы всегда soft.
+SENDER_REPUTATION_MARKERS = (
+    "spam message rejected",   # mail.ru
+    "spam",                    # общая формулировка почтовиков
+    "blocked due to",          # ukr.net: «blocked due to a malicious activity»
+    "blacklist", "block list",
+    "reputation",
+    "rate limit", "too many", "unusual rate",   # троттлинг
+    "try again later", "temporarily",
 )
 
 
@@ -140,8 +155,26 @@ def human_reason(dsn: str | None, message: str | None, recipient: str | None = N
 
 
 def _classify(dsn: str | None, message: str | None, status: str) -> str:
-    """Возвращает bounce_type: hard / soft / unknown."""
+    """Возвращает bounce_type: hard / soft / unknown.
+
+    ⚠️ hard = «адреса НЕ СУЩЕСТВУЕТ» и только это. Такой адрес помечается
+    битым навсегда и больше не получает писем — цена ошибки высока.
+
+    Отказ по РЕПУТАЦИИ ОТПРАВИТЕЛЯ (`550 spam message rejected`, «заблокирован»)
+    к адресу отношения не имеет: получатель жив, просто нас в тот момент не
+    пустили. Раньше это считалось hard — и в июне 2026, когда mail.ru временно
+    отбивал наши письма, из базы молча выпали 1153 ЖИВЫХ адреса. Теперь такие
+    отказы — soft.
+    """
     msg = (message or "").lower()
+    # Репутация отправителя — проверяем ПЕРВЫМ, до всех прочих правил:
+    # в тексте отказа может быть и «blocked», и код 5xx.
+    if any(t in msg for t in SENDER_REPUTATION_MARKERS):
+        return "soft"
+    # Ящик переполнен — состояние временное: человек почистит почту, и адрес
+    # снова заработает. Вычёркивать навсегда нельзя, хотя код приходит 5xx.
+    if any(t in msg for t in ("mailbox full", "out of storage", "over quota", "quota exceeded")):
+        return "soft"
     if any(t in msg for t in HARD_TRIGGERS):
         return "hard"
     if dsn:
@@ -287,13 +320,29 @@ async def _process_bounces_async():
                 )
                 new_dead += 1
 
-        # Soft-bounce: если ≥ 5 soft за последние 30 дней — тоже считаем мертвым
+        # Soft-bounce: адрес вычёркиваем, только если временные отказы идут
+        # РЕГУЛЯРНО и ПО РАЗНЫМ письмам.
+        #
+        # ⚠️ Считаем УНИКАЛЬНЫЕ письма (DISTINCT qid) и требуем, чтобы отказы
+        # растянулись минимум на 3 разных дня. Раньше условие было «≥5 записей
+        # за 30 дней» — и когда парсер дублировал один отказ сотни раз, порог
+        # брался с одного-единственного «притормозите» от Gmail. Так из базы
+        # выпали живые адреса, включая аккаунты самого владельца.
+        #
+        # ⚠️ Отказы по репутации отправителя сюда не попадают вовсе: они
+        # помечаются soft, но НЕ должны накапливаться против адреса — виноват
+        # не он. Поэтому исключаем их из подсчёта явно.
         soft_dead = await conn.fetch(
             """SELECT to_email
                  FROM email_bounce_log
                 WHERE bounce_type = 'soft'
                   AND bounced_at > NOW() - INTERVAL '30 days'
-                GROUP BY to_email HAVING COUNT(*) >= 5"""
+                  AND COALESCE(smtp_message, '') NOT ILIKE '%spam%'
+                  AND COALESCE(smtp_message, '') NOT ILIKE '%blocked due to%'
+                  AND COALESCE(smtp_message, '') NOT ILIKE '%unusual rate%'
+                GROUP BY to_email
+               HAVING COUNT(DISTINCT qid) >= 5
+                  AND COUNT(DISTINCT bounced_at::date) >= 3"""
         )
         for r in soft_dead:
             res = await conn.execute(
