@@ -63,7 +63,11 @@ export default function TariffsTab({
 }) {
   const [items, setItems] = useState<Tariff[]>([])
   const [loading, setLoading] = useState(true)
+  // Оферта события: документ из раздела «Оферты» (главный способ) либо ссылка
+  // на чужой сайт. Выбранный документ приоритетнее ссылки — так же на бэке.
   const [offerUrl, setOfferUrl] = useState(event.offer_url || '')
+  const [offerId, setOfferId] = useState<number | null>(event.offer_id ?? null)
+  const [offers, setOffers] = useState<{ id: number; title: string }[]>([])
   const [savingOffer, setSavingOffer] = useState(false)
 
   // форма создания/редактирования
@@ -107,10 +111,21 @@ export default function TariffsTab({
       .catch(() => {})
   }, [])
 
+  // Молча: раздел оферт закрыт на тарифе без фичи offers — тогда остаётся
+  // только ссылка, селектор покажет пустой список с подсказкой.
+  useEffect(() => {
+    api.offers.list()
+      .then(r => setOffers((r?.items || []).filter((o: any) => o.is_active)))
+      .catch(() => {})
+  }, [])
+
   async function saveOffer() {
     setSavingOffer(true)
     try {
-      await api.events.update(eventId, { offer_url: offerUrl.trim() || null })
+      await api.events.update(eventId, {
+        offer_url: offerUrl.trim() || null,
+        offer_id: offerId,
+      })
       await onReload?.()
     } finally {
       setSavingOffer(false)
@@ -205,23 +220,53 @@ export default function TariffsTab({
           <h3 className="font-semibold text-gray-800">Оферта мероприятия</h3>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          Одна на всё событие — ссылка на документ (PDF/страница). Её можно показать рядом с кнопкой оплаты.
+          Одна на всё событие. Появится галочкой «Принимаю условия оферты» на форме
+          заказа платного тарифа и ссылкой внизу лендинга.
         </p>
-        <div className="flex gap-2">
-          <input
-            value={offerUrl}
-            onChange={e => setOfferUrl(e.target.value)}
-            placeholder="https://..."
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-          />
-          <button
-            onClick={saveOffer}
-            disabled={savingOffer}
-            className="px-4 py-2.5 rounded-xl bg-brand text-white text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <Save size={15} /> Сохранить
-          </button>
-        </div>
+
+        <label className="mb-1 block text-sm font-medium text-gray-700">
+          Документ из раздела «Оферты»
+        </label>
+        <select
+          value={offerId ?? ''}
+          onChange={e => setOfferId(e.target.value ? Number(e.target.value) : null)}
+          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:border-brand"
+        >
+          <option value="">Не выбрана</option>
+          {offers.map(o => (
+            <option key={o.id} value={o.id}>{o.title}</option>
+          ))}
+        </select>
+        {offers.length === 0 && (
+          <p className="mt-1 text-xs text-gray-500">
+            Список пуст — создайте документ в разделе «Оферты».
+          </p>
+        )}
+
+        {/* Ссылка — запасной вариант: оферта лежит на чужом сайте. Выбранный
+            документ ГЛАВНЕЕ ссылки (так же решает и бэкенд). */}
+        <label className="mt-4 mb-1 block text-sm font-medium text-gray-700">
+          Или ссылка на свой документ
+        </label>
+        <input
+          value={offerUrl}
+          onChange={e => setOfferUrl(e.target.value)}
+          placeholder="https://..."
+          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          {offerId
+            ? 'Сейчас используется выбранный документ — ссылка не действует.'
+            : 'Нужна, только если оферта лежит не в ПЛЮСОНе.'}
+        </p>
+
+        <button
+          onClick={saveOffer}
+          disabled={savingOffer}
+          className="btn-primary mt-4 flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <Save size={15} /> Сохранить
+        </button>
       </div>
 
       {/* Список тарифов */}
