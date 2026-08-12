@@ -73,6 +73,7 @@ async def get_public_survey(
 
     known: dict = {}
     already: list = []
+    done_materials: list = []
     if c:
         # ⚠️ Общая точка предзаполнения (contact_merge) — она же питает форму
         # заказа тарифа и авторизацию вебинарной комнаты. Внутри проверка, что
@@ -87,11 +88,46 @@ async def get_public_survey(
                 """SELECT v.field_id, v.value FROM contact_field_values v
                     WHERE v.contact_id = $1""", c)
             known["fields"] = {str(v["field_id"]): v["value"] for v in vals}
+            # ⚠️ Прошлые ответы — чтобы при правке человек видел, что писал,
+            # и менял точечно, а не набирал всё заново.
+            prev = await db.fetch(
+                """SELECT a.question_id, a.value
+                     FROM survey_answers a
+                     JOIN survey_responses r ON r.id = a.response_id
+                    WHERE r.survey_id = $1 AND r.contact_id = $2
+                    ORDER BY r.id DESC""",
+                s["id"], c)
+            seen_q: set = set()
+            answers_prev: dict = {}
+            for row_a in prev:
+                qid = row_a["question_id"]
+                if qid in seen_q:
+                    continue      # берём самый свежий ответ на вопрос
+                seen_q.add(qid)
+                answers_prev[str(qid)] = row_a["value"]
+            known["answers"] = answers_prev
             if not s["allow_repeat"]:
                 already = [dict(r) for r in await db.fetch(
                     "SELECT id, created_at FROM survey_responses "
                     "WHERE survey_id=$1 AND contact_id=$2 ORDER BY id DESC LIMIT 1",
                     s["id"], c)]
+                # ⚠️ Уже заполнял → подарок отдаём СРАЗУ, не заставляя проходить
+                # анкету заново: человек его заслужил в прошлый раз, а «вы уже
+                # заполняли» без файла выглядит как отказ выдать обещанное.
+                if already:
+                    gift_lm = lm or s["gift_lead_magnet_id"]
+                    gift_pkg = pkg or s["gift_package_id"]
+                    if gift_lm or gift_pkg:
+                        try:
+                            from app.services.funnel_service import _materials_for_run
+                            done_materials = await _materials_for_run({
+                                "client_id": s["client_id"], "contact_id": c,
+                                "lead_magnet_id": gift_lm, "package_id": gift_pkg,
+                                "referrer_contact_id": None,
+                            }, db)
+                        except Exception:
+                            logger.exception(
+                                "survey: не удалось собрать подарок для повторного захода")
 
     # ⚠️ Тема — из ОБЩЕЙ точки `client_landing_theme`, а не своим SELECT по
     # lp_*: иначе публичные страницы разъедутся между собой (оферта уже
@@ -139,6 +175,8 @@ async def get_public_survey(
         "questions": [{**dict(q), "options": _jsonb(q["options"])} for q in qs],
         "known": known,
         "already_filled": bool(already),
+        # Материалы для того, кто анкету уже проходил — покажем сразу.
+        "already_materials": done_materials,
         # Есть ли на выходе подарок. Двух видов: указан в ссылке (человек
         # шёл за ним из бота) либо назначен самой анкетой.
         "has_gift": bool(lm or pkg or s["gift_lead_magnet_id"] or s["gift_package_id"]),
@@ -163,6 +201,9 @@ class SurveySubmit(BaseModel):
     # Экран «Это вы?»: человек выбрал себя из найденных / сказал «я впервые».
     chosen_contact_id: Optional[int] = None
     force_new: Optional[bool] = None
+    # Человек уже заполнял и нажал «Изменить ответы» — пишем НОВОЙ записью,
+    # прошлую не трогаем: история заполнений должна сохраняться.
+    edit_again: Optional[bool] = None
     # Согласия: обработка ПД (обязательно) и рассылки (по желанию).
     consent_pd: Optional[bool] = None
     consent_marketing: Optional[bool] = None
@@ -266,7 +307,7 @@ async def submit_survey(
 
     # Повторное заполнение — если запрещено, молча возвращаем прежний результат,
     # а не ошибку: человек мог просто обновить страницу.
-    if not s["allow_repeat"]:
+    if not s["allow_repeat"] and not data.edit_again:
         seen = await db.fetchval(
             "SELECT 1 FROM survey_responses WHERE survey_id=$1 AND contact_id=$2 LIMIT 1",
             s["id"], contact_id)

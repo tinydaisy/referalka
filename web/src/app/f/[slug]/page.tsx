@@ -42,6 +42,8 @@ export default function PublicSurveyPage() {
   const [candidates, setCandidates] = useState<any[] | null>(null)
   // Согласия: обработка ПД обязательна, рассылки — по желанию.
   const [pd, setPd] = useState(false)
+  // Человек уже заполнял и решил поправить ответы.
+  const [editAgain, setEditAgain] = useState(false)
   const [mkt, setMkt] = useState(false)
 
   useEffect(() => {
@@ -63,7 +65,10 @@ export default function PublicSurveyPage() {
         // только проверить, а не вводить заново.
         const pre: Record<string, any> = {}
         for (const q of d.questions || []) {
-          const v = q.field_id ? d.known?.fields?.[String(q.field_id)] : null
+          // ⚠️ Прошлый ответ на ЭТОТ вопрос главнее значения поля контакта:
+          // при правке человек должен видеть именно то, что писал в анкете.
+          const prev = d.known?.answers?.[String(q.id)]
+          const v = prev ?? (q.field_id ? d.known?.fields?.[String(q.field_id)] : null)
           if (v) pre[String(q.id)] = q.kind === 'multiselect' ? String(v).split(', ') : v
         }
         setAnswers(pre)
@@ -93,6 +98,7 @@ export default function PublicSurveyPage() {
           platform: PLATFORM_BY_SHORT[to] || null,
           consent_pd: pd,
           consent_marketing: mkt,
+          edit_again: editAgain,
           ...(choice || {}),
         }),
       })
@@ -125,13 +131,40 @@ export default function PublicSurveyPage() {
   if (done) {
     return <Shell theme={data?.theme}><DoneView result={done} survey={data} /></Shell>
   }
-  if (data.already_filled && !data.allow_repeat) {
+  // ⚠️ Уже заполнял → показываем подарок СРАЗУ (он заслужил его в прошлый
+  // раз) и предлагаем поправить ответы. Прошлое заполнение при этом не
+  // затирается: правка уходит ОТДЕЛЬНОЙ записью, история сохраняется.
+  if (data.already_filled && !data.allow_repeat && !editAgain) {
+    const mats = data.already_materials || []
     return (
       <Shell theme={data.theme}>
+        <BrandHeader brand={data.brand} theme={data.theme} />
         <h1 className="mb-2 text-xl font-bold">{data.title}</h1>
-        <p className="text-sm opacity-80">
-          Вы уже заполняли эту анкету — спасибо! Отвечать второй раз не нужно.
+        <p className="mb-4 text-sm opacity-80">
+          Вы уже заполняли эту анкету — спасибо!
         </p>
+
+        {mats.length > 0 && (
+          <div className="mb-5">
+            <p className="mb-2 text-sm font-medium">Ваш подарок:</p>
+            <div className="space-y-2">
+              {mats.map((m: any, i: number) => (
+                <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                   className="block rounded-xl border border-current/20 p-3 hover:bg-current/5">
+                  <div className="font-medium">{m.name}</div>
+                  {m.description && (
+                    <div className="mt-0.5 text-sm opacity-70">{m.description}</div>
+                  )}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button onClick={() => setEditAgain(true)}
+                className="w-full rounded-xl border border-current/30 px-6 py-3 text-sm font-medium hover:bg-current/5">
+          Изменить ответы
+        </button>
       </Shell>
     )
   }
