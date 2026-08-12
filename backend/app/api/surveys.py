@@ -64,6 +64,18 @@ def _code_from_title(title: str) -> str:
     return (s or 'field')[:40]
 
 
+def _jsonb(value: Any) -> Any:
+    """asyncpg отдаёт JSONB СТРОКОЙ. ⚠️ Без разворота фронт получает
+    `options` строкой и не может отрисовать варианты ответа."""
+    import json as _json
+    if isinstance(value, str):
+        try:
+            return _json.loads(value)
+        except Exception:
+            return []
+    return value if value is not None else []
+
+
 def _norm_options(options: Any) -> list:
     """Варианты ответа — плоский список непустых строк."""
     if not isinstance(options, list):
@@ -104,7 +116,7 @@ async def list_contact_fields(client=Depends(get_current_client), db=Depends(get
             ORDER BY f.sort_order, f.id""",
         int(client["sub"]),
     )
-    return [dict(r) for r in rows]
+    return [{**dict(r), "options": _jsonb(r["options"])} for r in rows]
 
 
 @router.post("/contact-fields")
@@ -147,7 +159,7 @@ async def create_contact_field(
         True if data.show_in_card is None else bool(data.show_in_card),
         data.sort_order,
     )
-    return dict(row)
+    return {**dict(row), "options": _jsonb(row["options"])}
 
 
 @router.patch("/contact-fields/{field_id}")
@@ -196,7 +208,7 @@ async def update_contact_field(
     row = await db.fetchrow(
         f"UPDATE contact_fields SET {', '.join(sets)}, updated_at = NOW() "
         f"WHERE id = ${len(vals)} RETURNING *", *vals)
-    return dict(row)
+    return {**dict(row), "options": _jsonb(row["options"])}
 
 
 @router.delete("/contact-fields/{field_id}")
@@ -329,7 +341,7 @@ async def get_survey(
         survey_id,
     )
     d = dict(s)
-    d["questions"] = [dict(q) for q in qs]
+    d["questions"] = [{**dict(q), "options": _jsonb(q["options"])} for q in qs]
     d["links"] = await _survey_links(db, client_id, d["slug"])
     return d
 
@@ -447,7 +459,7 @@ async def add_question(
         scale_max if kind == 'scale' else None,
         data.is_required, data.sort_order,
     )
-    return dict(row)
+    return {**dict(row), "options": _jsonb(row["options"])}
 
 
 @router.patch("/surveys/{survey_id}/questions/{question_id}")
@@ -496,7 +508,7 @@ async def update_question(
         f"WHERE id = ${len(vals)-1} AND survey_id = ${len(vals)} RETURNING *", *vals)
     if not row:
         raise HTTPException(404, "Вопрос не найден")
-    return dict(row)
+    return {**dict(row), "options": _jsonb(row["options"])}
 
 
 @router.delete("/surveys/{survey_id}/questions/{question_id}")
@@ -550,7 +562,7 @@ async def survey_analytics(
     for q in qs:
         item = {
             "id": q["id"], "title": q["title"], "kind": q["kind"],
-            "options": q["options"], "answers_count": 0,
+            "options": _jsonb(q["options"]), "answers_count": 0,
         }
         answered = await db.fetchval(
             """SELECT COUNT(*) FROM survey_answers a

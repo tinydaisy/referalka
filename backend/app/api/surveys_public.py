@@ -24,6 +24,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public/surveys", tags=["Анкеты (публично)"])
 
 
+def _jsonb(value: Any) -> Any:
+    """asyncpg отдаёт JSONB СТРОКОЙ, а не списком.
+
+    ⚠️ Без разворота фронт получал `options` строкой и не мог отрисовать
+    варианты ответа — список выбора приходил пустым.
+    """
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return []
+    return value if value is not None else []
+
+
 def _answer_to_text(value: Any) -> str:
     """Человекочитаемое представление ответа — оно идёт в карточку контакта,
     выгрузки и отчёт. Для нескольких вариантов — через запятую."""
@@ -88,7 +102,7 @@ async def get_public_survey(
         "id": s["id"], "slug": s["slug"], "title": s["title"],
         "intro": s["intro"], "submit_label": s["submit_label"],
         "allow_repeat": s["allow_repeat"],
-        "questions": [dict(q) for q in qs],
+        "questions": [{**dict(q), "options": _jsonb(q["options"])} for q in qs],
         "known": known,
         "already_filled": bool(already),
         # Есть ли на выходе подарок — чтобы страница честно написала об этом

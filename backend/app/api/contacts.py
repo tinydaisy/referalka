@@ -934,7 +934,12 @@ async def get_contact(
         "events": [dict(e) for e in events],
         "lead_magnet_runs": lead_magnet_runs_list,
         "webinar_history": [dict(w) for w in webinar_history],
-        "custom_fields": [dict(f) for f in custom_fields],
+        # ⚠️ options разворачиваем: asyncpg отдаёт JSONB строкой, и список
+        # выбора в карточке контакта оказывался пустым.
+        "custom_fields": [
+            {**dict(f), "options": parse_tags(f["options"]) or []}
+            for f in custom_fields
+        ],
         "survey_history": [dict(r) for r in survey_history],
         "collaborator": dict(collaborator_row) if collaborator_row else None,
     }
