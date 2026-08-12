@@ -92,6 +92,9 @@ export default function Sidebar() {
     {
       items: [
         { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },
+        // Аналитика — про источники и воронки рассылок, поэтому стоит рядом
+        // с ними, а не в разделе базы (решение владельца 2026-08-12).
+        { href: '/dashboard/analytics', label: t.nav.analytics, icon: BarChart3 },
       ],
     },
     {
@@ -116,7 +119,7 @@ export default function Sidebar() {
       ],
     },
     {
-      label: t.nav.base,
+      label: 'Учёт ресурсов',
       items: [
         { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
         // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
@@ -131,7 +134,6 @@ export default function Sidebar() {
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».
         // Без фичи страница покажет замок с объяснением и ссылкой на тариф.
         { href: '/dashboard/offers', label: 'Оферты', icon: FileText },
-        { href: '/dashboard/analytics', label: t.nav.analytics, icon: BarChart3 },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),
         // Mini App: Продукты — отдельная ссылка ТОЛЬКО для ассистента. Владелец
