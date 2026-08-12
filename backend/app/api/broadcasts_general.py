@@ -422,12 +422,18 @@ async def general_test_now(
         raise HTTPException(400, "Пустой текст")
     bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token, tz, test_email_ids = await _load_test_targets(db, client_id)
     snap_photo, snap_video, snap_mtype = _resolve_media(data.photo_url, data.video_url, data.media_type)
-    text = (data.text or "")
-    if (data.subject or "").strip():
-        text = f"<b>{data.subject.strip()}</b>\n\n{text}"
+    # ⚠️ Заголовок приклеивается первой жирной строкой ТОЛЬКО для TG/VK/MAX —
+    # там своего поля темы нет. В письме тема идёт в Subject, а тело должно
+    # остаться чистым, иначе заголовок дублируется: и в теме, и в первой
+    # строке письма. Так же устроена боевая рассылка (text_for_email).
+    text_clean = (data.text or "")
+    subject_val = (data.subject or "").strip()
+    text = f"<b>{subject_val}</b>\n\n{text_clean}" if subject_val else text_clean
     buttons = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
     content = {
         "text": text,
+        "text_email": text_clean,
+        "subject": subject_val or None,
         "photo": snap_photo if snap_mtype != "video" else None,
         "video": snap_video if snap_mtype == "video" else None,
         "media_type": snap_mtype,

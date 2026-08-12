@@ -3209,7 +3209,13 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 ch_dict["email_from_local"] = dom["mail_from_local"] or "noreply"
                 if dom["mail_from_name"]:
                     ch_dict["email_from_name"] = dom["mail_from_name"]
-            html = (await _txt("email")).replace("\n", "<br>")
+            # ⚠️ Берём text_email — тело БЕЗ приклеенного заголовка. В письме
+            # тема идёт в Subject; если взять общий text, заголовок придёт
+            # дважды: в теме и первой строкой письма.
+            email_body = content.get("text_email")
+            if email_body is None:
+                email_body = await _txt("email")
+            html = str(email_body).replace("\n", "<br>")
             subj = content.get("subject") or "Тестовая рассылка"
             sender = EmailSender()
             for addr in test_email_ids:
@@ -3223,7 +3229,7 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                         client_brand_name=(cl_row["brand"] if cl_row else None),
                         to_email=addr,
                         subject=subj,
-                        body_text=await _txt("email"),
+                        body_text=str(email_body),
                         body_html=html,
                         unsubscribe_token="test",
                         public_base_url=await client_public_url(db, client_id),
@@ -3305,9 +3311,13 @@ async def test_existing_schedule_now(
         signup_link="\u27e6SIGNUP\u27e7",
     )
     # subject → жирной первой строкой (как в реальной отправке).
+    # ⚠️ Только для TG/VK/MAX: у письма есть своё поле темы, и приклеенный
+    # заголовок пришёл бы дважды — в теме и первой строкой тела. Поэтому
+    # чистое тело кладём отдельно в text_email (его берёт email-ветка).
     subj = (content.get("subject") or "").strip()
     if subj:
         content = dict(content)
+        content["text_email"] = content.get("text") or ""
         content["text"] = f"<b>{subj}</b>\n\n{content.get('text') or ''}"
     results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
                                            db=db, client_id=client_id, event_id=event_id, test_email_ids=test_email_ids)
