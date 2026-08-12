@@ -940,7 +940,12 @@ async def get_contact(
             {**dict(f), "options": parse_tags(f["options"]) or []}
             for f in custom_fields
         ],
-        "survey_history": [dict(r) for r in survey_history],
+        # ⚠️ json_agg приходит строкой — разворачиваем, иначе список ответов
+        # в карточке не отрисуется.
+        "survey_history": [
+            {**dict(r), "answers": parse_tags(r["answers"]) or []}
+            for r in survey_history
+        ],
         "collaborator": dict(collaborator_row) if collaborator_row else None,
     }
 

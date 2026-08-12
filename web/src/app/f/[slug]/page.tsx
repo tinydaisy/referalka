@@ -38,6 +38,8 @@ export default function PublicSurveyPage() {
   const [contact, setContact] = useState({ name: '', email: '', phone: '' })
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState<any>(null)
+  // Экран «Это вы?»: данные совпали с несколькими людьми в базе.
+  const [candidates, setCandidates] = useState<any[] | null>(null)
 
   useEffect(() => {
     const qs = new URLSearchParams()
@@ -67,7 +69,7 @@ export default function PublicSurveyPage() {
       .finally(() => setLoading(false))
   }, [slug, contactId, lm, pkg])
 
-  const submit = async () => {
+  const submit = async (choice?: { chosen_contact_id?: number; force_new?: boolean }) => {
     setSending(true); setError('')
     try {
       const r = await fetch(`${API_BASE}/api/v1/public/surveys/${slug}/submit`, {
@@ -82,10 +84,15 @@ export default function PublicSurveyPage() {
           lead_magnet_id: lm ? Number(lm) : null,
           package_id: pkg ? Number(pkg) : null,
           platform: PLATFORM_BY_SHORT[to] || null,
+          ...(choice || {}),
         }),
       })
       const body = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(body.detail || 'Не удалось отправить')
+      // ⚠️ Почта совпала с одним человеком, телефон с другим — решать не нам.
+      // Спрашиваем, как в вебинарной авторизации и форме заказа тарифа.
+      if (body.need_choice) { setCandidates(body.candidates || []); return }
+      setCandidates(null)
       if (body.after_mode === 'url' && body.redirect_url && !body.materials?.length) {
         window.location.href = body.redirect_url
         return
@@ -107,11 +114,11 @@ export default function PublicSurveyPage() {
     return <Shell><p className="text-sm text-red-600">{error}</p></Shell>
   }
   if (done) {
-    return <Shell><DoneView result={done} survey={data} /></Shell>
+    return <Shell theme={data?.theme}><DoneView result={done} survey={data} /></Shell>
   }
   if (data.already_filled && !data.allow_repeat) {
     return (
-      <Shell>
+      <Shell theme={data.theme}>
         <h1 className="mb-2 text-xl font-bold text-gray-900">{data.title}</h1>
         <p className="text-sm text-gray-600">
           Вы уже заполняли эту анкету — спасибо! Отвечать второй раз не нужно.
@@ -178,10 +185,24 @@ export default function PublicSurveyPage() {
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * ⚠️ Оформление берётся из «Стилей лендингов» клиента (решение владельца):
+ * анкета должна выглядеть как его лендинг, а не как чужая страница. Тема
+ * приходит вместе с анкетой; чего клиент не задал — остаётся наш дефолт.
+ */
+function Shell({ children, theme }: { children: React.ReactNode; theme?: any }) {
+  const t = theme || {}
+  const bg = t.lp_bg_color
+    ? `linear-gradient(${t.lp_bg_angle ?? 45}deg, ${t.lp_bg_color}, ${t.lp_bg_color_2 || t.lp_bg_color})`
+    : 'linear-gradient(45deg, #25455D, #0a1520)'
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-8">
-      <div className="mx-auto w-full max-w-xl rounded-2xl bg-white p-6 shadow-sm">
+    <div className="min-h-screen px-4 py-8" style={{ background: bg }}>
+      <div className="mx-auto w-full max-w-xl rounded-2xl p-6 shadow-sm"
+           style={{
+             background: t.lp_card_bg || '#fff',
+             color: t.lp_card_text_color || t.lp_color_body || undefined,
+             fontFamily: t.lp_font_body || undefined,
+           }}>
         {children}
       </div>
     </div>

@@ -234,6 +234,8 @@ async def delete_contact_field(
 class SurveyIn(BaseModel):
     title: str
     intro: Optional[str] = None
+    # Обложка анкеты — показывается ДО вопросов.
+    image_url: Optional[str] = None
     submit_label: Optional[str] = None
     after_mode: Optional[str] = None
     thanks_text: Optional[str] = None
@@ -245,6 +247,8 @@ class SurveyIn(BaseModel):
 class QuestionIn(BaseModel):
     title: str
     hint: Optional[str] = None
+    # Своя картинка у каждого вопроса (пример, схема, вариант дизайна).
+    image_url: Optional[str] = None
     kind: str = 'text'
     options: Optional[list] = None
     scale_min: Optional[int] = None
@@ -369,7 +373,7 @@ async def update_survey(
     if 'title' in fs and (data.title or '').strip():
         add('title', data.title.strip())
     # ⚠️ Пустая строка — осмысленная очистка (текст «спасибо» убрали).
-    for col in ('intro', 'submit_label', 'thanks_text', 'redirect_url'):
+    for col in ('intro', 'submit_label', 'thanks_text', 'redirect_url', 'image_url'):
         if col in fs:
             add(col, getattr(data, col))
     if 'after_mode' in fs:
@@ -448,16 +452,17 @@ async def add_question(
     row = await db.fetchrow(
         """INSERT INTO survey_questions
              (survey_id, field_id, title, hint, kind, options,
-              scale_min, scale_max, is_required, sort_order)
+              scale_min, scale_max, is_required, sort_order, image_url)
            VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,COALESCE($9,FALSE),
                    COALESCE($10,(SELECT COALESCE(MAX(sort_order),0)+1
-                                   FROM survey_questions WHERE survey_id=$1)))
+                                   FROM survey_questions WHERE survey_id=$1)),
+                   $11)
         RETURNING *""",
         survey_id, data.field_id, title, data.hint, kind,
         _json.dumps(options if isinstance(options, list) else []),
         scale_min if kind == 'scale' else None,
         scale_max if kind == 'scale' else None,
-        data.is_required, data.sort_order,
+        data.is_required, data.sort_order, data.image_url,
     )
     return {**dict(row), "options": _jsonb(row["options"])}
 
@@ -482,6 +487,8 @@ async def update_question(
         add('title', data.title.strip())
     if 'hint' in fs:
         add('hint', data.hint)
+    if 'image_url' in fs:
+        add('image_url', data.image_url)
     if 'kind' in fs:
         if data.kind not in KINDS:
             raise HTTPException(400, "Неизвестный тип вопроса")
@@ -509,6 +516,34 @@ async def update_question(
     if not row:
         raise HTTPException(404, "Вопрос не найден")
     return {**dict(row), "options": _jsonb(row["options"])}
+
+
+@router.post("/surveys/{survey_id}/questions/reorder")
+async def reorder_questions(
+    survey_id: int, data: dict,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Новый порядок вопросов — список id в нужной последовательности.
+
+    ⚠️ Пишем одной транзакцией: наполовину переставленный порядок хуже, чем
+    непереставленный. Чужие id молча игнорируются — фильтр по survey_id.
+    """
+    if await assistant_is_restricted(client):
+        raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
+    await _assert_own_survey(db, survey_id, int(client["sub"]))
+    ids = data.get("ids") or []
+    if not isinstance(ids, list):
+        raise HTTPException(400, "Ожидается список ids")
+    async with db.transaction():
+        for pos, qid in enumerate(ids, start=1):
+            try:
+                qid = int(qid)
+            except (TypeError, ValueError):
+                continue
+            await db.execute(
+                "UPDATE survey_questions SET sort_order=$1 WHERE id=$2 AND survey_id=$3",
+                pos, qid, survey_id)
+    return {"ok": True}
 
 
 @router.delete("/surveys/{survey_id}/questions/{question_id}")
@@ -657,4 +692,6 @@ async def list_responses(
             ORDER BY r.created_at DESC
             LIMIT 500""",
         survey_id)
-    return [dict(r) for r in rows]
+    # ⚠️ json_agg приходит СТРОКОЙ — без разворота фронт не может пройтись по
+    # ответам (та же засада, что с `options`).
+    return [{**dict(r), "answers": _jsonb(r["answers"])} for r in rows]

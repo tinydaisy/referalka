@@ -66,7 +66,7 @@ async def get_public_survey(
 
     qs = await db.fetch(
         """SELECT id, title, hint, kind, options, scale_min, scale_max,
-                  is_required, sort_order, field_id
+                  is_required, sort_order, field_id, image_url
              FROM survey_questions WHERE survey_id = $1
             ORDER BY sort_order, id""",
         s["id"])
@@ -98,9 +98,26 @@ async def get_public_survey(
                     "WHERE survey_id=$1 AND contact_id=$2 ORDER BY id DESC LIMIT 1",
                     s["id"], c)]
 
+    # Оформление берём из «Стилей лендингов» клиента — анкета должна выглядеть
+    # как его лендинг, а не как чужая страница (решение владельца 2026-08-12).
+    theme = {}
+    try:
+        t = await db.fetchrow(
+            """SELECT lp_bg_color, lp_bg_color_2, lp_bg_angle, lp_color_heading,
+                      lp_color_body, lp_card_bg, lp_card_text_color,
+                      lp_btn_color, lp_btn_text_color, lp_btn_radius,
+                      lp_font_heading, lp_font_body, lp_content_width
+                 FROM clients WHERE id = $1""", s["client_id"])
+        if t:
+            theme = {k: v for k, v in dict(t).items() if v is not None}
+    except Exception:
+        logger.exception("survey: не удалось получить тему клиента")
+
     return {
+        "theme": theme,
         "id": s["id"], "slug": s["slug"], "title": s["title"],
         "intro": s["intro"], "submit_label": s["submit_label"],
+        "image_url": s["image_url"],
         "allow_repeat": s["allow_repeat"],
         "questions": [{**dict(q), "options": _jsonb(q["options"])} for q in qs],
         "known": known,
@@ -123,6 +140,9 @@ class SurveySubmit(BaseModel):
     package_id: Optional[int] = None
     platform: Optional[str] = None
     utm: Optional[dict] = None
+    # Экран «Это вы?»: человек выбрал себя из найденных / сказал «я впервые».
+    chosen_contact_id: Optional[int] = None
+    force_new: Optional[bool] = None
 
 
 @router.post("/{slug}/submit")
@@ -166,8 +186,32 @@ async def submit_survey(
         if not ok:
             contact_id = None
 
+    # Человек выбрал себя на экране «Это вы?».
+    if not contact_id and data.chosen_contact_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM contacts WHERE id=$1 AND client_id=$2 AND is_active=TRUE",
+            data.chosen_contact_id, client_id)
+        if ok:
+            contact_id = data.chosen_contact_id
+
     if not contact_id:
-        from app.services.contact_merge import find_or_create_contact
+        from app.services.contact_merge import (
+            find_contact_candidates, find_or_create_contact,
+        )
+        # ⚠️ Данные могут указывать на РАЗНЫХ людей: почта — на один контакт,
+        # телефон — на другой. Молча взять первый нельзя, слить автоматически
+        # тоже. Спрашиваем человека — та же механика, что в вебинарной
+        # авторизации и форме заказа тарифа (общая точка `contact_merge`).
+        if not data.force_new:
+            candidates = await find_contact_candidates(
+                db, client_id,
+                (data.email or "").strip() or None,
+                (data.phone or "").strip() or None,
+                (data.telegram_username or "").strip().lstrip("@") or None,
+            )
+            if len(candidates) > 1:
+                return {"ok": False, "need_choice": True, "candidates": candidates}
+
         contact_id, _is_new = await find_or_create_contact(
             db, client_id=client_id,
             name=(data.name or "").strip() or None,

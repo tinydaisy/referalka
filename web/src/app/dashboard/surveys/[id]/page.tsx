@@ -426,19 +426,35 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
 
 function ReportTab({ surveyId }: { surveyId: number }) {
   const [data, setData] = useState<any>(null)
+  const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  // Две части отчёта: сводка по вопросам и пофамильный список заполнивших.
+  const [view, setView] = useState<'summary' | 'people'>('summary')
 
   useEffect(() => {
-    api.surveys.analytics(surveyId)
-      .then(setData)
+    Promise.all([
+      api.surveys.analytics(surveyId),
+      api.surveys.responses(surveyId).catch(() => []),
+    ])
+      .then(([a, r]) => { setData(a); setRows(r || []) })
       .finally(() => setLoading(false))
   }, [surveyId])
 
   if (loading) return <p className="text-sm text-gray-400">Считаем…</p>
   if (!data) return null
 
+  if (view === 'people') {
+    return (
+      <div className="space-y-4">
+        <ReportSwitch view={view} setView={setView} peopleCount={rows.length} />
+        <PeopleList rows={rows} questions={data.questions || []} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      <ReportSwitch view={view} setView={setView} peopleCount={rows.length} />
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="text-2xl font-bold text-gray-900">{data.people_total}</div>
@@ -498,6 +514,79 @@ function ReportTab({ surveyId }: { surveyId: number }) {
           {!q.breakdown?.length && !q.texts?.length && (
             <p className="text-sm text-gray-400">Пока никто не ответил.</p>
           )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Переключатель отчёта: сводка по вопросам ↔ пофамильный список. */
+function ReportSwitch({ view, setView, peopleCount }: any) {
+  return (
+    <div className="flex gap-2">
+      {([
+        ['summary', 'Сводка по вопросам'],
+        ['people', `Кто заполнил${peopleCount ? ` · ${peopleCount}` : ''}`],
+      ] as const).map(([key, label]) => (
+        <button key={key} onClick={() => setView(key)}
+                className={`rounded-lg border px-3 py-1.5 text-sm ${
+                  view === key
+                    ? 'border-[#25455D] bg-[#25455D] text-white'
+                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                }`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Кто и что заполнил — поимённо.
+ *
+ * ⚠️ Имя ведёт в карточку контакта: из отчёта чаще всего идут именно туда —
+ * посмотреть человека целиком и написать ему.
+ */
+function PeopleList({ rows, questions }: { rows: any[]; questions: any[] }) {
+  const titleById = new Map<number, string>(
+    (questions || []).map((q: any) => [q.id, q.title]))
+
+  if (!rows.length) {
+    return (
+      <p className="text-sm text-gray-400">
+        Анкету пока никто не заполнил. Отправьте ссылку — заполнения появятся здесь.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {rows.map(r => (
+        <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <Link href={`/dashboard/clients?contact=${r.contact_id}`}
+                  className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
+              {r.name || 'Без имени'}
+            </Link>
+            <span className="text-xs text-gray-500">
+              {new Date(r.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
+            </span>
+          </div>
+          {(r.email || r.phone) && (
+            <div className="mb-2 text-xs text-gray-500">
+              {[r.email, r.phone].filter(Boolean).join(' · ')}
+            </div>
+          )}
+          <div className="space-y-1">
+            {(r.answers || []).map((a: any, i: number) => (
+              <div key={i} className="text-sm">
+                <span className="text-gray-500">
+                  {titleById.get(a.question_id) || 'Вопрос'}:{' '}
+                </span>
+                <span className="text-gray-900">{a.value}</span>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
     </div>

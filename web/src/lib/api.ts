@@ -816,6 +816,10 @@ export const api = {
       request(`/api/v1/surveys/${id}/questions/${qid}`, {
         method: 'PATCH', body: JSON.stringify(data),
       }),
+    reorderQuestions: (id: number, ids: number[]) =>
+      request(`/api/v1/surveys/${id}/questions/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
     deleteQuestion: (id: number, qid: number) =>
       request(`/api/v1/surveys/${id}/questions/${qid}`, { method: 'DELETE' }),
     analytics: (id: number) => request(`/api/v1/surveys/${id}/analytics`),

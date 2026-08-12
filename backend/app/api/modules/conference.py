@@ -301,7 +301,8 @@ class ConferenceUpdate(BaseModel):
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
-    offer_url: Optional[str] = None                # оферта мероприятия (миграция 157)
+    offer_url: Optional[str] = None                # оферта ссылкой на чужой сайт (миграция 157)
+    offer_id: Optional[int] = None                 # оферта из раздела «Оферты» (миграция 249)
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
@@ -351,6 +352,7 @@ async def get_conference(
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
                e.offer_url   AS event_offer_url,
+               e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
@@ -386,6 +388,7 @@ async def get_conference(
     d["vip_url"]    = d.pop("event_vip_url")    or ""
     d["vip_button_label"] = d.pop("event_vip_button_label") or ""
     d["offer_url"]    = d.pop("event_offer_url")    or ""
+    d["offer_id"]     = d.pop("event_offer_id")
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
@@ -458,7 +461,7 @@ async def update_conference(
     # Поля, которые живут в events (не в conf_conferences) — единый источник истины.
     EVENT_FIELDS = (
         "primary_chat_platform",
-        "vip_url", "vip_button_label", "offer_url",
+        "vip_url", "vip_button_label", "offer_url", "offer_id",
         "chat_button_label", "accent_button", "hide_stream_button",
         # Выключенные площадки события (миграция 263)
         "disabled_platforms",
@@ -481,6 +484,22 @@ async def update_conference(
             if f in ("vip_url", "vip_button_label") and isinstance(val, str):
                 val = val.strip() or None
             event_updates[f] = val
+
+    # Оферта события — документ из раздела «Оферты». Проверяем ВЛАДЕНИЕ:
+    # иначе, зная id, можно повесить на своё событие чужую оферту.
+    # 0 / null — снять привязку (остаётся ссылка offer_url, если задана).
+    if "offer_id" in event_updates:
+        v = event_updates["offer_id"]
+        if not v:
+            event_updates["offer_id"] = None
+        else:
+            own = await db.fetchval(
+                "SELECT id FROM client_offers WHERE id = $1 AND client_id = $2",
+                int(v), int(client["sub"]),
+            )
+            if not own:
+                raise HTTPException(status_code=404, detail="Оферта не найдена")
+            event_updates["offer_id"] = int(v)
 
     # end_action / подарок при завершении: валидация + взаимоисключение (миграция 195)
     if "end_action" in event_updates:
@@ -536,6 +555,7 @@ async def update_conference(
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
                e.offer_url   AS event_offer_url,
+               e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
@@ -565,6 +585,7 @@ async def update_conference(
     d["vip_url"]           = d.pop("event_vip_url")    or ""
     d["vip_button_label"]  = d.pop("event_vip_button_label") or ""
     d["offer_url"]         = d.pop("event_offer_url")  or ""
+    d["offer_id"]          = d.pop("event_offer_id")
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))

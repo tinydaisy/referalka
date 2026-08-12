@@ -1075,7 +1075,10 @@ export default function ContactsPage() {
                 <div className="px-4 pb-4 space-y-3">
                   {(selected as any).survey_history.map((r: any) => (
                     <div key={r.id} className="rounded-lg bg-gray-50 p-3">
-                      <div className="text-sm font-medium text-gray-800">{r.survey_title}</div>
+                      <Link href={`/dashboard/surveys/${r.survey_id}?tab=report`}
+                            className="text-sm font-medium text-gray-800 hover:text-[#25455D] hover:underline">
+                        {r.survey_title}
+                      </Link>
                       <div className="mb-2 text-xs text-gray-500">
                         {new Date(r.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
                       </div>

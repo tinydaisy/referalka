@@ -101,8 +101,11 @@ class UpdateEventRequest(BaseModel):
     # VIP / Чат
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
-    # Оферта мероприятия (миграция 157) — одна на событие, ссылкой.
+    # Оферта мероприятия — одна на событие. Основной способ (миграция 249):
+    # выбрать документ из раздела «Оферты» (offer_id). Ссылка offer_url
+    # (миграция 157) осталась для оферты, которая лежит на чужом сайте.
     offer_url: Optional[str] = None
+    offer_id: Optional[int] = None
     # Чат события — отдельная ссылка на каждую платформу + выбор главной.
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     chat_subscriptions_required: Optional[bool] = None
@@ -534,6 +537,22 @@ async def update_event(
             updates["end_gift_lead_magnet_id"] = None
         if "end_gift_package_id" in updates and not updates["end_gift_package_id"]:
             updates["end_gift_package_id"] = None
+
+    # Оферта события — документ из раздела «Оферты» (миграция 249). Проверяем
+    # ВЛАДЕНИЕ: иначе, зная id, можно было бы повесить на своё событие чужую
+    # оферту. 0 / null — снять привязку (остаётся ссылка offer_url, если есть).
+    if "offer_id" in updates:
+        v = updates["offer_id"]
+        if not v:
+            updates["offer_id"] = None
+        else:
+            own = await db.fetchval(
+                "SELECT id FROM client_offers WHERE id = $1 AND client_id = $2",
+                int(v), client_id,
+            )
+            if not own:
+                raise HTTPException(status_code=404, detail="Оферта не найдена")
+            updates["offer_id"] = int(v)
 
     # Slug: валидация формата + проверка уникальности (если меняется)
     if "slug" in updates:
