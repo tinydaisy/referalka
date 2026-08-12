@@ -164,7 +164,7 @@ def _parse_jsonb(v: Any, default):
 async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
         """SELECT id, name, telegram_username,
-                  brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                  brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links, events_tab_visibility,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem
@@ -981,6 +981,9 @@ class ProfileUpdate(BaseModel):
     # Бренд
     brand_name:         Optional[str]  = None
     brand_logo_url:     Optional[str]  = None       # логотип в углу страниц
+    # ⚠️ Второй логотип — тёмная версия знака для СВЕТЛОГО фона (анкеты,
+    # формы). Основной обычно белый и на белой карточке сливается с фоном.
+    brand_logo_light_url: Optional[str] = None
     profile_photo_url:  Optional[str]  = None       # фото бренда
     positioning:        Optional[str]  = None       # позиционирование бренда
     achievements:       Optional[list] = None       # [{label, value}] факты бренда
@@ -1024,7 +1027,7 @@ async def get_my_profile(
 ):
     row = await db.fetchrow(
         """SELECT id, name, telegram_username, email,
-                  brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                  brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links,
                   default_link_mode,
@@ -1070,6 +1073,8 @@ async def update_my_profile(
 
     if "brand_name"        in fs: add("brand_name",        data.brand_name or None)
     if "brand_logo_url"    in fs: add("brand_logo_url",    data.brand_logo_url or None)
+    if "brand_logo_light_url" in fs:
+        add("brand_logo_light_url", data.brand_logo_light_url or None)
     if "profile_photo_url" in fs: add("profile_photo_url", data.profile_photo_url or None)
     if "positioning"       in fs: add("positioning",       data.positioning or None)
     if "achievements"      in fs: add("achievements",      data.achievements or [], jsonb=True)
@@ -1252,7 +1257,7 @@ async def update_my_profile(
             f"""UPDATE clients SET {', '.join(sets)}
                 WHERE id = ${len(args)}
                 RETURNING id,
-                          brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                          brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                           owner_photo_url, owner_positioning, owner_achievements,
                           bio, social_links,
                           tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem""",

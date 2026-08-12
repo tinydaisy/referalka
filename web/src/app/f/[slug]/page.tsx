@@ -140,7 +140,7 @@ export default function PublicSurveyPage() {
 
   return (
     <Shell>
-      <BrandHeader brand={data.brand} />
+      <BrandHeader brand={data.brand} theme={data.theme} />
       {data.image_url && (
         <img src={data.image_url} alt=""
              className="mb-4 w-full rounded-xl object-cover" />
@@ -208,10 +208,11 @@ export default function PublicSurveyPage() {
  */
 function Shell({ children, theme }: { children: React.ReactNode; theme?: any }) {
   const t = theme || {}
-  // ⚠️ Готовую заливку считает бэкенд (`bg_css` в client_landing_theme) — тем
-  // же правилом, что у лендинга. Собирать градиент здесь заново нельзя:
-  // страницы разъедутся между собой.
-  const bg = t.bg_css || t.lp_bg_color || 'linear-gradient(45deg, #25455D, #0a1520)'
+  // ⚠️ Заливку считает бэкенд (`client_landing_theme`) — тем же правилом, что
+  // у лендинга и оферты. Анкета длинная (у клиента 26 вопросов), поэтому
+  // берём зеркальный `bg_css_long`: обычный градиент растягивается, и низ
+  // страницы уходит в тёмный конец.
+  const bg = t.bg_css_long || t.bg_css || 'linear-gradient(45deg, #25455D, #0a1520)'
   return (
     <div className="min-h-screen px-4 py-8" style={{ background: bg }}>
       <div className="mx-auto w-full max-w-xl rounded-2xl p-6 shadow-sm"
@@ -374,6 +375,23 @@ function DoneView({ result, survey }: any) {
   )
 }
 
+/**
+ * Светлый ли фон карточки — по нему выбираем версию логотипа.
+ * Пусто = белая карточка по умолчанию, значит светлый.
+ */
+function isLightBg(color?: string): boolean {
+  if (!color) return true
+  const m = color.trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  if (!m) return false           // rgba/градиент — считаем тёмным, как у лендинга
+  let hex = m[1]
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('')
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  // Воспринимаемая яркость (ITU-R BT.601): глаз видит зелёный ярче синего.
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150
+}
+
 /** Кому принадлежит анкета — для текста согласия на рассылки. */
 function brandLabel(brand: any): string {
   if (!brand) return ''
@@ -387,13 +405,19 @@ function brandLabel(brand: any): string {
  * ⚠️ Та же шапка, что на остальных публичных страницах: человек должен
  * понимать, чью анкету заполняет, ещё до первого вопроса.
  */
-function BrandHeader({ brand }: { brand: any }) {
+function BrandHeader({ brand, theme }: { brand: any; theme?: any }) {
   if (!brand || (!brand.logo_url && !brand.brand_name && !brand.owner_name)) return null
+  // ⚠️ Логотип обычно белый: на светлой карточке он сливается с фоном и
+  // выглядит как пустое место. Смотрим на светлоту карточки и берём тёмную
+  // версию знака, если клиент её загрузил.
+  const logo = isLightBg(theme?.lp_card_bg)
+    ? (brand.logo_light_url || brand.logo_url)
+    : brand.logo_url
   return (
-    <div className="mb-5 flex items-center gap-3 border-b border-black/10 pb-4">
-      {brand.logo_url && (
-        <img src={brand.logo_url} alt=""
-             className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+    <div className="mb-5 flex items-center gap-3 border-b border-current/10 pb-4">
+      {logo && (
+        <img src={logo} alt=""
+             className="h-12 w-12 shrink-0 rounded-xl object-contain" />
       )}
       <div className="min-w-0">
         {brand.brand_name && (

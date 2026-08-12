@@ -215,17 +215,10 @@ async def public_offer(slug: str, db: asyncpg.Connection = Depends(get_db)):
 
     # Шапка: чей это документ. Без неё оферта выглядит ничьей — человек читает
     # условия сделки и должен видеть, с кем её заключает.
-    # ⚠️ Формат тот же, что у анкеты (`surveys_public`): owner_name / brand_name
-    # / logo_url с фолбэком на фото бренда. Шапки этих страниц обязаны совпадать
-    # — человек ходит между ними в одной воронке.
-    b = await db.fetchrow(
-        "SELECT name, brand_name, brand_logo_url, profile_photo_url "
-        "  FROM clients WHERE id = $1",
-        client_id,
-    )
-    out["brand"] = {
-        "owner_name": b["name"],
-        "brand_name": b["brand_name"],
-        "logo_url": b["brand_logo_url"] or b["profile_photo_url"],
-    } if b else {}
+    # ⚠️ Шапка — из ОБЩЕЙ точки `client_brand_header` (там же, где тема):
+    # логотипов два (для тёмного и светлого фона), и правило выбора должно
+    # быть одинаковым на всех публичных страницах — человек ходит между ними
+    # в одной воронке.
+    from app.services.client_landing_theme_public import client_brand_header
+    out["brand"] = await client_brand_header(db, client_id)
     return out

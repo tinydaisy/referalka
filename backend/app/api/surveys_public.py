@@ -99,21 +99,10 @@ async def get_public_survey(
     from app.services.client_landing_theme_public import client_landing_theme
     theme = await client_landing_theme(db, s["client_id"])
 
-    # Шапка: логотип, бренд и имя основателя — человек должен понимать, чью
-    # анкету заполняет, ещё до первого вопроса.
-    brand = {}
-    try:
-        b = await db.fetchrow(
-            "SELECT name, brand_name, brand_logo_url, profile_photo_url "
-            "FROM clients WHERE id = $1", s["client_id"])
-        if b:
-            brand = {
-                "owner_name": b["name"],
-                "brand_name": b["brand_name"],
-                "logo_url": b["brand_logo_url"] or b["profile_photo_url"],
-            }
-    except Exception:
-        logger.exception("survey: не удалось получить бренд клиента")
+    # ⚠️ Шапка — из ОБЩЕЙ точки (там же, где тема): логотипов два, и правило
+    # выбора должно быть одинаковым на всех публичных страницах.
+    from app.services.client_landing_theme_public import client_brand_header
+    brand = await client_brand_header(db, s["client_id"])
 
     # Ссылка на политику ПД — на домене клиента, как и вся страница.
     privacy_url = None

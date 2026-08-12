@@ -53,6 +53,7 @@ interface Profile {
   // Бренд
   brand_name?: string | null
   brand_logo_url?: string | null
+  brand_logo_light_url?: string | null
   profile_photo_url?: string | null         // фото бренда
   positioning?: string | null               // позиционирование бренда
   achievements: Achievement[]               // факты в цифрах бренда
@@ -313,6 +314,7 @@ export default function MiniAppSettingsPage() {
         // бренд
         brand_name:        profile.brand_name        || null,
         brand_logo_url:    profile.brand_logo_url    || null,
+        brand_logo_light_url: profile.brand_logo_light_url || null,
         profile_photo_url: profile.profile_photo_url || null,
         positioning:       profile.positioning       || null,
         achievements:      cleanAch(profile.achievements),
@@ -435,16 +437,45 @@ export default function MiniAppSettingsPage() {
             title="Логотип бренда"
             hint="Маленькая иконка в правом верхнем углу всех страниц Mini App. Тап → открывает вкладку «О проекте». Лучше квадратная картинка на прозрачном/белом фоне."
           >
-            <div className="max-w-2xl">
-              <FileUploader
-                mode="single"
-                kind="brand_logo"
-                value={profile.brand_logo_url || null}
-                onChange={url => update('brand_logo_url', url)}
-                emptyText="Загрузите логотип (PNG/JPG)"
-                buttonLabel="Загрузить логотип"
-                aspectClass="aspect-square"
-              />
+            <div className="max-w-2xl space-y-4">
+              <div>
+                <div className="mb-1.5 text-sm font-medium text-gray-700">
+                  Для тёмного фона
+                </div>
+                <FileUploader
+                  mode="single"
+                  kind="brand_logo"
+                  value={profile.brand_logo_url || null}
+                  onChange={url => update('brand_logo_url', url)}
+                  emptyText="Загрузите логотип (PNG/JPG)"
+                  buttonLabel="Загрузить логотип"
+                  aspectClass="aspect-square"
+                />
+              </div>
+
+              {/* ⚠️ Второй файл нужен, потому что логотип обычно белый: на
+                  светлой карточке (анкеты, формы) он сливается с фоном и
+                  выглядит как пустое место. Не загрузили — везде берётся
+                  основной, как было раньше. */}
+              <div>
+                <div className="mb-1.5 text-sm font-medium text-gray-700">
+                  Для светлого фона
+                </div>
+                <p className="mb-2 text-xs text-gray-500">
+                  Тёмная версия знака — её показываем на светлых страницах,
+                  например в анкетах. Если не загрузить, там будет основной
+                  логотип: белый на белом не виден.
+                </p>
+                <FileUploader
+                  mode="single"
+                  kind="brand_logo"
+                  value={profile.brand_logo_light_url || null}
+                  onChange={url => update('brand_logo_light_url', url)}
+                  emptyText="Загрузите тёмную версию (PNG/JPG)"
+                  buttonLabel="Загрузить логотип"
+                  aspectClass="aspect-square"
+                />
+              </div>
             </div>
           </Section>
 

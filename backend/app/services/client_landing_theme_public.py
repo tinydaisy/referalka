@@ -70,3 +70,37 @@ async def client_landing_theme(db, client_id: int) -> dict:
         theme["bg_css"] = c1
         theme["bg_css_long"] = c1
     return theme
+
+
+async def client_brand_header(db, client_id: int) -> dict:
+    """Шапка публичной страницы: логотип, бренд, имя основателя. Одна точка.
+
+    ⚠️ Логотипов ДВА: основной (`brand_logo_url`) обычно белый и виден на
+    тёмном фоне, светлый (`brand_logo_light_url`) — тёмная версия знака для
+    светлой карточки. Раньше был один, и на белом фоне анкеты он сливался с
+    подложкой, выглядя как пустое место (жалоба владельца 2026-08-12).
+    Какой показать — решает страница по светлоте своей карточки.
+    """
+    if not client_id:
+        return {}
+    try:
+        b = await db.fetchrow(
+            "SELECT name, brand_name, brand_logo_url, brand_logo_light_url, "
+            "       profile_photo_url "
+            "FROM clients WHERE id = $1",
+            client_id,
+        )
+    except Exception:
+        logger.exception("не удалось получить бренд клиента %s", client_id)
+        return {}
+    if not b:
+        return {}
+    return {
+        "owner_name": b["name"],
+        "brand_name": b["brand_name"],
+        # Пусто → берём основной: у большинства клиентов второго файла нет,
+        # и поведение остаётся прежним.
+        "logo_url": b["brand_logo_url"] or b["profile_photo_url"],
+        "logo_light_url": b["brand_logo_light_url"] or b["brand_logo_url"]
+                          or b["profile_photo_url"],
+    }
