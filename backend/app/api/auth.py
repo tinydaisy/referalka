@@ -94,7 +94,11 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
                 WHERE c.plusson_referrer_code IS NOT NULL
                   AND c.plusson_referrer_code <> ''
                   AND (
-                        ($1 <> '' AND LOWER(c.email) = $1)
+                        -- email живёт как идентичность в platform_users, не в contacts.email
+                        ($1 <> '' AND EXISTS (SELECT 1 FROM platform_users pe
+                                               WHERE pe.contact_id = c.id
+                                                 AND pe.platform_slug = 'email'
+                                                 AND LOWER(pe.platform_user_id) = $1))
                      OR ($2 <> '' AND regexp_replace(COALESCE(c.phone,''), '\\D', '', 'g') = $2)
                      OR ($3 <> '' AND LOWER(p.username) = $3)
                       )

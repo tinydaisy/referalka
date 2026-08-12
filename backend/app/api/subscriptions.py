@@ -210,9 +210,11 @@ async def list_all_orders(
                         SELECT DISTINCT ON (pu.platform_slug)
                                pu.platform_slug, pu.username, pu.platform_user_id
                           FROM contacts ct
+                          JOIN platform_users pe ON pe.contact_id = ct.id
+                                                AND pe.platform_slug = 'email'
+                                                AND pe.platform_user_id = lower(c.email)
                           JOIN platform_users pu ON pu.contact_id = ct.id
-                         WHERE ct.email_normalized = lower(c.email)
-                           AND pu.platform_slug <> 'email'
+                         WHERE pu.platform_slug <> 'email'
                          ORDER BY pu.platform_slug, pu.id
                       ) x) AS identities"""
 

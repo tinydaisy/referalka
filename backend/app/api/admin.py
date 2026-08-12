@@ -103,9 +103,11 @@ async def list_clients(
                 OR c.phone ILIKE ${p} OR c.telegram_username ILIKE ${p}
                 OR EXISTS (
                     SELECT 1 FROM contacts ct
+                    JOIN platform_users pe ON pe.contact_id = ct.id
+                                          AND pe.platform_slug = 'email'
+                                          AND pe.platform_user_id = lower(c.email)
                     JOIN platform_users pu ON pu.contact_id = ct.id
-                    WHERE ct.email_normalized = lower(c.email)
-                      AND (pu.username ILIKE ${p} OR ct.name ILIKE ${p} OR ct.email ILIKE ${p})
+                    WHERE pu.username ILIKE ${p} OR ct.name ILIKE ${p}
                 )
             )"""
         )

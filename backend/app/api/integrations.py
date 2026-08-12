@@ -192,8 +192,8 @@ async def salebot_register(
         await db.execute(
             """UPDATE contacts SET
                  name             = COALESCE(name, $2),
-                 email            = COALESCE($3, email),
-                 email_normalized = COALESCE($4, email_normalized),
+                 -- email НЕ пишем в contacts: он живёт как идентичность
+                 -- в platform_users(platform_slug='email'), см. contact_merge.py
                  phone            = COALESCE($5, phone),
                  phone_normalized = COALESCE($6, phone_normalized),
                  salebot_id       = COALESCE(salebot_id, $7),
@@ -247,8 +247,8 @@ async def salebot_register(
         await db.execute(
             """UPDATE contacts SET
                  name             = COALESCE(name, $2),
-                 email            = COALESCE($3, email),
-                 email_normalized = COALESCE($4, email_normalized),
+                 -- email НЕ пишем в contacts: он живёт как идентичность
+                 -- в platform_users(platform_slug='email'), см. contact_merge.py
                  phone            = COALESCE($5, phone),
                  phone_normalized = COALESCE($6, phone_normalized),
                  salebot_id       = COALESCE(salebot_id, $7),
@@ -823,8 +823,8 @@ async def _register_by_participant(
     await db.execute(
         """UPDATE contacts SET
              name             = COALESCE(name, $2),
-             email            = COALESCE($3, email),
-             email_normalized = COALESCE($4, email_normalized),
+             -- email НЕ пишем в contacts: он живёт как идентичность
+             -- в platform_users(platform_slug='email'), см. contact_merge.py
              phone            = COALESCE($5, phone),
              phone_normalized = COALESCE($6, phone_normalized),
              last_contact_at  = NOW(),

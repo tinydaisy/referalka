@@ -220,9 +220,8 @@ async def _do_unsubscribe(
         visited.add(target_contact_id)
         contact_row = next_row
 
-    # Резолвим email-адрес: сначала пробуем найти у master-контакта запись
-    # в platform_users (там platform_user_id хранит email-адрес). Если нет —
-    # берём напрямую из contacts.email_normalized.
+    # Резолвим email-адрес из platform_users (platform_user_id хранит адрес) —
+    # почта живёт только там, поля contacts.email больше нет (миграция 282).
     email_addr = await db.fetchval(
         """SELECT platform_user_id FROM platform_users
             WHERE contact_id = $1 AND platform_slug = 'email'

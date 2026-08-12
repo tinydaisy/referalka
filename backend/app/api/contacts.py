@@ -1588,7 +1588,6 @@ async def erase_contact_personal_data(
         await db.execute(
             """UPDATE contacts
                   SET name = NULL,
-                      email = NULL, email_normalized = NULL,
                       phone = NULL, phone_normalized = NULL,
                       salebot_id = NULL,
                       tags = '[]'::jsonb,
