@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Колонки темы. Порядок неважен, важно, чтобы список был ОДИН на все страницы.
 _THEME_COLUMNS = (
-    "lp_bg_color", "lp_bg_color_2", "lp_bg_angle",
+    "lp_bg_color", "lp_bg_color_2", "lp_bg_angle", "lp_bg_gradient",
     "lp_color_heading", "lp_color_body", "lp_color_link",
     "lp_card_bg", "lp_card_text_color",
     "lp_btn_color", "lp_btn_text_color", "lp_btn_radius",
@@ -47,4 +47,26 @@ async def client_landing_theme(db, client_id: int) -> dict:
         return {}
     if not row:
         return {}
-    return {k: v for k, v in dict(row).items() if v is not None}
+    theme = {k: v for k, v in dict(row).items() if v is not None}
+
+    # Готовая заливка фона — считаем ЗДЕСЬ, тем же правилом, что у лендинга
+    # (`bg_css` в event_landing_public). Иначе каждая страница собирает CSS
+    # по-своему и они расходятся: у оферты фон уже выглядел иначе, чем у
+    # лендинга того же клиента.
+    c1 = theme.get("lp_bg_color") or "#25455D"
+    c2 = theme.get("lp_bg_color_2")
+    angle = theme.get("lp_bg_angle", 45)
+    if theme.get("lp_bg_gradient") and c2:
+        theme["bg_css"] = f"linear-gradient({angle}deg, {c1}, {c2})"
+        # ⚠️ Для ДЛИННОЙ страницы (оферта — сплошной текст на много экранов)
+        # обычный градиент растягивается, и низ уходит в тёмный конец: у
+        # клиента с настройкой «бирюза → почти чёрный» документ дочитывался
+        # уже по чёрному. Зеркальный (цвет1 → цвет2 → цвет1) держит оба края
+        # в исходном цвете — то же решение, что у режима «на каждом экране».
+        theme["bg_css_long"] = (
+            f"linear-gradient({angle}deg, {c1} 0%, {c2} 50%, {c1} 100%)"
+        )
+    else:
+        theme["bg_css"] = c1
+        theme["bg_css_long"] = c1
+    return theme

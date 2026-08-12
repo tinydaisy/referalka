@@ -52,9 +52,11 @@ export default async function OfferPage({ params }: { params: { slug: string } }
   // Оформление — как у лендингов клиента (те же настройки, что у анкеты):
   // человек пришёл из его воронки и не должен упереться в чужую страницу.
   const t = offer.theme || {}
-  const bg = t.lp_bg_color
-    ? `linear-gradient(${t.lp_bg_angle ?? 45}deg, ${t.lp_bg_color}, ${t.lp_bg_color_2 || t.lp_bg_color})`
-    : 'linear-gradient(45deg, #25455D, #0a1520)'
+  // ⚠️ Заливку собирает бэкенд (client_landing_theme) — тем же правилом, что
+  // у лендинга. Здесь свой linear-gradient не строим: разъедется с лендингом.
+  // bg_css_long — зеркальный вариант для длинного текста, чтобы низ страницы
+  // не уходил в тёмный конец градиента.
+  const bg = t.bg_css_long || t.bg_css || 'linear-gradient(45deg, #25455D, #0a1520)'
   const brand = offer.brand || {}
   const hasBrand = brand.logo_url || brand.brand_name || brand.owner_name
 
