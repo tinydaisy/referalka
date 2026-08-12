@@ -169,7 +169,9 @@ export default function PublicSurveyPage() {
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
-      <button onClick={submit} disabled={sending}
+      {/* ⚠️ Вызов обёрнут: submit принимает выбор контакта ({chosen_contact_id}),
+          а onClick передал бы объект события мыши — и в разбор выбора попал бы мусор. */}
+      <button onClick={() => submit()} disabled={sending}
               className="mt-6 w-full rounded-xl bg-[#25455D] px-6 py-3 font-medium text-white disabled:opacity-50">
         {sending ? 'Отправляем…' : (data.submit_label || 'Отправить')}
       </button>
