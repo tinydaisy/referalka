@@ -156,7 +156,7 @@ export default function PublicSurveyPage() {
       <div className="space-y-5">
         {data.questions.map((q: any) => (
           <Question key={q.id} q={q} value={answers[String(q.id)]}
-                    onChange={v => setAnswers({ ...answers, [String(q.id)]: v })} />
+                    onChange={(v: any) => setAnswers({ ...answers, [String(q.id)]: v })} />
         ))}
       </div>
 

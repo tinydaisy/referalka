@@ -44,6 +44,9 @@ export default function SettingsPage() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [notifyTab, setNotifyTab] = useState<'telegram' | 'max' | 'vk'>('telegram')
+  // Тестовые рассылки — площадки вкладками, как в «Каналах уведомлений»:
+  // четыре поля подряд не помещались и терялись при прокрутке.
+  const [testTab, setTestTab] = useState<'telegram' | 'max' | 'vk' | 'email'>('telegram')
   const [maxResolving, setMaxResolving] = useState(false)
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
@@ -604,11 +607,37 @@ export default function SettingsPage() {
 
           <div className="mt-4">
 
-          {/* Telegram */}
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Telegram ID
-            </label>
+          {/* Вкладки площадок — четыре поля подряд не помещались на экране */}
+          <div className="flex gap-1 mb-4 border-b border-gray-200">
+            {([
+              { k: 'telegram', label: 'Telegram' },
+              { k: 'max', label: 'MAX' },
+              { k: 'vk', label: 'VK' },
+              { k: 'email', label: 'Email' },
+            ] as const).map(t => (
+              <button
+                key={t.k}
+                type="button"
+                onClick={() => setTestTab(t.k)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  testTab === t.k
+                    ? 'border-[#25455D] text-[#25455D]'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {t.label}
+                {((t.k === 'telegram' && form.test_telegram_ids_raw) ||
+                  (t.k === 'max' && form.test_max_ids_raw) ||
+                  (t.k === 'vk' && form.test_vk_ids_raw) ||
+                  (t.k === 'email' && form.test_email_ids_raw)) && (
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 align-middle" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {testTab === 'telegram' && (
+          <div>
             <input
               type="text"
               value={form.test_telegram_ids_raw}
@@ -629,12 +658,10 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+          )}
 
-          {/* VK */}
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              VK ID
-            </label>
+          {testTab === 'vk' && (
+          <div>
             <input
               type="text"
               value={form.test_vk_ids_raw}
@@ -656,12 +683,10 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+          )}
 
-          {/* MAX */}
+          {testTab === 'max' && (
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              MAX ID
-            </label>
             <input
               type="text"
               value={form.test_max_ids_raw}
@@ -670,8 +695,7 @@ export default function SettingsPage() {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
             />
             <p className="text-xs text-gray-500 mt-1">
-              ID профиля MAX. Тестовый аккаунт должен начать диалог с вашим MAX-ботом (или с системным
-              ботом ПЛЮСОНа), иначе сообщение не уйдёт.
+              ID профиля MAX. Тестовый аккаунт должен начать диалог с вашим MAX-ботом, иначе сообщение не уйдёт.
             </p>
             {form.test_max_ids_raw && (
               <div className="mt-2 flex flex-wrap gap-2">
@@ -683,12 +707,10 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+          )}
 
-          {/* Email */}
+          {testTab === 'email' && (
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Email
-            </label>
             <input
               type="text"
               value={form.test_email_ids_raw}
@@ -710,6 +732,7 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+          )}
           </div>
         </details>
 
