@@ -131,6 +131,10 @@ export default function PublicSurveyPage() {
 
   return (
     <Shell>
+      {data.image_url && (
+        <img src={data.image_url} alt=""
+             className="mb-4 w-full rounded-xl object-cover" />
+      )}
       <h1 className="mb-2 text-xl font-bold text-gray-900">{data.title}</h1>
       {data.intro && (
         <p className="mb-5 whitespace-pre-wrap text-sm text-gray-600">{data.intro}</p>
@@ -211,13 +215,15 @@ function Shell({ children, theme }: { children: React.ReactNode; theme?: any }) 
   )
 }
 
-function Labeled({ label, hint, required, children }: any) {
+function Labeled({ label, hint, required, image, children }: any) {
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium text-gray-700">
         {label}{required && <span className="ml-0.5 text-red-500">*</span>}
       </span>
       {hint && <span className="mb-1 block text-xs text-gray-500">{hint}</span>}
+      {/* Картинка вопроса — над полем ответа: сначала смотрят, потом отвечают. */}
+      {image && <img src={image} alt="" className="mb-2 w-full rounded-lg object-cover" />}
       {children}
     </label>
   )
@@ -228,7 +234,7 @@ function Question({ q, value, onChange }: any) {
 
   if (q.kind === 'select') {
     return (
-      <Labeled label={q.title} hint={q.hint} required={q.is_required}>
+      <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <div className="space-y-1.5">
           {opts.map(o => (
             <label key={o} className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 p-2.5 text-sm hover:bg-gray-50">
@@ -245,7 +251,7 @@ function Question({ q, value, onChange }: any) {
   if (q.kind === 'multiselect') {
     const arr: string[] = Array.isArray(value) ? value : []
     return (
-      <Labeled label={q.title} hint={q.hint} required={q.is_required}>
+      <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <div className="space-y-1.5">
           {opts.map(o => (
             <label key={o} className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 p-2.5 text-sm hover:bg-gray-50">
@@ -263,7 +269,7 @@ function Question({ q, value, onChange }: any) {
 
   if (q.kind === 'bool') {
     return (
-      <Labeled label={q.title} hint={q.hint} required={q.is_required}>
+      <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <div className="flex gap-2">
           {['Да', 'Нет'].map(o => (
             <button key={o} type="button" onClick={() => onChange(o)}
@@ -285,7 +291,7 @@ function Question({ q, value, onChange }: any) {
     const max = q.scale_max ?? 10
     const nums = Array.from({ length: max - min + 1 }, (_, i) => min + i)
     return (
-      <Labeled label={q.title} hint={q.hint} required={q.is_required}>
+      <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <div className="flex flex-wrap gap-1.5">
           {nums.map(n => (
             <button key={n} type="button" onClick={() => onChange(String(n))}
@@ -304,7 +310,7 @@ function Question({ q, value, onChange }: any) {
 
   if (q.kind === 'textarea') {
     return (
-      <Labeled label={q.title} hint={q.hint} required={q.is_required}>
+      <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
         <textarea className="fld min-h-[90px]" value={value || ''}
                   onChange={e => onChange(e.target.value)} />
       </Labeled>
@@ -312,7 +318,7 @@ function Question({ q, value, onChange }: any) {
   }
 
   return (
-    <Labeled label={q.title} hint={q.hint} required={q.is_required}>
+    <Labeled label={q.title} hint={q.hint} required={q.is_required} image={q.image_url}>
       <input className="fld"
              type={q.kind === 'number' ? 'number' : q.kind === 'date' ? 'date' : 'text'}
              value={value || ''} onChange={e => onChange(e.target.value)} />

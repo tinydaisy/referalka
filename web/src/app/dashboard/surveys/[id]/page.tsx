@@ -12,7 +12,8 @@ import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
-import { ArrowLeft, Plus, Trash2, X, Copy, Check } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical } from 'lucide-react'
+import FileUploader from '@/components/FileUploader'
 
 const KINDS = [
   { value: 'text', label: 'Короткий текст' },
@@ -153,12 +154,8 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
           </p>
         )}
 
-        <div className="space-y-2">
-          {(survey.questions || []).map((q: any) => (
-            <QuestionRow key={q.id} surveyId={survey.id} question={q} fields={fields}
-                         onChanged={onChanged} readOnly={readOnly} />
-          ))}
-        </div>
+        <QuestionsList survey={survey} fields={fields}
+                       onChanged={onChanged} readOnly={readOnly} />
       </div>
     </div>
   )
@@ -166,6 +163,7 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
 
 function SettingsBlock({ survey, onChanged, readOnly }: any) {
   const [intro, setIntro] = useState(survey.intro || '')
+  const [imageUrl, setImageUrl] = useState(survey.image_url || '')
   const [afterMode, setAfterMode] = useState(survey.after_mode || 'thanks')
   const [thanks, setThanks] = useState(survey.thanks_text || '')
   const [redirect, setRedirect] = useState(survey.redirect_url || '')
@@ -180,6 +178,7 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
       await api.surveys.update(survey.id, {
         intro, after_mode: afterMode, thanks_text: thanks,
         redirect_url: redirect, allow_repeat: allowRepeat, is_active: isActive,
+        image_url: imageUrl || null,
       })
       setSaved(true); setTimeout(() => setSaved(false), 1500)
       onChanged()
@@ -189,6 +188,14 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <h3 className="mb-3 font-semibold text-gray-800">Настройки</h3>
+
+      {/* Обложка — показывается вверху анкеты, до вопросов. */}
+      <div className="mb-3">
+        <span className="mb-1 block text-sm text-gray-600">Картинка вверху анкеты</span>
+        <FileUploader mode="single" kind="survey_media"
+                      value={imageUrl || null}
+                      onChange={(u: string | null) => setImageUrl(u || '')} />
+      </div>
 
       <label className="mb-3 block">
         <span className="mb-1 block text-sm text-gray-600">Текст перед вопросами</span>
@@ -252,8 +259,66 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
   )
 }
 
-function QuestionRow({ surveyId, question, fields, onChanged, readOnly }: any) {
+/**
+ * Список вопросов с перетаскиванием.
+ *
+ * ⚠️ Порядок применяется сразу на экране, а запрос уходит следом: ждать
+ * ответа сервера, держа карточку под курсором, — заметная задержка. Сервер
+ * пишет новый порядок одной транзакцией, поэтому расхождения не будет.
+ *
+ * ⚠️ draggable включается ТОЛЬКО на ручке ⠿ — иначе браузер начинает тащить
+ * карточку при выделении текста в полях (та же засада, что в конструкторе
+ * лендинга).
+ */
+function QuestionsList({ survey, fields, onChanged, readOnly }: any) {
+  const [order, setOrder] = useState<any[]>(survey.questions || [])
+  const [dragId, setDragId] = useState<number | null>(null)
+
+  useEffect(() => { setOrder(survey.questions || []) }, [survey.questions])
+
+  const drop = async (targetId: number) => {
+    if (dragId == null || dragId === targetId) { setDragId(null); return }
+    const from = order.findIndex(q => q.id === dragId)
+    const to = order.findIndex(q => q.id === targetId)
+    if (from < 0 || to < 0) { setDragId(null); return }
+    const next = [...order]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setOrder(next)
+    setDragId(null)
+    try {
+      await api.surveys.reorderQuestions(survey.id, next.map(q => q.id))
+    } catch {
+      onChanged()   // не сохранилось — вернём порядок с сервера
+    }
+  }
+
+  if (!order.length) return null
+
+  return (
+    <div className="space-y-2">
+      {order.map((q: any) => (
+        <QuestionRow key={q.id} surveyId={survey.id} question={q} fields={fields}
+                     onChanged={onChanged} readOnly={readOnly}
+                     draggable={!readOnly}
+                     isDragging={dragId === q.id}
+                     onDragStart={() => setDragId(q.id)}
+                     onDragOver={(e: React.DragEvent) => e.preventDefault()}
+                     onDrop={() => drop(q.id)} />
+      ))}
+    </div>
+  )
+}
+
+
+function QuestionRow({
+  surveyId, question, fields, onChanged, readOnly,
+  draggable, isDragging, onDragStart, onDragOver, onDrop,
+}: any) {
   const [editing, setEditing] = useState(false)
+  // ⚠️ draggable включаем только на ручке — иначе браузер тащит карточку
+  // при выделении текста в полях.
+  const [canDrag, setCanDrag] = useState(false)
 
   const remove = async () => {
     if (!confirm(`Удалить вопрос «${question.title}»? Ответы на него тоже удалятся.`)) return
@@ -270,8 +335,32 @@ function QuestionRow({ surveyId, question, fields, onChanged, readOnly }: any) {
   }
 
   return (
-    <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4">
-      <div className="min-w-0">
+    <div
+      draggable={draggable && canDrag}
+      onDragStart={onDragStart}
+      onDragEnd={() => setCanDrag(false)}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`flex items-center justify-between gap-2 rounded-xl border bg-white p-4 ${
+        isDragging ? 'border-[#25455D] opacity-40' : 'border-gray-200'
+      }`}
+    >
+      {draggable && (
+        <span
+          onMouseDown={() => setCanDrag(true)}
+          onMouseUp={() => setCanDrag(false)}
+          onMouseLeave={() => setCanDrag(false)}
+          title="Перетащите, чтобы поменять порядок"
+          className="shrink-0 cursor-grab text-gray-400 active:cursor-grabbing"
+        >
+          <GripVertical size={18} />
+        </span>
+      )}
+      {question.image_url && (
+        <img src={question.image_url} alt=""
+             className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+      )}
+      <div className="min-w-0 flex-1">
         <div className="font-medium text-gray-900">
           {question.title}
           {question.is_required && <span className="ml-1 text-red-500">*</span>}
@@ -304,6 +393,7 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
   const [options, setOptions] = useState<string[]>(
     Array.isArray(question?.options) ? question.options : [])
   const [required, setRequired] = useState(!!question?.is_required)
+  const [imageUrl, setImageUrl] = useState(question?.image_url || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -325,6 +415,7 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
       const payload: any = {
         title: title.trim(), is_required: required,
         field_id: fieldId ? Number(fieldId) : null,
+        image_url: imageUrl || null,
       }
       if (!linked) {
         payload.kind = kind
@@ -410,6 +501,14 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
           )}
         </div>
       )}
+
+      {/* Картинка вопроса: пример, схема, вариант — своя у каждого вопроса. */}
+      <div className="mb-3">
+        <span className="mb-1 block text-sm text-gray-600">Картинка к вопросу</span>
+        <FileUploader mode="single" kind="survey_media"
+                      value={imageUrl || null}
+                      onChange={(u: string | null) => setImageUrl(u || '')} />
+      </div>
 
       <label className="flex cursor-pointer items-center gap-2">
         <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
@@ -512,11 +611,21 @@ function ReportTab({ surveyId }: { surveyId: number }) {
   )
 }
 
-/** Вкладка «Ответы» — кто заполнил и что ответил. */
+/**
+ * Вкладка «Ответы» — ТАБЛИЦА заполнивших.
+ *
+ * ⚠️ Именно таблица, а не карточки: на сотне человек и полусотне вопросов
+ * карточки превращаются в нечитаемую простыню (замечание владельца
+ * 2026-08-12). В строке — только контакты и дата; ответы открываются по
+ * клику на строку.
+ */
 function AnswersTab({ surveyId }: { surveyId: number }) {
   const [rows, setRows] = useState<any[]>([])
   const [questions, setQuestions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [q, setQ] = useState('')
+  const [desc, setDesc] = useState(true)
+  const [openId, setOpenId] = useState<number | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -528,99 +637,152 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
   }, [surveyId])
 
   if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
-  return <PeopleList rows={rows} questions={questions} />
-}
-
-/**
- * Раздел «Ответы» — кто заполнил и что ответил.
- *
- * ⚠️ Контакты показываем ВСЕ, какие есть: почта, телефон, Telegram, VK, MAX.
- * У разных людей заполнено разное, и организатору нужно чем-то с ними
- * связаться — показывать только почту недостаточно.
- *
- * По умолчанию сверху самые свежие: свежее заполнение — то, на которое ещё
- * не отреагировали.
- */
-function PeopleList({ rows, questions }: { rows: any[]; questions: any[] }) {
-  const [desc, setDesc] = useState(true)
-  const titleById = new Map<number, string>(
-    (questions || []).map((q: any) => [q.id, q.title]))
 
   if (!rows.length) {
     return (
       <p className="text-sm text-gray-400">
-        Анкету пока никто не заполнил. Отправьте ссылку — заполнения появятся здесь.
+        Анкету пока никто не заполнил. Отправьте ссылку — ответы появятся здесь.
       </p>
     )
   }
 
-  const sorted = [...rows].sort((a, b) => {
+  const needle = q.trim().toLowerCase()
+  const filtered = rows.filter(r => {
+    if (!needle) return true
+    return [r.name, r.email, r.phone, r.telegram, r.vk, r.max_nick]
+      .some(v => (v || '').toString().toLowerCase().includes(needle))
+  })
+
+  const sorted = [...filtered].sort((a, b) => {
     const ta = new Date(a.created_at).getTime()
     const tb = new Date(b.created_at).getTime()
     return desc ? tb - ta : ta - tb
   })
 
+  const opened = sorted.find(r => r.id === openId)
+
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <span className="text-sm text-gray-600">
           Заполнили: <b className="text-gray-900">{rows.length}</b>
+          {needle && filtered.length !== rows.length && (
+            <span className="text-gray-400"> · найдено {filtered.length}</span>
+          )}
         </span>
-        <button onClick={() => setDesc(!desc)}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
-          {desc ? '↓ Сначала новые' : '↑ Сначала старые'}
-        </button>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Поиск: имя, почта, телефон, ник"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm focus:border-[#25455D] focus:outline-none"
+        />
       </div>
 
-      <div className="space-y-3">
-        {sorted.map(r => {
-          const contacts: Array<[string, string]> = [
-            ['Почта', r.email],
-            ['Телефон', r.phone],
-            ['Telegram', r.telegram],
-            ['ВКонтакте', r.vk],
-            ['MAX', r.max_nick],
-          ].filter(([, v]) => !!v) as Array<[string, string]>
-
-          return (
-            <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                <Link href={`/dashboard/clients?contact=${r.contact_id}`}
-                      className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
-                  {r.name || 'Без имени'}
-                </Link>
-                <span className="text-xs text-gray-500">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs text-gray-500">
+              <th className="px-3 py-2 font-medium">Имя</th>
+              <th className="px-3 py-2 font-medium">Почта</th>
+              <th className="px-3 py-2 font-medium">Телефон</th>
+              <th className="px-3 py-2 font-medium">Telegram</th>
+              <th className="px-3 py-2 font-medium">ВКонтакте</th>
+              <th className="px-3 py-2 font-medium">MAX</th>
+              <th className="cursor-pointer px-3 py-2 font-medium whitespace-nowrap hover:text-gray-800"
+                  onClick={() => setDesc(!desc)}
+                  title="Сортировать по дате">
+                Заполнено {desc ? '↓' : '↑'}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(r => (
+              <tr key={r.id}
+                  onClick={() => setOpenId(r.id)}
+                  className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <td className="px-3 py-2 font-medium text-gray-900">{r.name || 'Без имени'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.email || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.phone || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.telegram || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.vk || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.max_nick || '—'}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-gray-500">
                   {new Date(r.created_at).toLocaleString('ru-RU', {
                     timeZone: 'Europe/Moscow',
-                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    day: '2-digit', month: '2-digit', year: '2-digit',
                     hour: '2-digit', minute: '2-digit',
-                  })} МСК
-                </span>
-              </div>
+                  })}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-              {contacts.length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                  {contacts.map(([label, val]) => (
-                    <span key={label}>
-                      {label}: <span className="text-gray-700">{val}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
+      {opened && (
+        <AnswerModal row={opened} questions={questions} onClose={() => setOpenId(null)} />
+      )}
+    </div>
+  )
+}
 
-              <div className="space-y-1">
-                {(r.answers || []).map((a: any, i: number) => (
-                  <div key={i} className="text-sm">
-                    <span className="text-gray-500">
-                      {titleById.get(a.question_id) || 'Вопрос'}:{' '}
-                    </span>
-                    <span className="text-gray-900">{a.value}</span>
-                  </div>
-                ))}
-              </div>
+/** Ответы одного человека — открывается кликом по строке таблицы. */
+function AnswerModal({ row, questions, onClose }: any) {
+  const titleById = new Map<number, string>(
+    (questions || []).map((x: any) => [x.id, x.title]))
+
+  const contacts: Array<[string, string]> = [
+    ['Почта', row.email], ['Телефон', row.phone],
+    ['Telegram', row.telegram], ['ВКонтакте', row.vk], ['MAX', row.max_nick],
+  ].filter(([, v]) => !!v) as Array<[string, string]>
+
+  return (
+    // ⚠️ Клик по затемнению НЕ закрывает — правило проекта для окон с данными.
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+      <div className="mt-10 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <Link href={`/dashboard/clients?contact=${row.contact_id}`}
+                  className="text-lg font-bold text-gray-900 hover:text-[#25455D] hover:underline">
+              {row.name || 'Без имени'}
+            </Link>
+            <div className="mt-0.5 text-xs text-gray-500">
+              {new Date(row.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
             </div>
-          )
-        })}
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        {contacts.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+            {contacts.map(([label, val]) => (
+              <span key={label}>{label}: <span className="text-gray-800">{val}</span></span>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {(row.answers || []).map((a: any, i: number) => (
+            <div key={i}>
+              <div className="text-xs text-gray-500">
+                {titleById.get(a.question_id) || 'Вопрос'}
+              </div>
+              <div className="text-sm text-gray-900">{a.value}</div>
+            </div>
+          ))}
+          {!(row.answers || []).length && (
+            <p className="text-sm text-gray-400">Ответов нет.</p>
+          )}
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <button onClick={onClose}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+            Закрыть
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -92,6 +92,9 @@ async def upload_file(
         "broadcast_video",
         "event_video", "speaker_video", "referral_video",
         "landing_bg", "landing_media",
+        # Картинки анкет (миграция 281): обложка анкеты и картинка вопроса.
+        # ⚠️ event_id НЕ требуют — анкеты общие, к событиям не привязаны.
+        "survey_media",
     }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 

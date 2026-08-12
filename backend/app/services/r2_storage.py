@@ -121,6 +121,10 @@ def build_key(
             raise ValueError("landing_bg требует event_id")
         return f"{base}/events/{event_id}/landing/bg/{fname}"
 
+    # Анкеты общие (к событию не привязаны) — храним по клиенту.
+    if kind == "survey_media":
+        return f"{base}/surveys/media/{fname}"
+
     if kind == "landing_media":
         if not event_id:
             raise ValueError("landing_media требует event_id")
