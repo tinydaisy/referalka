@@ -55,7 +55,10 @@ export default function SurveyPage() {
   if (!survey) return <p className="p-6 text-sm text-red-600">Анкета не найдена</p>
 
   return (
-    <div className="max-w-4xl">
+    // ⚠️ На «Ответах» ширину НЕ ограничиваем: там таблица с семью колонками,
+    // и в узкой колонке она жалась, оставляя полэкрана пустым. Формы вопросов
+    // и отчёт наоборот читаются хуже во всю ширину — им лимит оставляем.
+    <div className={tab === 'answers' ? 'max-w-none' : 'max-w-4xl'}>
       <Link href="/dashboard/surveys"
             className="mb-4 flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700">
         <ArrowLeft size={14} /> Все анкеты
@@ -783,17 +786,19 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs text-gray-500">
+              {/* Дата — ПЕРВАЯ колонка (решение владельца): по ней и
+                  сортируют, и ориентируются в первую очередь. */}
+              <th className="cursor-pointer whitespace-nowrap px-3 py-2 font-medium hover:text-gray-800"
+                  onClick={() => setDesc(!desc)}
+                  title="Сортировать по дате">
+                Заполнено {desc ? '↓' : '↑'}
+              </th>
               <th className="px-3 py-2 font-medium">Имя</th>
               <th className="px-3 py-2 font-medium">Почта</th>
               <th className="px-3 py-2 font-medium">Телефон</th>
               <th className="px-3 py-2 font-medium">Telegram</th>
               <th className="px-3 py-2 font-medium">ВКонтакте</th>
               <th className="px-3 py-2 font-medium">MAX</th>
-              <th className="cursor-pointer px-3 py-2 font-medium whitespace-nowrap hover:text-gray-800"
-                  onClick={() => setDesc(!desc)}
-                  title="Сортировать по дате">
-                Заполнено {desc ? '↓' : '↑'}
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -801,12 +806,6 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
               <tr key={r.id}
                   onClick={() => router.push(`/dashboard/surveys/${surveyId}/responses/${r.id}`)}
                   className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                <td className="px-3 py-2 font-medium text-gray-900">{r.name || 'Без имени'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.email || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.phone || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.telegram || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.vk || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.max_nick || '—'}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-gray-500">
                   {new Date(r.created_at).toLocaleString('ru-RU', {
                     timeZone: 'Europe/Moscow',
@@ -814,6 +813,12 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
                     hour: '2-digit', minute: '2-digit',
                   })}
                 </td>
+                <td className="px-3 py-2 font-medium text-gray-900">{r.name || 'Без имени'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.email || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.phone || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.telegram || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.vk || '—'}</td>
+                <td className="px-3 py-2 text-gray-600">{r.max_nick || '—'}</td>
               </tr>
             ))}
           </tbody>
