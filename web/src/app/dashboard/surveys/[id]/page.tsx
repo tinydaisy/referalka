@@ -31,8 +31,12 @@ export default function SurveyPage() {
   const { id } = useParams<{ id: string }>()
   const search = useSearchParams()
   const { isAssistant } = useMe()
-  const [tab, setTab] = useState<'edit' | 'report'>(
-    search.get('tab') === 'report' ? 'report' : 'edit')
+  // ⚠️ Ответы и отчёт — РАЗНЫЕ вкладки (решение владельца): список
+  // заполнивших и сводка по вопросам — разные задачи, смешивать нельзя.
+  const [tab, setTab] = useState<'edit' | 'answers' | 'report'>(() => {
+    const t = search.get('tab')
+    return t === 'report' ? 'report' : t === 'answers' ? 'answers' : 'edit'
+  })
   const [survey, setSurvey] = useState<any>(null)
   const [fields, setFields] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,12 +62,15 @@ export default function SurveyPage() {
 
       <h1 className="mb-1 text-2xl font-bold text-gray-900">{survey.title}</h1>
       <p className="mb-6 text-sm text-gray-500">
-        Заполнили {survey.questions?.length ? '' : ''}
-        <b>{survey.people_count ?? ''}</b>
+        {survey.questions?.length || 0} вопрос(ов)
       </p>
 
       <div className="mb-6 flex gap-2 border-b border-gray-200">
-        {([['edit', 'Вопросы и настройки'], ['report', 'Отчёт']] as const).map(([key, label]) => (
+        {([
+          ['edit', 'Вопросы и настройки'],
+          ['answers', 'Ответы'],
+          ['report', 'Отчёт'],
+        ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
                   className={`-mb-px border-b-2 px-4 py-2 text-sm ${
                     tab === key
@@ -75,9 +82,11 @@ export default function SurveyPage() {
         ))}
       </div>
 
-      {tab === 'edit'
-        ? <EditTab survey={survey} fields={fields} onChanged={load} readOnly={isAssistant} />
-        : <ReportTab surveyId={Number(id)} />}
+      {tab === 'edit' && (
+        <EditTab survey={survey} fields={fields} onChanged={load} readOnly={isAssistant} />
+      )}
+      {tab === 'answers' && <AnswersTab surveyId={Number(id)} />}
+      {tab === 'report' && <ReportTab surveyId={Number(id)} />}
     </div>
   )
 }
@@ -424,39 +433,20 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
 
 /* ───────────────────────────────── Отчёт ────────────────────────────────── */
 
+/** Отчёт — только сводка по вопросам. Список заполнивших живёт в «Ответах». */
 function ReportTab({ surveyId }: { surveyId: number }) {
   const [data, setData] = useState<any>(null)
-  const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  // Две части отчёта: сводка по вопросам и пофамильный список заполнивших.
-  // ⚠️ По умолчанию — «Ответы»: организатору в первую очередь нужно видеть,
-  // КТО заполнил, а не проценты (запрос владельца 2026-08-12).
-  const [view, setView] = useState<'people' | 'summary'>('people')
 
   useEffect(() => {
-    Promise.all([
-      api.surveys.analytics(surveyId),
-      api.surveys.responses(surveyId).catch(() => []),
-    ])
-      .then(([a, r]) => { setData(a); setRows(r || []) })
-      .finally(() => setLoading(false))
+    api.surveys.analytics(surveyId).then(setData).finally(() => setLoading(false))
   }, [surveyId])
 
   if (loading) return <p className="text-sm text-gray-400">Считаем…</p>
   if (!data) return null
 
-  if (view === 'people') {
-    return (
-      <div className="space-y-4">
-        <ReportSwitch view={view} setView={setView} peopleCount={rows.length} />
-        <PeopleList rows={rows} questions={data.questions || []} />
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-4">
-      <ReportSwitch view={view} setView={setView} peopleCount={rows.length} />
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="text-2xl font-bold text-gray-900">{data.people_total}</div>
@@ -522,33 +512,25 @@ function ReportTab({ surveyId }: { surveyId: number }) {
   )
 }
 
-/** Переключатель отчёта: сводка по вопросам ↔ пофамильный список. */
-function ReportSwitch({ view, setView, peopleCount }: any) {
-  return (
-    <div className="flex gap-2">
-      {([
-        ['people', `Ответы${peopleCount ? ` · ${peopleCount}` : ''}`],
-        ['summary', 'Сводка по вопросам'],
-      ] as const).map(([key, label]) => (
-        <button key={key} onClick={() => setView(key)}
-                className={`rounded-lg border px-3 py-1.5 text-sm ${
-                  view === key
-                    ? 'border-[#25455D] bg-[#25455D] text-white'
-                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                }`}>
-          {label}
-        </button>
-      ))}
-    </div>
-  )
+/** Вкладка «Ответы» — кто заполнил и что ответил. */
+function AnswersTab({ surveyId }: { surveyId: number }) {
+  const [rows, setRows] = useState<any[]>([])
+  const [questions, setQuestions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([
+      api.surveys.responses(surveyId).catch(() => []),
+      api.surveys.get(surveyId).catch(() => ({ questions: [] })),
+    ])
+      .then(([r, s]: any[]) => { setRows(r || []); setQuestions(s?.questions || []) })
+      .finally(() => setLoading(false))
+  }, [surveyId])
+
+  if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
+  return <PeopleList rows={rows} questions={questions} />
 }
 
-/**
- * Кто и что заполнил — поимённо.
- *
- * ⚠️ Имя ведёт в карточку контакта: из отчёта чаще всего идут именно туда —
- * посмотреть человека целиком и написать ему.
- */
 /**
  * Раздел «Ответы» — кто заполнил и что ответил.
  *
