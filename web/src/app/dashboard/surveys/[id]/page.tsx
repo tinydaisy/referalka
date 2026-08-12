@@ -429,7 +429,9 @@ function ReportTab({ surveyId }: { surveyId: number }) {
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   // Две части отчёта: сводка по вопросам и пофамильный список заполнивших.
-  const [view, setView] = useState<'summary' | 'people'>('summary')
+  // ⚠️ По умолчанию — «Ответы»: организатору в первую очередь нужно видеть,
+  // КТО заполнил, а не проценты (запрос владельца 2026-08-12).
+  const [view, setView] = useState<'people' | 'summary'>('people')
 
   useEffect(() => {
     Promise.all([
@@ -525,8 +527,8 @@ function ReportSwitch({ view, setView, peopleCount }: any) {
   return (
     <div className="flex gap-2">
       {([
+        ['people', `Ответы${peopleCount ? ` · ${peopleCount}` : ''}`],
         ['summary', 'Сводка по вопросам'],
-        ['people', `Кто заполнил${peopleCount ? ` · ${peopleCount}` : ''}`],
       ] as const).map(([key, label]) => (
         <button key={key} onClick={() => setView(key)}
                 className={`rounded-lg border px-3 py-1.5 text-sm ${
@@ -547,7 +549,18 @@ function ReportSwitch({ view, setView, peopleCount }: any) {
  * ⚠️ Имя ведёт в карточку контакта: из отчёта чаще всего идут именно туда —
  * посмотреть человека целиком и написать ему.
  */
+/**
+ * Раздел «Ответы» — кто заполнил и что ответил.
+ *
+ * ⚠️ Контакты показываем ВСЕ, какие есть: почта, телефон, Telegram, VK, MAX.
+ * У разных людей заполнено разное, и организатору нужно чем-то с ними
+ * связаться — показывать только почту недостаточно.
+ *
+ * По умолчанию сверху самые свежие: свежее заполнение — то, на которое ещё
+ * не отреагировали.
+ */
 function PeopleList({ rows, questions }: { rows: any[]; questions: any[] }) {
+  const [desc, setDesc] = useState(true)
   const titleById = new Map<number, string>(
     (questions || []).map((q: any) => [q.id, q.title]))
 
@@ -559,36 +572,74 @@ function PeopleList({ rows, questions }: { rows: any[]; questions: any[] }) {
     )
   }
 
+  const sorted = [...rows].sort((a, b) => {
+    const ta = new Date(a.created_at).getTime()
+    const tb = new Date(b.created_at).getTime()
+    return desc ? tb - ta : ta - tb
+  })
+
   return (
-    <div className="space-y-3">
-      {rows.map(r => (
-        <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-            <Link href={`/dashboard/clients?contact=${r.contact_id}`}
-                  className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
-              {r.name || 'Без имени'}
-            </Link>
-            <span className="text-xs text-gray-500">
-              {new Date(r.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
-            </span>
-          </div>
-          {(r.email || r.phone) && (
-            <div className="mb-2 text-xs text-gray-500">
-              {[r.email, r.phone].filter(Boolean).join(' · ')}
-            </div>
-          )}
-          <div className="space-y-1">
-            {(r.answers || []).map((a: any, i: number) => (
-              <div key={i} className="text-sm">
-                <span className="text-gray-500">
-                  {titleById.get(a.question_id) || 'Вопрос'}:{' '}
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm text-gray-600">
+          Заполнили: <b className="text-gray-900">{rows.length}</b>
+        </span>
+        <button onClick={() => setDesc(!desc)}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
+          {desc ? '↓ Сначала новые' : '↑ Сначала старые'}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {sorted.map(r => {
+          const contacts: Array<[string, string]> = [
+            ['Почта', r.email],
+            ['Телефон', r.phone],
+            ['Telegram', r.telegram],
+            ['ВКонтакте', r.vk],
+            ['MAX', r.max_nick],
+          ].filter(([, v]) => !!v) as Array<[string, string]>
+
+          return (
+            <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                <Link href={`/dashboard/clients?contact=${r.contact_id}`}
+                      className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
+                  {r.name || 'Без имени'}
+                </Link>
+                <span className="text-xs text-gray-500">
+                  {new Date(r.created_at).toLocaleString('ru-RU', {
+                    timeZone: 'Europe/Moscow',
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })} МСК
                 </span>
-                <span className="text-gray-900">{a.value}</span>
               </div>
-            ))}
-          </div>
-        </div>
-      ))}
+
+              {contacts.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                  {contacts.map(([label, val]) => (
+                    <span key={label}>
+                      {label}: <span className="text-gray-700">{val}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                {(r.answers || []).map((a: any, i: number) => (
+                  <div key={i} className="text-sm">
+                    <span className="text-gray-500">
+                      {titleById.get(a.question_id) || 'Вопрос'}:{' '}
+                    </span>
+                    <span className="text-gray-900">{a.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

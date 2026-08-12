@@ -951,7 +951,8 @@ def mask_phone(phone: Optional[str]) -> Optional[str]:
 
 
 async def resolve_or_ask(db, client_id: int, email, phone, tg_username,
-                         vk_username=None, max_username=None):
+                         vk_username=None, max_username=None,
+                         known_contact_id=None):
     """Кого записывать: конкретный контакт, выбор человека или новый.
 
     ⚠️ Правило опирается на то, что уникально В БАЗЕ:
@@ -1015,15 +1016,34 @@ async def resolve_or_ask(db, client_id: int, email, phone, tg_username,
     if by_email:
         found.add(by_email)
 
+    # ⚠️ Контакт, ПОД КОТОРЫМ человек зашёл (Mini App, бот, ссылка с ?c=), —
+    # такой же полноправный кандидат, как введённые руками данные. Иначе
+    # получается абсурд: человек сидит под своим аккаунтом, опечатался в нике
+    # и указал почту второго своего аккаунта — а себя в списке не видит.
+    known = None
+    if known_contact_id:
+        known = await db.fetchval(
+            "SELECT id FROM contacts WHERE id=$1 AND client_id=$2 "
+            "AND is_active=TRUE AND merged_into IS NULL",
+            int(known_contact_id), client_id)
+        if known:
+            found.add(known)
+
     # Разные ключи указывают на РАЗНЫХ людей: только человек знает, кто он.
     if len(found) > 1:
-        cands = await find_contact_candidates(db, client_id, email, phone, tg_username)
+        cands = await find_contact_candidates(
+            db, client_id, email, phone, tg_username, known_contact_id=known)
         return None, cands, False
 
     if by_email:
         return by_email, [], False
     if by_platform:
         return next(iter(by_platform.values())), [], False
+
+    # Введённое руками ни на кого не указало, но человек зашёл под своим
+    # аккаунтом — это он и есть, переспрашивать не о чем.
+    if known:
+        return known, [], False
 
     # Остался только телефон — он не уникален, поэтому спрашиваем.
     # Здесь «я здесь впервые» уместно: ни email, ни ника в базе нет.
@@ -1035,7 +1055,9 @@ async def resolve_or_ask(db, client_id: int, email, phone, tg_username,
     return None, [], True
 
 
-async def find_contact_candidates(db, client_id: int, email, phone, tg_username):
+async def find_contact_candidates(
+    db, client_id: int, email, phone, tg_username, known_contact_id=None,
+):
     """Все контакты клиента, подходящие по email / телефону / TG-нику.
 
     ⚠️ Нужна там, где человек вводит данные РУКАМИ: email может принадлежать
@@ -1043,10 +1065,23 @@ async def find_contact_candidates(db, client_id: int, email, phone, tg_username)
     (заказ уйдёт не тому), сливать автоматически — тем более. Показываем
     найденных и просим выбрать себя.
 
+    ⚠️ known_contact_id — контакт, ПОД КОТОРЫМ человек зашёл (из Mini App, бота
+    или ссылки с ?c=). Он добавляется к найденным ВСЕГДА, даже если введённые
+    руками данные на него не указывают. Иначе выходит абсурд: человек сидит под
+    своим аккаунтом, опечатался в нике и почте — и себя в списке не находит.
+
     Контакты возвращаются с ЗАМАСКИРОВАННЫМИ данными: по чужому email нельзя
     подсмотреть чужой телефон.
     """
     ids = set()
+    if known_contact_id:
+        # Сверяем принадлежность клиенту: id приходит из адресной строки.
+        own = await db.fetchval(
+            "SELECT id FROM contacts WHERE id=$1 AND client_id=$2 "
+            "AND is_active=TRUE AND merged_into IS NULL",
+            int(known_contact_id), client_id)
+        if own:
+            ids.add(own)
     en = normalize_email(email)
     pn = normalize_phone(phone)
     if en:

@@ -681,6 +681,20 @@ async def list_responses(
                   (SELECT pu.platform_user_id FROM platform_users pu
                     WHERE pu.contact_id = c.id AND pu.platform_slug='email'
                     LIMIT 1) AS email,
+                  -- Ники площадок: организатору нужно написать человеку, а
+                  -- контакт у каждого свой — у кого-то только Telegram.
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='telegram'
+                    LIMIT 1) AS telegram,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='vk'
+                    LIMIT 1) AS vk,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='max'
+                    LIMIT 1) AS max_nick,
                   COALESCE(json_agg(json_build_object(
                       'question_id', a.question_id, 'value', a.value
                   ) ORDER BY a.question_id) FILTER (WHERE a.id IS NOT NULL), '[]') AS answers
