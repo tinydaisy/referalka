@@ -263,6 +263,9 @@ class SurveyIn(BaseModel):
     redirect_url: Optional[str] = None
     allow_repeat: Optional[bool] = None
     is_active: Optional[bool] = None
+    # Подарок, который анкета выдаёт после заполнения (миграция 283).
+    gift_lead_magnet_id: Optional[int] = None
+    gift_package_id: Optional[int] = None
 
 
 class QuestionIn(BaseModel):
@@ -403,6 +406,23 @@ async def update_survey(
         if data.after_mode not in ('thanks', 'url'):
             raise HTTPException(400, "Неизвестное действие после заполнения")
         add('after_mode', data.after_mode)
+    for col in ('gift_lead_magnet_id', 'gift_package_id'):
+        if col in fs:
+            val = getattr(data, col)
+            # ⚠️ Защита от цикла: подарок, который сам требует ЭТУ анкету,
+            # назначать нельзя — человек ходил бы по кругу.
+            if val and col == 'gift_lead_magnet_id':
+                loop = await db.fetchval(
+                    "SELECT 1 FROM lead_magnets WHERE id=$1 AND require_survey_id=$2",
+                    val, survey_id)
+                if loop:
+                    raise HTTPException(
+                        400,
+                        "Этот подарок уже требует заполнить эту же анкету — "
+                        "получилось бы хождение по кругу. Снимите у него "
+                        "настройку «Сначала анкета».")
+            add(col, val)
+
     if 'allow_repeat' in fs:
         add('allow_repeat', bool(data.allow_repeat))
     if 'is_active' in fs:

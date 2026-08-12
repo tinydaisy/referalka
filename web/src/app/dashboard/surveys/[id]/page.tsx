@@ -183,6 +183,12 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
 }
 
 function SettingsBlock({ survey, onChanged, readOnly }: any) {
+  // Подарок, который анкета выдаёт после заполнения.
+  const [giftId, setGiftId] = useState<number | ''>(survey.gift_lead_magnet_id || '')
+  const [magnets, setMagnets] = useState<any[]>([])
+  useEffect(() => {
+    api.leadMagnets.list().then(setMagnets).catch(() => setMagnets([]))
+  }, [])
   const [intro, setIntro] = useState(survey.intro || '')
   const [imageUrl, setImageUrl] = useState(survey.image_url || '')
   const [afterMode, setAfterMode] = useState(survey.after_mode || 'thanks')
@@ -249,10 +255,27 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
         </label>
       )}
 
+      <label className="mb-3 block">
+        <span className="mb-1 block text-sm text-gray-600">
+          Выдать подарок за заполнение
+        </span>
+        <select className="input bg-white" value={giftId} disabled={readOnly}
+                onChange={e => setGiftId(e.target.value ? Number(e.target.value) : '')}>
+          <option value="">Не выдавать</option>
+          {magnets.map((m: any) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+        <span className="mt-1 block text-xs text-gray-500">
+          {giftId
+            ? 'Придёт сразу после отправки — ссылкой на странице и сообщением в бот.'
+            : 'Выберите лид-магнит, если он выдаётся за заполнение этой анкеты.'}
+        </span>
+      </label>
+
       <p className="mb-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-        Если анкета стоит перед подарком (включается в самом лид-магните),
-        подарок выдаётся сразу после отправки — и ссылкой на странице, и
-        сообщением в бот. Настраивать это здесь не нужно.
+        Если анкета, наоборот, стоит ПЕРЕД подарком (включается в самом
+        лид-магните) — настраивать это здесь не нужно, там своя галочка.
       </p>
 
       <label className="mb-2 flex cursor-pointer items-center gap-2">

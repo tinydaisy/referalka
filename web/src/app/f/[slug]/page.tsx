@@ -151,7 +151,16 @@ export default function PublicSurveyPage() {
       )}
       {data.has_gift && (
         <div className="mb-5 rounded-xl border border-[#FFCFA4] bg-[#FFCFA4]/10 p-3 text-sm">
-          Подарок придёт сразу после отправки — ссылкой здесь и сообщением в боте.
+          {data.gift_name ? (
+            <>
+              За заполнение анкеты вы получите: <b>{data.gift_name}</b>.
+              <div className="mt-1 opacity-80">
+                Придёт сразу после отправки — ссылкой здесь и сообщением в боте.
+              </div>
+            </>
+          ) : (
+            'Подарок придёт сразу после отправки — ссылкой здесь и сообщением в боте.'
+          )}
         </div>
       )}
 

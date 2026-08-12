@@ -104,6 +104,21 @@ async def get_public_survey(
     from app.services.client_landing_theme_public import client_brand_header
     brand = await client_brand_header(db, s["client_id"])
 
+    # Название подарка — из ссылки (человек шёл за ним) либо назначенного
+    # самой анкетой.
+    gift_name = None
+    try:
+        gift_lm = lm or s["gift_lead_magnet_id"]
+        gift_pkg = pkg or s["gift_package_id"]
+        if gift_lm:
+            gift_name = await db.fetchval(
+                "SELECT name FROM lead_magnets WHERE id = $1", gift_lm)
+        elif gift_pkg:
+            gift_name = await db.fetchval(
+                "SELECT name FROM lead_magnet_packages WHERE id = $1", gift_pkg)
+    except Exception:
+        logger.exception("survey: не удалось получить название подарка")
+
     # Ссылка на политику ПД — на домене клиента, как и вся страница.
     privacy_url = None
     try:
@@ -124,9 +139,12 @@ async def get_public_survey(
         "questions": [{**dict(q), "options": _jsonb(q["options"])} for q in qs],
         "known": known,
         "already_filled": bool(already),
-        # Есть ли на выходе подарок — чтобы страница честно написала об этом
-        # ДО заполнения, а не обещала абстрактное «спасибо».
-        "has_gift": bool(lm or pkg),
+        # Есть ли на выходе подарок. Двух видов: указан в ссылке (человек
+        # шёл за ним из бота) либо назначен самой анкетой.
+        "has_gift": bool(lm or pkg or s["gift_lead_magnet_id"] or s["gift_package_id"]),
+        # ⚠️ Название подарка показываем ДО заполнения: человек должен видеть,
+        # что именно он получит, а не абстрактное «подарок придёт».
+        "gift_name": gift_name,
     }
 
 
@@ -331,7 +349,11 @@ async def _after_submit(db, survey, contact_id: int, data: SurveySubmit, *, repe
         "sent_to_bot": False,
     }
 
-    if not (data.lead_magnet_id or data.package_id):
+    # ⚠️ Подарок из ссылки главнее: человек шёл именно за ним. Своего нет —
+    # берём назначенный анкетой.
+    lm_id = data.lead_magnet_id or survey["gift_lead_magnet_id"]
+    pkg_id = data.package_id or survey["gift_package_id"]
+    if not (lm_id or pkg_id):
         return out
 
     # ⚠️ Материалы собираем ТОЙ ЖЕ функцией, что и обычная воронка
@@ -340,8 +362,8 @@ async def _after_submit(db, survey, contact_id: int, data: SurveySubmit, *, repe
     run_like = {
         "client_id": survey["client_id"],
         "contact_id": contact_id,
-        "lead_magnet_id": data.lead_magnet_id,
-        "package_id": data.package_id,
+        "lead_magnet_id": lm_id,
+        "package_id": pkg_id,
         "referrer_contact_id": None,
     }
     try:
