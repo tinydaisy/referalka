@@ -732,14 +732,23 @@ async def get_response(
 
     # Все вопросы анкеты, чтобы показать и те, на которые не ответили:
     # пустой ответ — тоже информация.
+    # ⚠️ Вопрос могли добавить в анкету ПОСЛЕ того, как человек её заполнил
+    # (так и было у клиента: поля «Доход», «Статус» привязали позже). Ответа
+    # в `survey_answers` тогда нет, но значение поля в карточке есть — берём
+    # его и помечаем `from_field`, иначе страница пишет «не ответил» там, где
+    # в карточке значение прекрасно видно.
     rows = await db.fetch(
-        """SELECT q.id, q.title, q.kind, q.sort_order, a.value
+        """SELECT q.id, q.title, q.kind, q.sort_order,
+                  COALESCE(a.value, v.value) AS value,
+                  (a.value IS NULL AND v.value IS NOT NULL) AS from_field
              FROM survey_questions q
              LEFT JOIN survey_answers a
                     ON a.question_id = q.id AND a.response_id = $1
+             LEFT JOIN contact_field_values v
+                    ON v.field_id = q.field_id AND v.contact_id = $3
             WHERE q.survey_id = $2
             ORDER BY q.sort_order, q.id""",
-        response_id, survey_id)
+        response_id, survey_id, r["contact_id"])
 
     survey = await db.fetchrow(
         "SELECT id, title FROM surveys WHERE id = $1", survey_id)

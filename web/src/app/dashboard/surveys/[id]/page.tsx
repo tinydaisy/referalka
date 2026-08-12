@@ -425,6 +425,8 @@ function QuestionRow({
   // ⚠️ draggable включаем только на ручке — иначе браузер тащит карточку
   // при выделении текста в полях.
   const [canDrag, setCanDrag] = useState(false)
+  // Вопрос привязан к доп. полю контакта — правится в разделе «Поля».
+  const isField = !!question.field_id
 
   const remove = async () => {
     if (!confirm(`Удалить вопрос «${question.title}»? Ответы на него тоже удалятся.`)) return
@@ -447,8 +449,9 @@ function QuestionRow({
       onDragEnd={() => setCanDrag(false)}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`flex items-center justify-between gap-2 rounded-xl border bg-white p-4 ${
-        isDragging ? 'border-[#25455D] opacity-40' : 'border-gray-200'
+      className={`flex items-center justify-between gap-2 rounded-xl border p-4 ${
+        isDragging ? 'border-[#25455D] opacity-40'
+                   : isField ? 'border-[#FFCFA4] bg-[#FFF8F0]' : 'border-gray-200 bg-white'
       }`}
     >
       {draggable && (
@@ -473,15 +476,30 @@ function QuestionRow({
         </div>
         <div className="mt-0.5 text-xs text-gray-500">
           {kindLabel(question.kind)}
-          {question.field_title && ` · пишется в поле «${question.field_title}»`}
+          {isField && (
+            <span className="ml-1.5 rounded bg-[#FFCFA4] px-1.5 py-0.5 text-[11px] font-medium text-[#25455D]">
+              доп. поле
+            </span>
+          )}
         </div>
       </div>
       {!readOnly && (
         <div className="flex shrink-0 gap-2">
+          {/* ⚠️ У вопроса-поля название, тип и варианты правятся В РАЗДЕЛЕ
+              «Поля контакта», а не здесь: поле общее для всех анкет и для
+              карточек всех контактов. Правка тут развалила бы накопленные
+              значения. Отсюда его можно только убрать из анкеты. */}
+          {isField ? (
+            <Link href="/dashboard/surveys?tab=fields"
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50">
+              Поля контакта
+            </Link>
+          ) : (
           <button onClick={() => setEditing(true)}
                   className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
             Изменить
           </button>
+          )}
           <button onClick={remove}
                   className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600">
             <Trash2 size={15} />

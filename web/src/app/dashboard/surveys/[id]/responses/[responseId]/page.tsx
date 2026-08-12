@@ -81,7 +81,17 @@ export default function SurveyResponsePage() {
         <div className="space-y-4">
           {(data.answers || []).map((a: any) => (
             <div key={a.id}>
-              <div className="text-xs text-gray-500">{a.title}</div>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                {a.title}
+                {/* ⚠️ Значение взято из доп. поля контакта, а не из этого
+                    заполнения: вопрос добавили в анкету позже, чем человек
+                    её заполнил. Помечаем — иначе непонятно, откуда цифра. */}
+                {a.from_field && (
+                  <span className="rounded bg-[#FFCFA4] px-1.5 py-0.5 text-[10px] font-medium text-[#25455D]">
+                    доп. поле
+                  </span>
+                )}
+              </div>
               <div className="text-sm text-gray-900">
                 {a.value || <span className="text-gray-400">не ответил</span>}
               </div>
