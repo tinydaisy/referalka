@@ -169,14 +169,16 @@ async def _process_bounces_async():
         if not lines:
             return
 
-        # Какие qid уже видели в логе (защита от дублирования при следующем вызове)
+        # Какие письма уже разобраны — чтобы не гонять UPSERT по всему логу.
+        # ⚠️ Окно НЕ ограничиваем: раньше стояло «за 2 часа», а лог читается
+        # за ~10 дней — всё, что старше двух часов, каждый час считалось новым
+        # и записывалось заново (так и выросли 2 млн строк). Настоящую защиту
+        # держит уникальный индекс (qid, to_email); этот набор — лишь способ
+        # не делать заведомо лишних запросов.
         seen_qids = await conn.fetch(
-            "SELECT raw_log FROM email_bounce_log WHERE bounced_at > NOW() - INTERVAL '2 hours'"
+            "SELECT qid FROM email_bounce_log WHERE qid IS NOT NULL"
         )
-        seen_qid_set = set()
-        for r in seen_qids:
-            for qm in re.finditer(r'qid=(\w+)', r["raw_log"] or ""):
-                seen_qid_set.add(qm.group(1))
+        seen_qid_set = {r["qid"] for r in seen_qids}
 
         new_bounces = 0
         new_dead = 0
@@ -245,15 +247,28 @@ async def _process_bounces_async():
             cc_id = pu["client_channel_id"] if pu else None
             pu_id = pu["pu_id"] if pu else None
 
-            await conn.execute(
+            # ⚠️ ОДНА строка на событие «письмо + адрес», а не на каждый разбор
+            # лога. Лог хранится ~10 дней, а задача читает его КАЖДЫЙ час —
+            # без этого один отлуп записывался сотни раз (было 2 млн строк
+            # вместо 5 тыс.). Повтор обновляет причину и время, а не плодит
+            # копию. Уникальность держит индекс email_bounce_log_qid_email_uniq.
+            res_ins = await conn.execute(
                 """INSERT INTO email_bounce_log
                        (client_channel_id, client_id, to_email,
-                        bounce_type, smtp_code, smtp_message, raw_log)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+                        bounce_type, smtp_code, smtp_message, raw_log, qid)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (qid, to_email) WHERE qid IS NOT NULL
+                    DO UPDATE SET bounce_type  = EXCLUDED.bounce_type,
+                                  smtp_code    = EXCLUDED.smtp_code,
+                                  smtp_message = EXCLUDED.smtp_message,
+                                  raw_log      = EXCLUDED.raw_log""",
                 cc_id, client_id, to_email,
-                bounce_type, dsn, (message or "")[:1000], f"qid={qid} | {line[:500]}",
+                bounce_type, dsn, (message or "")[:1000], f"qid={qid} | {line[:500]}", qid,
             )
-            new_bounces += 1
+            # Считаем новыми только реально вставленные (не обновлённые) —
+            # иначе счётчик в логе врал бы про «новые отлупы».
+            if "INSERT 0 1" in res_ins:
+                new_bounces += 1
 
             # Hard-bounce → сразу помечаем адрес битым
             if bounce_type == "hard" and pu_id and pu and not pu["email_is_dead"]:
