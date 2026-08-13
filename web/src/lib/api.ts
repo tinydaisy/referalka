@@ -785,6 +785,10 @@ export const api = {
       request('/api/v1/analytics/dashboards', { method: 'POST', body: JSON.stringify(data) }),
     renameDashboard: (id: number, title: string) =>
       request(`/api/v1/analytics/dashboards/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+    // Общие настройки показа — действуют на все квадратики дашборда.
+    updateDashboard: (id: number, data: {
+      hide_absolute?: boolean; hide_percent?: boolean; primary_metric?: 'count' | 'percent'
+    }) => request(`/api/v1/analytics/dashboards/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     deleteDashboard: (id: number) =>
       request(`/api/v1/analytics/dashboards/${id}`, { method: 'DELETE' }),
     // Отдаёт квадратики уже с посчитанными цифрами.

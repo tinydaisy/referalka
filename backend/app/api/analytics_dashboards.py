@@ -72,6 +72,10 @@ async def _get_dashboard(db, dashboard_id: int, client_id: int) -> dict:
 class DashboardIn(BaseModel):
     title: Optional[str] = None
     event_id: Optional[int] = None
+    # Общие настройки показа — действуют на ВСЕ квадратики дашборда.
+    hide_absolute: Optional[bool] = None
+    hide_percent: Optional[bool] = None
+    primary_metric: Optional[str] = None   # 'count' | 'percent'
 
 
 class CardIn(BaseModel):
@@ -166,11 +170,29 @@ async def update_dashboard(
     await _assert_feature(db, client_id)
     await _get_dashboard(db, dashboard_id, client_id)
 
-    if "title" in data.model_fields_set:
+    fs = data.model_fields_set
+    sets, params = [], []
+
+    def _add(sql: str, val: Any) -> None:
+        params.append(val)
+        sets.append(sql.format(i=len(params)))
+
+    if "title" in fs:
+        _add("title = ${i}", (data.title or "").strip() or "Дашборд")
+    if "hide_absolute" in fs:
+        _add("hide_absolute = ${i}", bool(data.hide_absolute))
+    if "hide_percent" in fs:
+        _add("hide_percent = ${i}", bool(data.hide_percent))
+    if "primary_metric" in fs:
+        _add("primary_metric = ${i}",
+             "percent" if data.primary_metric == "percent" else "count")
+
+    if sets:
+        params.append(dashboard_id)
         await db.execute(
-            """UPDATE analytics_dashboards
-                  SET title = $1, updated_at = NOW() WHERE id = $2""",
-            (data.title or "").strip() or "Дашборд", dashboard_id,
+            f"""UPDATE analytics_dashboards SET {', '.join(sets)}, updated_at = NOW()
+                 WHERE id = ${len(params)}""",
+            *params,
         )
     return dict(await _get_dashboard(db, dashboard_id, client_id))
 
@@ -217,7 +239,16 @@ async def get_dashboard(
             "key": key,
             "title": r["title"] or (meta or {}).get("title") or "Разрез удалён",
             "filters": r["filters"],
-            "hide_absolute": r["hide_absolute"], "hide_percent": r["hide_percent"],
+            # ⚠️ NULL у карточки = «как на дашборде». Отдаём и своё значение
+            # (для галочки в шестерёнке), и итоговое (для отрисовки).
+            "hide_absolute": r["hide_absolute"],
+            "hide_percent": r["hide_percent"],
+            "primary_metric": r["primary_metric"],
+            "eff_hide_absolute": dash["hide_absolute"]
+                if r["hide_absolute"] is None else r["hide_absolute"],
+            "eff_hide_percent": dash["hide_percent"]
+                if r["hide_percent"] is None else r["hide_percent"],
+            "eff_primary_metric": r["primary_metric"] or dash["primary_metric"],
             "sort_order": r["sort_order"],
         }
         if not meta:
@@ -249,7 +280,36 @@ async def get_dashboard(
             item["error"] = str(e)[:200]
         cards.append(item)
 
-    return {"dashboard": dash, "cards": cards}
+    # ⚠️ Строка-итог наверху: «в базе N · ответили M». Без неё непонятно, ОТ
+    # ЧЕГО считается процент на плитке — «49.4%» висит в воздухе.
+    # `answered` берём максимальный по квадратикам: у одного дашборда обычно
+    # один разрез, а если их несколько — показываем самый полный охват.
+    if dash["event_id"]:
+        base_total = await db.fetchval(
+            """SELECT COUNT(*) FROM contacts c
+                WHERE c.client_id = $1 AND c.is_active = TRUE
+                  AND EXISTS (SELECT 1 FROM event_participants ep
+                               WHERE ep.contact_id = c.id AND ep.event_id = $2)""",
+            client_id, dash["event_id"],
+        ) or 0
+    else:
+        base_total = await db.fetchval(
+            "SELECT COUNT(*) FROM contacts WHERE client_id = $1 AND is_active = TRUE",
+            client_id,
+        ) or 0
+
+    answered_vals = [c.get("answered") or 0 for c in cards if not c.get("missing")]
+    scope_vals = [c.get("scope") or 0 for c in cards if c.get("scope") is not None]
+
+    return {
+        "dashboard": dash,
+        "cards": cards,
+        "totals": {
+            "base_total": base_total,                       # всего в базе
+            "scope": max(scope_vals) if scope_vals else base_total,  # после условий
+            "answered": max(answered_vals) if answered_vals else 0,  # знаменатель %
+        },
+    }
 
 
 @router.get("/dashboards/{dashboard_id}/cards/{card_id}/people",
@@ -342,7 +402,8 @@ async def create_card(
            RETURNING *""",
         dashboard_id, source, data.ref_id, (data.title or "").strip() or None,
         json.dumps(data.filters or {}),
-        bool(data.hide_absolute), bool(data.hide_percent),
+        # NULL = «как на дашборде» (см. update_card).
+        data.hide_absolute, data.hide_percent,
         "tile" if data.view == "tile" else "list",
         data.option_value,
         sources[f"{source}:{data.ref_id}"].get("survey_id"),
@@ -372,10 +433,17 @@ async def update_card(
         _add("title = ${i}", (data.title or "").strip() or None)
     if "filters" in fs:
         _add("filters = ${i}::jsonb", json.dumps(data.filters or {}))
+    # ⚠️ NULL здесь осмысленный — «как на дашборде». bool() превратил бы его
+    # в False («показывать»), и общая настройка перестала бы действовать.
     if "hide_absolute" in fs:
-        _add("hide_absolute = ${i}", bool(data.hide_absolute))
+        _add("hide_absolute = ${i}",
+             None if data.hide_absolute is None else bool(data.hide_absolute))
     if "hide_percent" in fs:
-        _add("hide_percent = ${i}", bool(data.hide_percent))
+        _add("hide_percent = ${i}",
+             None if data.hide_percent is None else bool(data.hide_percent))
+    if "primary_metric" in fs:
+        _add("primary_metric = ${i}",
+             data.primary_metric if data.primary_metric in ("count", "percent") else None)
     if "ref_id" in fs:
         _add("ref_id = ${i}", data.ref_id)
     if "source" in fs:

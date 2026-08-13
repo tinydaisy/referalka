@@ -28,8 +28,14 @@ interface Card {
   title: string
   kind?: string
   filters: any
-  hide_absolute: boolean
-  hide_percent: boolean
+  // Своё значение карточки: null = «как на дашборде».
+  hide_absolute: boolean | null
+  hide_percent: boolean | null
+  primary_metric?: 'count' | 'percent' | null
+  // Итоговое, с учётом общих настроек дашборда — по нему и рисуем.
+  eff_hide_absolute?: boolean
+  eff_hide_percent?: boolean
+  eff_primary_metric?: 'count' | 'percent'
   view?: 'list' | 'tile'
   option_value?: string | null
   survey_title?: string | null
@@ -116,7 +122,11 @@ function PeopleModal({ dashId, cardId, option, title, onClose }: {
                   {data.people.map((p: any) => (
                     <tr key={p.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2">
-                        <Link href={`/dashboard/clients?search=${encodeURIComponent(p.email || p.name || String(p.id))}`}
+                        {/* ⚠️ Открываем карточку по contact_id (`?contact=`),
+                            а НЕ поиском по почте: поиск контактов ищет по
+                            имени/телефону/нику, но не по email — почта живёт
+                            в идентичностях, и такая ссылка вела в пустоту. */}
+                        <Link href={`/dashboard/clients?contact=${p.id}`} target="_blank"
                               className="text-[#25455D] hover:underline">
                           {p.name || 'Без имени'}
                         </Link>
@@ -236,20 +246,32 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
         <div className="rounded-lg bg-red-50 p-2 text-xs text-red-600">{card.error}</div>
       )}
 
-      {/* ── Плитка-цифра: один вариант, одна крупная цифра ── */}
-      {!card.missing && !card.error && card.view === 'tile' && (
-        <button onClick={() => setPeople(card.option_value || null)}
-                className="group flex flex-1 flex-col items-center justify-center py-2 text-center">
-          <div className="text-4xl font-bold tabular-nums text-[#25455D] group-hover:underline">
-            {card.count ?? 0}
-          </div>
-          <div className="mt-0.5 text-xs text-gray-500">
-            {plural(card.count ?? 0)}
-            {!card.hide_percent && card.answered
-              ? ` · ${card.percent}%` : ''}
-          </div>
-        </button>
-      )}
+      {/* ── Плитка-цифра. Что крупно — абсолютное или процент — задаётся
+             общей настройкой дашборда либо переопределяется у карточки. ── */}
+      {!card.missing && !card.error && card.view === 'tile' && (() => {
+        const hideAbs = card.eff_hide_absolute
+        const hidePct = card.eff_hide_percent
+        const bigIsPct = card.eff_primary_metric === 'percent'
+        // Если то, что должно быть крупным, скрыто — крупным становится второе.
+        const showPctBig = bigIsPct ? !hidePct : hideAbs && !hidePct
+        const big = showPctBig ? `${card.percent ?? 0}%` : `${card.count ?? 0}`
+        const smallPct = !showPctBig && !hidePct ? `${card.percent ?? 0}%` : ''
+        const smallAbs = showPctBig && !hideAbs
+          ? `${card.count ?? 0} ${plural(card.count ?? 0)}` : ''
+        return (
+          <button onClick={() => setPeople(card.option_value || null)}
+                  className="group flex flex-1 flex-col items-center justify-center py-2 text-center">
+            <div className="text-4xl font-bold tabular-nums text-[#25455D] group-hover:underline">
+              {big}
+            </div>
+            <div className="mt-0.5 text-xs text-gray-500">
+              {showPctBig
+                ? smallAbs
+                : `${plural(card.count ?? 0)}${smallPct ? ` · ${smallPct}` : ''}`}
+            </div>
+          </button>
+        )
+      })()}
 
       {!card.missing && !card.error && card.view !== 'tile' && (
         <>
@@ -282,9 +304,9 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
                   <span className="min-w-0 flex-1 truncate group-hover:underline"
                         title={b.option}>{b.option}</span>
                   <span className="shrink-0 tabular-nums text-gray-600">
-                    {!card.hide_absolute && <b className="text-[#25455D]">{b.count}</b>}
-                    {!card.hide_absolute && !card.hide_percent && ' · '}
-                    {!card.hide_percent && <span>{b.percent}%</span>}
+                    {!card.eff_hide_absolute && <b className="text-[#25455D]">{b.count}</b>}
+                    {!card.eff_hide_absolute && !card.eff_hide_percent && ' · '}
+                    {!card.eff_hide_percent && <span>{b.percent}%</span>}
                   </span>
                 </div>
                 <div className="mt-0.5 h-1.5 w-full rounded bg-gray-100">
@@ -310,17 +332,42 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
           </div>
           <ConditionBuilder value={filters} sources={sources} onChange={setFilters} />
 
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
-            <label className="flex items-center gap-1">
-              <input type="checkbox" checked={card.hide_absolute}
-                     onChange={e => save({ hide_absolute: e.target.checked })} />
-              не показывать абсолютные
-            </label>
-            <label className="flex items-center gap-1">
-              <input type="checkbox" checked={card.hide_percent}
-                     onChange={e => save({ hide_percent: e.target.checked })} />
-              не показывать проценты
-            </label>
+          {/* ⚠️ Настройки ЭТОГО квадратика перебивают общие. «как на
+              дашборде» = null, чтобы карточка снова слушала общую настройку. */}
+          <div className="mt-3 space-y-2 text-xs">
+            <div className="text-gray-500">Только для этого квадратика:</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-gray-500">числа:</span>
+              {[['как на дашборде', null], ['показывать', false], ['скрыть', true]].map(([l, v]) => (
+                <button key={String(l)} onClick={() => save({ hide_absolute: v })}
+                        className={`rounded px-2 py-0.5 ${card.hide_absolute === v ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                        style={card.hide_absolute === v ? { background: DARK } : undefined}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-gray-500">проценты:</span>
+              {[['как на дашборде', null], ['показывать', false], ['скрыть', true]].map(([l, v]) => (
+                <button key={String(l)} onClick={() => save({ hide_percent: v })}
+                        className={`rounded px-2 py-0.5 ${card.hide_percent === v ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                        style={card.hide_percent === v ? { background: DARK } : undefined}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            {card.view === 'tile' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-gray-500">крупно:</span>
+                {[['как на дашборде', null], ['число', 'count'], ['процент', 'percent']].map(([l, v]) => (
+                  <button key={String(l)} onClick={() => save({ primary_metric: v })}
+                          className={`rounded px-2 py-0.5 ${card.primary_metric === v ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                          style={card.primary_metric === v ? { background: DARK } : undefined}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-3 flex gap-2">
@@ -479,6 +526,8 @@ export default function DashboardView({ eventId, readOnly = false }: {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [picking, setPicking] = useState(false)
+  const [dash, setDash] = useState<any>(null)
+  const [totals, setTotals] = useState<any>(null)
   const [dragId, setDragId] = useState<number | null>(null)
   // Карточка, на ручке которой сейчас мышь — только её можно тащить.
   const [handleId, setHandleId] = useState<number | null>(null)
@@ -496,7 +545,17 @@ export default function DashboardView({ eventId, readOnly = false }: {
   const loadCards = useCallback(async (id: number) => {
     const r = await api.analytics.dashboard(id)
     setCards(r.cards || [])
+    setDash(r.dashboard || null)
+    setTotals(r.totals || null)
   }, [])
+
+  // Общие настройки показа — сохраняем и сразу перечитываем цифры.
+  const saveDash = async (patch: any) => {
+    if (!activeId) return
+    setDash((d: any) => ({ ...(d || {}), ...patch }))   // отзывчиво, без ожидания
+    await api.analytics.updateDashboard(activeId, patch)
+    await loadCards(activeId)
+  }
 
   useEffect(() => {
     let alive = true
@@ -625,6 +684,37 @@ export default function DashboardView({ eventId, readOnly = false }: {
                 + Выбрать поля
               </button>
 
+              {/* ⚠️ ОБЩИЕ настройки показа — на все квадратики сразу.
+                  Выставлять их по одной в шестерёнке каждой из двух десятков
+                  плиток невозможно; у карточки настройка остаётся и
+                  перебивает общую. */}
+              {!!cards.length && (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 px-3 py-1.5 text-xs">
+                  <label className="flex items-center gap-1">
+                    <input type="checkbox" checked={!dash?.hide_absolute}
+                           onChange={e => saveDash({ hide_absolute: !e.target.checked })} />
+                    числа
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input type="checkbox" checked={!dash?.hide_percent}
+                           onChange={e => saveDash({ hide_percent: !e.target.checked })} />
+                    проценты
+                  </label>
+                  <span className="text-gray-400">|</span>
+                  <span className="text-gray-500">крупно:</span>
+                  <button onClick={() => saveDash({ primary_metric: 'count' })}
+                          className={`rounded px-2 py-0.5 ${dash?.primary_metric !== 'percent' ? 'text-white' : 'bg-gray-200 text-gray-600'}`}
+                          style={dash?.primary_metric !== 'percent' ? { background: DARK } : undefined}>
+                    число
+                  </button>
+                  <button onClick={() => saveDash({ primary_metric: 'percent' })}
+                          className={`rounded px-2 py-0.5 ${dash?.primary_metric === 'percent' ? 'text-white' : 'bg-gray-200 text-gray-600'}`}
+                          style={dash?.primary_metric === 'percent' ? { background: DARK } : undefined}>
+                    процент
+                  </button>
+                </div>
+              )}
+
               <div className="ml-auto flex gap-2 text-sm">
                 <button onClick={renameDashboard} className="text-gray-500 hover:text-[#25455D]">
                   Переименовать
@@ -633,6 +723,27 @@ export default function DashboardView({ eventId, readOnly = false }: {
                   Удалить
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ⚠️ От чего считается процент. Без этой строки «49.4%» на плитке
+              висит в воздухе: непонятно, доля от базы это или от ответивших.
+              Знаменатель — именно «ответили». */}
+          {!!cards.length && totals && (
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+              <span className="text-gray-500">
+                {eventId ? 'Участников события:' : 'Всего в базе:'}{' '}
+                <b className="text-[#25455D]">{totals.base_total}</b>
+              </span>
+              {totals.scope !== totals.base_total && (
+                <span className="text-gray-500">
+                  после условий: <b className="text-[#25455D]">{totals.scope}</b>
+                </span>
+              )}
+              <span className="text-gray-500">
+                ответили: <b className="text-[#25455D]">{totals.answered}</b>
+                <span className="ml-1 text-xs text-gray-400">— от них и считаются проценты</span>
+              </span>
             </div>
           )}
 

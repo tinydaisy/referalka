@@ -358,6 +358,9 @@ async def compute_tile(
     bind = bind_tpl.format(ref=p.add(ref_id))
     alias = "a" if source == "question" else "v"
 
+    scope = await db.fetchval(
+        f"SELECT COUNT(*) FROM contacts c WHERE {where}", *p.values) or 0
+
     answered = await db.fetchval(
         f"""SELECT COUNT(*) FROM contacts c
              WHERE {where}
@@ -368,7 +371,7 @@ async def compute_tile(
 
     if not option:
         # Плитка без варианта = «сколько всего ответили».
-        return {"count": answered, "answered": answered,
+        return {"count": answered, "answered": answered, "scope": scope,
                 "percent": 100.0 if answered else 0.0}
 
     opt = p.add(option)
@@ -389,7 +392,7 @@ async def compute_tile(
     ) or 0
 
     return {
-        "count": count, "answered": answered,
+        "count": count, "answered": answered, "scope": scope,
         "percent": round(count * 100.0 / answered, 1) if answered else 0.0,
     }
 
