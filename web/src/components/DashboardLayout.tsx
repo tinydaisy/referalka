@@ -3,6 +3,7 @@ import NavigationProgress from './NavigationProgress'
 import SubscriptionBadge from './SubscriptionBadge'
 import SubscriptionBanner from './SubscriptionBanner'
 import EmailVerifyBanner from './EmailVerifyBanner'
+import BrokenBotsBanner from './BrokenBotsBanner'
 import { LangProvider } from '@/contexts/LangContext'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -18,6 +19,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             <SubscriptionBanner />
             <EmailVerifyBanner />
+            <BrokenBotsBanner />
             {children}
           </div>
         </main>

@@ -8,7 +8,7 @@ celery = Celery(
     backend=settings.redis_url,
     include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
-        "app.tasks.collab_finish"]
+        "app.tasks.collab_finish", "app.tasks.bot_webhook_check"]
 )
 
 celery.conf.update(
@@ -45,6 +45,13 @@ celery.conf.update(
         # (Конференции, Премии/Турниры, Коллабораторная). Миграция 276.
         "notify-expiring-addons": {
             "task": "app.tasks.addon_expiry.notify_expiring_addons",
+            "schedule": 3600.0,
+        },
+        # Раз в час — не увели ли бота клиента в сторонний сервис. Чужой
+        # вебхук забирает ВСЕ сообщения, и у клиента молча отваливаются
+        # воронки, подарки и регистрация. Миграция 288.
+        "check-bot-webhooks": {
+            "task": "app.tasks.bot_webhook_check.check_bot_webhooks",
             "schedule": 3600.0,
         },
         # Каждые 5 минут — удаление временных broadcast_photo:

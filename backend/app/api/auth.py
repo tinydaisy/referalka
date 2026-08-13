@@ -507,6 +507,17 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     out = dict(client)
     out["features"] = features
     out["subscription"] = subscription
+    # ⚠️ Боты, уведённые в сторонний сервис: чужой вебхук забирает ВСЕ
+    # сообщения, и у клиента молча отваливаются воронки, подарки, проверка
+    # подписки и регистрация. Читаем СОХРАНЁННЫЙ результат фоновой проверки
+    # (миграция 288) — в Telegram здесь не ходим, иначе кабинет ждал бы
+    # ответа сети по каждому боту.
+    try:
+        from app.services.bot_webhook_watch import broken_bots_for_client
+        out["broken_bots"] = await broken_bots_for_client(db, client_id)
+    except Exception:                                   # noqa: BLE001
+        # Плашка — вещь вспомогательная: её сбой не должен ронять вход в кабинет.
+        out["broken_bots"] = []
     # Роль текущего токена: 'owner' для самого клиента, 'assistant' для ассистента
     # (миграция 105). Используется фронтом для скрытия пунктов меню и DELETE-кнопок.
     out["role"] = "assistant" if payload.get("role") == "assistant" else "owner"
