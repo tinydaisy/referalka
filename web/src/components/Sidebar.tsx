@@ -120,11 +120,6 @@ export default function Sidebar() {
         // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),
         // поэтому ведём сразу внутрь его карточки.
         ...(isSystemService ? [{ href: '/dashboard/medialift', label: 'МедиаЛифт', icon: Radio }] : []),
-        // Продукты/услуги вне событий: наставничество, мастер-класс, консультация.
-        // Стоят рядом с событиями — это вещи одного порядка: их создают, у них
-        // лендинг, тарифы и покупатели. В «Учёт ресурсов» не кладём: там то, из
-        // чего собираются продажи, а не то, что продаётся.
-        ...(hasProducts ? [{ href: '/dashboard/products', label: 'Продукты и услуги', icon: Package }] : []),
       ],
     },
     {
@@ -133,6 +128,8 @@ export default function Sidebar() {
         { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
         // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
         ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
+        // Продукты/услуги вне событий: наставничество, мастер-класс, консультация.
+        ...(hasProducts ? [{ href: '/dashboard/products', label: 'Продукты и услуги', icon: Package }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Анкеты + доп. поля контакта (миграция 280) — фича `surveys` (Экстра).
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».

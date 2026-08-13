@@ -16,6 +16,12 @@ import { CardIcon } from '@/components/landing/icons'
 interface Props {
   data: any
   slug: string
+  /**
+   * Чья это страница. `product` — лендинг продукта (миграция 293): те же
+   * блоки, но заголовок берётся из продукта, а кнопки ведут на заказ
+   * продукта, а не на регистрацию на событие.
+   */
+  ownerType?: 'event' | 'product'
   /** Кто привёл (?pid=) — прокидываем во все ссылки заказа и регистрации. */
   pid?: string | null
   contactId?: string | null
@@ -74,7 +80,7 @@ function shade(hex: string, pct: number): string {
 }
 
 export default function LandingRenderer({
-  data, slug, pid = null, contactId = null, utmSource = null,
+  data, slug, pid = null, contactId = null, utmSource = null, ownerType = 'event',
 }: Props) {
   // Хвост с метками: подставляем в каждую ссылку, чтобы реф-код не терялся
   // при переходе на форму заказа или регистрацию.
@@ -85,7 +91,18 @@ export default function LandingRenderer({
   ].filter(Boolean).join('&')
   const withTrack = (url: string) =>
     track ? `${url}${url.includes('?') ? '&' : '?'}${track}` : url
-  const { event, page, blocks, data: content } = data
+  const { page, blocks, data: content } = data
+  // ⚠️ У продукта поля `event` нет — берём продукт и подставляем те же ключи,
+  // которых ждёт разметка (title/description/start_at). Даты у продукта нет:
+  // hero сам прячет плашку, когда start_at пуст.
+  const isProduct = ownerType === 'product' || data.owner_type === 'product'
+  const event = isProduct
+    ? { ...(data.product || {}), start_at: null, end_at: null, dates_from_program: null }
+    : data.event
+  // Куда ведут кнопки: у события — регистрация, у продукта — заказ тарифа.
+  const ctaHref = isProduct ? `/pr/${slug}#tariffs` : `/event/${slug}/register`
+  const orderHref = (tariffId: number | string) =>
+    isProduct ? `/pr/${slug}?tariff=${tariffId}` : `/e/${slug}/order/${tariffId}`
   const radius = page.radius ?? 5
 
   /**
@@ -369,12 +386,12 @@ export default function LandingRenderer({
 
       {/* Липкая шапка: логотип + якоря на секции + кнопка регистрации. */}
       {page.nav_enabled && (
-        <LandingNav page={page} blocks={blocks} content={content}
+        <LandingNav ctaHref={ctaHref} page={page} blocks={blocks} content={content}
                     btnStyle={btnStyle} slug={slug} withTrack={withTrack} />
       )}
 
       {blocks.map((b: any) => (
-        <Section
+        <Section ctaHref={ctaHref} orderHref={orderHref}
           key={b.id}
           block={b}
           page={page}
@@ -402,7 +419,7 @@ export default function LandingRenderer({
  * есть id вида `lp-<тип блока>` (см. Section), поэтому расставлять якоря
  * руками не нужно — клиент выбирает секцию из списка.
  */
-function LandingNav({ page, blocks, content, btnStyle, slug, withTrack }: any) {
+function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref }: any) {
   const [open, setOpen] = useState(false)
   const items: Array<{ label: string; block_kind: string }> =
     Array.isArray(page.nav_items) ? page.nav_items : []
@@ -414,7 +431,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack }: any) {
   const mobileLinks = links.filter((i: any) => i.mobile !== false)
   // 'register' → форма регистрации; иначе — якорь на секцию страницы.
   const navTarget = (!page.nav_button_target || page.nav_button_target === 'register')
-    ? withTrack(`/event/${slug}/register`)
+    ? withTrack(ctaHref)
     : `#lp-${page.nav_button_target}`
   const logo = content?.brand?.logo_url
 
@@ -502,6 +519,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack }: any) {
 }
 
 function Section({
+  ctaHref,
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
   withTrack,
 }: any) {
@@ -560,7 +578,7 @@ function Section({
     : {}
 
   /* Содержимое блока — своё для каждого типа. */
-  const blockBody = <BlockBody
+  const blockBody = <BlockBody ctaHref={ctaHref} orderHref={orderHref}
     block={block} page={page} radius={radius} btnStyle={btnStyle}
     cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
     glowCls={glowCls} glowVars={glowVars}
@@ -594,7 +612,7 @@ function Section({
     <div className={`${block.kind === 'el_button' ? '' : 'mt-8'} ${
       align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : ''}`}>
       <a
-        href={block.button_url || withTrack(`/event/${slug}/register`)}
+        href={block.button_url || withTrack(ctaHref)}
         {...(block.button_url ? { target: '_blank', rel: 'noreferrer' } : {})}
         className="inline-block px-8 py-4 font-bold uppercase"
         style={btnStyle}
@@ -749,6 +767,7 @@ function Section({
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 function BlockBody({
+  ctaHref, orderHref,
   block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
   glowCls = '', glowVars = {}, withTrack = (u: string) => u,
 }: any) {
@@ -879,7 +898,7 @@ function BlockBody({
                   // Куда ведёт — настраивается, как у любой другой кнопки:
                   // на регистрацию, к секции страницы (#lp-…) или на свой URL.
                   <a
-                    href={(block.button_url || '').trim() || withTrack(`/event/${slug}/register`)}
+                    href={(block.button_url || '').trim() || withTrack(ctaHref)}
                     {...((block.button_url || '').trim().startsWith('http')
                       ? { target: '_blank', rel: 'noreferrer' } : {})}
                     className="inline-block px-8 py-4 text-[1em] font-bold uppercase tracking-wide transition-transform hover:scale-105"
@@ -1114,6 +1133,57 @@ function BlockBody({
         iconColor={iconColor} radius={radius} btnStyle={btnStyle}
       />
 
+    /* ── Что входит (состав продукта, миграция 293) ────────────────────── */
+    case 'product_content': {
+      const pc = content.product_content || { sections: [], items: [] }
+      const sections: any[] = pc.sections || []
+      const items: any[] = pc.items || []
+      if (!items.length && !sections.length) return null
+
+      // Дерево «разделы + материалы»: материал без раздела идёт первым уровнем.
+      const bySection: Record<string, any[]> = {}
+      for (const it of items) {
+        const k = String(it.section_id ?? 'root')
+        ;(bySection[k] ||= []).push(it)
+      }
+      const byParent: Record<string, any[]> = {}
+      for (const sec of sections) {
+        const k = String(sec.parent_id ?? 'root')
+        ;(byParent[k] ||= []).push(sec)
+      }
+      const renderSection = (sec: any, depth: number): any => (
+        <div key={`s${sec.id}`} style={{ marginLeft: depth * 16 }} className="mb-3">
+          <div className="font-semibold" style={{ color: page.color_heading || '#FFCFA4' }}>
+            {sec.title}
+          </div>
+          {sec.description && (
+            <div className="text-sm opacity-80">{sec.description}</div>
+          )}
+          <div className="mt-2 space-y-2">
+            {(byParent[String(sec.id)] || []).map((c: any) => renderSection(c, depth + 1))}
+            {(bySection[String(sec.id)] || []).map((it: any) => (
+              <div key={it.link_id} className="rounded-xl px-4 py-3" style={cardStyle}>
+                <div className="font-medium">{it.title}</div>
+                {it.description && <div className="text-sm opacity-80">{it.description}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+
+      return (
+        <div className="space-y-3">
+          {(byParent['root'] || []).map((sec: any) => renderSection(sec, 0))}
+          {(bySection['root'] || []).map((it: any) => (
+            <div key={it.link_id} className="rounded-xl px-4 py-3" style={cardStyle}>
+              <div className="font-medium">{it.title}</div>
+              {it.description && <div className="text-sm opacity-80">{it.description}</div>}
+            </div>
+          ))}
+        </div>
+      )
+    }
+
     /* ── Тарифы ────────────────────────────────────────────────────────── */
     case 'tariffs': {
       const t = content.tariffs || { items: [] }
@@ -1196,7 +1266,7 @@ function BlockBody({
                     по email/телефону, создаёт заказ и уводит на оплату.
                     Бесплатный тариф форма регистрирует сразу. */}
                 <a
-                  href={withTrack(`/e/${slug}/order/${x.id}`)}
+                  href={withTrack(orderHref(x.id))}
                   className="mt-6 block px-5 py-3.5 text-center font-bold uppercase"
                   style={btnStyle}
                 >

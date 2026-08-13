@@ -129,6 +129,18 @@ async def get_product_landing(
             "items": [dict(i) for i in items],
         }
 
+    # ── Организатор: нужен и тарифам (бренд в согласиях), поэтому выше ──
+    client = None
+    if kinds & {"organizer", "footer", "support", "tariffs"}:
+        client = await db.fetchrow(
+            """SELECT id, name, brand_name, brand_logo_url, profile_photo_url,
+                      owner_photo_url, owner_positioning, positioning, bio,
+                      work_tg_username, work_vk, work_max, phone,
+                      legal_name, legal_inn, privacy_policy_version
+                 FROM clients WHERE id = $1""",
+            product["client_id"],
+        )
+
     # ── Тарифы ──
     if "tariffs" in kinds:
         tariffs = await db.fetch(
@@ -139,18 +151,21 @@ async def get_product_landing(
                 ORDER BY sort_order, id""",
             product["id"],
         )
-        data["tariffs"] = [dict(t) for t in tariffs]
+        # ⚠️ Тот же формат, что у события ({items, offer_url, ...}) — рендерер
+        # общий, массив он бы не понял.
+        data["tariffs"] = {
+            "items": [dict(t) for t in tariffs],
+            "offer_url": product["offer_url"],
+            "privacy_url": (
+                f"/c/{client['id']}/privacy"
+                if client and client["privacy_policy_version"] else None
+            ),
+            "brand_name": (client["brand_name"] or client["name"]) if client else None,
+            "owner_name": client["name"] if client else None,
+        }
 
     # ── Организатор и реквизиты ──
     if kinds & {"organizer", "footer", "support"}:
-        client = await db.fetchrow(
-            """SELECT id, name, brand_name, brand_logo_url, profile_photo_url,
-                      owner_photo_url, owner_positioning, positioning, bio,
-                      work_tg_username, work_vk, work_max, phone,
-                      legal_name, legal_inn
-                 FROM clients WHERE id = $1""",
-            product["client_id"],
-        )
         if client:
             c = dict(client)
             data["organizer"] = c

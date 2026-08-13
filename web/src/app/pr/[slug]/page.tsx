@@ -1,19 +1,20 @@
 /**
- * Публичная страница продукта (миграция 290) — `/pr/{slug}`.
+ * Публичная страница продукта (миграции 290, 293) — `/pr/{slug}`.
  *
- * Пока это простая продающая страница: описание, состав и тарифы с оплатой.
- * Когда конструктор блоков будет развязан с события, сюда встанет он — и
- * страница станет собираться из блоков, как лендинг события.
+ * Собирается ТЕМ ЖЕ конструктором блоков, что лендинг события: рендерер общий
+ * (`/e/[slug]/LandingRenderer`), отличается только владелец и куда ведут кнопки.
  *
  * ⚠️ Клиента определяем по домену (заголовок Host): slug уникален в пределах
  * КАБИНЕТА, а не глобально — у разных клиентов может быть свой /pr/mentoring.
- * Поэтому Host пробрасываем в API явно, иначе запрос с сервера потеряет его.
+ * Поэтому Host пробрасываем в API явно, иначе серверный запрос его потеряет.
  *
- * ⚠️ Ссылок на материалы здесь нет ни в каком виде — только названия и
- * описания. Ссылка появляется в кабинете, у того, кто купил.
+ * Лендинг не опубликован → показываем простую витрину (описание, состав,
+ * тарифы). Так продукт продаётся сразу после создания, не дожидаясь, пока
+ * клиент соберёт страницу.
  */
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
+import LandingRenderer from '../../e/[slug]/LandingRenderer'
 import ProductPage from './ProductPage'
 
 export const dynamic = 'force-dynamic'   // цены должны быть свежими
@@ -21,13 +22,13 @@ export const dynamic = 'force-dynamic'   // цены должны быть св�
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8000'
 
-async function getProduct(slug: string) {
+async function fetchJson(path: string) {
   try {
     const host = headers().get('host') || ''
-    const res = await fetch(
-      `${apiBase}/api/v1/public/products/${encodeURIComponent(slug)}`,
-      { cache: 'no-store', headers: host ? { host } : undefined },
-    )
+    const res = await fetch(`${apiBase}${path}`, {
+      cache: 'no-store',
+      headers: host ? { host } : undefined,
+    })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -35,10 +36,16 @@ async function getProduct(slug: string) {
   }
 }
 
+const getLanding = (slug: string) =>
+  fetchJson(`/api/v1/public/product-landing/${encodeURIComponent(slug)}`)
+
+const getProduct = (slug: string) =>
+  fetchJson(`/api/v1/public/products/${encodeURIComponent(slug)}`)
+
 export async function generateMetadata(
   { params }: { params: { slug: string } },
 ): Promise<Metadata> {
-  const data = await getProduct(params.slug)
+  const data = (await getLanding(params.slug)) || (await getProduct(params.slug))
   if (!data) return { title: 'Страница не найдена' }
   const p = data.product
   return {
@@ -52,9 +59,29 @@ export async function generateMetadata(
   }
 }
 
-export default async function Page({ params }: { params: { slug: string } }) {
-  const data = await getProduct(params.slug)
+export default async function Page({
+  params, searchParams,
+}: {
+  params: { slug: string }
+  searchParams: { pid?: string; c?: string; utm_source?: string }
+}) {
+  // Собранный лендинг главнее: если клиент его опубликовал — показываем блоки.
+  const landing = await getLanding(params.slug)
+  if (landing) {
+    return (
+      <LandingRenderer
+        data={landing}
+        slug={params.slug}
+        ownerType="product"
+        pid={searchParams?.pid ?? null}
+        contactId={searchParams?.c ?? null}
+        utmSource={searchParams?.utm_source ?? null}
+      />
+    )
+  }
 
+  // Лендинг ещё не собран — простая витрина, чтобы продукт продавался сразу.
+  const data = await getProduct(params.slug)
   if (!data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white px-4">

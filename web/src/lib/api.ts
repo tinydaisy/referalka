@@ -584,6 +584,31 @@ export const api = {
   },
 
   // Конструктор лендинга события (миграция 240). Гейт — фича event_landing.
+  // Конструктор лендинга ПРОДУКТА (миграция 293). ⚠️ Имена методов совпадают
+  // с `eventLanding` намеренно: вкладка конструктора одна на обе сущности,
+  // ей передаётся нужная api-группа. Разные имена = вторая копия вкладки.
+  productLanding: {
+    get: (productId: number) => request(`/api/v1/products/${productId}/landing`),
+    patchPage: (productId: number, pageId: number, data: any) =>
+      request(`/api/v1/products/${productId}/landing/pages/${pageId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    createBlock: (productId: number, pageId: number, data: any) =>
+      request(`/api/v1/products/${productId}/landing/pages/${pageId}/blocks`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    patchBlock: (productId: number, blockId: number, data: any) =>
+      request(`/api/v1/products/${productId}/landing/blocks/${blockId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    removeBlock: (productId: number, blockId: number) =>
+      request(`/api/v1/products/${productId}/landing/blocks/${blockId}`, { method: 'DELETE' }),
+    reorder: (productId: number, pageId: number, ids: number[]) =>
+      request(`/api/v1/products/${productId}/landing/pages/${pageId}/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
+  },
+
   eventLanding: {
     get: (eventId: number) => request(`/api/v1/events/${eventId}/landing`),
     patchPage: (eventId: number, pageId: number, data: any) =>
