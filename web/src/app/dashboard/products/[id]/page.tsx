@@ -651,8 +651,23 @@ function wording(preset: string) {
     : { section: 'Блок', sectionsAcc: 'Блоки', unit: 'Материал' }
 }
 
+/** Общие пропсы узла дерева состава — и раздела, и материала. */
+type TreeNodeProps = {
+  node: any
+  depth: number
+  productId: number
+  sections: any[]
+  tariffs: any[]
+  readOnly: boolean
+  W: { section: string; sectionsAcc: string; unit: string }
+  onChanged: () => void
+  onAddSection: (parentId: number | null) => void
+  onAddMaterial: (sectionId: number | null) => void
+  onPickMaterial: (sectionId: number | null) => void
+}
+
 function TreeNode({ node, depth, productId, sections, tariffs, readOnly, W,
-                    onChanged, onAddSection, onAddMaterial, onPickMaterial }: any) {
+                    onChanged, onAddSection, onAddMaterial, onPickMaterial }: TreeNodeProps) {
   const [open, setOpen] = useState(true)
 
   if (node.type === 'material') {
@@ -728,7 +743,15 @@ function TreeNode({ node, depth, productId, sections, tariffs, readOnly, W,
 }
 
 function SectionActions({ productId, section, W, onChanged,
-                          onAddSection, onAddMaterial, onPickMaterial }: any) {
+                          onAddSection, onAddMaterial, onPickMaterial }: {
+  productId: number
+  section: any
+  W: { section: string; sectionsAcc: string; unit: string }
+  onChanged: () => void
+  onAddSection: (parentId: number | null) => void
+  onAddMaterial: (sectionId: number | null) => void
+  onPickMaterial: (sectionId: number | null) => void
+}) {
   const [menu, setMenu] = useState(false)
   const [editing, setEditing] = useState(false)
 
