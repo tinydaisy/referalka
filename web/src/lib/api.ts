@@ -913,6 +913,22 @@ export const api = {
     detachMaterial: (id: number, linkId: number) =>
       request(`/api/v1/products/${id}/materials/${linkId}`, { method: 'DELETE' }),
 
+    // Разделы («Модуль» / «Блок» — по словарю продукта). Вложенность любая,
+    // материал без раздела показывается первым уровнем.
+    sections: (id: number) => request(`/api/v1/products/${id}/sections`),
+    createSection: (id: number, data: any) =>
+      request(`/api/v1/products/${id}/sections`, { method: 'POST', body: JSON.stringify(data) }),
+    updateSection: (id: number, sid: number, data: any) =>
+      request(`/api/v1/products/${id}/sections/${sid}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    reorderSections: (id: number, ids: number[]) =>
+      request(`/api/v1/products/${id}/sections/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
+    deleteSection: (id: number, sid: number) =>
+      request(`/api/v1/products/${id}/sections/${sid}`, { method: 'DELETE' }),
+
     // Покупатели: доступ можно выдать и вручную — без заказа и без денег.
     buyers: (id: number) => request(`/api/v1/products/${id}/buyers`),
     grantAccess: (id: number, data: any) =>

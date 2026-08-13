@@ -655,6 +655,54 @@ def _our_order_id(raw: str) -> Optional[int]:
         return None
 
 
+def _product_order_id(raw: str) -> Optional[int]:
+    """Номер заказа ПРОДУКТА из `prd-<id>` (миграция 290).
+
+    ⚠️ Вебхуки продуктов приходят на ЭТИ ЖЕ роуты: `webhook_path` в
+    client_payments один на всю платёжную систему, отдельного адреса завести
+    нельзя. Поэтому обработчик сначала смотрит префикс и уводит заказ продукта
+    в свою ветку.
+    """
+    raw = str(raw or "").strip()
+    if not raw.startswith("prd-"):
+        return None
+    try:
+        return int(raw[4:])
+    except ValueError:
+        return None
+
+
+async def _try_product_webhook(db, *, raw_order, provider: str, verify,
+                               paid: bool, payment_id):
+    """Продуктовая ветка вебхука. None → заказ не продуктовый, идём дальше.
+
+    ⚠️ Подпись проверяется ЗДЕСЬ, ключами владельца ПРОДУКТА: у события и у
+    продукта разные таблицы, и вызывающий к моменту разбора префикса ещё не
+    знает, чьи секреты брать. `verify(order)` — замыкание вызывающего: оно
+    знает, как проверять именно эту платёжную систему.
+    """
+    pid = _product_order_id(raw_order)
+    if pid is None:
+        return None
+
+    from app.api.product_orders import (
+        load_product_order_for_webhook, mark_product_order_paid,
+    )
+    order = await load_product_order_for_webhook(db, pid)
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    if not verify(order):
+        logger.error("Вебхук заказа продукта %s: подпись не сошлась", pid)
+        raise HTTPException(status_code=403, detail="Подпись неверна")
+
+    if not paid:
+        logger.info("Заказ продукта %s: оплата не прошла", pid)
+        return {"ok": True, "paid": False}
+
+    return await mark_product_order_paid(db, pid, provider, payment_id)
+
+
 async def _load_order_for_webhook(db, order_id: int):
     return await db.fetchrow(
         """SELECT o.id, o.status, o.event_id, o.contact_id, o.participant_id,
@@ -722,6 +770,18 @@ async def leadpay_order_webhook(
     заказ. Ключи для проверки подписи берём у ВЛАДЕЛЬЦА события, а не из
     переменных окружения: у каждого клиента своя платёжная система."""
     data = await _parse_order_data(request)
+    payment_id = str(data.get("payment_id") or data.get("id") or "") or None
+    is_ok = str(data.get("status") or "").lower() == "success"
+
+    # Заказ продукта (`prd-`) — своя ветка: другая таблица и свой постэффект.
+    handled = await _try_product_webhook(
+        db, raw_order=data.get("order_id"), provider="leadpay",
+        verify=lambda o: client_payments.verify_leadpay_webhook(
+            data, o["pay_leadpay_token"] or ""),
+        paid=is_ok, payment_id=payment_id,
+    )
+    if handled is not None:
+        return handled
 
     order_id = _our_order_id(data.get("order_id"))
     if order_id is None:
@@ -760,6 +820,20 @@ async def prodamus_order_webhook(
     data = await _parse_order_data(request)
     signature = (request.headers.get("Sign") or request.headers.get("sign")
                  or request.headers.get("Signature"))
+
+    # ⚠️ Продамус шлёт оповещение и о незавершённой оплате — оплаченной
+    # считается только `success`.
+    prod_ok = str(data.get("payment_status") or "").strip().lower() == "success"
+
+    handled = await _try_product_webhook(
+        db, raw_order=data.get("order_id"), provider="prodamus",
+        verify=lambda o: client_payments.verify_prodamus_webhook(
+            data, signature, o["pay_prodamus_secret"] or ""),
+        paid=prod_ok,
+        payment_id=str(data.get("payment_id") or data.get("order_num") or "") or None,
+    )
+    if handled is not None:
+        return handled
 
     order_id = _our_order_id(data.get("order_id"))
     if order_id is None:
@@ -804,6 +878,22 @@ async def tbank_order_webhook(
     платформу.
     """
     data = await _parse_order_data(request)
+
+    # ⚠️ Банк шлёт нотификации на каждый шаг оплаты (AUTHORIZED и др.).
+    # Оплаченным считается только CONFIRMED — деньги списаны.
+    tb_ok = (str(data.get("Status") or "").strip().upper() == "CONFIRMED"
+             and _is_true(data.get("Success")))
+
+    handled = await _try_product_webhook(
+        db, raw_order=data.get("OrderId"), provider="tbank",
+        verify=lambda o: client_payments.verify_tbank_webhook(
+            data, o["pay_tbank_password"], o["pay_tbank_test_password"]),
+        paid=tb_ok, payment_id=str(data.get("PaymentId") or "") or None,
+    )
+    # ⚠️ Банку отвечаем РОВНО «OK» текстом и в этой ветке тоже — иначе он
+    # сочтёт нотификацию недоставленной и будет слать её сутки.
+    if handled is not None:
+        return PlainTextResponse("OK")
 
     order_id = _our_order_id(data.get("OrderId"))
     if order_id is None:

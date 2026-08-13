@@ -421,19 +421,27 @@ export default function CollaborationsPage() {
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="divide-y divide-gray-50">
+            {/* ⚠️ Кликабельна ВСЯ строка, а не только имя и стрелка: раньше
+                промах мимо текста читался как «нажимаю и не открывается».
+                Кнопка удаления лежит поверх ссылки (z-10) и ловит клик сама. */}
             {items.map(item => (
-              <div key={item.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 group transition-colors">
+              <div key={item.id} className="relative flex items-center gap-4 px-5 py-4 hover:bg-gray-50 group transition-colors">
+                <Link
+                  href={`/dashboard/collaborations/${item.id}`}
+                  className="absolute inset-0 z-0"
+                  aria-label={item.name}
+                />
                 <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-gray-100 flex items-center justify-center">
                   {item.photo_url
                     ? <img src={item.photo_url} alt={item.name} className="w-full h-full object-cover" />
                     : <Users size={18} className="text-gray-400" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <Link href={`/dashboard/collaborations/${item.id}`} className="font-semibold text-gray-900 truncate hover:text-brand transition-colors block">{item.name}</Link>
+                  <span className="font-semibold text-gray-900 truncate group-hover:text-brand transition-colors block">{item.name}</span>
                   {item.title && <p className="text-sm text-gray-500 truncate">{item.title}</p>}
                 </div>
                 {!isAssistant && (
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="relative z-10 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => handleDelete(item.id, item.name)}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                       title={t.common.delete}>
@@ -441,9 +449,7 @@ export default function CollaborationsPage() {
                     </button>
                   </div>
                 )}
-                <Link href={`/dashboard/collaborations/${item.id}`} className="flex items-center text-gray-400 hover:text-brand transition-colors">
-                  <ChevronRight size={18} />
-                </Link>
+                <ChevronRight size={18} className="text-gray-400 group-hover:text-brand transition-colors" />
               </div>
             ))}
           </div>

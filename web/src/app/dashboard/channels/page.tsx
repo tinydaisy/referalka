@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
+import QrLinkButton from '@/components/QrLinkButton'
 
 interface Platform {
   slug: string
@@ -31,6 +32,24 @@ interface Channel {
   unsubscribed: number
   created_at: string
   bot_token: string | null
+}
+
+/**
+ * Публичная ссылка на бота по его handle — для QR-кода.
+ *
+ * ⚠️ У email-канала и у канала без handle ссылки нет: возвращаем null, и QR
+ * не рисуется. WhatsApp тоже без handle — привязка там живёт на мосту.
+ */
+function botLinkOf(ch: Channel): string | null {
+  const h = (ch.handle || '').trim().replace(/^@/, '')
+  if (!h) return null
+  if (h.startsWith('http://') || h.startsWith('https://')) return h
+  switch (ch.platform_slug) {
+    case 'telegram': return `https://telegram.me/${h}`
+    case 'max':      return `https://max.ru/${h}`
+    case 'vk':       return `https://vk.me/${h}`
+    default:         return null
+  }
 }
 
 interface Me {
@@ -586,9 +605,20 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
             </span>
           )}
         </div>
-        <p className="text-xs text-gray-500 truncate">
-          {ch.platform_display_name}
-          {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
+        <p className="flex items-center gap-2 text-xs text-gray-500 truncate">
+          <span className="truncate">
+            {ch.platform_display_name}
+            {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
+          </span>
+          {/* QR на бота — чтобы показать с экрана или поставить на афишу.
+              У email-канала ссылки нет, там QR не рисуем. */}
+          {botLinkOf(ch) && (
+            <QrLinkButton
+              url={botLinkOf(ch)!}
+              name={ch.display_name || ch.handle || 'Бот'}
+              iconSize={13}
+            />
+          )}
         </p>
       </div>
       <div className="flex items-center gap-4 text-sm shrink-0">

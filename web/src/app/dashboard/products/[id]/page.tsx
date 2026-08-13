@@ -15,8 +15,8 @@ import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
 import {
-  ArrowLeft, Plus, Trash2, X, Copy, Check,
-  Settings2, Wallet, Layers, Users, ExternalLink, Eye, EyeOff,
+  ArrowLeft, Plus, Trash2, X, Copy, Check, ChevronDown, ChevronRight,
+  MoreHorizontal, Settings2, Wallet, Layers, Users, ExternalLink, Eye, EyeOff,
 } from 'lucide-react'
 
 const WORDING_PRESETS = [
@@ -98,7 +98,13 @@ export default function ProductCardPage({ params }: { params: Promise<{ id: stri
         <MainTab product={product} readOnly={isAssistant} publicBase={publicBase} onChanged={load} />
       )}
       {tab === 'tariffs' && <TariffsTab productId={productId} readOnly={isAssistant} />}
-      {tab === 'content' && <ContentTab productId={productId} readOnly={isAssistant} />}
+      {tab === 'content' && (
+        <ContentTab
+          productId={productId}
+          readOnly={isAssistant}
+          wordingPreset={product.wording_preset || 'consulting'}
+        />
+      )}
       {tab === 'buyers' && <BuyersTab productId={productId} readOnly={isAssistant} />}
     </div>
   )
@@ -510,12 +516,32 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
 
 /* ─────────────────────────────── Состав ─────────────────────────────────── */
 
-function ContentTab({ productId, readOnly }: { productId: number; readOnly: boolean }) {
-  const [items, setItems] = useState<any[]>([])
+/**
+ * Состав продукта — дерево «разделы + материалы».
+ *
+ * ⚠️ Раздел здесь — просто папка внутри продукта, а НЕ вложенный курс со своими
+ * настройками (как у Бизона, где из-за этого теряешься в матрёшке). Нажали
+ * «Добавить раздел», вписали название — всё.
+ *
+ * ⚠️ Материал без раздела — нормальный случай, а не ошибка: он показывается
+ * первым уровнем рядом с разделами (вводное видео до первого раздела, бонус
+ * после последнего). Продукт из трёх файлов разделов не заводит вовсе.
+ *
+ * Как называется раздел — решает словарь продукта: «Модуль» у образовательного
+ * пресета, «Блок» у консультационного.
+ */
+function ContentTab({ productId, readOnly, wordingPreset }: {
+  productId: number; readOnly: boolean; wordingPreset: string
+}) {
+  const [tree, setTree] = useState<any[]>([])
+  const [sections, setSections] = useState<any[]>([])
   const [tariffs, setTariffs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [picking, setPicking] = useState(false)
-  const [creating, setCreating] = useState(false)
+  const [picking, setPicking] = useState<{ sectionId: number | null } | null>(null)
+  const [creating, setCreating] = useState<{ sectionId: number | null } | null>(null)
+  const [addingSection, setAddingSection] = useState<{ parentId: number | null } | null>(null)
+
+  const W = wording(wordingPreset)
 
   const load = async () => {
     try {
@@ -523,7 +549,8 @@ function ContentTab({ productId, readOnly }: { productId: number; readOnly: bool
         api.products.materials(productId),
         api.products.tariffs(productId),
       ])
-      setItems(c.items || [])
+      setTree(c.tree || [])
+      setSections(c.sections || [])
       setTariffs(t.tariffs || [])
     } finally { setLoading(false) }
   }
@@ -534,62 +561,82 @@ function ContentTab({ productId, readOnly }: { productId: number; readOnly: bool
   return (
     <div className="max-w-3xl">
       <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-        Это то, что человек получит после оплаты. Материал можно загрузить прямо
-        здесь или взять из тех, что уже есть — тогда правка разойдётся во все
-        продукты, где он стоит.
+        Это то, что человек получит после оплаты. Материалы можно сложить
+        в {W.sectionsAcc.toLowerCase()} — или оставить простым списком, если их немного.
       </div>
 
       {!readOnly && (
         <div className="mb-4 flex flex-wrap gap-2">
-          <button onClick={() => setCreating(true)} className="btn-gold inline-flex items-center gap-2">
-            <Plus size={16} /> Загрузить новый
+          <button
+            onClick={() => setAddingSection({ parentId: null })}
+            className="btn-gold inline-flex items-center gap-2"
+          >
+            <Plus size={16} /> Добавить {W.section.toLowerCase()}
           </button>
-          <button onClick={() => setPicking(true)} className="btn-primary inline-flex items-center gap-2">
+          <button
+            onClick={() => setCreating({ sectionId: null })}
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <Plus size={16} /> Загрузить материал
+          </button>
+          <button
+            onClick={() => setPicking({ sectionId: null })}
+            className="btn-primary inline-flex items-center gap-2"
+          >
             <Layers size={16} /> Взять из имеющихся
           </button>
         </div>
       )}
 
+      {addingSection && (
+        <SectionForm
+          productId={productId}
+          parentId={addingSection.parentId}
+          word={W.section}
+          onClose={() => setAddingSection(null)}
+          onSaved={() => { setAddingSection(null); load() }}
+        />
+      )}
+
       {creating && (
         <NewMaterialInline
           productId={productId}
-          onClose={() => setCreating(false)}
-          onSaved={() => { setCreating(false); load() }}
+          sectionId={creating.sectionId}
+          onClose={() => setCreating(null)}
+          onSaved={() => { setCreating(null); load() }}
         />
       )}
 
       {picking && (
         <PickMaterialModal
           productId={productId}
-          onClose={() => setPicking(false)}
-          onAdded={() => { setPicking(false); load() }}
+          sectionId={picking.sectionId}
+          onClose={() => setPicking(null)}
+          onAdded={() => { setPicking(null); load() }}
         />
       )}
 
-      {!items.length && (
+      {!tree.length && (
         <p className="text-sm text-gray-400">
           Пока пусто. У консультации материалов может не быть вовсе — это нормально.
         </p>
       )}
 
       <div className="space-y-2">
-        {items.map((it, idx) => (
-          <ContentRow
-            key={it.link_id}
+        {tree.map(node => (
+          <TreeNode
+            key={`${node.type}-${node.id || node.link_id}`}
+            node={node}
+            depth={0}
             productId={productId}
-            item={it}
+            sections={sections}
             tariffs={tariffs}
             readOnly={readOnly}
-            canUp={idx > 0}
-            canDown={idx < items.length - 1}
-            onMove={async (dir) => {
-              const ids = items.map(x => x.link_id)
-              const j = dir === 'up' ? idx - 1 : idx + 1
-              ;[ids[idx], ids[j]] = [ids[j], ids[idx]]
-              await api.products.reorderMaterials(productId, ids)
-              load()
-            }}
+            W={W}
             onChanged={load}
+            onAddSection={(parentId) => setAddingSection({ parentId })}
+            onAddMaterial={(sectionId) => setCreating({ sectionId })}
+            onPickMaterial={(sectionId) => setPicking({ sectionId })}
           />
         ))}
       </div>
@@ -597,10 +644,247 @@ function ContentTab({ productId, readOnly }: { productId: number; readOnly: bool
   )
 }
 
-function ContentRow({ productId, item, tariffs, readOnly, canUp, canDown, onMove, onChanged }: {
-  productId: number; item: any; tariffs: any[]; readOnly: boolean
-  canUp: boolean; canDown: boolean
-  onMove: (dir: 'up' | 'down') => void; onChanged: () => void
+/** Словарь: как называть части продукта. Зависит от пресета (миграция 290). */
+function wording(preset: string) {
+  return preset === 'education'
+    ? { section: 'Модуль', sectionsAcc: 'Модули', unit: 'Урок' }
+    : { section: 'Блок', sectionsAcc: 'Блоки', unit: 'Материал' }
+}
+
+function TreeNode({ node, depth, productId, sections, tariffs, readOnly, W,
+                    onChanged, onAddSection, onAddMaterial, onPickMaterial }: any) {
+  const [open, setOpen] = useState(true)
+
+  if (node.type === 'material') {
+    return (
+      <div style={{ marginLeft: depth * 20 }}>
+        <ContentRow
+          productId={productId}
+          item={node}
+          sections={sections}
+          tariffs={tariffs}
+          readOnly={readOnly}
+          onChanged={onChanged}
+        />
+      </div>
+    )
+  }
+
+  // Раздел
+  return (
+    <div style={{ marginLeft: depth * 20 }}>
+      <div className="rounded-xl border border-gray-300 bg-gray-50">
+        <div className="flex items-center gap-2 p-3">
+          <button onClick={() => setOpen(!open)} className="text-gray-400 hover:text-gray-600">
+            {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-semibold text-gray-900">{node.title}</div>
+            {node.description && (
+              <div className="truncate text-xs text-gray-500">{node.description}</div>
+            )}
+          </div>
+          {!readOnly && (
+            <SectionActions
+              productId={productId}
+              section={node}
+              W={W}
+              onChanged={onChanged}
+              onAddSection={onAddSection}
+              onAddMaterial={onAddMaterial}
+              onPickMaterial={onPickMaterial}
+            />
+          )}
+        </div>
+
+        {open && (
+          <div className="space-y-2 border-t border-gray-200 p-3">
+            {!node.children?.length && (
+              <p className="text-xs text-gray-400">
+                Пусто. Добавьте материалы или вложенный {W.section.toLowerCase()}.
+              </p>
+            )}
+            {node.children?.map((ch: any) => (
+              <TreeNode
+                key={`${ch.type}-${ch.id || ch.link_id}`}
+                node={ch}
+                depth={0}
+                productId={productId}
+                sections={sections}
+                tariffs={tariffs}
+                readOnly={readOnly}
+                W={W}
+                onChanged={onChanged}
+                onAddSection={onAddSection}
+                onAddMaterial={onAddMaterial}
+                onPickMaterial={onPickMaterial}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SectionActions({ productId, section, W, onChanged,
+                          onAddSection, onAddMaterial, onPickMaterial }: any) {
+  const [menu, setMenu] = useState(false)
+  const [editing, setEditing] = useState(false)
+
+  const remove = async () => {
+    if (!confirm(
+      `Удалить «${section.title}»? Материалы внутри не пропадут — ` +
+      `они поднимутся на верхний уровень продукта.`
+    )) return
+    await api.products.deleteSection(productId, section.id)
+    onChanged()
+  }
+
+  if (editing) {
+    return (
+      <SectionRename
+        productId={productId}
+        section={section}
+        onClose={() => setEditing(false)}
+        onSaved={() => { setEditing(false); onChanged() }}
+      />
+    )
+  }
+
+  return (
+    <div className="relative flex items-center gap-2">
+      <button onClick={() => onAddMaterial(section.id)}
+              className="text-xs text-gray-500 hover:text-gray-700">
+        + материал
+      </button>
+      <button onClick={() => setMenu(!menu)} className="text-gray-400 hover:text-gray-600">
+        <MoreHorizontal size={16} />
+      </button>
+      {menu && (
+        <div className="absolute right-0 top-7 z-10 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+          <button
+            onClick={() => { setMenu(false); onPickMaterial(section.id) }}
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+          >
+            Взять материал из имеющихся
+          </button>
+          <button
+            onClick={() => { setMenu(false); onAddSection(section.id) }}
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+          >
+            Вложенный {W.section.toLowerCase()}
+          </button>
+          <button
+            onClick={() => { setMenu(false); setEditing(true) }}
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+          >
+            Переименовать
+          </button>
+          <button
+            onClick={() => { setMenu(false); remove() }}
+            className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+          >
+            Удалить
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SectionForm({ productId, parentId, word, onClose, onSaved }: {
+  productId: number; parentId: number | null; word: string
+  onClose: () => void; onSaved: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    if (!title.trim()) return
+    setSaving(true)
+    try {
+      await api.products.createSection(productId, {
+        title: title.trim(),
+        description: description.trim() || null,
+        parent_id: parentId,
+      })
+      onSaved()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось создать')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="font-semibold text-gray-900">
+          Новый {word.toLowerCase()}{parentId ? ' внутри раздела' : ''}
+        </span>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+      </div>
+      <div className="space-y-3">
+        <input
+          value={title} onChange={e => setTitle(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        />
+        <input
+          value={description} onChange={e => setDescription(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        />
+        <div className="flex gap-2">
+          <button onClick={save} disabled={saving || !title.trim()} className="btn-gold">
+            {saving ? 'Создаём…' : 'Создать'}
+          </button>
+          <button onClick={onClose} className="btn-primary">Отмена</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SectionRename({ productId, section, onClose, onSaved }: {
+  productId: number; section: any; onClose: () => void; onSaved: () => void
+}) {
+  const [title, setTitle] = useState(section.title || '')
+  const [description, setDescription] = useState(section.description || '')
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    if (!title.trim()) return
+    setSaving(true)
+    try {
+      await api.products.updateSection(productId, section.id, {
+        title: title.trim(),
+        description: description.trim() || null,
+      })
+      onSaved()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={title} onChange={e => setTitle(e.target.value)}
+        className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
+      />
+      <input
+        value={description} onChange={e => setDescription(e.target.value)}
+        placeholder="описание"
+        className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
+      />
+      <button onClick={save} disabled={saving} className="text-sm font-medium text-[#25455D]">
+        ОК
+      </button>
+      <button onClick={onClose} className="text-sm text-gray-500">Отмена</button>
+    </div>
+  )
+}
+
+function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }: {
+  productId: number; item: any; sections: any[]; tariffs: any[]
+  readOnly: boolean; onChanged: () => void
 }) {
   const [open, setOpen] = useState(false)
   const name = item.title_override || item.title
@@ -621,15 +905,6 @@ function ContentRow({ productId, item, tariffs, readOnly, canUp, canDown, onMove
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
       <div className="flex items-center gap-3 p-3">
-        {!readOnly && (
-          <div className="flex flex-col text-gray-300">
-            <button onClick={() => canUp && onMove('up')} disabled={!canUp}
-                    className="hover:text-gray-500 disabled:opacity-30">▲</button>
-            <button onClick={() => canDown && onMove('down')} disabled={!canDown}
-                    className="hover:text-gray-500 disabled:opacity-30">▼</button>
-          </div>
-        )}
-
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium text-gray-900">{name}</div>
           <div className="text-xs text-gray-400">
@@ -661,7 +936,7 @@ function ContentRow({ productId, item, tariffs, readOnly, canUp, canDown, onMove
 
       {open && (
         <ContentSettings
-          productId={productId} item={item} tariffs={tariffs}
+          productId={productId} item={item} sections={sections} tariffs={tariffs}
           onClose={() => setOpen(false)}
           onSaved={() => { setOpen(false); onChanged() }}
         />
@@ -670,11 +945,13 @@ function ContentRow({ productId, item, tariffs, readOnly, canUp, canDown, onMove
   )
 }
 
-function ContentSettings({ productId, item, tariffs, onClose, onSaved }: {
-  productId: number; item: any; tariffs: any[]; onClose: () => void; onSaved: () => void
+function ContentSettings({ productId, item, sections, tariffs, onClose, onSaved }: {
+  productId: number; item: any; sections: any[]; tariffs: any[]
+  onClose: () => void; onSaved: () => void
 }) {
   const [titleOverride, setTitleOverride] = useState(item.title_override || '')
   const [minTariff, setMinTariff] = useState<string>(item.min_tariff_id ? String(item.min_tariff_id) : '')
+  const [sectionId, setSectionId] = useState<string>(item.section_id ? String(item.section_id) : '')
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
@@ -683,8 +960,11 @@ function ContentSettings({ productId, item, tariffs, onClose, onSaved }: {
       await api.products.updateMaterial(productId, item.link_id, {
         title_override: titleOverride.trim() || null,
         min_tariff_id: minTariff ? Number(minTariff) : null,
+        section_id: sectionId ? Number(sectionId) : null,
       })
       onSaved()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить')
     } finally { setSaving(false) }
   }
 
@@ -702,6 +982,17 @@ function ContentSettings({ productId, item, tariffs, onClose, onSaved }: {
             Пусто — название из библиотеки. В другом продукте этот же материал
             может называться иначе.
           </p>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-gray-600">Где лежит</label>
+          <select
+            value={sectionId} onChange={e => setSectionId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="">Первым уровнем (без раздела)</option>
+            {sections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
         </div>
 
         <div>
@@ -726,8 +1017,9 @@ function ContentSettings({ productId, item, tariffs, onClose, onSaved }: {
   )
 }
 
-function NewMaterialInline({ productId, onClose, onSaved }: {
-  productId: number; onClose: () => void; onSaved: () => void
+function NewMaterialInline({ productId, sectionId, onClose, onSaved }: {
+  productId: number; sectionId?: number | null
+  onClose: () => void; onSaved: () => void
 }) {
   const [kind, setKind] = useState('file')
   const [title, setTitle] = useState('')
@@ -741,6 +1033,7 @@ function NewMaterialInline({ productId, onClose, onSaved }: {
     setSaving(true)
     try {
       await api.products.attachMaterial(productId, {
+        section_id: sectionId ?? null,
         new_material: {
           kind, title: title.trim(),
           url: kind === 'text' ? null : url.trim(),
@@ -793,8 +1086,9 @@ function NewMaterialInline({ productId, onClose, onSaved }: {
   )
 }
 
-function PickMaterialModal({ productId, onClose, onAdded }: {
-  productId: number; onClose: () => void; onAdded: () => void
+function PickMaterialModal({ productId, sectionId, onClose, onAdded }: {
+  productId: number; sectionId?: number | null
+  onClose: () => void; onAdded: () => void
 }) {
   const [list, setList] = useState<any[]>([])
   const [q, setQ] = useState('')
@@ -812,7 +1106,9 @@ function PickMaterialModal({ productId, onClose, onAdded }: {
   const attach = async (materialId: number, copy: boolean) => {
     setBusy(materialId)
     try {
-      await api.products.attachMaterial(productId, { material_id: materialId, copy })
+      await api.products.attachMaterial(productId, {
+        material_id: materialId, copy, section_id: sectionId ?? null,
+      })
       onAdded()
     } catch (e: any) {
       alert(e?.message || 'Не удалось добавить')

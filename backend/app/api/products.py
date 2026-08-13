@@ -205,6 +205,8 @@ class AttachIn(BaseModel):
     title_override: Optional[str] = None
     min_tariff_id: Optional[int] = None
     show_on_landing: bool = True
+    # В какой раздел положить. NULL = первым уровнем, рядом с разделами.
+    section_id: Optional[int] = None
 
 
 class AttachPatch(BaseModel):
@@ -212,10 +214,25 @@ class AttachPatch(BaseModel):
     min_tariff_id: Optional[int] = None
     show_on_landing: Optional[bool] = None
     sort_order: Optional[int] = None
+    section_id: Optional[int] = None
 
 
 class ReorderIn(BaseModel):
     ids: List[int]
+
+
+class SectionIn(BaseModel):
+    """Раздел продукта. `parent_id` — вложенность любой глубины."""
+    title: str
+    description: Optional[str] = None
+    parent_id: Optional[int] = None
+
+
+class SectionPatch(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
 
 
 # ══ Продукты ══════════════════════════════════════════════════════════════
@@ -529,6 +546,195 @@ async def delete_tariff(
     await db.execute(
         "DELETE FROM product_tariffs WHERE id = $1 AND product_id = $2",
         tariff_id, product_id,
+    )
+    return {"ok": True}
+
+
+# ══ Разделы продукта ══════════════════════════════════════════════════════
+
+async def _section_descendants(db, product_id: int, section_id: int) -> set[int]:
+    """Все потомки раздела, включая его самого.
+
+    Нужно, чтобы не дать переместить раздел внутрь собственной ветки — иначе
+    кусок дерева отвяжется от продукта и пропадёт из интерфейса, оставшись в БД.
+    """
+    rows = await db.fetch(
+        "SELECT id, parent_id FROM product_sections WHERE product_id = $1",
+        product_id,
+    )
+    children: dict[Optional[int], list[int]] = {}
+    for r in rows:
+        children.setdefault(r["parent_id"], []).append(r["id"])
+
+    seen, stack = set(), [section_id]
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(children.get(cur, []))
+    return seen
+
+
+@router.get("/products/{product_id}/sections", summary="Разделы продукта (плоским списком)")
+async def list_sections(
+    product_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _get_product(db, client_id, product_id)
+
+    rows = await db.fetch(
+        "SELECT * FROM product_sections WHERE product_id = $1 ORDER BY sort_order, id",
+        product_id,
+    )
+    return {"sections": [dict(r) for r in rows]}
+
+
+@router.post("/products/{product_id}/sections", summary="Создать раздел")
+async def create_section(
+    product_id: int,
+    data: SectionIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    title = (data.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Укажите название раздела")
+
+    if data.parent_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM product_sections WHERE id = $1 AND product_id = $2",
+            data.parent_id, product_id,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Родительский раздел не найден")
+
+    nxt = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_sections "
+        "WHERE product_id = $1 AND parent_id IS NOT DISTINCT FROM $2",
+        product_id, data.parent_id,
+    )
+    row = await db.fetchrow(
+        """
+        INSERT INTO product_sections (product_id, parent_id, title, description, sort_order)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+        """,
+        product_id, data.parent_id, title, data.description, nxt,
+    )
+    return dict(row)
+
+
+@router.patch("/products/{product_id}/sections/{section_id}", summary="Изменить раздел")
+async def update_section(
+    product_id: int,
+    section_id: int,
+    data: SectionPatch,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    cur = await db.fetchrow(
+        "SELECT * FROM product_sections WHERE id = $1 AND product_id = $2",
+        section_id, product_id,
+    )
+    if not cur:
+        raise HTTPException(status_code=404, detail="Раздел не найден")
+
+    fs = data.model_fields_set
+    sets, args = [], []
+
+    def put(col: str, val):
+        args.append(val)
+        sets.append(f"{col} = ${len(args)}")
+
+    if "parent_id" in fs:
+        if data.parent_id:
+            ok = await db.fetchval(
+                "SELECT 1 FROM product_sections WHERE id = $1 AND product_id = $2",
+                data.parent_id, product_id,
+            )
+            if not ok:
+                raise HTTPException(status_code=400, detail="Родительский раздел не найден")
+            # ⚠️ Внутрь себя или своего потомка перемещать нельзя: ветка
+            # оторвётся от продукта и исчезнет из дерева.
+            if data.parent_id in await _section_descendants(db, product_id, section_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Раздел нельзя вложить в самого себя или в свою же часть.",
+                )
+        put("parent_id", data.parent_id)
+
+    for col in ("title", "description", "sort_order"):
+        if col in fs:
+            put(col, getattr(data, col))
+
+    if not sets:
+        return dict(cur)
+
+    args.append(section_id)
+    row = await db.fetchrow(
+        f"UPDATE product_sections SET {', '.join(sets)}, updated_at = NOW() "
+        f"WHERE id = ${len(args)} RETURNING *",
+        *args,
+    )
+    return dict(row)
+
+
+@router.post("/products/{product_id}/sections/reorder", summary="Порядок разделов")
+async def reorder_sections(
+    product_id: int,
+    data: ReorderIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    async with db.transaction():
+        for i, sid in enumerate(data.ids):
+            await db.execute(
+                "UPDATE product_sections SET sort_order = $1 WHERE id = $2 AND product_id = $3",
+                i, sid, product_id,
+            )
+    return {"ok": True}
+
+
+@router.delete("/products/{product_id}/sections/{section_id}", summary="Удалить раздел")
+async def delete_section(
+    product_id: int,
+    section_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Удаляет раздел и вложенные разделы.
+
+    ⚠️ Материалы НЕ пропадают: section_id у них → NULL, они поднимаются на
+    верхний уровень продукта. Иначе клиент, убрав раздел, молча лишил бы
+    купивших доступа к его содержимому.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    await db.execute(
+        "DELETE FROM product_sections WHERE id = $1 AND product_id = $2",
+        section_id, product_id,
     )
     return {"ok": True}
 
@@ -848,12 +1054,18 @@ async def copy_material(
 
 # ══ Состав продукта ═══════════════════════════════════════════════════════
 
-@router.get("/products/{product_id}/materials", summary="Состав продукта")
+@router.get("/products/{product_id}/materials", summary="Состав продукта (дерево)")
 async def list_product_materials(
     product_id: int,
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    """Состав отдаётся и плоско, и деревом — фронт берёт удобное ему.
+
+    ⚠️ Материал без раздела (`section_id IS NULL`) — это НЕ ошибка, а
+    нормальный случай: он показывается первым уровнем рядом с разделами.
+    Продукт из трёх файлов разделов не заводит вовсе.
+    """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
     await _get_product(db, client_id, product_id)
@@ -861,7 +1073,7 @@ async def list_product_materials(
     rows = await db.fetch(
         """
         SELECT pm.id AS link_id, pm.sort_order, pm.title_override,
-               pm.min_tariff_id, pm.show_on_landing,
+               pm.min_tariff_id, pm.show_on_landing, pm.section_id,
                m.id AS material_id, m.kind, m.title, m.description,
                m.url, m.body, m.duration_sec, m.size_bytes,
                -- Сколько ДРУГИХ продуктов использует этот материал: чтобы никто
@@ -875,7 +1087,59 @@ async def list_product_materials(
         """,
         product_id,
     )
-    return {"items": [dict(r) for r in rows]}
+    sections = await db.fetch(
+        "SELECT * FROM product_sections WHERE product_id = $1 ORDER BY sort_order, id",
+        product_id,
+    )
+
+    items = [dict(r) for r in rows]
+    return {
+        "items": items,
+        "sections": [dict(s) for s in sections],
+        "tree": _build_tree(sections, items),
+    }
+
+
+def _build_tree(sections, items) -> list:
+    """Собирает дерево «разделы + материалы» одним проходом.
+
+    Порядок внутри уровня общий для разделов и материалов — сортируем по
+    sort_order, чтобы клиент мог поставить вводное видео перед первым разделом.
+    """
+    by_parent: dict[Optional[int], list] = {}
+    for s in sections:
+        node = {
+            "type": "section",
+            "id": s["id"],
+            "title": s["title"],
+            "description": s["description"],
+            "sort_order": s["sort_order"],
+            "children": [],
+        }
+        by_parent.setdefault(s["parent_id"], []).append(node)
+
+    mat_by_section: dict[Optional[int], list] = {}
+    for it in items:
+        mat_by_section.setdefault(it["section_id"], []).append({
+            "type": "material", **it,
+        })
+
+    def attach(node):
+        kids = by_parent.get(node["id"], [])
+        for k in kids:
+            attach(k)
+        node["children"] = sorted(
+            kids + mat_by_section.get(node["id"], []),
+            key=lambda x: (x.get("sort_order") or 0, x.get("id") or x.get("link_id") or 0),
+        )
+        return node
+
+    roots = [attach(n) for n in by_parent.get(None, [])]
+    top_materials = mat_by_section.get(None, [])
+    return sorted(
+        roots + top_materials,
+        key=lambda x: (x.get("sort_order") or 0, x.get("id") or x.get("link_id") or 0),
+    )
 
 
 @router.post("/products/{product_id}/materials", summary="Добавить материал в продукт")
@@ -932,9 +1196,20 @@ async def attach_material(
             if not ok:
                 raise HTTPException(status_code=400, detail="Тариф не найден в этом продукте")
 
+        if data.section_id:
+            s_ok = await db.fetchval(
+                "SELECT 1 FROM product_sections WHERE id = $1 AND product_id = $2",
+                data.section_id, product_id,
+            )
+            if not s_ok:
+                raise HTTPException(status_code=400, detail="Раздел не найден в этом продукте")
+
+        # Порядок считаем внутри своего уровня: у каждого раздела своя нумерация,
+        # у материалов без раздела — общая с разделами верхнего уровня.
         nxt = await db.fetchval(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_materials WHERE product_id = $1",
-            product_id,
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_materials "
+            "WHERE product_id = $1 AND section_id IS NOT DISTINCT FROM $2",
+            product_id, data.section_id,
         )
 
         try:
@@ -942,12 +1217,12 @@ async def attach_material(
                 """
                 INSERT INTO product_materials
                     (product_id, material_id, title_override, sort_order,
-                     min_tariff_id, show_on_landing)
-                VALUES ($1,$2,$3,$4,$5,$6)
+                     min_tariff_id, show_on_landing, section_id)
+                VALUES ($1,$2,$3,$4,$5,$6,$7)
                 RETURNING *
                 """,
                 product_id, material_id, data.title_override, nxt,
-                data.min_tariff_id, data.show_on_landing,
+                data.min_tariff_id, data.show_on_landing, data.section_id,
             )
         except asyncpg.UniqueViolationError:
             raise HTTPException(
@@ -994,9 +1269,19 @@ async def update_product_material(
         if not ok:
             raise HTTPException(status_code=400, detail="Тариф не найден в этом продукте")
 
-    # ⚠️ model_fields_set: `title_override = null` и `min_tariff_id = null` —
-    # осмысленные значения (вернуть исходное название / открыть на всех тарифах).
-    for col in ("title_override", "min_tariff_id", "show_on_landing", "sort_order"):
+    if "section_id" in fs and data.section_id:
+        s_ok = await db.fetchval(
+            "SELECT 1 FROM product_sections WHERE id = $1 AND product_id = $2",
+            data.section_id, product_id,
+        )
+        if not s_ok:
+            raise HTTPException(status_code=400, detail="Раздел не найден в этом продукте")
+
+    # ⚠️ model_fields_set: `title_override = null`, `min_tariff_id = null` и
+    # `section_id = null` — осмысленные значения (вернуть исходное название /
+    # открыть на всех тарифах / поднять материал на верхний уровень).
+    for col in ("title_override", "min_tariff_id", "show_on_landing",
+                "sort_order", "section_id"):
         if col in fs:
             put(col, getattr(data, col))
 

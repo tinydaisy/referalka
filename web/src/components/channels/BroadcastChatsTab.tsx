@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import QrLinkButton from '@/components/QrLinkButton'
 
 /**
  * Вкладка «Чаты для рассылок» в /dashboard/channels.
@@ -348,14 +349,23 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
         <div className="flex items-center gap-2 flex-wrap mt-0.5">
           <span className="text-xs font-mono text-gray-500">{chat.chat_id}</span>
           {chat.chat_url && (
-            <a
-              href={chat.chat_url}
-              target="_blank"
-              rel="noopener"
-              className="inline-flex items-center gap-1 text-xs text-[#25455D] underline truncate max-w-[180px]"
-            >
-              <Link2 size={11} /> ссылка
-            </a>
+            <>
+              <a
+                href={chat.chat_url}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1 text-xs text-[#25455D] underline truncate max-w-[180px]"
+              >
+                <Link2 size={11} /> ссылка
+              </a>
+              {/* QR на приглашение в чат — чтобы показать с экрана или
+                  поставить на афишу, не пересылая ссылку текстом. */}
+              <QrLinkButton
+                url={chat.chat_url}
+                name={chat.title || 'Чат'}
+                iconSize={13}
+              />
+            </>
           )}
         </div>
         <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-600 cursor-pointer select-none">

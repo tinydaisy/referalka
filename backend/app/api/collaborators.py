@@ -633,7 +633,12 @@ async def get_collaborator(
     row = await db.fetchrow(
         f"""SELECT {_COLLAB_SELECT},
                    c2.name  AS contact_name,
-                   c2.email AS contact_email,
+                   -- ⚠️ Почта живёт в platform_users, колонки contacts.email
+                   -- больше нет (миграция 282). Обращение к ней роняло всю
+                   -- карточку партнёра — она просто не открывалась.
+                   (SELECT pe.platform_user_id FROM platform_users pe
+                     WHERE pe.contact_id = c2.id AND pe.platform_slug = 'email'
+                     ORDER BY pe.id LIMIT 1) AS contact_email,
                    c2.phone AS contact_phone
               FROM collaborators c
               {_COLLAB_JOIN}
