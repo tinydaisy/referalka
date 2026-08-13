@@ -135,8 +135,9 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
         </div>
       </div>
 
-      <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} />
-
+      {/* ⚠️ Вопросы ВЫШЕ настроек: кнопка «Сохранить» из блока настроек
+          висела над списком вопросов и читалась как «сохранить вопросы».
+          Кнопка должна стоять под тем, что она сохраняет. */}
       <div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-gray-800">Вопросы</h3>
@@ -178,6 +179,8 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
         <QuestionsList survey={survey} fields={fields}
                        onChanged={onChanged} readOnly={readOnly} />
       </div>
+
+      <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} />
     </div>
   )
 }
