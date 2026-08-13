@@ -50,7 +50,7 @@ _SLUG_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 _SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9]|-(?!-))*[a-z0-9]$")
 
 WORDING_PRESETS = ("consulting", "education")
-MATERIAL_KINDS = ("video", "file", "link", "text")
+MATERIAL_BLOCK_KINDS = ("text", "image", "video", "file", "audio", "button")
 
 
 # ── Доступ ────────────────────────────────────────────────────────────────
@@ -173,23 +173,37 @@ class TariffPatch(BaseModel):
 
 
 class MaterialIn(BaseModel):
-    kind: str = "file"
+    """Материал = название + описание. Содержимое живёт в блоках (миграция 294)."""
     title: str
     description: Optional[str] = None
-    url: Optional[str] = None
-    body: Optional[str] = None
-    duration_sec: Optional[int] = None
-    size_bytes: Optional[int] = None
 
 
 class MaterialPatch(BaseModel):
-    kind: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
-    url: Optional[str] = None
+
+
+class MaterialBlockIn(BaseModel):
+    """Блок содержимого материала.
+
+    ⚠️ video — ТОЛЬКО ссылка на YouTube/VK/Rutube: своё видео не храним.
+    """
+    kind: str
+    title: Optional[str] = None
     body: Optional[str] = None
-    duration_sec: Optional[int] = None
+    url: Optional[str] = None
     size_bytes: Optional[int] = None
+    duration_sec: Optional[int] = None
+
+
+class MaterialBlockPatch(BaseModel):
+    kind: Optional[str] = None
+    title: Optional[str] = None
+    body: Optional[str] = None
+    url: Optional[str] = None
+    size_bytes: Optional[int] = None
+    duration_sec: Optional[int] = None
+    sort_order: Optional[int] = None
 
 
 class AttachIn(BaseModel):
@@ -908,24 +922,13 @@ async def create_material(
 
 
 async def _insert_material(db, client_id: int, data: MaterialIn) -> asyncpg.Record:
-    kind = (data.kind or "file").strip()
-    if kind not in MATERIAL_KINDS:
-        raise HTTPException(status_code=400, detail="Неизвестный тип материала")
     title = (data.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Укажите название материала")
-    if kind != "text" and not (data.url or "").strip():
-        raise HTTPException(status_code=400, detail="Нужна ссылка или файл")
-
     return await db.fetchrow(
-        """
-        INSERT INTO materials
-            (client_id, kind, title, description, url, body, duration_sec, size_bytes)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        RETURNING *
-        """,
-        client_id, kind, title, data.description, data.url, data.body,
-        data.duration_sec, data.size_bytes,
+        "INSERT INTO materials (client_id, title, description) "
+        "VALUES ($1,$2,$3) RETURNING *",
+        client_id, title, data.description,
     )
 
 
@@ -971,12 +974,7 @@ async def update_material(
         args.append(val)
         sets.append(f"{col} = ${len(args)}")
 
-    if "kind" in fs:
-        if data.kind not in MATERIAL_KINDS:
-            raise HTTPException(status_code=400, detail="Неизвестный тип материала")
-        put("kind", data.kind)
-
-    for col in ("title", "description", "url", "body", "duration_sec", "size_bytes"):
+    for col in ("title", "description"):
         if col in fs:
             put(col, getattr(data, col))
 
@@ -1041,15 +1039,160 @@ async def copy_material(
 
     row = await db.fetchrow(
         """
-        INSERT INTO materials
-            (client_id, kind, title, description, url, body, duration_sec, size_bytes)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        RETURNING *
+        INSERT INTO materials (client_id, title, description)
+        VALUES ($1,$2,$3) RETURNING *
         """,
-        client_id, src["kind"], f"{src['title']} (копия)", src["description"],
-        src["url"], src["body"], src["duration_sec"], src["size_bytes"],
+        client_id, f"{src['title']} (копия)", src["description"],
+    )
+    # ⚠️ Копия материала копирует и содержимое: без блоков это была бы пустая
+    # карточка с названием, а смысл копии — переписать текст под другой продукт.
+    await db.execute(
+        """INSERT INTO material_blocks
+               (material_id, kind, title, body, url, size_bytes, duration_sec, sort_order)
+           SELECT $1, kind, title, body, url, size_bytes, duration_sec, sort_order
+             FROM material_blocks WHERE material_id = $2""",
+        row["id"], material_id,
     )
     return dict(row)
+
+
+# ══ Содержимое материала: блоки ═══════════════════════════════════════════
+
+@router.get("/materials/{material_id}/blocks", summary="Содержимое материала")
+async def list_material_blocks(
+    material_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _get_material(db, client_id, material_id)
+
+    rows = await db.fetch(
+        "SELECT * FROM material_blocks WHERE material_id = $1 ORDER BY sort_order, id",
+        material_id,
+    )
+    return {"blocks": [dict(r) for r in rows]}
+
+
+@router.post("/materials/{material_id}/blocks", summary="Добавить блок в материал")
+async def add_material_block(
+    material_id: int,
+    data: MaterialBlockIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_material(db, client_id, material_id)
+
+    if data.kind not in MATERIAL_BLOCK_KINDS:
+        raise HTTPException(status_code=400, detail="Неизвестный тип блока")
+
+    nxt = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM material_blocks WHERE material_id = $1",
+        material_id,
+    )
+    row = await db.fetchrow(
+        """INSERT INTO material_blocks
+               (material_id, kind, title, body, url, size_bytes, duration_sec, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *""",
+        material_id, data.kind, data.title, data.body, data.url,
+        data.size_bytes, data.duration_sec, nxt,
+    )
+    return dict(row)
+
+
+@router.patch("/materials/{material_id}/blocks/{block_id}", summary="Изменить блок")
+async def update_material_block(
+    material_id: int,
+    block_id: int,
+    data: MaterialBlockPatch,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_material(db, client_id, material_id)
+
+    cur = await db.fetchrow(
+        "SELECT * FROM material_blocks WHERE id = $1 AND material_id = $2",
+        block_id, material_id,
+    )
+    if not cur:
+        raise HTTPException(status_code=404, detail="Блок не найден")
+
+    fs = data.model_fields_set
+    sets, args = [], []
+
+    def put(col: str, val):
+        args.append(val)
+        sets.append(f"{col} = ${len(args)}")
+
+    if "kind" in fs:
+        if data.kind not in MATERIAL_BLOCK_KINDS:
+            raise HTTPException(status_code=400, detail="Неизвестный тип блока")
+        put("kind", data.kind)
+
+    # ⚠️ model_fields_set: пустая ссылка и пустой заголовок — осмысленные
+    # значения (человек стёр поле), а не «не присылали».
+    for col in ("title", "body", "url", "size_bytes", "duration_sec", "sort_order"):
+        if col in fs:
+            put(col, getattr(data, col))
+
+    if not sets:
+        return dict(cur)
+
+    args.append(block_id)
+    row = await db.fetchrow(
+        f"UPDATE material_blocks SET {', '.join(sets)}, updated_at = NOW() "
+        f"WHERE id = ${len(args)} RETURNING *",
+        *args,
+    )
+    return dict(row)
+
+
+@router.post("/materials/{material_id}/blocks/reorder", summary="Порядок блоков")
+async def reorder_material_blocks(
+    material_id: int,
+    data: ReorderIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_material(db, client_id, material_id)
+
+    async with db.transaction():
+        for i, bid in enumerate(data.ids):
+            await db.execute(
+                "UPDATE material_blocks SET sort_order = $1 "
+                "WHERE id = $2 AND material_id = $3",
+                i, bid, material_id,
+            )
+    return {"ok": True}
+
+
+@router.delete("/materials/{material_id}/blocks/{block_id}", summary="Удалить блок")
+async def delete_material_block(
+    material_id: int,
+    block_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_material(db, client_id, material_id)
+
+    await db.execute(
+        "DELETE FROM material_blocks WHERE id = $1 AND material_id = $2",
+        block_id, material_id,
+    )
+    return {"ok": True}
 
 
 # ══ Состав продукта ═══════════════════════════════════════════════════════
@@ -1074,8 +1217,11 @@ async def list_product_materials(
         """
         SELECT pm.id AS link_id, pm.sort_order, pm.title_override,
                pm.min_tariff_id, pm.show_on_landing, pm.section_id,
-               m.id AS material_id, m.kind, m.title, m.description,
-               m.url, m.body, m.duration_sec, m.size_bytes,
+               m.id AS material_id, m.title, m.description,
+               -- Сколько блоков внутри — чтобы в списке было видно, пустой
+               -- материал или наполненный.
+               (SELECT COUNT(*) FROM material_blocks mb
+                 WHERE mb.material_id = m.id) AS blocks_count,
                -- Сколько ДРУГИХ продуктов использует этот материал: чтобы никто
                -- не правил общее, думая, что правит своё.
                (SELECT COUNT(*) FROM product_materials x
@@ -1168,16 +1314,19 @@ async def attach_material(
             src = await _get_material(db, client_id, data.material_id)
             if data.copy:
                 mat = await db.fetchrow(
-                    """
-                    INSERT INTO materials
-                        (client_id, kind, title, description, url, body,
-                         duration_sec, size_bytes)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-                    RETURNING *
-                    """,
-                    client_id, src["kind"], f"{src['title']} (копия)",
-                    src["description"], src["url"], src["body"],
-                    src["duration_sec"], src["size_bytes"],
+                    "INSERT INTO materials (client_id, title, description) "
+                    "VALUES ($1,$2,$3) RETURNING *",
+                    client_id, f"{src['title']} (копия)", src["description"],
+                )
+                # Копия несёт и содержимое — иначе это пустая карточка с именем.
+                await db.execute(
+                    """INSERT INTO material_blocks
+                           (material_id, kind, title, body, url,
+                            size_bytes, duration_sec, sort_order)
+                       SELECT $1, kind, title, body, url,
+                              size_bytes, duration_sec, sort_order
+                         FROM material_blocks WHERE material_id = $2""",
+                    mat["id"], src["id"],
                 )
                 material_id = mat["id"]
             else:

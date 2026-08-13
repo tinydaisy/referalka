@@ -13,6 +13,7 @@ export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
+  | 'product_content'
   | 'el_button' | 'el_heading' | 'el_text' | 'el_image'
 
 export interface BlockMeta {
@@ -118,6 +119,13 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     live: true,
     fields: ['title', 'subtitle', 'button'],
   },
+  product_content: {
+    kind: 'product_content',
+    label: 'Что входит',
+    hint: 'Состав продукта берётся из вкладки «Состав» — здесь только заголовок и оформление. Ссылки на материалы на странице НЕ показываются.',
+    live: true,
+    fields: ['title', 'subtitle'],
+  },
   tariffs: {
     kind: 'tariffs',
     label: 'Тарифы',
@@ -186,6 +194,13 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
 }
 
 /** Блоки, которых может быть НЕСКОЛЬКО на странице — их добавляем всегда. */
+// Блок продукта (миграция 293): состав — разделы и материалы. Показывается
+// только у продуктов; в наборах события его нет.
+export const PRODUCT_STANDARD: BlockKind[] = [
+  'hero', 'audience', 'benefits', 'values', 'numbers', 'difference',
+  'product_content', 'organizer', 'mission', 'tariffs', 'support', 'footer',
+]
+
 export const REPEATABLE: BlockKind[] = [
   'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
 ]

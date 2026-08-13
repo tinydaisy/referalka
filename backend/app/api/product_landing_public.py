@@ -117,7 +117,7 @@ async def get_product_landing(
         items = await db.fetch(
             """SELECT pm.id AS link_id, pm.section_id, pm.sort_order, pm.min_tariff_id,
                       COALESCE(pm.title_override, m.title) AS title,
-                      m.description, m.kind, m.duration_sec
+                      m.description
                  FROM product_materials pm
                  JOIN materials m ON m.id = pm.material_id
                 WHERE pm.product_id = $1 AND pm.show_on_landing

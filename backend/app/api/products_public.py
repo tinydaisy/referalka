@@ -159,7 +159,7 @@ async def product_public(
         """SELECT pm.id AS link_id, pm.section_id, pm.sort_order,
                   pm.min_tariff_id,
                   COALESCE(pm.title_override, m.title) AS title,
-                  m.description, m.kind, m.duration_sec
+                  m.description
              FROM product_materials pm
              JOIN materials m ON m.id = pm.material_id
             WHERE pm.product_id = $1 AND pm.show_on_landing
@@ -366,9 +366,9 @@ async def cabinet_product(
     # клиент сам расставляет их от младшего к старшему.
     items = await db.fetch(
         """SELECT pm.id AS link_id, pm.section_id, pm.sort_order,
+                  pm.material_id,
                   COALESCE(pm.title_override, m.title) AS title,
-                  m.description, m.kind, m.url, m.body,
-                  m.duration_sec, m.size_bytes
+                  m.description
              FROM product_materials pm
              JOIN materials m ON m.id = pm.material_id
         LEFT JOIN product_tariffs mt ON mt.id = pm.min_tariff_id
@@ -379,6 +379,19 @@ async def cabinet_product(
         access["product_id"], access["tariff_rank"],
     )
 
+    # Содержимое каждого материала — блоками (миграция 294): текст, картинки,
+    # видео по ссылке, файлы, аудио, кнопки.
+    out_items = []
+    for it in items:
+        d = dict(it)
+        blocks = await db.fetch(
+            "SELECT id, kind, title, body, url, size_bytes, duration_sec, sort_order "
+            "FROM material_blocks WHERE material_id = $1 ORDER BY sort_order, id",
+            it["material_id"],
+        )
+        d["blocks"] = [dict(b) for b in blocks]
+        out_items.append(d)
+
     return {
         "product": {
             "id": access["product_id"],
@@ -387,5 +400,5 @@ async def cabinet_product(
             "wording_preset": access["wording_preset"],
         },
         "sections": [dict(s) for s in sections],
-        "items": [dict(i) for i in items],
+        "items": out_items,
     }

@@ -13,7 +13,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, Video, Link2, AlignLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft, FileText, ExternalLink } from 'lucide-react'
+import SafeHtml from '@/components/SafeHtml'
+import { embedUrl, isFileVideo } from '@/lib/videoEmbed'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 const TOKEN_KEY = 'product_cabinet_token'
@@ -22,10 +24,6 @@ function wording(preset: string) {
   return preset === 'education'
     ? { unit: 'Урок', content: 'Программа' }
     : { unit: 'Материал', content: 'Что входит' }
-}
-
-const KIND_ICON: Record<string, any> = {
-  video: Video, file: FileText, link: Link2, text: AlignLeft,
 }
 
 // ⚠️ См. комментарий в dashboard/products/[id]: use(params) — это Next 15,
@@ -140,30 +138,19 @@ function buildTree(sections: any[], items: any[]) {
 
 function Node({ node, W, depth = 0 }: { node: any; W: any; depth?: number }) {
   if (node.type === 'material') {
-    const Icon = KIND_ICON[node.kind] || FileText
-    const inner = (
-      <div className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm">
-        <Icon size={18} className="shrink-0 text-gray-400" />
-        <div className="min-w-0 flex-1">
-          <div className="font-medium text-gray-900">{node.title}</div>
-          {node.description && (
-            <div className="text-sm text-gray-500">{node.description}</div>
-          )}
-        </div>
-        {node.url && <ExternalLink size={16} className="shrink-0 text-gray-300" />}
-      </div>
-    )
+    const blocks: any[] = node.blocks || []
     return (
-      <div style={{ marginLeft: depth * 16 }}>
-        {node.url
-          ? <a href={node.url} target="_blank" rel="noreferrer"
-               className="block transition hover:shadow-md">{inner}</a>
-          : inner}
-        {node.kind === 'text' && node.body && (
-          <div className="mt-2 whitespace-pre-wrap rounded-xl bg-white p-4 text-sm text-gray-700 shadow-sm">
-            {node.body}
-          </div>
+      <div style={{ marginLeft: depth * 16 }} className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="font-medium text-gray-900">{node.title}</div>
+        {node.description && (
+          <div className="mt-0.5 text-sm text-gray-500">{node.description}</div>
         )}
+        {!blocks.length && (
+          <div className="mt-2 text-sm text-gray-400">Материал скоро появится.</div>
+        )}
+        <div className="mt-3 space-y-3">
+          {blocks.map(b => <MaterialBlock key={b.id} block={b} />)}
+        </div>
       </div>
     )
   }
@@ -186,4 +173,69 @@ function Node({ node, W, depth = 0 }: { node: any; W: any; depth?: number }) {
       )}
     </div>
   )
+}
+
+/** Один блок содержимого материала (миграция 294). */
+function MaterialBlock({ block }: { block: any }) {
+  const { kind, title, body, url } = block
+
+  if (kind === 'text') {
+    // ⚠️ Санитайз при выводе обязателен: значение приходит из базы, куда могло
+    // попасть импортом или через API мимо редактора.
+    return <SafeHtml html={body} className="text-sm text-gray-700" />
+  }
+
+  if (kind === 'video' && url) {
+    return (
+      <div>
+        {title && <div className="mb-1 text-sm font-medium text-gray-700">{title}</div>}
+        <div className="overflow-hidden rounded-xl bg-black">
+          {isFileVideo(url)
+            ? <video src={url} controls className="w-full" />
+            : <iframe src={embedUrl(url)} allowFullScreen className="aspect-video w-full" />}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'image' && url) {
+    return (
+      <figure>
+        <img src={url} alt={title || ''} className="w-full rounded-xl" />
+        {title && <figcaption className="mt-1 text-xs text-gray-500">{title}</figcaption>}
+      </figure>
+    )
+  }
+
+  if (kind === 'audio' && url) {
+    return (
+      <div>
+        {title && <div className="mb-1 text-sm text-gray-700">{title}</div>}
+        <audio src={url} controls className="w-full" />
+      </div>
+    )
+  }
+
+  if (kind === 'file' && url) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer"
+         className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 transition hover:border-gray-300">
+        <FileText size={18} className="shrink-0 text-gray-400" />
+        <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
+          {title || 'Скачать файл'}
+        </span>
+        <ExternalLink size={15} className="shrink-0 text-gray-300" />
+      </a>
+    )
+  }
+
+  if (kind === 'button' && url) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="btn-gold inline-block">
+        {title || 'Открыть'}
+      </a>
+    )
+  }
+
+  return null
 }

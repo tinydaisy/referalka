@@ -66,10 +66,13 @@ export function MetallicToggle({
  * картинка «съедает» заголовок.
  */
 export function BackgroundFields({
+  uploadKind = 'landing_bg',
   imageUrl, overlay, opacity, bgColor,
   onImage, onOverlay, onOpacity, onBgColor,
   eventId,
 }: {
+  /** Куда грузить фон: landing_bg (событие) | product_media (продукт). */
+  uploadKind?: string
   imageUrl: string | null
   overlay: string | null
   opacity: number | null
@@ -78,7 +81,7 @@ export function BackgroundFields({
   onOverlay: (v: string) => void
   onOpacity: (v: number) => void
   onBgColor: (v: string) => void
-  eventId: number
+  eventId?: number
 }) {
   return (
     <div className="space-y-3">
@@ -90,7 +93,7 @@ export function BackgroundFields({
         </label>
         <FileUploader
           mode="single"
-          kind="landing_bg"
+          kind={uploadKind}
           eventId={eventId}
           value={imageUrl}
           onChange={onImage}

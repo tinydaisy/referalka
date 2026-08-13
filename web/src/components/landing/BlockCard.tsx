@@ -20,7 +20,9 @@ import { CARD_ICONS, CardIcon, ICON_GROUPS } from './icons'
 
 interface Props {
   block: any
-  eventId: number
+  eventId?: number
+  /** Вид загрузки для картинок: landing_media (событие) | product_media. */
+  uploadKind?: string
   onPatch: (patch: any) => void
   onRemove: () => void
   onDragStart: () => void
@@ -38,6 +40,9 @@ interface Props {
 export default function BlockCard({
   block, eventId, onPatch, onRemove,
   onDragStart, onDragOver, onDrop, isDragging, pageBlocks, tariffs, offers,
+  // ⚠️ Куда грузить картинки. По умолчанию — как было у события; у продукта
+  // события нет, и `landing_media` там упал бы с «требует event_id».
+  uploadKind = 'landing_media',
 }: Props) {
   const [open, setOpen] = useState(false)
   // ⚠️ draggable включается ТОЛЬКО когда мышь на ручке ⠿. Если он висит на
@@ -256,7 +261,7 @@ export default function BlockCard({
                 />
               )}
               {has('audience_cards') && (
-                <AudienceEditor
+                <AudienceEditor uploadKind={uploadKind}
                   eventId={eventId}
                   items={Array.isArray(items)
                     ? items.map((i: any) => typeof i === 'string' ? { title: i } : i)
@@ -314,7 +319,7 @@ export default function BlockCard({
               )}
 
               {has('gallery') && (block.gallery_source || 'manual') === 'manual' && (
-                <GalleryEditor
+                <GalleryEditor uploadKind={uploadKind}
                   eventId={eventId}
                   mode={gal.mode || 'carousel'}
                   media={gal.media || 'image'}
@@ -938,7 +943,7 @@ export default function BlockCard({
                 </p>
                 <FileUploader
                   mode="single"
-                  kind="landing_media"
+                  kind={uploadKind}
                   eventId={eventId}
                   value={block.image_url || null}
                   onChange={url => onPatch({ image_url: url })}
@@ -1220,9 +1225,10 @@ function IconPicker({
 
 /** Карточки «Для кого»: название, описание и картинка. */
 function AudienceEditor({
-  eventId, items, onChange,
+  eventId, uploadKind = 'landing_media', items, onChange,
 }: {
-  eventId: number
+  eventId?: number
+  uploadKind?: string
   items: Array<{ title?: string; text?: string; image?: string | null }>
   onChange: (v: any[]) => void
 }) {
@@ -1259,7 +1265,7 @@ function AudienceEditor({
               <div className="mb-1 text-xs font-medium text-gray-600">Картинка</div>
               <FileUploader
                 mode="single"
-                kind="landing_media"
+                kind={uploadKind}
                 eventId={eventId}
                 value={c.image || null}
                 onChange={url => upd(i, { image: url })}
@@ -1393,9 +1399,10 @@ function NumbersEditor({
 
 /** Галерея: картинки или видео, каруселью или сеткой. */
 function GalleryEditor({
-  eventId, mode, media, list, onChange,
+  eventId, uploadKind = 'landing_media', mode, media, list, onChange,
 }: {
-  eventId: number
+  eventId?: number
+  uploadKind?: string
   mode: string
   media: string
   list: Array<{ url: string; caption?: string }>
@@ -1445,7 +1452,7 @@ function GalleryEditor({
             {media === 'image' ? (
               <FileUploader
                 mode="single"
-                kind="landing_media"
+                kind={uploadKind}
                 eventId={eventId}
                 value={it.url || null}
                 onChange={url => upd(i, { url: url || '' })}

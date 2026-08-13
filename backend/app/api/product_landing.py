@@ -224,9 +224,13 @@ async def get_landing(
             "blocks": [_ser_product_block(b) for b in blocks],
         }
 
+    from app.services.landing_fonts import FONTS
+
     return {
         "product": dict(product),
         "pages": out,
+        # Список шрифтов — тот же, что у события: селектор оформления общий.
+        "fonts": FONTS,
         "valid_kinds": sorted(VALID_KINDS_PRODUCT),
         "repeatable_kinds": sorted(REPEATABLE_KINDS),
     }

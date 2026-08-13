@@ -976,6 +976,22 @@ export const api = {
       request(`/api/v1/materials/${id}`, { method: 'DELETE' }),
     copy: (id: number) =>
       request(`/api/v1/materials/${id}/copy`, { method: 'POST' }),
+
+    // Содержимое материала — блоки (миграция 294): текст, картинки, видео по
+    // ссылке, файлы, аудио, кнопки.
+    blocks: (id: number) => request(`/api/v1/materials/${id}/blocks`),
+    addBlock: (id: number, data: any) =>
+      request(`/api/v1/materials/${id}/blocks`, { method: 'POST', body: JSON.stringify(data) }),
+    updateBlock: (id: number, blockId: number, data: any) =>
+      request(`/api/v1/materials/${id}/blocks/${blockId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    reorderBlocks: (id: number, ids: number[]) =>
+      request(`/api/v1/materials/${id}/blocks/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
+    deleteBlock: (id: number, blockId: number) =>
+      request(`/api/v1/materials/${id}/blocks/${blockId}`, { method: 'DELETE' }),
   },
 
   collabHub: {

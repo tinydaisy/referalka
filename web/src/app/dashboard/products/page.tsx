@@ -15,21 +15,8 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
-import {
-  Plus, Trash2, Package, Library, X, FileText,
-  Video, Link2, AlignLeft, ExternalLink,
-} from 'lucide-react'
-
-const MATERIAL_KINDS = [
-  { value: 'video', label: 'Видео', hint: 'Ссылка на запись', Icon: Video },
-  { value: 'file', label: 'Файл', hint: 'PDF, документ, архив', Icon: FileText },
-  { value: 'link', label: 'Ссылка', hint: 'Внешний ресурс', Icon: Link2 },
-  { value: 'text', label: 'Текст', hint: 'Пишется прямо здесь', Icon: AlignLeft },
-]
-
-function kindMeta(k: string) {
-  return MATERIAL_KINDS.find(x => x.value === k) || MATERIAL_KINDS[1]
-}
+import { Plus, Trash2, Package, Library, X, FileText } from 'lucide-react'
+import MaterialEditor from '@/components/products/MaterialEditor'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Черновик',
@@ -279,8 +266,8 @@ function MaterialsTab({ readOnly }: { readOnly: boolean }) {
 function MaterialRow({ material, readOnly, onChanged }: {
   material: any; readOnly: boolean; onChanged: () => void
 }) {
+  const [renaming, setRenaming] = useState(false)
   const [editing, setEditing] = useState(false)
-  const { Icon, label } = kindMeta(material.kind)
 
   const remove = async () => {
     if (!confirm(`Удалить «${material.title}» из библиотеки?`)) return
@@ -294,76 +281,67 @@ function MaterialRow({ material, readOnly, onChanged }: {
     }
   }
 
-  if (editing) {
+  if (renaming) {
     return (
       <MaterialForm
         material={material}
-        onClose={() => setEditing(false)}
-        onSaved={() => { setEditing(false); onChanged() }}
+        onClose={() => setRenaming(false)}
+        onSaved={() => { setRenaming(false); onChanged() }}
       />
     )
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3">
-      <Icon size={18} className="shrink-0 text-gray-400" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium text-gray-900">{material.title}</div>
-        <div className="text-xs text-gray-400">
-          {label}
-          {material.used_count > 0 && ` · используется в ${material.used_count} продукт(ах)`}
+    <>
+      <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3">
+        <FileText size={18} className="shrink-0 text-gray-400" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium text-gray-900">{material.title}</div>
+          <div className="text-xs text-gray-400">
+            {material.blocks_count ? `${material.blocks_count} блок(ов)` : 'пустой'}
+            {material.used_count > 0 && ` · используется в ${material.used_count} продукт(ах)`}
+          </div>
         </div>
+        {!readOnly && (
+          <>
+            <button onClick={() => setEditing(true)}
+                    className="text-sm font-medium text-[#25455D] hover:underline">
+              Содержимое
+            </button>
+            <button onClick={() => setRenaming(true)} className="text-sm text-gray-500 hover:text-gray-700">
+              Переименовать
+            </button>
+            <button onClick={remove} className="text-gray-400 hover:text-red-600" title="Удалить">
+              <Trash2 size={16} />
+            </button>
+          </>
+        )}
       </div>
-      {material.url && (
-        <a
-          href={material.url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-gray-400 hover:text-gray-600"
-          title="Открыть"
-        >
-          <ExternalLink size={16} />
-        </a>
+
+      {editing && (
+        <MaterialEditor
+          materialId={material.id}
+          title={material.title}
+          onClose={() => { setEditing(false); onChanged() }}
+          onRenamed={() => onChanged()}
+        />
       )}
-      {!readOnly && (
-        <>
-          <button onClick={() => setEditing(true)} className="text-sm text-gray-500 hover:text-gray-700">
-            Изменить
-          </button>
-          <button onClick={remove} className="text-gray-400 hover:text-red-600" title="Удалить">
-            <Trash2 size={16} />
-          </button>
-        </>
-      )}
-    </div>
+    </>
   )
 }
 
 function MaterialForm({ material, onClose, onSaved }: {
   material?: any; onClose: () => void; onSaved: () => void
 }) {
-  const [kind, setKind] = useState(material?.kind || 'file')
   const [title, setTitle] = useState(material?.title || '')
   const [description, setDescription] = useState(material?.description || '')
-  const [url, setUrl] = useState(material?.url || '')
-  const [body, setBody] = useState(material?.body || '')
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
     if (!title.trim()) return
-    if (kind !== 'text' && !url.trim()) {
-      alert('Добавьте ссылку на материал')
-      return
-    }
     setSaving(true)
     try {
-      const data = {
-        kind,
-        title: title.trim(),
-        description: description.trim() || null,
-        url: kind === 'text' ? null : url.trim(),
-        body: kind === 'text' ? body : null,
-      }
+      const data = { title: title.trim(), description: description.trim() || null }
       if (material) await api.materials.update(material.id, data)
       else await api.materials.create(data)
       onSaved()
@@ -380,25 +358,6 @@ function MaterialForm({ material, onClose, onSaved }: {
       </div>
 
       <div className="space-y-3">
-        <div>
-          <label className="mb-1 block text-sm text-gray-600">Что это</label>
-          <div className="flex flex-wrap gap-2">
-            {MATERIAL_KINDS.map(k => (
-              <button
-                key={k.value}
-                onClick={() => setKind(k.value)}
-                className={`rounded-lg border px-3 py-1.5 text-sm ${
-                  kind === k.value
-                    ? 'border-[#25455D] bg-[#25455D] text-white'
-                    : 'border-gray-300 text-gray-600 hover:border-gray-400'
-                }`}
-              >
-                {k.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div>
           <label className="mb-1 block text-sm text-gray-600">Название</label>
           <input
@@ -417,26 +376,10 @@ function MaterialForm({ material, onClose, onSaved }: {
           />
         </div>
 
-        {kind === 'text' ? (
-          <div>
-            <label className="mb-1 block text-sm text-gray-600">Текст</label>
-            <textarea
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              rows={6}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-          </div>
-        ) : (
-          <div>
-            <label className="mb-1 block text-sm text-gray-600">Ссылка</label>
-            <input
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-          </div>
-        )}
+        <p className="text-xs text-gray-400">
+          Содержимое — текст, картинки, видео и файлы — собирается отдельно,
+          кнопкой «Содержимое».
+        </p>
 
         <div className="flex gap-2">
           <button onClick={save} disabled={saving || !title.trim()} className="btn-gold">

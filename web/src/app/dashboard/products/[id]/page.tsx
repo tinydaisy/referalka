@@ -15,9 +15,12 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
+import ProductLandingTab from './LandingTab'
+import MaterialEditor from '@/components/products/MaterialEditor'
 import {
   ArrowLeft, Plus, Trash2, X, Copy, Check, ChevronDown, ChevronRight,
   MoreHorizontal, Settings2, Wallet, Layers, Users, ExternalLink, Eye, EyeOff,
+  LayoutTemplate,
 } from 'lucide-react'
 
 const WORDING_PRESETS = [
@@ -45,7 +48,7 @@ export default function ProductCardPage() {
 
   const [product, setProduct] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'main' | 'tariffs' | 'content' | 'buyers'>('main')
+  const [tab, setTab] = useState<'main' | 'tariffs' | 'content' | 'landing' | 'buyers'>('main')
 
   const load = async () => {
     try { setProduct(await api.products.get(productId)) } finally { setLoading(false) }
@@ -84,6 +87,7 @@ export default function ProductCardPage() {
           ['main', 'Основное', Settings2],
           ['tariffs', 'Тарифы', Wallet],
           ['content', 'Состав', Layers],
+          ['landing', 'Лендинг', LayoutTemplate],
           ['buyers', 'Клиенты', Users],
         ] as const).map(([key, label, Icon]) => (
           <button
@@ -110,6 +114,9 @@ export default function ProductCardPage() {
           readOnly={isAssistant}
           wordingPreset={product.wording_preset || 'consulting'}
         />
+      )}
+      {tab === 'landing' && (
+        <ProductLandingTab productId={productId} product={product} readOnly={isAssistant} />
       )}
       {tab === 'buyers' && <BuyersTab productId={productId} readOnly={isAssistant} />}
     </div>
@@ -916,6 +923,7 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
   readOnly: boolean; onChanged: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
   const name = item.title_override || item.title
 
   const detach = async () => {
@@ -953,6 +961,10 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
             >
               {item.show_on_landing ? <Eye size={16} /> : <EyeOff size={16} />}
             </button>
+            <button onClick={() => setEditing(true)}
+                    className="text-sm font-medium text-[#25455D] hover:underline">
+              Содержимое
+            </button>
             <button onClick={() => setOpen(!open)} className="text-sm text-gray-500 hover:text-gray-700">
               Настроить
             </button>
@@ -968,6 +980,15 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
           productId={productId} item={item} sections={sections} tariffs={tariffs}
           onClose={() => setOpen(false)}
           onSaved={() => { setOpen(false); onChanged() }}
+        />
+      )}
+
+      {editing && (
+        <MaterialEditor
+          materialId={item.material_id}
+          title={item.title}
+          onClose={() => { setEditing(false); onChanged() }}
+          onRenamed={() => onChanged()}
         />
       )}
     </div>

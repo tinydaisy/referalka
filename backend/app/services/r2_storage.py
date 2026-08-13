@@ -125,6 +125,14 @@ def build_key(
     if kind == "survey_media":
         return f"{base}/surveys/media/{fname}"
 
+    # Продукты (миграции 290, 293) живут вне событий — храним по клиенту.
+    # product_media  — картинки лендинга продукта (фоны, галерея);
+    # material_media — картинки и файлы внутри материалов.
+    if kind == "product_media":
+        return f"{base}/products/media/{fname}"
+    if kind == "material_media":
+        return f"{base}/materials/media/{fname}"
+
     if kind == "landing_media":
         if not event_id:
             raise ValueError("landing_media требует event_id")

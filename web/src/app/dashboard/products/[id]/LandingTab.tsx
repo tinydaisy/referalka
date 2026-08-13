@@ -1,0 +1,339 @@
+'use client'
+
+/**
+ * Вкладка «Лендинг» продукта (миграция 293).
+ *
+ * Тот же конструктор, что у события: карточки блоков (`BlockCard`), справочник
+ * (`blockMeta`) и настройки оформления (`StyleControls`) переиспользованы —
+ * второй вёрстки нет, чинить в одном месте.
+ *
+ * Отличия от события — только они и оправдывают отдельный файл:
+ *  • свой набор блоков (без программы, спикеров, мест и подарков — это данные
+ *    события; вместо них «Что входит», читающий состав продукта);
+ *  • картинки грузятся как `product_media`: у продукта нет event_id, и
+ *    `landing_media` упал бы с «требует event_id»;
+ *  • нет копирования лендинга из другого события и настройки мест.
+ *
+ * Сохранение — с задержкой, накопительно: не дёргаем сервер на каждую букву.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Eye, Plus, Loader2, ExternalLink } from 'lucide-react'
+import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
+import BlockCard from '@/components/landing/BlockCard'
+import { REPEATABLE, PRODUCT_STANDARD, metaFor } from '@/components/landing/blockMeta'
+import {
+  ColorField, MetallicToggle, FontSelect, BackgroundFields,
+} from '@/components/landing/StyleControls'
+
+type PageKind = 'main' | 'post_pay'
+
+interface Props {
+  productId: number
+  product: any
+  readOnly?: boolean
+}
+
+export default function ProductLandingTab({ productId, product, readOnly = false }: Props) {
+  // ⚠️ Хук до early-return. Домен клиента, а не наш: эту ссылку он отдаёт
+  // своей аудитории.
+  const { publicHost } = useMe()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [pages, setPages] = useState<Record<string, any>>({})
+  const [kind, setKind] = useState<PageKind>('main')
+  const [dragId, setDragId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [tariffs, setTariffs] = useState<any[]>([])
+  const [fonts, setFonts] = useState<any[]>([])
+  const [showStyle, setShowStyle] = useState(false)
+
+  const timers = useRef<Record<string, any>>({})
+  const pendingPage = useRef<Record<number, any>>({})
+  const pendingBlock = useRef<Record<number, any>>({})
+
+  const load = async () => {
+    try {
+      setLoading(true)
+      const res = await api.productLanding.get(productId)
+      setPages(res.pages || {})
+      setFonts(res.fonts || [])
+      setError(null)
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось загрузить лендинг')
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { load() }, [productId])
+
+  // Тарифы нужны блоку «Тарифы» (какой выделить). Молча: раздел может быть пуст.
+  useEffect(() => {
+    api.products.tariffs(productId)
+      .then((r: any) => setTariffs(r.tariffs || []))
+      .catch(() => {})
+  }, [productId])
+
+  const current = pages[kind]
+  const page = current?.page
+  const blocks: any[] = current?.blocks || []
+
+  // Что предлагать в «Добавить секцию»: повторяемые — всегда, обычные —
+  // только те, которых на странице сейчас нет.
+  const addableKinds = useMemo(() => {
+    const present = new Set(blocks.map(b => b.kind))
+    return [...REPEATABLE, ...PRODUCT_STANDARD.filter(k => !present.has(k))]
+  }, [blocks])
+
+  /* ── правки страницы ──────────────────────────────────────────────────── */
+
+  const patchPage = (patch: any) => {
+    if (!page || readOnly) return
+    const pageId = page.id
+    setPages(prev => ({
+      ...prev,
+      [kind]: { ...prev[kind], page: { ...prev[kind].page, ...patch } },
+    }))
+    // ⚠️ Копим правки: при быстром вводе в setTimeout уходил бы только
+    // последний patch, и предыдущие буквы терялись.
+    pendingPage.current[pageId] = { ...(pendingPage.current[pageId] || {}), ...patch }
+    clearTimeout(timers.current[`p${pageId}`])
+    timers.current[`p${pageId}`] = setTimeout(async () => {
+      const body = pendingPage.current[pageId]
+      pendingPage.current[pageId] = {}
+      if (!body || !Object.keys(body).length) return
+      setSaving(true)
+      try { await api.productLanding.patchPage(productId, pageId, body) }
+      catch { /* следующая правка отправит заново */ }
+      finally { setSaving(false) }
+    }, 600)
+  }
+
+  /* ── правки блока ─────────────────────────────────────────────────────── */
+
+  const patchBlock = (blockId: number, patch: any) => {
+    if (readOnly) return
+    setPages(prev => ({
+      ...prev,
+      [kind]: {
+        ...prev[kind],
+        blocks: prev[kind].blocks.map((b: any) =>
+          b.id === blockId ? { ...b, ...patch } : b),
+      },
+    }))
+    pendingBlock.current[blockId] = { ...(pendingBlock.current[blockId] || {}), ...patch }
+    clearTimeout(timers.current[`b${blockId}`])
+    timers.current[`b${blockId}`] = setTimeout(async () => {
+      const body = pendingBlock.current[blockId]
+      pendingBlock.current[blockId] = {}
+      if (!body || !Object.keys(body).length) return
+      setSaving(true)
+      try { await api.productLanding.patchBlock(productId, blockId, body) }
+      catch { /* следующая правка отправит заново */ }
+      finally { setSaving(false) }
+    }, 600)
+  }
+
+  const removeBlock = async (blockId: number) => {
+    if (readOnly) return
+    if (!confirm('Убрать секцию со страницы?')) return
+    setPages(prev => ({
+      ...prev,
+      [kind]: { ...prev[kind], blocks: prev[kind].blocks.filter((b: any) => b.id !== blockId) },
+    }))
+    try { await api.productLanding.removeBlock(productId, blockId) } catch { load() }
+  }
+
+  const addBlock = async (blockKind: string) => {
+    if (!page || readOnly) return
+    try {
+      const created = await api.productLanding.createBlock(productId, page.id, { kind: blockKind })
+      setPages(prev => ({
+        ...prev,
+        [kind]: { ...prev[kind], blocks: [...prev[kind].blocks, created] },
+      }))
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось добавить секцию')
+    }
+  }
+
+  /* ── перетаскивание ───────────────────────────────────────────────────── */
+
+  const onDrop = async (targetId: number) => {
+    if (dragId == null || dragId === targetId || !page || readOnly) return
+    const list = [...blocks]
+    const from = list.findIndex(b => b.id === dragId)
+    const to = list.findIndex(b => b.id === targetId)
+    if (from < 0 || to < 0) return
+    const [moved] = list.splice(from, 1)
+    list.splice(to, 0, moved)
+    setPages(prev => ({ ...prev, [kind]: { ...prev[kind], blocks: list } }))
+    setDragId(null)
+    try { await api.productLanding.reorder(productId, page.id, list.map(b => b.id)) }
+    catch { load() }
+  }
+
+  if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
+  if (error) return <p className="text-sm text-red-600">{error}</p>
+  if (!page) return <p className="text-sm text-gray-400">Страница не найдена</p>
+
+  const url = `https://${publicHost}/pr/${product.slug}`
+
+  return (
+    <div className="max-w-3xl">
+      {/* Адрес и публикация */}
+      <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-gray-600">Страница:</span>
+          <a href={url} target="_blank" rel="noreferrer"
+             className="inline-flex items-center gap-1 text-sm text-[#25455D] underline">
+            {url} <ExternalLink size={13} />
+          </a>
+          {saving && <Loader2 size={14} className="animate-spin text-gray-400" />}
+        </div>
+        {!readOnly && (
+          <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={!!page.is_published}
+              onChange={e => patchPage({ is_published: e.target.checked })}
+            />
+            Опубликовать страницу
+            <span className="text-xs text-gray-400">
+              — пока выключено, по адресу открывается простая витрина
+            </span>
+          </label>
+        )}
+      </div>
+
+      {/* Основная / после оплаты */}
+      <div className="mb-4 flex gap-2">
+        {([['main', 'Основная'], ['post_pay', 'После оплаты']] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setKind(k)}
+            className={`rounded-lg border px-3 py-1.5 text-sm ${
+              kind === k
+                ? 'border-[#25455D] bg-[#25455D] text-white'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        {!readOnly && (
+          <button
+            onClick={() => setShowStyle(s => !s)}
+            className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:border-gray-400"
+          >
+            {showStyle ? 'Скрыть оформление' : 'Оформление'}
+          </button>
+        )}
+      </div>
+
+      {/* Оформление страницы */}
+      {showStyle && !readOnly && (
+        <div className="mb-4 space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FontSelect
+              label="Шрифт заголовков" value={page.font_heading} fonts={fonts}
+              onChange={(v: string) => patchPage({ font_heading: v })}
+            />
+            <FontSelect
+              label="Шрифт текста" value={page.font_body} fonts={fonts}
+              onChange={(v: string) => patchPage({ font_body: v })}
+            />
+            <ColorField
+              label="Цвет заголовков" value={page.color_heading}
+              onChange={(v: string) => patchPage({ color_heading: v })}
+            />
+            <ColorField
+              label="Цвет текста" value={page.color_body}
+              onChange={(v: string) => patchPage({ color_body: v })}
+            />
+            <ColorField
+              label="Цвет кнопок" value={page.btn_color}
+              onChange={(v: string) => patchPage({ btn_color: v })}
+            />
+            <ColorField
+              label="Текст на кнопке" value={page.btn_text_color}
+              onChange={(v: string) => patchPage({ btn_text_color: v })}
+            />
+          </div>
+
+          <MetallicToggle
+            label="Металлический перелив у заголовков"
+            checked={!!page.heading_metallic}
+            onChange={(v: boolean) => patchPage({ heading_metallic: v })}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ColorField
+              label="Фон страницы" value={page.bg_color}
+              onChange={(v: string) => patchPage({ bg_color: v })}
+            />
+            <ColorField
+              label="Второй цвет фона" value={page.bg_color_2}
+              onChange={(v: string) => patchPage({ bg_color_2: v })}
+            />
+          </div>
+
+          {/* ⚠️ uploadKind=product_media: у продукта нет event_id, обычный
+              landing_bg упал бы с «требует event_id». */}
+          <BackgroundFields
+            uploadKind="product_media"
+            imageUrl={page.bg_image_url}
+            overlay={page.bg_overlay}
+            opacity={page.bg_overlay_opacity}
+            bgColor={page.bg_color}
+            onImage={(v: string | null) => patchPage({ bg_image_url: v })}
+            onOverlay={(v: string | null) => patchPage({ bg_overlay: v })}
+            onOpacity={(v: number) => patchPage({ bg_overlay_opacity: v })}
+            onBgColor={(v: string) => patchPage({ bg_color: v })}
+          />
+        </div>
+      )}
+
+      {/* Блоки */}
+      <div className="space-y-2">
+        {blocks.map(b => (
+          <BlockCard
+            key={b.id}
+            block={b}
+            uploadKind="product_media"
+            onPatch={(patch: any) => patchBlock(b.id, patch)}
+            onRemove={() => removeBlock(b.id)}
+            onDragStart={() => setDragId(b.id)}
+            onDragOver={(e: any) => e.preventDefault()}
+            onDrop={() => onDrop(b.id)}
+            isDragging={dragId === b.id}
+            pageBlocks={blocks}
+            tariffs={tariffs}
+            offers={[]}
+          />
+        ))}
+      </div>
+
+      {/* Добавить секцию */}
+      {!readOnly && addableKinds.length > 0 && (
+        <div className="mt-4 rounded-xl border border-dashed border-gray-300 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Plus size={15} /> Добавить секцию
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {addableKinds.map(k => (
+              <button
+                key={k}
+                onClick={() => addBlock(k)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:border-gray-400"
+                title={metaFor(k).hint}
+              >
+                {metaFor(k).label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

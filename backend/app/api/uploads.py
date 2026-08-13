@@ -92,6 +92,9 @@ async def upload_file(
         "broadcast_video",
         "event_video", "speaker_video", "referral_video",
         "landing_bg", "landing_media",
+        # Картинки лендинга ПРОДУКТА (миграция 293) и материалов продукта.
+        # ⚠️ event_id НЕ требуют — продукт живёт вне событий.
+        "product_media", "material_media",
         # Картинки анкет (миграция 281): обложка анкеты и картинка вопроса.
         # ⚠️ event_id НЕ требуют — анкеты общие, к событиям не привязаны.
         "survey_media",
