@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import MediaAssetsField from '@/components/MediaAssetsField'
@@ -81,6 +81,50 @@ export function BioBlock({ bio, open, className = '' }: { bio: string; open: boo
   )
 }
 
+/**
+ * Персиковый блок карточки каталога («Что предлагает партнёрам», «Что создаёт
+ * и меняет в мире», «Капелька безумия»).
+ *
+ * ⚠️ Свёрнут до ФИКСИРОВАННЫХ 2 строк у всех трёх блоков и у всех карточек —
+ * иначе участник с длинным текстом растягивал свою карточку, и ряд каталога
+ * разъезжался по высоте. Разворачивается по «Подробнее».
+ *
+ * ⚠️ «Подробнее» показываем по РЕАЛЬНОЙ высоте текста (scrollHeight против
+ * clientHeight), а не по длине строки: в HTML-тексте символы считать
+ * бессмысленно — теги в длину входят, а переносы строк нет, и кнопка
+ * появлялась там, где текст и так помещался целиком.
+ */
+export function PeachBlock({ title, html, first = false }: { title: string; html: string; first?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [clamped, setClamped] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el || open) return
+    // +1px — запас на дробную высоту строки, иначе кнопка мигает без нужды.
+    setClamped(el.scrollHeight > el.clientHeight + 1)
+  }, [html, open])
+  if (!html) return null
+  return (
+    <div className={`${first ? 'mt-3' : 'mt-2'} rounded-xl px-3 py-2`}
+         style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
+      <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>{title}</div>
+      {/* ⚠️ Обрезка висит на ОБЁРТКЕ, которую и меряем. SafeHtml не принимает
+          ref, а меряя обёртку вокруг обрезанного ребёнка, мы всегда получали
+          бы scrollHeight === clientHeight — кнопка «Подробнее» не появлялась
+          бы никогда. */}
+      <div ref={bodyRef} className={open ? '' : 'line-clamp-2'}>
+        <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={html} />
+      </div>
+      {(clamped || open) && (
+        <button onClick={() => setOpen(!open)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+          {open ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** Справочник ниш slug→title. Грузится один раз на модуль — карточке не нужно
  *  прокидывать ниши пропсами через каждый список (каталог, сват, запросы). */
 let _nichesCache: Record<string, string> | null = null
@@ -110,7 +154,6 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
   const contribution = hadCollabs && item.win_win != null ? Number(item.win_win).toFixed(2) : '—'
   const achievements: any[] = Array.isArray(item.achievements) ? item.achievements : []
   const [bioOpen, setBioOpen] = useState(false)
-  const [aboutOpen, setAboutOpen] = useState(false)
   const [lightbox, setLightbox] = useState(false)
   const niches = useNicheTitles()
   const bio = item.bio || ''
@@ -120,7 +163,6 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
   const ownerName = item.owner_name || item.name
   const project = item.brand_name && item.brand_name !== ownerName ? item.brand_name : null
   const about = item.hub_about || ''
-  const aboutLong = about.length > 90
   const impact = item.hub_impact || ''   // бэк уже вернул null если скрыто галочкой
   const wow = item.hub_wow || ''
   return (
@@ -148,30 +190,12 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           </div>
         </div>
       </div>
-      {/* «Что предлагаете партнёрам» — НАД регалиями, персиковым, разворачиваемо */}
-      {about && (
-        <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-          <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
-          <SafeHtml className={`text-sm ${aboutOpen ? '' : 'line-clamp-2'}`} style={{ color: '#C77B3B' }} html={about} />
-          {aboutLong && (
-            <button onClick={() => setAboutOpen(!aboutOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
-              {aboutOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
-            </button>
-          )}
-        </div>
-      )}
-      {impact && (
-        <div className="mt-2 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-          <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
-          <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={impact} />
-        </div>
-      )}
-      {wow && (
-        <div className="mt-2 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-          <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
-          <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={wow} />
-        </div>
-      )}
+      {/* Персиковые блоки — НАД регалиями. Все три свёрнуты до одинаковой
+          высоты и разворачиваются по «Подробнее»: иначе длинный текст у
+          одного участника растягивал его карточку, и ряд каталога разъезжался. */}
+      <PeachBlock title="Что предлагает партнёрам" html={about} first />
+      <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
+      <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»). */}
       {bio && (
         <div className="mt-2">

@@ -89,8 +89,15 @@ function sanitize(html: string, mode: 'telegram' | 'web' = 'telegram'): string {
   if (!root) return ''
 
   const walk = (node: Element) => {
-    for (const child of Array.from(node.children)) {
+    // ⚠️ Обходим ВСЕ узлы-потомки, а не срез `node.children` на момент входа.
+    // Разворачивая блочный тег, мы поднимаем его детей в родителя — если
+    // список зафиксирован заранее, поднятые узлы остаются необработанными
+    // (Chrome вкладывает <div> в <div>, и внутренний уезжал сырым).
+    let child = node.firstElementChild
+    while (child) {
+      const next = child.nextElementSibling
       walk(child)
+      child = next
     }
     const tag = node.tagName.toLowerCase()
     if (blockToBr.has(tag)) {
@@ -112,10 +119,31 @@ function sanitize(html: string, mode: 'telegram' | 'web' = 'telegram'): string {
       return
     }
     if (!allowedTags.has(tag)) {
-      // Заменяем на текст-контент (сохраняем содержимое, но без обёртки)
-      const text = node.textContent || ''
-      const replacement = doc.createTextNode(text)
-      node.replaceWith(replacement)
+      // ⚠️ Разворачиваем содержимое наружу, а НЕ заменяем на textContent.
+      // Chrome оборачивает выделение в <span style="font-weight:bold">
+      // (styleWithCSS), а вокруг всего содержимого — в <font>. Схлопывание
+      // в голый текст убивало вложенное форматирование, а когда обёртка
+      // накрывала весь текст — стирало его целиком при первом же нажатии «B».
+      const parent = node.parentNode
+      if (!parent) return
+      // Сохраняем смысл обёртки: жирный/курсив через inline-style браузера
+      // превращаем в <b>/<i>, иначе форматирование пропадёт при чистке.
+      const style = node.getAttribute('style') || ''
+      const wrapWith =
+        /font-weight\s*:\s*(bold|[6-9]00)/i.test(style) ? 'b'
+        : /font-style\s*:\s*italic/i.test(style) ? 'i'
+        : /text-decoration[^;]*underline/i.test(style) ? 'u'
+        : null
+      if (wrapWith && allowedTags.has(wrapWith)) {
+        const wrapper = doc.createElement(wrapWith)
+        while (node.firstChild) wrapper.appendChild(node.firstChild)
+        parent.replaceChild(wrapper, node)
+        return
+      }
+      while (node.firstChild) {
+        parent.insertBefore(node.firstChild, node)
+      }
+      parent.removeChild(node)
       return
     }
     // Срезаем недопустимые атрибуты
@@ -169,8 +197,13 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
     const el = editorRef.current
     if (!el) return
     if (document.activeElement === el) return
+    // ⚠️ Сверяем с уже вычищенным содержимым, а не с сырым innerHTML.
+    // Иначе цикл: браузер добавил свою обёртку → sanitize её убрал → value
+    // разошлось с innerHTML → эффект перезаписал редактор. При нажатии кнопки
+    // панели (фокус уходит на кнопку) это стирало набранный текст.
+    if (sanitize(el.innerHTML, mode) === value) return
     if (el.innerHTML !== value) el.innerHTML = value || ''
-  }, [value])
+  }, [value, mode])
 
   // Native DOM listener — onInput от React в contentEditable срабатывает
   // ненадёжно (известный баг). Цепляем addEventListener напрямую.
@@ -194,6 +227,11 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
   useEffect(() => {
     try {
       document.execCommand('defaultParagraphSeparator', false, 'br')
+      // ⚠️ Просим браузер оформлять жирный/курсив ТЕГАМИ (<b>/<i>), а не
+      // inline-стилями (<span style="font-weight:bold">). Со стилями чистка
+      // была вынуждена разбирать CSS, а любая непокрытая форма означала бы
+      // потерю форматирования.
+      document.execCommand('styleWithCSS', false, 'false')
     } catch {
       /* not supported on some browsers */
     }
@@ -229,9 +267,23 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
   }
 
   function exec(command: string, arg?: string) {
+    // Возвращаем фокус в редактор: без него execCommand применяется к
+    // документу без выделения внутри contentEditable и работает вхолостую.
+    editorRef.current?.focus()
     document.execCommand(command, false, arg)
     flush()
   }
+
+  /**
+   * ⚠️ Кнопки панели НЕ должны забирать фокус у редактора.
+   *
+   * Без preventDefault на mousedown браузер сначала уводит фокус на кнопку —
+   * выделение внутри contentEditable схлопывается, срабатывает blur→flush, и
+   * только потом отрабатывает execCommand. В таком порядке команда либо не
+   * применяется, либо Chrome применяет её ко ВСЕМУ содержимому: пользователь
+   * жал «B» и терял весь набранный текст.
+   */
+  const keepFocus = (e: React.MouseEvent) => e.preventDefault()
 
   function flush() {
     const el = editorRef.current
@@ -262,17 +314,17 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
     <div className={`border border-gray-200 rounded-xl bg-white ${className}`}>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-1 border-b border-gray-100 px-2 py-2">
-        <button type="button" onClick={() => exec('bold')}
+        <button type="button" onMouseDown={keepFocus} onClick={() => exec('bold')}
           className="px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-gray-100"
           title="Жирный (Ctrl/Cmd + B)">B</button>
-        <button type="button" onClick={() => exec('italic')}
+        <button type="button" onMouseDown={keepFocus} onClick={() => exec('italic')}
           className="px-3 py-1.5 rounded-lg text-sm italic hover:bg-gray-100"
           title="Курсив (Ctrl/Cmd + I)">I</button>
-        <button type="button" onClick={() => exec('underline')}
+        <button type="button" onMouseDown={keepFocus} onClick={() => exec('underline')}
           className="px-3 py-1.5 rounded-lg text-sm underline hover:bg-gray-100"
           title="Подчёркнутый (Ctrl/Cmd + U)">U</button>
         <span className="w-px h-5 bg-gray-200 mx-1" />
-        <button type="button" onClick={insertLink}
+        <button type="button" onMouseDown={keepFocus} onClick={insertLink}
           className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
           title="Вставить ссылку">🔗 Ссылка</button>
         {/* ⚠️ Списки — только в web-режиме. В telegram-режиме кнопка была бы
@@ -280,20 +332,20 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
             что Telegram списки не принимает. */}
         {mode === 'web' && (
           <>
-            <button type="button" onClick={() => exec('insertUnorderedList')}
+            <button type="button" onMouseDown={keepFocus} onClick={() => exec('insertUnorderedList')}
               className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
               title="Маркированный список">• Список</button>
-            <button type="button" onClick={() => exec('insertOrderedList')}
+            <button type="button" onMouseDown={keepFocus} onClick={() => exec('insertOrderedList')}
               className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
               title="Нумерованный список">1. Список</button>
           </>
         )}
         <span className="w-px h-5 bg-gray-200 mx-1" />
-        <button type="button" onClick={clearFormatting}
+        <button type="button" onMouseDown={keepFocus} onClick={clearFormatting}
           className="px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100"
           title="Снять форматирование">⌫ Очистить</button>
         <span className="flex-1" />
-        <button type="button" onClick={() => setShowSource(s => !s)}
+        <button type="button" onMouseDown={keepFocus} onClick={() => setShowSource(s => !s)}
           className="px-3 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-100"
           title="Редактировать сырой HTML">
           {showSource ? '✓ Визуально' : '<> HTML'}
