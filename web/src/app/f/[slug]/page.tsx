@@ -22,6 +22,31 @@ const PLATFORM_BY_SHORT: Record<string, string> = {
   tg: 'telegram', vk: 'vk', max: 'max',
 }
 
+/**
+ * Черновик ответов в браузере.
+ *
+ * ⚠️ Анкета длинная (у клиента — 29 вопросов). Случайная перезагрузка,
+ * переход «назад» или заснувший телефон стирали всё введённое, и человек
+ * начинал заново — а чаще просто уходил. Держим ответы в localStorage и
+ * возвращаем при следующем открытии; после успешной отправки — чистим.
+ *
+ * Ключ включает contact_id: с одного устройства анкету может заполнять
+ * несколько человек (общий компьютер), их черновики не должны смешиваться.
+ */
+const draftKey = (slug: string, contactId: string | null) =>
+  `pluson.survey.${slug}.${contactId || 'anon'}`
+
+function loadDraft(key: string): any | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const d = JSON.parse(raw)
+    // Черновик старше 30 дней неактуален — анкету за это время могли поменять.
+    if (!d?.at || Date.now() - d.at > 30 * 24 * 3600 * 1000) return null
+    return d
+  } catch { return null }
+}
+
 export default function PublicSurveyPage() {
   const { slug } = useParams<{ slug: string }>()
   const search = useSearchParams()
@@ -45,6 +70,21 @@ export default function PublicSurveyPage() {
   // Человек уже заполнял и решил поправить ответы.
   const [editAgain, setEditAgain] = useState(false)
   const [mkt, setMkt] = useState(false)
+  // Ответы вернулись из черновика — говорим об этом, иначе выглядит так,
+  // будто анкету кто-то заполнил за него.
+  const [restored, setRestored] = useState(false)
+
+  // Автосохранение черновика: пишем на каждое изменение ответов и контактов.
+  // Данных мало (текст), запись в localStorage синхронная и быстрая —
+  // отдельный таймер-дебаунс тут только усложнил бы код.
+  useEffect(() => {
+    if (loading || done) return
+    if (!Object.keys(answers).length && !contact.name && !contact.email && !contact.phone) return
+    try {
+      localStorage.setItem(draftKey(slug, contactId),
+        JSON.stringify({ at: Date.now(), answers, contact }))
+    } catch { /* приватный режим / переполнено — не мешаем заполнять анкету */ }
+  }, [answers, contact, loading, done, slug, contactId])
 
   useEffect(() => {
     const qs = new URLSearchParams()
@@ -71,7 +111,19 @@ export default function PublicSurveyPage() {
           const v = prev ?? (q.field_id ? d.known?.fields?.[String(q.field_id)] : null)
           if (v) pre[String(q.id)] = q.kind === 'multiselect' ? String(v).split(', ') : v
         }
-        setAnswers(pre)
+        // ⚠️ Недописанный черновик ГЛАВНЕЕ подставленных значений: человек
+        // начал отвечать и перезагрузил страницу — вернуть надо то, что писал
+        // он, а не то, что мы знали о нём до этого.
+        const draft = loadDraft(draftKey(slug, contactId))
+        setAnswers(draft?.answers ? { ...pre, ...draft.answers } : pre)
+        if (draft?.contact) {
+          setContact(c => ({
+            name: draft.contact.name || c.name,
+            email: draft.contact.email || c.email,
+            phone: draft.contact.phone || c.phone,
+          }))
+        }
+        if (draft) setRestored(true)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -108,6 +160,8 @@ export default function PublicSurveyPage() {
       // Спрашиваем, как в вебинарной авторизации и форме заказа тарифа.
       if (body.need_choice) { setCandidates(body.candidates || []); return }
       setCandidates(null)
+      // Анкета ушла — черновик больше не нужен.
+      try { localStorage.removeItem(draftKey(slug, contactId)) } catch {}
       if (body.after_mode === 'url' && body.redirect_url && !body.materials?.length) {
         window.location.href = body.redirect_url
         return
@@ -216,11 +270,39 @@ export default function PublicSurveyPage() {
         </div>
       )}
 
+      {restored && (
+        <div className="mb-4 rounded-xl border border-current/20 bg-current/5 p-3 text-sm">
+          Мы вернули ваши ответы — можно продолжить с того места, где остановились.
+        </div>
+      )}
+
       <div className="space-y-5">
         {data.questions.map((q: any) => (
           <Question key={q.id} q={q} value={answers[String(q.id)]}
                     onChange={(v: any) => setAnswers({ ...answers, [String(q.id)]: v })} />
         ))}
+      </div>
+
+      {/* ⚠️ Согласия ОБЯЗАТЕЛЬНЫ на любой форме сбора данных. Раньше блок был
+          объявлен, но на странице не выводился: отправка упиралась в ошибку
+          «без согласия нельзя», а поставить галочку было негде. */}
+      <div className="mt-6 space-y-3 border-t border-current/10 pt-4">
+        <Consent checked={pd} onChange={setPd}>
+          Я согласен на обработку моих персональных данных.{' '}
+          {data.privacy_url ? (
+            <>С{' '}
+              <a href={data.privacy_url} target="_blank" rel="noreferrer" className="underline">
+                Политикой обработки персональных данных
+              </a>{' '}ознакомлен.
+            </>
+          ) : 'С Политикой обработки персональных данных ознакомлен.'}
+        </Consent>
+
+        <Consent checked={mkt} onChange={setMkt}>
+          Я согласен на получение информационных и маркетинговых рассылок
+          {brandLabel(data.brand) && <> от {brandLabel(data.brand)}</>}.
+          {' '}Вы в любой момент можете отказаться от получения писем.
+        </Consent>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
