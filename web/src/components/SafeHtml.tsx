@@ -93,9 +93,16 @@ export default function SafeHtml({
     )
   }
 
+  // ⚠️ Смешанная запись: обычный текст с переносами \n + редкие теги (<b>).
+  // Такие регалии заводили вручную и вставкой из мессенджера. HTML схлопывает
+  // \n в пробел — на странице профиля текст слипался в сплошную простыню.
+  // Блочной разметки тут нет (её бы браузер и так расставил), поэтому
+  // сохраняем переносы, как в текстовой ветке выше.
+  const hasBlockMarkup = /<\s*(br|p|ul|ol|li|h2|h3|blockquote)\b/i.test(clean)
+
   return (
     <div
-      className={`rich-text ${className}`}
+      className={`rich-text ${hasBlockMarkup ? '' : 'whitespace-pre-wrap'} ${className}`}
       style={style}
       dangerouslySetInnerHTML={{ __html: clean }}
     />

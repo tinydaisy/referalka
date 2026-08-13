@@ -68,13 +68,17 @@ export function BioBlock({ bio, open, className = '' }: { bio: string; open: boo
   }
   const lines = bioLines(bio)
   if (lines.length === 0) return null
-  const shown = open ? lines : lines.slice(0, 2)
+  // ⚠️ Обрезкой занимается ВЫЗЫВАЮЩИЙ (обёртка с line-clamp) — так свёрнутый
+  // блок занимает ровно те же 3 строки, что и персиковые блоки карточки.
+  // Раньше резалось по ПУНКТАМ, и блок из двух длинных пунктов занимал
+  // вчетверо больше места — карточки в ряду разъезжались.
+  const shown = open ? lines : lines.slice(0, 3)
   return (
     <ul className={`text-sm text-gray-500 space-y-1 list-none ${className}`}>
       {shown.map((line, i) => (
         <li key={i} className="flex gap-1.5">
           <span style={{ color: PEACH }} className="shrink-0">•</span>
-          <span className={open ? '' : 'line-clamp-2'}>{line}</span>
+          <span>{line}</span>
         </li>
       ))}
     </ul>
@@ -85,9 +89,10 @@ export function BioBlock({ bio, open, className = '' }: { bio: string; open: boo
  * Персиковый блок карточки каталога («Что предлагает партнёрам», «Что создаёт
  * и меняет в мире», «Капелька безумия»).
  *
- * ⚠️ Свёрнут до ФИКСИРОВАННЫХ 2 строк у всех трёх блоков и у всех карточек —
+ * ⚠️ Свёрнут до ФИКСИРОВАННЫХ 3 строк у всех блоков и у всех карточек —
  * иначе участник с длинным текстом растягивал свою карточку, и ряд каталога
- * разъезжался по высоте. Разворачивается по «Подробнее».
+ * разъезжался по высоте. Разворачивается по «Подробнее». Столько же строк
+ * у регалий (BioBlock) — блоки в карточке должны выглядеть одинаково.
  *
  * ⚠️ «Подробнее» показываем по РЕАЛЬНОЙ высоте текста (scrollHeight против
  * clientHeight), а не по длине строки: в HTML-тексте символы считать
@@ -113,7 +118,7 @@ export function PeachBlock({ title, html, first = false }: { title: string; html
           ref, а меряя обёртку вокруг обрезанного ребёнка, мы всегда получали
           бы scrollHeight === clientHeight — кнопка «Подробнее» не появлялась
           бы никогда. */}
-      <div ref={bodyRef} className={open ? '' : 'line-clamp-2'}>
+      <div ref={bodyRef} className={open ? '' : 'line-clamp-3'}>
         <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={html} />
       </div>
       {(clamped || open) && (
@@ -154,11 +159,18 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
   const contribution = hadCollabs && item.win_win != null ? Number(item.win_win).toFixed(2) : '—'
   const achievements: any[] = Array.isArray(item.achievements) ? item.achievements : []
   const [bioOpen, setBioOpen] = useState(false)
+  const [bioClamped, setBioClamped] = useState(false)
+  const bioRef = useRef<HTMLDivElement>(null)
   const [lightbox, setLightbox] = useState(false)
   const niches = useNicheTitles()
   const bio = item.bio || ''
-  // «Подробнее» — когда регалий больше, чем показываем свёрнутыми (2 строки).
-  const bioLong = bioLines(bio).length > 2
+  // «Подробнее» — по РЕАЛЬНОЙ высоте, как у персиковых блоков: считать пункты
+  // нельзя, один длинный пункт занимает три строки, а три коротких — одну.
+  useEffect(() => {
+    const el = bioRef.current
+    if (!el || bioOpen) return
+    setBioClamped(el.scrollHeight > el.clientHeight + 1)
+  }, [bio, bioOpen])
   // Заголовок карточки — ИМЯ ОСНОВАТЕЛЯ; название проекта — отдельной строкой.
   const ownerName = item.owner_name || item.name
   const project = item.brand_name && item.brand_name !== ownerName ? item.brand_name : null
@@ -187,6 +199,13 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
             {/* Ниша — раньше не показывалась в карточке вообще */}
             {item.hub_niche && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[item.hub_niche] || item.hub_niche}</span>}
             <MediaTierBadge tier={item.media_tier} />
+            {/* Город — рядом с нишей, а не в подвале карточки: там он терялся
+                под цифрами коллабораций, и найти земляка в списке было нельзя. */}
+            {item.hub_city && (
+              <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+                <MapPin className="w-3 h-3" />{item.hub_city}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -196,11 +215,15 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       <PeachBlock title="Что предлагает партнёрам" html={about} first />
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
-      {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»). */}
+      {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
+          Свёрнуто до тех же 3 строк, что и персиковые блоки выше. */}
       {bio && (
         <div className="mt-2">
-          <BioBlock bio={bio} open={bioOpen} />
-          {bioLong && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+          {/* clamp — на обёртке, которую и меряем (BioBlock не принимает ref). */}
+          <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-3'}>
+            <BioBlock bio={bio} open />
+          </div>
+          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
             {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
           </button>}
         </div>
@@ -224,10 +247,11 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           <div className="text-[10px] text-gray-500 leading-tight">Win-Win</div>
         </div>
       </div>
-      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-        {item.hub_city && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{item.hub_city}</span>}
-        {item.avg_rating && <span className="inline-flex items-center gap-1"><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />{item.avg_rating}</span>}
-      </div>
+      {item.avg_rating && (
+        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-1"><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />{item.avg_rating}</span>
+        </div>
+      )}
       {isMe ? (
         <a href="/dashboard/collab-hub/card" className="mt-3 w-full text-sm py-2 rounded-xl border text-center" style={{ borderColor: PEACH, color: '#C77B3B' }}>Редактировать карточку</a>
       ) : (
