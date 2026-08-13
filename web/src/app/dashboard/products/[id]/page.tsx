@@ -9,7 +9,8 @@
  * ⚠️ Адрес страницы показываем на домене клиента (publicBase), а не на
  * pluson.ru: клиент платит за свой домен и раздаёт его, а не наш.
  */
-import { useEffect, useState, use as usePromise } from 'react'
+import { useEffect, useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -32,8 +33,13 @@ const WORDING_PRESETS = [
   },
 ]
 
-export default function ProductCardPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = usePromise(params)
+// ⚠️ params читаем через useParams(), а НЕ через use(params): промис в
+// params — это Next 15, а на проде Next 14.2.3 отдаёт обычный объект, и
+// use() падал с «unsupported type was passed to use()» — страница не
+// открывалась вовсе (Application error). Так же сделано во всех остальных
+// страницах проекта.
+export default function ProductCardPage() {
+  const { id } = useParams<{ id: string }>()
   const productId = Number(id)
   const { me, isAssistant, publicBase } = useMe()
 

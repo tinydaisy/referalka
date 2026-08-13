@@ -10,7 +10,8 @@
  * ⚠️ Подписи — из словаря продукта: у консультационного пресета не должно быть
  * ни «уроков», ни «программы обучения».
  */
-import { useEffect, useMemo, useState, use as usePromise } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Video, Link2, AlignLeft, ExternalLink } from 'lucide-react'
 
@@ -27,8 +28,10 @@ const KIND_ICON: Record<string, any> = {
   video: Video, file: FileText, link: Link2, text: AlignLeft,
 }
 
-export default function CabinetProductPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = usePromise(params)
+// ⚠️ См. комментарий в dashboard/products/[id]: use(params) — это Next 15,
+// на нашем Next 14.2.3 страница падала с Application error.
+export default function CabinetProductPage() {
+  const { slug } = useParams<{ slug: string }>()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
