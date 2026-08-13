@@ -744,7 +744,15 @@ const STEP_TITLES: Record<FunnelStep, string> = {
   text_3_stuck: 'Текст 3 — зависшим на проверке подписки',
 }
 
+// Дефолт шага «сначала анкета» — держать в синхроне с
+// survey_gate.DEFAULT_SURVEY_TEXT на бэке.
+const SURVEY_TEXT_PLACEHOLDER =
+  'Чтобы получить материал, ответьте на несколько вопросов — они помогут нам ' +
+  'сформировать полезный контент и продукты.\n\nПосле заполнения анкеты материал придёт вам сюда.'
+
 function TemplateEditor() {
+  const { me } = useMe()
+  const hasSurveys = (me?.features || []).includes('surveys')
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -826,6 +834,8 @@ function TemplateEditor() {
         text_2: data.text_2,
         text_3_delivered: data.text_3_delivered,
         text_3_stuck: data.text_3_stuck,
+        // Шаг «сначала анкета»; пусто → на бэке подставится дефолт.
+        text_survey: data.text_survey ?? null,
         text_1_media_url:  data.text_1_media_url  || null,
         text_1_media_type: data.text_1_media_url ? inferMediaType(data.text_1_media_url) : null,
         text_2_media_url:  data.text_2_media_url  || null,
@@ -966,6 +976,24 @@ function TemplateEditor() {
           <textarea value={data.text_2 || ''} onChange={set('text_2')} rows={5}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
         </Field>
+
+        {/* ⚠️ Шаг «сначала анкета» — только у кого есть фича «Анкеты».
+            Порядок: подписка → это сообщение со ссылкой на анкету →
+            материалы. В Текст 1 требование анкеты класть нельзя: человек
+            ещё не подписался, а ему уже второе условие. */}
+        {hasSurveys && (
+          <Field label="Если подарок закрыт анкетой — сообщение перед выдачей">
+            <textarea value={data.text_survey || ''} onChange={set('text_survey')} rows={4}
+                      placeholder={SURVEY_TEXT_PLACEHOLDER}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+            <p className="mt-1.5 text-xs text-gray-500">
+              Уходит отдельным сообщением после подписки — со ссылкой на анкету.
+              Материал придёт сразу после её заполнения. Пусто → текст из
+              подсказки. Можно вставить <code>{'{survey_title}'}</code> — подставится
+              название анкеты.
+            </p>
+          </Field>
+        )}
 
         <Field label="Фото или видео (опционально)">
           <FileUploader

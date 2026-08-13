@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -802,6 +803,7 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                 try:
                     from app.services.survey_gate import (
                         required_survey_for_run, survey_link_for_run,
+                        survey_prompt_text, survey_text_for_client,
                     )
                     run_row = await conn.fetchrow(
                         """SELECT id, client_id, contact_id, lead_magnet_id,
@@ -811,11 +813,15 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                         if run_row else None
                     if survey:
                         url = await survey_link_for_run(conn, survey, dict(run_row))
+                        # Текст общий для всех площадок (правится в шаблоне
+                        # воронки). MAX без parse_mode HTML не понимает —
+                        # отдаём чистым текстом.
+                        custom = await survey_text_for_client(
+                            conn, run_row["client_id"])
+                        body = re.sub(
+                            r"<[^>]+>", "", survey_prompt_text(survey, custom))
                         await max_api.send_message(
-                            int(user_id),
-                            f"Чтобы забрать подарок, заполните короткую анкету: "
-                            f"{survey['title']}\n\n{url}\n\n"
-                            f"Подарок придёт сразу после отправки.",
+                            int(user_id), f"{body}\n\n{url}",
                             token=bot_token, recipient_kind="user",
                         )
                 except Exception as e:

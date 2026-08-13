@@ -79,14 +79,35 @@ async def survey_link_for_run(db, survey: dict, run: dict) -> str:
     return parts[0] + ('&' + '&'.join(parts[1:]) if len(parts) > 1 else '')
 
 
-def survey_prompt_text(survey: dict) -> str:
+DEFAULT_SURVEY_TEXT = (
+    "Чтобы получить материал, ответьте на несколько вопросов — "
+    "они помогут нам сформировать полезный контент и продукты.\n\n"
+    "После заполнения анкеты материал придёт вам сюда."
+)
+
+
+def survey_prompt_text(survey: dict, custom: str | None = None) -> str:
     """Текст-приглашение, когда человек упёрся в анкету по дороге за подарком.
 
-    Говорим прямо, что подарок придёт сразу после заполнения — иначе шаг
-    выглядит как отказ выдать обещанное.
+    ⚠️ Это ОТДЕЛЬНОЕ сообщение, которое уходит ПОСЛЕ подписки на канал и
+    ДО выдачи материала. В Текст 1 требование заполнить анкету класть
+    нельзя: человек ещё не подписался, а ему уже второе требование — два
+    условия сразу не разбираются.
+
+    `custom` — текст из шаблона воронки клиента (`funnel_templates.text_survey`).
+    Пусто → дефолт. Плейсхолдер `{survey_title}` подставляет название анкеты.
     """
     title = survey.get("title") or "анкету"
-    return (
-        f"Чтобы забрать подарок, заполните короткую анкету: <b>{title}</b>\n\n"
-        "Подарок придёт сразу после отправки."
+    text = (custom or "").strip() or DEFAULT_SURVEY_TEXT
+    return text.replace("{survey_title}", title)
+
+
+async def survey_text_for_client(db, client_id: int) -> str | None:
+    """Свой текст клиента для шага «сначала анкета» (пусто → дефолт)."""
+    if not client_id:
+        return None
+    return await db.fetchval(
+        """SELECT text_survey FROM funnel_templates
+            WHERE client_id = $1 AND type = 'lead_magnet'""",
+        client_id,
     )

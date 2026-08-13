@@ -85,6 +85,8 @@ class TemplateUpdate(BaseModel):
     text_2: Optional[str] = None
     text_3_delivered: Optional[str] = None
     text_3_stuck: Optional[str] = None
+    # Шаг «сначала анкета» — показывается только тем, у кого есть фича surveys.
+    text_survey: Optional[str] = None
     # Медиа (фото или видео). Передавать обе колонки парой. NULL = убрать медиа.
     text_1_media_url:  Optional[str] = None
     text_1_media_type: Optional[Literal['photo', 'video']] = None
@@ -93,6 +95,7 @@ class TemplateUpdate(BaseModel):
 
 
 _TEMPLATE_COLUMNS = """id, type, text_1, button_label, text_2, text_3_delivered, text_3_stuck,
+                      text_survey,
                       text_1_media_url, text_1_media_type,
                       text_2_media_url, text_2_media_type,
                       created_at, updated_at"""
@@ -157,7 +160,8 @@ async def update_template(
     args = []
     idx = 1
 
-    for k in ('text_1', 'button_label', 'text_2', 'text_3_delivered', 'text_3_stuck'):
+    for k in ('text_1', 'button_label', 'text_2', 'text_3_delivered', 'text_3_stuck',
+              'text_survey'):
         v = getattr(data, k)
         if v is not None:
             fields.append(f"{k} = ${idx}")

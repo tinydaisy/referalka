@@ -26,6 +26,7 @@ async def _send_survey_gate_tg(callback, run_id: int, db) -> None:
     """
     from app.services.survey_gate import (
         required_survey_for_run, survey_link_for_run, survey_prompt_text,
+        survey_text_for_client,
     )
     run = await db.fetchrow(
         """SELECT id, client_id, contact_id, lead_magnet_id, package_id, platform_slug
@@ -36,9 +37,11 @@ async def _send_survey_gate_tg(callback, run_id: int, db) -> None:
     if not survey:
         return
     url = await survey_link_for_run(db, survey, dict(run))
+    # Свой текст клиента (funnel_templates.text_survey); пусто → дефолт.
+    custom = await survey_text_for_client(db, run["client_id"])
     try:
         await callback.message.answer(
-            survey_prompt_text(survey),
+            survey_prompt_text(survey, custom),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="📝 Заполнить анкету", url=url),

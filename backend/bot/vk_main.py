@@ -1069,6 +1069,7 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             try:
                 from app.services.survey_gate import (
                     required_survey_for_run, survey_link_for_run,
+                    survey_prompt_text, survey_text_for_client,
                 )
                 run_row = await db.fetchrow(
                     """SELECT id, client_id, contact_id, lead_magnet_id,
@@ -1077,12 +1078,13 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
                 survey = await required_survey_for_run(db, dict(run_row)) if run_row else None
                 if survey:
                     url = await survey_link_for_run(db, survey, dict(run_row))
+                    # Текст — общий для всех площадок (правится в шаблоне
+                    # воронки). ⚠️ VK не понимает HTML — срезаем теги.
+                    custom = await survey_text_for_client(db, run_row["client_id"])
+                    body = survey_prompt_text(survey, custom)
+                    body = re.sub(r"<[^>]+>", "", body)
                     await vk_send_message(
-                        user_id,
-                        f"Чтобы забрать подарок, заполните короткую анкету: "
-                        f"{survey['title']}\n\n{url}\n\n"
-                        f"Подарок придёт сразу после отправки.",
-                        token=ctx.token,
+                        user_id, f"{body}\n\n{url}", token=ctx.token,
                     )
             except Exception as e:
                 logger.warning(f"VK survey gate failed (run={run_id}): {e}")
