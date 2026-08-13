@@ -269,8 +269,11 @@ function Shell({ children, theme }: { children: React.ReactNode; theme?: any }) 
     <div className="min-h-screen px-4 py-8" style={{ background: bg }}>
       <div className="mx-auto w-full max-w-xl rounded-2xl p-6 shadow-sm"
            style={{
-             background: t.lp_card_bg || '#fff',
-             color: t.lp_card_text_color || t.lp_color_body || undefined,
+             // ⚠️ Карточка всегда светлая (см. CARD_BG) — тему клиента к ней
+             // не применяем: тёмная заливка делала 26 вопросов нечитаемыми.
+             // Цвет текста тоже не берём из темы — он рассчитан на тёмный фон
+             // (белый по белому).
+             background: CARD_BG,
              fontFamily: t.lp_font_body || undefined,
            }}>
         {children}
@@ -428,6 +431,13 @@ function DoneView({ result, survey }: any) {
 }
 
 /**
+ * Фон карточки анкеты. ⚠️ Белый НАМЕРЕННО и не берётся из темы клиента:
+ * анкета длинная (у клиента 26 вопросов), и читать её на тёмном тяжело.
+ * Единая точка — чтобы заливка карточки и выбор логотипа не разъехались.
+ */
+const CARD_BG = '#fff'
+
+/**
  * Светлый ли фон карточки — по нему выбираем версию логотипа.
  * Пусто = белая карточка по умолчанию, значит светлый.
  */
@@ -459,10 +469,12 @@ function brandLabel(brand: any): string {
  */
 function BrandHeader({ brand, theme }: { brand: any; theme?: any }) {
   if (!brand || (!brand.logo_url && !brand.brand_name && !brand.owner_name)) return null
-  // ⚠️ Логотип обычно белый: на светлой карточке он сливается с фоном и
-  // выглядит как пустое место. Смотрим на светлоту карточки и берём тёмную
-  // версию знака, если клиент её загрузил.
-  const logo = isLightBg(theme?.lp_card_bg)
+  // ⚠️ Смотреть надо на фон КАРТОЧКИ, под которым лежит логотип, а не на
+  // тему страницы. Карточка анкеты БЕЛАЯ намеренно (так удобнее читать
+  // длинный список вопросов) — `lp_card_bg` из темы к ней не применяется.
+  // Раньше проверка шла по теме: там тёмный #0F1E2E, код считал фон тёмным
+  // и брал белый логотип — он сливался с белой карточкой.
+  const logo = isLightBg(CARD_BG)
     ? (brand.logo_light_url || brand.logo_url)
     : brand.logo_url
   return (
