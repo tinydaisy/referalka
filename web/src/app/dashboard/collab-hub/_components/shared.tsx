@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import MediaAssetsField from '@/components/MediaAssetsField'
+import SafeHtml from '@/components/SafeHtml'
 
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
@@ -49,8 +50,21 @@ export function bioLines(bio: string): string[] {
     .filter(Boolean)
 }
 
-/** Био списком: свёрнуто — первые 2 строки, развёрнуто — все. */
+/** Био списком: свёрнуто — первые 2 строки, развёрнуто — все.
+ *
+ *  ⚠️ Если регалии сохранены С РАЗМЕТКОЙ (редактор в режиме `web`), резать их
+ *  по переносам нельзя — теги вылезли бы текстом, а свой маркер «•» встал бы
+ *  рядом с маркером списка. Такой текст отдаём в SafeHtml как есть.
+ *  Старые записи (обычный текст) продолжают работать по-прежнему. */
 export function BioBlock({ bio, open, className = '' }: { bio: string; open: boolean; className?: string }) {
+  if (/<\/?[a-z][\s\S]*>/i.test(bio || '')) {
+    return (
+      <SafeHtml
+        className={`text-sm text-gray-500 ${open ? '' : 'line-clamp-3'} ${className}`}
+        html={bio}
+      />
+    )
+  }
   const lines = bioLines(bio)
   if (lines.length === 0) return null
   const shown = open ? lines : lines.slice(0, 2)
@@ -137,7 +151,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       {about && (
         <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
           <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
-          <p className={`text-sm whitespace-pre-wrap ${aboutOpen ? '' : 'line-clamp-2'}`} style={{ color: '#C77B3B' }}>{about}</p>
+          <SafeHtml className={`text-sm ${aboutOpen ? '' : 'line-clamp-2'}`} style={{ color: '#C77B3B' }} html={about} />
           {aboutLong && (
             <button onClick={() => setAboutOpen(!aboutOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
               {aboutOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
@@ -148,13 +162,13 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       {impact && (
         <div className="mt-2 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
           <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
-          <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{impact}</p>
+          <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={impact} />
         </div>
       )}
       {wow && (
         <div className="mt-2 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
           <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
-          <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{wow}</p>
+          <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={wow} />
         </div>
       )}
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»). */}
@@ -562,7 +576,7 @@ export function MyCardView() {
           {form.hub_about && (
             <div className="mt-4 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
               <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
-              <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{form.hub_about}</p>
+              <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={form.hub_about} />
             </div>
           )}
           {/* Импакт и WOW-факт — живое превью; «скрыто» если снята галочка публичности */}
@@ -571,7 +585,7 @@ export function MyCardView() {
               <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>
                 Что создаёт и меняет в мире{!form.hub_impact_public && <span className="ml-1 text-gray-400 font-normal">· скрыто в публичной</span>}
               </div>
-              <p className={`text-sm whitespace-pre-wrap ${form.hub_impact_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }}>{form.hub_impact}</p>
+              <SafeHtml className={`text-sm  ${form.hub_impact_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }} html={form.hub_impact} />
             </div>
           )}
           {form.hub_wow && (
@@ -579,7 +593,7 @@ export function MyCardView() {
               <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>
                 Капелька безумия / WOW-факт{!form.hub_wow_public && <span className="ml-1 text-gray-400 font-normal">· скрыто в публичной</span>}
               </div>
-              <p className={`text-sm whitespace-pre-wrap ${form.hub_wow_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }}>{form.hub_wow}</p>
+              <SafeHtml className={`text-sm  ${form.hub_wow_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }} html={form.hub_wow} />
             </div>
           )}
           {/* Регалии — каждая с новой строки (как введены в профиле Основателя). */}
@@ -613,18 +627,33 @@ export function MyCardView() {
         </select>
         <label className="block text-sm font-medium text-gray-700 mb-1">Город (для офлайн-бизнеса)</label>
         <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
+        {/* ⚠️ mode="web": карточка Хаба — обычная веб-страница, а не сообщение
+            в Telegram. Списки и абзацы отображаются как есть; редактор сам
+            чистит теги, руками HTML писать не нужно. */}
         <label className="block text-sm font-medium text-gray-700 mb-1">Что предлагаете партнёрам</label>
-        <textarea value={form.hub_about} onChange={e => setForm({ ...form, hub_about: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" rows={3} />
+        <div className="mb-3">
+          <RichTextEditor mode="web" rows={5}
+            value={form.hub_about}
+            onChange={v => setForm({ ...form, hub_about: v })} />
+        </div>
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Что я создаю и меняю в стране/мире своей деятельностью и проектами?</label>
-        <textarea value={form.hub_impact} onChange={e => setForm({ ...form, hub_impact: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-1.5" rows={3} />
+        <div className="mb-1.5">
+          <RichTextEditor mode="web" rows={5}
+            value={form.hub_impact}
+            onChange={v => setForm({ ...form, hub_impact: v })} />
+        </div>
         <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
           <input type="checkbox" checked={form.hub_impact_public} onChange={e => setForm({ ...form, hub_impact_public: e.target.checked })} />
           Показывать в публичной карточке в каталоге
         </label>
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Моя «капелька безумия» или WOW-факт</label>
-        <textarea value={form.hub_wow} onChange={e => setForm({ ...form, hub_wow: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-1.5" rows={3} />
+        <div className="mb-1.5">
+          <RichTextEditor mode="web" rows={5}
+            value={form.hub_wow}
+            onChange={v => setForm({ ...form, hub_wow: v })} />
+        </div>
         <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
           <input type="checkbox" checked={form.hub_wow_public} onChange={e => setForm({ ...form, hub_wow_public: e.target.checked })} />
           Показывать в публичной карточке в каталоге

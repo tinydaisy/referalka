@@ -13,8 +13,13 @@
  * - Переключение «Текст ↔ HTML» (для редактирования сырого HTML)
  * - sanitizes на onChange: оставляем только разрешённые теги/атрибуты
  *
- * Allowlist: <b>/<strong>, <i>/<em>, <u>, <a href>, <br>.
- * Блочные теги (div/p/li) при sanitize заменяются на <br>.
+ * ДВА РЕЖИМА (проп `mode`):
+ *  - `telegram` (по умолчанию) — для рассылок. Allowlist: b/strong, i/em, u,
+ *    s, a, br, code, pre. Блочные теги (div/p/li/h*) сворачиваются в <br>:
+ *    Telegram их отвергает, сообщение с <ul> просто не уйдёт.
+ *  - `web` — для страниц (Коллабораторная, визитка основателя, Mini App).
+ *    Дополнительно разрешены ul/ol/li, p, h2/h3, blockquote; на панели
+ *    появляются кнопки списков, а Enter внутри списка создаёт новый пункт.
  *
  * Использование:
  *   const editorRef = useRef<RichTextEditorHandle>(null)
@@ -35,6 +40,17 @@ interface Props {
   placeholder?: string
   rows?: number      // примерная высота в «строках» (16px каждая)
   className?: string
+  /**
+   * Куда пойдёт текст — от этого зависит набор разрешённых тегов.
+   *
+   * `telegram` (по умолчанию) — для рассылок: Telegram отвергает списки и
+   * абзацы, поэтому они превращаются в переносы строк. Менять это правило
+   * нельзя: сообщение с `<ul>` просто не уйдёт («can't parse entities»).
+   *
+   * `web` — для страниц (Коллабораторная, визитка основателя, Mini App):
+   * там обычный HTML, списки и абзацы отображаются как есть.
+   */
+  mode?: 'telegram' | 'web'
 }
 
 // Совместимо с Telegram-парсером (parse_mode=HTML): b/strong, i/em, u, s, a, br, code, pre.
@@ -47,13 +63,27 @@ const ALLOWED_TAGS = new Set([
 // разрывы строк, которые пользователь видел в редакторе.
 const BLOCK_TAGS_TO_BR = new Set(['div', 'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
 
+// ── Режим `web` ──
+// Списки и абзацы на обычной странице отображаются нормально, поэтому здесь
+// они разрешены. Заголовки оставляем со второго уровня: <h1> на странице уже
+// занят названием, второй сломал бы структуру документа.
+const ALLOWED_TAGS_WEB = new Set([
+  ...ALLOWED_TAGS, 'ul', 'ol', 'li', 'p', 'h2', 'h3', 'blockquote',
+])
+// В web-режиме в <br> сворачиваем только то, что осталось лишним: <div> от
+// contentEditable и заголовки, которые мы не разрешили.
+const BLOCK_TAGS_TO_BR_WEB = new Set(['div', 'h1', 'h4', 'h5', 'h6'])
+
 const ALLOWED_ATTRS_PER_TAG: Record<string, string[]> = {
   a: ['href', 'target', 'rel'],
 }
 const ALLOWED_URL_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:']
 
-function sanitize(html: string): string {
+function sanitize(html: string, mode: 'telegram' | 'web' = 'telegram'): string {
   if (typeof window === 'undefined') return html
+  const allowedTags = mode === 'web' ? ALLOWED_TAGS_WEB : ALLOWED_TAGS
+  const blockToBr = mode === 'web' ? BLOCK_TAGS_TO_BR_WEB : BLOCK_TAGS_TO_BR
+
   const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
   const root = doc.body.firstElementChild
   if (!root) return ''
@@ -63,7 +93,7 @@ function sanitize(html: string): string {
       walk(child)
     }
     const tag = node.tagName.toLowerCase()
-    if (BLOCK_TAGS_TO_BR.has(tag)) {
+    if (blockToBr.has(tag)) {
       // Разворачиваем содержимое наружу + добавляем перенос строки <br>
       // перед следующим элементом (если это не первая обёртка).
       const parent = node.parentNode
@@ -81,7 +111,7 @@ function sanitize(html: string): string {
       parent.removeChild(node)
       return
     }
-    if (!ALLOWED_TAGS.has(tag)) {
+    if (!allowedTags.has(tag)) {
       // Заменяем на текст-контент (сохраняем содержимое, но без обёртки)
       const text = node.textContent || ''
       const replacement = doc.createTextNode(text)
@@ -116,7 +146,7 @@ function sanitize(html: string): string {
 }
 
 const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
-  value, onChange, placeholder, rows = 8, className = '',
+  value, onChange, placeholder, rows = 8, className = '', mode = 'telegram',
 }, ref) {
   const editorRef = useRef<HTMLDivElement>(null)
   const sourceValueRef = useRef<string>(value)  // последнее значение в source-mode
@@ -129,9 +159,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
       if (showSource) return sourceValueRef.current
       const el = editorRef.current
       if (!el) return value
-      return sanitize(el.innerHTML)
+      return sanitize(el.innerHTML, mode)
     },
-  }), [showSource, value])
+  }), [showSource, value, mode])
 
   // Инициализация и внешние изменения value (только если редактор НЕ в фокусе,
   // иначе курсор будет «прыгать» при каждом нажатии клавиши).
@@ -148,7 +178,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
     const el = editorRef.current
     if (!el) return
     const handler = () => {
-      const cleaned = sanitize(el.innerHTML)
+      const cleaned = sanitize(el.innerHTML, mode)
       onChange(cleaned)
     }
     el.addEventListener('input', handler)
@@ -157,7 +187,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
       el.removeEventListener('input', handler)
       el.removeEventListener('blur', handler)
     }
-  }, [onChange])
+  }, [onChange, mode])
 
   // Заставляем contentEditable вставлять <br> при Enter, а не <div> или <p>
   // (Telegram parse_mode=HTML отвергает div/p — см. sanitize).
@@ -173,10 +203,29 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
   // не получить <div> от движка contentEditable.
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
+      // ⚠️ Внутри списка Enter НЕ перехватываем: браузер сам создаёт новый
+      // пункт <li>. Подменишь на <br> — весь список схлопнется в один пункт
+      // с переносами, и добавить второй пункт будет нечем.
+      if (mode === 'web' && insideList()) return
       e.preventDefault()
       document.execCommand('insertLineBreak')
       flush()
     }
+  }
+
+  /** Курсор стоит внутри <ul>/<ol>? */
+  function insideList(): boolean {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return false
+    let n: Node | null = sel.getRangeAt(0).startContainer
+    while (n && n !== editorRef.current) {
+      if (n.nodeType === 1) {
+        const tag = (n as Element).tagName.toLowerCase()
+        if (tag === 'li' || tag === 'ul' || tag === 'ol') return true
+      }
+      n = n.parentNode
+    }
+    return false
   }
 
   function exec(command: string, arg?: string) {
@@ -187,7 +236,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
   function flush() {
     const el = editorRef.current
     if (!el) return
-    const cleaned = sanitize(el.innerHTML)
+    const cleaned = sanitize(el.innerHTML, mode)
     onChange(cleaned)
   }
 
@@ -226,9 +275,19 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
         <button type="button" onClick={insertLink}
           className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
           title="Вставить ссылку">🔗 Ссылка</button>
-        <button type="button" onClick={() => exec('insertUnorderedList')}
-          className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
-          title="Маркированный список">• Список</button>
+        {/* ⚠️ Списки — только в web-режиме. В telegram-режиме кнопка была бы
+            обманом: санитайз тут же схлопывает <ul> в переносы строк, потому
+            что Telegram списки не принимает. */}
+        {mode === 'web' && (
+          <>
+            <button type="button" onClick={() => exec('insertUnorderedList')}
+              className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
+              title="Маркированный список">• Список</button>
+            <button type="button" onClick={() => exec('insertOrderedList')}
+              className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
+              title="Нумерованный список">1. Список</button>
+          </>
+        )}
         <span className="w-px h-5 bg-gray-200 mx-1" />
         <button type="button" onClick={clearFormatting}
           className="px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100"

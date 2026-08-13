@@ -2,6 +2,8 @@
  * Страница «Об основателе» — открывается из карточки-тизера в EcosystemTab.
  * Большое фото, имя, позиционирование, факты в цифрах, биография, соцсети.
  */
+import EventDescription from '../components/EventDescription'
+
 interface Achievement { label: string; value: string }
 interface TgChannel { url: string; chat_id?: string; name?: string }
 interface Profile {
@@ -150,16 +152,20 @@ export default function OwnerPage({ profile, onBack }: Props) {
         </div>
       )}
 
-      {/* Регалии (clients.bio) — выводятся текстом, без заголовка. */}
+      {/* Регалии (clients.bio) — без заголовка.
+          ⚠️ Через EventDescription: с 2026-08-13 регалии редактируются с
+          форматированием (жирный, курсив, списки). Обычный текст старых
+          записей выводится как раньше — компонент сам решает по содержимому. */}
       {profile.bio && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{
-            background: 'white', padding: 14, borderRadius: 14,
-            border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
-            fontSize: 14, color: '#3a4a5a', lineHeight: 1.55, whiteSpace: 'pre-wrap',
-          }}>
-            {profile.bio}
-          </div>
+          <EventDescription
+            text={profile.bio}
+            style={{
+              background: 'white', padding: 14, borderRadius: 14,
+              border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
+              fontSize: 14, color: '#3a4a5a', lineHeight: 1.55,
+            }}
+          />
         </div>
       )}
 

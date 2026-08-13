@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation'
 import { Users, Star, Send, MapPin, ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock, useNicheTitles } from '../../_components/shared'
+import SafeHtml from '@/components/SafeHtml'
 
 export default function OrgProfilePage() {
   const params = useParams()
@@ -69,20 +70,20 @@ export default function OrgProfilePage() {
         {c.hub_about && (
           <div className="mt-5 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
             <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
-            <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_about}</p>
+            <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={c.hub_about} />
           </div>
         )}
         {/* Импакт и WOW-факт — бэк отдаёт null, если владелец снял галочку публичности */}
         {c.hub_impact && (
           <div className="mt-4 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
             <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
-            <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_impact}</p>
+            <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={c.hub_impact} />
           </div>
         )}
         {c.hub_wow && (
           <div className="mt-4 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
             <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
-            <p className="text-sm whitespace-pre-wrap" style={{ color: '#C77B3B' }}>{c.hub_wow}</p>
+            <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={c.hub_wow} />
           </div>
         )}
 

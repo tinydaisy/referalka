@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
+import RichTextEditor from '@/components/RichTextEditor'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
@@ -589,10 +590,18 @@ export default function MiniAppSettingsPage() {
             title="Регалии"
             hint="Подробный текст для страницы «Об основателе». Если пусто — раздела на странице нет."
           >
-            <textarea value={profile.bio || ''}
-                      onChange={e => update('bio', e.target.value)}
-                      placeholder="Ваши регалии: достижения, титулы, опыт, проекты…"
-                      className="input min-h-[160px] max-w-2xl block" />
+            {/* ⚠️ mode="web": регалии показываются на веб-странице и в Mini App,
+                а не уходят в Telegram — списки и абзацы там отображаются как
+                есть. Редактор сам чистит теги, руками HTML писать не нужно. */}
+            <div className="max-w-2xl">
+              <RichTextEditor
+                mode="web"
+                value={profile.bio || ''}
+                onChange={v => update('bio', v)}
+                placeholder="Ваши регалии: достижения, титулы, опыт, проекты…"
+                rows={10}
+              />
+            </div>
           </Section>
 
           <Section
