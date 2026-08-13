@@ -519,7 +519,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
 }
 
 function Section({
-  ctaHref,
+  ctaHref, orderHref,
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
   withTrack,
 }: any) {
