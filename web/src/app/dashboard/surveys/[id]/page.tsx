@@ -187,7 +187,13 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
   const [giftId, setGiftId] = useState<number | ''>(survey.gift_lead_magnet_id || '')
   const [magnets, setMagnets] = useState<any[]>([])
   useEffect(() => {
-    api.leadMagnets.list().then(setMagnets).catch(() => setMagnets([]))
+    // ⚠️ Эндпоинт отдаёт {items: [...]}, а не массив. Без разворота в
+    // состояние попадал объект, и `magnets.map` ронял ВСЮ страницу анкеты
+    // («Application error»). Массив на входе тоже поддерживаем — на случай,
+    // если формат ответа где-то отличается.
+    api.leadMagnets.list()
+      .then((r: any) => setMagnets(Array.isArray(r) ? r : (r?.items || [])))
+      .catch(() => setMagnets([]))
   }, [])
   const [intro, setIntro] = useState(survey.intro || '')
   const [imageUrl, setImageUrl] = useState(survey.image_url || '')
