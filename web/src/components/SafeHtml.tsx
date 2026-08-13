@@ -29,9 +29,22 @@ function looksLikeHtml(s: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(s)
 }
 
+/**
+ * Чиним частую опечатку из текста, вставленного не из нашего редактора:
+ * закрывающий тег написан задом наперёд — `<b/>` вместо `</b>`.
+ *
+ * ⚠️ Браузер считает `<b/>` ОТКРЫВАЮЩИМ тегом, поэтому жирный не закрывается
+ * и «течёт» до конца записи: у одного коллаба так пожирнели все регалии после
+ * слова «Регалии:». Правим на выводе, а не в базе — тем же способом текст
+ * попадёт туда снова при следующей вставке из заметок или мессенджера.
+ */
+function fixReversedClosingTags(html: string): string {
+  return html.replace(/<\s*([a-z][a-z0-9]*)\s*\/\s*>/gi, '</$1>')
+}
+
 function sanitize(html: string): string {
   if (typeof window === 'undefined') return ''
-  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+  const doc = new DOMParser().parseFromString(`<div>${fixReversedClosingTags(html)}</div>`, 'text/html')
   const root = doc.body.firstElementChild
   if (!root) return ''
 
