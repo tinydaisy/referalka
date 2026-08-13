@@ -22,6 +22,11 @@ export interface SourceMeta {
   options: string[]
   group: string
   operators: string[]
+  /** Годится ли разрез для показа квадратиком (списки, да/нет, числа). */
+  auto?: boolean
+  /** Из какой анкеты вопрос — чтобы не смешивать одинаковые вопросы. */
+  survey_id?: number | null
+  survey_title?: string | null
 }
 
 const OP_LABEL: Record<string, string> = {
