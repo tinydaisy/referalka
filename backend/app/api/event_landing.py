@@ -76,6 +76,43 @@ VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "pa
 REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text", "el_image"}
 
 
+# ⚠️ Списки полей вынесены в константы: их переиспользует конструктор
+# лендинга ПРОДУКТА (product_landing.py). Копия там разъехалась бы с
+# этой при добавлении новой настройки оформления.
+PAGE_PATCH_FIELDS: tuple = (
+        "is_published", "bg_color", "bg_color_2", "bg_angle", "bg_gradient", "bg_mode",
+        "bg_image_url", "bg_overlay", "bg_overlay_opacity",
+        "font_heading", "font_body", "color_heading", "heading_metallic",
+        "color_body", "color_link", "price_color",
+        "day_tab_color", "day_tab_text_color",
+        "btn_color", "btn_text_color", "btn_metallic",
+        "btn_color_2", "btn_angle", "btn_border_color",
+        "btn_border_width", "btn_border_metallic", "btn_radius",
+        "border_color", "border_metallic", "border_style",
+        "card_bg", "card_bg_opacity", "card_text_color",
+        "bg_position", "bg_position_mobile", "bg_scale", "bg_scale_mobile",
+        "icon_color", "icon_metallic", "radius",
+        "body_size", "content_width", "pad_x", "section_gap",
+        "nav_enabled", "nav_button_label", "nav_button_target",
+        "post_pay_title", "post_pay_text",
+    )
+
+BLOCK_PATCH_FIELDS: tuple = (
+        "admin_name", "title", "subtitle", "body", "button_label", "button_url", "is_active",
+        "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
+        "title_size", "title_align", "subtitle_size", "text_size",
+        "title_color", "title_metallic",
+        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source",
+        "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
+        "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
+        "overline", "overline_size", "hero_align",
+        "featured_glow",
+        "show_seats", "seats_position",
+        "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
+        "border_color", "border_width", "border_radius",
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Доступ
 # ─────────────────────────────────────────────────────────────────────────────
@@ -454,23 +491,7 @@ async def patch_page(
 
     fs = data.model_fields_set
     sets, vals = [], []
-    for field in (
-        "is_published", "bg_color", "bg_color_2", "bg_angle", "bg_gradient", "bg_mode",
-        "bg_image_url", "bg_overlay", "bg_overlay_opacity",
-        "font_heading", "font_body", "color_heading", "heading_metallic",
-        "color_body", "color_link", "price_color",
-        "day_tab_color", "day_tab_text_color",
-        "btn_color", "btn_text_color", "btn_metallic",
-        "btn_color_2", "btn_angle", "btn_border_color",
-        "btn_border_width", "btn_border_metallic", "btn_radius",
-        "border_color", "border_metallic", "border_style",
-        "card_bg", "card_bg_opacity", "card_text_color",
-        "bg_position", "bg_position_mobile", "bg_scale", "bg_scale_mobile",
-        "icon_color", "icon_metallic", "radius",
-        "body_size", "content_width", "pad_x", "section_gap",
-        "nav_enabled", "nav_button_label", "nav_button_target",
-        "post_pay_title", "post_pay_text",
-    ):
+    for field in PAGE_PATCH_FIELDS:
         if field not in fs:
             continue
         val = getattr(data, field)
@@ -611,20 +632,7 @@ async def patch_block(
 
     fs = data.model_fields_set
     sets, vals = [], []
-    for field in (
-        "admin_name", "title", "subtitle", "body", "button_label", "button_url", "is_active",
-        "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
-        "title_size", "title_align", "subtitle_size", "text_size",
-        "title_color", "title_metallic",
-        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source",
-        "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
-        "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
-        "overline", "overline_size", "hero_align",
-        "featured_glow",
-        "show_seats", "seats_position",
-        "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
-        "border_color", "border_width", "border_radius",
-    ):
+    for field in BLOCK_PATCH_FIELDS:
         if field not in fs:
             continue
         val = getattr(data, field)
