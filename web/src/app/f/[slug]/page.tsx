@@ -223,7 +223,15 @@ export default function PublicSurveyPage() {
     )
   }
 
-  const missingContacts = !contactId
+  // ⚠️ Спрашиваем ровно то, чего у нас НЕТ — по каждому полю отдельно.
+  // Раньше условие было «контакт неизвестен»: у пришедшего из бота поля не
+  // показывались вовсе, и если в базе лежал только Telegram, почта и телефон
+  // не собирались НИКОГДА — связаться с человеком потом было нечем.
+  // Известное не переспрашиваем: повторный ввод отпугивает.
+  const askName = !(data.known?.name || '').trim()
+  const askEmail = !(data.known?.email || '').trim()
+  const askPhone = !(data.known?.phone || '').trim()
+  const missingContacts = askName || askEmail || askPhone
 
   return (
     <Shell>
@@ -255,18 +263,24 @@ export default function PublicSurveyPage() {
           уже опознан, и повторный ввод отпугивает. */}
       {missingContacts && (
         <div className="mb-5 space-y-3">
+          {askName && (
           <Labeled label="Как вас зовут">
             <input className="fld" value={contact.name}
                    onChange={e => setContact({ ...contact, name: e.target.value })} />
           </Labeled>
+          )}
+          {askEmail && (
           <Labeled label="Почта">
             <input className="fld" type="email" value={contact.email}
                    onChange={e => setContact({ ...contact, email: e.target.value })} />
           </Labeled>
+          )}
+          {askPhone && (
           <Labeled label="Телефон">
             <input className="fld" value={contact.phone}
                    onChange={e => setContact({ ...contact, phone: e.target.value })} />
           </Labeled>
+          )}
         </div>
       )}
 
