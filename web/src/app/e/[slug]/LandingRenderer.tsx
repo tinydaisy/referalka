@@ -671,7 +671,10 @@ function Section({
   return (
     <section
       id={`lp-${block.kind}`}
-      className="relative scroll-mt-20"
+      /* ⚠️ `isolate` обязателен: секция создаёт свой контекст наложения.
+         Без него слой фона уезжает за пределы секции — под фон СТРАНИЦЫ — и
+         непрозрачная заливка корня закрывает его целиком. */
+      className="relative isolate scroll-mt-20"
       style={{
         ...sectionStyle,
         paddingLeft: padX, paddingRight: padX,
@@ -679,7 +682,12 @@ function Section({
       }}
     >
       {block.bg_image_url && (
-        <div className="absolute inset-0 -z-10 overflow-hidden"
+        // ⚠️ `-z-10` здесь стоять НЕ должен: он уводил картинку ЗА корень
+        // страницы, и при сплошной заливке корня (bg_mode='page') фон секции
+        // не было видно вовсе — клиент грузил фото и получал пустой экран
+        // (событие 88). Нулевой слой держит фон внутри секции: он под
+        // содержимым (оно ниже и поднято `relative z-10`), но над заливкой.
+        <div className="absolute inset-0 overflow-hidden"
              style={{ borderRadius: block.border_radius || undefined }}>
           <img src={block.bg_image_url} alt="" className="h-full w-full object-cover" />
           <div
@@ -692,7 +700,7 @@ function Section({
         </div>
       )}
 
-      <div className="mx-auto w-full" style={{ maxWidth: maxW ? maxW : undefined }}>
+      <div className="relative z-10 mx-auto w-full" style={{ maxWidth: maxW ? maxW : undefined }}>
         {twoCol ? (
           /* Две колонки: заголовок в одной, содержимое в другой.
              Пропорция динамическая (split_ratio), поэтому колонки задаются
