@@ -354,12 +354,15 @@ async def compute_tile(
                  f"WHERE ep.contact_id = c.id AND ep.event_id = {p.add(event_id)})"
     where += " AND " + build_filters_sql(filters, p)
 
+    # ⚠️ scope считаем ДО p.add(ref_id): запрос использует только `where`,
+    # а в p.values к тому моменту не должно быть лишних параметров —
+    # asyncpg строго сверяет их число с плейсхолдерами в SQL.
+    scope = await db.fetchval(
+        f"SELECT COUNT(*) FROM contacts c WHERE {where}", *p.values) or 0
+
     from_sql, bind_tpl, col = _value_expr(source)
     bind = bind_tpl.format(ref=p.add(ref_id))
     alias = "a" if source == "question" else "v"
-
-    scope = await db.fetchval(
-        f"SELECT COUNT(*) FROM contacts c WHERE {where}", *p.values) or 0
 
     answered = await db.fetchval(
         f"""SELECT COUNT(*) FROM contacts c
