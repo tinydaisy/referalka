@@ -224,6 +224,9 @@ export default function LeadMagnetsPage() {
         })}
       </div>
 
+      {/* Одно предупреждение на всю страницу — там, где показываются ссылки. */}
+      {(tab === 'magnets' || tab === 'packages') && <VkModerationNotice />}
+
       {tab === 'magnets' && <MagnetsList />}
       {tab === 'packages' && <PackagesList />}
       {tab === 'template' && <TemplateEditor />}
@@ -1334,23 +1337,45 @@ function PlatformShareLinks({ kind, slug, links, name, blocked }: {
       </div>
     )
   }
-  const hasVk = available.includes('vk')
+  // ⚠️ Предупреждение про VK — ОДНО наверху страницы (`VkModerationNotice`),
+  // а не под каждым лид-магнитом: у клиента их десятки, и повторённая
+  // плашка превращалась в шум, который перестают читать.
   return (
     <div className="flex flex-col gap-1">
       {available.map(p => (
         <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} name={name} />
       ))}
-      {hasVk && (
-        <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-0.5 leading-snug">
-          ⚠️ <b>VK-ссылка работает стабильно только когда ваше Mini App прошло модерацию VK.</b>{' '}
-          Пока приложение «не проверено», при первом переходе человек видит экран «Запустить», и после
-          нажатия открывается список событий вместо подарка (VK теряет ссылку на лид-магнит).
-          Отправьте приложение на модерацию в <a href="https://dev.vk.com" target="_blank" rel="noreferrer" className="underline font-medium">dev.vk.com</a> → Настройки → «Отправить на модерацию».{' '}
-          <a href="/dashboard/help/vk-setup" target="_blank" rel="noreferrer" className="underline font-medium">Как это сделать →</a>
-        </div>
-      )}
       <div className="mt-1">
         <CopyAllLinksButton links={resolved} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Одно предупреждение про VK на всю страницу.
+ *
+ * ⚠️ Текст переписан: старый требовал «отправьте приложение на модерацию»
+ * так, будто это делает читатель ссылки. Модерация — забота ВЛАДЕЛЬЦА
+ * кабинета, а человек, которому дали ссылку, повлиять на неё не может.
+ * Поэтому по сути важно другое: пока модерации нет, ссылка срабатывает
+ * не с первого раза.
+ */
+function VkModerationNotice() {
+  return (
+    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-snug text-amber-900">
+      <b>Про ссылки ВКонтакте.</b> Пока ваше Mini App не прошло модерацию VK,
+      человек при первом переходе видит экран «Запустить» — и после нажатия
+      попадает в список событий, а не на подарок: ссылку VK на этом шаге
+      теряет. Со второго перехода всё работает как надо.
+      <div className="mt-1.5">
+        Это лечится один раз и сразу для всех ссылок — отправьте приложение на
+        модерацию:{' '}
+        <a href="https://dev.vk.com" target="_blank" rel="noreferrer"
+           className="font-medium underline">dev.vk.com</a> → Настройки →
+        «Отправить на модерацию».{' '}
+        <a href="/dashboard/help/vk-setup" target="_blank" rel="noreferrer"
+           className="font-medium underline">Как это сделать →</a>
       </div>
     </div>
   )
