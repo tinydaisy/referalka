@@ -4,6 +4,7 @@ import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil
 import { api } from '@/lib/api'
 import MediaAssetsField from '@/components/MediaAssetsField'
 import SafeHtml from '@/components/SafeHtml'
+import RichTextEditor from '@/components/RichTextEditor'
 
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
