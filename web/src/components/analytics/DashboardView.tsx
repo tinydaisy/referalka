@@ -13,6 +13,7 @@
  * 200 тысяч» — видно, кто из платёжеспособных готов покупать.
  */
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { api } from '@/lib/api'
 import ConditionBuilder, { SourceMeta, emptyTree } from './ConditionBuilder'
 
@@ -29,14 +30,29 @@ interface Card {
   filters: any
   hide_absolute: boolean
   hide_percent: boolean
+  view?: 'list' | 'tile'
+  option_value?: string | null
+  survey_title?: string | null
   scope?: number
   answered?: number
+  count?: number          // вид 'tile' — цифра плитки
+  percent?: number
   breakdown?: { option: string; count: number; percent: number }[]
+  breakdown_hidden?: number
   avg?: number | null
   min?: number | null
   max?: number | null
   missing?: boolean
   error?: string
+}
+
+/** «человек / человека / человек» */
+function plural(n: number): string {
+  const a = Math.abs(n) % 100, b = a % 10
+  if (a > 10 && a < 20) return 'человек'
+  if (b > 1 && b < 5) return 'человека'
+  if (b === 1) return 'человек'
+  return 'человек'
 }
 
 /** Сколько условий в дереве — для подписи на карточке. */
@@ -46,6 +62,92 @@ function countConditions(node: any): number {
     return node.items.reduce((s: number, it: any) => s + countConditions(it), 0)
   }
   return node.ref_id ? 1 : 0
+}
+
+/** Кто эти люди — список за цифрой, с выгрузкой в CSV. */
+function PeopleModal({ dashId, cardId, option, title, onClose }: {
+  dashId: number
+  cardId: number
+  option?: string | null
+  title: string
+  onClose: () => void
+}) {
+  const [data, setData] = useState<any>(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    api.analytics.cardPeople(dashId, cardId, option || undefined)
+      .then(r => { if (alive) setData(r) })
+      .catch(e => { if (alive) setErr(e?.message || 'Не удалось загрузить') })
+    return () => { alive = false }
+  }, [dashId, cardId, option])
+
+  const download = async () => {
+    const blob = await api.analytics.cardPeopleCsv(dashId, cardId, option || undefined)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'люди.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    // ⚠️ Оверлей без onClick — модалка закрывается только крестиком/кнопкой
+    // (правило проекта: клик мимо окна не закрывает).
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div onClick={e => e.stopPropagation()}
+           className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl bg-white p-5">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-semibold text-[#25455D]">{title}</div>
+            {data && <div className="text-sm text-gray-500">{data.total} {plural(data.total)}</div>}
+          </div>
+          <button onClick={onClose} className="shrink-0 text-gray-400 hover:text-gray-700">✕</button>
+        </div>
+
+        {err && <div className="text-sm text-red-600">{err}</div>}
+        {!data && !err && <div className="py-6 text-center text-gray-400">Загрузка…</div>}
+
+        {data && (
+          <>
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-100">
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-gray-50">
+                  {data.people.map((p: any) => (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2">
+                        <Link href={`/dashboard/clients?search=${encodeURIComponent(p.email || p.name || String(p.id))}`}
+                              className="text-[#25455D] hover:underline">
+                          {p.name || 'Без имени'}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500">{p.email || ''}</td>
+                      <td className="px-3 py-2 text-gray-500">{p.phone || ''}</td>
+                      <td className="px-3 py-2 text-gray-500">{p.telegram ? '@' + p.telegram : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {data.people.length < data.total && (
+                <div className="px-3 py-2 text-xs text-gray-400">
+                  Показаны первые {data.people.length}. Полный список — в выгрузке.
+                </div>
+              )}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button onClick={download} className="btn-gold px-3 py-1.5 text-sm">
+                Скачать CSV
+              </button>
+              <button onClick={onClose}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">
+                Закрыть
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
@@ -59,6 +161,8 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
   const [open, setOpen] = useState(false)
   const [filters, setFilters] = useState<any>(card.filters || emptyTree())
   const [saving, setSaving] = useState(false)
+  // Какой вариант смотрим списком людей: строка = вариант, '' = все ответившие.
+  const [people, setPeople] = useState<string | null>(null)
 
   useEffect(() => { setFilters(card.filters || emptyTree()) }, [card.filters])
 
@@ -91,14 +195,25 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
           >⠿</span>
         )}
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-[#25455D]" title={card.title}>
-            {card.title}
+          {/* У плитки в заголовке — сам вариант («200-300 т.р.»), а название
+              вопроса уходит подписью: так плитка читается как в GetCourse. */}
+          <div className="truncate font-semibold text-[#25455D]"
+               title={card.option_value || card.title}>
+            {card.view === 'tile' ? (card.option_value || card.title) : card.title}
           </div>
-          {condCount > 0 && (
-            <div className="mt-0.5 text-xs" style={{ color: DARK }}>
-              с условиями: {condCount}
-            </div>
-          )}
+          <div className="mt-0.5 space-y-0.5 text-xs text-gray-400">
+            {card.view === 'tile' && (
+              <div className="truncate" title={card.title}>{card.title}</div>
+            )}
+            {/* Из какой анкеты вопрос — иначе четыре одинаковых
+                «Готовы выступать спикером?» не различить. */}
+            {card.survey_title && (
+              <div className="truncate" title={card.survey_title}>{card.survey_title}</div>
+            )}
+            {condCount > 0 && (
+              <div style={{ color: DARK }}>с условиями: {condCount}</div>
+            )}
+          </div>
         </div>
         {!readOnly && (
           <div className="flex shrink-0 gap-1">
@@ -121,14 +236,30 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
         <div className="rounded-lg bg-red-50 p-2 text-xs text-red-600">{card.error}</div>
       )}
 
-      {!card.missing && !card.error && (
+      {/* ── Плитка-цифра: один вариант, одна крупная цифра ── */}
+      {!card.missing && !card.error && card.view === 'tile' && (
+        <button onClick={() => setPeople(card.option_value || null)}
+                className="group flex flex-1 flex-col items-center justify-center py-2 text-center">
+          <div className="text-4xl font-bold tabular-nums text-[#25455D] group-hover:underline">
+            {card.count ?? 0}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-500">
+            {plural(card.count ?? 0)}
+            {!card.hide_percent && card.answered
+              ? ` · ${card.percent}%` : ''}
+          </div>
+        </button>
+      )}
+
+      {!card.missing && !card.error && card.view !== 'tile' && (
         <>
           {/* ⚠️ Знаменатель процентов — ОТВЕТИВШИЕ, а не все прошедшие условия.
               Молчащий человек не «против», он неизвестен. Показываем обе
               цифры, чтобы была видна полнота разреза. */}
-          <div className="mb-2 text-xs text-gray-500">
+          <button onClick={() => setPeople('')}
+                  className="mb-2 text-left text-xs text-gray-500 hover:text-[#25455D] hover:underline">
             ответили {card.answered ?? 0} из {card.scope ?? 0}
-          </div>
+          </button>
 
           {typeof card.avg === 'number' && (
             <div className="mb-2 rounded-lg bg-gray-50 p-2 text-sm">
@@ -144,9 +275,12 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
               <div className="text-sm text-gray-400">Нет данных</div>
             )}
             {(card.breakdown || []).map(b => (
-              <div key={b.option}>
+              // Клик по строке — «кто эти люди».
+              <button key={b.option} onClick={() => setPeople(b.option)}
+                      className="group block w-full text-left">
                 <div className="flex items-baseline justify-between gap-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate" title={b.option}>{b.option}</span>
+                  <span className="min-w-0 flex-1 truncate group-hover:underline"
+                        title={b.option}>{b.option}</span>
                   <span className="shrink-0 tabular-nums text-gray-600">
                     {!card.hide_absolute && <b className="text-[#25455D]">{b.count}</b>}
                     {!card.hide_absolute && !card.hide_percent && ' · '}
@@ -157,8 +291,14 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
                   <div className="h-1.5 rounded"
                        style={{ width: `${Math.round(b.count * 100 / maxCount)}%`, background: PEACH }} />
                 </div>
-              </div>
+              </button>
             ))}
+            {card.breakdown_hidden && (
+              <div className="text-xs text-gray-400">
+                {card.breakdown_hidden} разных значений — показаны средние.
+                Нажмите «ответили N», чтобы увидеть людей.
+              </div>
+            )}
           </div>
         </>
       )}
@@ -195,6 +335,134 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
           </div>
         </div>
       )}
+
+      {people !== null && (
+        <PeopleModal
+          dashId={dashId} cardId={card.id} option={people}
+          title={people ? `${card.title} — ${people}` : card.title}
+          onClose={() => setPeople(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Выбор полей для дашборда.
+ *
+ * ⚠️ Раньше кнопка «Собрать автоматически» тащила ВСЕ разрезы разом — и
+ * плодила по четыре одинаковых «Готовы выступать спикером?» (один вопрос
+ * заведён в каждой анкете) плюс числовые с бесполезной россыпью. Владелец:
+ * «мне не нужны лишние поля — нужно то, что нужно мне».
+ * Поэтому: сначала ОТКУДА (поля контакта / конкретная анкета), потом
+ * галочки ровно на нужных вопросах.
+ */
+function PickFieldsModal({ sources, used, onClose, onAdd }: {
+  sources: SourceMeta[]
+  used: Set<string>
+  onClose: () => void
+  onAdd: (keys: string[], view: 'tile' | 'list') => Promise<void>
+}) {
+  const groups = Array.from(new Set(sources.map(s => s.group)))
+  const [group, setGroup] = useState(groups[0] || '')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [view, setView] = useState<'tile' | 'list'>('tile')
+  const [busy, setBusy] = useState(false)
+
+  // Показываем только то, что имеет смысл рисовать: списки, да/нет, числа.
+  const items = sources.filter(s => s.group === group && s.auto && !used.has(s.key))
+
+  const toggle = (k: string) => {
+    const next = new Set(picked)
+    next.has(k) ? next.delete(k) : next.add(k)
+    setPicked(next)
+  }
+
+  const submit = async () => {
+    if (!picked.size) return
+    setBusy(true)
+    try { await onAdd([...picked], view); onClose() }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div onClick={e => e.stopPropagation()}
+           className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-white p-5">
+        <div className="mb-3 flex items-start justify-between">
+          <div>
+            <div className="font-semibold text-[#25455D]">Какие поля показать</div>
+            <div className="text-xs text-gray-500">
+              Отметьте только то, что хотите видеть на дашборде.
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">✕</button>
+        </div>
+
+        {/* Откуда берём: поля контакта или конкретная анкета. */}
+        <div className="mb-3">
+          <label className="mb-1 block text-xs text-gray-500">Откуда</label>
+          <select value={group} onChange={e => { setGroup(e.target.value); setPicked(new Set()) }}
+                  className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+            {groups.map(g => {
+              const n = sources.filter(s => s.group === g && s.auto && !used.has(s.key)).length
+              return <option key={g} value={g}>{g} ({n})</option>
+            })}
+          </select>
+        </div>
+
+        <div className="mb-3 flex items-center gap-2 text-xs">
+          <span className="text-gray-500">Вид:</span>
+          <button onClick={() => setView('tile')}
+                  className={`rounded px-2 py-1 ${view === 'tile' ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                  style={view === 'tile' ? { background: DARK } : undefined}>
+            квадратики с цифрами
+          </button>
+          <button onClick={() => setView('list')}
+                  className={`rounded px-2 py-1 ${view === 'list' ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                  style={view === 'list' ? { background: DARK } : undefined}>
+            одна карточка со списком
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-xl border border-gray-100 p-2">
+          {!items.length && (
+            <div className="p-4 text-center text-sm text-gray-400">
+              Здесь всё уже добавлено.
+            </div>
+          )}
+          {items.map(s => (
+            <label key={s.key}
+                   className="flex cursor-pointer items-start gap-2 rounded-lg p-2 text-sm hover:bg-gray-50">
+              <input type="checkbox" className="mt-0.5"
+                     checked={picked.has(s.key)} onChange={() => toggle(s.key)} />
+              <span className="min-w-0 flex-1">
+                <span className="block">{s.title}</span>
+                <span className="text-xs text-gray-400">
+                  {s.kind === 'bool' ? 'да / нет'
+                    : s.options?.length ? `${s.options.length} вариантов`
+                    : 'число'}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={submit} disabled={!picked.size || busy}
+                  className="btn-gold px-4 py-2 text-sm disabled:opacity-50">
+            {busy ? 'Добавляю…' : `Добавить (${picked.size})`}
+          </button>
+          <button onClick={() => setPicked(new Set(items.map(s => s.key)))}
+                  className="text-xs text-gray-500 hover:text-[#25455D]">
+            отметить все
+          </button>
+          <button onClick={onClose}
+                  className="ml-auto rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600">
+            Отмена
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -210,7 +478,7 @@ export default function DashboardView({ eventId, readOnly = false }: {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const [adding, setAdding] = useState('')
+  const [picking, setPicking] = useState(false)
   const [dragId, setDragId] = useState<number | null>(null)
   // Карточка, на ручке которой сейчас мышь — только её можно тащить.
   const [handleId, setHandleId] = useState<number | null>(null)
@@ -285,22 +553,9 @@ export default function DashboardView({ eventId, readOnly = false }: {
     else { setActiveId(null); setCards([]) }
   }
 
-  const autofill = async () => {
+  const addPicked = async (keys: string[], view: 'tile' | 'list') => {
     if (!activeId) return
-    setBusy(true)
-    try {
-      const r = await api.analytics.autofill(activeId)
-      await loadCards(activeId)
-      if (!r.added) alert('Все подходящие разрезы уже добавлены.')
-    } finally { setBusy(false) }
-  }
-
-  const addCard = async (key: string) => {
-    if (!activeId || !key) return
-    const s = sources.find(x => x.key === key)
-    if (!s) return
-    setAdding('')
-    await api.analytics.addCard(activeId, { source: s.source, ref_id: s.ref_id })
+    await api.analytics.autofill(activeId, keys, view)
     await loadCards(activeId)
   }
 
@@ -324,10 +579,8 @@ export default function DashboardView({ eventId, readOnly = false }: {
   if (loading) return <div className="p-6 text-gray-500">Загрузка…</div>
   if (err) return <div className="p-6 text-red-600">{err}</div>
 
+  // Что уже на дашборде — чтобы не предлагать повторно.
   const used = new Set(cards.map(c => c.key))
-  const free = sources.filter(s => !used.has(s.key))
-  const groups: Record<string, SourceMeta[]> = {}
-  free.forEach(s => { (groups[s.group] ||= []).push(s) })
 
   return (
     <div className="space-y-4">
@@ -368,19 +621,9 @@ export default function DashboardView({ eventId, readOnly = false }: {
         <>
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 pb-3">
-              <button onClick={autofill} disabled={busy} className="btn-gold px-3 py-1.5 text-sm">
-                {busy ? 'Собираю…' : 'Собрать автоматически'}
+              <button onClick={() => setPicking(true)} className="btn-gold px-3 py-1.5 text-sm">
+                + Выбрать поля
               </button>
-
-              <select value={adding} onChange={e => addCard(e.target.value)}
-                      className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-                <option value="">+ добавить квадратик…</option>
-                {Object.entries(groups).map(([g, items]) => (
-                  <optgroup key={g} label={g}>
-                    {items.map(s => <option key={s.key} value={s.key}>{s.title}</option>)}
-                  </optgroup>
-                ))}
-              </select>
 
               <div className="ml-auto flex gap-2 text-sm">
                 <button onClick={renameDashboard} className="text-gray-500 hover:text-[#25455D]">
@@ -394,9 +637,15 @@ export default function DashboardView({ eventId, readOnly = false }: {
           )}
 
           {!cards.length ? (
-            <div className="rounded-2xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-              Квадратиков нет. Нажмите «Собрать автоматически» — добавятся все
-              выпадающие списки и числовые поля.
+            <div className="rounded-2xl border border-dashed border-gray-300 p-8 text-center">
+              <div className="mb-3 text-sm text-gray-500">
+                Пусто. Выберите поля, которые хотите видеть.
+              </div>
+              {!readOnly && (
+                <button onClick={() => setPicking(true)} className="btn-gold px-4 py-2">
+                  + Выбрать поля
+                </button>
+              )}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -419,6 +668,11 @@ export default function DashboardView({ eventId, readOnly = false }: {
             </div>
           )}
         </>
+      )}
+
+      {picking && activeId && (
+        <PickFieldsModal sources={sources} used={used}
+                         onClose={() => setPicking(false)} onAdd={addPicked} />
       )}
     </div>
   )

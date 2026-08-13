@@ -10,10 +10,12 @@
 ⚠️ Дашбордов у клиента МНОГО (решение владельца) — «Портрет базы», «Кто
 готов покупать» и т.п. Поэтому это список, а не единственная запись.
 """
+import csv
+import io
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from app.auth import get_current_client
@@ -21,7 +23,9 @@ from app.database import get_db
 from app.services.analytics_cards import (
     AUTO_KINDS,
     OPERATORS_BY_KIND,
+    card_people,
     compute_card,
+    compute_tile,
     resolve_sources,
 )
 from app.services.assistant_access import assistant_is_restricted
@@ -77,6 +81,9 @@ class CardIn(BaseModel):
     filters: Optional[Any] = None
     hide_absolute: Optional[bool] = None
     hide_percent: Optional[bool] = None
+    # 'list' — карточка со всеми вариантами, 'tile' — одна крупная цифра.
+    view: Optional[str] = None
+    option_value: Optional[str] = None
 
 
 # ── Справочник разрезов ───────────────────────────────────────────────────
@@ -220,17 +227,93 @@ async def get_dashboard(
 
         item["kind"] = meta["kind"]
         item["options"] = meta["options"]
+        item["view"] = r["view"]
+        item["option_value"] = r["option_value"]
+        # Из какой анкеты вопрос — иначе четыре одинаковых «Готовы выступать
+        # спикером?» на дашборде не различить.
+        item["survey_title"] = meta.get("survey_title")
         try:
-            item.update(await compute_card(
-                db, client_id=client_id, source=r["source"], ref_id=r["ref_id"],
-                filters=r["filters"], event_id=dash["event_id"], meta=meta,
-            ))
+            if r["view"] == "tile":
+                item.update(await compute_tile(
+                    db, client_id=client_id, source=r["source"], ref_id=r["ref_id"],
+                    filters=r["filters"], option=r["option_value"],
+                    event_id=dash["event_id"],
+                ))
+            else:
+                item.update(await compute_card(
+                    db, client_id=client_id, source=r["source"], ref_id=r["ref_id"],
+                    filters=r["filters"], event_id=dash["event_id"], meta=meta,
+                ))
         except Exception as e:                      # noqa: BLE001
             # Один битый квадратик не должен обрушить весь дашборд.
             item["error"] = str(e)[:200]
         cards.append(item)
 
     return {"dashboard": dash, "cards": cards}
+
+
+@router.get("/dashboards/{dashboard_id}/cards/{card_id}/people",
+            summary="Кто эти люди — за цифрой в квадратике")
+async def card_people_list(
+    dashboard_id: int, card_id: int,
+    option: Optional[str] = Query(default=None, description="Конкретный вариант ответа"),
+    limit: int = Query(default=200), offset: int = Query(default=0),
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Список людей за цифрой. Считается ТЕМИ ЖЕ правилами, что и сама цифра."""
+    client_id = int(client["sub"])
+    dash = await _get_dashboard(db, dashboard_id, client_id)
+    row = await db.fetchrow(
+        "SELECT * FROM analytics_cards WHERE id = $1 AND dashboard_id = $2",
+        card_id, dashboard_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Квадратик не найден")
+
+    return await card_people(
+        db, client_id=client_id, source=row["source"], ref_id=row["ref_id"],
+        filters=row["filters"], event_id=dash["event_id"], option=option,
+        limit=limit, offset=offset,
+    )
+
+
+@router.get("/dashboards/{dashboard_id}/cards/{card_id}/people.csv",
+            summary="Выгрузить этих людей в CSV")
+async def card_people_csv(
+    dashboard_id: int, card_id: int,
+    option: Optional[str] = Query(default=None),
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    client_id = int(client["sub"])
+    dash = await _get_dashboard(db, dashboard_id, client_id)
+    row = await db.fetchrow(
+        "SELECT * FROM analytics_cards WHERE id = $1 AND dashboard_id = $2",
+        card_id, dashboard_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Квадратик не найден")
+
+    data = await card_people(
+        db, client_id=client_id, source=row["source"], ref_id=row["ref_id"],
+        filters=row["filters"], event_id=dash["event_id"], option=option,
+        limit=5000,
+    )
+
+    # ⚠️ Разделитель «;» и BOM — иначе Excel открывает кириллицу кракозябрами
+    # и сваливает всё в один столбец (как в остальных выгрузках проекта).
+    out = io.StringIO()
+    out.write("﻿")
+    w = csv.writer(out, delimiter=";")
+    w.writerow(["ID", "Имя", "Email", "Телефон", "Telegram"])
+    for p in data["people"]:
+        w.writerow([p["id"], p["name"] or "", p["email"] or "",
+                    p["phone"] or "", ("@" + p["telegram"]) if p["telegram"] else ""])
+
+    return Response(
+        content=out.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="people-{card_id}.csv"'},
+    )
 
 
 @router.post("/dashboards/{dashboard_id}/cards", summary="Добавить квадратик")
@@ -252,14 +335,17 @@ async def create_card(
     row = await db.fetchrow(
         """INSERT INTO analytics_cards
              (dashboard_id, source, ref_id, title, filters,
-              hide_absolute, hide_percent, sort_order)
-           VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,
+              hide_absolute, hide_percent, view, option_value, survey_id, sort_order)
+           VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,
                    COALESCE((SELECT MAX(sort_order) + 10 FROM analytics_cards
                               WHERE dashboard_id = $1), 0))
            RETURNING *""",
         dashboard_id, source, data.ref_id, (data.title or "").strip() or None,
         json.dumps(data.filters or {}),
         bool(data.hide_absolute), bool(data.hide_percent),
+        "tile" if data.view == "tile" else "list",
+        data.option_value,
+        sources[f"{source}:{data.ref_id}"].get("survey_id"),
     )
     return dict(row)
 
@@ -350,14 +436,18 @@ async def reorder_cards(
     return {"ok": True}
 
 
-@router.post("/dashboards/{dashboard_id}/autofill", summary="Собрать квадратики автоматически")
+@router.post("/dashboards/{dashboard_id}/autofill", summary="Добавить квадратики по выбранным полям")
 async def autofill(
-    dashboard_id: int, client=Depends(get_current_client), db=Depends(get_db),
+    dashboard_id: int, data: dict | None = None,
+    client=Depends(get_current_client), db=Depends(get_db),
 ):
-    """Создаёт квадратики по всем подходящим разрезам разом.
+    """Добавляет квадратики пачкой.
 
-    ⚠️ Только выпадающие списки и числовые (решение владельца): у свободного
-    текста почти все ответы уникальны, полоски по одному человеку — мусор.
+    ⚠️ `keys` — какие именно разрезы добавить ('field:3', 'question:24').
+    Клиент выбирает поля сам галочками: «а можно нагенерить сразу по полям».
+    Без `keys` берём все подходящие — но UI так больше не делает: без выбора
+    натаскивалось 30 квадратиков подряд, включая числовые с бесполезной
+    россыпью «21 — 1 человек, 22 — 1 человек».
 
     Уже добавленные разрезы пропускаем — повторный вызов не плодит дубли.
     """
@@ -367,11 +457,18 @@ async def autofill(
     await _assert_feature(db, client_id)
     await _get_dashboard(db, dashboard_id, client_id)
 
+    wanted = (data or {}).get("keys")
+    wanted_set = {str(k) for k in wanted} if isinstance(wanted, list) else None
+    view = "tile" if (data or {}).get("view") == "tile" else "list"
+
     sources = await resolve_sources(db, client_id)
+    # Дубли ловим по (разрез + вид + вариант): у плиток на один разрез
+    # приходится несколько строк, по одной на вариант.
     existing = {
-        f"{r['source']}:{r['ref_id']}"
+        (f"{r['source']}:{r['ref_id']}", r["view"], r["option_value"])
         for r in await db.fetch(
-            "SELECT source, ref_id FROM analytics_cards WHERE dashboard_id = $1",
+            """SELECT source, ref_id, view, option_value
+                 FROM analytics_cards WHERE dashboard_id = $1""",
             dashboard_id,
         )
     }
@@ -384,14 +481,52 @@ async def autofill(
     added = 0
     async with db.transaction():
         for key, meta in sources.items():
-            if key in existing or meta["kind"] not in AUTO_KINDS:
+            if wanted_set is not None:
+                if key not in wanted_set:
+                    continue
+            elif meta["kind"] not in AUTO_KINDS:
                 continue
-            added += 1
-            await db.execute(
-                """INSERT INTO analytics_cards
-                     (dashboard_id, source, ref_id, sort_order)
-                   VALUES ($1, $2, $3, $4)""",
-                dashboard_id, meta["source"], meta["ref_id"], base + added * 10,
-            )
+
+            # ⚠️ Плитки: по квадратику на КАЖДЫЙ вариант — это и есть
+            # «квадратик с цифрой» из GetCourse. У «да/нет» вариантов в
+            # options нет, подставляем их явно; у числовых плитки не имеют
+            # смысла (значений десятки) — там остаётся список.
+            if view == "tile":
+                opts = meta["options"] or (["Да", "Нет"] if meta["kind"] == "bool" else [])
+                if not opts:
+                    if (key, "list", None) in existing:
+                        continue
+                    added += 1
+                    await db.execute(
+                        """INSERT INTO analytics_cards
+                             (dashboard_id, source, ref_id, sort_order, view, survey_id)
+                           VALUES ($1,$2,$3,$4,'list',$5)""",
+                        dashboard_id, meta["source"], meta["ref_id"],
+                        base + added * 10, meta.get("survey_id"),
+                    )
+                    continue
+                for opt in opts:
+                    if (key, "tile", opt) in existing:
+                        continue
+                    added += 1
+                    await db.execute(
+                        """INSERT INTO analytics_cards
+                             (dashboard_id, source, ref_id, sort_order,
+                              view, option_value, survey_id)
+                           VALUES ($1,$2,$3,$4,'tile',$5,$6)""",
+                        dashboard_id, meta["source"], meta["ref_id"],
+                        base + added * 10, opt, meta.get("survey_id"),
+                    )
+            else:
+                if (key, "list", None) in existing:
+                    continue
+                added += 1
+                await db.execute(
+                    """INSERT INTO analytics_cards
+                         (dashboard_id, source, ref_id, sort_order, view, survey_id)
+                       VALUES ($1,$2,$3,$4,'list',$5)""",
+                    dashboard_id, meta["source"], meta["ref_id"],
+                    base + added * 10, meta.get("survey_id"),
+                )
 
     return {"ok": True, "added": added}

@@ -797,8 +797,31 @@ export const api = {
       request(`/api/v1/analytics/dashboards/${dashId}/cards/${cardId}`, { method: 'DELETE' }),
     reorderCards: (dashId: number, ids: number[]) =>
       request(`/api/v1/analytics/dashboards/${dashId}/cards/reorder`, { method: 'POST', body: JSON.stringify({ ids }) }),
-    autofill: (dashId: number) =>
-      request(`/api/v1/analytics/dashboards/${dashId}/autofill`, { method: 'POST' }),
+    // keys — какие именно разрезы добавить ('field:3'); view='tile' создаёт
+    // по квадратику-цифре на каждый вариант ответа.
+    autofill: (dashId: number, keys?: string[], view?: 'tile' | 'list') =>
+      request(`/api/v1/analytics/dashboards/${dashId}/autofill`, {
+        method: 'POST', body: JSON.stringify({ ...(keys ? { keys } : {}), ...(view ? { view } : {}) }),
+      }),
+    // Кто эти люди — за цифрой в квадратике.
+    cardPeople: (dashId: number, cardId: number, option?: string, limit = 200) => {
+      const qs = new URLSearchParams()
+      if (option) qs.set('option', option)
+      qs.set('limit', String(limit))
+      return request(`/api/v1/analytics/dashboards/${dashId}/cards/${cardId}/people?${qs}`)
+    },
+    // ⚠️ Через fetch с токеном в заголовке, а не ссылкой: эндпоинт требует
+    // авторизации, обычный <a href> ушёл бы без неё и получил 401.
+    cardPeopleCsv: async (dashId: number, cardId: number, option?: string) => {
+      const token = getToken()
+      const qs = option ? `?option=${encodeURIComponent(option)}` : ''
+      const res = await fetch(
+        `${API_URL}/api/v1/analytics/dashboards/${dashId}/cards/${cardId}/people.csv${qs}`,
+        { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } },
+      )
+      if (!res.ok) throw new Error('Ошибка экспорта')
+      return res.blob()
+    },
   },
   leadMagnets: {
     list: () => request('/api/v1/lead-magnets'),

@@ -56,6 +56,11 @@ _IS_NUMERIC = "{col} ~ '^-?[0-9]+(\\.[0-9]+)?$'"
 
 _MAX_DEPTH = 5   # глубина вложенности групп условий — защита от зацикливания
 
+# Сколько различных значений у числового разреза ещё имеет смысл рисовать
+# полосками. Больше — показываем только среднее и размах (у «Сколько вам лет»
+# иначе получается список из полусотни строк по одному человеку).
+_NUMERIC_BREAKDOWN_LIMIT = 15
+
 
 def _jsonb(value: Any) -> Any:
     """asyncpg отдаёт JSONB строкой — разворачиваем."""
@@ -227,9 +232,12 @@ async def resolve_sources(db, client_id: int) -> dict[int | str, dict]:
             "group": "Поля контакта",
         }
 
+    # ⚠️ Один и тот же вопрос («Готовы выступать спикером?») заведён в КАЖДОЙ
+    # анкете отдельной строкой. Поэтому разрез всегда несёт `survey_id` и
+    # название анкеты: считаем в рамках одной анкеты, не смешивая аудитории.
     questions = await db.fetch(
         """SELECT q.id, q.title, q.kind, q.options, q.scale_min, q.scale_max,
-                  s.title AS survey_title
+                  s.id AS survey_id, s.title AS survey_title
              FROM survey_questions q
              JOIN surveys s ON s.id = q.survey_id
             WHERE s.client_id = $1
@@ -242,9 +250,148 @@ async def resolve_sources(db, client_id: int) -> dict[int | str, dict]:
             "kind": q["kind"], "options": _jsonb(q["options"]) or [],
             "scale_min": q["scale_min"], "scale_max": q["scale_max"],
             "group": q["survey_title"] or "Анкета",
+            "survey_id": q["survey_id"], "survey_title": q["survey_title"],
         }
 
     return out
+
+
+async def card_people(
+    db, *, client_id: int, source: str, ref_id: int, filters: Any,
+    event_id: int | None = None, option: str | None = None,
+    limit: int = 1000, offset: int = 0,
+) -> dict:
+    """Кто эти люди — за цифрой в квадратике.
+
+    ⚠️ Считает ПО ТЕМ ЖЕ правилам, что и сама цифра (те же условия, тот же
+    разворот мультиселекта). Иначе список разошёлся бы с числом, на которое
+    человек нажал, и доверять дашборду стало бы нельзя.
+
+    `option` — конкретный вариант («Эксперт/консультант»); пусто → все
+    ответившие на разрез.
+    """
+    p = _Params([client_id])
+    where = "c.client_id = $1 AND c.is_active = TRUE"
+
+    if event_id:
+        where += f" AND EXISTS (SELECT 1 FROM event_participants ep " \
+                 f"WHERE ep.contact_id = c.id AND ep.event_id = {p.add(event_id)})"
+
+    where += " AND " + build_filters_sql(filters, p)
+
+    from_sql, bind_tpl, col = _value_expr(source)
+    bind = bind_tpl.format(ref=p.add(ref_id))
+    alias = "a" if source == "question" else "v"
+
+    if option:
+        # Тот же разворот массива, что в разбивке — иначе человек с
+        # несколькими вариантами («Эксперт, Предприниматель») не нашёлся бы.
+        opt = p.add(option)
+        match = f"""
+            EXISTS (
+              SELECT 1 {from_sql} WHERE {bind} AND EXISTS (
+                SELECT 1 FROM (
+                  SELECT jsonb_array_elements_text({alias}.value_json) AS one
+                   WHERE jsonb_typeof({alias}.value_json) = 'array'
+                  UNION ALL
+                  SELECT {col} AS one
+                   WHERE {alias}.value_json IS NULL
+                      OR jsonb_typeof({alias}.value_json) <> 'array'
+                ) y WHERE y.one = {opt}
+              )
+            )"""
+    else:
+        match = f"EXISTS (SELECT 1 {from_sql} WHERE {bind} AND COALESCE({col},'') <> '')"
+
+    where += f" AND {match}"
+
+    total = await db.fetchval(
+        f"SELECT COUNT(*) FROM contacts c WHERE {where}", *p.values) or 0
+
+    lim = p.add(max(1, min(limit, 5000)))
+    off = p.add(max(0, offset))
+    rows = await db.fetch(
+        f"""SELECT c.id, c.name, c.phone,
+                   (SELECT pe.platform_user_id FROM platform_users pe
+                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                     ORDER BY pe.id LIMIT 1) AS email,
+                   (SELECT pt.username FROM platform_users pt
+                     WHERE pt.contact_id = c.id AND pt.platform_slug = 'telegram'
+                       AND COALESCE(pt.username,'') <> ''
+                     ORDER BY pt.id LIMIT 1) AS telegram
+              FROM contacts c
+             WHERE {where}
+             ORDER BY c.id DESC
+             LIMIT {lim} OFFSET {off}""",
+        *p.values,
+    )
+
+    return {
+        "total": total,
+        "people": [
+            {"id": r["id"], "name": r["name"], "email": r["email"],
+             "phone": r["phone"], "telegram": r["telegram"]}
+            for r in rows
+        ],
+    }
+
+
+async def compute_tile(
+    db, *, client_id: int, source: str, ref_id: int, filters: Any,
+    option: str | None, event_id: int | None = None,
+) -> dict:
+    """Плитка-цифра: сколько человек выбрали ОДИН конкретный вариант.
+
+    Именно это владелец называет «квадратиком» (как в GetCourse:
+    «200-300 т.р. — 176 пользователей»). Считает теми же правилами, что и
+    разбивка в списочном виде, включая разворот мультиселекта.
+    """
+    p = _Params([client_id])
+    where = "c.client_id = $1 AND c.is_active = TRUE"
+
+    if event_id:
+        where += f" AND EXISTS (SELECT 1 FROM event_participants ep " \
+                 f"WHERE ep.contact_id = c.id AND ep.event_id = {p.add(event_id)})"
+    where += " AND " + build_filters_sql(filters, p)
+
+    from_sql, bind_tpl, col = _value_expr(source)
+    bind = bind_tpl.format(ref=p.add(ref_id))
+    alias = "a" if source == "question" else "v"
+
+    answered = await db.fetchval(
+        f"""SELECT COUNT(*) FROM contacts c
+             WHERE {where}
+               AND EXISTS (SELECT 1 {from_sql} WHERE {bind}
+                            AND COALESCE({col},'') <> '')""",
+        *p.values,
+    ) or 0
+
+    if not option:
+        # Плитка без варианта = «сколько всего ответили».
+        return {"count": answered, "answered": answered,
+                "percent": 100.0 if answered else 0.0}
+
+    opt = p.add(option)
+    count = await db.fetchval(
+        f"""SELECT COUNT(*) FROM contacts c
+             WHERE {where} AND EXISTS (
+               SELECT 1 {from_sql} WHERE {bind} AND EXISTS (
+                 SELECT 1 FROM (
+                   SELECT jsonb_array_elements_text({alias}.value_json) AS one
+                    WHERE jsonb_typeof({alias}.value_json) = 'array'
+                   UNION ALL
+                   SELECT {col} AS one
+                    WHERE {alias}.value_json IS NULL
+                       OR jsonb_typeof({alias}.value_json) <> 'array'
+                 ) y WHERE y.one = {opt}
+               ))""",
+        *p.values,
+    ) or 0
+
+    return {
+        "count": count, "answered": answered,
+        "percent": round(count * 100.0 / answered, 1) if answered else 0.0,
+    }
 
 
 async def compute_card(
@@ -325,6 +472,13 @@ async def compute_card(
                 except ValueError:
                     return float("inf")
             items.sort(key=_num)
+            # ⚠️ У «Сколько вам лет» значений десятки, и разбивка вырождается
+            # в список «21 — 1 человек, 22 — 1 человек» на весь экран. Выше
+            # порога показываем только среднее и размах; сами значения
+            # остаются доступны кликом «кто эти люди».
+            if len(items) > _NUMERIC_BREAKDOWN_LIMIT:
+                out["breakdown_hidden"] = len(items)
+                items = []
         out["breakdown"] = items
 
     if kind in NUMERIC_KINDS:
