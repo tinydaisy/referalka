@@ -877,6 +877,66 @@ export const api = {
     response: (id: number, responseId: number) =>
       request(`/api/v1/surveys/${id}/responses/${responseId}`),
   },
+  // Продукты/услуги вне событий (миграция 290): лендинг, тарифы, материалы.
+  products: {
+    list: () => request('/api/v1/products'),
+    create: (data: any) =>
+      request('/api/v1/products', { method: 'POST', body: JSON.stringify(data) }),
+    get: (id: number) => request(`/api/v1/products/${id}`),
+    update: (id: number, data: any) =>
+      request(`/api/v1/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/products/${id}`, { method: 'DELETE' }),
+
+    tariffs: (id: number) => request(`/api/v1/products/${id}/tariffs`),
+    createTariff: (id: number, data: any) =>
+      request(`/api/v1/products/${id}/tariffs`, { method: 'POST', body: JSON.stringify(data) }),
+    updateTariff: (id: number, tid: number, data: any) =>
+      request(`/api/v1/products/${id}/tariffs/${tid}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    deleteTariff: (id: number, tid: number) =>
+      request(`/api/v1/products/${id}/tariffs/${tid}`, { method: 'DELETE' }),
+
+    // Состав продукта — связки с материалами библиотеки
+    materials: (id: number) => request(`/api/v1/products/${id}/materials`),
+    attachMaterial: (id: number, data: any) =>
+      request(`/api/v1/products/${id}/materials`, { method: 'POST', body: JSON.stringify(data) }),
+    updateMaterial: (id: number, linkId: number, data: any) =>
+      request(`/api/v1/products/${id}/materials/${linkId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    reorderMaterials: (id: number, ids: number[]) =>
+      request(`/api/v1/products/${id}/materials/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
+    detachMaterial: (id: number, linkId: number) =>
+      request(`/api/v1/products/${id}/materials/${linkId}`, { method: 'DELETE' }),
+
+    // Покупатели: доступ можно выдать и вручную — без заказа и без денег.
+    buyers: (id: number) => request(`/api/v1/products/${id}/buyers`),
+    grantAccess: (id: number, data: any) =>
+      request(`/api/v1/products/${id}/buyers`, { method: 'POST', body: JSON.stringify(data) }),
+    revokeAccess: (id: number, accessId: number) =>
+      request(`/api/v1/products/${id}/buyers/${accessId}`, { method: 'DELETE' }),
+    orders: (id: number) => request(`/api/v1/products/${id}/orders`),
+  },
+
+  // Общая библиотека материалов кабинета: один материал — много продуктов.
+  materials: {
+    list: (q?: string) =>
+      request(`/api/v1/materials${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    create: (data: any) =>
+      request('/api/v1/materials', { method: 'POST', body: JSON.stringify(data) }),
+    get: (id: number) => request(`/api/v1/materials/${id}`),
+    update: (id: number, data: any) =>
+      request(`/api/v1/materials/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/materials/${id}`, { method: 'DELETE' }),
+    copy: (id: number) =>
+      request(`/api/v1/materials/${id}/copy`, { method: 'POST' }),
+  },
+
   collabHub: {
     settings: () => request('/api/v1/collab-hub/settings'),
     niches: () => request('/api/v1/collab-hub/niches'),

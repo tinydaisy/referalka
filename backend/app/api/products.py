@@ -29,6 +29,7 @@ API (JWT владельца кабинета; ассистенту write — 403
 
 Гейт — фича `products` (сейчас только у тарифа admin, миграция 290).
 """
+import json
 import re
 import secrets
 from typing import Optional, List
@@ -253,7 +254,7 @@ async def create_product(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
 
     title = (data.title or "").strip()
     if not title:
@@ -292,7 +293,7 @@ async def update_product(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     fs = data.model_fields_set
@@ -340,7 +341,6 @@ async def update_product(
         put("wording_preset", data.wording_preset)
 
     if "wording" in fs:
-        import json
         put("wording", json.dumps(data.wording or {}, ensure_ascii=False))
 
     if not sets:
@@ -363,7 +363,7 @@ async def delete_product(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     # ⚠️ У продукта с покупателями удаление отбираем: люди потеряют доступ к
@@ -417,7 +417,7 @@ async def create_tariff(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     code = (data.code or "").strip().lower()
@@ -457,7 +457,7 @@ async def update_tariff(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     cur = await db.fetchrow(
@@ -513,7 +513,7 @@ async def delete_tariff(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     paid = await db.fetchval(
@@ -529,6 +529,131 @@ async def delete_tariff(
     await db.execute(
         "DELETE FROM product_tariffs WHERE id = $1 AND product_id = $2",
         tariff_id, product_id,
+    )
+    return {"ok": True}
+
+
+# ══ Покупатели и заказы ═══════════════════════════════════════════════════
+
+@router.get("/products/{product_id}/buyers", summary="Кому открыт доступ")
+async def list_buyers(
+    product_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _get_product(db, client_id, product_id)
+
+    rows = await db.fetch(
+        """
+        SELECT pa.id, pa.granted_at, pa.source, pa.order_id,
+               c.id AS contact_id, c.name, c.phone,
+               (SELECT pe.platform_user_id FROM platform_users pe
+                 WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                 ORDER BY pe.id LIMIT 1) AS email,
+               t.id AS tariff_id, t.title AS tariff_title,
+               o.status AS order_status, o.amount
+          FROM product_access pa
+          JOIN contacts c            ON c.id = pa.contact_id
+     LEFT JOIN product_tariffs t     ON t.id = pa.tariff_id
+     LEFT JOIN product_orders o      ON o.id = pa.order_id
+         WHERE pa.product_id = $1
+         ORDER BY pa.granted_at DESC
+        """,
+        product_id,
+    )
+    return {"buyers": [dict(r) for r in rows]}
+
+
+@router.get("/products/{product_id}/orders", summary="Заказы продукта")
+async def list_orders(
+    product_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _get_product(db, client_id, product_id)
+
+    rows = await db.fetch(
+        """
+        SELECT o.*, t.title AS tariff_title, c.name AS contact_name,
+               (SELECT pe.platform_user_id FROM platform_users pe
+                 WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                 ORDER BY pe.id LIMIT 1) AS email
+          FROM product_orders o
+          JOIN product_tariffs t ON t.id = o.tariff_id
+     LEFT JOIN contacts c        ON c.id = o.contact_id
+         WHERE o.product_id = $1
+         ORDER BY (o.status = 'unpaid') DESC, o.id DESC
+        """,
+        product_id,
+    )
+    return {"orders": [dict(r) for r in rows]}
+
+
+class GrantIn(BaseModel):
+    contact_id: int
+    tariff_id: Optional[int] = None
+
+
+@router.post("/products/{product_id}/buyers", summary="Выдать доступ вручную")
+async def grant_access(
+    product_id: int,
+    data: GrantIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Доступ без заказа и без денег: подарок, бартер, перенос базы из GetCourse."""
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    ok = await db.fetchval(
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        data.contact_id, client_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    if data.tariff_id:
+        t_ok = await db.fetchval(
+            "SELECT 1 FROM product_tariffs WHERE id = $1 AND product_id = $2",
+            data.tariff_id, product_id,
+        )
+        if not t_ok:
+            raise HTTPException(status_code=400, detail="Тариф не найден в этом продукте")
+
+    row = await db.fetchrow(
+        """
+        INSERT INTO product_access (product_id, contact_id, tariff_id, source)
+        VALUES ($1, $2, $3, 'manual')
+        ON CONFLICT (product_id, contact_id)
+        DO UPDATE SET tariff_id = EXCLUDED.tariff_id
+        RETURNING *
+        """,
+        product_id, data.contact_id, data.tariff_id,
+    )
+    return dict(row)
+
+
+@router.delete("/products/{product_id}/buyers/{access_id}", summary="Забрать доступ")
+async def revoke_access(
+    product_id: int,
+    access_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    await db.execute(
+        "DELETE FROM product_access WHERE id = $1 AND product_id = $2",
+        access_id, product_id,
     )
     return {"ok": True}
 
@@ -572,7 +697,7 @@ async def create_material(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     return dict(await _insert_material(db, client_id, data))
 
 
@@ -630,7 +755,7 @@ async def update_material(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_material(db, client_id, material_id)
 
     fs = data.model_fields_set
@@ -669,7 +794,7 @@ async def delete_material(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_material(db, client_id, material_id)
 
     # ⚠️ Используемый материал молча удалять нельзя — у купивших отвалится
@@ -705,7 +830,7 @@ async def copy_material(
     """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     src = await _get_material(db, client_id, material_id)
 
     row = await db.fetchrow(
@@ -768,7 +893,7 @@ async def attach_material(
     """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     async with db.transaction():
@@ -844,7 +969,7 @@ async def update_product_material(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     cur = await db.fetchrow(
@@ -895,7 +1020,7 @@ async def reorder_product_materials(
 ):
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     async with db.transaction():
@@ -919,7 +1044,7 @@ async def detach_material(
     он может использоваться в других продуктах."""
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
-    await _assert_can_write(db, user)
+    await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
     await db.execute(

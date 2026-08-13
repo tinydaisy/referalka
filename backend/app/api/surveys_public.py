@@ -437,10 +437,29 @@ async def _send_materials_to_bot(
     order = [platform] if platform else []
     order += [p for p in ('telegram', 'max', 'vk') if p != platform]
 
-    lines = [f"🎁 <b>{survey['title']}</b> — ваш подарок:"]
-    for i, m in enumerate(materials, 1):
-        lines.append(f"{i}. <b>{m['name']}</b>\n{m['url']}")
-    html = "\n\n".join(lines)
+    # ⚠️ Берём ТОТ ЖЕ «Текст 2 — выдача материалов» из шаблона воронки, что и
+    # обычная выдача подарка. Раньше здесь был свой текст, зашитый в код, и
+    # человеку приходило «🎁 Анкета для нелинейной экспресс-сессии… — ваш
+    # подарок» — название АНКЕТЫ вместо подарка. Шаблон выдачи один: клиент
+    # правит его в одном месте, и анкета не выбивается из общей воронки.
+    html = ""
+    try:
+        from app.services.funnel_service import _format_text, _get_template, _get_brand_context
+        tmpl = await _get_template(client_id, db)
+        if tmpl and (tmpl.get("text_2") or "").strip():
+            ctx = await _get_brand_context(client_id, db, platform=platform or "telegram")
+            html = _format_text(tmpl["text_2"], ctx, materials)
+    except Exception:                                   # noqa: BLE001
+        logger.exception("survey: не удалось собрать текст выдачи из шаблона")
+
+    if not html:
+        # Шаблона нет или он пуст — отдаём подарок всё равно.
+        lines = ["🎁 <b>Ваш подарок:</b>" if len(materials) == 1
+                 else "🎁 <b>Ваши подарки:</b>"]
+        for i, m in enumerate(materials, 1):
+            lines.append(f"{i}. <b>{m['name']}</b>\n{m['url']}")
+        html = "\n\n".join(lines)
+
     plain = html.replace("<b>", "").replace("</b>", "")
 
     for p in order:

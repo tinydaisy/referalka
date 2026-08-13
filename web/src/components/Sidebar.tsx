@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList, Package } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -45,6 +45,10 @@ export default function Sidebar() {
   const isSystemService = !!me?.is_system_service
   // «Партнёры» (collaborations) — по фиче event_organizers (vip + admin).
   const hasTestimonials = features.includes('testimonials')
+  // Продукты/услуги вне событий (миграция 290). ⚠️ Пока фича только у тарифа
+  // admin — пункт СКРЫТ, а не показан с замком: раздел ещё не продаётся, и
+  // дразнить им клиентов незачем. Станет продаваемым — вернуть как у Анкет.
+  const hasProducts = features.includes('products')
   const hasOffers = features.includes('offers')
   const hasEventOrganizers = features.includes('event_organizers')
 
@@ -116,6 +120,11 @@ export default function Sidebar() {
         // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),
         // поэтому ведём сразу внутрь его карточки.
         ...(isSystemService ? [{ href: '/dashboard/medialift', label: 'МедиаЛифт', icon: Radio }] : []),
+        // Продукты/услуги вне событий: наставничество, мастер-класс, консультация.
+        // Стоят рядом с событиями — это вещи одного порядка: их создают, у них
+        // лендинг, тарифы и покупатели. В «Учёт ресурсов» не кладём: там то, из
+        // чего собираются продажи, а не то, что продаётся.
+        ...(hasProducts ? [{ href: '/dashboard/products', label: 'Продукты и услуги', icon: Package }] : []),
       ],
     },
     {
