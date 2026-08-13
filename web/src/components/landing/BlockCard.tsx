@@ -769,24 +769,42 @@ export default function BlockCard({
                     На телефоне уменьшится сам, чтобы не вылезал за экран.
                   </p>
                 </Field>
-                <Field label="Выравнивание заголовка">
+                {/* ⚠️ У ШАПКИ переключатель пишет в hero_align, а НЕ в
+                    title_align: рендер шапки читает только hero_align и
+                    двигает им всю колонку (надзаголовок, название, описание,
+                    дата, кнопка). Пока кнопки писали сюда title_align, в
+                    шапке они молча ничего не меняли. Дефолт у шапки center,
+                    у остальных блоков left. */}
+                <Field label={block.kind === 'hero' ? 'Где стоит текст' : 'Выравнивание заголовка'}>
                   <div className="flex gap-2">
                     {([
                       ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа'],
-                    ] as const).map(([val, label]) => (
-                      <button
-                        key={val}
-                        onClick={() => onPatch({ title_align: val })}
-                        className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
-                          (block.title_align || 'left') === val
-                            ? 'border-brand bg-brand/5 font-medium text-brand'
-                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                    ] as const).map(([val, label]) => {
+                      const isHero = block.kind === 'hero'
+                      const cur = isHero
+                        ? (block.hero_align || 'center')
+                        : (block.title_align || 'left')
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => onPatch(isHero ? { hero_align: val } : { title_align: val })}
+                          className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                            cur === val
+                              ? 'border-brand bg-brand/5 font-medium text-brand'
+                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
                   </div>
+                  {block.kind === 'hero' && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Двигается весь текст шапки — название, описание, дата и кнопка.
+                      На телефоне колонка всегда во всю ширину.
+                    </p>
+                  )}
                 </Field>
               </div>
 
