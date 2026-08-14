@@ -43,9 +43,53 @@ export function HubHeader({ subtitle }: { subtitle: string }) {
   )
 }
 
-export function MediaTierBadge({ tier }: { tier?: string }) {
+/**
+ * Плашка охвата. По клику раскрывается разбивка по площадкам — иначе цифра
+ * остаётся «чёрным ящиком»: партнёр видит «5–10 тыс» и не понимает, что за
+ * ней стоит и какая площадка даёт основную долю.
+ *
+ * ⚠️ Разбивку считает БЭКЕНД (reach_breakdown): там же, где считается сама
+ * градация. Считать её второй раз на фронте — значит гарантированно разойтись
+ * с цифрой на плашке.
+ */
+export function MediaTierBadge({ tier, breakdown }: { tier?: string; breakdown?: any[] }) {
+  const [open, setOpen] = useState(false)
   if (!tier) return null
-  return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"><Users className="w-3 h-3" /> {TIERS[tier] || tier}</span>
+  const rows = breakdown || []
+  const total = rows.reduce((s, r) => s + (r.count || 0), 0)
+  const badge = (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+      <Users className="w-3 h-3" /> {TIERS[tier] || tier}
+    </span>
+  )
+  if (!rows.length) return badge
+  return (
+    <span className="relative inline-block">
+      <button type="button" onClick={() => setOpen(o => !o)} title="Из чего сложился охват">
+        {badge}
+      </button>
+      {open && (
+        <>
+          {/* Клик мимо закрывает — это подсказка, а не форма с данными. */}
+          <span className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <span className="absolute left-0 top-full mt-1 z-50 block w-64 rounded-xl border bg-white p-3 shadow-lg text-left">
+            <span className="block text-xs font-semibold mb-2" style={{ color: DARK }}>
+              Всего {total.toLocaleString('ru')}
+            </span>
+            {rows.map((r: any) => (
+              <span key={r.title} className="flex items-center justify-between text-xs py-0.5">
+                <span className="text-gray-600">{r.title}</span>
+                <span className="text-gray-500">
+                  {(r.count || 0).toLocaleString('ru')}
+                  <span className="ml-1 text-gray-400">({r.percent}%)</span>
+                </span>
+              </span>
+            ))}
+          </span>
+        </>
+      )}
+    </span>
+  )
 }
 
 /** Био/регалии основателя = СПИСОК СТРОК. В профиле каждая регалия введена с новой
@@ -304,7 +348,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       <NichesRow slugs={item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])}
                  titles={niches} />
       <div className="flex items-center gap-1 mt-1 h-6">
-        <MediaTierBadge tier={item.media_tier} />
+        <MediaTierBadge tier={item.media_tier} breakdown={item.reach_breakdown} />
       </div>
       {/* ⚠️ Разделительные линии делят карточку на три части: кто это →
           что предлагает → результаты. Фирменный синий, полупрозрачный —

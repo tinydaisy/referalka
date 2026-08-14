@@ -39,7 +39,7 @@ interface UtmResponse {
   packages: { id: number; name: string }[]
 }
 
-type SubTab = 'dashboard' | 'utm'
+type SubTab = 'dashboard' | 'media' | 'utm'
 
 export default function AnalyticsPage() {
   const { me } = useMe()
@@ -105,6 +105,20 @@ export default function AnalyticsPage() {
         >
           <LayoutGrid size={15} /> Дашборд
         </button>
+        {/* ⚠️ Медийные активы — ОТДЕЛЬНЫЙ раздел, БЕЗ гейта по тарифу.
+            Дашборд доступен только на Экстра, а эти цифры система считает
+            сама и они нужны каждому: понять свой охват и где он сосредоточен. */}
+        <button
+          onClick={() => setSub('media')}
+          className={`flex items-center gap-1.5 px-3 py-2 text-sm ${
+            sub === 'media'
+              ? 'border-b-2 font-semibold text-[#25455D]'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          style={sub === 'media' ? { borderColor: DARK } : undefined}
+        >
+          <Users size={15} /> Медийные активы
+        </button>
         <button
           onClick={() => setSub('utm')}
           className={`flex items-center gap-1.5 px-3 py-2 text-sm ${
@@ -117,6 +131,8 @@ export default function AnalyticsPage() {
           <TrendingUp size={15} /> Источники (UTM)
         </button>
       </div>
+
+      {sub === 'media' && <PlatformsBlock />}
 
       {sub === 'dashboard' && (
         hasDashboards ? (
@@ -187,9 +203,6 @@ export default function AnalyticsPage() {
             <StatTile label="Получили файл" value={data?.totals.delivered ?? 0} />
             <StatTile label="Конверсия" value={`${data?.totals.conversion ?? 0}%`} accent />
           </div>
-
-          {/* ── Медийные активы: подписано / всего по площадкам ── */}
-          <PlatformsBlock />
 
           {/* ── Таблица по источникам (воронка лид-магнитов) ── */}
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-8">
@@ -293,35 +306,110 @@ function StatTile({ label, value, accent }: { label: string; value: number | str
  * Ценность блока в разрыве «всего → подписано»: он показывает, где база живая,
  * а где половина отписалась.
  */
+/**
+ * Раздел «Медийные активы»: весь охват по площадкам.
+ *
+ * ⚠️ Считается по РЕАЛЬНОЙ базе (platform_users), а не по заявленным цифрам:
+ * подписчики ботов и почты, за вычетом отписавшихся. Партнёр видит правду,
+ * а не обещание.
+ *
+ * Два вида на выбор: полосы (видно, где сосредоточен охват) и список (точные
+ * числа рядом). Разным людям удобнее разное, а данные одни и те же.
+ */
 function PlatformsBlock() {
   const [data, setData] = useState<any>(null)
+  const [view, setView] = useState<'chart' | 'list'>('chart')
   useEffect(() => { api.analytics.platforms().then(setData).catch(() => {}) }, [])
+
   const rows: any[] = data?.platforms || []
-  if (!rows.length) return null
+  if (!rows.length) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">
+        Пока нет данных: подключите бота или почту в разделе «Каналы».
+      </div>
+    )
+  }
+
+  const total = rows.reduce((s, p) => s + p.subscribed, 0) || 1
+  const pct = (n: number) => Math.round(n * 100 / total)
+  const COLORS = ['#25455D', '#3E6C8F', '#FFCFA4', '#C77B3B', '#8FAFC4', '#B9CEDD']
+
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-8">
-      <div className="flex items-center gap-2 mb-3">
-        <Users size={18} style={{ color: DARK }} />
-        <h2 className="font-semibold text-gray-900 text-sm">Медийные активы</h2>
+    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold" style={{ color: DARK }}>Медийные активы</h2>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Подписчики ваших ботов и почты в ПЛЮСОНе, без отписавшихся.
+          </p>
+        </div>
+        <div className="flex rounded-lg border border-gray-200 p-0.5 text-xs">
+          {([['chart', 'График'], ['list', 'Список']] as const).map(([k, t]) => (
+            <button key={k} onClick={() => setView(k)}
+              className={`px-3 py-1.5 rounded-md ${view === k ? 'text-white' : 'text-gray-500'}`}
+              style={view === k ? { background: DARK } : undefined}>{t}</button>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {rows.map(p => (
-          <div key={p.slug} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-            <div className="text-xs text-gray-500">{p.title}</div>
-            <div className="mt-1 text-xl font-bold" style={{ color: DARK }}>
-              {p.subscribed.toLocaleString('ru')}
-              <span className="text-sm font-normal text-gray-400"> / {p.total.toLocaleString('ru')}</span>
-            </div>
-            <div className="text-[11px] text-gray-500 mt-0.5">
-              подписано из всех{p.unsubscribed > 0 ? ` · отписалось ${p.unsubscribed.toLocaleString('ru')}` : ''}
-            </div>
+
+      <div className="mb-4 rounded-xl bg-gray-50 p-3">
+        <span className="text-xs text-gray-500">Суммарный охват</span>
+        <div className="text-2xl font-bold" style={{ color: DARK }}>
+          {total.toLocaleString('ru')}
+        </div>
+        <p className="mt-0.5 text-xs text-gray-400">
+          Людей в базе: {(data?.unique_total || 0).toLocaleString('ru')} — один человек может быть
+          сразу в нескольких площадках, но считается один раз.
+        </p>
+      </div>
+
+      {view === 'chart' ? (
+        <>
+          {/* Одна полоса на всю ширину: сразу видно, какая площадка даёт
+              основную долю, без сравнения столбиков между собой. */}
+          <div className="mb-3 flex h-4 overflow-hidden rounded-full">
+            {rows.map((p, i) => (
+              <div key={p.slug} style={{ width: `${pct(p.subscribed)}%`, background: COLORS[i % COLORS.length] }}
+                   title={`${p.title}: ${p.subscribed.toLocaleString('ru')}`} />
+            ))}
           </div>
-        ))}
-      </div>
-      <p className="mt-3 text-xs text-gray-400">
-        Всего людей в базе: <b>{(data?.unique_total || 0).toLocaleString('ru')}</b>. Сумма по
-        площадкам больше — один человек может быть и в боте, и в почте, но считается один раз.
-      </p>
+          <div className="space-y-2">
+            {rows.map((p, i) => (
+              <div key={p.slug} className="flex items-center gap-2 text-sm">
+                <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
+                <span className="flex-1 text-gray-700">{p.title}</span>
+                <span className="font-medium" style={{ color: DARK }}>{p.subscribed.toLocaleString('ru')}</span>
+                <span className="w-12 text-right text-gray-400">{pct(p.subscribed)}%</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-left text-xs text-gray-500">
+                <th className="py-2 font-medium">Площадка</th>
+                <th className="py-2 font-medium">Подписано</th>
+                <th className="py-2 font-medium">Всего</th>
+                <th className="py-2 font-medium">Отписались</th>
+                <th className="py-2 font-medium">Доля</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(p => (
+                <tr key={p.slug} className="border-b border-gray-50 last:border-0">
+                  <td className="py-2 text-gray-700">{p.title}</td>
+                  <td className="py-2 font-medium" style={{ color: DARK }}>{p.subscribed.toLocaleString('ru')}</td>
+                  <td className="py-2 text-gray-500">{p.total.toLocaleString('ru')}</td>
+                  <td className="py-2 text-gray-400">{p.unsubscribed.toLocaleString('ru')}</td>
+                  <td className="py-2 text-gray-500">{pct(p.subscribed)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

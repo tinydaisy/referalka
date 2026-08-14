@@ -306,6 +306,7 @@ async def catalog(
     niche: Optional[str] = None,
     category: Optional[str] = None,
     media_tier: Optional[str] = None,
+    platforms: Optional[str] = None,   # площадки через запятую: tg,vk,max,youtube…
     city: Optional[str] = None,
     q: Optional[str] = None,
     client=Depends(get_current_client),
@@ -328,6 +329,7 @@ async def catalog(
         args.append(niches_f)
         where.append(f"(cl.hub_niches && ${len(args)}::text[] OR cl.hub_niche = ANY(${len(args)}::text[]))")
     tiers_f = _many(media_tier)
+    plats_f = _many(platforms)
     cats_f = _many(category)
     if cats_f:
         args.append(cats_f); where.append(f"cl.hub_category = ANY(${len(args)}::text[])")
@@ -362,6 +364,13 @@ async def catalog(
         # Медийность фильтруется здесь, а не в запросе: градация считается
         # из суммы подписчиков уже после выборки. Значений может быть
         # несколько — как и у остальных фильтров каталога.
+        # ⚠️ Фильтр по ПЛОЩАДКАМ: ищут партнёра «у кого есть телеграм и ВК».
+        # Учитываем и заявленные активы, и посчитанные системой — человек с
+        # ботом в ПЛЮСОНе присутствует на площадке не меньше, чем с каналом.
+        if plats_f:
+            have = {r['title'] for r in (card.get('reach_breakdown') or [])}
+            if not (set(plats_f) & have):
+                continue
         if tiers_f and card['media_tier'] not in tiers_f:
             continue
         out.append(card)

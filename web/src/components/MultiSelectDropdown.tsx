@@ -114,8 +114,12 @@ export function MultiSelectDropdown<T extends string | number>({
           </div>
         </button>
 
+        {/* ⚠️ Панель НЕ по ширине кнопки (w-full): кнопка бывает узкой, и
+            названия обрезались до «Психол…», «Здоров…» — выбрать вслепую
+            нельзя. min-w-64 даёт читаемую ширину, w-max растягивает под самый
+            длинный пункт, max-w-md не даёт уехать за край экрана. */}
         {open && (
-          <div className="absolute z-30 mt-1 w-full max-w-md bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+          <div className="absolute z-30 mt-1 w-max min-w-64 max-w-md bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
             <div className="relative border-b border-gray-100">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -140,7 +144,7 @@ export function MultiSelectDropdown<T extends string | number>({
                 <button
                   type="button"
                   onMouseDown={handle(() => extraToggle.onToggle(!extraToggle.checked))}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 border-b border-gray-50"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 border-b border-gray-50 whitespace-nowrap"
                 >
                   <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
                     extraToggle.checked ? 'bg-[#25455D] border-[#25455D]' : 'border-gray-300'
@@ -161,14 +165,14 @@ export function MultiSelectDropdown<T extends string | number>({
                     key={String(o.value)}
                     type="button"
                     onMouseDown={handle(() => toggle(o.value))}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 whitespace-nowrap"
                   >
                     <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
                       checked ? 'bg-[#25455D] border-[#25455D]' : 'border-gray-300'
                     }`}>
                       {checked && <Check size={12} className="text-white" />}
                     </span>
-                    <span className="flex-1 truncate text-gray-800">{o.label}</span>
+                    <span className="flex-1 text-gray-800">{o.label}</span>
                     {o.hint && <span className="text-xs text-gray-400">{o.hint}</span>}
                   </button>
                 )
