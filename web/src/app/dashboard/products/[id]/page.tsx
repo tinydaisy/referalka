@@ -721,7 +721,11 @@ type TreeNodeProps = {
 
 function TreeNode({ node, depth, productId, sections, tariffs, readOnly, W,
                     onChanged, onAddSection, onAddMaterial, onPickMaterial }: TreeNodeProps) {
-  const [open, setOpen] = useState(true)
+  // ⚠️ Разделы СВЁРНУТЫ по умолчанию: у продукта их бывает десяток, и с
+  // раскрытыми состав превращается в бесконечную простыню, по которой не
+  // видно структуры. Свёрнутый список читается как оглавление, а развернуть
+  // нужный можно стрелкой.
+  const [open, setOpen] = useState(false)
 
   if (node.type === 'material') {
     return (
@@ -746,8 +750,17 @@ function TreeNode({ node, depth, productId, sections, tariffs, readOnly, W,
           <button onClick={() => setOpen(!open)} className="text-gray-400 hover:text-gray-600">
             {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
+          {/* ⚠️ Название раздела — ССЫЛКА на его страницу: со списком из
+              десятка разделов работать в общей простыне неудобно, нужен экран
+              одного раздела с его материалами. Стрелка рядом остаётся —
+              заглянуть внутрь, не уходя со страницы. */}
           <div className="min-w-0 flex-1">
-            <div className="truncate font-semibold text-gray-900">{node.title}</div>
+            <Link
+              href={`/dashboard/products/${productId}/sections/${node.id}`}
+              className="block truncate font-semibold text-gray-900 hover:text-[#25455D] hover:underline"
+            >
+              {node.title}
+            </Link>
             {node.description && (
               <div className="truncate text-xs text-gray-500">{node.description}</div>
             )}
