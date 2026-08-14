@@ -12,6 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CardIcon } from '@/components/landing/icons'
+import { embedUrl } from '@/lib/videoEmbed'
 import SafeHtml from '@/components/SafeHtml'
 
 interface Props {
@@ -2390,16 +2391,9 @@ function isFileVideo(url: string): boolean {
   return /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url || '')
 }
 
-/** Ссылка на видео → embed. Поддержаны YouTube, VK Видео, Rutube. */
-function embedUrl(url: string): string {
-  const yt = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/.exec(url)
-  if (yt) return `https://www.youtube.com/embed/${yt[1]}`
-  const rt = /rutube\.ru\/video\/([\w]+)/.exec(url)
-  if (rt) return `https://rutube.ru/play/embed/${rt[1]}`
-  const vk = /vk\.com\/video(-?\d+)_(\d+)/.exec(url)
-  if (vk) return `https://vk.com/video_ext.php?oid=${vk[1]}&id=${vk[2]}`
-  return url
-}
+/* ⚠️ Своей копии embedUrl здесь БЫЛО: она отставала от общей (не знала
+   youtube.com/shorts), и вертикальные ролики не открывались, хотя в общей
+   функции поддержка уже была. Импортируем общую — см. lib/videoEmbed.ts. */
 
 /**
  * Дата события — всегда МСК (правило проекта).
