@@ -50,7 +50,10 @@ export default function BlockCard({
   // при перетаскивании ползунков — карточка «уезжает» прямо во время правки.
   const [canDrag, setCanDrag] = useState(false)
   const [tab, setTab] = useState<'content' | 'style'>('content')
-  const meta = metaFor(block.kind)
+  // ⚠️ Владельца определяем по kind загрузки: у продукта он `product_media`
+  // (события нет — `landing_media` там падает). Отдельный проп заводить не
+  // стали, чтобы не пробрасывать одно и то же двумя путями.
+  const meta = metaFor(block.kind, uploadKind === 'product_media' ? 'product' : 'event')
   const has = (f: string) => meta.fields.includes(f as any)
 
   // ⚠️ Гейт секции — по фиче, не по тарифу (состав тарифов меняется данными).

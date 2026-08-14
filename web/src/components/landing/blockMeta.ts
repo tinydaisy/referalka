@@ -222,13 +222,30 @@ export const STANDARD: BlockKind[] = [
   'partners', 'support', 'footer',
 ]
 
-export function metaFor(kind: string): BlockMeta {
-  return BLOCK_META[kind as BlockKind] || {
+export function metaFor(kind: string, ownerType: 'event' | 'product' = 'event'): BlockMeta {
+  const base = BLOCK_META[kind as BlockKind] || {
     kind: kind as BlockKind,
     label: kind,
     hint: '',
-    fields: ['title', 'body'],
+    fields: ['title', 'body'] as BlockMeta['fields'],
   }
+
+  /* ⚠️ У ПРОДУКТА шапка редактируется РУКАМИ. У события название, описание и
+     даты живые — приходят из самого события, поэтому там в шапке только
+     подпись кнопки. У продукта такого источника нет: с `fields: ['button']`
+     полей заголовка в конструкторе не было вовсе, и текст шапки нельзя было
+     ни ввести, ни исправить — правился только через базу. */
+  if (ownerType === 'product' && kind === 'hero') {
+    return {
+      ...base,
+      live: false,
+      hint: 'Заголовок, подзаголовок и текст задаются здесь — у продукта нет '
+          + 'события, из которого их можно взять.',
+      fields: ['title', 'subtitle', 'body', 'button'],
+    }
+  }
+
+  return base
 }
 
 /**
