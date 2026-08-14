@@ -60,7 +60,9 @@ export default function OrgProfilePage() {
             <div className="flex flex-wrap gap-2 mt-2 items-center">
               {c.hub_category && <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[c.hub_category] || c.hub_category}</span>}
               {c.hub_niche && <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{nicheTitles[c.hub_niche] || c.hub_niche}</span>}
-              <MediaTierBadge tier={c.media_tier} />
+              {/* breakdown — иначе плашка не раскрывается: в профиле она
+                  молча оставалась некликабельной, хотя в каталоге работала. */}
+              <MediaTierBadge tier={c.media_tier} breakdown={c.reach_breakdown} />
               {c.hub_city && <span className="text-xs text-gray-500 inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{c.hub_city}</span>}
             </div>
           </div>
