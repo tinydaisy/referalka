@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Calendar, Trash2, ChevronLeft, ChevronRight, ChevronDown, Layers, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
+// Выбор этапа — общий список с поиском (тот же, что в разделе «Турнир»).
+import StagePicker from '@/components/tournament/StagePicker'
 import ShiftTimingModal from '@/components/ShiftTimingModal'
 import { Spinner } from '@/components/Spinner'
 
@@ -90,6 +92,8 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 
 export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const [stages, setStages] = useState<Stage[]>([])
+  // Категории нужны для группировки и фильтра в списке выбора этапа.
+  const [stageCats, setStageCats] = useState<any[]>([])
   const [days, setDays] = useState<Day[]>([])
   const [sessions, setSessions] = useState<Sess[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -155,6 +159,9 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   async function load(keepTab = true) {
     setLoading(true)
     try {
+      // Категории — для группировки и фильтра в списке выбора этапа.
+      api.conference.stageCategories.list(eventId)
+        .then((c: any) => setStageCats(c.categories || [])).catch(() => {})
       const [stRes, dRes, sRes, spRes] = await Promise.all([
         api.conference.stages.list(eventId),
         api.conference.days.list(eventId),
@@ -165,6 +172,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         id: s.id, sort_order: s.sort_order,
         title: s.title || '', subtitle: s.subtitle || '', description: s.description || '',
         start_date: s.start_date || '', end_date: s.end_date || '',
+        category_id: s.category_id ?? null,
       }))
       const loadedDays: Day[] = (dRes.days || []).map((d: any) => ({
         day_number: d.day_number,
@@ -471,6 +479,13 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const orphanDays = daysByStage(null)
   const hasOrphans = orphanDays.length > 0
 
+  // Псевдо-пункт «Без группировки» живёт в том же списке, что и этапы —
+  // иначе к дням без этапа не добраться после отказа от вкладок.
+  const pickerStages = [
+    ...stagesSorted.map(st => ({ id: st.id, title: st.title?.trim() || 'Без названия', category_id: (st as any).category_id ?? null })),
+    ...(hasOrphans ? [{ id: ORPHAN_TAB, title: 'Без группировки', category_id: null }] : []),
+  ]
+
   const activeStage = activeTab != null && activeTab !== ORPHAN_TAB
     ? stagesSorted.find(s => s.id === activeTab) || null
     : null
@@ -502,11 +517,20 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         </div>
       )}
 
-      {/* Кнопка «Добавить этап» НАД вкладками */}
-      <div className="flex items-center justify-between mb-3 gap-3">
-        <p className="text-xs text-gray-400">
-          Каждый этап — на отдельной вкладке. Стрелки ← → меняют порядок этапа. Всё сохраняется автоматически.
-        </p>
+      {/* Выбор номинации/тура — СПИСОК С ПОИСКОМ, не вкладки.
+          У премии этапов бывает 70: вкладками в строку их не пролистать,
+          а искать нужный глазами в горизонтальном скролле невозможно. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
+        <div className="min-w-[280px] flex-1 max-w-md">
+          <StagePicker
+            stages={pickerStages as any}
+            categories={stageCats}
+            value={activeTab}
+            onChange={setActiveTab}
+            label="Номинация / тур / этап"
+            placeholder="Выберите…"
+          />
+        </div>
         <button
           onClick={addStage}
           disabled={busy}
@@ -515,42 +539,9 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           <Plus size={15} /> Добавить этап
         </button>
       </div>
-
-      {/* Ряд вкладок-этапов (+ вкладка «Без группировки») */}
-      <div className="flex items-end gap-1 overflow-x-auto -mb-px">
-        {stagesSorted.map((stage, i) => {
-          const active = activeTab === stage.id
-          return (
-            <button
-              key={stage.id}
-              onClick={() => setActiveTab(stage.id)}
-              className={`shrink-0 max-w-[220px] px-4 py-2.5 rounded-t-xl border border-b-0 text-sm font-semibold transition-colors flex items-center gap-2 ${
-                active
-                  ? 'bg-white border-gray-200 text-gray-900 relative z-10'
-                  : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200/70'
-              }`}
-              title={stage.title || `Этап ${i + 1}`}
-            >
-              <span className="truncate">
-                {stage.title?.trim() || `Этап ${i + 1}`}
-              </span>
-            </button>
-          )
-        })}
-        {hasOrphans && (
-          <button
-            onClick={() => setActiveTab(ORPHAN_TAB)}
-            className={`shrink-0 px-4 py-2.5 rounded-t-xl border border-b-0 text-sm font-semibold transition-colors flex items-center gap-2 ${
-              activeTab === ORPHAN_TAB
-                ? 'bg-white border-gray-200 text-gray-900 relative z-10'
-                : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200/70'
-            }`}
-          >
-            <Calendar size={13} className="opacity-60" />
-            Без группировки
-          </button>
-        )}
-      </div>
+      <p className="text-xs text-gray-400 mb-3">
+        Стрелки ← → меняют порядок этапа. Всё сохраняется автоматически.
+      </p>
 
       {/* Тело активной вкладки */}
       <div className="bg-white rounded-2xl rounded-tl-none border border-gray-200 shadow-sm p-5">

@@ -107,7 +107,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
             <StagePicker stages={stages as any} categories={stageCats}
               value={stageFilter} onChange={setStageFilter} label="" />
           </div>
-          <span className="text-xs text-gray-400">— пакеты выбранной номинации (и общие «весь турнир»)</span>
+          <span className="text-xs text-gray-400">— пакеты выбранной номинации/тура/этапа (и общие «весь турнир»)</span>
           {stageFilter != null && (
             <a href={`/t/${eventId}/${stageFilter}/reglament`} target="_blank" rel="noopener noreferrer"
               className="ml-auto inline-flex items-center gap-1 text-xs text-[#25455D] underline">
@@ -163,12 +163,12 @@ function PackageCard({ eventId, pkg, stages, days, defaultStage, onChange }: any
   // критерии часто одинаковые — заводить их руками в каждой нереально.
   const copyToOthers = async () => {
     if (pkg.stage_id == null) {
-      alert('Этот пакет уже общий на весь турнир — он и так виден во всех номинациях.')
+      alert('Этот пакет уже общий на весь турнир — он и так виден во всех номинациях/турах/этапах.')
       return
     }
     const others = (stages || []).filter((s: any) => s.id !== pkg.stage_id)
-    if (!others.length) { alert('Других номинаций пока нет.'); return }
-    if (!confirm(`Скопировать «${pkg.title}» со всеми критериями во все остальные номинации (${others.length})?\n\nОценки не копируются. Там, где пакет с таким названием уже есть, копия не создастся.`)) return
+    if (!others.length) { alert('Других номинаций/туров/этапов пока нет.'); return }
+    if (!confirm(`Скопировать «${pkg.title}» со всеми критериями во все остальные номинации/туры/этапы (${others.length})?\n\nОценки не копируются. Там, где пакет с таким названием уже есть, копия не создастся.`)) return
     const r = await api.tournament.copyPackage(eventId, pkg.id, { to_all: true })
     alert(`Скопировано: ${r.copied}${r.skipped ? `. Пропущено (уже есть): ${r.skipped}` : ''}`)
     onChange()
@@ -208,8 +208,8 @@ function PackageCard({ eventId, pkg, stages, days, defaultStage, onChange }: any
         </label>
         <button onClick={copyToOthers}
           className="ml-auto text-xs px-2 py-1 border rounded-lg text-gray-600 hover:bg-gray-50"
-          title="Скопировать этот набор критериев в другие номинации/туры">
-          Скопировать во все номинации
+          title="Скопировать этот набор критериев во все другие номинации/туры/этапы">
+          Скопировать во все номинации/туры/этапы
         </button>
         <button onClick={delPkg} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
@@ -547,7 +547,7 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
             <StagePicker stages={data.stages as any} value={stageId}
               onChange={setStageId} label="" />
           </div>
-          <span className="text-xs text-gray-400">— распределение отдельное на каждой номинации</span>
+          <span className="text-xs text-gray-400">— распределение отдельное на каждой номинации/туре/этапе</span>
         </div>
       )}
       <div className="overflow-auto border rounded-xl" style={{ WebkitOverflowScrolling: 'touch', maxHeight: '70vh' }}>
@@ -643,6 +643,32 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
 }
 
 // ─────────────────────── Турнирная таблица ───────────────────────
+
+/** Ссылка на СВОДНУЮ страницу: перечень всех номинаций/туров → таблица каждой.
+ *  Отдельно от ссылки на конкретный тур: при 70 номинациях раздать 70 ссылок
+ *  невозможно, аудитории нужна одна общая. */
+function PublicIndexLink({ eventId }: { eventId: number }) {
+  const [copied, setCopied] = useState(false)
+  const { publicBase } = useMe()
+  // Тот же адрес, что у ссылки на конкретный тур, только без номера этапа —
+  // публичная страница резолвит событие и по id, и по slug.
+  const url = `${publicBase}/t/${eventId}`
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
+  }
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-sm bg-[#25455D] text-white rounded-lg px-3 py-2">
+      <span className="text-[#FFCFA4] font-semibold">Общая таблица — все номинации/туры/этапы:</span>
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-white font-medium underline break-all">
+        {url} <ExternalLink size={13} />
+      </a>
+      <button onClick={copy} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#FFCFA4] text-[#25455D] text-xs font-semibold">
+        {copied ? <><Check size={12} /> Скопировано</> : <><Copy size={12} /> Копировать</>}
+      </button>
+    </div>
+  )
+}
 
 function PublicTableLink({ eventId, stageId, stageTitle }: { eventId: number; stageId: number; stageTitle?: string }) {
   const [copied, setCopied] = useState(false)
@@ -799,6 +825,9 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
 
   return (
     <div>
+      {/* Общая таблица — над выбором тура: это ссылка на ВСЁ событие,
+          а не на отдельную номинацию. */}
+      <PublicIndexLink eventId={eventId} />
       <div className="flex flex-wrap items-end gap-2 mb-2">
         <div className="flex-1">{controls}</div>
         <button onClick={snapshot} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[#25455D] text-[#FFCFA4] disabled:opacity-50 mb-3">

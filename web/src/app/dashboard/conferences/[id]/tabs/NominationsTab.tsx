@@ -16,6 +16,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
+// Матрица «люди × номинации»: раньше привязка была только поштучно —
+// зайти в карточку каждого человека. При 30 людях и 5 турах это 30 заходов.
+import StagePeopleMatrix from '@/components/tournament/StagePeopleMatrix'
 import {
   Plus, Trash2, ChevronDown, ChevronRight, Search, Users, X,
   FolderPlus, ListPlus, Loader2,
@@ -43,6 +46,7 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
   const [bulkText, setBulkText] = useState('')
   const [bulkCat, setBulkCat] = useState<number | null>(null)
   const [peopleFor, setPeopleFor] = useState<number | null>(null)
+  const [view, setView] = useState<'list' | 'matrix'>('list')
 
   const load = async () => {
     setLoading(true)
@@ -79,7 +83,7 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
     setBusy(true)
     try {
       const r = await api.conference.stages.create(eventId, {
-        title: 'Новая номинация',
+        title: 'Новая номинация/тур/этап',
         sort_order: (stages.reduce((m, s) => Math.max(m, s.sort_order || 0), 0) || 0) + 10,
         category_id: catFilter,
       })
@@ -157,9 +161,31 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
     <div className="space-y-4">
       {/* Пояснение — что это и зачем */}
       <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-gray-700">
-        Здесь заводятся <b>номинации</b> (в турнире — туры, этапы). У каждой свои критерии,
+        Здесь заводятся <b>номинации/туры/этапы</b>. У каждой свои критерии,
         своё жюри и своя таблица. Один человек может участвовать в нескольких номинациях.
       </div>
+
+      {/* Два способа работы: список номинаций и матрица «кто где участвует» */}
+      <div className="flex gap-2">
+        {([['list', 'Номинации/туры/этапы'], ['matrix', 'Кто в каких участвует']] as const).map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+              view === v ? 'bg-[#25455D] text-[#FFCFA4] border-[#25455D] font-semibold' : 'bg-white text-gray-600'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'matrix' ? (
+        <StagePeopleMatrix
+          eventId={eventId}
+          people={people}
+          stages={stages.slice().sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ru')) as any}
+          categories={cats}
+          onChange={setPeople}
+        />
+      ) : (
+      <>
 
       {/* Категории */}
       <div className="bg-white border rounded-lg p-3">
@@ -212,7 +238,7 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
       {/* Список номинаций */}
       {visible.length === 0 ? (
         <div className="py-10 text-center text-gray-400 text-sm border rounded-lg bg-white">
-          {stages.length === 0 ? 'Пока ни одной номинации. Добавьте первую или загрузите списком.' : 'Ничего не найдено'}
+          {stages.length === 0 ? 'Пока ни одной номинации/тура/этапа. Добавьте первый или загрузите списком.' : 'Ничего не найдено'}
         </div>
       ) : (
         <div className="space-y-2">
@@ -238,7 +264,7 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
                   <div className="px-3 pb-3 pt-1 border-t bg-gray-50 space-y-3">
                     <div className="grid gap-2 sm:grid-cols-2">
                       <div>
-                        <div className="text-xs text-gray-500 mb-1">Название</div>
+                        <div className="text-xs text-gray-500 mb-1">Название номинации/тура/этапа</div>
                         <input defaultValue={s.title} onBlur={e => e.target.value.trim() && patchStage(s.id, { title: e.target.value.trim() })}
                           className="w-full px-2.5 py-1.5 border rounded text-sm" />
                       </div>
@@ -297,14 +323,16 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
       )}
 
       {stages.length > 0 && (
-        <div className="text-xs text-gray-400">Всего номинаций: {stages.length}</div>
+        <div className="text-xs text-gray-400">Всего номинаций/туров/этапов: {stages.length}</div>
+      )}
+      </>
       )}
 
       {/* Модалка массового добавления. Закрывается только кнопкой — правило проекта. */}
       {bulkOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl w-full max-w-lg p-4" onClick={e => e.stopPropagation()}>
-            <div className="text-base font-medium mb-1">Добавить номинации списком</div>
+            <div className="text-base font-medium mb-1">Добавить номинации/туры/этапы списком</div>
             <div className="text-xs text-gray-500 mb-3">
               По одному названию в строке. Повторы с уже заведёнными пропустятся.
             </div>
