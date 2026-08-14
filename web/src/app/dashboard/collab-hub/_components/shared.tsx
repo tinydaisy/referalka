@@ -589,13 +589,38 @@ export function MyCardView() {
   const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_city: '', hub_about: '', hub_impact: '', hub_impact_public: true, hub_wow: '', hub_wow_public: true, media_assets: [] })
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState('')
+  const aboutRef = useRef<RichTextEditorHandle>(null)
+  const impactRef = useRef<RichTextEditorHandle>(null)
+  const wowRef = useRef<RichTextEditorHandle>(null)
   const load = async () => {
     const r: any = await api.collabHub.myCard()
     setCard(r.card)
     setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '', hub_impact: r.card.hub_impact || '', hub_impact_public: r.card.hub_impact_public ?? true, hub_wow: r.card.hub_wow || '', hub_wow_public: r.card.hub_wow_public ?? true, media_assets: Array.isArray(r.card.media_assets) ? r.card.media_assets : [] })
   }
   useEffect(() => { load().catch(() => {}); api.collabHub.niches().then((r: any) => setNiches(r.niches || [])).catch(() => {}) }, [])
-  const save = async () => { setErr(''); try { await api.collabHub.publishCard(form); setSaved(true); setTimeout(() => setSaved(false), 2000); load() } catch (e: any) { setErr(e?.message || 'Ошибка') } }
+  /**
+   * ⚠️ Значения трёх текстовых полей берём ПРЯМО ИЗ РЕДАКТОРОВ, а не из form.
+   *
+   * onChange у RichTextEditor срабатывает по событиям input/blur внутри поля.
+   * Если набрать текст и сразу нажать «Сохранить», клик уводит фокус, и запрос
+   * успевает уйти со старым (пустым) значением — «внесла, а не сохранилось».
+   * getValue() читает актуальное содержимое из самого поля.
+   */
+  const save = async () => {
+    setErr('')
+    const payload = {
+      ...form,
+      hub_about: aboutRef.current?.getValue() ?? form.hub_about,
+      hub_impact: impactRef.current?.getValue() ?? form.hub_impact,
+      hub_wow: wowRef.current?.getValue() ?? form.hub_wow,
+    }
+    try {
+      await api.collabHub.publishCard(payload)
+      setForm(payload)          // чтобы форма и база не разъехались
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+      load()
+    } catch (e: any) { setErr(e?.message || 'Ошибка') }
+  }
   if (!card) return <div className="text-gray-400 py-10 text-center">Загрузка…</div>
   const achievements: any[] = Array.isArray(card.achievements) ? card.achievements : []
   const social = card.social_links || {}
@@ -681,16 +706,18 @@ export function MyCardView() {
             чистит теги, руками HTML писать не нужно. */}
         <label className="block text-sm font-medium text-gray-700 mb-1">Что предлагаете партнёрам</label>
         <div className="mb-3">
-          <RichTextEditor mode="web" rows={5}
+          {/* ⚠️ setForm через функцию: `{...form}` берёт снимок на момент
+              отрисовки, и правка соседнего поля затирала это. */}
+          <RichTextEditor mode="web" rows={5} ref={aboutRef}
             value={form.hub_about}
-            onChange={v => setForm({ ...form, hub_about: v })} />
+            onChange={v => setForm((f: any) => ({ ...f, hub_about: v }))} />
         </div>
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Что я создаю и меняю в стране/мире своей деятельностью и проектами?</label>
         <div className="mb-1.5">
-          <RichTextEditor mode="web" rows={5}
+          <RichTextEditor mode="web" rows={5} ref={impactRef}
             value={form.hub_impact}
-            onChange={v => setForm({ ...form, hub_impact: v })} />
+            onChange={v => setForm((f: any) => ({ ...f, hub_impact: v }))} />
         </div>
         <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
           <input type="checkbox" checked={form.hub_impact_public} onChange={e => setForm({ ...form, hub_impact_public: e.target.checked })} />
@@ -699,9 +726,9 @@ export function MyCardView() {
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Моя «капелька безумия» или WOW-факт</label>
         <div className="mb-1.5">
-          <RichTextEditor mode="web" rows={5}
+          <RichTextEditor mode="web" rows={5} ref={wowRef}
             value={form.hub_wow}
-            onChange={v => setForm({ ...form, hub_wow: v })} />
+            onChange={v => setForm((f: any) => ({ ...f, hub_wow: v }))} />
         </div>
         <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
           <input type="checkbox" checked={form.hub_wow_public} onChange={e => setForm({ ...form, hub_wow_public: e.target.checked })} />

@@ -11,10 +11,10 @@
  *   • profile (бренд + основатель) — общая кнопка «Сохранить визитку» внизу.
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
-import RichTextEditor from '@/components/RichTextEditor'
+import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
@@ -132,6 +132,8 @@ export default function MiniAppSettingsPage() {
   const { isAssistant, me } = useMe()
   const hasConference = !!me?.features?.includes('conference')
   const [profile, setProfile] = useState<Profile | null>(null)
+  // Прямой доступ к полю регалий — читаем текст из него в момент сохранения.
+  const bioRef = useRef<RichTextEditorHandle>(null)
   // Вкладка площадки в блоке «Как открываются ваши ссылки» (Telegram/VK/MAX).
   const [linkTab, setLinkTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
   // Подключено ли Mini App у TG-бота: null — ещё не проверяли / Telegram не ответил.
@@ -323,7 +325,10 @@ export default function MiniAppSettingsPage() {
         owner_photo_url:    profile.owner_photo_url   || null,
         owner_positioning:  profile.owner_positioning || null,
         owner_achievements: cleanAch(profile.owner_achievements),
-        bio:                profile.bio || null,
+        // ⚠️ Регалии берём ПРЯМО ИЗ ПОЛЯ: если набрать текст и сразу нажать
+        // «Сохранить», onChange ещё не успевает отработать и в profile лежит
+        // старое значение. Так регалии однажды и затёрлись в пустоту.
+        bio:                (bioRef.current?.getValue() ?? profile.bio) || null,
         social_links:       profile.social_links,
         // бот и ссылки
         default_link_mode:      profile.default_link_mode || 'miniapp',
@@ -595,6 +600,7 @@ export default function MiniAppSettingsPage() {
                 есть. Редактор сам чистит теги, руками HTML писать не нужно. */}
             <div className="max-w-2xl">
               <RichTextEditor
+                ref={bioRef}
                 mode="web"
                 value={profile.bio || ''}
                 onChange={v => update('bio', v)}

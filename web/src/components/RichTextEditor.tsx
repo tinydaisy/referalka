@@ -197,10 +197,20 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
     const el = editorRef.current
     if (!el) return
     if (document.activeElement === el) return
-    // ⚠️ Сверяем с уже вычищенным содержимым, а не с сырым innerHTML.
-    // Иначе цикл: браузер добавил свою обёртку → sanitize её убрал → value
-    // разошлось с innerHTML → эффект перезаписал редактор. При нажатии кнопки
-    // панели (фокус уходит на кнопку) это стирало набранный текст.
+
+    // ⚠️ ПОЛЕ — ХОЗЯИН СВОЕГО ТЕКСТА. Забираем содержимое из `value` только
+    // пока пользователь ничего не набрал (первая загрузка данных с сервера)
+    // либо когда родитель осознанно очистил поле.
+    //
+    // Раньше эффект перезаписывал поле на КАЖДОЕ изменение `value`, и это
+    // стирало набранный текст: в форме с несколькими редакторами соседний
+    // setForm со снимком старого состояния возвращал сюда пустую строку —
+    // текст исчезал прямо во время ввода. Именно так терялась «Капелька
+    // безумия» в карточке коллаба.
+    const typed = (el.textContent || '').trim().length > 0
+    const incomingEmpty = !(value || '').trim()
+    if (typed && !incomingEmpty) return
+
     if (sanitize(el.innerHTML, mode) === value) return
     if (el.innerHTML !== value) el.innerHTML = value || ''
   }, [value, mode])
