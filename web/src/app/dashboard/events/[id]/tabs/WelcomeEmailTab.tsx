@@ -11,9 +11,8 @@
  * Письмо отправляется при первой регистрации участника во все доступные
  * каналы — email, Telegram, VK, MAX. Дедуп через welcome_email_sent_at.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-import { type RichTextEditorHandle } from '@/components/RichTextEditor'
 
 interface Props {
   event: any
@@ -28,7 +27,6 @@ export default function WelcomeEmailTab({ event, eventId, onReload }: Props) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const editorRef = useRef<RichTextEditorHandle>(null)
 
   useEffect(() => {
     setEnabled(event.welcome_enabled || false)
@@ -39,12 +37,9 @@ export default function WelcomeEmailTab({ event, eventId, onReload }: Props) {
   async function save() {
     setSaving(true); setError(null); setSaved(false)
     try {
-      try { (document.activeElement as HTMLElement)?.blur?.() } catch {}
-      await new Promise(r => setTimeout(r, 50))
-
-      const refValue = editorRef.current?.getValue() ?? ''
-      const liveBody = refValue || body
-      setBody(liveBody)
+      // Поле обычное (textarea) — значение в state всегда актуально.
+      // Раньше здесь дожидались blur визуального редактора; он убран.
+      const liveBody = body
 
       const plain = (liveBody || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
       if (enabled && !plain) {

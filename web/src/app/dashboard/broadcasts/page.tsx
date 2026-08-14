@@ -9,7 +9,6 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastTagPicker from '@/components/BroadcastTagPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
-import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
 import EmailFunnelStats, { type EmailStats } from '@/components/EmailFunnelStats'
 import { useMe } from '@/hooks/useMe'
@@ -822,7 +821,6 @@ function CustomBroadcastModal(props: {
   const [saving, setSaving] = useState(false)
   const [formErrors, setFormErrors] = useState<string[]>([])
   const isEdit = typeof props.editId === 'number'
-  const editorRef = useRef<RichTextEditorHandle>(null)
 
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
@@ -833,12 +831,10 @@ function CustomBroadcastModal(props: {
   const [testMsg, setTestMsg] = useState('')
 
   async function sendTestNow() {
-    // ⚠️ Берём текст ИЗ РЕДАКТОРА, а не из state: onChange срабатывает на
-    // blur/input, и если нажать «Тест» сразу после набора (не кликнув мимо
-    // поля), в state ещё пусто — тест упирался в «Пустой текст» при видимом
-    // тексте на экране. Тот же приём, что в save() ниже.
-    const liveText = editorRef.current?.getValue() ?? text
-    if (liveText !== text) setText(liveText)
+    // Текст берём из state: поле обычное (textarea), onChange срабатывает на
+    // каждый ввод — расхождения с экраном быть не может. Раньше здесь читали
+    // значение из визуального редактора, он убран (терял содержимое).
+    const liveText = text
     const plainTest = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
     // Ошибку показываем В МОДАЛКЕ: props.onError рисует её в родителе, а он
     // перекрыт этим же окном — клиент видел «ничего не происходит».
@@ -869,11 +865,8 @@ function CustomBroadcastModal(props: {
   }
 
   async function save() {
-    // Берём актуальное значение из редактора (важно если user не успел потерять
-    // фокус — onChange срабатывает только на blur/input, и в state может быть
-    // ещё пусто). getValue() читает innerHTML и прогоняет через sanitize.
-    const liveText = editorRef.current?.getValue() ?? text
-    if (liveText !== text) setText(liveText)
+    // Текст из state — поле обычное, значение всегда актуально.
+    const liveText = text
 
     // Собираем все ошибки списком (показываем над кнопкой красным блоком).
     const errs: string[] = []

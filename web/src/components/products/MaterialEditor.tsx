@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
-import RichTextEditor from '@/components/RichTextEditor'
+import HtmlTextArea from '@/components/HtmlTextArea'
 import { embedUrl, isFileVideo, videoHost } from '@/lib/videoEmbed'
 
 type Kind = 'text' | 'image' | 'video' | 'file' | 'audio' | 'button'
@@ -246,13 +246,15 @@ function BlockEditor({ block, canUp, canDown, onMove, onPatch, onRemove }: {
       </div>
 
       {block.kind === 'text' && (
-        // ⚠️ mode="web": материал показывается на странице, а не уходит в
-        // Telegram — списки и абзацы отображаются как есть.
-        <RichTextEditor
-          mode="web"
+        // ⚠️ Обычное поле с HTML-тегами, НЕ визуальный редактор. Визуальный
+        // (contentEditable) терял содержимое: нажатие «B» без выделения
+        // стирало набранный урок, а правки не всегда доезжали до сохранения.
+        // Теги проверяются на месте — незакрытый или перевёрнутый подсвечивается.
+        <HtmlTextArea
           rows={8}
           value={block.body || ''}
           onChange={v => onPatch({ body: v })}
+          placeholder="Текст урока. Жирный — <b>текст</b>, курсив — <i>текст</i>, ссылка — <a href=&quot;https://…&quot;>текст</a>"
         />
       )}
 

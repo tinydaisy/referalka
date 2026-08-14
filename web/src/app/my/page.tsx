@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import CabinetBrand, { type Brand } from '@/components/products/CabinetBrand'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 const TOKEN_KEY = 'product_cabinet_token'
@@ -137,6 +138,7 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
 
 function CabinetList({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [list, setList] = useState<any[]>([])
+  const [brand, setBrand] = useState<Brand | null>(null)
   const [loading, setLoading] = useState(true)
   const [expired, setExpired] = useState(false)
 
@@ -149,6 +151,7 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
         if (res.status === 401) { setExpired(true); return }
         const data = await res.json()
         setList(data.products || [])
+        setBrand(data.brand || null)
       } finally { setLoading(false) }
     })()
   }, [token])
@@ -174,6 +177,7 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <CabinetBrand brand={brand} />
       <div className="mx-auto max-w-3xl px-4 py-10">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Мои материалы</h1>

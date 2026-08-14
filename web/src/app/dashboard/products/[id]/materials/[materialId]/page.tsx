@@ -18,7 +18,8 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import MaterialEditor from '@/components/products/MaterialEditor'
-import { ArrowLeft } from 'lucide-react'
+import MaterialBlockView from '@/components/products/MaterialBlockView'
+import { ArrowLeft, Pencil, Eye } from 'lucide-react'
 
 export default function ProductMaterialPage() {
   // ⚠️ useParams(), а не use(params): на проде Next 14.2.3.
@@ -32,6 +33,23 @@ export default function ProductMaterialPage() {
   const [title, setTitle] = useState<string>('')
   const [sectionId, setSectionId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  // ⚠️ Предпросмотр «как видит ученик»: в редакторе урок разобран на блоки с
+  // полями и кнопками, и понять, как он выглядит для купившего, нельзя. Без
+  // этого приходилось заходить в кабинет ученика отдельной учёткой.
+  const [preview, setPreview] = useState(false)
+  const [blocks, setBlocks] = useState<any[]>([])
+  const [blocksLoading, setBlocksLoading] = useState(false)
+
+  // Блоки тянем ПО НАЖАТИЮ и каждый раз заново — иначе предпросмотр покажет
+  // состояние до правок, которые человек только что внёс.
+  const openPreview = async () => {
+    setPreview(true)
+    setBlocksLoading(true)
+    try {
+      const r: any = await api.materials.blocks(matId)
+      setBlocks(r.blocks || [])
+    } finally { setBlocksLoading(false) }
+  }
 
   useEffect(() => {
     (async () => {
@@ -57,20 +75,68 @@ export default function ProductMaterialPage() {
 
   return (
     <div className="max-w-4xl">
-      <Link
-        href={backHref}
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-      >
-        <ArrowLeft size={15} /> {product?.title || 'Назад'}
-      </Link>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href={backHref}
+          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+        >
+          <ArrowLeft size={15} /> {product?.title || 'Назад'}
+        </Link>
 
-      <MaterialEditor
-        mode="page"
-        materialId={matId}
-        title={title}
-        onClose={() => router.push(backHref)}
-        onRenamed={(t: string) => setTitle(t)}
-      />
+        <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-1">
+          {([
+            [false, 'Правка', Pencil],
+            [true, 'Как видит ученик', Eye],
+          ] as const).map(([val, label, Icon]) => (
+            <button
+              key={String(val)}
+              onClick={() => (val ? openPreview() : setPreview(false))}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${
+                preview === val
+                  ? 'bg-[#25455D] font-medium text-white'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Icon size={14} /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {preview ? (
+        <>
+          {/* ⚠️ Показываем ТЕМ ЖЕ компонентом, что и кабинет покупателя
+              (MaterialBlockView), и на том же сером фоне: своя вёрстка
+              предпросмотра разошлась бы с тем, что человек видит на самом
+              деле, и смысл проверки потерялся бы. */}
+          <div className="rounded-2xl bg-gray-50 p-4 md:p-8">
+            <h1 className="mb-6 text-2xl font-bold text-gray-900">{title}</h1>
+            {blocksLoading ? (
+              <p className="text-sm text-gray-400">Загружаем…</p>
+            ) : !blocks.length ? (
+              <p className="rounded-xl bg-white p-6 text-center text-sm text-gray-400 shadow-sm">
+                Материал пуст — ученик увидит «Материал скоро появится».
+              </p>
+            ) : (
+              <div className="space-y-4 rounded-xl bg-white p-5 shadow-sm md:p-7">
+                {blocks.map(b => <MaterialBlockView key={b.id} block={b} />)}
+              </div>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">
+            Так урок выглядит у купившего. Ссылки кликабельны, видео и файлы —
+            рабочие.
+          </p>
+        </>
+      ) : (
+        <MaterialEditor
+          mode="page"
+          materialId={matId}
+          title={title}
+          onClose={() => router.push(backHref)}
+          onRenamed={(t: string) => setTitle(t)}
+        />
+      )}
     </div>
   )
 }

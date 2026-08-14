@@ -322,6 +322,24 @@ async def cabinet_auth(
 
 # ── Кабинет купившего ─────────────────────────────────────────────────────
 
+async def _brand(db, client_id: int) -> Optional[dict]:
+    """Оформление кабинета купившего — логотип, имя и цвета клиента.
+
+    ⚠️ Человек купил у КОНКРЕТНОГО эксперта: без логотипа и названия кабинет
+    выглядит безымянным чужим сервисом. Цвета берём из темы лендингов
+    (`clients.lp_*`) — одна настройка на всё, отдельно оформлять кабинет
+    клиенту не нужно.
+    """
+    row = await db.fetchrow(
+        """SELECT name, brand_name, brand_logo_url, brand_logo_light_url,
+                  lp_bg_color, lp_bg_color_2, lp_color_heading, lp_btn_color,
+                  lp_btn_text_color
+             FROM clients WHERE id = $1""",
+        client_id,
+    )
+    return dict(row) if row else None
+
+
 @router.get("/product-cabinet/me", summary="Что мне открыто")
 async def cabinet_me(
     response: Response,
@@ -343,7 +361,8 @@ async def cabinet_me(
             ORDER BY pa.granted_at DESC""",
         sess["contact_id"], sess["client_id"],
     )
-    return {"products": [dict(r) for r in rows]}
+    return {"products": [dict(r) for r in rows],
+            "brand": await _brand(db, sess["client_id"])}
 
 
 @router.get("/product-cabinet/me/{slug}", summary="Материалы продукта")
@@ -408,6 +427,11 @@ async def cabinet_product(
         d["blocks"] = [dict(b) for b in blocks]
         out_items.append(d)
 
+    # ⚠️ Бренд клиента — чтобы кабинет купившего был в ЕГО оформлении, а не в
+    # безымянном сером. Человек купил у конкретного эксперта: логотип и
+    # название должны быть его, иначе кабинет выглядит чужим сервисом.
+    # Цвета берём из темы лендингов (`clients.lp_*`) — одна настройка на всё,
+    # клиенту не надо оформлять кабинет отдельно.
     return {
         "product": {
             "id": access["product_id"],
@@ -415,6 +439,7 @@ async def cabinet_product(
             "title": access["title"],
             "wording_preset": access["wording_preset"],
         },
+        "brand": await _brand(db, sess["client_id"]),
         "sections": [dict(s) for s in sections],
         "items": out_items,
     }
