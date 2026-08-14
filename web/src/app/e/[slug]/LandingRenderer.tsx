@@ -352,11 +352,7 @@ export default function LandingRenderer({
            2 партнёрах на 3 колонки третья просто оставалась пустой справа.
            Поэтому ширину колонки ограничиваем сверху (`--lp-col-w`): колонки
            перестают растягиваться, и весь ряд центрируется целиком. */
-        .lp-grid {
-          grid-template-columns: 1fr;
-          justify-content: center;
-          --lp-col-w: 1fr;
-        }
+        .lp-grid { grid-template-columns: 1fr; justify-content: center; --lp-col-w: 1fr; }
         /* Цифры на телефоне — 2 в ряд: по одной они растягивали бы секцию в
            бесконечную колонку, а цифра узкая и вполне помещается.
            ⚠️ НО если под цифрой стоит скриншот-доказательство, две колонки
@@ -373,9 +369,7 @@ export default function LandingRenderer({
            На узком экране картинка рисуется в своих пропорциях во всю ширину;
            с 640px работает настройка клиента. */
         .lp-card-img { aspect-ratio: auto; height: auto; }
-        @media (min-width: 640px) {
-          .lp-card-img { aspect-ratio: var(--lp-img-ratio, auto); }
-        }
+        @media (min-width: 640px) { .lp-card-img { aspect-ratio: var(--lp-img-ratio, auto); } }
         /* Картинка секции: на телефоне во всю ширину, с 640px — как задал клиент. */
         .lp-sec-img { width: 100%; }
         @media (min-width: 640px) { .lp-sec-img { width: var(--lp-sec-img-w, 100%); } }
