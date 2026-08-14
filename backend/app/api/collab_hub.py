@@ -110,6 +110,53 @@ def _plusson_base(raw) -> dict:
     }
 
 
+# Как площадки называются в разбивке охвата и что в какую сводится.
+# ⚠️ Telegram и MAX объединяют бота и канал: для партнёра это одна площадка,
+# а раздельные строки заставляли бы складывать в уме.
+_REACH_GROUPS = [
+    ('Telegram', ('plusson_tg', 'plusson_tg_ch', 'tg')),
+    ('MAX',      ('plusson_max', 'plusson_max_ch', 'max')),
+    ('ВКонтакте',('plusson_vk', 'plusson_vk_ch', 'vk')),
+    ('Email',    ('plusson_email',)),
+    ('YouTube',  ('youtube',)),
+    ('Instagram',('instagram',)),
+    ('TikTok',   ('tiktok',)),
+    ('RuTube',   ('rutube',)),
+    ('Чат-боты', ('chatbots',)),
+    ('Суммарно', ('total',)),
+]
+
+
+def _reach_breakdown(media_assets, auto_counts: dict) -> list:
+    """Разбивка охвата по площадкам: [{title, count, percent}], по убыванию.
+
+    Нужна, чтобы цифра охвата не была «чёрным ящиком»: партнёр видит, из чего
+    она сложилась и какая площадка даёт основную долю.
+    """
+    try:
+        arr = media_assets if isinstance(media_assets, list) else json.loads(media_assets or '[]')
+    except Exception:
+        return []
+    by_slug = {}
+    for a in arr:
+        if not isinstance(a, dict):
+            continue
+        slug = a.get('platform')
+        if slug in _AUTO_PLATFORMS:
+            by_slug[slug] = int((auto_counts or {}).get(slug) or 0)
+        else:
+            by_slug[slug] = int(round(float(a.get('subscribers') or 0)))
+    rows = []
+    for title, slugs in _REACH_GROUPS:
+        n = sum(by_slug.get(sl, 0) for sl in slugs)
+        if n > 0:
+            rows.append({'title': title, 'count': n})
+    total = sum(r['count'] for r in rows) or 1
+    for r in rows:
+        r['percent'] = round(r['count'] * 100 / total)
+    return sorted(rows, key=lambda r: -r['count'])
+
+
 def _client_card(row, public: bool = False, channel_counts: dict | None = None) -> dict:
     """Собирает карточку организатора из строки clients.
 
@@ -136,6 +183,8 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
         'achievements': _parse_json(d.get('owner_achievements'), []),
         'social_links': _parse_json(d.get('social_links'), {}),
         'media_assets': ma or [],
+        'reach_breakdown': _reach_breakdown(ma, {**_plusson_base(d.get('hub_base_by_platform')),
+                                                 **(channel_counts or {})}),
         'media_tier': _media_tier(_sum_subscribers(
             ma, {**_plusson_base(d.get('hub_base_by_platform')), **(channel_counts or {})})),
         'is_published_in_hub': d.get('is_published_in_hub'),
