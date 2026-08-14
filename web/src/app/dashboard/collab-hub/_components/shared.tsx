@@ -57,22 +57,25 @@ export function bioLines(bio: string): string[] {
  *  по переносам нельзя — теги вылезли бы текстом, а свой маркер «•» встал бы
  *  рядом с маркером списка. Такой текст отдаём в SafeHtml как есть.
  *  Старые записи (обычный текст) продолжают работать по-прежнему. */
-export function BioBlock({ bio, open, className = '' }: { bio: string; open: boolean; className?: string }) {
+// ⚠️ `open` больше не влияет на обрезку (её задаёт вызывающий через line-clamp),
+// но параметр оставлен: его передают несколько мест, и убрать его — значит
+// править их все ради ничего.
+export function BioBlock({ bio, className = '' }: { bio: string; open?: boolean; className?: string }) {
   if (/<\/?[a-z][\s\S]*>/i.test(bio || '')) {
     return (
       <SafeHtml
-        className={`text-sm text-gray-500 ${open ? '' : 'line-clamp-3'} ${className}`}
+        className={`text-sm text-gray-500 ${className}`}
         html={bio}
       />
     )
   }
   const lines = bioLines(bio)
   if (lines.length === 0) return null
-  // ⚠️ Обрезкой занимается ВЫЗЫВАЮЩИЙ (обёртка с line-clamp) — так свёрнутый
-  // блок занимает ровно те же 3 строки, что и персиковые блоки карточки.
-  // Раньше резалось по ПУНКТАМ, и блок из двух длинных пунктов занимал
-  // вчетверо больше места — карточки в ряду разъезжались.
-  const shown = open ? lines : lines.slice(0, 3)
+  // ⚠️ Обрезкой занимается ВЫЗЫВАЮЩИЙ (обёртка с line-clamp): своя обрезка
+  // внутри конфликтовала бы с внешней — блок резался дважды и по разным
+  // правилам (по ПУНКТАМ здесь и по СТРОКАМ снаружи), из-за чего высота
+  // карточек всё равно расходилась.
+  const shown = lines
   return (
     <ul className={`text-sm text-gray-500 space-y-1 list-none ${className}`}>
       {shown.map((line, i) => (
@@ -228,7 +231,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
-          ⚠️ ПРАВИЛО ОДНО ДЛЯ ВСЕХ: свёрнуто — ровно 6 строк, дальше
+          ⚠️ ПРАВИЛО ОДНО ДЛЯ ВСЕХ: свёрнуто — ровно 4 строки, дальше
           «Подробнее». Так карточки выглядят одинаково независимо от того,
           сколько человек написал о себе. Раньше лимит был 3 строки, и у
           одних регалии показывались целиком, у других обрезались — принцип
@@ -236,7 +239,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       {bio && (
         <div className="mt-2">
           {/* clamp — на обёртке, которую и меряем (BioBlock не принимает ref). */}
-          <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-6'}>
+          <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-4'}>
             <BioBlock bio={bio} open />
           </div>
           {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>

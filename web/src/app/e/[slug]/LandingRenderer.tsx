@@ -327,6 +327,10 @@ export default function LandingRenderer({
           border-radius: 3px;
         }
         .lp-scroll::-webkit-scrollbar-thumb { background: ${iconColor}; border-radius: 3px; }
+        /* Регалии основателя: выделенное жирным — акцентным цветом темы.
+           Строка регалии и так полужирная, поэтому «ещё жирнее» на ней не
+           читается — цвет отличает выделение куда лучше. */
+        .lp-bio b, .lp-bio strong { color: ${iconColor}; }
         /* Двухколоночные секции: на телефоне одна колонка, с 768px — заданная
            пропорция из --lp-md-cols (её ставит сама секция инлайном). */
         .lp-cols { grid-template-columns: 1fr; }
@@ -1361,8 +1365,11 @@ function BlockBody({
                           style={{ background: iconColor }} />
                     {/* ⚠️ Регалии клиент пишет тегами (<b>жирный</b>) — выводим
                         разметку, а не текст: иначе на лендинге видны сами теги.
-                        SafeHtml чистит всё небезопасное. */}
-                    <SafeHtml html={x} />
+                        SafeHtml чистит всё небезопасное.
+                        Выделенное жирным красим АКЦЕНТНЫМ цветом темы: на
+                        лендинге вся строка и так полужирная, и без цвета
+                        выделение в ней не читалось. */}
+                    <SafeHtml html={x} className="lp-bio" />
                   </li>
                 ))}
               </ul>
