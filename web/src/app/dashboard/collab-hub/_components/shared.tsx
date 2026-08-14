@@ -119,7 +119,10 @@ export function PeachBlock({ title, html, first = false, tone = 'peach' }: { tit
   return (
     <div className={`${first ? 'mt-3' : 'mt-2'} rounded-xl px-3 py-2`}
          style={{ background: skin.bg, border: `1px solid ${skin.border}` }}>
-      <div className="text-[11px] font-semibold mb-0.5" style={{ color: skin.text }}>{title}</div>
+      {/* Заголовки блоков — ЗАГЛАВНЫМИ: так они читаются как рубрики карточки,
+          а не как часть текста под ними. uppercase в CSS, а не в самой строке —
+          заголовок остаётся редактируемым в одном месте. */}
+      <div className="text-[11px] font-semibold mb-0.5 uppercase tracking-wide" style={{ color: skin.text }}>{title}</div>
       {/* ⚠️ Обрезка висит на ОБЁРТКЕ, которую и меряем. SafeHtml не принимает
           ref, а меряя обёртку вокруг обрезанного ребёнка, мы всегда получали
           бы scrollHeight === clientHeight — кнопка «Подробнее» не появлялась
@@ -639,14 +642,14 @@ export function MyCardView() {
               с тем, что увидят партнёры. */}
           {form.hub_about && (
             <div className="mt-4 rounded-xl px-3 py-2" style={{ background: '#F1F6FA', border: '1px solid #B9CEDD' }}>
-              <div className="text-[11px] font-semibold mb-0.5" style={{ color: DARK }}>Что предлагает партнёрам</div>
+              <div className="text-[11px] font-semibold mb-0.5 uppercase tracking-wide" style={{ color: DARK }}>Что предлагает партнёрам</div>
               <SafeHtml className="text-sm " style={{ color: DARK }} html={form.hub_about} />
             </div>
           )}
           {/* Импакт и WOW-факт — живое превью; «скрыто» если снята галочка публичности */}
           {form.hub_impact && (
             <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-              <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>
+              <div className="text-[11px] font-semibold mb-0.5 uppercase tracking-wide" style={{ color: '#C77B3B' }}>
                 Что создаёт и меняет в мире{!form.hub_impact_public && <span className="ml-1 text-gray-400 font-normal">· скрыто в публичной</span>}
               </div>
               <SafeHtml className={`text-sm  ${form.hub_impact_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }} html={form.hub_impact} />
@@ -654,7 +657,7 @@ export function MyCardView() {
           )}
           {form.hub_wow && (
             <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-              <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>
+              <div className="text-[11px] font-semibold mb-0.5 uppercase tracking-wide" style={{ color: '#C77B3B' }}>
                 Капелька безумия / WOW-факт{!form.hub_wow_public && <span className="ml-1 text-gray-400 font-normal">· скрыто в публичной</span>}
               </div>
               <SafeHtml className={`text-sm  ${form.hub_wow_public ? '' : 'opacity-40'}`} style={{ color: '#C77B3B' }} html={form.hub_wow} />

@@ -71,20 +71,20 @@ export default function OrgProfilePage() {
             блоками. Цвет — светлый оттенок фирменного синего, как в каталоге. */}
         {c.hub_about && (
           <div className="mt-5 rounded-xl px-4 py-3" style={{ background: '#F1F6FA', border: '1px solid #B9CEDD' }}>
-            <div className="text-xs font-semibold mb-1" style={{ color: DARK }}>Что предлагает партнёрам</div>
+            <div className="text-xs font-semibold mb-1 uppercase tracking-wide" style={{ color: DARK }}>Что предлагает партнёрам</div>
             <SafeHtml className="text-sm " style={{ color: DARK }} html={c.hub_about} />
           </div>
         )}
         {/* Импакт и WOW-факт — бэк отдаёт null, если владелец снял галочку публичности */}
         {c.hub_impact && (
           <div className="mt-4 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-            <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
+            <div className="text-xs font-semibold mb-1 uppercase tracking-wide" style={{ color: '#C77B3B' }}>Что создаёт и меняет в мире</div>
             <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={c.hub_impact} />
           </div>
         )}
         {c.hub_wow && (
           <div className="mt-4 rounded-xl px-4 py-3" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-            <div className="text-xs font-semibold mb-1" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
+            <div className="text-xs font-semibold mb-1 uppercase tracking-wide" style={{ color: '#C77B3B' }}>Капелька безумия / WOW-факт</div>
             <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={c.hub_wow} />
           </div>
         )}
