@@ -42,11 +42,68 @@ function fixReversedClosingTags(html: string): string {
   return html.replace(/<\s*([a-z][a-z0-9]*)\s*\/\s*>/gi, '</$1>')
 }
 
+/**
+ * Голый адрес в тексте → кликабельная ссылка.
+ *
+ * ⚠️ Нужно потому, что тексты уроков пишут обычным набором: «изучи майндкарту
+ * https://xmind.ai/…». Без этого адрес оставался простым текстом, и человек в
+ * кабинете не понимал, что по нему можно перейти — приходилось выделять и
+ * копировать вручную.
+ *
+ * Обрабатываем ТОЛЬКО текстовые узлы и не заходим внутрь уже существующих
+ * `<a>`: иначе ссылка обернулась бы в ссылку.
+ */
+function linkifyTextNodes(root: Element, doc: Document): void {
+  const RE = /(https?:\/\/[^\s<>"')]+)/g
+
+  const walk = (node: Node) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 1) {
+        if ((child as Element).tagName.toLowerCase() === 'a') continue
+        walk(child)
+        continue
+      }
+      if (child.nodeType !== 3) continue
+
+      const text = child.nodeValue || ''
+      if (!RE.test(text)) { RE.lastIndex = 0; continue }
+      RE.lastIndex = 0
+
+      const frag = doc.createDocumentFragment()
+      let last = 0
+      let m: RegExpExecArray | null
+      while ((m = RE.exec(text))) {
+        if (m.index > last) frag.appendChild(doc.createTextNode(text.slice(last, m.index)))
+        // Хвостовая точка/запятая — часть предложения, а не адреса.
+        const raw = m[1].replace(/[.,;:!?]+$/, '')
+        const a = doc.createElement('a')
+        a.setAttribute('href', raw)
+        a.textContent = raw
+        frag.appendChild(a)
+        if (raw.length < m[1].length) frag.appendChild(doc.createTextNode(m[1].slice(raw.length)))
+        last = m.index + m[1].length
+      }
+      if (last < text.length) frag.appendChild(doc.createTextNode(text.slice(last)))
+      child.parentNode?.replaceChild(frag, child)
+    }
+  }
+  walk(root)
+}
+
+/** Экранирование, чтобы обычный текст можно было безопасно пропустить через DOM. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 function sanitize(html: string): string {
   if (typeof window === 'undefined') return ''
   const doc = new DOMParser().parseFromString(`<div>${fixReversedClosingTags(html)}</div>`, 'text/html')
   const root = doc.body.firstElementChild
   if (!root) return ''
+
+  // ⚠️ ДО очистки: созданные здесь <a> пройдут ту же проверку схемы и получат
+  // target/rel — отдельных правил для них заводить не нужно.
+  linkifyTextNodes(root, doc)
 
   const walk = (node: Element) => {
     for (const child of Array.from(node.children)) walk(child)
@@ -95,11 +152,18 @@ export default function SafeHtml({
   style?: React.CSSProperties
 }) {
   const value = (html || '').trim()
-  const clean = useMemo(() => (value && looksLikeHtml(value) ? sanitize(value) : ''), [value])
+  // ⚠️ Через sanitize прогоняем и ТЕКСТ БЕЗ ТЕГОВ — ради автоссылок: в уроках
+  // адреса пишут обычным набором («изучи майндкарту https://xmind.ai/…»), и
+  // раньше такой текст шёл мимо обработки и оставался некликабельным.
+  const clean = useMemo(() => {
+    if (!value) return ''
+    if (looksLikeHtml(value)) return sanitize(value)
+    return /https?:\/\//i.test(value) ? sanitize(escapeHtml(value)) : ''
+  }, [value])
 
   if (!value) return null
 
-  // Старая запись без разметки — показываем текстом, сохраняя переносы.
+  // Старая запись без разметки и без ссылок — показываем текстом, сохраняя переносы.
   if (!clean) {
     return (
       <div className={`whitespace-pre-wrap ${className}`} style={style}>{value}</div>

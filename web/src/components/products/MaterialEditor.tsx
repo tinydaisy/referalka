@@ -116,14 +116,28 @@ export default function MaterialEditor({
     }, 600)
   }
 
+  const isPage = mode === 'page'
+
   // ⚠️ Модалка-форма не закрывается по клику на фон (правило проекта):
   // на внешнем div нет onClick — иначе набранный урок потеряется.
+  // В режиме `page` затемнения и коробки нет вовсе — содержимое ложится
+  // прямо на страницу, и длинный урок прокручивается всей страницей.
+  const Wrapper = ({ children }: { children: React.ReactNode }) =>
+    isPage ? (
+      <div className="w-full">{children}</div>
+    ) : (
+      <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4">
+        <div
+          onClick={e => e.stopPropagation()}
+          className="my-6 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6"
+        >
+          {children}
+        </div>
+      </div>
+    )
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4">
-      <div
-        onClick={e => e.stopPropagation()}
-        className="my-6 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6"
-      >
+    <Wrapper>
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <input
@@ -137,9 +151,12 @@ export default function MaterialEditor({
           </div>
           <div className="flex items-center gap-2">
             {saving && <Loader2 size={15} className="animate-spin text-gray-400" />}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <X size={20} />
-            </button>
+            {/* На отдельной странице крестик не нужен — есть ссылка «назад». */}
+            {!isPage && (
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -188,10 +205,11 @@ export default function MaterialEditor({
         )}
 
         <div className="mt-5">
-          <button onClick={onClose} className="btn-gold">Готово</button>
+          <button onClick={onClose} className="btn-gold">
+            {isPage ? 'Готово — вернуться к списку' : 'Готово'}
+          </button>
         </div>
-      </div>
-    </div>
+    </Wrapper>
   )
 }
 

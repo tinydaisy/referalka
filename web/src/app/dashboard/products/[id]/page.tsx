@@ -16,7 +16,6 @@ import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
 import ProductLandingTab from './LandingTab'
-import MaterialEditor from '@/components/products/MaterialEditor'
 import {
   ArrowLeft, Plus, Trash2, X, Copy, Check, ChevronDown, ChevronRight,
   MoreHorizontal, Settings2, Wallet, Layers, Users, ExternalLink, Eye, EyeOff,
@@ -205,8 +204,19 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
   const [slug, setSlug] = useState(product.slug || '')
   const [offerUrl, setOfferUrl] = useState(product.offer_url || '')
   const [preset, setPreset] = useState(product.wording_preset || 'consulting')
+  const [categoryId, setCategoryId] = useState<string>(
+    product.category_id ? String(product.category_id) : '')
+  const [cats, setCats] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Список категорий приходит вместе со списком продуктов — отдельного
+  // эндпоинта под него нет, чтобы не плодить запрос ради одного селектора.
+  useEffect(() => {
+    api.products.list()
+      .then((r: any) => setCats(r.categories || []))
+      .catch(() => {})
+  }, [])
 
   const url = `${publicBase}/pr/${product.slug}`
 
@@ -220,6 +230,7 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
         slug: slug.trim(),
         offer_url: offerUrl.trim() || null,
         wording_preset: preset,
+        category_id: categoryId ? Number(categoryId) : null,
       })
       onChanged()
     } catch (e: any) {
@@ -299,6 +310,27 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
         <p className="mt-1 text-xs text-gray-400">
           Оферта своя у каждого продукта — она описывает именно эту услугу, её состав
           и порядок возврата. Опубликовать можно и без неё, но лучше заполнить.
+        </p>
+      </div>
+
+      {/* ⚠️ Категория — ВНУТРЕННЯЯ раскладка кабинета по направлениям, наружу
+          она не уходит: публичного каталога продуктов нет. */}
+      <div>
+        <label className="mb-1 block text-sm text-gray-600">Категория</label>
+        <select
+          value={categoryId}
+          onChange={e => setCategoryId(e.target.value)}
+          disabled={readOnly}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        >
+          <option value="">Без категории</option>
+          {cats.map(c => (
+            <option key={c.id} value={String(c.id)}>{c.title}</option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-400">
+          Раскладка по направлениям в списке продуктов. Новые категории заводятся
+          там же, кнопкой «Категории».
         </p>
       </div>
 
@@ -976,7 +1008,6 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
   readOnly: boolean; onChanged: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
   const name = item.title_override || item.title
 
   const detach = async () => {
@@ -996,7 +1027,12 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
     <div className="rounded-xl border border-gray-200 bg-white">
       <div className="flex items-center gap-3 p-3">
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-gray-900">{name}</div>
+          <Link
+            href={`/dashboard/products/${productId}/materials/${item.material_id}`}
+            className="block truncate font-medium text-gray-900 hover:text-[#25455D] hover:underline"
+          >
+            {name}
+          </Link>
           <div className="text-xs text-gray-400">
             {item.min_tariff_id
               ? `С тарифа: ${tariffs.find(t => t.id === item.min_tariff_id)?.title || '—'}`
@@ -1014,10 +1050,12 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
             >
               {item.show_on_landing ? <Eye size={16} /> : <EyeOff size={16} />}
             </button>
-            <button onClick={() => setEditing(true)}
-                    className="text-sm font-medium text-[#25455D] hover:underline">
+            {/* ⚠️ Содержимое открывается СТРАНИЦЕЙ, а не окном: урок бывает
+                длинным, а ссылку на окно нельзя ни сохранить, ни переслать. */}
+            <Link href={`/dashboard/products/${productId}/materials/${item.material_id}`}
+                  className="text-sm font-medium text-[#25455D] hover:underline">
               Содержимое
-            </button>
+            </Link>
             <button onClick={() => setOpen(!open)} className="text-sm text-gray-500 hover:text-gray-700">
               Настроить
             </button>
@@ -1033,15 +1071,6 @@ function ContentRow({ productId, item, sections, tariffs, readOnly, onChanged }:
           productId={productId} item={item} sections={sections} tariffs={tariffs}
           onClose={() => setOpen(false)}
           onSaved={() => { setOpen(false); onChanged() }}
-        />
-      )}
-
-      {editing && (
-        <MaterialEditor
-          materialId={item.material_id}
-          title={item.title}
-          onClose={() => { setEditing(false); onChanged() }}
-          onRenamed={() => onChanged()}
         />
       )}
     </div>

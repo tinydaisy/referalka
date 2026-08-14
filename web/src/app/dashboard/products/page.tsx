@@ -15,7 +15,7 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
-import { Plus, Trash2, Package, Library, X, FileText } from 'lucide-react'
+import { Plus, Trash2, Package, Library, X, FileText, FolderTree } from 'lucide-react'
 import MaterialEditor from '@/components/products/MaterialEditor'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -82,29 +82,61 @@ export default function ProductsPage() {
 
 function ProductsTab({ readOnly }: { readOnly: boolean }) {
   const [list, setList] = useState<any[]>([])
+  const [cats, setCats] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [managing, setManaging] = useState(false)
 
   const load = async () => {
     try {
       const r = await api.products.list()
       setList(r.products || [])
+      setCats(r.categories || [])
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
 
   if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
 
+  /* ⚠️ Раскладка по категориям: продуктов у клиента больше десятка, и одним
+     списком они читаются как свалка — «Фокусировка» рядом с «Крео СПРИНТ»,
+     хотя это разные направления бизнеса. Продукты без категории идут ПОСЛЕДНЕЙ
+     группой: это не «прочее», а «ещё не разложено». */
+  const groups: Array<{ id: number | null; title: string; items: any[] }> = [
+    ...cats.map(c => ({
+      id: c.id as number,
+      title: c.title as string,
+      items: list.filter(p => p.category_id === c.id),
+    })),
+    { id: null, title: 'Без категории', items: list.filter(p => !p.category_id) },
+  ].filter(g => g.items.length > 0 || g.id !== null)
+
   return (
     <div>
       {!readOnly && (
-        <button onClick={() => setAdding(true)} className="btn-gold mb-4 inline-flex items-center gap-2">
-          <Plus size={16} /> Создать продукт
-        </button>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button onClick={() => setAdding(true)} className="btn-gold inline-flex items-center gap-2">
+            <Plus size={16} /> Создать продукт
+          </button>
+          <button
+            onClick={() => setManaging(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <FolderTree size={15} /> Категории
+          </button>
+        </div>
       )}
 
       {adding && (
         <ProductForm onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load() }} />
+      )}
+
+      {managing && (
+        <CategoriesModal
+          cats={cats}
+          onClose={() => setManaging(false)}
+          onChanged={load}
+        />
       )}
 
       {!list.length && !adding && (
@@ -114,30 +146,140 @@ function ProductsTab({ readOnly }: { readOnly: boolean }) {
         </p>
       )}
 
-      <div className="space-y-2">
-        {list.map(p => (
-          <Link
-            key={p.id}
-            href={`/dashboard/products/${p.id}`}
-            className="block rounded-xl border border-gray-200 bg-white p-4 transition hover:border-gray-300"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">{p.title}</span>
-                  <StatusChip status={p.status} />
-                </div>
-                {p.subtitle && (
-                  <p className="mt-0.5 truncate text-sm text-gray-500">{p.subtitle}</p>
-                )}
-                <p className="mt-1 text-xs text-gray-400">
-                  Тарифов: {p.tariffs_count} · Материалов: {p.materials_count} ·
-                  {' '}Клиентов: {p.buyers_count}
-                </p>
+      <div className="space-y-6">
+        {groups.map(g => (
+          <div key={String(g.id)}>
+            {(cats.length > 0) && (
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {g.title} <span className="text-gray-300">· {g.items.length}</span>
+              </h3>
+            )}
+            {!g.items.length ? (
+              <p className="rounded-xl border border-dashed border-gray-200 p-3 text-xs text-gray-400">
+                Пусто — перенесите сюда продукты полем «Категория» в карточке.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {g.items.map(p => (
+                  <Link
+                    key={p.id}
+                    href={`/dashboard/products/${p.id}`}
+                    className="block rounded-xl border border-gray-200 bg-white p-4 transition hover:border-gray-300"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900">{p.title}</span>
+                          <StatusChip status={p.status} />
+                        </div>
+                        {p.subtitle && (
+                          <p className="mt-0.5 truncate text-sm text-gray-500">{p.subtitle}</p>
+                        )}
+                        <p className="mt-1 text-xs text-gray-400">
+                          Тарифов: {p.tariffs_count} · Материалов: {p.materials_count} ·
+                          {' '}Клиентов: {p.buyers_count}
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
               </div>
-            </div>
-          </Link>
+            )}
+          </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────── Категории продуктов ──────────────────────────── */
+
+function CategoriesModal({ cats, onClose, onChanged }: {
+  cats: any[]; onClose: () => void; onChanged: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const add = async () => {
+    const t = title.trim()
+    if (!t) return
+    setBusy(true)
+    try {
+      await api.products.createCategory({ title: t })
+      setTitle('')
+      onChanged()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось создать категорию')
+    } finally { setBusy(false) }
+  }
+
+  const rename = async (c: any) => {
+    const t = prompt('Название категории', c.title)
+    if (t === null) return
+    if (!t.trim()) return
+    await api.products.updateCategory(c.id, { title: t.trim() })
+    onChanged()
+  }
+
+  const remove = async (c: any) => {
+    // ⚠️ Явно говорим, что продукты не пропадут: иначе удаление категории
+    // выглядит как удаление всего, что в ней лежит.
+    if (!confirm(`Удалить категорию «${c.title}»?\n\nПродукты останутся — они перейдут в «Без категории».`)) return
+    await api.products.deleteCategory(c.id)
+    onChanged()
+  }
+
+  return (
+    // Модалка-форма НЕ закрывается по клику на фон (правило проекта).
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4">
+      <div className="my-10 w-full max-w-lg rounded-2xl bg-white p-6">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Категории продуктов</h2>
+            <p className="text-xs text-gray-400">
+              Раскладка по направлениям — например «Организация конференций»,
+              «Финансовое планирование», «Продажи и маркетинг».
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="mb-4 flex gap-2">
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') add() }}
+            placeholder="Название категории"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <button onClick={add} disabled={busy || !title.trim()} className="btn-gold px-4 text-sm">
+            Добавить
+          </button>
+        </div>
+
+        {!cats.length ? (
+          <p className="text-sm text-gray-400">Категорий пока нет.</p>
+        ) : (
+          <div className="space-y-2">
+            {cats.map(c => (
+              <div key={c.id} className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                <span className="flex-1 text-sm text-gray-800">{c.title}</span>
+                <button onClick={() => rename(c)} className="text-xs text-gray-500 hover:text-gray-700">
+                  Переименовать
+                </button>
+                <button onClick={() => remove(c)} className="text-gray-400 hover:text-red-600">
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-5">
+          <button onClick={onClose} className="btn-gold">Готово</button>
+        </div>
       </div>
     </div>
   )

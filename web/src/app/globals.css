@@ -178,6 +178,15 @@ body {
   border-left: 3px solid currentColor; opacity: 0.85;
   padding-left: 0.75rem; margin: 0.5em 0;
 }
-.rich-text a { text-decoration: underline; }
+/* ⚠️ Ссылка отличается и цветом, а не только подчёркиванием: на белом фоне
+   одно подчёркивание читается как оформление текста, и люди не понимали, что
+   по адресу можно перейти. Длинные адреса переносим, иначе они распирают
+   карточку урока на телефоне. */
+.rich-text a {
+  text-decoration: underline;
+  color: #25455D;
+  overflow-wrap: anywhere;
+}
+.rich-text a:hover { opacity: 0.8; }
 .rich-text :first-child { margin-top: 0; }
 .rich-text :last-child  { margin-bottom: 0; }

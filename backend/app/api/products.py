@@ -141,6 +141,14 @@ class ProductPatch(BaseModel):
     wording_preset: Optional[str] = None
     wording: Optional[dict] = None
     sort_order: Optional[int] = None
+    # Категория кабинета. Явный null убирает продукт из категории — поэтому
+    # применяется через model_fields_set, а не по «is not None».
+    category_id: Optional[int] = None
+
+
+class CategoryIn(BaseModel):
+    title: str
+    sort_order: Optional[int] = None
 
 
 class TariffIn(BaseModel):
@@ -262,6 +270,8 @@ async def list_products(
     rows = await db.fetch(
         """
         SELECT p.*,
+               pc.title AS category_title,
+               pc.sort_order AS category_sort,
                (SELECT COUNT(*) FROM product_tariffs t
                  WHERE t.product_id = p.id AND t.is_active) AS tariffs_count,
                (SELECT COUNT(*) FROM product_materials pm
@@ -269,12 +279,118 @@ async def list_products(
                (SELECT COUNT(*) FROM product_access pa
                  WHERE pa.product_id = p.id)                AS buyers_count
           FROM products p
+          LEFT JOIN product_categories pc ON pc.id = p.category_id
          WHERE p.client_id = $1
-         ORDER BY p.sort_order, p.id DESC
+         ORDER BY p.title COLLATE "ru-RU-x-icu"
         """,
         client_id,
     )
-    return {"products": [dict(r) for r in rows]}
+    # ⚠️ Порядок — ПО АЛФАВИТУ, а не по sort_order: у продуктов нет экрана
+    # перетаскивания, поле осталось от событий и у всех равно нулю — список
+    # фактически шёл в случайном порядке создания, и найти нужный из десятка
+    # было нельзя. Сортировка русской локалью, иначе «Ё» и строчные уезжают
+    # в конец по кодам символов.
+    cats = await db.fetch(
+        "SELECT id, title, sort_order FROM product_categories "
+        'WHERE client_id = $1 ORDER BY sort_order, title COLLATE "ru-RU-x-icu"',
+        client_id,
+    )
+    return {
+        "products": [dict(r) for r in rows],
+        "categories": [dict(c) for c in cats],
+    }
+
+
+# ══ Категории продуктов (миграция 299) ════════════════════════════════════
+#
+# Раскладка кабинета по направлениям («Организация конференций», «Финансовое
+# планирование», «Продажи и маркетинг»). ⚠️ Это ВНУТРЕННЯЯ раскладка: у
+# продуктов нет публичного каталога, наружу категория не отдаётся.
+
+@router.post("/product-categories", summary="Создать категорию продуктов")
+async def create_category(
+    data: CategoryIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+
+    title = (data.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Укажите название категории")
+
+    # Новая встаёт в конец списка, а не в начало: иначе каждая следующая
+    # перетасовывала бы уже привычный клиенту порядок.
+    nxt = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), 0) + 10 FROM product_categories WHERE client_id = $1",
+        client_id,
+    )
+    row = await db.fetchrow(
+        "INSERT INTO product_categories (client_id, title, sort_order) "
+        "VALUES ($1, $2, $3) RETURNING *",
+        client_id, title, data.sort_order if data.sort_order is not None else nxt,
+    )
+    return dict(row)
+
+
+@router.patch("/product-categories/{category_id}", summary="Изменить категорию")
+async def update_category(
+    category_id: int,
+    data: CategoryIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+
+    fs = data.model_fields_set
+    sets, args = [], []
+    if "title" in fs:
+        title = (data.title or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        args.append(title)
+        sets.append(f"title = ${len(args)}")
+    if "sort_order" in fs:
+        args.append(data.sort_order or 0)
+        sets.append(f"sort_order = ${len(args)}")
+    if not sets:
+        raise HTTPException(status_code=400, detail="Нечего менять")
+
+    args += [category_id, client_id]
+    row = await db.fetchrow(
+        f"UPDATE product_categories SET {', '.join(sets)}, updated_at = now() "
+        f"WHERE id = ${len(args)-1} AND client_id = ${len(args)} RETURNING *",
+        *args,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Категория не найдена")
+    return dict(row)
+
+
+@router.delete("/product-categories/{category_id}", summary="Удалить категорию")
+async def delete_category(
+    category_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+
+    # ⚠️ Продукты НЕ удаляются — FK стоит ON DELETE SET NULL, они просто
+    # выпадают в «Без категории». Удаление папки не должно уносить товары
+    # вместе с заказами и доступами покупателей.
+    n = await db.execute(
+        "DELETE FROM product_categories WHERE id = $1 AND client_id = $2",
+        category_id, client_id,
+    )
+    if n.endswith("0"):
+        raise HTTPException(status_code=404, detail="Категория не найдена")
+    return {"ok": True}
 
 
 @router.post("/products", summary="Создать продукт")
@@ -350,6 +466,18 @@ async def update_product(
                 "offer_url", "sort_order"):
         if col in fs:
             put(col, getattr(data, col))
+
+    if "category_id" in fs:
+        # ⚠️ Категория обязана принадлежать ЭТОМУ кабинету, иначе по чужому id
+        # продукт уехал бы в чужую раскладку. null — законное «без категории».
+        if data.category_id is not None:
+            own = await db.fetchval(
+                "SELECT 1 FROM product_categories WHERE id = $1 AND client_id = $2",
+                data.category_id, client_id,
+            )
+            if not own:
+                raise HTTPException(status_code=404, detail="Категория не найдена")
+        put("category_id", data.category_id)
 
     if "status" in fs:
         if data.status not in ("draft", "published", "archived"):

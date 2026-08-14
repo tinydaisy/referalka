@@ -13,9 +13,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, ExternalLink } from 'lucide-react'
-import SafeHtml from '@/components/SafeHtml'
-import { embedUrl, isFileVideo } from '@/lib/videoEmbed'
+import { ArrowLeft, FileText, ChevronDown, ChevronRight } from 'lucide-react'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 const TOKEN_KEY = 'product_cabinet_token'
@@ -105,7 +103,7 @@ export default function CabinetProductPage() {
 
         <div className="space-y-3">
           {tree.map((n: any) => (
-            <Node key={`${n.type}-${n.id ?? n.link_id}`} node={n} W={W} />
+            <Node key={`${n.type}-${n.id ?? n.link_id}`} node={n} W={W} slug={slug} />
           ))}
         </div>
       </div>
@@ -136,106 +134,68 @@ function buildTree(sections: any[], items: any[]) {
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 }
 
-function Node({ node, W, depth = 0 }: { node: any; W: any; depth?: number }) {
+/**
+ * Узел оглавления. ⚠️ Раньше здесь разворачивалось СОДЕРЖИМОЕ всех материалов
+ * сразу: программа из двадцати уроков превращалась в бесконечную страницу, где
+ * нельзя ни найти нужный урок, ни вернуться к прочитанному. Теперь это
+ * оглавление: материал — ссылка на свою страницу, разделы свёрнуты.
+ */
+function Node({ node, W, slug, depth = 0 }: {
+  node: any; W: any; slug: string; depth?: number
+}) {
+  // ⚠️ Разделы СВЁРНУТЫ по умолчанию — так виден весь состав целиком,
+  // а не первый раздел на весь экран.
+  const [open, setOpen] = useState(false)
+
   if (node.type === 'material') {
-    const blocks: any[] = node.blocks || []
+    const n = node.blocks?.length || 0
     return (
-      <div style={{ marginLeft: depth * 16 }} className="rounded-xl bg-white p-4 shadow-sm">
-        <div className="font-medium text-gray-900">{node.title}</div>
-        {node.description && (
-          <div className="mt-0.5 text-sm text-gray-500">{node.description}</div>
-        )}
-        {!blocks.length && (
-          <div className="mt-2 text-sm text-gray-400">Материал скоро появится.</div>
-        )}
-        <div className="mt-3 space-y-3">
-          {blocks.map(b => <MaterialBlock key={b.id} block={b} />)}
+      <Link
+        href={`/my/${slug}/m/${node.link_id}`}
+        style={{ marginLeft: depth * 16 }}
+        className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm transition hover:shadow"
+      >
+        <FileText size={16} className="shrink-0 text-gray-400" />
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-gray-900">{node.title}</div>
+          {node.description && (
+            <div className="mt-0.5 text-sm text-gray-500">{node.description}</div>
+          )}
         </div>
-      </div>
+        <span className="shrink-0 text-xs text-gray-400">
+          {n ? 'Открыть' : 'Скоро'}
+        </span>
+      </Link>
     )
   }
 
+  const count = (node.children || []).filter((c: any) => c.type === 'material').length
+
   return (
     <div style={{ marginLeft: depth * 16 }}>
-      <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-        <div className="font-semibold text-gray-900">{node.title}</div>
-        {node.description && (
-          <div className="text-sm text-gray-500">{node.description}</div>
-        )}
-      </div>
-      {node.children?.length > 0 && (
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left transition hover:border-gray-300"
+      >
+        {open
+          ? <ChevronDown size={16} className="shrink-0 text-gray-400" />
+          : <ChevronRight size={16} className="shrink-0 text-gray-400" />}
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-gray-900">{node.title}</div>
+          {node.description && (
+            <div className="text-sm text-gray-500">{node.description}</div>
+          )}
+        </div>
+        {count > 0 && <span className="shrink-0 text-xs text-gray-400">{count}</span>}
+      </button>
+      {open && node.children?.length > 0 && (
         <div className="mt-2 space-y-2">
           {node.children.map((ch: any) => (
             <Node key={`${ch.type}-${ch.id ?? ch.link_id}`}
-                  node={ch} W={W} depth={depth + 1} />
+                  node={ch} W={W} slug={slug} depth={depth + 1} />
           ))}
         </div>
       )}
     </div>
   )
-}
-
-/** Один блок содержимого материала (миграция 294). */
-function MaterialBlock({ block }: { block: any }) {
-  const { kind, title, body, url } = block
-
-  if (kind === 'text') {
-    // ⚠️ Санитайз при выводе обязателен: значение приходит из базы, куда могло
-    // попасть импортом или через API мимо редактора.
-    return <SafeHtml html={body} className="text-sm text-gray-700" />
-  }
-
-  if (kind === 'video' && url) {
-    return (
-      <div>
-        {title && <div className="mb-1 text-sm font-medium text-gray-700">{title}</div>}
-        <div className="overflow-hidden rounded-xl bg-black">
-          {isFileVideo(url)
-            ? <video src={url} controls className="w-full" />
-            : <iframe src={embedUrl(url)} allowFullScreen className="aspect-video w-full" />}
-        </div>
-      </div>
-    )
-  }
-
-  if (kind === 'image' && url) {
-    return (
-      <figure>
-        <img src={url} alt={title || ''} className="w-full rounded-xl" />
-        {title && <figcaption className="mt-1 text-xs text-gray-500">{title}</figcaption>}
-      </figure>
-    )
-  }
-
-  if (kind === 'audio' && url) {
-    return (
-      <div>
-        {title && <div className="mb-1 text-sm text-gray-700">{title}</div>}
-        <audio src={url} controls className="w-full" />
-      </div>
-    )
-  }
-
-  if (kind === 'file' && url) {
-    return (
-      <a href={url} target="_blank" rel="noreferrer"
-         className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 transition hover:border-gray-300">
-        <FileText size={18} className="shrink-0 text-gray-400" />
-        <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
-          {title || 'Скачать файл'}
-        </span>
-        <ExternalLink size={15} className="shrink-0 text-gray-300" />
-      </a>
-    )
-  }
-
-  if (kind === 'button' && url) {
-    return (
-      <a href={url} target="_blank" rel="noreferrer" className="btn-gold inline-block">
-        {title || 'Открыть'}
-      </a>
-    )
-  }
-
-  return null
 }

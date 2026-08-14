@@ -915,6 +915,15 @@ export const api = {
     delete: (id: number) =>
       request(`/api/v1/products/${id}`, { method: 'DELETE' }),
 
+    // Категории — внутренняя раскладка кабинета по направлениям.
+    // Список приходит вместе с продуктами (`list()` → `categories`).
+    createCategory: (data: any) =>
+      request('/api/v1/product-categories', { method: 'POST', body: JSON.stringify(data) }),
+    updateCategory: (id: number, data: any) =>
+      request(`/api/v1/product-categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteCategory: (id: number) =>
+      request(`/api/v1/product-categories/${id}`, { method: 'DELETE' }),
+
     tariffs: (id: number) => request(`/api/v1/products/${id}/tariffs`),
     createTariff: (id: number, data: any) =>
       request(`/api/v1/products/${id}/tariffs`, { method: 'POST', body: JSON.stringify(data) }),
