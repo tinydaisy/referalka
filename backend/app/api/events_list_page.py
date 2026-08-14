@@ -428,7 +428,9 @@ async def events_list_page(
   .ow-lbl {{ font-size:11px; font-weight:800; color:#25455D; letter-spacing:1px; }}
   .ow-name {{ font-size:17px; font-weight:700; color:#25455D; margin-top:2px; }}
   .ow-pos {{ font-size:13px; color:#5a6b7d; margin:3px 0 0; }}
-  .ow-bio {{ font-size:14px; color:#41566a; line-height:1.55; margin:14px 0 0; white-space:pre-wrap; }}
+  /* ⚠️ Без white-space:pre-wrap — переносы строк уже превращены в <br>
+     (safe_html). С ним между строками выходил двойной отступ. */
+  .ow-bio {{ font-size:14px; color:#41566a; line-height:1.55; margin:14px 0 0; }}
   .socs {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }}
   .soc {{ font-size:13px; font-weight:600; color:#25455D; background:#f4f7f9; border:1px solid #e6eaee;
     border-radius:999px; padding:7px 14px; text-decoration:none; }}
