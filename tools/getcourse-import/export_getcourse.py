@@ -166,7 +166,15 @@ def parse_blocks(raw: dict, html: str = "") -> list:
         btype = block.get("type") or ""
         params = block.get("params") or {}
 
-        if btype == "lesson-text" or btype.endswith("-text"):
+        # ⚠️ Заголовок — отдельный тип блока, а не текст. В material_blocks
+        # отдельного вида «заголовок» нет, поэтому кладём как <h3> в текст.
+        if btype.endswith("-header"):
+            head = _clean_html(params.get("header") or params.get("text") or "")
+            plain = re.sub(r"<[^>]+>", "", head).strip()
+            if plain:
+                out.append({"kind": "text", "body": f"<h3>{plain}</h3>"})
+
+        elif btype == "lesson-text" or btype.endswith("-text"):
             body = _clean_html(params.get("text", ""))
             if body and not _is_placeholder(body):
                 out.append({"kind": "text", "body": body})
@@ -219,7 +227,19 @@ def parse_blocks_html(html: str) -> list:
     for i in range(1, len(parts) - 1, 2):
         classes, body = parts[i], parts[i + 1]
 
-        if "lt-lesson-text" in classes:
+        # ⚠️ Заголовок — отдельный тип блока (lt-lesson-header), не текст.
+        # Пропустив его, теряешь подводки вида «Инструкция по тому, как …»:
+        # в этом аккаунте так пропало 18 заголовков в 7 уроках, причём
+        # выгрузка выглядела успешной. Кладём как <h3> внутрь текстового
+        # блока — в material_blocks отдельного вида «заголовок» нет.
+        if "lt-lesson-header" in classes:
+            m = re.search(r'data-param="header"[^>]*>(.*?)</div>', body, re.S)
+            chunk = _clean_html(m.group(1) if m else "")
+            plain = re.sub(r"<[^>]+>", "", chunk).strip()
+            if plain:
+                out.append({"kind": "text", "body": f"<h3>{plain}</h3>"})
+
+        elif "lt-lesson-text" in classes:
             m = re.search(r'<div[^>]*data-editable="true"[^>]*>(.*?)</div>\s*</div>',
                           body, re.S)
             chunk = m.group(1) if m else body

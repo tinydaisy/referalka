@@ -437,6 +437,10 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
         f"SELECT {_CLIENT_COLS}, cl.telegram_username FROM clients cl WHERE cl.id=$1", client_id)
     if not row:
         raise HTTPException(404, "Организатор не найден")
+    # Подписчики каналов — как и в своей карточке: иначе у человека с каналом
+    # на 389 человек в профиле показывался только бот на 88.
+    from app.services.channel_audience import channel_audience
+    prof_ch = await channel_audience(db, client_id, _parse_json(row.get("social_links"), {}))
     has_link = await db.fetchval(
         """SELECT 1 FROM hub_collab_requests
             WHERE (from_client_id=$1 AND to_client_id=$2) OR (from_client_id=$2 AND to_client_id=$1) LIMIT 1""",

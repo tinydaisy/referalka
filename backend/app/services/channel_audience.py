@@ -73,12 +73,25 @@ async def _vk_count(token: str, group_id: str) -> int:
         return 0
 
 
+# ⚠️ Кеш на 10 минут. Подписчиков спрашиваем у САМИХ площадок по сети, а
+# каталог рисует десятки карточек разом — без кеша это десятки внешних
+# запросов на каждое открытие страницы: и медленно, и площадки начнут
+# ограничивать. Подписчики за 10 минут заметно не меняются.
+_CACHE: dict[int, tuple[float, dict]] = {}
+_CACHE_TTL = 600.0
+
+
 async def channel_audience(db, client_id: int, social: Optional[dict]) -> dict:
     """{'plusson_tg_ch': N, 'plusson_max_ch': N, 'plusson_vk_ch': N}.
 
     Пустой словарь значений (нули), если бот не подключён или не админ в канале —
     цифру мы в таком случае не знаем и выдумывать не станем.
     """
+    import time
+    hit = _CACHE.get(client_id)
+    if hit and time.time() - hit[0] < _CACHE_TTL:
+        return hit[1]
+
     from app.services.channels import (get_client_telegram_token,
                                        get_client_max_token,
                                        get_client_vk_token)
@@ -112,8 +125,10 @@ async def channel_audience(db, client_id: int, social: Optional[dict]) -> dict:
     results = await asyncio.gather(*tasks, return_exceptions=True)
     nums = [r if isinstance(r, int) else 0 for r in results]
 
-    return {
+    out = {
         "plusson_tg_ch":  sum(nums[:tg_n]),
         "plusson_max_ch": sum(nums[tg_n:tg_n + max_n]),
         "plusson_vk_ch":  sum(nums[tg_n + max_n:]),
     }
+    _CACHE[client_id] = (time.time(), out)
+    return out
