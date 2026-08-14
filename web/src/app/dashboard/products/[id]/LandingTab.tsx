@@ -16,7 +16,7 @@
  *
  * Сохранение — с задержкой, накопительно: не дёргаем сервер на каждую букву.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink } from 'lucide-react'
 import PreviewLinkButton from '@/components/PreviewLinkButton'
 import { api } from '@/lib/api'
@@ -111,6 +111,33 @@ export default function ProductLandingTab({ productId, product, readOnly = false
   }
 
   /* ── правки блока ─────────────────────────────────────────────────────── */
+
+  /* ⚠️ Досохранение накопленного. Правки уходят на сервер с задержкой 600 мс
+     (чтобы не слать запрос на каждую букву). Если за это время уйти со
+     страницы, переключить вкладку или закрыть браузер — правка ПРОПАДАЛА
+     молча: человек видел её на экране, а в базу она не доезжала. Клиент
+     дважды вносил одни и те же карточки заново. */
+  const flushPending = useCallback(() => {
+    const entries = Object.entries(pendingBlock.current)
+    for (const [id, body] of entries) {
+      if (!body || !Object.keys(body).length) continue
+      pendingBlock.current[Number(id)] = {}
+      clearTimeout(timers.current[`b${id}`])
+      // keepalive — чтобы запрос дожил до конца, даже если вкладку закрывают.
+      api.productLanding.patchBlock(productId, Number(id), body).catch(() => {})
+    }
+  }, [productId])
+
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flushPending() }
+    window.addEventListener('beforeunload', flushPending)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      window.removeEventListener('beforeunload', flushPending)
+      document.removeEventListener('visibilitychange', onHide)
+      flushPending()   // уход со вкладки «Лендинг» — тоже досохраняем
+    }
+  }, [flushPending])
 
   const patchBlock = (blockId: number, patch: any) => {
     if (readOnly) return
