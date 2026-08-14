@@ -349,9 +349,15 @@ export default function LandingRenderer({
         /* ⚠️ justify-content: center — когда карточек меньше, чем колонок,
            ряд не липнет к левому краю, а стоит по центру. */
         .lp-grid { grid-template-columns: 1fr; justify-content: center; }
-        /* Цифры на телефоне — всегда 2 в ряд: по одной они растягивают
-           секцию в бесконечную колонку, а цифра узкая и вполне помещается. */
+        /* Цифры на телефоне — 2 в ряд: по одной они растягивали бы секцию в
+           бесконечную колонку, а цифра узкая и вполне помещается.
+           ⚠️ НО если под цифрой стоит скриншот-доказательство, две колонки
+           делают его нечитаемым (там мелкие числа) — тогда одна в ряд. */
         .lp-grid-2sm { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 4)), 1fr); }
+        .lp-grid-2sm.lp-has-proof { grid-template-columns: 1fr; }
+        /* Ширина картинки в карточке: на телефоне всегда 100% (см. w-full),
+           с 640px — как задал клиент настройкой «Размер фото». */
+        @media (min-width: 640px) { .lp-card-img { width: var(--lp-img-w, 100%); } }
         @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
@@ -1030,13 +1036,18 @@ function BlockBody({
                 // Форма фото: скругление по ширине/высоте в % даёт круг,
                 // овал или квадрат; пропорция — чтобы фото не обрезалось
                 // случайной рамкой.
-                <div className="p-4 pb-0">
+                {/* ⚠️ На телефоне картинка идёт во ВСЮ ширину карточки, без
+                    боковых отступов: экран узкий, и поля по 16px с каждой
+                    стороны заметно съедают и без того мелкий скриншот. */}
+                <div className="p-0 pb-0 sm:p-4 sm:pb-0">
                   <img src={c.image} alt="" loading="lazy"
-                       className="mx-auto block"
+                       className="lp-card-img mx-auto block w-full sm:w-auto"
                        style={{
                          // Ширина фото в % от карточки — иначе фото всегда
                          // занимало её целиком и выглядело громоздким.
-                         width: `${block.card_img_size || 100}%`,
+                         // ⚠️ На узком экране настройка не применяется (см.
+                         // w-full выше): там картинка всегда во всю ширину.
+                         ['--lp-img-w' as any]: `${block.card_img_size || 100}%`,
                          aspectRatio: String(block.card_img_ratio || 1.6),
                          borderRadius: `${block.card_img_radius_x || 0}% / ${block.card_img_radius_y || 0}%`,
                          background: 'rgba(255,255,255,.06)',
@@ -1268,7 +1279,8 @@ function BlockBody({
       // игнорировал её на широком экране. На узких экранах колонок всегда
       // меньше (см. .lp-grid), но потолок задаёт клиент.
       return (
-        <div className="lp-grid lp-grid-2sm grid gap-x-6 gap-y-10"
+        <div className={`lp-grid lp-grid-2sm grid gap-x-6 gap-y-10 ${
+               list.some((n: any) => n.image) ? 'lp-has-proof' : ''}`}
              style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 4)) }}>
           {list.map((n: any, i: number) => (
             <div key={i} className="flex flex-col p-5 text-center" style={cardStyle}>
