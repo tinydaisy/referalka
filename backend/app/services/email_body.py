@@ -290,25 +290,28 @@ async def build_email_body(
             for b in buttons
         )
 
-    # ⚠️ БЕЗ голубой плашки-контейнера. Раньше контент лежал во вложенном
-    # <div style="background:#E8F2FA;border-radius:16px"> — и Gmail сворачивал
-    # письмо ровно по границе этого блока: тело пряталось под «...», а сама
-    # плашка оставалась видна пустым синим прямоугольником (жалоба 2026-08-14,
-    # три захода правок). Цветной блок с фоном и скруглением почтовик читает
-    # как отдельную «карточку» и считает её кандидатом на сворачивание.
+    # Голубая плашка #E8F2FA — фирменный стиль писем ПЛЮСОНа.
     #
-    # Письмо теперь — один плоский поток на белом: картинка, текст, кнопки,
-    # подвал. Сворачивать нечего, вложенных блоков-карточек нет.
+    # ⚠️ «Три точки» в Gmail она НЕ вызывает — это проверено 2026-08-14 отдельным
+    # письмом без плашки: точки остались и без неё. Настоящая причина была в
+    # ПОВТОРАХ: несколько писем подряд с одинаковой темой и телом Gmail склеивает
+    # в цепочку и прячет совпадающий кусок под «показать цитируемый текст».
+    # У боевых рассылок тема и текст всегда разные — там этого не происходит.
+    #
+    # ⚠️ А вот что письмо рвёт по-настоящему — ВЕС: тяжелее ~102 КБ Gmail
+    # обрезает. За этим следят константы выше (MAX_EMAIL_BYTES и сжатие фото).
     html = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '</head><body style="margin:0;padding:24px 20px;background:#ffffff;">'
+        '</head><body style="margin:0;padding:20px;background:#ffffff;">'
         f'<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
         f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;">'
+        f'<div style="background:#E8F2FA;padding:30px 24px;border-radius:16px;">'
         f'{html_image}'
         f'{html_video_cover}'
-        f'{html_inner}'
+        f'<div>{html_inner}</div>'
         f'{html_button}'
+        f'</div>'
         f'</div></body></html>'
     )
 
