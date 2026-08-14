@@ -202,12 +202,11 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         <span className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: '#C77B3B' }}><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />ВАША КАРТОЧКА</span>
         {item.is_published_in_hub === false && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">не опубликована</span>}
       </div>}
-      {/* ⚠️ ВЫСОТА ШАПКИ ФИКСИРОВАНА (h-32): имя + проект + позиционирование +
-          плашки занимают одинаковое место у ВСЕХ. Резерва по строкам не
-          хватало: у кого не заполнены ни проект, ни позиционирование, блок
-          схлопывался по высоте фото — плашки и разделительная линия
-          оказывались выше, чем у соседей, и ряд выглядел разъехавшимся. */}
-      <div className="flex items-start gap-3 h-32">
+      {/* ⚠️ Жёсткой высоты у шапки НЕТ: h-32 обрезала содержимое — у кого
+          позиционирование в 4 строки, плашки наезжали на блок ниже, а ряд
+          тегов уходил под обрез. Ровность даёт МИНИМАЛЬНАЯ высота (min-h-32):
+          короткая шапка дотягивается до общей, длинная растёт свободно. */}
+      <div className="flex items-start gap-3 min-h-32">
         {item.photo_url
           ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
@@ -229,7 +228,9 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
               одинаковое у всех: иначе плашки категории и ниши у каждого
               вставали на своей высоте — у кого текст в строку, у кого в
               четыре. Пустое место просто остаётся пустым. */}
-          <div className="text-xs text-gray-500 mt-0.5 min-h-[4rem]">
+          {/* Резерва в 4 строки тут НЕТ: он раздувал шапку у всех ради одного
+              длинного текста. Ровность держит min-h-32 у самой шапки. */}
+          <div className="text-xs text-gray-500 mt-0.5">
             {item.positioning || ''}
           </div>
           {/* ⚠️ Теги в ОДНУ строку с прокруткой вправо, а не переносом: ниш

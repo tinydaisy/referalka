@@ -52,12 +52,36 @@ def _media_tier(total_subs: int):
     return None
 
 
-def _sum_subscribers(media_assets) -> int:
+# Площадки, чьи цифры считает САМА система (базы ПЛЮСОНа). Их значения —
+# в штуках и приходят из подсчёта, а не из введённого поля.
+_AUTO_PLATFORMS = ('plusson_tg', 'plusson_email', 'plusson_max', 'plusson_vk')
+
+
+def _sum_subscribers(media_assets, auto_counts: dict | None = None) -> int:
+    """Суммарный охват в ЛЮДЯХ.
+
+    ⚠️ Заявленные активы человек вводит в ТЫСЯЧАХ («1.8» = 1800 подписчиков) —
+    при сложении их надо умножать на 1000. Раньше складывали как есть, и охват
+    выходил в тысячи раз меньше: у клиента с телеграм-каналом на 1800 человек
+    в каталоге стояло «до 1 000».
+
+    Базы ПЛЮСОНа считаются в штуках и берутся из auto_counts — их значение в
+    самом поле всегда 0, руками его не ввести.
+    """
     if not media_assets:
         return 0
     try:
         arr = media_assets if isinstance(media_assets, list) else json.loads(media_assets)
-        return sum(int(a.get('subscribers') or 0) for a in arr if isinstance(a, dict))
+        total = 0
+        for a in arr:
+            if not isinstance(a, dict):
+                continue
+            slug = a.get('platform')
+            if slug in _AUTO_PLATFORMS:
+                total += int((auto_counts or {}).get(slug) or 0)
+            else:
+                total += int(round(float(a.get('subscribers') or 0) * 1000))
+        return total
     except Exception:
         return 0
 
@@ -109,7 +133,7 @@ def _client_card(row, public: bool = False) -> dict:
         'achievements': _parse_json(d.get('owner_achievements'), []),
         'social_links': _parse_json(d.get('social_links'), {}),
         'media_assets': ma or [],
-        'media_tier': _media_tier(_sum_subscribers(ma)),
+        'media_tier': _media_tier(_sum_subscribers(ma, _plusson_base(d.get('hub_base_by_platform')))),
         'is_published_in_hub': d.get('is_published_in_hub'),
         'hub_category': d.get('hub_category'),
         'hub_niche': d.get('hub_niche'),

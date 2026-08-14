@@ -4,6 +4,12 @@ import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react'
 export type MediaAsset = { platform: string; subscribers: number }
 
 const PLATFORMS: { slug: string; label: string; auto?: boolean }[] = [
+  // ⚠️ Площадки ПЛЮСОНа — ПЕРВЫМИ в списке: их цифры считает система, они
+  // подтверждённые, и предлагать их надо раньше заявленных вручную.
+  { slug: 'plusson_tg',    label: 'Telegram-бот в ПЛЮСОН', auto: true },
+  { slug: 'plusson_email', label: 'Email в ПЛЮСОН',        auto: true },
+  { slug: 'plusson_max',   label: 'MAX-бот в ПЛЮСОН',      auto: true },
+  { slug: 'plusson_vk',    label: 'ВК-бот в ПЛЮСОН',       auto: true },
   { slug: 'tg',        label: 'Telegram' },
   { slug: 'youtube',   label: 'YouTube' },
   { slug: 'vk',        label: 'VK' },
@@ -14,14 +20,6 @@ const PLATFORMS: { slug: string; label: string; auto?: boolean }[] = [
   { slug: 'chatbots',  label: 'Чат-боты' },
   { slug: 'database',  label: 'База' },
   { slug: 'total',     label: 'Суммарно' },
-  // ⚠️ Площадки ПЛЮСОНа — цифры СЧИТАЕТ СИСТЕМА, руками их не вводят.
-  // Смысл в честности: медийные активы человек заявляет сам и может завысить,
-  // а здесь партнёр видит подтверждённое число живых подписчиков. Показывать
-  // их или нет — решает владелец карточки: можно просто не добавлять строку.
-  { slug: 'plusson_tg',    label: 'Telegram-бот в ПЛЮСОН', auto: true },
-  { slug: 'plusson_email', label: 'Email в ПЛЮСОН',        auto: true },
-  { slug: 'plusson_max',   label: 'MAX-бот в ПЛЮСОН',      auto: true },
-  { slug: 'plusson_vk',    label: 'ВК-бот в ПЛЮСОН',       auto: true },
 ]
 
 function labelFor(slug: string): string {
@@ -36,7 +34,23 @@ interface Props {
   autoCounts?: Record<string, number>
 }
 
+/** Градация охвата — те же пороги, что на бэкенде (_media_tier). */
+function tierLabel(total: number): string {
+  if (total >= 10000) return 'выше 10 тыс'
+  if (total >= 5000) return '5–10 тыс'
+  if (total >= 1000) return 'до 5 000'
+  if (total > 0) return 'до 1 000'
+  return 'охват не указан'
+}
+
 export default function MediaAssetsField({ value, onChange, autoCounts = {} }: Props) {
+  // ⚠️ Заявленные активы вводятся в ТЫСЯЧАХ («1.8» = 1800), а базы ПЛЮСОНа
+  // считаются в штуках — при сложении первые умножаем на 1000, иначе охват
+  // выходил в тысячи раз меньше реального.
+  const totalReach = (value || []).reduce((sum, a) => {
+    const auto = PLATFORMS.find(p => p.slug === a.platform)?.auto
+    return sum + (auto ? (autoCounts[a.platform] ?? 0) : Math.round((a.subscribers || 0) * 1000))
+  }, 0)
   const used = new Set((value || []).map(a => a.platform))
   const available = PLATFORMS.filter(p => !used.has(p.slug))
   const allUsed = available.length === 0
@@ -144,6 +158,17 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
           </div>
         )
       })}
+      {/* ⚠️ ИТОГ по всем активам — та самая цифра, по которой каталог считает
+          градацию охвата («до 1 000», «5–10 тыс»). Без неё непонятно, почему
+          в карточке стоит «меньше 1 000», когда в полях введены тысячи:
+          заявленные активы вводятся в ТЫСЯЧАХ, а базы ПЛЮСОНа — в штуках. */}
+      {(value || []).length > 0 && (
+        <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2 text-sm">
+          <span className="text-gray-500">Суммарный охват: </span>
+          <b style={{ color: '#25455D' }}>{totalReach.toLocaleString('ru')}</b>
+          <span className="text-gray-500"> — в каталоге это «{tierLabel(totalReach)}»</span>
+        </div>
+      )}
       <button
         type="button"
         onClick={add}
