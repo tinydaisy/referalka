@@ -20,7 +20,7 @@ export function Lightbox({ src, onClose }: { src: string; onClose: () => void })
 }
 
 export const CATEGORIES: Record<string, string> = {
-  offline_business: 'Офлайн-бизнес', online_business: 'Онлайн-бизнес', freelancer: 'Фрилансер', expert: 'Эксперт',
+  offline_business: 'Офлайн-бизнес', online_business: 'Онлайн-бизнес', freelancer: 'Фрилансер', private_practice: 'Частный практик', expert: 'Эксперт',
 }
 export const TIERS: Record<string, string> = {
   under_1k: 'до 1 000', '1k_5k': 'до 5 000', '5k_10k': '5–10 тыс', over_10k: 'выше 10 тыс',
@@ -99,10 +99,16 @@ export function BioBlock({ bio, open, className = '' }: { bio: string; open: boo
  * бессмысленно — теги в длину входят, а переносы строк нет, и кнопка
  * появлялась там, где текст и так помещался целиком.
  */
-export function PeachBlock({ title, html, first = false }: { title: string; html: string; first?: boolean }) {
+export function PeachBlock({ title, html, first = false, tone = 'peach' }: { title: string; html: string; first?: boolean; tone?: 'peach' | 'blue' }) {
   const [open, setOpen] = useState(false)
   const [clamped, setClamped] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
+  // Голубой — светлые оттенки фирменного синего #25455D. Нужен, чтобы блок
+  // «Что предлагает партнёрам» отличался от остальных: это главное, ради чего
+  // карточку открывают, а три одинаковых персиковых блока сливались.
+  const skin = tone === 'blue'
+    ? { bg: '#F1F6FA', border: '#B9CEDD', text: '#25455D' }
+    : { bg: '#FFF8F1', border: PEACH,     text: '#C77B3B' }
   useEffect(() => {
     const el = bodyRef.current
     if (!el || open) return
@@ -112,17 +118,17 @@ export function PeachBlock({ title, html, first = false }: { title: string; html
   if (!html) return null
   return (
     <div className={`${first ? 'mt-3' : 'mt-2'} rounded-xl px-3 py-2`}
-         style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-      <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>{title}</div>
+         style={{ background: skin.bg, border: `1px solid ${skin.border}` }}>
+      <div className="text-[11px] font-semibold mb-0.5" style={{ color: skin.text }}>{title}</div>
       {/* ⚠️ Обрезка висит на ОБЁРТКЕ, которую и меряем. SafeHtml не принимает
           ref, а меряя обёртку вокруг обрезанного ребёнка, мы всегда получали
           бы scrollHeight === clientHeight — кнопка «Подробнее» не появлялась
           бы никогда. */}
       <div ref={bodyRef} className={open ? '' : 'line-clamp-3'}>
-        <SafeHtml className="text-sm" style={{ color: '#C77B3B' }} html={html} />
+        <SafeHtml className="text-sm" style={{ color: skin.text }} html={html} />
       </div>
       {(clamped || open) && (
-        <button onClick={() => setOpen(!open)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+        <button onClick={() => setOpen(!open)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: skin.text }}>
           {open ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
         </button>
       )}
@@ -212,7 +218,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       {/* Персиковые блоки — НАД регалиями. Все три свёрнуты до одинаковой
           высоты и разворачиваются по «Подробнее»: иначе длинный текст у
           одного участника растягивал его карточку, и ряд каталога разъезжался. */}
-      <PeachBlock title="Что предлагает партнёрам" html={about} first />
+      <PeachBlock title="Что предлагает партнёрам" html={about} first tone="blue" />
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
@@ -628,11 +634,13 @@ export function MyCardView() {
               </div>
             </div>
           </div>
-          {/* «Что предлагаете партнёрам» — НАД регалиями, персиковым (живое превью из формы) */}
+          {/* «Что предлагаете партнёрам» — НАД регалиями, ГОЛУБЫМ (живое превью
+              из формы). Цвет тот же, что в каталоге, — превью должно совпадать
+              с тем, что увидят партнёры. */}
           {form.hub_about && (
-            <div className="mt-4 rounded-xl px-3 py-2" style={{ background: '#FFF8F1', border: `1px solid ${PEACH}` }}>
-              <div className="text-[11px] font-semibold mb-0.5" style={{ color: '#C77B3B' }}>Что предлагает партнёрам</div>
-              <SafeHtml className="text-sm " style={{ color: '#C77B3B' }} html={form.hub_about} />
+            <div className="mt-4 rounded-xl px-3 py-2" style={{ background: '#F1F6FA', border: '1px solid #B9CEDD' }}>
+              <div className="text-[11px] font-semibold mb-0.5" style={{ color: DARK }}>Что предлагает партнёрам</div>
+              <SafeHtml className="text-sm " style={{ color: DARK }} html={form.hub_about} />
             </div>
           )}
           {/* Импакт и WOW-факт — живое превью; «скрыто» если снята галочка публичности */}
@@ -681,7 +689,7 @@ export function MyCardView() {
         <select value={form.hub_niche} onChange={e => setForm({ ...form, hub_niche: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3">
           <option value="">— не выбрано —</option>{niches.map(n => <option key={n.slug} value={n.slug}>{n.title}</option>)}
         </select>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Город (для офлайн-бизнеса)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Город (для офлайн-коллабораций)</label>
         <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
         {/* ⚠️ ЗДЕСЬ ОБЫЧНЫЕ ПОЛЯ С ТЕГАМИ, А НЕ ВИЗУАЛЬНЫЙ РЕДАКТОР.
             Редактор на contentEditable терял набранный текст: значение уходило

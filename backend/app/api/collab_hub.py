@@ -30,7 +30,7 @@ async def require_collab_hub(client=Depends(get_current_client), db: asyncpg.Con
 router = APIRouter(prefix="/collab-hub", tags=["Коллабораторная (Хаб)"],
                    dependencies=[Depends(require_collab_hub)])
 
-HUB_CATEGORIES = ['offline_business', 'online_business', 'freelancer', 'expert']
+HUB_CATEGORIES = ['offline_business', 'online_business', 'freelancer', 'private_practice', 'expert']
 
 
 def _media_tier(total_subs: int) -> str:
