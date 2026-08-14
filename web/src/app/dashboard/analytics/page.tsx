@@ -353,7 +353,7 @@ function PlatformsBlock() {
       </div>
 
       <div className="mb-4 rounded-xl bg-gray-50 p-3">
-        <span className="text-xs text-gray-500">Суммарный охват</span>
+        <span className="text-xs text-gray-500">Всего подписчиков</span>
         <div className="text-2xl font-bold" style={{ color: DARK }}>
           {total.toLocaleString('ru')}
         </div>

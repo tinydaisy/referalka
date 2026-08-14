@@ -49,7 +49,7 @@ function tierLabel(total: number): string {
   if (total >= 5000) return '5–10 тыс'
   if (total >= 1000) return 'до 5 000'
   if (total > 0) return 'до 1 000'
-  return 'охват не указан'
+  return 'не указано'
 }
 
 export default function MediaAssetsField({ value, onChange, autoCounts = {} }: Props) {
@@ -180,7 +180,7 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
           заявленные активы вводятся в ТЫСЯЧАХ, а базы ПЛЮСОНа — в штуках. */}
       {(value || []).length > 0 && (
         <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2 text-sm">
-          <span className="text-gray-500">Суммарный охват: </span>
+          <span className="text-gray-500">Всего подписчиков: </span>
           <b style={{ color: '#25455D' }}>{totalReach.toLocaleString('ru')}</b>
           <span className="text-gray-500"> — в каталоге это «{tierLabel(totalReach)}»</span>
         </div>

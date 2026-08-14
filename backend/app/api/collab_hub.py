@@ -464,7 +464,7 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
         """SELECT count(*) AS collabs,
                   round(avg(win_win_coefficient) FILTER (WHERE win_win_coefficient IS NOT NULL), 2) AS win_win
              FROM hub_collab_history WHERE client_id=$1""", client_id)
-    card = _client_card(row, public=(me != client_id))  # свой профиль — поля видны всегда
+    card = _client_card(row, public=(me != client_id), channel_counts=prof_ch)  # свой профиль — поля видны всегда
     card['telegram_username'] = row.get('telegram_username')
     return {
         "card": card,

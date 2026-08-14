@@ -65,7 +65,7 @@ export function MediaTierBadge({ tier, breakdown }: { tier?: string; breakdown?:
   if (!rows.length) return badge
   return (
     <span className="relative inline-block">
-      <button type="button" onClick={() => setOpen(o => !o)} title="Из чего сложился охват">
+      <button type="button" onClick={() => setOpen(o => !o)} title="Из чего сложилось число подписчиков">
         {badge}
       </button>
       {open && (
@@ -927,7 +927,7 @@ export function MyCardView() {
             Без них у всех показывается нижняя градация. */}
         <label className="block text-sm font-medium text-gray-700 mb-1">Медийные активы</label>
         <p className="text-xs text-gray-500 mb-2">
-          Сколько подписчиков на каждой площадке. По этим цифрам в каталоге считается ваш охват.
+          Сколько подписчиков на каждой площадке. По этим цифрам вас находят в каталоге.
         </p>
         <div className="mb-4">
           {/* autoCounts — реальные размеры баз ПЛЮСОНа по площадкам. Строки
