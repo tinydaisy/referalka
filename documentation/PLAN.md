@@ -2,6 +2,12 @@
 
 > Когда задача выполнена — скажи Клоду, он обновит `[x]`.
 
+> ⚠️⚠️ **ЭТО ПЛАН, А НЕ ОПИСАНИЕ СХЕМЫ БД.** Пункты со статусом `[ ]` описывают *задуманное*, и названия таблиц/колонок в них часто не совпадают с тем, что реально в базе. Брать оттуда имена полей для SQL нельзя.
+>
+> Проверено 2026-08-14: в незакрытых пунктах упоминаются несуществующие `clients.prodamus_url`, `clients.payment_provider` (реально `pay_prodamus_url`, `pay_provider`), `event_participants.is_paid`, `events.recording_url`, `events.stream_url`, `events.subscription_required` (реально `require_subscription`), `clients.is_system` (реально `is_system_service`), `events.successor_event_id` (удалён миграцией 065), а также таблицы `event_orders`, `event_pricing`, `event_streams`, `client_referrals`, `paid_events`, `telegram_users`, `tbank_keys` — их **нет**.
+>
+> **Источник истины по схеме — сама БД** и снимок [other_tasks/_prod_schema_snapshot.txt](../other_tasks/_prod_schema_snapshot.txt). Таблица истории миграций ниже — летопись: там намеренно сохранены старые имена (например `conf_speaker_events`), какими они были на момент миграции.
+
 ---
 
 ## 🐞 Известные баги / отложенные задачи
@@ -80,7 +86,7 @@ channels (боты/группы клиента)
 - Источник истины — `contacts.ref_code` UNIQUE
 - Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (миграция 032)
 - Резолв реферера всегда через `JOIN contacts WHERE c.ref_code = referrer_ref_code`
-- Резолв спикера: `c.ref_code → collaborators.contact_id → conf_speaker_events`
+- Резолв спикера: `c.ref_code → collaborators.contact_id → event_collaborators`
 - В `contacts.first_referrer_contact_id` — кто впервые привёл (вместо `first_referrer_ref_code`)
 - В `event_participants.referrer_ref_code` остаётся per-event реферер
 - Слитые реф-коды — в `contacts.merged_ref_codes` JSONB
@@ -689,7 +695,7 @@ Backend готов. Нужны UI-страницы:
 - **Контакты** → таблица `contacts` (все люди в базе Клиента, после миграции 036)
 - **Идентичности** → таблица `platform_users` (аккаунт человека на платформе)
 - **Коллабораторы** → таблица `collaborators` (подмножество Контактов: спикеры, партнёры)
-- **Спикеры** → таблица `conf_speaker_events` (роль Коллаборатора в конкретном событии)
+- **Спикеры** → таблица `event_collaborators` (роль Коллаборатора в конкретном событии)
 - **Участники** → таблица `event_participants` (Контакты зарегистрированные в событии)
 
 ### Иерархия сущностей
@@ -701,7 +707,7 @@ platforms (справочник)
     ├── Идентичности (platform_users) — TG/VK/MAX-аккаунты человека
     │       └── Подписки (platform_user_channels) — на каналы клиента
     ├── Коллабораторы (collaborators) ← подмножество Контактов (FK contact_id)
-    │       └── Спикеры (conf_speaker_events) ← роль в конкретном событии
+    │       └── Спикеры (event_collaborators) ← роль в конкретном событии
     └── Участники (event_participants) ← Контакты в событии (FK contact_id)
 ```
 
@@ -787,13 +793,17 @@ collaborators
 └── instagram_url, website_url
 ```
 
-**`conf_speaker_events` — Спикер = Коллаборатор в конкретной конференции**
+**`event_collaborators` — Спикер = Коллаборатор в конкретном событии**
+> ⚠️ Таблица называется **`event_collaborators`**. Имени `conf_speaker_events` в базе нет и не было — оно осталось только в старых текстах.
 ```
-conf_speaker_events
+event_collaborators
 ├── id, speaker_id → collaborators, event_id → events
-├── role, gift_*, poster_url, partner_url, extra_info
-├── referrer_ref_code TEXT  ← кто привёл спикера (резолв через contacts.ref_code)
-├── bot_in_channel BOOLEAN, is_visible, sort_order
+├── role, speaker_topic, notes, keyword_code
+├── gift_raffle_title/url, gift_lead_magnet_id, gift_package_id
+│   (подарки после эфира — в отдельной таблице event_collaborator_lead_magnets)
+├── poster_id → collaborator_posters, use_photo_instead_of_poster
+│   (⚠️ poster_url удалён миграцией 121)
+├── bot_in_channel, is_visible, sort_order, priority, is_commercial
 └── UNIQUE(speaker_id, event_id)
 ```
 
@@ -921,7 +931,7 @@ conf_conferences
 ```
 conf_sessions
 ├── id, event_id → events
-├── speaker_id → conf_speaker_events
+├── speaker_id → event_collaborators
 ├── topic_id → conf_speaker_topics
 ├── day, start_datetime, title
 └── gift_description, track_label, track_color, sort_order
@@ -930,7 +940,7 @@ conf_sessions
 **`conf_speaker_topics` — темы выступления**
 ```
 conf_speaker_topics
-├── id, cse_id → conf_speaker_events
+├── id, cse_id → event_collaborators
 └── topic, sort_order
 ```
 
@@ -938,7 +948,7 @@ conf_speaker_topics
 ```
 conf_secret_codes
 ├── id, event_id → events
-├── speaker_id → conf_speaker_events
+├── speaker_id → event_collaborators
 └── code_word, tickets_reward
 ```
 
@@ -1149,7 +1159,7 @@ referral_levels — многоуровневые баллы (заложено, �
 - [x] Тип критерия «авто-число» (scorer='auto_number', auto_kind='replace'|'sum') — кодовая фраза + число из чата.
 
 ### Каналы / рассылки / чаты клиента (миграции 170, 171, 172)
-- [x] Удалено legacy-поле events.telegram_chat_ids; «Проверить чаты» теперь по events.tg_chat_id.
+- [x] Удалено legacy-поле events.telegram_chat_ids; «Проверить чаты» теперь по events.tg_chat_ref (не tg_chat_id — такой колонки нет).
 - [x] Таблица client_broadcast_chats — база чатов клиента для рассылок (вкладка Каналы → «Чаты для рассылок»).
 - [x] Флаги send_to_client_chats на templates/schedules; use_for_broadcasts на чате (default TRUE); гейт по фиче broadcast_chats (Экстра 2990).
 

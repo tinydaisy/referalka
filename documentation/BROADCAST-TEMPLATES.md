@@ -1,12 +1,15 @@
 # Шаблоны рассылок конференции
 
+> ⚠️ **Файл описывает первоначальный замысел шаблонов и местами отстал от кода.** Актуальные типы шаблонов, правила генерации и полный список плейсхолдеров — в CLAUDE.md (раздел «Рассылки — единый движок») и в [message_builder.py](../backend/app/services/message_builder.py). Здесь исправлены только фактические ошибки по схеме БД.
+
 ## Шаблон 1 — за 5 минут до старта выступления
 
-**Тип:** `pre_start`  
-**Когда:** за 5 минут до `conf_sessions.start_datetime`  
+**Тип:** `5min_before` *(в старой редакции файла назывался `pre_start` — переименован миграцией 060)*
+**Когда:** за 5 минут до начала слота спикера
+⚠️ Время слота — **`conf_sessions.start_time`, строка `HH:MM` (тип `text`), МСК по соглашению**. Колонок `start_datetime`/`end_datetime` в `conf_sessions` **нет** (удалены миграцией 048). День берётся из `conf_sessions.day` / `conf_days`.
 **Кому:** все зарегистрированные участники конференции
 
-**Фото:** индивидуальная афиша спикера (`collaborators.photo_url` или отдельное поле афиши)
+**Фото:** афиша спикера из библиотеки `collaborator_posters` (через `event_collaborators.poster_id`, fallback — первая в библиотеке), либо фото коллаба `collaborators.photo_url` — выбор задаётся `broadcast_templates.speaker_photo_mode` (`poster`/`photo`, миграция 202) и тумблером `event_collaborators.use_photo_instead_of_poster` (миграция 237)
 
 **Текст:**
 ```
@@ -40,8 +43,9 @@
 {gift_url}
 ```
 
-*`gift_title` → `conf_speaker_events.gift_after_speech_title`*  
-*`gift_url` → `conf_speaker_events.gift_after_speech_url`*
+*`gift_title` и `gift_url` → таблица **`event_collaborator_lead_magnets`** (`manual_title` / `manual_url`, либо название лид-магнита по `lead_magnet_id` / `package_id`).*
+
+> ⚠️ Раньше здесь было написано «`conf_speaker_events.gift_after_speech_title/url`». **Таблицы `conf_speaker_events` не существует** (это `event_collaborators`), а колонки `gift_after_speech_*` удалены 2026-07-30: у спикера может быть несколько подарков, поэтому они вынесены в отдельную таблицу.
 
 ---
 

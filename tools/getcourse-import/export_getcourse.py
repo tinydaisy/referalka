@@ -279,6 +279,9 @@ def main() -> None:
     ap.add_argument("--training", type=int, help="выгрузить только этот тренинг")
     ap.add_argument("--download", action="store_true",
                     help="скачать картинки и файлы в files/")
+    ap.add_argument("--keep-header-image", action="store_true",
+                    help="оставить картинку-шапку первым блоком урока "
+                         "(по умолчанию выбрасывается)")
     ap.add_argument("--out", default=os.path.join(HERE, "export.json"))
     args = ap.parse_args()
 
@@ -306,6 +309,17 @@ def main() -> None:
             raw = json_object_after(html, "blocks") or {}
             blocks = parse_blocks(raw) if raw else parse_blocks_html(html)
 
+            # ⚠️ Картинка первым блоком — это баннер-шапка тренинга, а не
+            # содержимое урока: в выгружаемом аккаунте на 44 картинки пришлось
+            # 5 уникальных файлов, и ВСЕ стояли позицией 0 (одна шапка на
+            # тренинг, повторяется в каждом его уроке). Тащить её в ПЛЮСОН
+            # незачем — оформление там своё. Ссылка не теряется: она уходит в
+            # header_image урока, откуда её можно взять обложкой продукта.
+            header_image = None
+            if not args.keep_header_image and blocks and blocks[0]["kind"] == "image":
+                header_image = blocks[0]["url"]
+                blocks = blocks[1:]
+
             if args.download:
                 for b in blocks:
                     if b["kind"] in ("image", "file", "audio") and b.get("url"):
@@ -323,6 +337,7 @@ def main() -> None:
                 "gc_id": les["id"],
                 "title": (les.get("title") or "").strip(),
                 "description": les.get("description") or "",
+                "header_image": header_image,
                 "blocks": blocks,
             })
             total_lessons += 1

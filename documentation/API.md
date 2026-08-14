@@ -54,7 +54,7 @@ GET /events/{event_id}/conference/speakers/{speaker_event_id}/send-to-telegram
 | Параметр | Где | Тип | Описание |
 |---|---|---|---|
 | `event_id` | path | int | ID события в системе |
-| `speaker_event_id` | path | int | ID записи спикера в событии (`conf_speaker_events.id`) |
+| `speaker_event_id` | path | int | ID записи спикера в событии (`event_collaborators.id`) |
 | `chat_id` | query | string | Telegram ID получателя (пользователя) |
 
 **Авторизация:** не требуется (публичный endpoint)
@@ -107,7 +107,7 @@ GET https://pluson.margoforbs.ru/api/v1/events/4/conference/speakers/6/send-to-t
 
 ### Что такое cse_id?
 
-В URL используется **cse_id** — это ID записи спикера в конкретном событии (`conf_speaker_events.id`).  
+В URL используется **cse_id** — это ID записи спикера в конкретном событии (`event_collaborators.id`; таблицы `conf_speaker_events` не существует).  
 Это **не** ID коллаборатора из глобальной базы. Один и тот же человек в разных конференциях имеет разные cse_id.
 
 Для iViSiON-7 cse_id: от 2 до 22 (5 — «Опора России», без карточки спикера).

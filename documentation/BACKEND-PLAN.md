@@ -422,7 +422,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 
 ## Изменения схемы 2026-06-26/27
 
-- **Удалено `events.telegram_chat_ids`** (миграция 171) — legacy CSV «ID Telegram-каналов». «Проверить чаты» теперь по `events.tg_chat_id`.
+- **Удалено `events.telegram_chat_ids`** (миграция 171) — legacy CSV «ID Telegram-каналов». «Проверить чаты» теперь по **`events.tg_chat_ref`** (⚠️ колонки `events.tg_chat_id` не существует; рядом `vk_chat_ref`, `max_chat_ref`, тип integer).
 - **`client_broadcast_chats`** (миграции 170, 172) — база чатов клиента для рассылок: `client_id, platform, chat_id, title, chat_url, is_public, added_via, is_active, use_for_broadcasts`. `UNIQUE(client_id, platform, chat_id)`. Флаги `broadcast_templates.send_to_client_chats` + `broadcast_schedules.send_to_client_chats`. Гейт по фиче `broadcast_chats` (vip/Экстра).
 - **`clients.default_link_mode`** (миграция 169, `miniapp|bot`) + `start_mode`, `start_event_id`, `start_greeting_text`, `start_btn_events_label`, `start_btn_owner_label` — настройка куда ведут публичные ссылки/кнопки бота + приветствие /start.
 - **`tournament_packages.scheme`** (миграция 168, `s1|s2|s3|s4`) — схема расчёта пакета вместо normalize+aggregate.

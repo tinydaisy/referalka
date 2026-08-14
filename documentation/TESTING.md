@@ -141,7 +141,7 @@
 
 Бэкенд тест:
 - [ ] У любого участника `event_participants` поля `ref_code` нет — резолв через `JOIN platform_users pu WHERE ep.platform_user_id = pu.id` → `pu.ref_code`
-- [ ] У любого спикера `conf_speaker_events` поля `ref_code` нет — резолв через `cse → collaborators c → c.platform_user_id → pu.ref_code`
+- [ ] У любого спикера в `event_collaborators` поля `ref_code` нет — резолв идёт через `event_collaborators → collaborators.contact_id → contacts.ref_code` (⚠️ ни таблицы `conf_speaker_events`, ни колонки `collaborators.platform_user_id` не существует)
 - [ ] Если человек одновременно участник И спикер — у него один и тот же `ref_code` (источник `pu.ref_code`)
 - [ ] Реферер по коду находится одним JOIN: `SELECT pu FROM platform_users pu WHERE pu.ref_code = $referrer_ref_code`
 
@@ -276,7 +276,7 @@ GET /health
 ### Чаты клиента для рассылок (170, 171, 172)
 - [ ] Каналы → «Чаты для рассылок»: добавить/убрать чат, галочка use_for_broadcasts
 - [ ] Рассылка с send_to_client_chats=TRUE уходит только в отмеченные чаты
-- [ ] «Проверить чаты» работает по events.tg_chat_id (поле telegram_chat_ids убрано)
+- [ ] «Проверить чаты» работает по `events.tg_chat_ref` (⚠️ не `tg_chat_id` — такой колонки нет; поле `telegram_chat_ids` убрано)
 - [ ] Раздел «Чаты для рассылок» доступен только на тарифе Экстра (фича broadcast_chats)
 
 ### Меню бота события (0eed60e, 169)

@@ -226,7 +226,11 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           <div className="text-xs text-gray-500 mt-0.5 min-h-[4rem]">
             {item.positioning || ''}
           </div>
-          <div className="flex flex-wrap gap-1 mt-auto pt-1">
+          {/* ⚠️ Теги в ОДНУ строку с прокруткой вправо, а не переносом: ниш
+              можно выбрать несколько, и при переносе строка тегов росла вниз —
+              у одного участника в один ряд, у другого в три, и карточки снова
+              разъезжались. Город здесь же, на одном уровне с категорией. */}
+          <div className="flex items-center gap-1 mt-auto pt-1 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
             {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
             {/* Ниша — раньше не показывалась в карточке вообще */}
             {(item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])).map((sl: string) => (
