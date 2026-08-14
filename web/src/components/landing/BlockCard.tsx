@@ -247,7 +247,7 @@ export default function BlockCard({
                   />
                   {block.kind === 'hero' && (
                     <p className="mt-1 text-xs text-gray-500">
-                      Пусто — возьмётся «Описание» со вкладки «Основное».
+                      Пусто — возьмётся описание со вкладки «Основное».
                     </p>
                   )}
                 </Field>

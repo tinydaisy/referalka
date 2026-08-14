@@ -1868,6 +1868,7 @@ class StageCreate(BaseModel):
     start_date: Optional[str] = None  # "YYYY-MM-DD"
     end_date: Optional[str] = None
     sort_order: int = 0
+    category_id: Optional[int] = None  # надкатегория (миграция 303)
 
 
 class StageUpdate(BaseModel):
@@ -1876,6 +1877,26 @@ class StageUpdate(BaseModel):
     description: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    sort_order: Optional[int] = None
+    # ⚠️ nullable: явный null = «убрать из категории». Обрабатывается через
+    # model_fields_set (exclude_unset), а не `is not None` — иначе отвязать
+    # номинацию от категории было бы нечем.
+    category_id: Optional[int] = None
+
+
+class StagesBulkCreate(BaseModel):
+    """Пакетное создание номинаций — по строке на название."""
+    titles: List[str]
+    category_id: Optional[int] = None
+
+
+class StageCategoryCreate(BaseModel):
+    title: str
+    sort_order: int = 0
+
+
+class StageCategoryUpdate(BaseModel):
+    title: Optional[str] = None
     sort_order: Optional[int] = None
 
 
@@ -1907,12 +1928,21 @@ async def create_stage(
     await check_conference_access(event_id, int(client["sub"]), db, write=True)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название этапа обязательно")
+    # Категория проверяется на принадлежность ЭТОМУ событию — иначе можно было бы
+    # подсунуть чужую и увидеть в своём списке номинацию из чужого кабинета.
+    cat_id = data.category_id
+    if cat_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM conf_stage_categories WHERE id=$1 AND event_id=$2", cat_id, event_id)
+        if not ok:
+            raise HTTPException(status_code=422, detail="Категория не найдена в этом событии")
     stage = await db.fetchrow(
-        """INSERT INTO conf_stages (event_id, sort_order, title, subtitle, description, start_date, end_date)
-           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
+        """INSERT INTO conf_stages (event_id, sort_order, title, subtitle, description,
+                                    start_date, end_date, category_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *""",
         event_id, data.sort_order, data.title.strip(),
         data.subtitle, data.description,
-        _parse_date(data.start_date), _parse_date(data.end_date),
+        _parse_date(data.start_date), _parse_date(data.end_date), cat_id,
     )
     return {"stage": dict(stage)}
 
@@ -1933,6 +1963,12 @@ async def update_stage(
         payload["end_date"] = _parse_date(payload["end_date"])
     if "title" in payload and (not payload["title"] or not payload["title"].strip()):
         raise HTTPException(status_code=422, detail="Название этапа обязательно")
+    if payload.get("category_id"):
+        ok = await db.fetchval(
+            "SELECT 1 FROM conf_stage_categories WHERE id=$1 AND event_id=$2",
+            payload["category_id"], event_id)
+        if not ok:
+            raise HTTPException(status_code=422, detail="Категория не найдена в этом событии")
     if not payload:
         row = await db.fetchrow("SELECT * FROM conf_stages WHERE id=$1 AND event_id=$2", stage_id, event_id)
         if not row:
@@ -1946,6 +1982,140 @@ async def update_stage(
     if not row:
         raise HTTPException(status_code=404, detail="Этап не найден")
     return {"stage": dict(row)}
+
+
+@router.post("/stages/bulk", summary="Создать несколько номинаций/туров разом")
+async def create_stages_bulk(
+    event_id: int,
+    data: StagesBulkCreate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Пакетное заведение номинаций — по строке на название.
+
+    ⚠️ Нужно именно для премий: там номинаций бывает 70, и создавать их
+    по одной кнопкой «Добавить» физически нереально.
+    Дубли по названию внутри события молча пропускаются — повторный
+    вход со списком не наплодит копий.
+    """
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
+    titles = [t.strip() for t in (data.titles or []) if t and t.strip()]
+    if not titles:
+        raise HTTPException(status_code=422, detail="Список названий пуст")
+    if data.category_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM conf_stage_categories WHERE id=$1 AND event_id=$2",
+            data.category_id, event_id)
+        if not ok:
+            raise HTTPException(status_code=422, detail="Категория не найдена в этом событии")
+
+    existing = {
+        (r["title"] or "").strip().lower()
+        for r in await db.fetch("SELECT title FROM conf_stages WHERE event_id=$1", event_id)
+    }
+    base = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), 0) FROM conf_stages WHERE event_id=$1", event_id) or 0
+
+    created, skipped = [], 0
+    async with db.transaction():
+        for t in titles:
+            if t.lower() in existing:
+                skipped += 1
+                continue
+            existing.add(t.lower())
+            base += 10
+            row = await db.fetchrow(
+                """INSERT INTO conf_stages (event_id, sort_order, title, category_id)
+                   VALUES ($1,$2,$3,$4) RETURNING *""",
+                event_id, base, t, data.category_id,
+            )
+            created.append(dict(row))
+    return {"created": created, "created_count": len(created), "skipped": skipped}
+
+
+# ─── Категории номинаций/туров (миграция 303) ─────────────────────────────────
+# Надкатегория группирует номинации: «Медицина» → «Лучший хирург», «Медсестра года».
+# Одна номинация — одна категория (решение владельца), поэтому связь один-ко-многим.
+
+@router.get("/stage-categories", summary="Категории номинаций/туров")
+async def list_stage_categories(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    rows = await db.fetch(
+        """SELECT c.*, (SELECT count(*) FROM conf_stages s WHERE s.category_id = c.id) AS stages_count
+             FROM conf_stage_categories c
+            WHERE c.event_id = $1 ORDER BY c.sort_order, c.id""",
+        event_id,
+    )
+    return {"categories": [dict(r) for r in rows]}
+
+
+@router.post("/stage-categories", summary="Создать категорию")
+async def create_stage_category(
+    event_id: int,
+    data: StageCategoryCreate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
+    if not data.title.strip():
+        raise HTTPException(status_code=422, detail="Название категории обязательно")
+    row = await db.fetchrow(
+        "INSERT INTO conf_stage_categories (event_id, title, sort_order) VALUES ($1,$2,$3) RETURNING *",
+        event_id, data.title.strip(), data.sort_order,
+    )
+    return {"category": dict(row)}
+
+
+@router.patch("/stage-categories/{category_id}", summary="Обновить категорию")
+async def update_stage_category(
+    event_id: int,
+    category_id: int,
+    data: StageCategoryUpdate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
+    payload = data.model_dump(exclude_unset=True)
+    if "title" in payload and (not payload["title"] or not payload["title"].strip()):
+        raise HTTPException(status_code=422, detail="Название категории обязательно")
+    if "title" in payload:
+        payload["title"] = payload["title"].strip()
+    if not payload:
+        row = await db.fetchrow(
+            "SELECT * FROM conf_stage_categories WHERE id=$1 AND event_id=$2", category_id, event_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Категория не найдена")
+        return {"category": dict(row)}
+    set_parts = [f"{k} = ${i+3}" for i, k in enumerate(payload.keys())]
+    row = await db.fetchrow(
+        f"UPDATE conf_stage_categories SET {', '.join(set_parts)} WHERE id=$1 AND event_id=$2 RETURNING *",
+        category_id, event_id, *payload.values(),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Категория не найдена")
+    return {"category": dict(row)}
+
+
+@router.delete("/stage-categories/{category_id}", summary="Удалить категорию")
+async def delete_stage_category(
+    event_id: int,
+    category_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """⚠️ Номинации НЕ удаляются — у них просто пропадает категория
+    (ON DELETE SET NULL). Иначе удаление категории уносило бы вместе с собой
+    критерии, распределение жюри и уже выставленные оценки."""
+    await check_conference_access(event_id, int(client["sub"]), db, write=True)
+    res = await db.execute(
+        "DELETE FROM conf_stage_categories WHERE id=$1 AND event_id=$2", category_id, event_id)
+    if res.endswith("0"):
+        raise HTTPException(status_code=404, detail="Категория не найдена")
+    return {"ok": True}
 
 
 @router.delete("/stages/{stage_id}", summary="Удалить этап")
