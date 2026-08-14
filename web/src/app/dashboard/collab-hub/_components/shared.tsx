@@ -225,14 +225,19 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
-          Свёрнуто до тех же 3 строк, что и персиковые блоки выше. */}
+          ⚠️ Жёсткого лимита в N строк ЗДЕСЬ НЕТ. Карточки в ряду и так
+          растягиваются до самой высокой (CSS-сетка), поэтому обрезка «до трёх
+          строк» не выравнивала высоту, а лишь оставляла пустоту под коротким
+          блоком: у одного участника регалии показывались целиком, у соседа —
+          обрезались, хотя место было. Блок забирает всё свободное место
+          карточки (flex-1), обрезаясь только по факту нехватки. */}
       {bio && (
-        <div className="mt-2">
+        <div className="mt-2 flex-1 flex flex-col min-h-0">
           {/* clamp — на обёртке, которую и меряем (BioBlock не принимает ref). */}
-          <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-3'}>
+          <div ref={bioRef} className={bioOpen ? '' : 'overflow-hidden flex-1 min-h-0'}>
             <BioBlock bio={bio} open />
           </div>
-          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5 shrink-0" style={{ color: '#C77B3B' }}>
             {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
           </button>}
         </div>
@@ -246,6 +251,11 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           ))}
         </div>
       )}
+      {/* ⚠️ ПОДВАЛ ПРИЖАТ К НИЗУ (mt-auto): цифры, рейтинг и кнопки стоят на
+          одном уровне у всех карточек ряда, сколько бы текста ни было выше.
+          Без этого у одного участника кнопки оказывались посреди карточки, а у
+          соседа — у самого низа, и ряд выглядел разъехавшимся. */}
+      <div className="mt-auto" />
       <div className="grid grid-cols-2 gap-2 mt-3">
         <div className="rounded-xl bg-gray-50 p-2 text-center">
           <div className="font-bold text-sm" style={{ color: DARK }}>{item.collabs_count ?? 0}</div>
