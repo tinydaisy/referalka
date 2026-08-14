@@ -42,7 +42,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from getcourse_client import (
-    BASE, get_session, list_trainings, list_lessons, lesson_page,
+    BASE, get_session, training_tree, list_lessons, lesson_page,
     json_object_after,
 )
 
@@ -304,10 +304,19 @@ def main() -> None:
     args = ap.parse_args()
 
     s = get_session()
-    trainings = list_trainings(s)
+
+    # ⚠️ Идём по ДЕРЕВУ, а не по списку /teach/control: в GetCourse модуль —
+    # это вложенный тренинг, и плоский список отдаёт только верхний уровень.
+    # В выгружаемом аккаунте это разница между 12 и 40 узлами.
+    tree = training_tree(s)
     if args.training:
-        trainings = [t for t in trainings if t["id"] == args.training]
-        if not trainings:
+        # Берём сам узел и всё, что вложено в него на любую глубину.
+        keep = {args.training}
+        for node in tree:
+            if node["parent_id"] in keep:
+                keep.add(node["id"])
+        tree = [n for n in tree if n["id"] in keep]
+        if not tree:
             print(f"тренинг {args.training} не найден", file=sys.stderr)
             sys.exit(1)
 
@@ -315,9 +324,10 @@ def main() -> None:
     total_lessons = 0
     total_blocks = 0
 
-    for t in trainings:
+    for t in tree:
         lessons_raw = list_lessons(s, t["id"])
-        print(f"\n{t['title'][:60]}  (уроков: {len(lessons_raw)})")
+        indent = "  " * t["level"]
+        print(f"\n{indent}{t['title'][:58]}  (уроков: {len(lessons_raw)})")
 
         lessons = []
         for les in lessons_raw:
@@ -365,14 +375,19 @@ def main() -> None:
         result.append({
             "gc_id": t["id"],
             "title": t["title"],
-            "description": t.get("description") or "",
+            # Вложенность: level 0 — сам продукт, глубже — его разделы
+            # (product_sections поддерживают любую глубину, миграция 291).
+            "level": t["level"],
+            "parent_gc_id": t["parent_id"],
             "lessons": lessons,
         })
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    print(f"\nТренингов: {len(result)} | уроков: {total_lessons} | "
+    roots = sum(1 for t in result if t["level"] == 0)
+    print(f"\nУзлов: {len(result)} (продуктов {roots}, "
+          f"разделов {len(result) - roots}) | уроков: {total_lessons} | "
           f"блоков: {total_blocks}")
     print(f"Сохранено: {args.out}")
 

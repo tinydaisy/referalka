@@ -239,9 +239,64 @@ def json_object_after(html: str, key: str):
 
 
 def list_trainings(s: requests.Session) -> list:
-    """Все тренинги аккаунта."""
+    """
+    Тренинги ВЕРХНЕГО уровня.
+
+    ⚠️ Это НЕ все тренинги аккаунта. Вложенные (модули) сюда не попадают —
+    для полного состава нужен training_tree().
+    """
     html = s.get(f"{BASE}/teach/control", timeout=30).text
     return json_after(html, "trainings") or []
+
+
+def training_tree(s: requests.Session) -> list:
+    """
+    Полное дерево тренингов с вложенностью: [{id, title, level, parent_id}, …]
+    в порядке обхода сверху вниз.
+
+    ⚠️ В GetCourse МОДУЛЬ — это тоже тренинг, вложенный в родительский. Раздел
+    «Тренинги» (/teach/control) отдаёт ТОЛЬКО верхний уровень, и в его JSON у
+    всех записей parentId = null — выглядит как плоский список. Из-за этого
+    родительские тренинги кажутся пустыми («уроков: 0»), хотя весь их контент
+    лежит во вложенных модулях: в выгружаемом аккаунте верхний уровень дал
+    12 узлов, а всё дерево — 40.
+
+    Вложенность живёт только в разметке страницы /teach/control/stream/tree:
+    <li data-id="…"> с вложенными <ol class="dd-list level-N">. Никакого JSON
+    там нет, поэтому разбираем HTML.
+    """
+    html = s.get(f"{BASE}/teach/control/stream/tree", timeout=30).text
+
+    out = []
+    stack = []  # (level, id) — цепочка родителей
+    # Токены: открытие узла, открытие вложенного списка, закрытие списка.
+    pattern = re.compile(
+        r'<li class="dd-item" data-id="(\d+)">\s*'
+        r'<span class="title dd-handle">\s*(?:<a[^>]*>\s*)?([^<]*)'
+        r'|<ol class="dd-list level-(\d+)"'
+        r'|(</ol>)'
+    )
+    for m in pattern.finditer(html):
+        node_id, title, level_open, list_close = m.groups()
+        if node_id:
+            out.append({
+                "id": int(node_id),
+                "title": (title or "").strip(),
+                "level": len(stack),
+                "parent_id": stack[-1][1] if stack else None,
+            })
+            # Запоминаем как возможного родителя следующего <ol>.
+            out[-1]["_self"] = int(node_id)
+        elif level_open:
+            # Вложенный список принадлежит последнему объявленному узлу.
+            if out:
+                stack.append((int(level_open), out[-1]["_self"]))
+        elif list_close and stack:
+            stack.pop()
+
+    for node in out:
+        node.pop("_self", None)
+    return out
 
 
 def list_lessons(s: requests.Session, training_id: int) -> list:
