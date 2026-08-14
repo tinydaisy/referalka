@@ -513,6 +513,16 @@ export function CatalogView() {
           values={(f.category || '').split(',').filter(Boolean)}
           onChange={next => setF({ ...f, category: next.join(',') })}
         />
+        {/* ⚠️ Площадки — отдельный фильтр: ищут партнёра «у кого есть телеграм
+            и ВК». Названия совпадают с разбивкой охвата (reach_breakdown) —
+            бэкенд сверяет именно их, поэтому списки должны быть в синхроне. */}
+        <MultiSelectDropdown
+          label="Площадки" placeholder="Все площадки"
+          options={['Telegram', 'MAX', 'ВКонтакте', 'Email', 'YouTube', 'Instagram', 'TikTok', 'RuTube', 'Чат-боты']
+                    .map(t => ({ value: t, label: t }))}
+          values={(f.platforms || '').split(',').filter(Boolean)}
+          onChange={next => setF({ ...f, platforms: next.join(',') })}
+        />
         <MultiSelectDropdown
           label="Медийность" placeholder="Любая медийность"
           options={Object.entries(TIERS).map(([k, v]) => ({ value: k, label: v }))}
