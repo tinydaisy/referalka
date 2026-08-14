@@ -116,6 +116,32 @@ async def _client_telegram_id(db, client_id: int) -> str | None:
     )
 
 
+async def notify_founder_channel(db, text_html: str) -> bool:
+    """ОСНОВАТЕЛЮ ПЛЮСОНа — в его ГРУППУ уведомлений «[Тех.поддержка] Увед. ПЛЮСОН».
+
+    Основатель видит ВСЁ движение по реф-программе платформы: переходы по любым
+    реф-ссылкам, регистрации новых клиентов и покупки — а не только то, что
+    касается его собственных приведённых.
+
+    ⚠️ Адрес группы — `notifications_telegram_chat_id` СИСТЕМНОГО сервисного
+    клиента (`is_system_service`), это аккаунт самого ПЛЮСОНа. Не путать с
+    каналом уведомлений клиента 1 (Марго как организатора событий) — туда
+    @pluson_bot не добавлен, и отправка падает `chat not found`.
+    """
+    try:
+        chat_id = await db.fetchval(
+            "SELECT notifications_telegram_chat_id FROM clients "
+            "WHERE is_system_service = TRUE LIMIT 1"
+        )
+        if not chat_id:
+            log.warning("notify_founder_channel: у системного клиента не задана группа")
+            return False
+        return await _send_via_plusson_bot(db, chat_id, text_html)
+    except Exception as e:  # noqa: BLE001
+        log.warning("notify_founder_channel failed: %s", e)
+        return False
+
+
 async def _notify_referrer(db, referrer_client_id: int, text_html: str,
                            *, kind: str = "general") -> dict:
     """Уведомление клиенту ПЛЮСОНа — В ЛИЧКУ от @pluson_bot.
@@ -197,7 +223,21 @@ async def notify_referrer_new_interest(
             "закрепится за вами автоматически, и вы будете получать процент с его оплат.",
         ]
 
-        return await _notify_referrer(db, referrer_client_id, "\n".join(parts))
+        res = await _notify_referrer(db, referrer_client_id, "\n".join(parts))
+
+        # Копия ОСНОВАТЕЛЮ ПЛЮСОНа — в бот, в личку. Владелец платформы видит
+        # ВСЕ переходы по реф-ссылкам, а не только регистрации. Чей это рефовод —
+        # в шапке, иначе непонятно, о ком речь.
+        ref_name = await db.fetchval(
+            "SELECT name FROM clients WHERE id = $1", referrer_client_id
+        )
+        ch_parts = [
+            "🆕 <b>ПЛЮСОН · переход по партнёрской ссылке</b>",
+            "",
+            f"<b>Партнёр:</b> {ref_name or '—'} (#{referrer_client_id})",
+        ] + parts[2:]
+        await notify_founder_channel(db, "\n".join(ch_parts))
+        return res
     except Exception as e:  # noqa: BLE001 — уведомление не роняет /start
         log.warning("notify_referrer_new_interest failed: %s", e)
         return {"tg": False, "max": False, "vk": False}
@@ -215,20 +255,13 @@ async def notify_founder_new_client(
 ) -> dict:
     """ОСНОВАТЕЛЮ ПЛЮСОНа: «зарегистрировался новый клиент платформы».
 
-    Адресат — СИСТЕМНЫЙ сервисный клиент (`clients.is_system_service`), это
-    аккаунт самого ПЛЮСОНа. Отдельно от уведомления рефоводу: рефовод узнаёт
-    про СВОЕГО приведённого, а основатель — про КАЖДУЮ регистрацию, включая
-    тех, кто пришёл сам, без чьей-либо ссылки.
+    Идёт в ГРУППУ уведомлений ПЛЮСОНа. Отдельно от уведомления рефоводу:
+    рефовод узнаёт про СВОЕГО приведённого, а основатель — про КАЖДУЮ
+    регистрацию, включая тех, кто пришёл сам, без чьей-либо ссылки.
 
     ⚠️ Не бросает исключение: уведомление не должно ронять регистрацию.
     """
     try:
-        founder_id = await db.fetchval(
-            "SELECT id FROM clients WHERE is_system_service = TRUE LIMIT 1"
-        )
-        if not founder_id:
-            return {"tg": False, "max": False, "vk": False}
-
         parts = [
             "🚀 <b>ПЛЮСОН · новый клиент платформы</b>",
             "",
@@ -257,32 +290,30 @@ async def notify_founder_new_client(
             f"<b>Карточка:</b> {_dashboard_base()}/admin/clients?id={new_client_id}",
         ]
 
-        text = "\n".join(parts)
-        res = await _notify_referrer(db, founder_id, text)
-        if res.get("tg"):
-            return res
+        sent = await notify_founder_channel(db, "\n".join(parts))
 
-        # ⚠️ У системного аккаунта (клиент 3) поля telegram_username /
-        # work_tg_username ПУСТЫЕ — писать некуда, и уведомление о новом клиенте
-        # платформы терялось бы совсем. Фолбэк: личка владельцев платформы по
-        # тем же аккаунтам, которым разрешены админские команды бота (/clients,
-        # /collabs) — это и есть «основатель ПЛЮСОНа».
-        from app.services.admin_export import ALLOWED_USERNAMES
-        sent = False
-        for uname in ALLOWED_USERNAMES:
-            tg_id = await db.fetchval(
-                """SELECT platform_user_id FROM platform_users
-                    WHERE platform_slug = 'telegram'
-                      AND lower(replace(coalesce(username,''),'@','')) = $1
-                      AND platform_user_id ~ '^[0-9]+$'
-                    ORDER BY id LIMIT 1""",
-                uname.lower().lstrip("@"),
-            )
-            if tg_id and await _send_via_plusson_bot(db, tg_id, text):
-                sent = True
-                break  # один владелец — одно уведомление, дубли не нужны
-        res["tg"] = sent
-        return res
+        # РЕФОВОДУ — «ваш человек зарегистрировался». Второй шаг воронки после
+        # «нового интереса»: теперь он реально клиент платформы, и с его оплат
+        # пойдёт процент. Тому, кто пришёл сам, рефовода нет — тогда шага нет.
+        if referrer_client_id:
+            ref_lines = [
+                "✅ <b>ПЛЮСОН · по вашей ссылке зарегистрировался клиент</b>",
+                "",
+                f"<b>Имя:</b> {name or '—'}",
+            ]
+            if telegram_username:
+                u = telegram_username.lstrip("@").strip()
+                ref_lines.append(
+                    f"<b>Telegram:</b> <a href=\"https://telegram.me/{u}\">@{u}</a>"
+                )
+            ref_lines += [
+                f"<b>Когда:</b> {_msk_now_str()}",
+                "",
+                "Он закреплён за вами — с его оплат вы будете получать процент.",
+            ]
+            await _notify_referrer(db, referrer_client_id, "\n".join(ref_lines))
+
+        return {"tg": sent, "max": False, "vk": False}
     except Exception as e:  # noqa: BLE001 — не роняем регистрацию
         log.warning("notify_founder_new_client failed: %s", e)
         return {"tg": False, "max": False, "vk": False}
@@ -331,15 +362,27 @@ async def notify_referrer_about_purchase(
     ]
     text_html = "\n".join(lines)
 
-    # ── Мессенджеры ──
-    # kind='payments' — у оплат может быть отдельный канал (миграция 259); если
-    # он не задан, падаем на общий, чтобы уведомление не пропало.
+    # ── Рефоводу в бот ──
     try:
         res = await _notify_referrer(db, referrer_client_id, text_html,
                                      kind="payments")
         result.update(res)
     except Exception as e:  # noqa: BLE001 — не роняем оплату
         log.warning("notify purchase (messengers) failed: %s", e)
+
+    # ── Основателю в группу ПЛЮСОНа ──
+    try:
+        ref_name = await db.fetchval(
+            "SELECT name FROM clients WHERE id = $1", referrer_client_id
+        )
+        founder_lines = [
+            "💰 <b>ПЛЮСОН · покупка по партнёрской ссылке</b>",
+            "",
+            f"<b>Партнёр:</b> {ref_name or '—'} (#{referrer_client_id})",
+        ] + lines[2:]
+        await notify_founder_channel(db, "\n".join(founder_lines))
+    except Exception as e:  # noqa: BLE001 — не роняем оплату
+        log.warning("notify purchase (founder) failed: %s", e)
 
     # ── Почта ──
     try:
