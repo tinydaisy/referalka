@@ -358,6 +358,9 @@ export default function LandingRenderer({
         /* Ширина картинки в карточке: на телефоне всегда 100% (см. w-full),
            с 640px — как задал клиент настройкой «Размер фото». */
         @media (min-width: 640px) { .lp-card-img { width: var(--lp-img-w, 100%); } }
+        /* Картинка секции: на телефоне во всю ширину, с 640px — как задал клиент. */
+        .lp-sec-img { width: 100%; }
+        @media (min-width: 640px) { .lp-sec-img { width: var(--lp-sec-img-w, 100%); } }
         /* Боковые поля секции: на телефоне узкие (см. padXMobile), с 640px —
            как задал клиент настройкой. */
         @media (min-width: 640px) { .lp-section { --lp-pad-x: var(--lp-pad-x-lg); } }
@@ -616,10 +619,14 @@ function Section({
       src={block.image_url}
       alt=""
       loading="lazy"
-      className="object-cover"
+      // ⚠️ `lp-sec-img`: на ТЕЛЕФОНЕ картинка всегда во всю ширину. Настройка
+      // «ширина картинки» (например 38%) задумана для широкого экрана, где
+      // картинка стоит сбоку от текста; на узком колонки складываются
+      // друг под друга, и те же 38% превращаются в тонкую полоску.
+      className="lp-sec-img object-cover"
       style={{
         borderRadius: radius,
-        width: `${block.image_width || 100}%`,
+        ['--lp-sec-img-w' as any]: `${block.image_width || 100}%`,
         // По центру — картинка сама центрируется в колонке.
         margin: block.image_position === 'center' ? '0 auto' : undefined,
         display: 'block',
