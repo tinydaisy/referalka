@@ -68,14 +68,11 @@ export function bioLines(bio: string): string[] {
 // но параметр оставлен: его передают несколько мест, и убрать его — значит
 // править их все ради ничего.
 export function BioBlock({ bio, className = '' }: { bio: string; open?: boolean; className?: string }) {
-  if (/<\/?[a-z][\s\S]*>/i.test(bio || '')) {
-    return (
-      <SafeHtml
-        className={`text-sm text-gray-500 ${className}`}
-        html={bio}
-      />
-    )
-  }
+  // ⚠️ Регалии выглядят ОДИНАКОВО, есть в них теги или нет: те же синие точки,
+  // тот же размер. Раньше добавленный <b> переключал показ на другую ветку —
+  // маркеры-точки пропадали, и карточка менялась на вид от одной правки текста.
+  // Поэтому режем по строкам ВСЕГДА, а каждую строку отдаём в SafeHtml: он
+  // покажет разметку, если она есть, и обычный текст, если её нет.
   const lines = bioLines(bio)
   if (lines.length === 0) return null
   // ⚠️ Обрезкой занимается ВЫЗЫВАЮЩИЙ (обёртка с line-clamp): своя обрезка
@@ -89,7 +86,7 @@ export function BioBlock({ bio, className = '' }: { bio: string; open?: boolean;
         <li key={i} className="flex gap-1.5">
           {/* Маркер — фирменный синий: персиковый на белом почти не виден. */}
           <span style={{ color: DARK }} className="shrink-0">•</span>
-          <span>{line}</span>
+          <SafeHtml html={line} />
         </li>
       ))}
     </ul>
