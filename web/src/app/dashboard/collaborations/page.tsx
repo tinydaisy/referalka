@@ -496,6 +496,8 @@ function QuickCreateCollabModal({
   onClose, onCreated,
 }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
+  // Фамилия отдельным полем (миграция 302) — по ней сортируются списки людей.
+  const [lastName, setLastName] = useState('')
   const [title, setTitle] = useState('')
   const [tgUsername, setTgUsername] = useState('')
   const [vkUsername, setVkUsername] = useState('')
@@ -520,6 +522,7 @@ function QuickCreateCollabModal({
     try {
       const payload: any = {
         name: name.trim(),
+        last_name: lastName.trim() || null,
         title: title.trim() || null,
         personal_tg_username: tgClean || null,
         personal_vk_username: vkClean || null,
@@ -552,13 +555,23 @@ function QuickCreateCollabModal({
         {!choice ? (
           <>
             <div className="space-y-3">
-              <div>
-                <label className="label">Имя и фамилия *</label>
-                <input
-                  type="text" value={name} autoFocus
-                  onChange={e => setName(e.target.value)}
-                  className="input" placeholder="Например, Иван Петров"
-                />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="label">Имя *</label>
+                  <input
+                    type="text" value={name} autoFocus
+                    onChange={e => setName(e.target.value)}
+                    className="input" placeholder="Иван"
+                  />
+                </div>
+                <div>
+                  <label className="label">Фамилия</label>
+                  <input
+                    type="text" value={lastName}
+                    onChange={e => setLastName(e.target.value)}
+                    className="input" placeholder="Петров"
+                  />
+                </div>
               </div>
               <div>
                 <label className="label">Должность / роль</label>

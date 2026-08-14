@@ -60,6 +60,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     skip_contact_form: !!event?.skip_contact_form,
     // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт Mini App.
     landing_cta_label: event?.landing_cta_label || '',
+    // Как называть участника (миграция 304): спикер / номинант / участник.
+    person_wording: event?.person_wording || 'speaker',
     // Что показывать на «Итогах» при завершении события (миграция 195).
     end_action: (conf?.end_action as 'next_event' | 'gift') || 'next_event',
     end_gift: conf?.end_gift_package_id
@@ -145,6 +147,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.skip_contact_form !== !!event?.skip_contact_form) eventPatch.skip_contact_form = form.skip_contact_form
       if (form.landing_cta_label !== (event?.landing_cta_label || ''))
         eventPatch.landing_cta_label = form.landing_cta_label.trim() || null
+      if (form.person_wording !== (event?.person_wording || 'speaker'))
+        eventPatch.person_wording = form.person_wording
       if (form.description !== (event?.description || ''))
         eventPatch.description = form.description || null
       if (form.description_post_register !== (event?.description_post_register || ''))
@@ -396,6 +400,25 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             </div>
           </label>
         ))}
+      </div>
+
+      {/* Как называть участника. Одно слово на всё событие — иначе в карточке
+          «номинант», а в рассылке тому же человеку приходит «спикер». */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <label className="label">Как называть участника события</label>
+        <select
+          value={form.person_wording}
+          onChange={e => setForm(f => ({ ...f, person_wording: e.target.value }))}
+          className="w-full sm:w-64 px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="speaker">Спикер</option>
+          <option value="nominee">Номинант</option>
+          <option value="member">Участник</option>
+        </select>
+        <p className="text-xs text-gray-400 mt-1.5">
+          Это слово подставляется везде: в карточке человека, в кабинете и в рассылках.
+          У премии обычно «Номинант», у турнира без выступлений — «Участник».
+        </p>
       </div>
 
       {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем

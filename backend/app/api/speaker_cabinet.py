@@ -194,6 +194,7 @@ async def get_me(
                   cse.show_knowledge_base_field, cse.show_notes_field,
                   c.ask_topics, c.show_ask_topics_field,
                   cse.bot_in_channel,
+                  (SELECT person_wording FROM events WHERE id = cse.event_id) AS person_wording,
                   c.id AS collaborator_id, c.name, c.last_name, c.title, c.achievements,
                   c.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».

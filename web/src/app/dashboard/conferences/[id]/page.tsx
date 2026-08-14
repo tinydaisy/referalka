@@ -20,6 +20,11 @@ import { CriteriaTab, AssignmentsTab, LeaderboardTab, JuryReviewTab, ReportsTab,
 // Номинации/туры/этапы — создаются ЗДЕСЬ, а не на вкладке «Программа»:
 // при 70 номинациях вкладки в строку непригодны (премии).
 import NominationsTab from './tabs/NominationsTab'
+
+// Подписи по словарю события. Держать в синхроне с person_wording.py.
+const PERSON_TABS: Record<string, string> = {
+  speaker: 'Спикеры', nominee: 'Номинанты', member: 'Участники',
+}
 import ReportTab from './tabs/ReportTab'
 import DashboardView from '@/components/analytics/DashboardView'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
@@ -115,9 +120,9 @@ export default function ConferencePage() {
     {
       key: 'people', label: 'Люди',
       tabs: [
-        // У премии/турнира участник — не «спикер», а номинант: он может вообще
-        // не выступать. Слово в интерфейсе меняем, сущность та же.
-        { id: 'speakers',      label: isTournament ? 'Спикеры/Номинанты' : t.conferences.tabs.speakers },
+        // Слово берётся из словаря события (миграция 304), а не из типа:
+        // клиент сам выбирает «Спикер / Номинант / Участник» в настройках.
+        { id: 'speakers',      label: PERSON_TABS[event?.person_wording || 'speaker'] || t.conferences.tabs.speakers },
         { id: 'speaker_links', label: 'Ссылки спикеров' },
         { id: 'participants',  label: t.conferences.tabs.participants },
       ],

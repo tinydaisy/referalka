@@ -340,6 +340,7 @@ async def get_conference(
         SELECT cc.*, e.title as event_title,
                e.slug        AS event_slug,
                e.status      AS event_status,
+               e.module_slug AS module_slug,
                (SELECT chat_url FROM client_broadcast_chats
                   WHERE id = CASE e.primary_chat_platform
                                WHEN 'vk'  THEN e.vk_chat_ref

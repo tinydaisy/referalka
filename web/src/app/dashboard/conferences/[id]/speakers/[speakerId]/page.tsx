@@ -199,6 +199,11 @@ function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number
   )
 }
 
+// Словарь показа. Держать в синхроне с backend/app/services/person_wording.py.
+const PERSON_TITLE: Record<string, string> = {
+  speaker: 'Спикер', nominee: 'Номинант', member: 'Участник',
+}
+
 export default function ConferenceSpeakerPage() {
   // Домен клиента: кабинет спикера открывает сам спикер, ссылку он получает
   // от организатора — она должна быть на домене организатора, а не на нашем.
@@ -266,6 +271,9 @@ export default function ConferenceSpeakerPage() {
   const [subscriptionMode, setSubscriptionMode] = useState<'none' | 'organizer' | 'all_speakers'>('none')
   const [eventSlug, setEventSlug] = useState<string | null>(null)
   const [eventStatus, setEventStatus] = useState<'draft' | 'published' | 'ended' | null>(null)
+  // Как называть участника — словарь события (миграция 304), одно слово
+  // на весь продукт: интерфейс, рассылки, кабинет.
+  const [personWording, setPersonWording] = useState<string>('speaker')
   const [refCode, setRefCode] = useState<string | null>(null)
   // Подарок из ПЛЮСОНа (лид-магнит/пакет), если спикер выбрал его в своём
   // кабинете. Показываем отдельной read-only плашкой — иначе выглядит будто
@@ -313,6 +321,7 @@ export default function ConferenceSpeakerPage() {
       else setSubscriptionMode('none')
       setEventSlug(r?.conference?.event_slug || null)
       setEventStatus((r?.conference?.event_status as any) || null)
+      setPersonWording(r?.conference?.person_wording || 'speaker')
     }).catch(() => {})
     // этапы турнира — для мультиселекта «в каких этапах участвует»
     api.conference.stages.list(confId).then((r: any) => {
@@ -755,7 +764,7 @@ export default function ConferenceSpeakerPage() {
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
               <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
-              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">https://{publicHost}/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
+              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <a href={`https://${publicHost}/speaker/${eventSlug || ''}`} target="_blank" rel="noopener noreferrer" className="bg-white px-1 rounded font-mono text-[#25455D] underline hover:opacity-70">https://{publicHost}/speaker/{eventSlug || '…'}</a>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
             </div>
           </div>
           <div className="flex items-center gap-2 mt-3">
@@ -817,7 +826,11 @@ export default function ConferenceSpeakerPage() {
                 }}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
                 {Object.entries(t.conferences.speakers.roles).map(([k, v]) => (
-                  <option key={k} value={k}>{v as string}</option>
+                  <option key={k} value={k}>
+                    {/* Слово берётся из словаря события: «Спикер» / «Номинант» /
+                        «Участник». Роль в БД при этом остаётся 'speaker'. */}
+                    {k === 'speaker' ? PERSON_TITLE[personWording] || (v as string) : (v as string)}
+                  </option>
                 ))}
               </select>
             </div>

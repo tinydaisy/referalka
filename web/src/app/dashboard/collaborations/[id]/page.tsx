@@ -81,7 +81,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
   useEffect(() => {
     api.collaborators.get(collaboratorId)
       .then(r => {
-        setForm(r.collaborator)
+        // ⚠️ В `name` из API лежит «Фамилия Имя» (для списков поиска).
+        // В ФОРМУ кладём чистое имя из first_name, иначе клиент увидит склейку.
+        setForm({ ...r.collaborator, name: r.collaborator.first_name ?? r.collaborator.name })
         const ach = r.collaborator.achievements
         setAchievementsText(Array.isArray(ach) ? ach.join('\n') : (ach || ''))
       })
@@ -111,6 +113,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         .filter(Boolean)
       const updates = {
         name: form.name,
+        last_name: form.last_name || null,
         title: form.title,
         achievements,
         photo_url: form.photo_url,
@@ -160,7 +163,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             <ImageThumb url={form.photo_url} alt={form.name} />
           )}
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{form.name}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{[form.name, form.last_name].filter(Boolean).join(' ')}</h1>
             {form.title && <p className="text-gray-500 text-sm">{form.title}</p>}
             {form.contact_id && (
               <Link
@@ -244,10 +247,21 @@ export default function CollaborationPage({ params }: { params: { id: string } }
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.basicInfo}</h2>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.nameRequired}</label>
-            <input type="text" value={form.name || ''} onChange={set('name')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          {/* Имя и фамилия — РАЗНЫЕ поля (миграция 302): по фамилии сортируются
+              списки людей, из одной строки её достоверно не вытащить.
+              Пустая фамилия — норма: у компаний и партнёров-организаций её нет. */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Имя</label>
+              <input type="text" value={form.name || ''} onChange={set('name')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Фамилия</label>
+              <input type="text" value={form.last_name || ''} onChange={set('last_name')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+                placeholder="у компании — оставьте пустым" />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.position}</label>

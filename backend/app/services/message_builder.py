@@ -922,6 +922,17 @@ async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
     text = text.replace("{brand_name}", g["brand_name"])
     if btn_url:
         btn_url = btn_url.replace("{brand_name}", g["brand_name"])
+
+    # Словарь события (миграция 304): в премии текст должен говорить «номинант»,
+    # а не «спикер». Слово одно на всё событие — берём из events.person_wording.
+    from app.services.person_wording import wording as _person_wording
+    _pw = _person_wording(await conn.fetchval(
+        "SELECT person_wording FROM events WHERE id = $1", event_id))
+    for token, key in (("{person_word}", "nom"), ("{person_word_gen}", "gen"),
+                       ("{person_word_dat}", "dat"), ("{person_words}", "plural"),
+                       ("{person_words_gen}", "plural_gen")):
+        if token in text:
+            text = text.replace(token, _pw[key])
     return text, btn_url
 
 
@@ -2143,6 +2154,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "day_datetime", "day_program", "day_program_with_links", "next_day_mention",
         "raffle_url", "day_speakers_gifts", "vip_url",
         "brand_name", "event_chat_tg", "event_chat_vk", "event_chat_max",
+        # Словарь события (миграция 304): «спикер» / «номинант» / «участник».
+        # Нужны, чтобы в премии текст не говорил «спикер» там, где номинант.
+        "person_word", "person_word_gen", "person_word_dat",
+        "person_words", "person_words_gen",
         # ⚠️ НЕ включаем {first_name} и {game_link} — они персонализируются
         # per-получатель в broadcast.py уже ПОСЛЕ build_message_content.
     ]

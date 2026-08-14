@@ -135,6 +135,9 @@ class UpdateEventRequest(BaseModel):
     # Текст кнопки на встроенном лендинге события (миграция 212). Пусто → дефолт:
     # «КАК ГОЛОСОВАТЬ?» у конкурса, «Зарегистрироваться» у остальных типов.
     landing_cta_label: Optional[str] = None
+    # Как называть участника: speaker|nominee|member (миграция 304).
+    # Одно слово на всё событие — интерфейс, рассылки, кабинет.
+    person_wording: Optional[str] = None
     # Скрыть кнопку стрима в Mini App (миграция 128). FALSE (default) = кнопка
     # показывается. TRUE = жёстко скрыта. Ссылка эфира теперь = вебинарная
     # комната дня (см. webinar_service.day_stream_url), колонка stream_url убрана.
@@ -768,7 +771,8 @@ async def copy_event(
                   vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
-                  skip_contact_form, landing_cta_label, registration_mode)
+                  skip_contact_form, landing_cta_label, registration_mode,
+                  person_wording)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
@@ -777,7 +781,7 @@ async def copy_event(
                        $17,$18,
                        $19,$20,
                        $21,$22,
-                       $23,$24,$25)
+                       $23,$24,$25,$26)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -799,6 +803,9 @@ async def copy_event(
             # Способ регистрации переносим как есть: раньше он терялся, и копия
             # события молча уезжала на дефолт вместо настройки оригинала.
             src.get('registration_mode') or 'form',
+            # Словарь («спикер/номинант/участник») тоже переносим: без него
+            # копия премии заговорила бы «спикерами».
+            src.get('person_wording') or 'speaker',
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

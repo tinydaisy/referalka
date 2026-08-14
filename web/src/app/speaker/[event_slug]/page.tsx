@@ -906,8 +906,13 @@ export default function SpeakerCabinetPage() {
 
         {activeTab === 'profile' && <>
         <Section title="Профиль">
-          <label style={labelCss}>Имя и фамилия</label>
+          {/* Имя и фамилия — РАЗНЫЕ поля (миграция 302): по фамилии идёт
+              сортировка списков, из одной строки её не вытащить. */}
+          <label style={labelCss}>Имя</label>
           <input style={inputCss} value={me.name || ''} onChange={(e) => update({ name: e.target.value })} />
+
+          <label style={labelCss}>Фамилия</label>
+          <input style={inputCss} value={me.last_name || ''} onChange={(e) => update({ last_name: e.target.value })} />
 
           <label style={labelCss}>Telegram-ник ассистента</label>
           <div style={{ display: 'flex', alignItems: 'center', ...inputCss, padding: 0, overflow: 'hidden' }}>
