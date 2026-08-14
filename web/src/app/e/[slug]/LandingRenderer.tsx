@@ -358,6 +358,9 @@ export default function LandingRenderer({
         /* Ширина картинки в карточке: на телефоне всегда 100% (см. w-full),
            с 640px — как задал клиент настройкой «Размер фото». */
         @media (min-width: 640px) { .lp-card-img { width: var(--lp-img-w, 100%); } }
+        /* Боковые поля секции: на телефоне узкие (см. padXMobile), с 640px —
+           как задал клиент настройкой. */
+        @media (min-width: 640px) { .lp-section { --lp-pad-x: var(--lp-pad-x-lg); } }
         @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
@@ -706,7 +709,12 @@ function Section({
 
   // Отступы — из настроек страницы. Боковые не меньше 16px на телефоне,
   // иначе текст упирается в край экрана.
+  // ⚠️ На телефоне боковой отступ ограничиваем 16px, даже если клиент задал
+  // больше: на широком экране 36px — это воздух по краям, а на 390px это
+  // 72px из 390 (почти пятая часть ширины), и содержимое, особенно
+  // скриншоты, становится нечитаемо узким.
   const padX = Math.max(16, page.pad_x ?? 24)
+  const padXMobile = Math.min(16, padX)
   const padY = block.pad_y ?? page.section_gap ?? 64
   const maxW = page.content_width ?? 1120
 
@@ -719,10 +727,12 @@ function Section({
       /* ⚠️ `isolate` обязателен: секция создаёт свой контекст наложения.
          Без него слой фона уезжает за пределы секции — под фон СТРАНИЦЫ — и
          непрозрачная заливка корня закрывает его целиком. */
-      className="relative isolate scroll-mt-20"
+      className="lp-section relative isolate scroll-mt-20"
       style={{
         ...sectionStyle,
-        paddingLeft: padX, paddingRight: padX,
+        paddingLeft: 'var(--lp-pad-x)', paddingRight: 'var(--lp-pad-x)',
+        ['--lp-pad-x' as any]: `${padXMobile}px`,
+        ['--lp-pad-x-lg' as any]: `${padX}px`,
         paddingTop: padY, paddingBottom: padY,
       }}
     >
