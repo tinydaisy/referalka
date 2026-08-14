@@ -9,6 +9,13 @@ import HtmlTextArea from '@/components/HtmlTextArea'
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
 
+/** Фирменный цвет с прозрачностью — для тонких линий и подложек. */
+export function hexA(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+
 // Лайтбокс для фото
 export function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
@@ -208,11 +215,18 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
             разъехавшимся. Пустые строки просто остаются пустыми. */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Имя ОСНОВАТЕЛЯ — заголовок; название проекта — отдельной строкой. */}
-          <div className="font-semibold truncate" style={{ color: DARK }}>{ownerName}</div>
-          <div className="text-xs text-gray-600 truncate min-h-[1rem]">
+          <div className="font-semibold" style={{ color: DARK }}>{ownerName}</div>
+          {/* Название проекта — целиком (в форме предел 60 символов), место
+              под одну строку резервируем, чтобы шапки совпадали по высоте. */}
+          <div className="text-xs text-gray-600 min-h-[1rem]">
             {project ? <>Проект: <span className="font-medium">{project}</span></> : ''}
           </div>
-          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2 min-h-[2rem]">
+          {/* ⚠️ Позиционирование показывается ЦЕЛИКОМ (до 140 символов —
+              столько разрешает форма), НЕ обрезаем. Но место под него
+              одинаковое у всех: иначе плашки категории и ниши у каждого
+              вставали на своей высоте — у кого текст в строку, у кого в
+              четыре. Пустое место просто остаётся пустым. */}
+          <div className="text-xs text-gray-500 mt-0.5 min-h-[4rem]">
             {item.positioning || ''}
           </div>
           <div className="flex flex-wrap gap-1 mt-auto pt-1">
@@ -232,12 +246,18 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           </div>
         </div>
       </div>
+      {/* ⚠️ Разделительные линии делят карточку на три части: кто это →
+          что предлагает → результаты. Фирменный синий, полупрозрачный —
+          строгая линия резала бы глаз в лёгкой карточке. Линии помогают
+          сравнивать карточки построчно, а не искать глазами границы блоков. */}
+      <div className="mt-3 border-t" style={{ borderColor: hexA(DARK, 0.18) }} />
       {/* Персиковые блоки — НАД регалиями. Все три свёрнуты до одинаковой
           высоты и разворачиваются по «Подробнее»: иначе длинный текст у
           одного участника растягивал его карточку, и ряд каталога разъезжался. */}
       <PeachBlock title="Что предлагает партнёрам" html={about} first tone="blue" />
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
+      <div className="mt-3 border-t" style={{ borderColor: hexA(DARK, 0.18) }} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
           ⚠️ РОВНО 4 СТРОКИ У ВСЕХ, дальше «Подробнее» (решение владельца:
           эталон — заполненная карточка, полотна быть не должно). Число строк
@@ -258,6 +278,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           пустую дыру в полэкрана. Ровность даёт другое: у всех блоков
           одинаковое число строк (3 у персиковых, 4 у регалий) и шапка
           фиксированной высоты — тогда и подвал сходится сам. */}
+      <div className="mt-3 border-t" style={{ borderColor: hexA(DARK, 0.18) }} />
       {achievements.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
           {/* ⚠️ До 6 цифр — столько же, сколько человек может ввести в форме.
