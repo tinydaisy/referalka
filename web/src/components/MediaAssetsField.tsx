@@ -60,7 +60,10 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
     return sum + (auto ? (autoCounts[a.platform] ?? 0) : Math.round(a.subscribers || 0))
   }, 0)
   const used = new Set((value || []).map(a => a.platform))
-  const available = PLATFORMS.filter(p => !used.has(p.slug))
+  // ⚠️ Позиции ПЛЮСОНа НЕ выбираются вручную: они появляются сами, когда на
+  // площадке есть подписчики, и добавлять их незачем. В списке остаются только
+  // сторонние площадки, которые человек заявляет сам.
+  const available = PLATFORMS.filter(p => !used.has(p.slug) && !p.auto)
   const allUsed = available.length === 0
 
   function add() {
@@ -102,8 +105,9 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
           <div key={i} className="flex gap-2 items-center">
             <select
               value={asset.platform}
+              disabled={isAuto}
               onChange={e => update(i, { platform: e.target.value })}
-              className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-brand"
+              className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-brand disabled:bg-gray-50 disabled:text-gray-600"
             >
               {options.map(p => (
                 <option key={p.slug} value={p.slug}>{p.label}</option>
@@ -141,6 +145,11 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
               />
             </div>
             )}
+            {/* ⚠️ У позиций ПЛЮСОНа нет кнопок удаления и перестановки: это
+                факт, а не выбор — площадка подключена, подписчики есть.
+                Убрать их из карточки нельзя, чтобы охват нельзя было
+                «подправить» удалением неудобной строки. */}
+            {isAuto ? <div className="w-[76px] shrink-0" /> : (<>
             <div className="flex flex-col">
               <button type="button" onClick={() => move(i, -1)} disabled={i === 0}
                       title="Выше"
@@ -161,6 +170,7 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
             >
               <X size={16} />
             </button>
+            </>)}
           </div>
         )
       })}

@@ -157,6 +157,35 @@ def _reach_breakdown(media_assets, auto_counts: dict) -> list:
     return sorted(rows, key=lambda r: -r['count'])
 
 
+def _with_plusson_assets(media_assets, auto_counts: dict) -> list:
+    """Дописывает в активы позиции ПЛЮСОНа по РЕАЛЬНО подключённым площадкам.
+
+    ⚠️ Эти строки не выбираются и не удаляются человеком — они факт: если у
+    клиента есть боты и подписчики на площадке, охват там существует независимо
+    от того, отметил он это в форме или нет. Раньше их надо было добавлять
+    руками, никто этого не делал, и фильтр «Площадки» показывал почти пустой
+    каталог при живых базах.
+
+    Позиция появляется, только когда на площадке ЕСТЬ люди: пустая строка
+    «Email: 0» у того, кто почту не подключал, — шум в карточке и ложное
+    совпадение в фильтре.
+
+    В базе эти строки не хранятся: цифра меняется с каждой подпиской, и
+    сохранённое число разошлось бы с правдой в тот же день.
+    """
+    try:
+        arr = list(media_assets if isinstance(media_assets, list)
+                   else json.loads(media_assets or '[]'))
+    except Exception:
+        arr = []
+    # Руками введённые дубли этих позиций убираем — значение всё равно наше.
+    arr = [a for a in arr if isinstance(a, dict) and a.get('platform') not in _AUTO_PLATFORMS]
+    for slug in _AUTO_PLATFORMS:
+        if int((auto_counts or {}).get(slug) or 0) > 0:
+            arr.append({'platform': slug, 'subscribers': 0})
+    return arr
+
+
 def _client_card(row, public: bool = False, channel_counts: dict | None = None) -> dict:
     """Собирает карточку организатора из строки clients.
 
@@ -169,7 +198,8 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
     карточки (public=False) поля отдаём всегда — он их редактирует.
     """
     d = dict(row)
-    ma = _parse_json(d.get('media_assets'), [])
+    _auto = {**_plusson_base(d.get('hub_base_by_platform')), **(channel_counts or {})}
+    ma = _with_plusson_assets(_parse_json(d.get('media_assets'), []), _auto)
     impact_public = d.get('hub_impact_public')
     wow_public = d.get('hub_wow_public')
     return {
@@ -183,10 +213,8 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
         'achievements': _parse_json(d.get('owner_achievements'), []),
         'social_links': _parse_json(d.get('social_links'), {}),
         'media_assets': ma or [],
-        'reach_breakdown': _reach_breakdown(ma, {**_plusson_base(d.get('hub_base_by_platform')),
-                                                 **(channel_counts or {})}),
-        'media_tier': _media_tier(_sum_subscribers(
-            ma, {**_plusson_base(d.get('hub_base_by_platform')), **(channel_counts or {})})),
+        'reach_breakdown': _reach_breakdown(ma, _auto),
+        'media_tier': _media_tier(_sum_subscribers(ma, _auto)),
         'is_published_in_hub': d.get('is_published_in_hub'),
         'hub_category': d.get('hub_category'),
         'hub_niche': d.get('hub_niche'),
@@ -204,8 +232,7 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
         # карточке показываем только по галочке: у новичка база в десяток
         # человек, и принудительный показ отвадил бы его от публикации.
         # Ключи под слаги медийных активов: plusson_tg / _email / _max / _vk.
-        'plusson_base': {**_plusson_base(d.get('hub_base_by_platform')),
-                         **(channel_counts or {})},
+        'plusson_base': _auto,
     }
 
 
@@ -279,7 +306,12 @@ async def publish_my_card(data: HubCardIn, client=Depends(get_current_client), d
     if data.hub_category and data.hub_category not in HUB_CATEGORIES:
         raise HTTPException(400, "Неизвестная категория")
     cid = int(client["sub"])
-    ma = json.dumps(data.media_assets) if data.media_assets is not None else None
+    # ⚠️ Позиции ПЛЮСОНа в базе НЕ храним: они подставляются при отдаче по
+    # реально подключённым площадкам. Сохранить их значило бы заморозить цифру,
+    # которая меняется с каждой подпиской, и получить расхождение с правдой.
+    ma = (json.dumps([a for a in data.media_assets
+                      if isinstance(a, dict) and a.get('platform') not in _AUTO_PLATFORMS])
+          if data.media_assets is not None else None)
     # ⚠️ Ниши: пишем массив и синхронно кладём первую в старое одиночное поле —
     # его ещё читают места, не переведённые на список.
     niches = [n for n in (data.hub_niches or []) if n] or ([data.hub_niche] if data.hub_niche else [])
