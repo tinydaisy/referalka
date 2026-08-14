@@ -168,20 +168,39 @@ async def platforms_summary(client=Depends(get_current_client), db=Depends(get_d
         """,
         client_id,
     )
-    titles = {"telegram": "Telegram-бот", "email": "Email", "max": "MAX-бот", "vk": "ВК-бот"}
+    titles = {"telegram": "Telegram-боты", "email": "Емейлы", "max": "МАКС-боты", "vk": "ВК-боты"}
     # Людей считаем БЕЗ повторов: один человек с почтой и телеграмом — один контакт.
     unique_total = await db.fetchval(
         "SELECT count(DISTINCT contact_id) FROM platform_users WHERE client_id=$1", client_id) or 0
-    return {
-        "platforms": [
-            {
-                "slug": r["slug"],
-                "title": titles.get(r["slug"], r["slug"]),
-                "total": r["total"],
-                "subscribed": r["subscribed"],
-                "unsubscribed": r["total"] - r["subscribed"],
-            }
-            for r in rows
-        ],
-        "unique_total": unique_total,
-    }
+    # ⚠️ Подписчики КАНАЛОВ считаются отдельной строкой рядом с ботами: у
+    # канала подписчиков обычно больше, чем у бота, и без них картина неполная.
+    # Цифру отдают сами площадки (бот в канале админ) — подделать нельзя.
+    from app.services.channel_audience import channel_audience
+    social = await db.fetchval("SELECT social_links FROM clients WHERE id=$1", client_id)
+    import json as _json
+    if isinstance(social, str):
+        try: social = _json.loads(social)
+        except Exception: social = {}
+    ch = await channel_audience(db, client_id, social or {})
+    ch_titles = {"plusson_tg_ch": "Telegram-каналы",
+                 "plusson_max_ch": "МАКС-каналы",
+                 "plusson_vk_ch": "ВК-сообщества"}
+    channel_rows = [
+        {"slug": k, "title": t, "total": ch.get(k, 0), "subscribed": ch.get(k, 0), "unsubscribed": 0}
+        for k, t in ch_titles.items() if ch.get(k, 0) > 0
+    ]
+
+    platforms = channel_rows + [
+        {
+            "slug": r["slug"],
+            "title": titles.get(r["slug"], r["slug"]),
+            "total": r["total"],
+            "subscribed": r["subscribed"],
+            "unsubscribed": r["total"] - r["subscribed"],
+        }
+        for r in rows
+    ]
+    # По убыванию: сверху то, где аудитории больше — иначе каналы всегда
+    # оказывались первыми просто потому, что добавлены раньше.
+    platforms.sort(key=lambda p: -p["subscribed"])
+    return {"platforms": platforms, "unique_total": unique_total}

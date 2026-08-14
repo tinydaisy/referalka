@@ -18,6 +18,7 @@ from app.database import get_db
 from app.services.features import client_has_feature
 import asyncpg
 import json
+import logging
 
 
 async def require_collab_hub(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
@@ -26,6 +27,8 @@ async def require_collab_hub(client=Depends(get_current_client), db: asyncpg.Con
         raise HTTPException(403, "Коллабораторная доступна на тарифе ПРОФИ и выше")
     return client
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/collab-hub", tags=["Коллабораторная (Хаб)"],
                    dependencies=[Depends(require_collab_hub)])
@@ -403,9 +406,14 @@ async def catalog(
     counts_by_client: dict[int, dict] = {}
     for r in rows:
         try:
+            # ⚠️ r — строка asyncpg (Record), у неё НЕТ метода .get: обращение
+            # к нему бросало AttributeError, который тут же глотался except, и
+            # каталог молча показывал охват без каналов. Берём по ключу.
             counts_by_client[r['id']] = await channel_audience(
-                db, r['id'], _parse_json(r.get('social_links'), {}))
+                db, r['id'], _parse_json(r['social_links'], {}))
         except Exception:
+            # Логируем: молчаливый except уже один раз спрятал поломку на неделю.
+            logger.exception("catalog: не посчитаны каналы клиента %s", r['id'])
             counts_by_client[r['id']] = {}
 
     out = []
