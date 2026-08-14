@@ -257,7 +257,32 @@ async def notify_founder_new_client(
             f"<b>Карточка:</b> {_dashboard_base()}/admin/clients?id={new_client_id}",
         ]
 
-        return await _notify_referrer(db, founder_id, "\n".join(parts))
+        text = "\n".join(parts)
+        res = await _notify_referrer(db, founder_id, text)
+        if res.get("tg"):
+            return res
+
+        # ⚠️ У системного аккаунта (клиент 3) поля telegram_username /
+        # work_tg_username ПУСТЫЕ — писать некуда, и уведомление о новом клиенте
+        # платформы терялось бы совсем. Фолбэк: личка владельцев платформы по
+        # тем же аккаунтам, которым разрешены админские команды бота (/clients,
+        # /collabs) — это и есть «основатель ПЛЮСОНа».
+        from app.services.admin_export import ALLOWED_USERNAMES
+        sent = False
+        for uname in ALLOWED_USERNAMES:
+            tg_id = await db.fetchval(
+                """SELECT platform_user_id FROM platform_users
+                    WHERE platform_slug = 'telegram'
+                      AND lower(replace(coalesce(username,''),'@','')) = $1
+                      AND platform_user_id ~ '^[0-9]+$'
+                    ORDER BY id LIMIT 1""",
+                uname.lower().lstrip("@"),
+            )
+            if tg_id and await _send_via_plusson_bot(db, tg_id, text):
+                sent = True
+                break  # один владелец — одно уведомление, дубли не нужны
+        res["tg"] = sent
+        return res
     except Exception as e:  # noqa: BLE001 — не роняем регистрацию
         log.warning("notify_founder_new_client failed: %s", e)
         return {"tg": False, "max": False, "vk": False}
