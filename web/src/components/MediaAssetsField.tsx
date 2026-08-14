@@ -77,7 +77,10 @@ export default function MediaAssetsField({ value, onChange }: Props) {
                 onChange={e => {
                   const v = e.target.value
                   if (v === '') return update(i, { subscribers: 0 })
-                  const n = parseFloat(v)
+                  // ⚠️ Принимаем и точку, и ЗАПЯТУЮ: на русской раскладке
+                  // человек набирает «1,8», а parseFloat такую запись не
+                  // понимает — значение молча становилось нулём.
+                  const n = parseFloat(v.replace(',', '.'))
                   update(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
                 }}
                 className="w-full pr-8 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
