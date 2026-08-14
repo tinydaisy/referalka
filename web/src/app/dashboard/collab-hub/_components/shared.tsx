@@ -201,13 +201,21 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         {item.photo_url
           ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
-        <div className="flex-1 min-w-0">
+        {/* ⚠️ ШАПКА ФИКСИРОВАННОЙ ВЫСОТЫ. Имя + проект + позиционирование
+            занимают одинаковое место у ВСЕХ, даже если что-то не заполнено, —
+            иначе плашки категории/ниши, а за ними и все блоки карточки,
+            начинались бы у каждого на своей высоте, и ряд выглядел
+            разъехавшимся. Пустые строки просто остаются пустыми. */}
+        <div className="flex-1 min-w-0 flex flex-col">
           {/* Имя ОСНОВАТЕЛЯ — заголовок; название проекта — отдельной строкой. */}
-          <div className="font-semibold" style={{ color: DARK }}>{ownerName}</div>
-          {project && <div className="text-xs text-gray-600">Проект: <span className="font-medium">{project}</span></div>}
-          {/* позиционирование — полностью, без обрезки */}
-          {item.positioning && <div className="text-xs text-gray-500 mt-0.5">{item.positioning}</div>}
-          <div className="flex flex-wrap gap-1 mt-1">
+          <div className="font-semibold truncate" style={{ color: DARK }}>{ownerName}</div>
+          <div className="text-xs text-gray-600 truncate min-h-[1rem]">
+            {project ? <>Проект: <span className="font-medium">{project}</span></> : ''}
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2 min-h-[2rem]">
+            {item.positioning || ''}
+          </div>
+          <div className="flex flex-wrap gap-1 mt-auto pt-1">
             {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
             {/* Ниша — раньше не показывалась в карточке вообще */}
             {(item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])).map((sl: string) => (
@@ -231,27 +239,25 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
-          ⚠️ ПРАВИЛО ОДНО ДЛЯ ВСЕХ: свёрнуто — ровно 4 строки, дальше
-          «Подробнее». Так карточки выглядят одинаково независимо от того,
-          сколько человек написал о себе. Раньше лимит был 3 строки, и у
-          одних регалии показывались целиком, у других обрезались — принцип
-          со стороны выглядел случайным. */}
+          ⚠️ РОВНО 4 СТРОКИ У ВСЕХ, дальше «Подробнее» (решение владельца:
+          эталон — заполненная карточка, полотна быть не должно). Число строк
+          одинаково независимо от того, сколько человек написал о себе. */}
       {bio && (
         <div className="mt-2">
           {/* clamp — на обёртке, которую и меряем (BioBlock не принимает ref). */}
           <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-4'}>
-            <BioBlock bio={bio} open />
+            <BioBlock bio={bio} />
           </div>
-          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5 shrink-0" style={{ color: '#C77B3B' }}>
             {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
           </button>}
         </div>
       )}
-      {/* ⚠️ ВЕСЬ НИЗ КАРТОЧКИ ПРИЖАТ К ОСНОВАНИЮ (mt-auto): цифры, коллаборации,
-          рейтинг и кнопки стоят на одном уровне у всех карточек ряда, сколько бы
-          текста ни было выше. Блок цифр раньше шёл ДО прижатия — у карточки без
-          цифр на его месте оставалась дыра, и ряд выглядел разъехавшимся. */}
-      <div className="mt-auto" />
+      {/* ⚠️ Прижатия к низу (mt-auto) здесь НЕТ. Карточка тянется до высоты
+          самой высокой в ряду, и прижатый подвал оставлял под коротким текстом
+          пустую дыру в полэкрана. Ровность даёт другое: у всех блоков
+          одинаковое число строк (3 у персиковых, 4 у регалий) и шапка
+          фиксированной высоты — тогда и подвал сходится сам. */}
       {achievements.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
           {/* ⚠️ До 6 цифр — столько же, сколько человек может ввести в форме.

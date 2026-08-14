@@ -495,6 +495,11 @@ export default function MiniAppSettingsPage() {
                 <input type="text" value={profile.brand_name || ''}
                        onChange={e => update('brand_name', e.target.value)}
                        className="input" maxLength={60} />
+                {/* Счётчик: в карточке каталога это строка «Проект: …», и
+                    длинное название переносится, сдвигая всё под ним. */}
+                <p className="mt-1 text-xs text-gray-400">
+                  {(profile.brand_name || '').length} из 60
+                </p>
               </Field>
 
               <Field label="Позиционирование бренда"
@@ -563,11 +568,18 @@ export default function MiniAppSettingsPage() {
                 />
               </Field>
 
+              {/* ⚠️ В карточке каталога это строка под именем, и она обрезана
+                  двумя строками — длинный текст ряд больше не разъезжает.
+                  Поэтому предел щедрый (140), но счётчик показываем: человек
+                  должен понимать, что в карточку попадёт только начало. */}
               <Field label="Позиционирование основателя"
-                     hint="Одна строка о роли.">
+                     hint="Одна строка о роли. В карточке каталога показываются первые 2 строки.">
                 <input type="text" value={profile.owner_positioning || ''}
                        onChange={e => update('owner_positioning', e.target.value)}
                        className="input" maxLength={140} />
+                <p className="mt-1 text-xs text-gray-400">
+                  {(profile.owner_positioning || '').length} из 140
+                </p>
               </Field>
             </div>
           </Section>
