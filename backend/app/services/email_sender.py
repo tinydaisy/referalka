@@ -135,11 +135,26 @@ def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str
 
 
 def _build_html_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
-    # Подвал: отступ ~3 строки + черта + мелкий серый текст с гипер-ссылкой.
+    """Подвал отписки: тонкая черта + мелкий серый текст с гипер-ссылкой.
+
+    ⚠️ Подвал — САМОЕ повторяющееся место письма: текст в нём дословно один и
+    тот же во всех рассылках отправителя. Gmail считает такой повтор
+    «цитируемым текстом» предыдущего письма и прячет под «...», утаскивая туда
+    же кусок тела — в ящике письмо выглядит разорванным (жалоба 2026-08-14).
+
+    Поэтому:
+    1) **Ссылка отписки уникальна** (персональный токен) — уже отличает подвал
+       письма от подвала прошлого. Этого мало, если Gmail сравнивает видимый
+       текст, поэтому дальше — пункт 2.
+    2) **Никаких пустых распорок** (был `<div style="height:50px">`): именно
+       пустой блок рисовался «пустой синей плашкой» над свёрнутым куском.
+       Отступ задаём margin'ом самой черты — визуально то же, лишнего узла нет.
+    3) Подвал лежит ВНУТРИ общего контейнера письма, а не отдельным блоком
+       после него — цельный документ Gmail резать по границе блока не станет.
+    """
     brand = (brand_name or "").strip() or "наших проектах"
     return (
-        '<div style="height:50px;"></div>'
-        '<hr style="border:none;border-top:1px solid #d0d7de;margin:0 0 12px 0;">'
+        '<hr style="border:none;border-top:1px solid #d0d7de;margin:40px 0 12px 0;">'
         '<p style="color:#7d8c9c;font-size:12px;line-height:1.5;margin:0;padding:0 4px;'
         'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;">'
         f'Вы получили это письмо, потому что регистрировались в событиях или проектах {brand}.<br>'
@@ -271,10 +286,22 @@ class EmailSender:
             auto_html_inner = _plain_to_html(body_text or "")
             html_outer = _wrap_html_body(auto_html_inner)
 
-        if "</body>" in html_outer:
-            html_body_full = html_outer.replace("</body>", html_footer + "</body>", 1)
+        # ⚠️ Подвал вставляем ВНУТРЬ контейнера письма, а не после него.
+        # Раньше он шёл перед </body> — то есть отдельным блоком ПОСЛЕ
+        # центрального <div> с контентом. Gmail сворачивал письмо ровно по этой
+        # границе: тело отдельно, подвал отдельно, между ними «...» и пустая
+        # плашка. Кладём подвал последним элементом того же контейнера —
+        # резать становится нечего.
+        if html_footer:
+            marker = "</div></body>"
+            if marker in html_outer:
+                html_body_full = html_outer.replace(marker, html_footer + marker, 1)
+            elif "</body>" in html_outer:
+                html_body_full = html_outer.replace("</body>", html_footer + "</body>", 1)
+            else:
+                html_body_full = html_outer + html_footer
         else:
-            html_body_full = html_outer + html_footer
+            html_body_full = html_outer
 
         # MIME-структура (RFC 2387 — самая совместимая для Gmail/Outlook/Apple Mail):
         #   multipart/related
