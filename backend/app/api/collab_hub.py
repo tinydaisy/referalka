@@ -72,6 +72,17 @@ def _parse_json(v, default):
     return v
 
 
+def _plusson_base(raw) -> dict:
+    """База клиента по площадкам → ключи медийных активов (plusson_tg и т.д.)."""
+    d = _parse_json(raw, {}) or {}
+    return {
+        'plusson_tg':    int(d.get('telegram') or 0),
+        'plusson_email': int(d.get('email') or 0),
+        'plusson_max':   int(d.get('max') or 0),
+        'plusson_vk':    int(d.get('vk') or 0),
+    }
+
+
 def _client_card(row, public: bool = False) -> dict:
     """Собирает карточку организатора из строки clients.
 
@@ -111,13 +122,32 @@ def _client_card(row, public: bool = False) -> dict:
         'hub_impact_public': impact_public,
         'hub_wow': (None if public and not wow_public else d.get('hub_wow')),
         'hub_wow_public': wow_public,
+        # ⚠️ Размер базы в ПЛЮСОНе система считает САМА (в отличие от медийных
+        # активов, которые вводят руками) — подделать его нельзя. Но в публичной
+        # карточке показываем только по галочке: у новичка база в десяток
+        # человек, и принудительный показ отвадил бы его от публикации.
+        # Ключи под слаги медийных активов: plusson_tg / _email / _max / _vk.
+        'plusson_base': _plusson_base(d.get('hub_base_by_platform')),
     }
 
 
 _CLIENT_COLS = """id, name, brand_name, owner_photo_url, profile_photo_url, bio,
     owner_positioning, positioning, owner_achievements, social_links, media_assets,
     is_published_in_hub, hub_category, hub_niche, hub_niches, hub_city, hub_about,
-    hub_impact, hub_impact_public, hub_wow, hub_wow_public"""
+    hub_impact, hub_impact_public, hub_wow, hub_wow_public,
+    -- ⚠️ База ПО ПЛОЩАДКАМ, а не одним числом: «5800 контактов» партнёру
+    -- ничего не говорит — за ним и почта, и три бота, причём один человек
+    -- часто есть сразу в нескольких. Считаем на лету: денормализованное
+    -- число разъезжалось бы с правдой при каждой отписке.
+    -- Отписавшиеся не в счёт — партнёру важны те, до кого рассылка дойдёт.
+    (SELECT jsonb_object_agg(t.slug, t.cnt) FROM (
+        SELECT pu.platform_slug AS slug, count(DISTINCT pu.contact_id) AS cnt
+          FROM platform_users pu
+         WHERE pu.client_id = id   -- без имени таблицы: в каталоге алиас cl
+           AND NOT EXISTS (SELECT 1 FROM platform_user_channels puc
+                            WHERE puc.platform_user_id = pu.id AND puc.is_unsubscribed)
+         GROUP BY pu.platform_slug
+    ) t) AS hub_base_by_platform"""
 
 
 # ═══════════════════════════════════════════════════════════════

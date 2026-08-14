@@ -136,3 +136,52 @@ async def utm_summary(
         "lead_magnets": [{"id": r["id"], "name": r["name"]} for r in lm_rows],
         "packages": [{"id": r["id"], "name": r["name"]} for r in pkg_rows],
     }
+
+
+@router.get("/platforms", summary="Медийные активы: подписано / всего по площадкам")
+async def platforms_summary(client=Depends(get_current_client), db=Depends(get_db)):
+    """Размер базы клиента ПО ПЛОЩАДКАМ: сколько людей подписано и сколько всего.
+
+    ⚠️ Общее число контактов («5800») ничего не говорит: за ним и почта, и три
+    бота, причём один человек часто есть сразу в нескольких — сумма по площадкам
+    БОЛЬШЕ общего числа, и это не ошибка. Партнёру и самому клиенту нужна
+    разбивка: где база живая, а где половина отписалась.
+
+    «Подписан» = у идентичности нет ни одной отписки. Отписавшиеся показаны
+    отдельно, а не выброшены: разрыв между «всего» и «подписано» — это и есть
+    та цифра, ради которой блок делается.
+    """
+    client_id = int(client["sub"])
+    rows = await db.fetch(
+        """
+        SELECT pu.platform_slug AS slug,
+               count(DISTINCT pu.contact_id) AS total,
+               count(DISTINCT pu.contact_id) FILTER (
+                   WHERE NOT EXISTS (SELECT 1 FROM platform_user_channels puc
+                                      WHERE puc.platform_user_id = pu.id
+                                        AND puc.is_unsubscribed)
+               ) AS subscribed
+          FROM platform_users pu
+         WHERE pu.client_id = $1
+         GROUP BY pu.platform_slug
+         ORDER BY total DESC
+        """,
+        client_id,
+    )
+    titles = {"telegram": "Telegram-бот", "email": "Email", "max": "MAX-бот", "vk": "ВК-бот"}
+    # Людей считаем БЕЗ повторов: один человек с почтой и телеграмом — один контакт.
+    unique_total = await db.fetchval(
+        "SELECT count(DISTINCT contact_id) FROM platform_users WHERE client_id=$1", client_id) or 0
+    return {
+        "platforms": [
+            {
+                "slug": r["slug"],
+                "title": titles.get(r["slug"], r["slug"]),
+                "total": r["total"],
+                "subscribed": r["subscribed"],
+                "unsubscribed": r["total"] - r["subscribed"],
+            }
+            for r in rows
+        ],
+        "unique_total": unique_total,
+    }

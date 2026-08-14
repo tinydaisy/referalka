@@ -188,6 +188,9 @@ export default function AnalyticsPage() {
             <StatTile label="Конверсия" value={`${data?.totals.conversion ?? 0}%`} accent />
           </div>
 
+          {/* ── Медийные активы: подписано / всего по площадкам ── */}
+          <PlatformsBlock />
+
           {/* ── Таблица по источникам (воронка лид-магнитов) ── */}
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-8">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
@@ -276,6 +279,49 @@ function StatTile({ label, value, accent }: { label: string; value: number | str
       : { background: '#fff', borderColor: '#e5e7eb' }}>
       <div className={`text-2xl font-bold ${accent ? '' : 'text-gray-900'}`} style={accent ? { color: PEACH } : {}}>{value}</div>
       <div className={`text-xs mt-0.5 ${accent ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
+    </div>
+  )
+}
+
+
+/**
+ * Медийные активы: сколько людей на каждой площадке и сколько из них подписано.
+ *
+ * ⚠️ Одно общее число контактов ничего не говорит: за ним и почта, и три бота,
+ * причём один человек часто есть сразу в нескольких — поэтому сумма по
+ * площадкам БОЛЬШЕ числа людей, и это не ошибка (внизу поясняем прямо).
+ * Ценность блока в разрыве «всего → подписано»: он показывает, где база живая,
+ * а где половина отписалась.
+ */
+function PlatformsBlock() {
+  const [data, setData] = useState<any>(null)
+  useEffect(() => { api.analytics.platforms().then(setData).catch(() => {}) }, [])
+  const rows: any[] = data?.platforms || []
+  if (!rows.length) return null
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <Users size={18} style={{ color: DARK }} />
+        <h2 className="font-semibold text-gray-900 text-sm">Медийные активы</h2>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {rows.map(p => (
+          <div key={p.slug} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <div className="text-xs text-gray-500">{p.title}</div>
+            <div className="mt-1 text-xl font-bold" style={{ color: DARK }}>
+              {p.subscribed.toLocaleString('ru')}
+              <span className="text-sm font-normal text-gray-400"> / {p.total.toLocaleString('ru')}</span>
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5">
+              подписано из всех{p.unsubscribed > 0 ? ` · отписалось ${p.unsubscribed.toLocaleString('ru')}` : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-gray-400">
+        Всего людей в базе: <b>{(data?.unique_total || 0).toLocaleString('ru')}</b>. Сумма по
+        площадкам больше — один человек может быть и в боте, и в почте, но считается один раз.
+      </p>
     </div>
   )
 }

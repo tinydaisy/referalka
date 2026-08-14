@@ -237,6 +237,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
               <span key={sl} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[sl] || sl}</span>
             ))}
             <MediaTierBadge tier={item.media_tier} />
+
             {/* Город — рядом с нишей, а не в подвале карточки: там он терялся
                 под цифрами коллабораций, и найти земляка в списке было нельзя. */}
             {item.hub_city && (
@@ -803,7 +804,12 @@ export function MyCardView() {
           Сколько подписчиков на каждой площадке. По этим цифрам в каталоге считается ваш охват.
         </p>
         <div className="mb-4">
-          <MediaAssetsField value={form.media_assets || []} onChange={(next) => setForm({ ...form, media_assets: next })} />
+          {/* autoCounts — реальные размеры баз ПЛЮСОНа по площадкам. Строки
+              «… в ПЛЮСОН» ими и заполняются: цифру считает система, руками
+              её не ввести. */}
+          <MediaAssetsField value={form.media_assets || []}
+                            autoCounts={card?.plusson_base || {}}
+                            onChange={(next) => setForm((f: any) => ({ ...f, media_assets: next }))} />
         </div>
         <label className="flex items-center gap-2 mb-4 text-sm">
           <input type="checkbox" checked={form.is_published_in_hub} onChange={e => setForm({ ...form, is_published_in_hub: e.target.checked })} />

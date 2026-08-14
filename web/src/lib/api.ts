@@ -804,6 +804,8 @@ export const api = {
     // Дашборды-квадратики. Разрез — поле контакта ИЛИ вопрос анкеты
     // (ключ вида 'field:3' / 'question:24').
     sources: () => request('/api/v1/analytics/sources'),
+    /** Медийные активы: подписано/всего по площадкам. */
+    platforms: () => request('/api/v1/analytics/platforms'),
     dashboards: (eventId?: number) =>
       request(`/api/v1/analytics/dashboards${eventId ? `?event_id=${eventId}` : ''}`),
     createDashboard: (data: { title?: string; event_id?: number }) =>

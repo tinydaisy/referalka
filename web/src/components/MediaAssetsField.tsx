@@ -1,9 +1,9 @@
 'use client'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react'
 
 export type MediaAsset = { platform: string; subscribers: number }
 
-const PLATFORMS: { slug: string; label: string }[] = [
+const PLATFORMS: { slug: string; label: string; auto?: boolean }[] = [
   { slug: 'tg',        label: 'Telegram' },
   { slug: 'youtube',   label: 'YouTube' },
   { slug: 'vk',        label: 'VK' },
@@ -14,6 +14,14 @@ const PLATFORMS: { slug: string; label: string }[] = [
   { slug: 'chatbots',  label: 'Чат-боты' },
   { slug: 'database',  label: 'База' },
   { slug: 'total',     label: 'Суммарно' },
+  // ⚠️ Площадки ПЛЮСОНа — цифры СЧИТАЕТ СИСТЕМА, руками их не вводят.
+  // Смысл в честности: медийные активы человек заявляет сам и может завысить,
+  // а здесь партнёр видит подтверждённое число живых подписчиков. Показывать
+  // их или нет — решает владелец карточки: можно просто не добавлять строку.
+  { slug: 'plusson_tg',    label: 'Telegram-бот в ПЛЮСОН', auto: true },
+  { slug: 'plusson_email', label: 'Email в ПЛЮСОН',        auto: true },
+  { slug: 'plusson_max',   label: 'MAX-бот в ПЛЮСОН',      auto: true },
+  { slug: 'plusson_vk',    label: 'ВК-бот в ПЛЮСОН',       auto: true },
 ]
 
 function labelFor(slug: string): string {
@@ -23,9 +31,12 @@ function labelFor(slug: string): string {
 interface Props {
   value: MediaAsset[]
   onChange: (next: MediaAsset[]) => void
+  /** Реальные размеры баз ПЛЮСОНа по площадкам: {plusson_tg: 3745, …}.
+   *  Считает бэкенд — эти строки не редактируются, показывают правду. */
+  autoCounts?: Record<string, number>
 }
 
-export default function MediaAssetsField({ value, onChange }: Props) {
+export default function MediaAssetsField({ value, onChange, autoCounts = {} }: Props) {
   const used = new Set((value || []).map(a => a.platform))
   const available = PLATFORMS.filter(p => !used.has(p.slug))
   const allUsed = available.length === 0
@@ -39,6 +50,15 @@ export default function MediaAssetsField({ value, onChange }: Props) {
   }
   function remove(i: number) {
     onChange((value || []).filter((_, k) => k !== i))
+  }
+  /** Порядок задаёт сам клиент: первым он ставит площадку, которой гордится
+   *  больше всего, — в карточке каталога активы показываются в этом порядке. */
+  function move(i: number, dir: -1 | 1) {
+    const list = [...(value || [])]
+    const j = i + dir
+    if (j < 0 || j >= list.length) return
+    ;[list[i], list[j]] = [list[j], list[i]]
+    onChange(list)
   }
 
   return (
@@ -55,6 +75,7 @@ export default function MediaAssetsField({ value, onChange }: Props) {
           (value || []).filter((_, k) => k !== i).map(a => a.platform)
         )
         const options = PLATFORMS.filter(p => !usedByOthers.has(p.slug))
+        const isAuto = !!PLATFORMS.find(p => p.slug === asset.platform)?.auto
         return (
           <div key={i} className="flex gap-2 items-center">
             <select
@@ -66,6 +87,16 @@ export default function MediaAssetsField({ value, onChange }: Props) {
                 <option key={p.slug} value={p.slug}>{p.label}</option>
               ))}
             </select>
+            {isAuto ? (
+              /* ⚠️ Цифру считает система — поля ввода нет. Показываем реальное
+                 число подписанных (без отписавшихся) целиком, а не в тысячах:
+                 «3 745» понятнее, чем «3.7к», и подчёркивает, что это точные
+                 данные, а не заявленная оценка. */
+              <div className="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                {(autoCounts[asset.platform] ?? 0).toLocaleString('ru')}
+                <span className="ml-2 text-xs text-gray-400">считает система</span>
+              </div>
+            ) : (
             <div className="flex-1 relative">
               <input
                 type="number"
@@ -88,6 +119,19 @@ export default function MediaAssetsField({ value, onChange }: Props) {
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none select-none">
                 к
               </span>
+            </div>
+            )}
+            <div className="flex flex-col">
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0}
+                      title="Выше"
+                      className="px-1.5 rounded-t-lg border border-gray-200 text-gray-400 hover:text-brand disabled:opacity-30">
+                <ChevronUp size={13} />
+              </button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === (value || []).length - 1}
+                      title="Ниже"
+                      className="px-1.5 rounded-b-lg border border-t-0 border-gray-200 text-gray-400 hover:text-brand disabled:opacity-30">
+                <ChevronDown size={13} />
+              </button>
             </div>
             <button
               type="button"
