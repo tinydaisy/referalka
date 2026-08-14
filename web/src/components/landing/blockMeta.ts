@@ -11,7 +11,7 @@
 
 export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
-  | 'numbers' | 'difference' | 'speakers' | 'organizer' | 'program'
+  | 'numbers' | 'difference' | 'process' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
   | 'product_content'
   | 'el_button' | 'el_heading' | 'el_text' | 'el_image'
