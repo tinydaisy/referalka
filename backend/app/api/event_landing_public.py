@@ -76,7 +76,8 @@ async def get_public_landing(
 
     event = await db.fetchrow(
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
-                  e.status, e.module_slug, e.seats_total, e.offer_url, e.offer_id,
+                  e.status, e.module_slug, e.is_collab,
+                  e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
                   e.seats_count_mode, e.seats_base, e.skip_contact_form,
                   (SELECT url FROM event_posters
@@ -443,6 +444,34 @@ async def get_public_landing(
             "name": owner["brand_name"] or owner["name"],
             "logo_url": owner["brand_logo_url"],
         })
+
+    # ⚠️ У КОЛЛАБЫ организаторов НЕСКОЛЬКО, и логотип в шапке должен быть у
+    # каждого. Раньше отдавался один (`ORDER BY eo.id LIMIT 1`) — общее
+    # событие выглядело как мероприятие того партнёра, чья строка в
+    # `event_owners` оказалась первой, а остальные со своей аудиторией
+    # приходили на страницу без единого своего знака.
+    if ev.get("is_collab"):
+        rows = await db.fetch(
+            """SELECT cl.id,
+                      COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS name,
+                      cl.brand_logo_url, cl.profile_photo_url
+                 FROM event_owners eo
+                 JOIN clients cl ON cl.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY eo.id""",
+            event["id"],
+        )
+        # Организатор без логотипа — норма (не все его загрузили): вместо
+        # картинки шапка покажет название бренда текстом.
+        data["organizers"] = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "logo_url": r["brand_logo_url"],
+                "photo_url": r["profile_photo_url"],
+            }
+            for r in rows
+        ]
 
     page_d = dict(page)
     # ⚠️ JSONB из asyncpg приходит СТРОКОЙ. Без разбора фронт получал

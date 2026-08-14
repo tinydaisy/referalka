@@ -50,6 +50,10 @@ type SpeakerListItem = {
 }
 
 type SpeakerMe = {
+  // Фамилия отдельным полем (миграция 302): по ней сортируются списки людей.
+  last_name?: string | null
+  // Как называть участника — словарь события (миграция 304).
+  person_wording?: string | null
   speaker_event_id: number
   collaborator_id: number
   event_id: number

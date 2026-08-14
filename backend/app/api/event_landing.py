@@ -319,24 +319,37 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
     # подставляется сам, клиенту не надо заново выставлять цвета под каждое
     # событие. Это именно копия-дефолт: дальше страница живёт своей жизнью,
     # правка темы задним числом уже созданные лендинги не трогает.
-    theme = await db.fetchrow(
-        """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient, cl.lp_bg_mode,
-                  cl.lp_font_heading, cl.lp_color_heading, cl.lp_heading_metallic,
-                  cl.lp_font_body, cl.lp_color_body, cl.lp_color_link, cl.lp_price_color,
-                  cl.lp_day_tab_color, cl.lp_day_tab_text_color,
-                  cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
-                  cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_border_color,
-                  cl.lp_btn_border_width, cl.lp_btn_border_metallic, cl.lp_btn_radius,
-                  cl.lp_border_color, cl.lp_border_metallic, cl.lp_border_style,
-                  cl.lp_card_bg, cl.lp_card_bg_opacity, cl.lp_card_text_color,
-                  cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius, cl.lp_body_size,
-                  cl.lp_content_width, cl.lp_pad_x, cl.lp_section_gap
-             FROM event_owners eo
-             JOIN clients cl ON cl.id = eo.client_id
-            WHERE eo.event_id = $1 AND eo.status = 'accepted'
-            ORDER BY eo.id LIMIT 1""",
-        event_id,
+    #
+    # ⚠️ У КОЛЛАБ-СОБЫТИЯ тему клиента НЕ берём — ставим стандартную
+    # (дефолты колонок из миграции 241, они же ниже по тексту COALESCE-ов).
+    # Организаторы коллабы равноправны, а запрос `ORDER BY eo.id LIMIT 1`
+    # молча отдавал оформление того, кто раньше попал в `event_owners`:
+    # лендинг общего события оказывался в фирменных цветах одного из
+    # партнёров, причём выбранного не человеком, а порядком строк в базе.
+    # Чей стиль взять — решает организатор кнопкой «Взять стиль организатора».
+    is_collab = await db.fetchval(
+        "SELECT is_collab FROM events WHERE id = $1", event_id
     )
+    theme = None
+    if not is_collab:
+        theme = await db.fetchrow(
+            """SELECT cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient, cl.lp_bg_mode,
+                      cl.lp_font_heading, cl.lp_color_heading, cl.lp_heading_metallic,
+                      cl.lp_font_body, cl.lp_color_body, cl.lp_color_link, cl.lp_price_color,
+                      cl.lp_day_tab_color, cl.lp_day_tab_text_color,
+                      cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_metallic,
+                      cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_border_color,
+                      cl.lp_btn_border_width, cl.lp_btn_border_metallic, cl.lp_btn_radius,
+                      cl.lp_border_color, cl.lp_border_metallic, cl.lp_border_style,
+                      cl.lp_card_bg, cl.lp_card_bg_opacity, cl.lp_card_text_color,
+                      cl.lp_icon_color, cl.lp_icon_metallic, cl.lp_radius, cl.lp_body_size,
+                      cl.lp_content_width, cl.lp_pad_x, cl.lp_section_gap
+                 FROM event_owners eo
+                 JOIN clients cl ON cl.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY eo.id LIMIT 1""",
+            event_id,
+        )
     t = dict(theme) if theme else {}
 
     async with db.transaction():
@@ -772,10 +785,88 @@ async def delete_block(
     return {"ok": True}
 
 
+async def _reset_page_theme(db, page_id: int):
+    """Вернуть странице СТАНДАРТНЫЙ стиль платформы.
+
+    Те же значения, что получает новая страница коллаб-события: фирменные
+    цвета проекта из миграции 241. Нужен, чтобы из чужой темы можно было
+    выйти — иначе применённое оформление партнёра снималось бы только
+    вручную, по одному полю из трёх десятков.
+    """
+    row = await db.fetchrow(
+        """UPDATE event_landing_pages SET
+             bg_color = '#25455D', bg_color_2 = '#0a1520',
+             bg_angle = 45, bg_gradient = TRUE, bg_mode = 'screen',
+             font_heading = 'BebasNeue', color_heading = '#FFCFA4',
+             heading_metallic = TRUE,
+             font_body = 'Roboto', color_body = '#FFFFFF',
+             color_link = '#FFCFA4',
+             price_color = NULL, day_tab_color = NULL, day_tab_text_color = NULL,
+             btn_color = '#FFCFA4', btn_text_color = '#0a1520', btn_metallic = TRUE,
+             btn_color_2 = NULL, btn_angle = 180,
+             btn_border_color = NULL, btn_border_width = 0,
+             btn_border_metallic = FALSE, btn_radius = NULL,
+             border_color = '#FFCFA4', border_metallic = TRUE, border_style = 'solid',
+             card_bg = '#0F1E2E', card_bg_opacity = 55, card_text_color = NULL,
+             icon_color = '#FFCFA4', icon_metallic = TRUE,
+             radius = 5, body_size = 16,
+             content_width = 1120, pad_x = 24, section_gap = 64,
+             style_customized = FALSE, updated_at = NOW()
+           WHERE id = $1
+           RETURNING *""",
+        page_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Страница не найдена")
+    return row
+
+
+@router.get("/theme-sources", summary="Чьи стили можно применить к странице")
+async def theme_sources(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Организаторы события — источники оформления для выпадающего списка.
+
+    У обычного события в списке один пункт (сам владелец), у коллабы — все
+    принявшие приглашение. Нужен, потому что у коллаб-события своей темы нет
+    (страница создаётся в стандартных цветах), и стиль выбирается явно.
+    """
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+
+    rows = await db.fetch(
+        """SELECT cl.id, COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS title,
+                  cl.name AS owner_name, cl.brand_logo_url,
+                  cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_color_heading, cl.lp_btn_color
+             FROM event_owners eo
+             JOIN clients cl ON cl.id = eo.client_id
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY eo.id""",
+        event_id,
+    )
+    return {
+        "sources": [dict(r) for r in rows],
+        # Стандартный стиль платформы — отдельным пунктом: к нему нужно
+        # уметь вернуться, если чужая тема не подошла.
+        "has_default": True,
+    }
+
+
+class ApplyThemeRequest(BaseModel):
+    # Чью тему брать. Пусто → свою (прежнее поведение кнопки).
+    source_client_id: Optional[int] = None
+    # TRUE → стандартный стиль платформы, а не чей-либо фирменный.
+    reset_to_default: bool = False
+
+
 @router.post("/pages/{page_id}/apply-theme", summary="Применить фирменную тему к странице")
 async def apply_theme(
     event_id: int,
     page_id: int,
+    data: Optional[ApplyThemeRequest] = None,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -785,11 +876,36 @@ async def apply_theme(
     чтобы правка темы не переоформляла задним числом уже собранные лендинги.
     Но клиент, настроив тему, ждёт, что увидит её на существующей странице,
     поэтому даём явную кнопку. Содержимое блоков не трогаем — только стиль.
+
+    ⚠️ У КОЛЛАБЫ источник выбирается явно (`source_client_id`) — тема любого
+    из организаторов либо стандартный стиль платформы (`reset_to_default`).
+    Без выбора берётся своя, как было у обычного события.
     """
     client_id = int(client["sub"])
     await _check_event_access(db, client_id, event_id)
     await _assert_feature(db, client_id)
     await _page_for_write(db, event_id, page_id)
+
+    req = data or ApplyThemeRequest()
+
+    if req.reset_to_default:
+        return _ser_page(await _reset_page_theme(db, page_id))
+
+    # Источник — либо явно выбранный организатор, либо сам клиент.
+    if req.source_client_id and req.source_client_id != client_id:
+        # ⚠️ Тему берём ТОЛЬКО у организатора ЭТОГО события: иначе, зная
+        # id, можно было бы утащить фирменное оформление чужого кабинета.
+        allowed = await db.fetchval(
+            "SELECT 1 FROM event_owners WHERE event_id = $1 AND client_id = $2 "
+            "AND status = 'accepted'",
+            event_id, req.source_client_id,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=404,
+                detail="Этот организатор не участвует в событии",
+            )
+        client_id = req.source_client_id
 
     row = await db.fetchrow(
         """UPDATE event_landing_pages p SET

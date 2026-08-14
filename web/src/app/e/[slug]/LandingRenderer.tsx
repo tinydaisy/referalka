@@ -477,6 +477,10 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
     ? withTrack(ctaHref)
     : `#lp-${page.nav_button_target}`
   const logo = content?.brand?.logo_url
+  // ⚠️ У КОЛЛАБЫ в шапке — знаки ВСЕХ организаторов, а не одного. Событие
+  // общее, аудитория приходит от каждого, и один логотип выдавал бы чужое
+  // мероприятие за своё. Бэкенд отдаёт `organizers` только у коллаб-события.
+  const organizers: any[] = Array.isArray(content?.organizers) ? content.organizers : []
 
   return (
     <header
@@ -488,14 +492,36 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
     >
       <div className="mx-auto flex items-center gap-4 px-4 py-3 sm:px-6"
            style={{ maxWidth: page.content_width || 1120 }}>
-        <a href="#top" className="shrink-0">
-          {logo
-            ? <img src={logo} alt="" className="h-9 w-auto object-contain" />
-            : <span className="font-bold uppercase tracking-wide"
-                    style={{ color: page.color_heading || '#FFCFA4' }}>
-                {content?.brand?.name || ''}
-              </span>}
-        </a>
+        {organizers.length > 1 ? (
+          /* Коллаба: знаки всех организаторов в ряд. На телефоне ряд
+             прокручивается — трём логотипам рядом с кнопкой места нет,
+             а ужимать их до нечитаемого размера хуже, чем скролл. */
+          <a href="#top"
+             className="flex min-w-0 shrink items-center gap-3 overflow-x-auto sm:gap-4">
+            {organizers.map((o: any, i: number) => (
+              o.logo_url ? (
+                <img key={o.id ?? i} src={o.logo_url} alt={o.name || ''}
+                     title={o.name || ''}
+                     className="h-8 w-auto shrink-0 object-contain sm:h-9" />
+              ) : (
+                <span key={o.id ?? i}
+                      className="shrink-0 whitespace-nowrap text-[.8em] font-bold uppercase tracking-wide sm:text-[.9em]"
+                      style={{ color: page.color_heading || '#FFCFA4' }}>
+                  {o.name || ''}
+                </span>
+              )
+            ))}
+          </a>
+        ) : (
+          <a href="#top" className="shrink-0">
+            {logo
+              ? <img src={logo} alt="" className="h-9 w-auto object-contain" />
+              : <span className="font-bold uppercase tracking-wide"
+                      style={{ color: page.color_heading || '#FFCFA4' }}>
+                  {content?.brand?.name || ''}
+                </span>}
+          </a>
+        )}
 
         {/* Пункты меню — ПО ЦЕНТРУ шапки, между логотипом и кнопкой.
             Цвет — основного текста страницы (у нас белый): на тёмной шапке
