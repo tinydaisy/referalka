@@ -939,6 +939,61 @@ function BlockBody({
         .filter((i: any) => i && (i.title || i.text || i.image))
       if (!list.length) return null
       const cols = Math.max(1, Math.min(6, block.columns || 2))
+
+      /* ⚠️ Режим «список» (`display_mode='list'`): ОДНА большая картинка
+         секции сверху и пункты списком под ней — так устроен исходный лендинг.
+         Сетка карточек с картинкой в каждой дробит внимание и мельчит
+         скриншоты: на них важны цифры, которые в маленькой карточке
+         нечитаемы. */
+      if (block.display_mode === 'list') {
+        return (
+          <div>
+            {block.image_url && (
+              <div className="mb-8 overflow-hidden rounded-2xl"
+                   style={{ border: `1px solid ${hexToRgba(iconColor, .25)}` }}>
+                <img src={block.image_url} alt="" loading="lazy" className="block w-full" />
+              </div>
+            )}
+            <div className="space-y-5">
+              {list.map((c: any, i: number) => (
+                <div key={i} className="flex items-start gap-4">
+                  {/* Номер — вместо галочки: пункты читаются как последовательность */}
+                  <span
+                    className="mt-0.5 flex shrink-0 items-center justify-center rounded-full font-bold"
+                    style={{
+                      width: 38, height: 38,
+                      border: `2px solid ${iconColor}`,
+                      color: iconColor,
+                      fontFamily: page.font_heading_css,
+                      fontSize: 20, lineHeight: 1,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold uppercase leading-snug"
+                         style={{ color: page.color_heading || '#FFCFA4' }}>
+                      {c.title}
+                    </div>
+                    {c.text && (
+                      <p className="mt-1.5 text-[.95em] leading-relaxed opacity-85">{c.text}</p>
+                    )}
+                    {/* Картинка пункта — во всю ширину под его текстом,
+                        чтобы цифры на скриншоте оставались читаемыми. */}
+                    {c.image && (
+                      <div className="mt-3 overflow-hidden rounded-xl"
+                           style={{ border: `1px solid ${hexToRgba(iconColor, .2)}` }}>
+                        <img src={c.image} alt="" loading="lazy" className="block w-full" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      }
+
       return (
         <div className={`lp-grid grid gap-5 ${glowCls}`}
              style={{ ['--lp-cols-lg' as any]: cols, ...glowVars }}>
@@ -964,13 +1019,45 @@ function BlockBody({
               )}
               <div className="flex flex-1 flex-col gap-2 p-5">
                 <div className="flex items-start gap-3">
-                  <svg viewBox="0 0 24 24" className="mt-1 shrink-0"
-                       width={Math.round((block.icon_size || 88) * 0.24)}
-                       height={Math.round((block.icon_size || 88) * 0.24)}
-                       fill="none" stroke={iconColor} strokeWidth="3"
-                       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
+                  {/* ⚠️ Маркер пункта настраивается блоком (`marker`): галочка
+                      (как было), НОМЕР по порядку или иконка из набора.
+                      Нумерация нужна, когда пункты — это шаги: галочки
+                      порядок не показывают. Значение по умолчанию — 'check',
+                      поэтому уже собранные лендинги не меняются. */}
+                  {(block.marker || 'check') === 'number' ? (
+                    <span
+                      className="mt-0.5 flex shrink-0 items-center justify-center rounded-full font-bold"
+                      style={{
+                        width: Math.round((block.icon_size || 88) * 0.34),
+                        height: Math.round((block.icon_size || 88) * 0.34),
+                        border: `2px solid ${iconColor}`,
+                        color: iconColor,
+                        fontSize: Math.round((block.icon_size || 88) * 0.19),
+                        fontFamily: page.font_heading_css,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                  ) : (block.marker === 'icon' && c.icon) ? (
+                    <div className="mt-0.5 shrink-0">
+                      <CardIcon
+                        iconKey={c.icon}
+                        color={iconColor}
+                        metallic={!!page.icon_metallic}
+                        size={Math.round((block.icon_size || 88) * 0.34)}
+                        id={`${block.id}-au-${i}`}
+                      />
+                    </div>
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="mt-1 shrink-0"
+                         width={Math.round((block.icon_size || 88) * 0.24)}
+                         height={Math.round((block.icon_size || 88) * 0.24)}
+                         fill="none" stroke={iconColor} strokeWidth="3"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
                   <span className="font-bold uppercase leading-snug"
                         style={{ color: page.color_heading || '#FFCFA4' }}>
                     {c.title}

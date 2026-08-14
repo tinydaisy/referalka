@@ -105,7 +105,7 @@ BLOCK_PATCH_FIELDS: tuple = (
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
-        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source",
+        "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source", "marker",
         "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
         "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
         "overline", "overline_size", "hero_align",
