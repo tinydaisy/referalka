@@ -16,6 +16,10 @@ from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.features import client_has_feature
+# ⚠️ Импорт НА УРОВНЕ МОДУЛЯ. Раньше он делался внутри функций, и в
+# каталоге его просто забыли — NameError глотался except, каталог молча
+# показывал подписчиков без каналов.
+from app.services.channel_audience import channel_audience
 import asyncpg
 import json
 import logging
@@ -298,7 +302,6 @@ async def get_my_card(client=Depends(get_current_client), db: asyncpg.Connection
     # Подписчиков каналов спрашиваем у самих площадок — это подтверждённая
     # цифра, в отличие от заявленных вручную активов. Сбой площадки даёт 0
     # по каналу и карточку не роняет.
-    from app.services.channel_audience import channel_audience
     ch = await channel_audience(db, int(client["sub"]), _parse_json(row.get("social_links"), {}))
     return {"card": _client_card(row, channel_counts=ch)}
 
@@ -477,7 +480,6 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
         raise HTTPException(404, "Организатор не найден")
     # Подписчики каналов — как и в своей карточке: иначе у человека с каналом
     # на 389 человек в профиле показывался только бот на 88.
-    from app.services.channel_audience import channel_audience
     prof_ch = await channel_audience(db, client_id, _parse_json(row.get("social_links"), {}))
     has_link = await db.fetchval(
         """SELECT 1 FROM hub_collab_requests
