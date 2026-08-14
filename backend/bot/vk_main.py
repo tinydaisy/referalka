@@ -330,6 +330,20 @@ async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
             db, client_id=ctx.client_id, platform="vk",
             platform_user_id=str(vk_user_id), referral_code=referral_code,
         )
+        # «Новый интерес» — РЕФОВОДУ, а не владельцу сообщества: партнёрская
+        # программа принадлежит тому, чей код в ссылке.
+        from app.services.plusson_referral_notify import (
+            notify_referrer_new_interest,
+        )
+        await notify_referrer_new_interest(
+            db,
+            referrer_client_id=referrer_client_id,
+            platform="vk",
+            user_id=vk_user_id,
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+        )
 
     hello = (first_name or "").strip()
     # Регистрация в САМОЙ платформе — всегда основной домен, не клиентский.

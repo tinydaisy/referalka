@@ -17,6 +17,9 @@ import RaffleTab  from './tabs/RaffleTab'
 import PostersTab from './tabs/PostersTab'
 import AnnouncementTrackerTab from './tabs/AnnouncementTrackerTab'
 import { CriteriaTab, AssignmentsTab, LeaderboardTab, JuryReviewTab, ReportsTab, TaskControlTab } from './tabs/ScoringTab'
+// Номинации/туры/этапы — создаются ЗДЕСЬ, а не на вкладке «Программа»:
+// при 70 номинациях вкладки в строку непригодны (премии).
+import NominationsTab from './tabs/NominationsTab'
 import ReportTab from './tabs/ReportTab'
 import DashboardView from '@/components/analytics/DashboardView'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
@@ -32,8 +35,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -131,6 +134,7 @@ export default function ConferencePage() {
     ...(isTournament ? [{
       key: 'tournament' as GroupKey, label: 'Турнир',
       tabs: [
+        { id: 'nominations' as Tab, label: 'Номинации/Туры/Этапы' },
         { id: 'criteria' as Tab, label: 'Критерии' },
         { id: 'assignments' as Tab, label: 'Распределение' },
         { id: 'jury_review' as Tab, label: 'Оценки жюри' },
@@ -293,6 +297,7 @@ export default function ConferencePage() {
       {tab === 'raffle'       && <RaffleTab />}
       {tab === 'posters'      && <PostersTab      eventId={eventId} moduleSlug={event?.module_slug} />}
       {tab === 'announcements' && <AnnouncementTrackerTab eventId={eventId} moduleSlug={event?.module_slug} />}
+      {tab === 'nominations'  && <NominationsTab eventId={eventId} />}
       {tab === 'criteria'     && <CriteriaTab eventId={eventId} />}
       {tab === 'assignments'  && <AssignmentsTab eventId={eventId} />}
       {tab === 'leaderboard'  && <LeaderboardTab eventId={eventId} />}

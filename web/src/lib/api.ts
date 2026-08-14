@@ -317,6 +317,21 @@ export const api = {
         request(`/api/v1/events/${eventId}/conference/stages/${stageId}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (eventId: number, stageId: number) =>
         request(`/api/v1/events/${eventId}/conference/stages/${stageId}`, { method: 'DELETE' }),
+      // Пакетное заведение номинаций (премия: их бывает 70 — по одной нереально).
+      bulkCreate: (eventId: number, titles: string[], categoryId?: number | null) =>
+        request(`/api/v1/events/${eventId}/conference/stages/bulk`, {
+          method: 'POST', body: JSON.stringify({ titles, category_id: categoryId ?? null }),
+        }),
+    },
+    // Категории номинаций/туров (миграция 303): «Медицина» → «Лучший хирург».
+    stageCategories: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/stage-categories`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/conference/stage-categories`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, categoryId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/conference/stage-categories/${categoryId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, categoryId: number) =>
+        request(`/api/v1/events/${eventId}/conference/stage-categories/${categoryId}`, { method: 'DELETE' }),
     },
     program: {
       public: (eventId: number) => request(`/api/v1/events/${eventId}/conference/program-public`),

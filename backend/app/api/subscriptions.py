@@ -614,60 +614,27 @@ async def _credit_referral_cashback(
         description=f"{percent}% от оплаты {tariff_name} клиентом «{payer['name']}»",
     )
 
-    # Уведомляем рефера в его TG (если настроен notifications_telegram_chat_id).
+    # Уведомляем рефовода: мессенджеры (TG + MAX + VK) + ПОЧТА.
+    # ⚠️ Раньше слалось только в TG и напрямую через TELEGRAM_BOT_TOKEN мимо
+    # общей notify_organizer_all_channels — MAX и VK не получали ничего, а в
+    # тексте не было ни суммы покупки, ни процента: рефовод видел «+199 ₽» и
+    # не мог проверить, правильно ли посчитано.
     try:
-        await _notify_referrer_about_cashback(
+        from app.services.plusson_referral_notify import (
+            notify_referrer_about_purchase,
+        )
+        await notify_referrer_about_purchase(
             db,
-            referrer_id=referrer_id,
-            cashback_kopecks=cashback,
+            referrer_client_id=referrer_id,
             payer_name=payer["name"],
-            tariff_name=tariff_name,
-            new_balance_kopecks=new_balance,
+            what_paid=f"тариф {tariff_name}",
+            amount_kopecks=amount_paid_card_kopecks,
+            percent=percent,
+            cashback_kopecks=cashback,
+            balance_kopecks=new_balance,
         )
     except Exception as e:
         logger.exception("Failed to notify referrer: %s", e)
-
-
-async def _notify_referrer_about_cashback(
-    db,
-    *,
-    referrer_id: int,
-    cashback_kopecks: int,
-    payer_name: str,
-    tariff_name: str,
-    new_balance_kopecks: int,
-):
-    row = await db.fetchrow(
-        "SELECT notifications_telegram_chat_id FROM clients WHERE id = $1",
-        referrer_id,
-    )
-    if not row or not row["notifications_telegram_chat_id"]:
-        return
-
-    text = (
-        f"🎉 <b>+{cashback_kopecks / 100:.0f}₽ на бонусный баланс</b>\n\n"
-        f"Ваш реферал «{payer_name}» оплатил тариф <b>{tariff_name}</b>.\n"
-        f"Ваш текущий баланс: <b>{new_balance_kopecks / 100:.0f}₽</b>\n\n"
-        f"Подробнее в /dashboard/referrals"
-    )
-
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        return
-
-    import httpx
-    async with httpx.AsyncClient(timeout=10) as client:
-        try:
-            await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={
-                    "chat_id": row["notifications_telegram_chat_id"],
-                    "text": text,
-                    "parse_mode": "HTML",
-                },
-            )
-        except Exception as e:
-            logger.warning("Telegram cashback notification failed: %s", e)
 
 
 async def _send_subscription_extended_notification(db, client_id: int, tariff_slug: str, days: int):

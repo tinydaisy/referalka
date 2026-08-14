@@ -1920,6 +1920,20 @@ async def _handle_max_plusson_ref(
                 conn, client_id=client_id, platform="max",
                 platform_user_id=str(user_id), referral_code=referral_code,
             )
+            # «Новый интерес» — РЕФОВОДУ, а не владельцу бота: партнёрская
+            # программа принадлежит тому, чей код в ссылке.
+            from app.services.plusson_referral_notify import (
+                notify_referrer_new_interest,
+            )
+            await notify_referrer_new_interest(
+                conn,
+                referrer_client_id=referrer_client_id,
+                platform="max",
+                user_id=user_id,
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+            )
 
     # Регистрация в САМОЙ платформе — всегда основной домен, не клиентский.
     register_url = f"{platform_base_url()}/register?pid={referral_code}"
