@@ -54,6 +54,43 @@ _EXT_BY_TYPE = {
 }
 
 
+def _r2_client():
+    """
+    Клиент R2 напрямую через boto3.
+
+    ⚠️ Намеренно НЕ импортируем app.services.r2_storage: он тянет app.config, а
+    тот — pydantic_settings и остальной стек бэкенда, которого на машине
+    разработчика может не быть. Инструмент разовый, ключ строим тем же
+    правилом, что build_key(kind='material_media').
+    """
+    import boto3
+    from botocore.client import Config as BotoConfig
+
+    acc = os.environ["CF_ACCOUNT_ID"]
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{acc}.r2.cloudflarestorage.com",
+        aws_access_key_id=os.environ["CF_R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["CF_R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+
+def _put(r2, client_id: int, data: bytes, ext: str, ctype: str) -> str:
+    """Кладёт файл в R2 по тому же пути, что kind='material_media'."""
+    import uuid
+
+    key = f"clients/{client_id}/materials/media/{uuid.uuid4().hex}.{ext}"
+    r2.put_object(
+        Bucket=os.environ["CF_R2_BUCKET_NAME"],
+        Key=key,
+        Body=data,
+        ContentType=ctype or "application/octet-stream",
+    )
+    return f"{os.environ['CF_R2_PUBLIC_URL'].rstrip('/')}/{key}"
+
+
 def collect_urls(data: list) -> list:
     """Все ссылки на файлы GetCourse в выгрузке (с местом, где они лежат)."""
     out = []
@@ -94,7 +131,7 @@ async def main() -> None:
     total_bytes = 0
 
     if not args.dry_run:
-        from app.services.r2_storage import build_key, upload_bytes
+        r2 = _r2_client()
 
     for i, (where, lesson, block, url) in enumerate(refs, 1):
         if url in seen_url:
@@ -125,9 +162,8 @@ async def main() -> None:
                 if args.dry_run:
                     by_hash[digest] = f"<r2>/{digest[:12]}.{ext}"
                 else:
-                    key = build_key(args.client_id, "material_media", ext)
-                    by_hash[digest] = await upload_bytes(
-                        key, content, ctype or "application/octet-stream")
+                    by_hash[digest] = _put(r2, args.client_id, content,
+                                           ext, ctype)
                 print(f"  [{i}/{len(refs)}] залито {len(content)//1024} КБ  "
                       f"{by_hash[digest][-40:]}")
 

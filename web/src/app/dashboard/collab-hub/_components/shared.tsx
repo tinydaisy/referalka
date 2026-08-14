@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import MediaAssetsField from '@/components/MediaAssetsField'
+import { MultiSelectDropdown } from '@/components/MultiSelectDropdown'
 import SafeHtml from '@/components/SafeHtml'
 import HtmlTextArea from '@/components/HtmlTextArea'
 
@@ -201,7 +202,12 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         <span className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: '#C77B3B' }}><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />ВАША КАРТОЧКА</span>
         {item.is_published_in_hub === false && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">не опубликована</span>}
       </div>}
-      <div className="flex items-start gap-3">
+      {/* ⚠️ ВЫСОТА ШАПКИ ФИКСИРОВАНА (h-32): имя + проект + позиционирование +
+          плашки занимают одинаковое место у ВСЕХ. Резерва по строкам не
+          хватало: у кого не заполнены ни проект, ни позиционирование, блок
+          схлопывался по высоте фото — плашки и разделительная линия
+          оказывались выше, чем у соседей, и ряд выглядел разъехавшимся. */}
+      <div className="flex items-start gap-3 h-32">
         {item.photo_url
           ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
@@ -394,15 +400,27 @@ export function CatalogView() {
   return (
     <div>
       <div className="flex flex-wrap gap-2 mb-4">
-        <select value={f.niche || ''} onChange={e => setF({ ...f, niche: e.target.value })} className="border rounded-xl px-3 py-2 text-sm">
-          <option value="">Все ниши</option>{niches.map(n => <option key={n.slug} value={n.slug}>{n.title}</option>)}
-        </select>
-        <select value={f.category || ''} onChange={e => setF({ ...f, category: e.target.value })} className="border rounded-xl px-3 py-2 text-sm">
-          <option value="">Все категории</option>{Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <select value={f.media_tier || ''} onChange={e => setF({ ...f, media_tier: e.target.value })} className="border rounded-xl px-3 py-2 text-sm">
-          <option value="">Любая медийность</option>{Object.entries(TIERS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        {/* ⚠️ Все фильтры — МНОЖЕСТВЕННЫЕ: партнёра ищут сразу в двух-трёх
+            нишах, а не по одной за раз. Значения уходят на бэк строкой через
+            запятую; там же выбранное «или-или» внутри одного фильтра. */}
+        <MultiSelectDropdown
+          label="Ниши" placeholder="Все ниши"
+          options={niches.map(n => ({ value: n.slug, label: n.title }))}
+          values={(f.niche || '').split(',').filter(Boolean)}
+          onChange={next => setF({ ...f, niche: next.join(',') })}
+        />
+        <MultiSelectDropdown
+          label="Категории" placeholder="Все категории"
+          options={Object.entries(CATEGORIES).map(([k, v]) => ({ value: k, label: v }))}
+          values={(f.category || '').split(',').filter(Boolean)}
+          onChange={next => setF({ ...f, category: next.join(',') })}
+        />
+        <MultiSelectDropdown
+          label="Медийность" placeholder="Любая медийность"
+          options={Object.entries(TIERS).map(([k, v]) => ({ value: k, label: v }))}
+          values={(f.media_tier || '').split(',').filter(Boolean)}
+          onChange={next => setF({ ...f, media_tier: next.join(',') })}
+        />
         <input value={f.q || ''} onChange={e => setF({ ...f, q: e.target.value })} placeholder="Поиск по имени…" className="border rounded-xl px-3 py-2 text-sm flex-1 min-w-[150px]" />
       </div>
       {loading ? <div className="text-gray-400 py-10 text-center">Загрузка…</div>

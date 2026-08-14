@@ -225,13 +225,24 @@ async def catalog(
 ):
     where = ["cl.is_published_in_hub=TRUE", "cl.id<>$1"]
     args: list = [int(client["sub"])]
-    if niche:
-        # Совпадение по ЛЮБОЙ из ниш человека, плюс старое одиночное поле —
-        # у кого массив ещё не заполнен, тот не должен пропасть из выдачи.
-        args.append(niche)
-        where.append(f"(${len(args)} = ANY(cl.hub_niches) OR cl.hub_niche=${len(args)})")
-    if category:
-        args.append(category); where.append(f"cl.hub_category=${len(args)}")
+
+    def _many(v):
+        """«a,b,c» → ['a','b','c']. Фильтры принимают НЕСКОЛЬКО значений:
+        партнёра ищут сразу в двух-трёх нишах, а не по одной за раз.
+        Одиночное значение продолжает работать — это тот же список из одного."""
+        return [x.strip() for x in (v or '').split(',') if x.strip()]
+
+    niches_f = _many(niche)
+    if niches_f:
+        # Совпадение по ЛЮБОЙ из ниш человека и по любой из выбранных, плюс
+        # старое одиночное поле — у кого массив ещё не заполнен, тот не должен
+        # пропасть из выдачи.
+        args.append(niches_f)
+        where.append(f"(cl.hub_niches && ${len(args)}::text[] OR cl.hub_niche = ANY(${len(args)}::text[]))")
+    tiers_f = _many(media_tier)
+    cats_f = _many(category)
+    if cats_f:
+        args.append(cats_f); where.append(f"cl.hub_category = ANY(${len(args)}::text[])")
     if city:
         args.append(f"%{city}%"); where.append(f"cl.hub_city ILIKE ${len(args)}")
     if q:
@@ -260,7 +271,10 @@ async def catalog(
         card['collabs_count'] = r['collabs_count']
         card['win_win'] = float(r['win_win']) if r['win_win'] is not None else None
         card['avg_rating'] = r['avg_rating']
-        if media_tier and card['media_tier'] != media_tier:
+        # Медийность фильтруется здесь, а не в запросе: градация считается
+        # из суммы подписчиков уже после выборки. Значений может быть
+        # несколько — как и у остальных фильтров каталога.
+        if tiers_f and card['media_tier'] not in tiers_f:
             continue
         out.append(card)
     # Моя собственная карточка — показывается ВВЕРХУ списка, подсвеченная (даже если не опубликована — видна только мне)

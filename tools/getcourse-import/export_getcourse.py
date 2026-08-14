@@ -49,14 +49,29 @@ from getcourse_client import (
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES_DIR = os.path.join(HERE, "files")
 
-# Хранилище файлов GetCourse. Картинка блока лежит по хешу.
-FS_BASE = "https://fs.getcourse.ru/fileservice/file/download/a"
+# Готовые ссылки на файлы в HTML урока: в адресе есть номер аккаунта и sc.
+_FS_URL_RE = re.compile(
+    r"https://fs[-a-z0-9]*\.getcourse\.ru/fileservice/file/"
+    r"(?:download|thumbnail)/[^\s\"'<>]+"
+)
 
 
-def _img_url(image: dict) -> str:
-    """Ссылка на картинку блока. В params.image лежит {hash, fileName}."""
-    h = (image or {}).get("hash") or ""
-    return f"{FS_BASE}/{h}" if h else ""
+def _img_url(image: dict, html_urls: list = None) -> str:
+    """
+    Ссылка на картинку блока.
+
+    ⚠️ Собрать адрес из params.image НЕЛЬЗЯ. В JSON лежит {hash, fileName}, но
+    хеш там ДРУГОЙ, чем в рабочей ссылке (87e8… в JSON против dee3… в HTML), а
+    сам адрес требует номера аккаунта и параметра sc:
+        /fileservice/file/download/a/904149/sc/141/h/<хеш>.png
+    Наивно склеенный /download/a/<хеш> отвечает 500 — на этом тихо ломалась
+    перезаливка (37 файлов из 44 не скачались).
+
+    Поэтому адреса берём из самой страницы, по порядку появления.
+    """
+    if html_urls:
+        return html_urls.pop(0)
+    return ""
 
 
 # Текст-рыба, которой GetCourse заполняет только что созданный блок. Клиент её
@@ -95,7 +110,7 @@ def _is_placeholder(html: str) -> bool:
     return any(m in plain for m in _PLACEHOLDER_MARKERS)
 
 
-def _walk_parts(parts: dict, out: list) -> None:
+def _walk_parts(parts: dict, out: list, html_urls: list = None) -> None:
     """
     Разбор контейнерных блоков (onecolumn-common и подобных): внутри лежит
     items.parts со вложенными кусочками — текстом, картинками, кнопками.
@@ -112,7 +127,7 @@ def _walk_parts(parts: dict, out: list) -> None:
                 out.append({"kind": "text", "body": body})
 
         elif ptype == "image":
-            url = _img_url(inner.get("image") or {})
+            url = _img_url(inner.get("image") or {}, html_urls)
             if url:
                 out.append({"kind": "image", "url": url})
 
@@ -131,11 +146,17 @@ def _walk_parts(parts: dict, out: list) -> None:
         # Вложенные контейнеры внутри контейнера.
         nested = (part.get("items") or {}).get("parts")
         if nested:
-            _walk_parts(nested, out)
+            _walk_parts(nested, out, html_urls)
 
 
-def parse_blocks(raw: dict) -> list:
-    """Блоки урока GetCourse → список блоков в формате material_blocks."""
+def parse_blocks(raw: dict, html: str = "") -> list:
+    """
+    Блоки урока НОВОГО формата → список блоков в формате material_blocks.
+
+    ⚠️ html нужен для картинок и файлов: рабочие ссылки на них берутся оттуда,
+    из JSON их не собрать (см. _img_url).
+    """
+    html_urls = _FS_URL_RE.findall(html or "")
     out = []
     # Ключи словаря — строковые номера ("1", "2", …), важен порядок.
     for key in sorted(raw.keys(), key=lambda k: int(k) if str(k).isdigit() else 0):
@@ -151,7 +172,7 @@ def parse_blocks(raw: dict) -> list:
                 out.append({"kind": "text", "body": body})
 
         elif btype == "lesson-image" or btype.endswith("-image"):
-            url = _img_url(params.get("image") or {})
+            url = _img_url(params.get("image") or {}, html_urls)
             if url:
                 out.append({"kind": "image", "url": url})
 
@@ -162,24 +183,21 @@ def parse_blocks(raw: dict) -> list:
 
         elif "file" in btype or "attach" in btype:
             f = params.get("file") or {}
-            h = f.get("hash") or ""
-            if h:
-                out.append({
-                    "kind": "file",
-                    "url": f"{FS_BASE}/{h}",
-                    "title": f.get("fileName") or "Файл",
-                })
+            url = _img_url(f, html_urls)
+            if url:
+                out.append({"kind": "file", "url": url,
+                            "title": f.get("fileName") or "Файл"})
 
         elif "audio" in btype:
             a = params.get("audio") or params.get("file") or {}
-            h = a.get("hash") or ""
-            if h:
-                out.append({"kind": "audio", "url": f"{FS_BASE}/{h}"})
+            url = _img_url(a, html_urls)
+            if url:
+                out.append({"kind": "audio", "url": url})
 
         # Контейнеры: содержимое лежит в items.parts.
         parts = (params.get("items") or block.get("items") or {}).get("parts")
         if parts:
-            _walk_parts(parts, out)
+            _walk_parts(parts, out, html_urls)
 
     return out
 
@@ -307,7 +325,7 @@ def main() -> None:
             # Новый движок: содержимое одним JSON в HTML. Старый: готовая
             # разметка без JSON — тогда идём во вторую ветку.
             raw = json_object_after(html, "blocks") or {}
-            blocks = parse_blocks(raw) if raw else parse_blocks_html(html)
+            blocks = parse_blocks(raw, html) if raw else parse_blocks_html(html)
 
             # ⚠️ Картинка первым блоком — это баннер-шапка тренинга, а не
             # содержимое урока: в выгружаемом аккаунте на 44 картинки пришлось
