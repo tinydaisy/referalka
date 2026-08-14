@@ -7,12 +7,19 @@
 
   1. `notify_referrer_new_interest` — «новый интерес»: человек ТОЛЬКО зашёл в
      бота по реф-ссылке ПЛЮСОНа. Он ещё не клиент — не зарегистрировался, ничего
-     не купил. Уходит в каналы уведомлений рефовода (TG + MAX + VK).
+     не купил.
 
-  2. `notify_referrer_about_purchase` — приведённый КУПИЛ подписку. Уходит в
-     каналы уведомлений (kind='payments' — у оплат может быть свой канал) И
-     письмом на почту рефовода: оплата — событие с деньгами, его нельзя терять
-     среди сообщений в мессенджере.
+  2. `notify_referrer_about_purchase` — приведённый КУПИЛ. Плюс письмом на почту:
+     оплата — событие с деньгами, его нельзя терять среди сообщений в мессенджере.
+
+  3. `notify_founder_new_client` — ОСНОВАТЕЛЮ ПЛЮСОНа о КАЖДОЙ регистрации
+     нового клиента платформы, в том числе пришедшего без чьей-либо ссылки.
+
+⚠️ ВСЁ уходит В ЛИЧКУ от @pluson_bot — бота самой платформы. Каналы уведомлений
+клиента НЕ используются, и бот клиента (@ivision_conf_bot и подобные) — тоже:
+они про события клиента, а реф-программа ПЛЮСОНа — разговор платформы со своим
+клиентом. Плюс канал надо заводить руками и добавлять туда бота, а реф-программа
+обязана работать у каждого сразу.
 
 ⚠️ Обе функции НИКОГДА не бросают исключение. Уведомление — вспомогательный
 шаг: сорванная отправка не должна ронять ни обработку /start, ни — тем более —
@@ -86,41 +93,54 @@ async def _send_via_plusson_bot(db, chat_id, text_html: str) -> bool:
     return False
 
 
+async def _client_telegram_id(db, client_id: int) -> str | None:
+    """TG-id САМОГО клиента ПЛЮСОНа — чтобы написать ему в личку.
+
+    Клиент ПЛЮСОНа живёт в базах разных клиентов обычным контактом; ищем его
+    идентичность по нику из `clients.telegram_username`. Берём ЧИСЛОВОЙ id —
+    псевдо-запись `@ник` (человек ещё не заходил в бота) для отправки не годится.
+    """
+    uname = await db.fetchval(
+        "SELECT lower(replace(coalesce(telegram_username, work_tg_username, ''),'@','')) "
+        "FROM clients WHERE id = $1", client_id
+    )
+    if not uname:
+        return None
+    return await db.fetchval(
+        """SELECT platform_user_id FROM platform_users
+            WHERE platform_slug = 'telegram'
+              AND lower(replace(coalesce(username,''),'@','')) = $1
+              AND platform_user_id ~ '^[0-9]+$'
+            ORDER BY id LIMIT 1""",
+        uname,
+    )
+
+
 async def _notify_referrer(db, referrer_client_id: int, text_html: str,
                            *, kind: str = "general") -> dict:
-    """Уведомление рефоводу: сперва @pluson_bot в TG, затем MAX и VK.
+    """Уведомление клиенту ПЛЮСОНа — В ЛИЧКУ от @pluson_bot.
 
-    TG шлём сами (нужен именно бот ПЛЮСОНа), MAX/VK отдаём общей функции —
-    там своих ботов у платформы нет, идут каналы клиента.
+    ⚠️ Это уведомление САМОЙ ПЛАТФОРМЫ своему клиенту, а не уведомление
+    организатора по его событию. Поэтому оно НЕ идёт через каналы уведомлений
+    клиента (`notifications_telegram_chat_id`): тот канал клиент заводит сам и
+    сам добавляет туда бота — проверка показала, что @pluson_bot в канал
+    клиента 1 не добавлен и отправка падала `chat not found`. Реф-программа
+    обязана работать у КАЖДОГО клиента сразу, без настройки.
+
+    ⚠️ Бот клиента (у Марго это @ivision_conf_bot) здесь НЕ участвует вовсе:
+    он про события клиента, а не про платформу. Реф-программа ПЛЮСОНа — это
+    разговор платформы со своим клиентом, и ведёт его бот платформы.
     """
-    from app.services.channels import notify_organizer_all_channels
-
     result = {"tg": False, "max": False, "vk": False}
 
-    # ── Telegram: строго @pluson_bot ──
-    col = ("payments_telegram_chat_id" if kind == "payments"
-           else "notifications_telegram_chat_id")
-    row = await db.fetchrow(
-        f"SELECT {col} AS chat, notifications_telegram_chat_id AS fallback "
-        f"FROM clients WHERE id = $1", referrer_client_id
-    )
-    if row:
-        # Отдельный канал оплат не задан → общий, чтобы уведомление не пропало.
-        result["tg"] = await _send_via_plusson_bot(
-            db, row["chat"] or row["fallback"], text_html
+    tg_id = await _client_telegram_id(db, referrer_client_id)
+    if tg_id:
+        result["tg"] = await _send_via_plusson_bot(db, tg_id, text_html)
+    else:
+        log.warning(
+            "referral notify: у клиента %s нет числового TG-id — "
+            "уведомление по реф-программе не отправлено", referrer_client_id,
         )
-
-    # ── MAX + VK ── общей функцией; её TG-ветку гасим, чтобы не было дубля
-    # от VIP-бота клиента (у Марго это @ivision_conf_bot).
-    try:
-        res = await notify_organizer_all_channels(
-            referrer_client_id, text_html, db, kind=kind, skip_telegram=True
-        )
-        result["max"] = bool(res.get("max"))
-        result["vk"] = bool(res.get("vk"))
-    except Exception as e:  # noqa: BLE001
-        log.warning("notify referrer (max/vk) failed: %s", e)
-
     return result
 
 
@@ -152,7 +172,6 @@ async def notify_referrer_new_interest(
     равно можно в один клик.
     """
     try:
-        from app.services.channels import notify_organizer_all_channels
         from app.services.profile_links import nick_html, link_html
 
         name = " ".join(p for p in [(first_name or "").strip(),
