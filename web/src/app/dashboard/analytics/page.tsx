@@ -322,6 +322,7 @@ function PlatformsBlock() {
   useEffect(() => { api.analytics.platforms().then(setData).catch(() => {}) }, [])
 
   const rows: any[] = data?.platforms || []
+  const groups: any[] = data?.groups || []
   if (!rows.length) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">
@@ -365,21 +366,36 @@ function PlatformsBlock() {
 
       {view === 'chart' ? (
         <>
-          {/* Одна полоса на всю ширину: сразу видно, какая площадка даёт
-              основную долю, без сравнения столбиков между собой. */}
+          {/* ⚠️ Полоса и легенда — ПО ПЛОЩАДКАМ (Telegram = бот + канал):
+              «сколько у меня в телеграме» это один вопрос, а раздельные строки
+              заставляли складывать в уме. Детализация — ниже, отдельным
+              блоком. */}
           <div className="mb-3 flex h-4 overflow-hidden rounded-full">
-            {rows.map((p, i) => (
-              <div key={p.slug} style={{ width: `${pct(p.subscribed)}%`, background: COLORS[i % COLORS.length] }}
-                   title={`${p.title}: ${p.subscribed.toLocaleString('ru')}`} />
+            {groups.map((g, i) => (
+              <div key={g.title} style={{ width: `${pct(g.subscribed)}%`, background: COLORS[i % COLORS.length] }}
+                   title={`${g.title}: ${g.subscribed.toLocaleString('ru')}`} />
             ))}
           </div>
           <div className="space-y-2">
-            {rows.map((p, i) => (
-              <div key={p.slug} className="flex items-center gap-2 text-sm">
-                <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
-                <span className="flex-1 text-gray-700">{p.title}</span>
-                <span className="font-medium" style={{ color: DARK }}>{p.subscribed.toLocaleString('ru')}</span>
-                <span className="w-12 text-right text-gray-400">{pct(p.subscribed)}%</span>
+            {groups.map((g, i) => (
+              <div key={g.title}>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
+                  <span className="flex-1 font-medium text-gray-800">{g.title}</span>
+                  <span className="font-semibold" style={{ color: DARK }}>{g.subscribed.toLocaleString('ru')}</span>
+                  <span className="w-12 text-right text-gray-400">{pct(g.subscribed)}%</span>
+                </div>
+                {/* Из чего сложилось — чтобы цифра не была «чёрным ящиком». */}
+                {g.parts?.length > 1 && (
+                  <div className="ml-5 mt-0.5 space-y-0.5">
+                    {g.parts.map((pt: any) => (
+                      <div key={pt.title} className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="flex-1">{pt.title}</span>
+                        <span>{pt.subscribed.toLocaleString('ru')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

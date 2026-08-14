@@ -203,4 +203,28 @@ async def platforms_summary(client=Depends(get_current_client), db=Depends(get_d
     # По убыванию: сверху то, где аудитории больше — иначе каналы всегда
     # оказывались первыми просто потому, что добавлены раньше.
     platforms.sort(key=lambda p: -p["subscribed"])
-    return {"platforms": platforms, "unique_total": unique_total}
+
+    # ⚠️ Свод ПО ПЛОЩАДКАМ — то, что нужно в первую очередь: «сколько у меня
+    # в Telegram» это бот + канал вместе. Раздельные строки заставляют
+    # складывать в уме. Детализация остаётся ниже, в `platforms`.
+    GROUPS = [
+        ("Telegram",  ("telegram", "plusson_tg_ch")),
+        ("MAX",       ("max", "plusson_max_ch")),
+        ("ВКонтакте", ("vk", "plusson_vk_ch")),
+        ("Email",     ("email",)),
+    ]
+    by_slug = {p["slug"]: p for p in platforms}
+    groups = []
+    for title, slugs in GROUPS:
+        n = sum(by_slug.get(sl, {}).get("subscribed", 0) for sl in slugs)
+        if n > 0:
+            groups.append({
+                "title": title,
+                "subscribed": n,
+                # Из чего сложилось — чтобы цифра не была «чёрным ящиком».
+                "parts": [{"title": by_slug[sl]["title"], "subscribed": by_slug[sl]["subscribed"]}
+                          for sl in slugs if by_slug.get(sl, {}).get("subscribed", 0) > 0],
+            })
+    groups.sort(key=lambda g: -g["subscribed"])
+
+    return {"groups": groups, "platforms": platforms, "unique_total": unique_total}

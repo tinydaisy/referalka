@@ -74,6 +74,18 @@ def _img_url(image: dict, html_urls: list = None) -> str:
     return ""
 
 
+# Замены для видео, залитых файлом в сам GetCourse (см. hosted_videos.json).
+# Ключ — имя файла: одна запись бывает вставлена в несколько уроков.
+try:
+    with open(os.path.join(HERE, "hosted_videos.json"), encoding="utf-8") as _f:
+        _HOSTED = (json.load(_f) or {}).get("videos") or {}
+except FileNotFoundError:
+    _HOSTED = {}
+# Файлы, для которых ссылки ещё нет — печатаем в конце, чтобы потеря видео не
+# прошла молча.
+_HOSTED_MISSING: set = set()
+
+
 # Текст-рыба, которой GetCourse заполняет только что созданный блок. Клиент её
 # не писал, переносить в ПЛЮСОН нечего — узнаём по характерному началу.
 _PLACEHOLDER_MARKERS = (
@@ -188,6 +200,18 @@ def parse_blocks(raw: dict, html: str = "") -> list:
             link = ((params.get("source") or {}).get("src_video_link")) or ""
             if link:
                 out.append({"kind": "video", "url": link})
+            else:
+                # ⚠️ Видео, залитое ФАЙЛОМ в сам GetCourse (video-hosting):
+                # ссылки нет, есть имя файла в config.file. Скачать нельзя —
+                # отдаётся через защищённый плеер. Ссылку на ту же запись на
+                # внешней площадке владелец кладёт в hosted_videos.json.
+                fname = (params.get("config") or {}).get("file") or ""
+                if fname:
+                    ext = _HOSTED.get(fname) or {}
+                    if ext.get("url"):
+                        out.append({"kind": "video", "url": ext["url"]})
+                    else:
+                        _HOSTED_MISSING.add(fname)
 
         elif "file" in btype or "attach" in btype:
             f = params.get("file") or {}
@@ -410,6 +434,13 @@ def main() -> None:
           f"разделов {len(result) - roots}) | уроков: {total_lessons} | "
           f"блоков: {total_blocks}")
     print(f"Сохранено: {args.out}")
+
+    if _HOSTED_MISSING:
+        print("\n⚠️ Видео залито в сам GetCourse, ссылки на замену нет "
+              "— эти уроки выгружены БЕЗ видео:")
+        for fname in sorted(_HOSTED_MISSING):
+            print(f"   {fname}")
+        print("   Добавьте ссылку в hosted_videos.json и запустите снова.")
 
 
 if __name__ == "__main__":
