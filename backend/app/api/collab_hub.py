@@ -164,10 +164,15 @@ _CLIENT_COLS = """id, name, brand_name, owner_photo_url, profile_photo_url, bio,
     -- часто есть сразу в нескольких. Считаем на лету: денормализованное
     -- число разъезжалось бы с правдой при каждой отписке.
     -- Отписавшиеся не в счёт — партнёру важны те, до кого рассылка дойдёт.
+    -- ⚠️ Ссылка на внешнюю таблицу — ТОЛЬКО через алиас cl. Голое `id` внутри
+    -- подзапроса Postgres разрешает в столбец platform_users, и условие
+    -- превращается в «pu.client_id = pu.id»: совпадений нет, база всегда 0.
+    -- Поэтому clients ВЕЗДЕ выбирается как `clients cl` — и в каталоге, и при
+    -- запросе одной карточки.
     (SELECT jsonb_object_agg(t.slug, t.cnt) FROM (
         SELECT pu.platform_slug AS slug, count(DISTINCT pu.contact_id) AS cnt
           FROM platform_users pu
-         WHERE pu.client_id = id   -- без имени таблицы: в каталоге алиас cl
+         WHERE pu.client_id = cl.id
            AND NOT EXISTS (SELECT 1 FROM platform_user_channels puc
                             WHERE puc.platform_user_id = pu.id AND puc.is_unsubscribed)
          GROUP BY pu.platform_slug
@@ -203,7 +208,7 @@ class HubCardIn(BaseModel):
 @router.get("/me/card")
 async def get_my_card(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     """Моя карточка организатора — данные из профиля (clients). Редактируется фото/регалии в настройках Mini App."""
-    row = await db.fetchrow(f"SELECT {_CLIENT_COLS} FROM clients WHERE id=$1", int(client["sub"]))
+    row = await db.fetchrow(f"SELECT {_CLIENT_COLS} FROM clients cl WHERE cl.id=$1", int(client["sub"]))
     if not row:
         raise HTTPException(404, "Клиент не найден")
     return {"card": _client_card(row)}
@@ -329,7 +334,7 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
     Виден если опубликован ИЛИ между нами есть запрос на коллаборацию."""
     me = int(client["sub"])
     row = await db.fetchrow(
-        f"SELECT {_CLIENT_COLS}, telegram_username FROM clients WHERE id=$1", client_id)
+        f"SELECT {_CLIENT_COLS}, cl.telegram_username FROM clients cl WHERE cl.id=$1", client_id)
     if not row:
         raise HTTPException(404, "Организатор не найден")
     has_link = await db.fetchval(
