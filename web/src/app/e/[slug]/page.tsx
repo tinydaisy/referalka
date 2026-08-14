@@ -9,19 +9,24 @@
  * — только загрузка и передача в рендер.
  *
  * Черновик (`is_published = FALSE`) бэк отдаёт 404 → показываем «не найдено».
+ * Исключение — `?preview=<токен>`: подписанная ссылка владельца из кабинета.
+ * ⚠️ Токен идёт ПАРАМЕТРОМ АДРЕСА: страница рендерится на сервере, заголовка
+ * `Authorization` из браузера у неё нет.
  */
 import type { Metadata } from 'next'
 import LandingRenderer from './LandingRenderer'
+import PreviewBar from '@/components/PreviewBar'
 
 export const dynamic = 'force-dynamic'   // цены и «осталось мест» должны быть свежими
 
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8000'
 
-async function getLanding(slug: string, kind: 'main' | 'post_pay') {
+async function getLanding(slug: string, kind: 'main' | 'post_pay', preview?: string) {
   try {
+    const qs = preview ? `&preview=${encodeURIComponent(preview)}` : ''
     const res = await fetch(
-      `${apiBase}/api/v1/public/event-landing/${encodeURIComponent(slug)}?kind=${kind}`,
+      `${apiBase}/api/v1/public/event-landing/${encodeURIComponent(slug)}?kind=${kind}${qs}`,
       { cache: 'no-store' },
     )
     if (!res.ok) return null
@@ -51,10 +56,11 @@ export async function generateMetadata(
 export default async function EventLandingPage(
   { params, searchParams }: {
     params: { slug: string }
-    searchParams: { pid?: string; c?: string; utm_source?: string }
+    searchParams: { pid?: string; c?: string; utm_source?: string; preview?: string }
   },
 ) {
-  const data = await getLanding(params.slug, 'main')
+  const preview = searchParams?.preview
+  const data = await getLanding(params.slug, 'main', preview)
 
   if (!data) {
     return (
@@ -75,6 +81,7 @@ export default async function EventLandingPage(
           подтягиваются с Google, чтобы не мигали и не резались у части
           пользователей в РФ. */}
       <link rel="stylesheet" href="/fonts/landing-fonts.css" />
+      {preview && <PreviewBar />}
       <LandingRenderer data={data} slug={params.slug}
                        pid={searchParams.pid || null}
                        contactId={searchParams.c || null}

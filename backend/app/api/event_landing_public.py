@@ -12,9 +12,10 @@
 обновилось само, повторно «пересобирать» лендинг не нужно.
 
 Черновик (`is_published = FALSE`) публично не отдаём — 404. Исключение:
-`?preview=1` с валидным JWT владельца обслуживается кабинетом, здесь не
-делается (превью в кабинете открывает ту же страницу с draft-токеном — см.
-`preview_token`).
+`?preview=<токен>` — подписанная ссылка владельца ([preview_token.py]).
+Токен идёт ПАРАМЕТРОМ АДРЕСА, а не заголовком: страница `/e/{slug}`
+рендерится на сервере Next.js, и заголовка `Authorization` из браузера у
+него нет — прежняя проверка по заголовку не срабатывала никогда.
 """
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from typing import Optional
@@ -24,6 +25,7 @@ import asyncpg
 from app.database import get_db
 from app.services.landing_fonts import font_family_css, normalize_font
 from app.services.collaborator_sort import order_by_sql
+from app.services.preview_token import preview_client_id
 
 router = APIRouter(prefix="/api/v1/public/event-landing", tags=["Лендинг события (публично)"])
 
@@ -65,6 +67,7 @@ async def get_public_landing(
     slug: str,
     response: Response,
     kind: str = Query("main", pattern="^(main|post_pay)$"),
+    preview: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     _set_cors(response)
@@ -108,7 +111,23 @@ async def get_public_landing(
         "SELECT * FROM event_landing_pages WHERE event_id = $1 AND kind = $2",
         event["id"], kind,
     )
-    if not page or not page["is_published"]:
+    # ⚠️ Неопубликованный лендинг открыт ВЛАДЕЛЬЦУ по ссылке-предпросмотру:
+    # собрать страницу вслепую нельзя, а обычный вход в кабинете сюда токен
+    # не донесёт — страница `/e/{slug}` рендерится на сервере, заголовка
+    # `Authorization` у него нет. Поэтому токен идёт параметром адреса.
+    #
+    # ⚠️ Владелец события — `event_owners (status='accepted')`: у `events`
+    # своего `client_id` нет (правило проекта, у коллаб-события владельцев
+    # несколько, и каждый вправе смотреть черновик).
+    owner = False
+    cid = preview_client_id(preview)
+    if cid is not None:
+        owner = bool(await db.fetchval(
+            "SELECT 1 FROM event_owners WHERE event_id = $1 AND client_id = $2 "
+            "AND status = 'accepted'",
+            event["id"], cid,
+        ))
+    if not page or (not page["is_published"] and not owner):
         raise HTTPException(status_code=404, detail="Лендинг не опубликован")
 
     blocks = await db.fetch(

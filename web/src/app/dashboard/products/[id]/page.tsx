@@ -276,17 +276,17 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
             <ExternalLink size={16} />
           </a>
         </div>
-        {/* ⚠️ У черновика страница отвечает «Страница не найдена» — со стороны
-            это выглядит как сломанная ссылка. Пишем причину прямо здесь, иначе
-            человек ищет ошибку в адресе. */}
-        {product.status !== 'published' && (
-          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Продукт в черновике — по этой ссылке посетители видят «Страница не найдена».
-            Нажмите «Опубликовать» вверху, чтобы страница открылась.
-          </p>
-        )}
         <p className="mt-1 text-xs text-gray-400">
           Латиница, цифры и дефис. Меняете адрес — старые ссылки перестанут работать.
+        </p>
+        {/* ⚠️ Ссылка на продукт работает СРАЗУ, до всякой публикации: внешнего
+            каталога продуктов нет, и «опубликовать» тут ничего не открывает —
+            страницу рассылают ссылкой. Статус оставлен на будущее (появится
+            каталог — он и будет решать, показывать ли карточку). */}
+        <p className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          Ссылка работает сразу — её можно отправлять, не дожидаясь публикации.
+          Статус нужен на будущее: когда появится общий каталог продуктов, в нём
+          покажутся только опубликованные.
         </p>
       </div>
 
@@ -1269,21 +1269,175 @@ function PickMaterialModal({ productId, sectionId, onClose, onAdded }: {
   )
 }
 
+/* ────────────────────── Выдача доступа вручную ──────────────────────────── */
+
+/**
+ * Открыть доступ без заказа и без денег: подарок, бартер, перенос учеников
+ * из GetCourse.
+ *
+ * ⚠️ Доступ выдаётся КОНТАКТУ из базы кабинета, а не «по email в никуда»:
+ * кабинет ученика опознаёт человека по его контакту, и запись в воздухе
+ * открыть было бы нечему. Поэтому здесь поиск по существующим контактам —
+ * нового человека сначала заводят в разделе «Контакты».
+ *
+ * ⚠️ Тариф не обязателен: он решает, какие материалы видны (min_tariff_id у
+ * связки). Без тарифа человек видит всё, что открыто на любом.
+ */
+function GrantAccessForm({
+  productId, tariffs, onClose, onDone,
+}: {
+  productId: number
+  tariffs: any[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [found, setFound] = useState<any[]>([])
+  const [picked, setPicked] = useState<any>(null)
+  const [tariffId, setTariffId] = useState<string>('')
+  const [searching, setSearching] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Ищем по мере ввода, но не на каждую букву — иначе на каждый символ
+  // уходит запрос по всей базе контактов.
+  useEffect(() => {
+    if (q.trim().length < 2) { setFound([]); return }
+    const t = setTimeout(async () => {
+      setSearching(true)
+      try {
+        // ⚠️ Список контактов приходит в `items`, не в `contacts`.
+        const r = await api.contacts.list(q.trim(), 10, 0)
+        setFound(r.items || [])
+      } finally { setSearching(false) }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [q])
+
+  const grant = async () => {
+    if (!picked) return
+    setSaving(true)
+    try {
+      await api.products.grantAccess(productId, {
+        contact_id: picked.id,
+        tariff_id: tariffId ? Number(tariffId) : null,
+      })
+      onDone()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось открыть доступ')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+      {!picked ? (
+        <>
+          <label className="block text-sm font-medium text-gray-700">
+            Кому открыть доступ
+          </label>
+          <input
+            autoFocus
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Имя, почта или телефон"
+            className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+          />
+          {searching && <p className="text-xs text-gray-400">Ищем…</p>}
+          {!searching && q.trim().length >= 2 && !found.length && (
+            <p className="text-xs text-gray-500">
+              Никого не нашли. Человека сначала нужно завести в разделе «Контакты».
+            </p>
+          )}
+          <div className="space-y-1">
+            {found.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setPicked(c)}
+                className="flex w-full items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-left hover:border-brand"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-gray-900">
+                    {c.name || 'Без имени'}
+                  </div>
+                  <div className="truncate text-xs text-gray-400">
+                    {[c.email, c.phone].filter(Boolean).join(' · ') || 'без контактов'}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-gray-900">
+                {picked.name || 'Без имени'}
+              </div>
+              <div className="truncate text-xs text-gray-400">
+                {[picked.email, picked.phone].filter(Boolean).join(' · ') || 'без контактов'}
+              </div>
+            </div>
+            <button onClick={() => setPicked(null)}
+              className="text-xs text-gray-400 hover:text-gray-700">
+              Выбрать другого
+            </button>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Тариф</label>
+            <select
+              value={tariffId}
+              onChange={e => setTariffId(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+            >
+              <option value="">Без тарифа — открыто всё</option>
+              {tariffs.map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-400">
+              Тариф решает, какие материалы человек увидит.
+            </p>
+          </div>
+        </>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={grant}
+          disabled={!picked || saving}
+          className="btn-gold px-4 py-2 text-sm disabled:opacity-40"
+        >
+          {saving ? 'Открываем…' : 'Открыть доступ'}
+        </button>
+        <button onClick={onClose}
+          className="rounded-xl px-4 py-2 text-sm text-gray-500 hover:bg-gray-100">
+          Отмена
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /* ─────────────────────────────── Клиенты ────────────────────────────────── */
 
 function BuyersTab({ productId, readOnly }: { productId: number; readOnly: boolean }) {
   const [buyers, setBuyers] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
+  const [tariffs, setTariffs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
 
   const load = async () => {
     try {
-      const [b, o] = await Promise.all([
+      const [b, o, t] = await Promise.all([
         api.products.buyers(productId),
         api.products.orders(productId),
+        api.products.tariffs(productId),
       ])
       setBuyers(b.buyers || [])
       setOrders(o.orders || [])
+      setTariffs(t.tariffs || [])
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [productId])
@@ -1313,8 +1467,25 @@ function BuyersTab({ productId, readOnly }: { productId: number; readOnly: boole
       )}
 
       <div>
-        <h3 className="mb-2 font-semibold text-gray-900">Доступ открыт — {buyers.length}</h3>
-        {!buyers.length && (
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900">Доступ открыт — {buyers.length}</h3>
+          {!readOnly && !adding && (
+            <button onClick={() => setAdding(true)} className="btn-gold px-4 py-2 text-sm">
+              + Открыть доступ
+            </button>
+          )}
+        </div>
+
+        {adding && (
+          <GrantAccessForm
+            productId={productId}
+            tariffs={tariffs}
+            onClose={() => setAdding(false)}
+            onDone={() => { setAdding(false); load() }}
+          />
+        )}
+
+        {!buyers.length && !adding && (
           <p className="text-sm text-gray-400">Пока никого.</p>
         )}
         <div className="space-y-2">

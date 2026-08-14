@@ -37,6 +37,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.database import get_db
 from app.services.client_domains import client_id_by_domain
+from app.services.preview_token import is_preview_owner
 
 logger = logging.getLogger(__name__)
 
@@ -94,28 +95,6 @@ def _session(authorization: Optional[str] = Header(None)) -> dict:
     return _decode(authorization[7:])
 
 
-async def _is_owner(request: Request, client_id) -> bool:
-    """Смотрит ли страницу ЕЁ владелец — клиент ПЛЮСОНа из кабинета.
-
-    ⚠️ Нужно, чтобы владелец видел свой ЧЕРНОВИК: иначе проверить лендинг до
-    публикации невозможно. Токен берём из заголовка `Authorization` (обычный
-    клиентский JWT кабинета) — это НЕ токен кабинета покупателя (`_decode`),
-    у него другая аудитория и другие поля.
-
-    Ошибка разбора токена = «не владелец»: посторонний просто получит 404,
-    как и раньше.
-    """
-    auth = request.headers.get("authorization") or ""
-    if not auth.lower().startswith("bearer "):
-        return False
-    try:
-        data = jwt.decode(auth[7:], settings.jwt_secret, algorithms=["HS256"],
-                          options={"verify_aud": False})
-        return str(data.get("sub")) == str(client_id)
-    except Exception:
-        return False
-
-
 async def _client_by_host(db, request: Request) -> Optional[int]:
     """Чей это домен. На pluson.ru вернёт None — там кабинет открывается по
     номеру кабинета в адресе."""
@@ -134,6 +113,7 @@ async def _client_by_host(db, request: Request) -> Optional[int]:
 async def product_public(
     slug: str, request: Request, response: Response,
     client_id: Optional[int] = None,
+    preview: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Всё для страницы продукта одним запросом.
@@ -155,13 +135,21 @@ async def product_public(
             raise HTTPException(status_code=404, detail="Уточните адрес кабинета")
         row = rows[0] if rows else None
 
-    # ⚠️ ЧЕРНОВИК ВИДИТ ЕГО ВЛАДЕЛЕЦ. Иначе страницу невозможно проверить до
-    # публикации — а смотреть на неё нужно именно до: «до публикации мне надо
-    # понимать, что я публикую и как выглядит лендинг». Посторонним черновик
-    # по-прежнему отдаёт 404.
+    # ⚠️ ЧЕРНОВИК ПРОДУКТА ОТКРЫТ ПО ССЫЛКЕ (2026-08-14). У продукта нет
+    # внешнего каталога (в отличие от событий, которые попадают в календарь):
+    # публикация ничего наружу не открывает, а страница нужна сразу — её
+    # рассылают ссылкой. Раньше черновик отдавал 404, и клиент видел
+    # «Страница не найдена» на собственном продукте.
+    #
+    # Статус оставлен на будущее — появится внешний каталог продуктов, там он
+    # и будет решать, показывать ли карточку. Доступ по прямой ссылке к этому
+    # отношения не имеет.
+    #
+    # `archived` закрыт: архив — это осознанное «убрать», и ссылка на него
+    # должна перестать работать.
     if not row:
         raise HTTPException(status_code=404, detail="Страница не найдена")
-    if row["status"] != "published" and not await _is_owner(request, row["client_id"]):
+    if row["status"] == "archived" and not is_preview_owner(preview, row["client_id"]):
         raise HTTPException(status_code=404, detail="Страница не найдена")
 
     product_id = row["id"]

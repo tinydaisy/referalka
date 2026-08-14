@@ -18,6 +18,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink } from 'lucide-react'
+import PreviewLinkButton from '@/components/PreviewLinkButton'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
@@ -191,6 +192,14 @@ export default function ProductLandingTab({ productId, product, readOnly = false
           </a>
           {saving && <Loader2 size={14} className="animate-spin text-gray-400" />}
         </div>
+        {/* ⚠️ Пока лендинг не опубликован, по обычной ссылке открывается витрина,
+            а собранную страницу посмотреть было НЕЧЕМ — настраивать её
+            приходилось вслепую. Кнопка открывает её по временной ссылке. */}
+        {!page.is_published && (
+          <div className="mt-3">
+            <PreviewLinkButton url={url} label="Посмотреть, как получилось" />
+          </div>
+        )}
         {!readOnly && (
           <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
             <input

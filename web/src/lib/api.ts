@@ -1081,6 +1081,15 @@ export const api = {
         body: JSON.stringify(input),
       }),
   },
+  /**
+   * Ссылка-предпросмотр черновиков (лендинг события, страница продукта).
+   *
+   * ⚠️ Токен нужен именно в АДРЕСЕ открываемой страницы: `/e/{slug}` и
+   * `/pr/{slug}` рендерятся на сервере, заголовка `Authorization` у них нет.
+   * Живёт 2 часа — это ссылка на неготовую страницу, вечной ей быть нельзя.
+   */
+  previewToken: () => request('/api/v1/clients/me/preview-token'),
+
   miniApp: {
     profile: {
       get:    () => request('/api/v1/clients/me/profile'),

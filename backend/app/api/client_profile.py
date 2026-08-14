@@ -38,6 +38,7 @@ from app.services.external_landing import (
 )
 from app.services.webinar_service import day_stream_url
 from app.services.client_domains import client_public_link
+from app.services.preview_token import make_preview_token
 from app.config import settings
 
 
@@ -975,6 +976,24 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
 # ПРИВАТНЫЕ ЭНДПОИНТЫ (дашборд клиента)
 # ═══════════════════════════════════════════
 profile_router = APIRouter(prefix="/clients/me", tags=["Профиль клиента"])
+
+
+@profile_router.get("/preview-token", summary="Ссылка-предпросмотр черновиков")
+async def get_preview_token(client=Depends(get_current_client)):
+    """Короткий подписанный токен, открывающий ЧЕРНОВИКИ этого кабинета.
+
+    ⚠️ Токен нужен именно в АДРЕСЕ страницы: `/e/{slug}` и `/pr/{slug}`
+    рендерит сервер Next.js, у него нет заголовка `Authorization` из браузера.
+    Прежняя проверка по заголовку не срабатывала никогда — черновик не
+    открывался даже владельцу.
+
+    Ассистенту тоже отдаём: смотреть страницы он вправе, а править лендинг
+    токен не позволяет — он открывает только чтение публичных эндпоинтов.
+    """
+    return {
+        "token": make_preview_token(int(client["sub"])),
+        "hours": 2,   # столько живёт ссылка — показываем в подсказке кабинета
+    }
 
 
 class ProfileUpdate(BaseModel):

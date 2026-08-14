@@ -14,6 +14,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
+import PreviewLinkButton from '@/components/PreviewLinkButton'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
@@ -316,7 +317,7 @@ export default function LandingTab({ eventId, event }: Props) {
           <p className="mt-1 text-sm text-gray-500">
             {page.is_published
               ? <>Доступна по ссылке <span className="font-mono text-gray-700">https://{publicHost}{publicUrl}</span></>
-              : 'Пока черновик — посторонние страницу не увидят.'}
+              : 'Пока черновик — посторонние страницу не увидят. Вы можете открыть её кнопкой «Посмотреть черновик».'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -334,17 +335,29 @@ export default function LandingTab({ eventId, event }: Props) {
           >
             <Palette className="h-4 w-4" /> Применить стили
           </button>
-          <a
-            /* ⚠️ Полный адрес на домене клиента, а не путь: относительная
-               ссылка открылась бы на pluson.ru — кабинет-то там. */
-            href={`https://${publicHost}${publicUrl}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <Eye className="h-4 w-4" /> Посмотреть
-            <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
-          </a>
+          {/* ⚠️ У ЧЕРНОВИКА обычная ссылка ведёт в «Лендинг не опубликован» —
+              посмотреть, что собрал, было нечем, и страницу настраивали
+              вслепую. Для черновика открываем по временной ссылке-предпросмотру
+              (2 часа), для опубликованного — обычной ссылкой. */}
+          {page.is_published ? (
+            <a
+              /* ⚠️ Полный адрес на домене клиента, а не путь: относительная
+                 ссылка открылась бы на pluson.ru — кабинет-то там. */
+              href={`https://${publicHost}${publicUrl}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Eye className="h-4 w-4" /> Посмотреть
+              <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
+            </a>
+          ) : (
+            <PreviewLinkButton
+              url={`https://${publicHost}${publicUrl}`}
+              label="Посмотреть черновик"
+              className="px-4 py-2 text-sm font-medium border-gray-300"
+            />
+          )}
         </div>
       </div>
 

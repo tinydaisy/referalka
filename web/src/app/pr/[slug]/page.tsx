@@ -16,6 +16,7 @@ import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import LandingRenderer from '../../e/[slug]/LandingRenderer'
 import ProductPage from './ProductPage'
+import PreviewBar from '@/components/PreviewBar'
 
 export const dynamic = 'force-dynamic'   // цены должны быть свежими
 
@@ -36,11 +37,17 @@ async function fetchJson(path: string) {
   }
 }
 
-const getLanding = (slug: string) =>
-  fetchJson(`/api/v1/public/product-landing/${encodeURIComponent(slug)}`)
+/* ⚠️ `preview` — подписанный токен владельца, открывающий ЧЕРНОВИК. Идёт
+   параметром адреса, потому что эта страница рендерится на сервере: заголовка
+   `Authorization` из браузера у неё нет, и проверка по заголовку не работала
+   вовсе. Пробрасываем в API как есть. */
+const qs = (preview?: string) => (preview ? `?preview=${encodeURIComponent(preview)}` : '')
 
-const getProduct = (slug: string) =>
-  fetchJson(`/api/v1/public/products/${encodeURIComponent(slug)}`)
+const getLanding = (slug: string, preview?: string) =>
+  fetchJson(`/api/v1/public/product-landing/${encodeURIComponent(slug)}${qs(preview)}`)
+
+const getProduct = (slug: string, preview?: string) =>
+  fetchJson(`/api/v1/public/products/${encodeURIComponent(slug)}${qs(preview)}`)
 
 export async function generateMetadata(
   { params }: { params: { slug: string } },
@@ -63,25 +70,29 @@ export default async function Page({
   params, searchParams,
 }: {
   params: { slug: string }
-  searchParams: { pid?: string; c?: string; utm_source?: string }
+  searchParams: { pid?: string; c?: string; utm_source?: string; preview?: string }
 }) {
+  const preview = searchParams?.preview
   // Собранный лендинг главнее: если клиент его опубликовал — показываем блоки.
-  const landing = await getLanding(params.slug)
+  const landing = await getLanding(params.slug, preview)
   if (landing) {
     return (
-      <LandingRenderer
-        data={landing}
-        slug={params.slug}
-        ownerType="product"
-        pid={searchParams?.pid ?? null}
-        contactId={searchParams?.c ?? null}
-        utmSource={searchParams?.utm_source ?? null}
-      />
+      <>
+        {preview && <PreviewBar />}
+        <LandingRenderer
+          data={landing}
+          slug={params.slug}
+          ownerType="product"
+          pid={searchParams?.pid ?? null}
+          contactId={searchParams?.c ?? null}
+          utmSource={searchParams?.utm_source ?? null}
+        />
+      </>
     )
   }
 
   // Лендинг ещё не собран — простая витрина, чтобы продукт продавался сразу.
-  const data = await getProduct(params.slug)
+  const data = await getProduct(params.slug, preview)
   if (!data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white px-4">
@@ -95,5 +106,10 @@ export default async function Page({
     )
   }
 
-  return <ProductPage data={data} slug={params.slug} />
+  return (
+    <>
+      {preview && <PreviewBar />}
+      <ProductPage data={data} slug={params.slug} />
+    </>
+  )
 }

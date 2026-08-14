@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.database import get_db
 from app.services.client_domains import client_id_by_domain
+from app.services.preview_token import is_preview_owner
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ async def get_product_landing(
     response: Response,
     kind: str = "main",
     client_id: Optional[int] = None,
+    preview: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     _cors(response)
@@ -87,7 +89,16 @@ async def get_product_landing(
             raise HTTPException(status_code=404, detail="Уточните адрес кабинета")
         product = rows[0] if rows else None
 
-    if not product or product["status"] != "published":
+    if not product:
+        raise HTTPException(status_code=404, detail="Страница не найдена")
+
+    # ⚠️ Владелец с токеном предпросмотра видит и черновик продукта, и
+    # неопубликованный лендинг: собрать страницу вслепую невозможно.
+    owner = is_preview_owner(preview, product["client_id"])
+
+    # Статус продукта саму ссылку не закрывает — внешнего каталога продуктов
+    # нет, публиковать нечего (см. products_public.py). Закрыт только архив.
+    if product["status"] == "archived" and not owner:
         raise HTTPException(status_code=404, detail="Страница не найдена")
 
     page = await db.fetchrow(
@@ -95,7 +106,10 @@ async def get_product_landing(
             WHERE owner_type = 'product' AND owner_id = $1 AND kind = $2""",
         product["id"], kind,
     )
-    if not page or not page["is_published"]:
+    # ⚠️ А вот ЛЕНДИНГ публикуется по-настоящему: пока он черновик, посетитель
+    # должен видеть простую витрину продукта, а не полусобранную страницу.
+    # Поэтому здесь замок остаётся — снимает его только предпросмотр.
+    if not page or (not page["is_published"] and not owner):
         raise HTTPException(status_code=404, detail="Страница не опубликована")
 
     blocks = await db.fetch(
