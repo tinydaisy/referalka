@@ -240,7 +240,17 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Ссылка на страницу открывается и у черновика** (иконка «Открыть» больше не прячется), а под полем адреса висит плашка «продукт в черновике — посетители видят „Страница не найдена“». Скрывать ссылку нельзя: именно из-за этого возникало ощущение, что раздел не работает.
 
-⚠️ **Просмотр черновика владельцем не работает** — `_is_owner` в [products_public.py](backend/app/api/products_public.py) читает JWT из заголовка `Authorization`, а `/pr/{slug}` рендерится **на сервере**, куда браузер заголовок не шлёт. Чтобы посмотреть страницу до публикации, продукт нужно опубликовать. Чинится передачей токена через параметр/куку — пока не сделано.
+### ⚠️ Предпросмотр черновика — токен В АДРЕСЕ, а не в заголовке (2026-08-14)
+
+Лендинг нужно видеть ДО публикации, иначе он собирается вслепую. Механизм для этого формально существовал (`_is_owner`), но **не работал никогда**: он читал JWT из заголовка `Authorization`, а `/e/{slug}` и `/pr/{slug}` рендерит **сервер Next.js** — заголовка из браузера у него нет в принципе. Владелец видел на своей же странице «Лендинг не опубликован».
+
+Теперь кабинет выдаёт подписанный токен (`GET /clients/me/preview-token`), и он идёт **параметром адреса**: `?preview=<токен>`. Единая точка — [preview_token.py](backend/app/services/preview_token.py), отдельная аудитория `landing-preview`, живёт **2 часа** (это ссылка на неготовую страницу — вечной ей быть нельзя).
+
+Подключён в трёх публичных эндпоинтах: [event_landing_public.py](backend/app/api/event_landing_public.py), [product_landing_public.py](backend/app/api/product_landing_public.py), [products_public.py](backend/app/api/products_public.py). Публичные страницы пробрасывают параметр в API и рисуют поверх плашку [PreviewBar.tsx](web/src/components/PreviewBar.tsx) — по обычному адресу черновик неотличим от живой страницы, и без плашки легко решить, что уже опубликовано. Кнопка в кабинете — [PreviewLinkButton.tsx](web/src/components/PreviewLinkButton.tsx) (токен берётся ПО КЛИКУ, не при отрисовке).
+
+⚠️ **Владелец события — `event_owners (status='accepted')`**, у `events` своего `client_id` нет; у коллаб-события владельцев несколько, и черновик вправе смотреть каждый.
+
+⚠️ **У ПРОДУКТА статус страницу НЕ закрывает** (2026-08-14). Внешнего каталога продуктов нет — публиковать некуда, ссылку рассылают напрямую, а 404 на собственном продукте выглядел как поломка. `products.status` оставлен на будущее (появится каталог — он решит, показывать ли карточку) и по-прежнему закрывает `archived`. **Публикация ЛЕНДИНГА (`event_landing_pages.is_published`) осмысленна и сохранена** и у продукта, и у события: она переключает витрину на собранную страницу.
 
 **API:** кабинет `/api/v1/products*` + `/api/v1/materials*` ([products.py](backend/app/api/products.py)), лендинг `/api/v1/products/{id}/landing` ([product_landing.py](backend/app/api/product_landing.py)), публичное `/api/v1/public/products/{slug}` и `/api/v1/public/product-cabinet/*` ([products_public.py](backend/app/api/products_public.py)), заказы `/api/v1/public/product-orders/*` ([product_orders.py](backend/app/api/product_orders.py)). Фронт: [dashboard/products](web/src/app/dashboard/products/page.tsx) (вкладки Основное/Тарифы/**Материалы**/Лендинг/Клиенты — вкладка «Состав» переименована 2026-08-14, ключ в коде остался `content`), [pr/[slug]](web/src/app/pr/%5Bslug%5D/page.tsx), [my](web/src/app/my/page.tsx). Api-группы `api.products.*`, `api.materials.*`, `api.productLanding.*`.
 

@@ -35,12 +35,19 @@ const KINDS: Array<{ kind: Kind; label: string; hint: string; Icon: any }> = [
 ]
 
 export default function MaterialEditor({
-  materialId, title, onClose, onRenamed,
+  materialId, title, onClose, onRenamed, mode = 'modal',
 }: {
   materialId: number
   title: string
   onClose: () => void
   onRenamed?: (title: string) => void
+  /**
+   * ⚠️ `page` — тот же редактор, но БЕЗ затемнения и рамки модалки: урок
+   * правится на отдельной странице. В окне длинный урок неудобен — он
+   * прокручивается внутри коробки высотой в экран, ссылки и видео некуда
+   * развернуть, а свернуть окно, чтобы свериться с соседним уроком, нельзя.
+   */
+  mode?: 'modal' | 'page'
 }) {
   const [blocks, setBlocks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

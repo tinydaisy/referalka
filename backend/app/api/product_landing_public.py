@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app.database import get_db
 from app.services.client_domains import client_id_by_domain
 from app.services.preview_token import is_preview_owner
+from app.services.landing_theme import apply_theme_fields
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,10 @@ async def get_product_landing(
             "offer_url": product["offer_url"],
             "wording_preset": product["wording_preset"],
         },
-        "page": {**dict(page), "nav_items": _jsonb(page["nav_items"])},
+        # ⚠️ apply_theme_fields ОБЯЗАТЕЛЕН: без него страница получает bg_css и
+        # font_*_css пустыми и выходит белой, хотя цвета в базе правильные.
+        # Ровно так и было — вычисление жило только в лендинге события.
+        "page": apply_theme_fields({**dict(page), "nav_items": _jsonb(page["nav_items"])}),
         "blocks": [{**dict(b), "items": _jsonb(b["items"])} for b in blocks],
         "data": data,
     }

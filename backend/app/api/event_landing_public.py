@@ -24,6 +24,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services.landing_fonts import font_family_css, normalize_font
+from app.services.landing_theme import apply_theme_fields
 from app.services.collaborator_sort import order_by_sql
 from app.services.preview_token import preview_client_id
 
@@ -461,26 +462,10 @@ async def get_public_landing(
     # nav_items текстом, Array.isArray давал false — и пункты меню молча
     # пропадали, оставалась одна кнопка.
     page_d["nav_items"] = _jsonb(page_d.get("nav_items"))
-    page_d["font_heading_css"] = font_family_css(page["font_heading"])
-    page_d["font_body_css"] = font_family_css(page["font_body"])
-    page_d["font_heading"] = normalize_font(page["font_heading"])
-    page_d["font_body"] = normalize_font(page["font_body"])
-    # Готовая заливка фона: градиент под заданным углом либо сплошной цвет.
-    # Считаем на бэке, чтобы страница не собирала CSS в трёх местах.
-    if page_d.get("bg_gradient") and page_d.get("bg_color_2"):
-        c1 = page_d.get("bg_color") or "#25455D"
-        c2 = page_d["bg_color_2"]
-        angle = page_d.get("bg_angle", 45)
-        page_d["bg_css"] = f"linear-gradient({angle}deg, {c1}, {c2})"
-        # Для режима «повторять на каждом экране» — ЗЕРКАЛЬНЫЙ градиент
-        # (цвет1 → цвет2 → цвет1). Обычный при повторении даёт резкую полосу
-        # на стыке: тёмный конец упирается в светлое начало следующего.
-        page_d["bg_css_screen"] = (
-            f"linear-gradient({angle}deg, {c1} 0%, {c2} 50%, {c1} 100%)"
-        )
-    else:
-        page_d["bg_css"] = page_d.get("bg_color") or "#25455D"
-        page_d["bg_css_screen"] = page_d["bg_css"]
+    # ⚠️ Шрифты и заливка фона считаются ОБЩИМ хелпером (см. landing_theme.py):
+    # раньше этот код жил только здесь, и лендинг продукта остался без темы —
+    # цвета в базе есть, а страница белая.
+    apply_theme_fields(page_d)
 
     return {
         "event": {
