@@ -172,8 +172,8 @@ function ProductsTab({ readOnly }: { readOnly: boolean }) {
                           <span className="font-semibold text-gray-900">{p.title}</span>
                           <StatusChip status={p.status} />
                         </div>
-                        {p.subtitle && (
-                          <p className="mt-0.5 truncate text-sm text-gray-500">{p.subtitle}</p>
+                        {p.description && (
+                          <p className="mt-0.5 truncate text-sm text-gray-500">{p.description}</p>
                         )}
                         <p className="mt-1 text-xs text-gray-400">
                           Тарифов: {p.tariffs_count} · Материалов: {p.materials_count} ·
@@ -300,14 +300,13 @@ function StatusChip({ status }: { status: string }) {
 
 function ProductForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [title, setTitle] = useState('')
-  const [subtitle, setSubtitle] = useState('')
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
     if (!title.trim()) return
     setSaving(true)
     try {
-      await api.products.create({ title: title.trim(), subtitle: subtitle.trim() || null })
+      await api.products.create({ title: title.trim() })
       onSaved()
     } finally { setSaving(false) }
   }
@@ -324,14 +323,6 @@ function ProductForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
           <input
             value={title}
             onChange={e => setTitle(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm text-gray-600">Короткое пояснение</label>
-          <input
-            value={subtitle}
-            onChange={e => setSubtitle(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
           />
         </div>
