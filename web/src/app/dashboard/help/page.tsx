@@ -38,12 +38,12 @@ export default function HelpIndexPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
-        <aside className="order-2 lg:order-none">
-          <SectionsNav />
-        </aside>
-
-        <div className="order-1 lg:order-none min-w-0 space-y-3">
+      {/* Содержимое слева, оглавление справа. Разделитель — левая граница
+          колонки оглавления (`lg:border-l`), только на широком экране: на
+          телефоне колонки стоят друг под другом, и вертикальная линия там
+          повисла бы поперёк вёрстки. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-6 lg:gap-8">
+        <div className="order-1 min-w-0 space-y-3">
           {SECTIONS.map(s => (
             <Link
               key={s.id}
@@ -73,6 +73,10 @@ export default function HelpIndexPage() {
             </p>
           </div>
         </div>
+
+        <aside className="order-2 lg:pl-8 lg:border-l lg:border-gray-200">
+          <SectionsNav />
+        </aside>
       </div>
     </div>
   )

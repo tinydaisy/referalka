@@ -5,47 +5,49 @@ import { ChevronRight, Copy, Check, ExternalLink } from 'lucide-react'
 import { SECTIONS, type Article } from './sections'
 
 const BRAND = '#25455D'
-const PEACH = '#FFCFA4'
 
 /**
- * Боковое меню разделов. Показывается и на общей странице инструкций,
- * и внутри конкретного раздела — чтобы из «Коллабораторной» можно было
- * перейти в «Турниры», не возвращаясь назад.
+ * Оглавление разделов — колонка СПРАВА от содержимого.
  *
- * На узком экране колонки нет — меню уезжает вниз обычным списком
- * (`order-2 lg:order-none`), иначе на телефоне пришлось бы пролистывать
- * весь список разделов, чтобы добраться до статей.
+ * ⚠️ Сознательно БЕЗ иконок и плашек: это содержание документа, как в Google
+ * Docs, а не второе навигационное меню. Иконки и цветные квадраты спорили с
+ * сайдбаром кабинета слева и превращали страницу в два меню по краям.
+ * Активный пункт выделяется вертикальной линией и жирностью, а не заливкой.
+ *
+ * На узком экране колонки нет — оглавление уезжает вниз обычным списком
+ * (`order-2 lg:order-none` на стороне вызова), иначе на телефоне пришлось бы
+ * пролистывать его целиком, чтобы добраться до статей.
  */
 export function SectionsNav({ activeId }: { activeId?: string }) {
   return (
-    <nav className="lg:sticky lg:top-4 space-y-1">
-      <div className="text-xs font-bold uppercase tracking-wide text-gray-400 px-2 mb-2">
-        Разделы
+    <nav className="lg:sticky lg:top-4">
+      <div className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-3">
+        Содержание
       </div>
-      {SECTIONS.map(s => {
-        const active = s.id === activeId
-        return (
-          <Link
-            key={s.id}
-            href={`/dashboard/help/s/${s.id}`}
-            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-colors ${
-              active ? '' : 'hover:bg-gray-100'
-            }`}
-            style={active ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : {}}
-          >
-            <span className="w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0"
-                  style={{ background: active ? 'rgba(255,255,255,0.14)' : `linear-gradient(135deg, #fff4e0, ${PEACH})` }}>
-              {s.emoji}
-            </span>
-            <span className={`text-sm leading-tight flex-1 min-w-0 ${active ? 'font-bold text-white' : 'font-medium text-gray-700'}`}>
-              {s.title}
-            </span>
-            <span className={`text-xs flex-shrink-0 ${active ? 'text-white/60' : 'text-gray-400'}`}>
-              {s.articles.length}
-            </span>
-          </Link>
-        )
-      })}
+      <ul className="space-y-0.5">
+        {SECTIONS.map(s => {
+          const active = s.id === activeId
+          return (
+            <li key={s.id}>
+              <Link
+                href={`/dashboard/help/s/${s.id}`}
+                className="flex items-baseline gap-2 py-1.5 pl-3 border-l-2 transition-colors hover:border-gray-300"
+                style={{
+                  borderColor: active ? BRAND : '#e5e7eb',
+                  color: active ? BRAND : '#4b5563',
+                }}
+              >
+                <span className={`text-sm leading-snug flex-1 min-w-0 ${active ? 'font-bold' : ''}`}>
+                  {s.title}
+                </span>
+                <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+                  {s.articles.length}
+                </span>
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
     </nav>
   )
 }
