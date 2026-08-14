@@ -346,9 +346,17 @@ export default function LandingRenderer({
            в нечитаемые полоски. */
         /* ⚠️ min() везде: если клиент выбрал 1 или 2 колонки, промежуточные
            брейкпоинты не должны навязывать больше — настройка всегда потолок. */
-        /* ⚠️ justify-content: center — когда карточек меньше, чем колонок,
-           ряд не липнет к левому краю, а стоит по центру. */
-        .lp-grid { grid-template-columns: 1fr; justify-content: center; }
+        /* ⚠️ Неполный ряд стоит ПО ЦЕНТРУ, а не липнет к левому краю.
+           `justify-content` сам по себе тут бессилен: колонки шириной `1fr`
+           занимают всю ширину сетки целиком, и центрировать нечего — при
+           2 партнёрах на 3 колонки третья просто оставалась пустой справа.
+           Поэтому ширину колонки ограничиваем сверху (`--lp-col-w`): колонки
+           перестают растягиваться, и весь ряд центрируется целиком. */
+        .lp-grid {
+          grid-template-columns: 1fr;
+          justify-content: center;
+          --lp-col-w: 1fr;
+        }
         /* Цифры на телефоне — 2 в ряд: по одной они растягивали бы секцию в
            бесконечную колонку, а цифра узкая и вполне помещается.
            ⚠️ НО если под цифрой стоит скриншот-доказательство, две колонки
@@ -374,9 +382,16 @@ export default function LandingRenderer({
         /* Боковые поля секции: на телефоне узкие (см. padXMobile), с 640px —
            как задал клиент настройкой. */
         @media (min-width: 640px) { .lp-section { --lp-pad-x: var(--lp-pad-x-lg); } }
-        @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), 1fr); } }
-        @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), 1fr); } }
-        @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), 1fr); } }
+        /* ⚠️ Колонка — `minmax(0, var(--lp-col-w))`, а не голый `1fr`.
+           Обычно `--lp-col-w` = `1fr` (ряд полный, карточки тянутся на всю
+           ширину — как было). Когда карточек МЕНЬШЕ, чем колонок, компонент
+           подставляет конкретную ширину — тогда колонки перестают тянуться,
+           и `justify-content: center` ставит неполный ряд по центру.
+           `minmax(0, …)` обязателен: без него длинное слово внутри карточки
+           раздувает колонку шире сетки. */
+        @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), minmax(0, var(--lp-col-w, 1fr))); } }
+        @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), minmax(0, var(--lp-col-w, 1fr))); } }
+        @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), minmax(0, var(--lp-col-w, 1fr))); } }
         /* Бегущая подсветка: в каждый момент выделена РОВНО ОДНА карточка —
            золотистая полупрозрачная заливка + свечение. Предыдущая гаснет
            до того, как загорится следующая, поэтому «огонёк» бежит по списку.
@@ -2112,7 +2127,16 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
 
   if (!scroll) {
     return (
-      <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
+      <div className="lp-grid grid gap-5"
+           style={{
+             ['--lp-cols-lg' as any]: cols,
+             // ⚠️ Партнёров МЕНЬШЕ, чем колонок (частый случай: 2 партнёра при
+             // сетке на 3) — пустая колонка оставалась справа, и ряд выглядел
+             // прижатым к левому краю. Задаём колонке конкретную ширину:
+             // она перестаёт растягиваться, и ряд встаёт по центру.
+             // Полный ряд ведёт себя как раньше (`1fr` из .lp-grid).
+             ...(list.length < cols ? { ['--lp-col-w' as any]: `${cardW}px` } : {}),
+           }}>
         {cards}
       </div>
     )
