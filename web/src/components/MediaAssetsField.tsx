@@ -6,10 +6,18 @@ export type MediaAsset = { platform: string; subscribers: number }
 const PLATFORMS: { slug: string; label: string; auto?: boolean }[] = [
   // ⚠️ Площадки ПЛЮСОНа — ПЕРВЫМИ в списке: их цифры считает система, они
   // подтверждённые, и предлагать их надо раньше заявленных вручную.
-  { slug: 'plusson_tg',    label: 'Telegram-бот в ПЛЮСОН', auto: true },
-  { slug: 'plusson_email', label: 'Email в ПЛЮСОН',        auto: true },
-  { slug: 'plusson_max',   label: 'MAX-бот в ПЛЮСОН',      auto: true },
-  { slug: 'plusson_vk',    label: 'ВК-бот в ПЛЮСОН',       auto: true },
+  // ⚠️ Множественное число: у клиента может быть НЕСКОЛЬКО ботов на площадке,
+  // и цифра суммируется по всем подключённым.
+  { slug: 'plusson_tg',     label: 'Телеграм-боты в ПЛЮСОН', auto: true },
+  { slug: 'plusson_email',  label: 'Емейлы в ПЛЮСОН',        auto: true },
+  { slug: 'plusson_max',    label: 'МАКС-боты в ПЛЮСОН',     auto: true },
+  { slug: 'plusson_vk',     label: 'ВК-боты в ПЛЮСОН',       auto: true },
+  // Каналы основателя — подписчиков отдаёт сама площадка (бот в них админ).
+  // ⚠️ Это НЕ база в ПЛЮСОНе: база — люди, прошедшие через боты и почту
+  // внутри системы, а тут подписчики публичных каналов. Складывать нельзя.
+  { slug: 'plusson_tg_ch',  label: 'ТГ-каналы в ПЛЮСОН',     auto: true },
+  { slug: 'plusson_max_ch', label: 'МАХ-каналы в ПЛЮСОН',    auto: true },
+  { slug: 'plusson_vk_ch',  label: 'ВК-сообщества в ПЛЮСОН', auto: true },
   { slug: 'tg',        label: 'Telegram' },
   { slug: 'youtube',   label: 'YouTube' },
   { slug: 'vk',        label: 'VK' },
@@ -17,8 +25,9 @@ const PLATFORMS: { slug: string; label: string; auto?: boolean }[] = [
   { slug: 'instagram', label: 'Instagram' },
   { slug: 'max',       label: 'MAX' },
   { slug: 'rutube',    label: 'RuTube' },
+  // «Чат-боты» — для ботов в СТОРОННИХ сервисах (у нас свои позиции выше).
+  // ⚠️ «База» убрана: она теперь считается автоматически позициями «в ПЛЮСОН».
   { slug: 'chatbots',  label: 'Чат-боты' },
-  { slug: 'database',  label: 'База' },
   { slug: 'total',     label: 'Суммарно' },
 ]
 
@@ -44,12 +53,11 @@ function tierLabel(total: number): string {
 }
 
 export default function MediaAssetsField({ value, onChange, autoCounts = {} }: Props) {
-  // ⚠️ Заявленные активы вводятся в ТЫСЯЧАХ («1.8» = 1800), а базы ПЛЮСОНа
-  // считаются в штуках — при сложении первые умножаем на 1000, иначе охват
-  // выходил в тысячи раз меньше реального.
+  // Все значения — в ЛЮДЯХ: и заявленные, и посчитанные системой. Единица
+  // одна, поэтому просто складываем.
   const totalReach = (value || []).reduce((sum, a) => {
     const auto = PLATFORMS.find(p => p.slug === a.platform)?.auto
-    return sum + (auto ? (autoCounts[a.platform] ?? 0) : Math.round((a.subscribers || 0) * 1000))
+    return sum + (auto ? (autoCounts[a.platform] ?? 0) : Math.round(a.subscribers || 0))
   }, 0)
   const used = new Set((value || []).map(a => a.platform))
   const available = PLATFORMS.filter(p => !used.has(p.slug))
@@ -79,8 +87,8 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
     <div className="space-y-2">
       {(value || []).length === 0 && (
         <p className="text-xs text-gray-500">
-          Подписчики в соцсетях и медиа. Вводите цифру в <b>тысячах</b>: «19.9» = 19.9к.
-          Можно ставить десятичные. Лендинг события покажет ваш совокупный охват.
+          Подписчики в соцсетях и медиа. Вводите <b>число людей</b>: 1800, 25000.
+          Позиции «в ПЛЮСОН» считаются автоматически — их вводить не нужно.
         </p>
       )}
       {(value || []).map((asset, i) => {
@@ -114,25 +122,23 @@ export default function MediaAssetsField({ value, onChange, autoCounts = {} }: P
             <div className="flex-1 relative">
               <input
                 type="number"
-                inputMode="decimal"
-                step="0.1"
+                inputMode="numeric"
+                step="1"
                 min={0}
                 value={asset.subscribers === 0 ? '' : asset.subscribers}
-                placeholder="19.9"
+                placeholder="1800"
                 onChange={e => {
                   const v = e.target.value
                   if (v === '') return update(i, { subscribers: 0 })
-                  // ⚠️ Принимаем и точку, и ЗАПЯТУЮ: на русской раскладке
-                  // человек набирает «1,8», а parseFloat такую запись не
-                  // понимает — значение молча становилось нулём.
-                  const n = parseFloat(v.replace(',', '.'))
+                  // ⚠️ Число ЛЮДЕЙ, а не тысяч. Раньше поле было в тысячах
+                  // («1.8» = 1800), а плюсоновские позиции считались в штуках —
+                  // в одном списке уживались две разные единицы, и понять,
+                  // что вводить, было невозможно.
+                  const n = parseInt(v.replace(/\D/g, ''), 10)
                   update(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
                 }}
-                className="w-full pr-8 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none select-none">
-                к
-              </span>
             </div>
             )}
             <div className="flex flex-col">

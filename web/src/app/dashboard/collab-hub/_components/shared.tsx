@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react'
+import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ChevronRight, ExternalLink, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import MediaAssetsField from '@/components/MediaAssetsField'
 import { MultiSelectDropdown } from '@/components/MultiSelectDropdown'
@@ -148,6 +148,47 @@ export function PeachBlock({ title, html, first = false, tone = 'peach' }: { tit
   )
 }
 
+/**
+ * Строка ниш карточки: одна строка с прокруткой вправо.
+ *
+ * ⚠️ Высота ФИКСИРОВАНА (h-6) и не зависит от числа ниш: их бывает от нуля до
+ * десятка, и при переносе строка росла вниз — блоки под ней начинались у
+ * каждого на своей высоте, а разделительные линии переставали совпадать.
+ *
+ * Стрелка справа появляется, только когда есть что прокручивать, — иначе она
+ * обещала бы скрытое содержимое там, где его нет.
+ */
+function NichesRow({ slugs, titles }: { slugs: string[]; titles: Record<string, string> }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => setMore(el.scrollWidth > el.clientWidth + 4)
+    check()
+    el.addEventListener('scroll', check)
+    return () => el.removeEventListener('scroll', check)
+  }, [slugs.join(',')])
+  return (
+    <div className="relative mt-1 h-6">
+      <div ref={ref}
+           className="flex items-center gap-1 h-6 overflow-x-auto whitespace-nowrap [&>*]:shrink-0
+                      [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {slugs.map(sl => (
+          <span key={sl} className="text-xs px-2 py-0.5 rounded-full border"
+                style={{ borderColor: PEACH, color: '#C77B3B' }}>{titles[sl] || sl}</span>
+        ))}
+      </div>
+      {more && (
+        <div className="absolute right-0 top-0 h-6 pl-6 flex items-center pointer-events-none"
+             style={{ background: 'linear-gradient(90deg, transparent, #fff 40%)' }}>
+          <ChevronRight className="w-4 h-4" style={{ color: '#C77B3B' }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Справочник ниш slug→title. Грузится один раз на модуль — карточке не нужно
  *  прокидывать ниши пропсами через каждый список (каталог, сват, запросы). */
 let _nichesCache: Record<string, string> | null = null
@@ -213,10 +254,15 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
             разъехавшимся. Пустые строки просто остаются пустыми. */}
         <div className="flex-1 min-w-0 flex flex-col">
           {/* Имя ОСНОВАТЕЛЯ — заголовок; название проекта — отдельной строкой. */}
-          <div className="font-semibold" style={{ color: DARK }}>{ownerName}</div>
+          {/* ⚠️ Имя и проект — строго ОДНА строка (truncate). Длинное имя
+              переносилось бы на вторую и сдвигало вниз всё, что под ним:
+              плашки и разделительные линии переставали совпадать между
+              карточками. Сейчас имена короткие, но правило не должно
+              держаться на этом. */}
+          <div className="font-semibold truncate" style={{ color: DARK }} title={ownerName}>{ownerName}</div>
           {/* Название проекта — целиком (в форме предел 60 символов), место
               под одну строку резервируем, чтобы шапки совпадали по высоте. */}
-          <div className="text-xs text-gray-600 min-h-[1rem]">
+          <div className="text-xs text-gray-600 h-4 truncate">
             {project ? <>Проект: <span className="font-medium">{project}</span></> : ''}
           </div>
           {/* ⚠️ Позиционирование показывается ЦЕЛИКОМ (до 140 символов —
@@ -236,26 +282,29 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           </div>
         </div>
       </div>
-      {/* ⚠️ Плашки вынесены ИЗ правой колонки — на всю ширину карточки, вплотную
-          к разделительной линии. Пока они лежали рядом с фото, между ними и
-          линией оставался зазор, разный у каждого: колонка тянулась по своему
-          тексту, а линия шла под всей шапкой. Теперь плашки всегда прижаты
-          к линии снизу.
-          Строка ОДНА, с прокруткой вправо: ниш бывает несколько, и при переносе
-          она росла вниз — у одного в ряд, у другого в три. */}
-      <div className="flex items-center gap-1 mt-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
+      {/* ⚠️ ТРИ ОТДЕЛЬНЫЕ СТРОКИ, а не одна общая: категория с городом, ниши,
+          медийность. В общей куче ниши вытесняли медийность за край, и её
+          приходилось искать прокруткой — хотя это разные по смыслу вещи.
+          Каждая строка фиксированной высоты (h-6): у кого-то поле не
+          заполнено, но место остаётся — иначе блоки ниже начинались бы у
+          каждого на своей высоте. */}
+      <div className="flex items-center gap-1 mt-2 h-6">
         {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
-        {(item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])).map((sl: string) => (
-          <span key={sl} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[sl] || sl}</span>
-        ))}
-        <MediaTierBadge tier={item.media_tier} />
-        {/* Город — рядом с нишей, а не в подвале карточки: там он терялся
+        {/* Город — рядом с категорией, а не в подвале карточки: там он терялся
             под цифрами коллабораций, и найти земляка в списке было нельзя. */}
         {item.hub_city && (
           <span className="text-xs text-gray-500 inline-flex items-center gap-1">
             <MapPin className="w-3 h-3" />{item.hub_city}
           </span>
         )}
+      </div>
+      {/* Ниши — своя строка. Их бывает несколько, поэтому прокрутка вправо со
+          стрелкой-подсказкой: при переносе строка росла вниз и карточки
+          разъезжались. */}
+      <NichesRow slugs={item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])}
+                 titles={niches} />
+      <div className="flex items-center gap-1 mt-1 h-6">
+        <MediaTierBadge tier={item.media_tier} />
       </div>
       {/* ⚠️ Разделительные линии делят карточку на три части: кто это →
           что предлагает → результаты. Фирменный синий, полупрозрачный —

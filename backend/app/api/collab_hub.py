@@ -54,19 +54,22 @@ def _media_tier(total_subs: int):
 
 # Площадки, чьи цифры считает САМА система (базы ПЛЮСОНа). Их значения —
 # в штуках и приходят из подсчёта, а не из введённого поля.
-_AUTO_PLATFORMS = ('plusson_tg', 'plusson_email', 'plusson_max', 'plusson_vk')
+_AUTO_PLATFORMS = ('plusson_tg', 'plusson_email', 'plusson_max', 'plusson_vk',
+                   'plusson_tg_ch', 'plusson_max_ch', 'plusson_vk_ch')
 
 
 def _sum_subscribers(media_assets, auto_counts: dict | None = None) -> int:
     """Суммарный охват в ЛЮДЯХ.
 
-    ⚠️ Заявленные активы человек вводит в ТЫСЯЧАХ («1.8» = 1800 подписчиков) —
-    при сложении их надо умножать на 1000. Раньше складывали как есть, и охват
-    выходил в тысячи раз меньше: у клиента с телеграм-каналом на 1800 человек
-    в каталоге стояло «до 1 000».
+    Все значения — в ЛЮДЯХ. Раньше заявленные активы вводились в ТЫСЯЧАХ, а
+    посчитанные системой — в штуках: в одном списке уживались две единицы, и
+    охват выходил в тысячи раз меньше правды.
 
-    Базы ПЛЮСОНа считаются в штуках и берутся из auto_counts — их значение в
-    самом поле всегда 0, руками его не ввести.
+    Старые записи в тысячах пересчитаны миграцией 298 — разбора «дробь это
+    тысячи или люди» в коде нет и быть не должно: он бы врал на числах вроде
+    «1.5 человека» и жил в проекте вечно.
+
+    Позиции ПЛЮСОНа берутся из auto_counts — в самом поле у них всегда 0.
     """
     if not media_assets:
         return 0
@@ -80,7 +83,7 @@ def _sum_subscribers(media_assets, auto_counts: dict | None = None) -> int:
             if slug in _AUTO_PLATFORMS:
                 total += int((auto_counts or {}).get(slug) or 0)
             else:
-                total += int(round(float(a.get('subscribers') or 0) * 1000))
+                total += int(round(float(a.get('subscribers') or 0)))
         return total
     except Exception:
         return 0
@@ -107,7 +110,7 @@ def _plusson_base(raw) -> dict:
     }
 
 
-def _client_card(row, public: bool = False) -> dict:
+def _client_card(row, public: bool = False, channel_counts: dict | None = None) -> dict:
     """Собирает карточку организатора из строки clients.
 
     ⚠️ name (заголовок карточки) = ИМЯ ОСНОВАТЕЛЯ (clients.name) — человек, а не бренд.
@@ -133,7 +136,8 @@ def _client_card(row, public: bool = False) -> dict:
         'achievements': _parse_json(d.get('owner_achievements'), []),
         'social_links': _parse_json(d.get('social_links'), {}),
         'media_assets': ma or [],
-        'media_tier': _media_tier(_sum_subscribers(ma, _plusson_base(d.get('hub_base_by_platform')))),
+        'media_tier': _media_tier(_sum_subscribers(
+            ma, {**_plusson_base(d.get('hub_base_by_platform')), **(channel_counts or {})})),
         'is_published_in_hub': d.get('is_published_in_hub'),
         'hub_category': d.get('hub_category'),
         'hub_niche': d.get('hub_niche'),
@@ -151,7 +155,8 @@ def _client_card(row, public: bool = False) -> dict:
         # карточке показываем только по галочке: у новичка база в десяток
         # человек, и принудительный показ отвадил бы его от публикации.
         # Ключи под слаги медийных активов: plusson_tg / _email / _max / _vk.
-        'plusson_base': _plusson_base(d.get('hub_base_by_platform')),
+        'plusson_base': {**_plusson_base(d.get('hub_base_by_platform')),
+                         **(channel_counts or {})},
     }
 
 
@@ -211,7 +216,12 @@ async def get_my_card(client=Depends(get_current_client), db: asyncpg.Connection
     row = await db.fetchrow(f"SELECT {_CLIENT_COLS} FROM clients cl WHERE cl.id=$1", int(client["sub"]))
     if not row:
         raise HTTPException(404, "Клиент не найден")
-    return {"card": _client_card(row)}
+    # Подписчиков каналов спрашиваем у самих площадок — это подтверждённая
+    # цифра, в отличие от заявленных вручную активов. Сбой площадки даёт 0
+    # по каналу и карточку не роняет.
+    from app.services.channel_audience import channel_audience
+    ch = await channel_audience(db, int(client["sub"]), _parse_json(row.get("social_links"), {}))
+    return {"card": _client_card(row, channel_counts=ch)}
 
 
 @router.post("/me/card")
