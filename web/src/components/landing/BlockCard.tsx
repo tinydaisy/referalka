@@ -538,6 +538,27 @@ export default function BlockCard({
                   {block.kind === 'audience' && (
                     <div className="rounded-lg border border-gray-200 p-3">
                       <div className="mb-2 text-sm font-medium text-gray-700">Фото в карточках</div>
+                      {/* ⚠️ «Вписать целиком» — по умолчанию: на скриншотах
+                          главное по краям (цифры охватов), а обрезка их режет. */}
+                      <Field label="Как показывать фото">
+                        <div className="flex flex-wrap gap-2">
+                          {([['fit', 'Вписать целиком'], ['crop', 'Обрезать по краям']] as const).map(
+                            ([val, label]) => (
+                              <button
+                                key={val}
+                                onClick={() => onPatch({ card_img_fit: val })}
+                                className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                  (block.card_img_fit || 'fit') === val
+                                    ? 'border-brand bg-brand/5 font-medium text-brand'
+                                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                        </div>
+                      </Field>
+                      <div className="mt-3" />
                       <Field label={`Размер фото: ${block.card_img_size || 100}% ширины карточки`}>
                         <input type="range" min={20} max={100} step={5}
                           value={block.card_img_size || 100}

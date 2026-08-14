@@ -106,7 +106,7 @@ BLOCK_PATCH_FIELDS: tuple = (
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
         "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "gallery_source", "marker",
-        "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size",
+        "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size", "card_img_fit",
         "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
         "overline", "overline_size", "hero_align",
         "featured_glow",
@@ -242,6 +242,7 @@ class BlockPatch(BaseModel):
     icon_size: Optional[int] = None
     gallery_source: Optional[str] = None
     gallery_tags: Optional[list] = None
+    card_img_fit: Optional[str] = None
     card_img_radius_x: Optional[int] = None
     card_img_radius_y: Optional[int] = None
     card_img_ratio: Optional[float] = None

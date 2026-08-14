@@ -1027,7 +1027,7 @@ function BlockBody({
                 // случайной рамкой.
                 <div className="p-4 pb-0">
                   <img src={c.image} alt="" loading="lazy"
-                       className="mx-auto block object-cover"
+                       className="mx-auto block"
                        style={{
                          // Ширина фото в % от карточки — иначе фото всегда
                          // занимало её целиком и выглядело громоздким.
@@ -1035,6 +1035,11 @@ function BlockBody({
                          aspectRatio: String(block.card_img_ratio || 1.6),
                          borderRadius: `${block.card_img_radius_x || 0}% / ${block.card_img_radius_y || 0}%`,
                          background: 'rgba(255,255,255,.06)',
+                         // ⚠️ «Вписать целиком» (contain) вместо обрезки: на
+                         // скриншотах важны ЦИФРЫ по краям, а `cover` режет
+                         // их вместе с краями кадра. Обрезка остаётся
+                         // выбором — `card_img_fit='crop'`.
+                         objectFit: block.card_img_fit === 'crop' ? 'cover' : 'contain',
                        }} />
                 </div>
               )}
