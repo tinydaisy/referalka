@@ -3048,6 +3048,101 @@ def _fmt_num(v):
     return ("%.3f" % f).rstrip("0").rstrip(".")
 
 
+@router.get("/t/{slug}", response_class=HTMLResponse, include_in_schema=False)
+async def public_tournament_index(slug: str, db: asyncpg.Connection = Depends(get_db)):
+    """Сводная страница: перечень ВСЕХ номинаций/туров → таблица каждой.
+
+    Зачем. Таблица есть только у конкретной номинации (`/t/{slug}/{stage_id}`),
+    и при 70 номинациях это 70 разных ссылок — раздать их аудитории невозможно.
+    Здесь одна ссылка на всю премию, внутри — список с группировкой по
+    категориям и переходом в нужную таблицу.
+
+    ⚠️ Показываем только номинации «с турниром»: у которых задана аудитория
+       (`listen_audiences`) ЛИБО есть поимённо привязанные люди. Иначе в список
+       попадут организационные этапы без участников, и он станет мусорным.
+    """
+    event = await _resolve_event(db, slug)
+    if not event or (event.get("module_slug") != "turnir"):
+        raise HTTPException(status_code=404, detail="Турнир не найден")
+    event_id = event["id"]
+
+    stages = await db.fetch(
+        """SELECT s.id, s.title, s.subtitle, s.category_id,
+                  (SELECT count(*) FROM event_collaborator_stages ecs WHERE ecs.stage_id = s.id) AS people
+             FROM conf_stages s
+            WHERE s.event_id = $1
+              AND (COALESCE(array_length(s.listen_audiences, 1), 0) > 0
+                   OR EXISTS (SELECT 1 FROM event_collaborator_stages e2 WHERE e2.stage_id = s.id))
+            ORDER BY s.sort_order, s.id""",
+        event_id)
+    cats = await db.fetch(
+        "SELECT id, title FROM conf_stage_categories WHERE event_id=$1 ORDER BY sort_order, id",
+        event_id)
+
+    cli = await db.fetchrow(
+        "SELECT name, brand_name, brand_logo_url FROM clients WHERE id=$1",
+        event["client_id"]) if event.get("client_id") else None
+    brand = esc((cli["brand_name"] if cli else None) or (cli["name"] if cli else None) or "")
+    brand_logo = (cli["brand_logo_url"] if cli else None) or ""
+
+    def _card(s) -> str:
+        sub = f"<div class='n-sub'>{esc(s['subtitle'])}</div>" if s["subtitle"] else ""
+        ppl = f"<span class='n-cnt'>{s['people']} участн.</span>" if s["people"] else ""
+        return (f"<a class='n-card' href='/t/{esc(slug)}/{s['id']}'>"
+                f"<div class='n-ttl'>{esc(s['title'])}</div>{sub}"
+                f"<div class='n-row'>{ppl}<span class='n-go'>Таблица →</span></div></a>")
+
+    by_cat: dict = {}
+    for s in stages:
+        by_cat.setdefault(s["category_id"], []).append(s)
+
+    blocks = []
+    for c in cats:
+        items = by_cat.get(c["id"])
+        if items:
+            blocks.append(f"<h2 class='n-cat'>{esc(c['title'])}</h2><div class='n-grid'>"
+                          + "".join(_card(s) for s in items) + "</div>")
+    orphan = by_cat.get(None)
+    if orphan:
+        title = "<h2 class='n-cat'>Без категории</h2>" if blocks else ""
+        blocks.append(title + "<div class='n-grid'>" + "".join(_card(s) for s in orphan) + "</div>")
+
+    body = "".join(blocks) or "<div class='n-empty'>Номинации пока не опубликованы.</div>"
+    logo = f"<img src='{esc(brand_logo)}' alt='' class='n-logo'>" if brand_logo else ""
+
+    html = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(event.get('title') or 'Турнир')} — номинации</title>
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;font-family:Roboto,system-ui,-apple-system,sans-serif;
+     background:linear-gradient(45deg,#25455D,#0a1520);color:#fff;min-height:100vh;padding:24px 16px 48px}}
+.n-wrap{{max-width:1000px;margin:0 auto}}
+.n-head{{display:flex;align-items:center;gap:12px;margin-bottom:8px}}
+.n-logo{{height:40px;width:auto;border-radius:8px}}
+h1{{font-size:24px;margin:0;font-weight:800}}
+.n-brand{{color:#FFCFA4;font-size:13px;margin-bottom:24px}}
+.n-cat{{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#FFCFA4;
+        margin:28px 0 10px;font-weight:700}}
+.n-grid{{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}}
+.n-card{{display:block;background:rgba(255,255,255,.06);border:1px solid rgba(255,207,164,.25);
+         border-radius:12px;padding:14px;text-decoration:none;color:#fff;transition:.15s}}
+.n-card:hover{{background:rgba(255,255,255,.12);border-color:#FFCFA4}}
+.n-ttl{{font-weight:700;font-size:15px;margin-bottom:4px}}
+.n-sub{{font-size:12px;color:rgba(255,255,255,.65);margin-bottom:6px}}
+.n-row{{display:flex;align-items:center;gap:8px;margin-top:8px}}
+.n-cnt{{font-size:12px;color:rgba(255,255,255,.6)}}
+.n-go{{margin-left:auto;font-size:12px;color:#FFCFA4;font-weight:700}}
+.n-empty{{padding:40px;text-align:center;color:rgba(255,255,255,.6)}}
+@media(max-width:480px){{h1{{font-size:20px}}}}
+</style></head><body><div class="n-wrap">
+<div class="n-head">{logo}<h1>{esc(event.get('title') or 'Турнир')}</h1></div>
+<div class="n-brand">{brand}</div>
+{body}
+</div></body></html>"""
+    return HTMLResponse(html)
+
+
 @router.get("/t/{slug}/{stage_id}", response_class=HTMLResponse, include_in_schema=False)
 async def public_tournament_table(slug: str, stage_id: int,
                                   db: asyncpg.Connection = Depends(get_db)):

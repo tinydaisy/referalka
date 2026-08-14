@@ -4,6 +4,8 @@ import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, Camera, Pencil, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react'
+// Выбор номинации/тура — список с поиском: при 70 номинациях <select> непригоден.
+import StagePicker from '@/components/tournament/StagePicker'
 
 // ISO-строку из БД (с tz, обычно UTC) → строка для <input datetime-local> в МСК.
 // Бэк хранит lead_count_since в TIMESTAMPTZ и трактует ВВОД как МСК, поэтому в
@@ -30,6 +32,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [packages, setPackages] = useState<any[]>([])
   const [stages, setStages] = useState<any[]>([])
+  const [stageCats, setStageCats] = useState<any[]>([])
   const [days, setDays] = useState<any[]>([])
 
   const [stageFilter, setStageFilter] = useState<number | null>(null)
@@ -46,6 +49,9 @@ function CriteriaSub({ eventId }: { eventId: number }) {
       const r = await api.tournament.criteria(eventId)
       const st = r.stages || []
       setPackages(r.packages || []); setStages(st)
+      // Категории — чтобы в списке номинаций работала группировка и фильтр.
+      api.conference.stageCategories.list(eventId)
+        .then((c: any) => setStageCats(c.categories || [])).catch(() => {})
       if (!stagesInit) {
         setStagesInit(true)
         if (st.length > 0 && stageFilter == null) setStageFilter(st[0].id)
@@ -97,12 +103,11 @@ function CriteriaSub({ eventId }: { eventId: number }) {
       </p>
       {stages.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-gray-500">Этап:</span>
-          <select className="border rounded-lg px-2 py-1.5" value={stageFilter ?? ''}
-            onChange={(e) => setStageFilter(e.target.value ? Number(e.target.value) : null)}>
-            {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-          </select>
-          <span className="text-xs text-gray-400">— пакеты выбранного этапа (и общие «весь турнир»)</span>
+          <div className="min-w-[260px]">
+            <StagePicker stages={stages as any} categories={stageCats}
+              value={stageFilter} onChange={setStageFilter} label="" />
+          </div>
+          <span className="text-xs text-gray-400">— пакеты выбранной номинации (и общие «весь турнир»)</span>
           {stageFilter != null && (
             <a href={`/t/${eventId}/${stageFilter}/reglament`} target="_blank" rel="noopener noreferrer"
               className="ml-auto inline-flex items-center gap-1 text-xs text-[#25455D] underline">
@@ -154,6 +159,20 @@ function PackageCard({ eventId, pkg, stages, days, defaultStage, onChange }: any
     if (!confirm(`Удалить пакет «${pkg.title}» со всеми критериями и оценками?`)) return
     await api.tournament.deletePackage(eventId, pkg.id); onChange()
   }
+  // Копирование набора критериев в другие номинации. При премии на 70 номинаций
+  // критерии часто одинаковые — заводить их руками в каждой нереально.
+  const copyToOthers = async () => {
+    if (pkg.stage_id == null) {
+      alert('Этот пакет уже общий на весь турнир — он и так виден во всех номинациях.')
+      return
+    }
+    const others = (stages || []).filter((s: any) => s.id !== pkg.stage_id)
+    if (!others.length) { alert('Других номинаций пока нет.'); return }
+    if (!confirm(`Скопировать «${pkg.title}» со всеми критериями во все остальные номинации (${others.length})?\n\nОценки не копируются. Там, где пакет с таким названием уже есть, копия не создастся.`)) return
+    const r = await api.tournament.copyPackage(eventId, pkg.id, { to_all: true })
+    alert(`Скопировано: ${r.copied}${r.skipped ? `. Пропущено (уже есть): ${r.skipped}` : ''}`)
+    onChange()
+  }
   const addCrit = async () => {
     const title = prompt('Название критерия:')
     if (!title?.trim()) return
@@ -187,7 +206,12 @@ function PackageCard({ eventId, pkg, stages, days, defaultStage, onChange }: any
             {SCHEMES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </label>
-        <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+        <button onClick={copyToOthers}
+          className="ml-auto text-xs px-2 py-1 border rounded-lg text-gray-600 hover:bg-gray-50"
+          title="Скопировать этот набор критериев в другие номинации/туры">
+          Скопировать во все номинации
+        </button>
+        <button onClick={delPkg} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
       <div className="space-y-2">
         {(pkg.criteria || []).map((c: any) => <CriterionRow key={c.id} eventId={eventId} crit={c} stages={stages} days={days} onChange={onChange} />)}
@@ -519,11 +543,11 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
       <p className="text-sm text-gray-500 mb-2">Отметьте, кого оценивает каждое жюри на выбранном этапе. Жюри видит в кабинете только привязанных к нему.</p>
       {(data.stages || []).length > 0 && (
         <div className="flex items-center gap-2 text-sm mb-2">
-          <span className="text-gray-500">Этап:</span>
-          <select className="border rounded-lg px-2 py-1.5" value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}>
-            {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-          </select>
-          <span className="text-xs text-gray-400">— распределение отдельное на каждом этапе</span>
+          <div className="min-w-[260px]">
+            <StagePicker stages={data.stages as any} value={stageId}
+              onChange={setStageId} label="" />
+          </div>
+          <span className="text-xs text-gray-400">— распределение отдельное на каждой номинации</span>
         </div>
       )}
       <div className="overflow-auto border rounded-xl" style={{ WebkitOverflowScrolling: 'touch', maxHeight: '70vh' }}>
@@ -710,10 +734,13 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
   // иначе при отфильтрованной аудитории нельзя вернуть участников.
   const controls = (
     <div className="flex flex-wrap items-center gap-2 mb-3">
-      <select className="text-sm border rounded-lg px-2 py-1.5" value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}>
-        {stages.length === 0 && <option value="">Весь турнир</option>}
-        {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-      </select>
+      {stages.length === 0 ? (
+        <span className="text-sm text-gray-500">Весь турнир</span>
+      ) : (
+        <div className="min-w-[240px]">
+          <StagePicker stages={stages as any} value={stageId} onChange={setStageId} label="" />
+        </div>
+      )}
       {stageId != null && (
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-gray-500">Показывать в таблице:</span>
@@ -955,11 +982,10 @@ function JuryReviewSub({ eventId }: { eventId: number }) {
       {/* Селектор этапа */}
       {(data.stages || []).length > 0 && (
         <div className="mb-4">
-          <select value={stageId ?? ''} onChange={e => { setStageId(e.target.value ? Number(e.target.value) : null); resetOpen() }}
-            className="px-3 py-2 rounded-lg text-sm font-bold text-[#FFCFA4] cursor-pointer border-none"
-            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            {data.stages.map((s: any) => <option key={s.id} value={s.id} className="text-[#1a2a3a] bg-white font-normal">{s.title}</option>)}
-          </select>
+          <div className="max-w-sm">
+            <StagePicker stages={data.stages as any} value={stageId}
+              onChange={(id) => { setStageId(id); resetOpen() }} label="" />
+          </div>
         </div>
       )}
 

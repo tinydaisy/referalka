@@ -2842,6 +2842,11 @@ function JudgingTab({ token }: { token: string }) {
   const [data, setData] = useState<any>(null)
   const [stageId, setStageId] = useState<number | null>(null)
   const [open, setOpen] = useState<string | null>(null)
+  // Два способа смотреть ОДНИ И ТЕ ЖЕ назначения (как в «Оценках жюри» у организатора):
+  // 'stage'  — номинация → её участники (как было);
+  // 'person' — участник → все его номинации (номинант часто в нескольких сразу).
+  const [mode, setMode] = useState<'stage' | 'person'>('stage')
+  const [byPerson, setByPerson] = useState<any>(null)
   // Ссылки на textarea обратной связи по каждому участнику — чтобы при фиксации
   // читать актуальный введённый текст (а не только сохранённый onBlur).
   const fbRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
@@ -2864,6 +2869,15 @@ function JudgingTab({ token }: { token: string }) {
       }).finally(() => setLoading(false))
   }, [token, stageId])
   useEffect(() => { load() }, [load])
+
+  // Обратный срез грузим только когда он реально нужен — лишний запрос при
+  // открытии кабинета не делаем.
+  useEffect(() => {
+    if (mode !== 'person' || byPerson) return
+    fetch(`${API}/api/v1/public/tournament-jury/me/by-person`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(r => r.json()).then(setByPerson).catch(() => {})
+  }, [mode, byPerson, token])
 
   const scoreVal = (criterionId: number, key: string): string => {
     const s = (data?.my_scores || []).find((x: any) => x.criterion_id === criterionId && x.key === key)
@@ -3006,10 +3020,31 @@ function JudgingTab({ token }: { token: string }) {
       {/* Плашка вверху вкладки: оценки видны, но сохранять их нельзя */}
       {!canEdit && <ModuleLockedBanner />}
 
+      {/* Две подвкладки — как в «Оценках жюри» у организатора: одни и те же
+          назначения, разная группировка. Номинант часто участвует в нескольких
+          номинациях, и пройти его целиком удобнее одним заходом. */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {([['stage', 'По номинациям'], ['person', 'По участникам']] as const).map(([m, label]) => (
+          <button key={m} type="button" onClick={() => setMode(m)}
+            style={{
+              padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
+              border: `1px solid ${mode === m ? DARK : '#d4dee5'}`,
+              background: mode === m ? 'linear-gradient(45deg, #25455D, #0a1520)' : '#fff',
+              color: mode === m ? PEACH : DARK, fontWeight: mode === m ? 800 : 500,
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'person' ? (
+        <ByPersonView byPerson={byPerson} eventSlug={eventSlug} />
+      ) : (
+      <>
       {data.stages?.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          {/* Этапы — вкладками (как в «Моём слоте»): выпадающий список читался как
-              обычный заголовок, было не видно, что его надо разворачивать. */}
+          {/* Номинации — вкладками при небольшом числе; при 12+ показываем
+              выпадающий список с поиском (у премии их бывает 70). */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap',
             borderBottom: '1px solid #e1e8ee', paddingBottom: 10, marginBottom: 10 }}>
             {data.stages.map((s: any) => {
@@ -3135,6 +3170,83 @@ function JudgingTab({ token }: { token: string }) {
       })}
        </>
       )}
+      </>
+      )}
+    </div>
+  )
+}
+
+/** Обратный срез кабинета жюри: участник → все его номинации.
+ *
+ * ⚠️ Это ТОЛЬКО другой способ посмотреть — оценки ставятся в режиме
+ *    «По номинациям». Здесь жюри видит, где человек участвует и что уже
+ *    оценено, и одним нажатием переходит к нужной номинации. Дублировать
+ *    поля ввода нельзя: два независимых набора инпутов на одни и те же
+ *    баллы разошлись бы между собой.
+ */
+function ByPersonView({ byPerson, eventSlug }: { byPerson: any; eventSlug: string }) {
+  const [open, setOpen] = useState<string | null>(null)
+  if (!byPerson) return <div style={{ padding: 20, textAlign: 'center', color: '#7a8c9c' }}>Загрузка…</div>
+  const people = byPerson.people || []
+  if (!people.length) {
+    return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14, background: '#f8fafc', borderRadius: 10 }}>
+      Вам пока не назначили участников для оценки.
+    </div>
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>
+        Всего участников у вас: {people.length}. Нажмите на человека — увидите все его номинации.
+      </div>
+      {people.map((p: any) => {
+        const isOpen = open === p.key
+        return (
+          <div key={p.key} style={{ border: `2px solid ${PEACH}`, borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+            <div onClick={() => setOpen(isOpen ? null : p.key)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '12px 14px',
+                       background: 'linear-gradient(135deg, #fff3e6, #ffe8d1)' }}>
+              <b style={{ color: DARK }}>{p.name}</b>
+              <span style={{ fontSize: 12, color: '#7a6a55' }}>· номинаций: {(p.stages || []).length}</span>
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                             width: 24, height: 24, borderRadius: '50%', background: DARK, color: PEACH,
+                             fontSize: 14, fontWeight: 800, transform: isOpen ? 'none' : 'rotate(-90deg)',
+                             transition: 'transform .15s', flexShrink: 0 }}>▾</span>
+            </div>
+            {isOpen && (
+              <div style={{ padding: '12px 14px', background: '#fff' }}>
+                {p.material && (
+                  <a href={p.material} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 13, color: DARK, textDecoration: 'underline', fontWeight: 700 }}>
+                    🔗 Смотреть материалы участника
+                  </a>
+                )}
+                <div style={{ marginTop: p.material ? 10 : 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {(p.stages || []).map((st: any) => {
+                    const crits = (byPerson.criteria_by_stage || {})[String(st.id)] || []
+                    return (
+                      <div key={`${p.key}-${st.id}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                                 border: '1px solid #e1e8ee', borderRadius: 8 }}>
+                        <span style={{ fontSize: 13, color: DARK, fontWeight: 600 }}>{st.title}</span>
+                        <span style={{ fontSize: 12, color: '#7a8c9c' }}>· критериев: {crits.length}</span>
+                        {st.id && eventSlug && (
+                          <a href={`/t/${eventSlug}/${st.id}`} target="_blank" rel="noreferrer"
+                            style={{ marginLeft: 'auto', fontSize: 12, color: DARK, textDecoration: 'underline' }}>
+                            таблица
+                          </a>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ marginTop: 10, fontSize: 12, color: '#7a8c9c' }}>
+                  Чтобы поставить баллы — перейдите на вкладку «По номинациям» и выберите нужную.
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

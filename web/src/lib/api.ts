@@ -1298,6 +1298,9 @@ export const api = {
       request(`/api/v1/events/${eventId}/tournament/packages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     deletePackage: (eventId: number, id: number) =>
       request(`/api/v1/events/${eventId}/tournament/packages/${id}`, { method: 'DELETE' }),
+    // Копирование пакета критериев в другие номинации (премия: критерии часто одинаковые).
+    copyPackage: (eventId: number, id: number, data: { stage_ids?: number[]; to_all?: boolean }) =>
+      request(`/api/v1/events/${eventId}/tournament/packages/${id}/copy`, { method: 'POST', body: JSON.stringify(data) }),
     createCriterion: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/tournament/criteria`, { method: 'POST', body: JSON.stringify(data) }),
     updateCriterion: (eventId: number, id: number, data: any) =>

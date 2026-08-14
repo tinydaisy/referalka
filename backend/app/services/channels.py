@@ -521,7 +521,7 @@ async def get_client_vk_token(client_id: int, db) -> Optional[str]:
 
 async def notify_organizer_all_channels(
     client_id: int, text_html: str, db, *, text_plain: Optional[str] = None,
-    kind: str = "general",
+    kind: str = "general", skip_telegram: bool = False,
 ) -> dict:
     """ЕДИНАЯ точка отправки уведомления организатору во ВСЕ его каналы уведомлений:
     Telegram + MAX + VK. Уведомление ДУБЛИРУЕТСЯ в каждый заполненный канал,
@@ -565,7 +565,11 @@ async def notify_organizer_all_channels(
     plain = text_plain or _strip_html(text_html)
 
     # ── Telegram ──
-    if row["notifications_telegram_chat_id"]:
+    # skip_telegram=True — TG-ветку шлёт сам вызывающий (реф-программа ПЛЮСОНа
+    # отправляет @pluson_bot, а не VIP-ботом клиента); здесь бы вышел дубль.
+    if skip_telegram:
+        pass
+    elif row["notifications_telegram_chat_id"]:
         result["tg"] = await send_to_notifications_channel(
             client_id, row["notifications_telegram_chat_id"], text_html, db
         )

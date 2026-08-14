@@ -689,6 +689,82 @@ async def create_package(event_id: int, data: PackageIn, client=Depends(get_curr
     return {"package": dict(p)}
 
 
+class PackageCopyIn(BaseModel):
+    """Копирование пакета критериев в другие номинации.
+
+    `stage_ids` пуст + `to_all=True` → во ВСЕ номинации события, кроме своей.
+    """
+    stage_ids: Optional[List[int]] = None
+    to_all: bool = False
+
+
+@router.post("/packages/{package_id}/copy", summary="Скопировать пакет критериев в другие номинации")
+async def copy_package(event_id: int, package_id: int, data: PackageCopyIn,
+                       client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Копирует пакет вместе с критериями в выбранные номинации/туры.
+
+    ⚠️ Копируются только НАСТРОЙКИ (пакет + критерии), НЕ оценки: выставленные
+       баллы принадлежат конкретной номинации и переносу не подлежат.
+
+    ⚠️ Пакет с `stage_id IS NULL` («весь турнир») копировать незачем — он и так
+       виден во всех номинациях. Об этом сообщаем явно, а не копируем молча.
+    """
+    await _check_access(event_id, int(client["sub"]), db, write=True)
+    src = await db.fetchrow(
+        "SELECT * FROM tournament_packages WHERE id=$1 AND event_id=$2", package_id, event_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="Пакет не найден")
+    if src["stage_id"] is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Этот пакет уже общий на весь турнир — он и так виден во всех номинациях.")
+
+    if data.to_all:
+        targets = [r["id"] for r in await db.fetch(
+            "SELECT id FROM conf_stages WHERE event_id=$1 AND id <> $2 ORDER BY sort_order, id",
+            event_id, src["stage_id"])]
+    else:
+        targets = [s for s in (data.stage_ids or []) if s != src["stage_id"]]
+        if targets:
+            ok = await db.fetch(
+                "SELECT id FROM conf_stages WHERE event_id=$1 AND id = ANY($2::int[])", event_id, targets)
+            targets = [r["id"] for r in ok]
+    if not targets:
+        raise HTTPException(status_code=422, detail="Не выбрано ни одной номинации для копирования")
+
+    crits = await db.fetch(
+        "SELECT * FROM tournament_criteria WHERE package_id=$1 ORDER BY sort_order, id", package_id)
+
+    copied = 0
+    async with db.transaction():
+        for sid in targets:
+            # Пакет с таким же названием в этой номинации уже есть → пропускаем,
+            # иначе повторное копирование задвоит критерии.
+            dup = await db.fetchval(
+                "SELECT 1 FROM tournament_packages WHERE event_id=$1 AND stage_id=$2 AND LOWER(TRIM(title))=LOWER(TRIM($3))",
+                event_id, sid, src["title"])
+            if dup:
+                continue
+            new_pkg = await db.fetchval(
+                """INSERT INTO tournament_packages
+                     (event_id, title, weight, scheme, normalize, aggregate, sort_order, stage_id, is_active)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING id""",
+                event_id, src["title"], src["weight"], src["scheme"],
+                src["normalize"], src["aggregate"], src["sort_order"], sid)
+            for c in crits:
+                await db.execute(
+                    """INSERT INTO tournament_criteria
+                         (package_id, event_id, title, description, scorer, auto_kind,
+                          scale_max, scale_min, weight, sort_order, is_active,
+                          code_phrase, lead_count_since, webinar_day, stage_id)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,$12,$13,$14)""",
+                    new_pkg, event_id, c["title"], c["description"], c["scorer"], c["auto_kind"],
+                    c["scale_max"], c["scale_min"], c["weight"], c["sort_order"],
+                    c["code_phrase"], c["lead_count_since"], c["webinar_day"], sid)
+            copied += 1
+    return {"ok": True, "copied": copied, "skipped": len(targets) - copied}
+
+
 class PackageUpdate(BaseModel):
     title: Optional[str] = None
     weight: Optional[float] = None
@@ -1901,6 +1977,68 @@ SCORE_COMMENT_MIN_WORDS = 7
 
 def _words(text: Optional[str]) -> int:
     return len((text or "").split())
+
+
+@jury_router.get("/me/by-person", summary="Кабинет жюри: мои люди со списком их номинаций")
+async def jury_by_person(session=Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
+    """Обратный срез кабинета жюри: не «номинация → люди», а «человек → его номинации».
+
+    Зачем. Один номинант участвует в нескольких номинациях, и жюри удобнее пройти
+    его целиком за один раз, а не искать по каждой номинации отдельно.
+    Данные ТЕ ЖЕ (`tournament_jury_assignments`), меняется только группировка —
+    поэтому оценки и фиксация полностью совместимы с обычным режимом.
+    """
+    juror = await _ensure_juror(session, db)
+    event_id = juror["event_id"]; juror_ec_id = juror["id"]
+
+    assigns = await db.fetch(
+        """SELECT a.subject_kind, a.subject_id, a.stage_id, cs.title AS stage_title, cs.sort_order
+             FROM tournament_jury_assignments a
+             LEFT JOIN conf_stages cs ON cs.id = a.stage_id
+            WHERE a.event_id=$1 AND a.juror_ec_id=$2
+            ORDER BY cs.sort_order NULLS LAST, a.stage_id""",
+        event_id, juror_ec_id)
+    if not assigns:
+        return {"people": [], "criteria_by_stage": {}}
+
+    # Имена берём тем же _subjects, что и основной режим — иначе списки разойдутся.
+    stage_ids = sorted({a["stage_id"] for a in assigns})
+    names: dict = {}
+    subj_extra: dict = {}
+    for sid in stage_ids:
+        for s in await _subjects(event_id, db, stage_id=sid):
+            names[s["key"]] = s["name"]
+            subj_extra[s["key"]] = {"material": s.get("material")}
+
+    # Критерии на каждую номинацию (пакеты этапа + общие «весь турнир»).
+    criteria_by_stage: dict = {}
+    for sid in stage_ids:
+        rows = await db.fetch(
+            """SELECT tc.id, tc.title, tc.description, tc.scale_max, tc.scale_min, tc.sort_order
+                 FROM tournament_criteria tc
+                 JOIN tournament_packages tp ON tp.id = tc.package_id
+                WHERE tc.event_id=$1 AND tc.is_active AND tp.is_active
+                  AND tc.scorer='jury'
+                  AND (tp.stage_id = $2 OR tp.stage_id IS NULL)
+                ORDER BY tp.sort_order, tc.sort_order, tc.id""",
+            event_id, sid)
+        criteria_by_stage[str(sid)] = [dict(r) for r in rows]
+
+    people: dict = {}
+    for a in assigns:
+        key = _skey(a["subject_kind"], a["subject_id"])
+        if key not in names:
+            continue  # человек не проходит по аудитории этой номинации
+        p = people.setdefault(key, {
+            "key": key, "name": names[key],
+            "material": (subj_extra.get(key) or {}).get("material"),
+            "stages": [],
+        })
+        p["stages"].append({"id": a["stage_id"], "title": a["stage_title"] or "Без номинации"})
+
+    # «Фамилия Имя» уже пришла из _subjects — сортируем по ней как есть.
+    out = sorted(people.values(), key=lambda x: (x["name"] or "").lower())
+    return {"people": out, "criteria_by_stage": criteria_by_stage}
 
 
 @jury_router.post("/score", summary="Кабинет жюри: поставить балл")

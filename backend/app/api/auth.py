@@ -277,6 +277,30 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
     _asyncio.create_task(_send_welcome_email_bg(client["id"]))
 
+    # Уведомление ОСНОВАТЕЛЮ ПЛЮСОНа о новом клиенте платформы — тоже в фоне
+    # (мессенджеры отвечают не мгновенно, регистрация ждать не должна).
+    async def _notify_founder_bg(cid: int, cname: str, cemail: str,
+                                 cphone, ctg, cref):
+        try:
+            from app.database import get_pool
+            from app.services.plusson_referral_notify import notify_founder_new_client
+            pool = await get_pool()
+            if pool is None:
+                return
+            async with pool.acquire() as conn:
+                await notify_founder_new_client(
+                    conn, new_client_id=cid, name=cname, email=cemail,
+                    phone=cphone, telegram_username=ctg,
+                    referrer_client_id=cref,
+                )
+        except Exception:
+            pass  # уведомление не влияет на регистрацию
+
+    _asyncio.create_task(_notify_founder_bg(
+        client["id"], data.name, data.email, data.phone,
+        data.telegram_username, referred_by_client_id,
+    ))
+
     return {
         "access_token": token,
         "token_type": "bearer",
