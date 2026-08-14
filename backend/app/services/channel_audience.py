@@ -88,11 +88,14 @@ async def channel_audience(db, client_id: int, social: Optional[dict]) -> dict:
     max_ids = [str(c.get("chat_id") or "") for c in _channels(social, "max_channels")]
     vk_group = str((social if isinstance(social, dict) else {}).get("vk_group_id") or "")
 
-    tg_token, max_token, vk_token = await asyncio.gather(
-        get_client_telegram_token(client_id, db),
-        get_client_max_token(client_id, db),
-        get_client_vk_token(client_id, db),
-    )
+    # ⚠️ Токены берём ПОСЛЕДОВАТЕЛЬНО. Одно соединение asyncpg не выполняет
+    # несколько запросов разом — параллельный gather роняет ручку с ошибкой
+    # «another operation is in progress», и карточка не грузится вовсе.
+    # Параллелить можно только сетевые вызовы к площадкам (ниже) — они к базе
+    # не обращаются.
+    tg_token = await get_client_telegram_token(client_id, db)
+    max_token = await get_client_max_token(client_id, db)
+    vk_token = await get_client_vk_token(client_id, db)
 
     tasks = []
     if tg_token:
