@@ -115,7 +115,9 @@ export default function ConferencePage() {
     {
       key: 'people', label: 'Люди',
       tabs: [
-        { id: 'speakers',      label: t.conferences.tabs.speakers },
+        // У премии/турнира участник — не «спикер», а номинант: он может вообще
+        // не выступать. Слово в интерфейсе меняем, сущность та же.
+        { id: 'speakers',      label: isTournament ? 'Спикеры/Номинанты' : t.conferences.tabs.speakers },
         { id: 'speaker_links', label: 'Ссылки спикеров' },
         { id: 'participants',  label: t.conferences.tabs.participants },
       ],
