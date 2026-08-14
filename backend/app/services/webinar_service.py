@@ -180,7 +180,7 @@ async def speaker_follow_card(db, event_id: int, ec_id: Optional[int]) -> Option
     if not ec_id:
         return None
     row = await db.fetchrow(
-        "SELECT ec.id AS ec_id, c.name, c.tg_channel_url, c.vk_url, c.max_url, c.photo_url "
+        "SELECT ec.id AS ec_id, btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.tg_channel_url, c.vk_url, c.max_url, c.photo_url "
         "FROM event_collaborators ec JOIN collaborators c ON c.id = ec.speaker_id "
         "WHERE ec.id = $1 AND ec.event_id = $2",
         ec_id, event_id,
@@ -210,7 +210,7 @@ async def speaker_gift_card(db, event_id: int, ec_id: Optional[int]) -> Optional
         return None
     # имя спикера
     name = await db.fetchval(
-        "SELECT col.name FROM event_collaborators ec JOIN collaborators col ON col.id=ec.speaker_id "
+        "SELECT btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'') ELSE COALESCE(col.name,'')||' '||COALESCE(col.last_name,'') END) FROM event_collaborators ec JOIN collaborators col ON col.id=ec.speaker_id "
         "WHERE ec.id=$1 AND ec.event_id=$2", ec_id, event_id)
 
     gifts = []

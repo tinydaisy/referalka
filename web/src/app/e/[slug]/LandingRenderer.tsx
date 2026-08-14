@@ -773,8 +773,12 @@ function Section({
           <>
             {heading}
             {subtitle}
+            {/* ⚠️ Текст секции выравнивается ТОЙ ЖЕ настройкой, что заголовок.
+                Раньше она двигала только заголовок: клиент ставил «по центру»,
+                а абзац под ним оставался прижатым влево — выглядело как
+                недоделка. */}
             {body && <p className="mt-4 whitespace-pre-wrap opacity-90"
-                        style={textSizeStyle}>{body}</p>}
+                        style={{ ...textSizeStyle, textAlign: align as any }}>{body}</p>}
             {/* Отступ нужен, только когда выше реально что-то есть: у голого
                 элемента-кнопки заголовка и текста нет, и mt-8 давал дыру. */}
             <div className={heading || subtitle || body ? 'mt-8' : ''}

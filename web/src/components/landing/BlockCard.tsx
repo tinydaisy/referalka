@@ -852,7 +852,7 @@ export default function BlockCard({
                     дата, кнопка). Пока кнопки писали сюда title_align, в
                     шапке они молча ничего не меняли. Дефолт у шапки center,
                     у остальных блоков left. */}
-                <Field label={block.kind === 'hero' ? 'Где стоит текст' : 'Выравнивание заголовка'}>
+                <Field label={block.kind === 'hero' ? 'Где стоит текст' : 'Выравнивание текста секции'}>
                   <div className="flex gap-2">
                     {([
                       ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа'],

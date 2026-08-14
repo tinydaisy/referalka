@@ -139,6 +139,8 @@ class CollaboratorCreate(BaseModel):
     contact_id: int
     # name опционален — если не передан, берётся из contacts.name
     name: Optional[str] = None
+    # Фамилия отдельным полем (миграция 302). Пусто у компаний и партнёров-организаций.
+    last_name: Optional[str] = None
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
@@ -174,6 +176,7 @@ class CollaboratorCreate(BaseModel):
 
 class CollaboratorUpdate(BaseModel):
     name: Optional[str] = None
+    last_name: Optional[str] = None
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
@@ -224,7 +227,8 @@ def row_to_dict(row):
 # отдаёт под старыми именами personal_{tg,vk,max}_id / _username, чтобы UI
 # и Mini App не пришлось менять.
 _COLLAB_SELECT = """
-    c.id, c.name, c.title, c.achievements,
+    c.id, btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.last_name,'')||' '||COALESCE(c.name,'') END) AS name, c.name AS first_name, c.last_name,
+    c.title, c.achievements,
     c.photo_url,
     (SELECT url FROM collaborator_posters cp
        WHERE cp.collaborator_id = c.id
@@ -267,13 +271,13 @@ async def list_collaborators(
     if q:
         rows = await db.fetch(
             f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} "
-            f"WHERE c.created_by_client_id = $1 AND c.name ILIKE $2 ORDER BY c.name",
+            f"WHERE c.created_by_client_id = $1 AND (c.name ILIKE $2 OR COALESCE(c.last_name,'') ILIKE $2) ORDER BY NULLIF(btrim(COALESCE(c.last_name,'')),'') ASC NULLS LAST, c.name ASC",
             client_id, f"%{q}%"
         )
     else:
         rows = await db.fetch(
             f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} "
-            f"WHERE c.created_by_client_id = $1 ORDER BY c.name",
+            f"WHERE c.created_by_client_id = $1 ORDER BY NULLIF(btrim(COALESCE(c.last_name,'')),'') ASC NULLS LAST, c.name ASC",
             client_id
         )
     return {"collaborators": [row_to_dict(r) for r in rows]}
@@ -309,18 +313,27 @@ async def create_collaborator(
             detail=f"У этого контакта уже есть коллаборатор (id={existing}). Откройте его карточку."
         )
     name = (data.name or contact["name"] or "").strip() or "Без имени"
+    # Фамилия (миграция 302). Если клиент её не передал, а имя пришло из контакта
+    # одной строкой («Марго Форбс») — отделяем последнее слово как фамилию.
+    # Это лучшая догадка на входе: карточку всегда можно поправить руками,
+    # а вот список без фамилии не отсортируется.
+    last_name = (data.last_name or "").strip() or None
+    if last_name is None and not data.name:
+        parts = name.split()
+        if len(parts) == 2:
+            name, last_name = parts[0], parts[1]
     access_code = await _generate_unique_access_code(db)
     media_assets = _normalize_media_assets(data.media_assets) or []
     new_id = await db.fetchval(
         """INSERT INTO collaborators
-           (contact_id, name, title, achievements,
+           (contact_id, name, last_name, title, achievements,
             photo_url, photo_folder_url, video_folder_url,
             tg_channel_url, vk_url, max_url, instagram_url, website_url,
             tg_channel_id, assistant_tg_username,
             access_code, media_assets,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17) RETURNING id""",
-        data.contact_id, name, data.title, data.achievements,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18) RETURNING id""",
+        data.contact_id, name, last_name, data.title, data.achievements,
         data.photo_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
         data.tg_channel_id, normalize_tg_username(data.assistant_tg_username),
@@ -670,6 +683,12 @@ async def update_collaborator(
     client_id = int(client["sub"])
     _validate_social_links(data)
     updates_full = {k: v for k, v in data.model_dump().items() if v is not None}
+    # ⚠️ last_name должна уметь ОЧИЩАТЬСЯ: у компаний и партнёров-организаций
+    # фамилии нет. Фильтр `v is not None` выше пустое значение выбрасывает,
+    # поэтому пустую строку возвращаем явно (тот же приём, что с nullable-полями
+    # профиля клиента через model_fields_set).
+    if "last_name" in data.model_fields_set and not data.last_name:
+        updates_full["last_name"] = None
     # Личные идентичности TG/VK/MAX живут в platform_users (миграция 107),
     # а не в collaborators. Отделяем их из updates_full, чтобы не пытаться
     # UPDATE collaborators SET personal_vk_id = ... (колонок таких нет).

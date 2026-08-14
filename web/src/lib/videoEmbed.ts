@@ -18,7 +18,10 @@ export function isFileVideo(url: string): boolean {
 
 /** YouTube, VK Видео, Rutube → embed-адрес. Незнакомое — возвращаем как есть. */
 export function embedUrl(url: string): string {
-  const yt = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/.exec(url)
+  // ⚠️ `shorts/` — тоже YouTube: вертикальные ролики публикуют именно так,
+  // и без этой ветки они не открывались вовсе (ссылка уходила в iframe как
+  // есть, а YouTube такой адрес встраивать не разрешает).
+  const yt = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/.exec(url)
   if (yt) return `https://www.youtube.com/embed/${yt[1]}`
   const rt = /rutube\.ru\/video\/([\w]+)/.exec(url)
   if (rt) return `https://rutube.ru/play/embed/${rt[1]}`
