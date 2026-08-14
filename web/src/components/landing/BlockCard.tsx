@@ -11,7 +11,7 @@
  */
 import { useState } from 'react'
 import { GripVertical, ChevronDown, ChevronRight, Trash2, Zap, X, Lock } from 'lucide-react'
-import FileUploader from '@/components/FileUploader'
+import FileUploader, { type UploadKind } from '@/components/FileUploader'
 import { metaFor, BLOCK_FEATURE } from './blockMeta'
 import FeatureLock from '@/components/FeatureLock'
 import { useMe } from '@/hooks/useMe'
@@ -22,7 +22,7 @@ interface Props {
   block: any
   eventId?: number
   /** Вид загрузки для картинок: landing_media (событие) | product_media. */
-  uploadKind?: string
+  uploadKind?: UploadKind
   onPatch: (patch: any) => void
   onRemove: () => void
   onDragStart: () => void
@@ -1228,7 +1228,7 @@ function AudienceEditor({
   eventId, uploadKind = 'landing_media', items, onChange,
 }: {
   eventId?: number
-  uploadKind?: string
+  uploadKind?: UploadKind
   items: Array<{ title?: string; text?: string; image?: string | null }>
   onChange: (v: any[]) => void
 }) {
@@ -1402,7 +1402,7 @@ function GalleryEditor({
   eventId, uploadKind = 'landing_media', mode, media, list, onChange,
 }: {
   eventId?: number
-  uploadKind?: string
+  uploadKind?: UploadKind
   mode: string
   media: string
   list: Array<{ url: string; caption?: string }>

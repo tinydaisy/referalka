@@ -4,7 +4,7 @@
  * Мелкие поля оформления лендинга: цвет, картинка фона + перекрытие, шрифт.
  * Используются и в настройках страницы целиком, и в оформлении отдельной секции.
  */
-import FileUploader from '@/components/FileUploader'
+import FileUploader, { type UploadKind } from '@/components/FileUploader'
 
 /** Цвет + поле HEX рядом: пипетка удобна, но точный код тоже нужен. */
 export function ColorField({
@@ -72,7 +72,7 @@ export function BackgroundFields({
   eventId,
 }: {
   /** Куда грузить фон: landing_bg (событие) | product_media (продукт). */
-  uploadKind?: string
+  uploadKind?: UploadKind
   imageUrl: string | null
   overlay: string | null
   opacity: number | null
