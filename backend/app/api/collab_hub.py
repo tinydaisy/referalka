@@ -387,9 +387,30 @@ async def catalog(
          LIMIT 200
     """
     rows = await db.fetch(sql, *args)
+
+    # ⚠️ Подписчиков ТГ/MAX/VK-каналов считаем и здесь, в каталоге. Без этого
+    # карточка показывала охват только по базе ботов, а канал — у которого
+    # подписчиков обычно больше — не учитывался ни в сумме, ни в плашке охвата,
+    # ни в фильтре «Площадки» (у Гришиной так терялось 444 подписчика,
+    # у Морарь — 389, при заполненных chat_id и подключённом боте).
+    #
+    # Считается последовательно и только по строкам выдачи: каждый подсчёт —
+    # сетевые запросы к площадкам, параллелить их на одном соединении asyncpg
+    # нельзя (см. channel_audience). Результат кешируется на 10 минут, поэтому
+    # повторные открытия каталога дополнительных запросов не делают.
+    counts_by_client: dict[int, dict] = {}
+    for r in rows:
+        try:
+            counts_by_client[r['id']] = await channel_audience(
+                db, r['id'], _parse_json(r.get('social_links'), {}))
+        except Exception:
+            counts_by_client[r['id']] = {}
+
     out = []
     for r in rows:
-        card = _client_card(r, public=True)  # чужие карточки — уважаем галочки *_public
+        # чужие карточки — уважаем галочки *_public
+        card = _client_card(r, public=True,
+                            channel_counts=counts_by_client.get(r['id']))
         card['collabs_count'] = r['collabs_count']
         card['win_win'] = float(r['win_win']) if r['win_win'] is not None else None
         card['avg_rating'] = r['avg_rating']
@@ -420,7 +441,14 @@ async def catalog(
           FROM clients cl WHERE cl.id=$1""", int(client["sub"]))
     me_card = None
     if me_row:
-        me_card = _client_card(me_row)
+        # Своя карточка считается по тем же правилам, что чужие, — иначе
+        # владелец видел бы у себя охват меньше, чем показывают его партнёрам.
+        try:
+            me_ch = await channel_audience(
+                db, int(client["sub"]), _parse_json(me_row.get('social_links'), {}))
+        except Exception:
+            me_ch = {}
+        me_card = _client_card(me_row, channel_counts=me_ch)
         me_card['collabs_count'] = me_row['collabs_count']
         me_card['win_win'] = float(me_row['win_win']) if me_row['win_win'] is not None else None
         me_card['avg_rating'] = me_row['avg_rating']
