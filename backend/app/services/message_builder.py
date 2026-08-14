@@ -934,7 +934,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
     в кнопках (для «ссылки на эфир»)."""
     sp = await conn.fetchrow(
         """
-        SELECT c.name as speaker_name,
+        SELECT btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                -- Миграция 237: тумблер «не использовать индивидуальную афишу» →
                -- афиша не берётся вовсе, ниже останется только фото коллаба.
                (SELECT url FROM collaborator_posters cp
@@ -1075,7 +1075,7 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
                         (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id
                            ORDER BY t.sort_order, t.id LIMIT 1),
                         cs.title) AS session_title,
-               c.name AS speaker_name, cse.role, cse.id AS ec_id
+               btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name, cse.role, cse.id AS ec_id
           FROM conf_sessions cs
           LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
           LEFT JOIN collaborators c ON c.id = cse.speaker_id
@@ -1363,7 +1363,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             """
             SELECT cs.start_time, cs.end_time,
                    COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
-                   c.name as speaker_name, cse.role, cse.id AS ec_id
+                   btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name, cse.role, cse.id AS ec_id
             FROM conf_sessions cs
             LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
@@ -1416,7 +1416,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        """ + collaborator_sort.role_group_sql("cse") + """ AS _grp,
                        """ + collaborator_sort.referrals_count_sql("cse") + """ AS _refs,
                        COALESCE(cse.priority, 60) AS _prio,
-                       c.name as speaker_name,
+                       btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        pu_tg.username AS personal_tg_username,
                        (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
                           FROM event_collaborator_lead_magnets eclm
@@ -1555,7 +1555,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if session_id:
             sp = await conn.fetchrow(
                 """
-                SELECT c.name as speaker_name,
+                SELECT btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        (SELECT url FROM collaborator_posters cp
                           WHERE NOT cse.use_photo_instead_of_poster
@@ -1689,7 +1689,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             session = await conn.fetchrow(
                 """
                 SELECT cs.title as session_title, cs.start_time, cs.end_time, cs.day,
-                       c.name as speaker_name,
+                       btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        (SELECT url FROM collaborator_posters cp
                           WHERE NOT cse.use_photo_instead_of_poster
@@ -1989,7 +1989,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """
                 SELECT cs.start_time, cs.end_time,
                        COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
-                       c.name as speaker_name, cse.role, cse.id AS ec_id
+                       btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name, cse.role, cse.id AS ec_id
                 FROM conf_sessions cs
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id

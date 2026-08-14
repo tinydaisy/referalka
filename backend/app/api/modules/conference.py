@@ -164,7 +164,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     )
     # Спикеры: JOIN глобальной базы + данных участия в событии
     speakers = await db.fetch(
-        """SELECT cse.*, sp.name, sp.title, sp.achievements,
+        """SELECT cse.*, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url, sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -177,7 +177,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     )
     sessions = await db.fetch(
         """SELECT s.*, COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
-                  sp.name AS speaker_name, cse.role AS speaker_role,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS speaker_name, cse.role AS speaker_role,
                   sp.title AS speaker_title, sp.photo_url, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
            FROM conf_sessions s
            -- is_visible=FALSE («Исключать из Mini App и лендинга») → слот остаётся,
@@ -1098,7 +1098,7 @@ async def list_event_speakers(
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
-                  sp.name, sp.title, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -1267,7 +1267,7 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
                   CASE WHEN cse.use_photo_instead_of_poster THEN NULL
                        ELSE cp_cse.url END AS event_poster_url,
                   cse.is_commercial,
-                  sp.name, sp.title, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -1362,7 +1362,7 @@ async def add_speaker_from_base(
     await apply_default_speaker_stages(cse["id"], event_id, db)
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
-        """SELECT cse.*, sp.name, sp.title, sp.achievements,
+        """SELECT cse.*, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -1713,7 +1713,7 @@ async def update_speaker_event(
                 speaker_event_id, [int(x) for x in stage_ids], event_id,
             )
     row = await db.fetchrow(
-        """SELECT cse.*, sp.name, sp.title, sp.achievements,
+        """SELECT cse.*, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -2544,7 +2544,7 @@ async def generate_schedule(
     for idx, speaker_event_id in enumerate(data.speaker_ids):
         # speaker_ids теперь — это event_collaborators.id
         cse = await db.fetchrow(
-            """SELECT cse.id, sp.name FROM event_collaborators cse
+            """SELECT cse.id, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name FROM event_collaborators cse
                JOIN collaborators sp ON sp.id = cse.speaker_id
                WHERE cse.id=$1 AND cse.event_id=$2""",
             speaker_event_id, event_id
@@ -3135,7 +3135,7 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
                   cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial, c.ref_code, cse.keyword_code,
-                  sp.name, sp.title, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -3280,7 +3280,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial,
-                  sp.name, sp.title, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -3406,7 +3406,7 @@ async def update_speaker_as_editor(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, c.ref_code, cse.keyword_code,
                   cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
-                  sp.name, sp.title, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -3470,7 +3470,7 @@ async def export_salebot(
         """SELECT cse.id, cse.speaker_id, cse.role,
                   (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, cse.gift_raffle_title,
                   cse.sort_order, cse.is_visible,
-                  sp.name, sp.title, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.tg_channel_url, sp.tg_channel_id, sp.instagram_url
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -3488,7 +3488,7 @@ async def export_salebot(
         """SELECT s.id, s.day, s.sort_order, s.title,
                   s.start_time AS start_local,
                   s.end_time   AS end_local,
-                  sp.name AS speaker_name, cse.role AS speaker_role
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS speaker_name, cse.role AS speaker_role
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -3790,7 +3790,7 @@ async def send_speaker_to_telegram(
                   (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, cse.gift_raffle_title,
                   CASE WHEN cse.use_photo_instead_of_poster THEN NULL
                        ELSE cp_cse.url END AS cse_poster_url,
-                  sp.name, sp.achievements,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.achievements,
                   sp.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   (SELECT url FROM collaborator_posters cp_g
@@ -3999,7 +3999,7 @@ async def send_schedule_to_telegram(
     # Сессии с ролью
     sessions_db = await db.fetch(
         """SELECT s.day, s.start_time, s.end_time, s.title, s.sort_order,
-                  sp.name AS speaker_name, cse.role
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS speaker_name, cse.role
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -4133,7 +4133,7 @@ async def send_raffle_gifts_to_telegram(
 
     # Подарки для розыгрыша — только те у кого заполнен gift_raffle_title
     gifts = await db.fetch(
-        """SELECT cse.gift_raffle_title, cse.role, sp.name
+        """SELECT cse.gift_raffle_title, cse.role, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
