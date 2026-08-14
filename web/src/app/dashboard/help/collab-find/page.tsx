@@ -15,6 +15,8 @@ export default function CollabFindInstructionPage() {
         <span className="text-gray-300">/</span>
         <Link href="/dashboard/help" className="text-sm text-gray-400 hover:text-gray-700">Инструкции</Link>
         <span className="text-gray-300">/</span>
+        <Link href="/dashboard/help/s/collab-hub" className="text-sm text-gray-400 hover:text-gray-700">Коллабораторная</Link>
+        <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-700">Как найти коллаборатора</span>
       </div>
 
