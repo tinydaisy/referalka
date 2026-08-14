@@ -626,6 +626,7 @@ async def _credit_referral_cashback(
         await notify_referrer_about_purchase(
             db,
             referrer_client_id=referrer_id,
+            payer_client_id=payer_client_id,
             payer_name=payer["name"],
             what_paid=f"тариф {tariff_name}",
             amount_kopecks=amount_paid_card_kopecks,

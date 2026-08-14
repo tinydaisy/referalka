@@ -1899,6 +1899,7 @@ async def _send_broadcast_email_part(
         )
         return 0
 
+    from app.services.email_body import build_email_body, strip_html
     from app.services.email_sender import EmailSender, EmailSendError
     from app.services.unsubscribe_token import make_email_unsubscribe_token
     from app.api.email_tracking import make_open_token, make_click_token
@@ -2102,23 +2103,7 @@ async def _send_broadcast_email_part(
     # Готовим текст письма. Subject из шаблона рассылок появится в следующей
     # итерации (поле broadcast_templates.subject — отдельная миграция). Пока
     # тема собирается из первой строки текста, если она короткая.
-    import re as _re
     raw_text = text or ""
-
-    # Видео в email не проигрывается встроенно (почтовые клиенты режут <video>).
-    # Поэтому показываем КАРТИНКУ-ОБЛОЖКУ (первый кадр) как кликабельную ссылку
-    # на видео — см. блок html_video_cover ниже. В plain-часть (для клиентов без
-    # HTML) добавляем текстовую ссылку отдельно (body_text), в HTML — нет.
-    is_video_email = bool(media_type == "video" and video_url)
-
-    def _strip_html(s: str) -> str:
-        """HTML-теги → пусто. Минимальный замены HTML-entities."""
-        s = _re.sub(r"<br\s*/?>", "\n", s, flags=_re.IGNORECASE)
-        s = _re.sub(r"</p\s*>", "\n\n", s, flags=_re.IGNORECASE)
-        s = _re.sub(r"</li\s*>", "\n", s, flags=_re.IGNORECASE)
-        s = _re.sub(r"<[^>]+>", "", s)
-        s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#39;", "'")
-        return s
 
     # Subject:
     # 1) Если задан subject_override (поле «Заголовок» из формы рассылки или
@@ -2126,221 +2111,29 @@ async def _send_broadcast_email_part(
     # 2) Иначе — «Новое сообщение от {бренд клиента}». НЕ берём первую строку
     #    текста, чтобы тема не превращалась в обрезанный кусок body.
     if subject_override and subject_override.strip():
-        subject = _strip_html(subject_override).strip()[:200]
+        subject = strip_html(subject_override).strip()[:200]
     else:
         brand_for_subject = (client_brand_name or "ПЛЮСОН").strip()
         subject = f"Новое сообщение от {brand_for_subject}"
 
-    # Email шлём ВСЕГДА multipart (HTML + plain-fallback): в HTML — фото в
-    # начале, кликабельные ссылки, красивая кнопка в фирменных цветах
-    # (#FFCFA4 фон, #25455D текст). plain-часть — как fallback для клиентов,
-    # которые HTML не рендерят (редко).
-    def _linkify(t: str) -> str:
-        """Plain URL → <a href>. Применяем только к строкам где нет HTML."""
-        return _re.sub(
-            r"(?<![\"'>=])(https?://[^\s<]+)",
-            r'<a href="\1" style="color:#3D8CB6;text-decoration:underline;">\1</a>',
-            t,
-        )
-
-    has_html = bool(_re.search(r"<[a-zA-Z][^>]*>", raw_text))
-    if has_html:
-        # В тексте уже есть теги — переводим переносы в <br>, plain URL за
-        # пределами тегов превращаем в кликабельные.
-        html_inner = _linkify(raw_text.replace("\n", "<br>\n"))
-    else:
-        # Plain → экранируем спецсимволы, переносы → <br>, URL → <a>.
-        escaped = (raw_text
-                   .replace("&", "&amp;")
-                   .replace("<", "&lt;")
-                   .replace(">", "&gt;")
-                   .replace("\n", "<br>\n"))
-        html_inner = _linkify(escaped)
-
-    # Фото в начале HTML — встраиваем как inline-attachment (multipart/related)
-    # с Content-ID. Это надёжнее remote URL:
-    # 1) Письмо автономно — R2 может удалить файл, картинка всё равно
-    #    останется в письме у получателя.
-    # 2) Gmail в спам-папке не блокирует inline-картинки так, как remote.
-    # 3) Outlook/Apple Mail без «Show images» сразу показывают inline.
-    # Скачиваем картинку один раз перед циклом получателей.
-    html_image = ""
-    inline_image_data: bytes | None = None
-    inline_image_subtype: str = "jpeg"
-    inline_image_cid: str = "broadcast_image"
-    if photo_url:
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as fetcher:
-                resp = await fetcher.get(photo_url)
-                if resp.status_code == 200:
-                    inline_image_data = resp.content
-                    ct = (resp.headers.get("content-type") or "").lower()
-                    if "png" in ct:
-                        inline_image_subtype = "png"
-                    elif "gif" in ct:
-                        inline_image_subtype = "gif"
-                    elif "webp" in ct:
-                        inline_image_subtype = "webp"
-                    else:
-                        inline_image_subtype = "jpeg"
-                    # Gmail mobile/iOS Mail рендерят inline-картинку > ~100KB
-                    # как «прикрепление снизу» вместо внутрь тела. Сжимаем
-                    # JPEG'ом до ~80-90KB чтобы всегда показывалось inline.
-                    # PNG/GIF не трогаем — у них прозрачность.
-                    if inline_image_subtype in ("jpeg", "webp") and len(inline_image_data) > 90_000:
-                        try:
-                            from PIL import Image
-                            import io as _io
-                            with Image.open(_io.BytesIO(inline_image_data)) as im:
-                                im = im.convert("RGB")
-                                w, h = im.size
-                                # Ресайз по большей стороне до 1200px (для email хватает с запасом).
-                                max_dim = 1200
-                                if max(w, h) > max_dim:
-                                    scale = max_dim / max(w, h)
-                                    im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-                                # Понижаем quality пока не уложимся в 90KB или quality<55.
-                                for q in (78, 70, 62, 55):
-                                    buf = _io.BytesIO()
-                                    im.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
-                                    if buf.tell() <= 90_000 or q == 55:
-                                        inline_image_data = buf.getvalue()
-                                        inline_image_subtype = "jpeg"
-                                        logger.info(
-                                            f"Email broadcast: фото сжато до {len(inline_image_data)} байт (q={q})"
-                                        )
-                                        break
-                        except Exception as e:
-                            logger.warning(f"Email broadcast: ресайз фото не удался ({e}) — шлём как есть")
-                else:
-                    logger.warning(
-                        f"Email broadcast: фото {photo_url} вернуло HTTP {resp.status_code} — "
-                        f"вкладывать в письмо не будем, оставим как ссылку"
-                    )
-        except Exception as e:
-            logger.warning(f"Email broadcast: не смог скачать фото {photo_url}: {e}")
-
-        if inline_image_data:
-            # Получилось скачать — встраиваем по CID.
-            html_image = (
-                f'<div style="margin-bottom:20px;">'
-                f'<img src="cid:{inline_image_cid}" alt="" '
-                f'style="display:block;max-width:100%;width:600px;height:auto;'
-                f'border-radius:12px;border:0;outline:none;"/>'
-                f'</div>'
-            )
-        else:
-            # Не получилось — fallback на прямую ссылку (как раньше).
-            html_image = (
-                f'<div style="margin-bottom:20px;">'
-                f'<img src="{photo_url}" alt="" '
-                f'style="display:block;max-width:100%;width:600px;height:auto;'
-                f'border-radius:12px;border:0;outline:none;"/>'
-                f'</div>'
-            )
-
-    # ── Видео-обложка для email: первый кадр как кликабельная картинка ──
-    # Telegram/VK играют видео сами; в email встроить нельзя — поэтому
-    # показываем обложку (thumbnail) с иконкой play, вся картинка — ссылка на
-    # видео (открывается в браузере). Обложку встраиваем по CID (как фото).
-    html_video_cover = ""
-    video_thumb_data: bytes | None = None
-    video_thumb_cid: str = "broadcast_video_cover"
-    if is_video_email:
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as vf:
-                vresp = await vf.get(video_url)
-            if vresp.status_code == 200:
-                from app.services.video_meta import extract_thumbnail
-                video_thumb_data = await extract_thumbnail(vresp.content)
-        except Exception as e:
-            logger.warning(f"Email broadcast: не смог получить обложку видео {video_url}: {e}")
-        # Кликабельная обложка с наложенной иконкой play (через таблицу-overlay
-        # не делаем — почтовики капризны; кладём play как фоновую псевдо-кнопку
-        # поверх через простой div поверх img в обёртке position:relative).
-        cover_src = f"cid:{video_thumb_cid}" if video_thumb_data else None
-        if cover_src:
-            html_video_cover = (
-                f'<a href="{video_url}" target="_blank" rel="noopener" '
-                f'style="display:block;position:relative;margin-bottom:20px;text-decoration:none;">'
-                f'<img src="{cover_src}" alt="Смотреть видео" '
-                f'style="display:block;max-width:100%;width:600px;height:auto;'
-                f'border-radius:12px;border:0;outline:none;"/>'
-                f'<span style="position:absolute;top:50%;left:50%;'
-                f'transform:translate(-50%,-50%);background:rgba(37,69,93,0.85);'
-                f'color:#FFCFA4;width:64px;height:64px;border-radius:50%;'
-                f'font-size:28px;line-height:64px;text-align:center;">&#9658;</span>'
-                f'</a>'
-                f'<div style="margin:-8px 0 20px;">'
-                f'<a href="{video_url}" target="_blank" rel="noopener" '
-                f'style="color:#3D8CB6;text-decoration:underline;font-size:14px;">▶ Смотреть видео</a>'
-                f'</div>'
-            )
-        else:
-            # Обложку извлечь не вышло — даём аккуратную кнопку-ссылку.
-            html_video_cover = (
-                f'<div style="margin-bottom:20px;">'
-                f'<a href="{video_url}" target="_blank" rel="noopener" '
-                f'style="display:inline-block;background-color:#25455D;color:#FFCFA4 !important;'
-                f'padding:14px 28px;border-radius:12px;text-decoration:none;'
-                f'font-family:Roboto,sans-serif;font-size:16px;font-weight:700;">▶ Смотреть видео</a>'
-                f'</div>'
-            )
-
-    # HTML-кнопка: простой <a> с inline-стилем. Без <table> — Gmail
-    # надёжнее рендерит и сохраняет href кликабельным.
-    def _html_button(label: str, url: str) -> str:
-        safe_label = (label or "Открыть").replace("<", "&lt;").replace(">", "&gt;")
-        safe_url = (url or "#").replace('"', "")
-        return (
-            f'<div style="margin:28px 0;">'
-            f'<a href="{safe_url}" target="_blank" rel="noopener" '
-            f'style="display:inline-block;background-color:#FFCFA4;color:#25455D !important;'
-            f'padding:14px 36px;border-radius:12px;text-decoration:none;'
-            f'font-family:Roboto,-apple-system,sans-serif;font-size:16px;font-weight:700;'
-            f'line-height:1;">{safe_label}</a>'
-            f'</div>'
-        )
-
-    html_button = ""
-    if button_text and button_url:
-        html_button = _html_button(button_text, button_url)
-    elif buttons:
-        html_button = "".join(
-            _html_button((b.get("text") or b.get("label") or "Открыть"), b.get("url", ""))
-            for b in buttons
-        )
-
-    # Собираем полное HTML-тело — с doctype/html/body, иначе Gmail может
-    # порезать стили и инлайн-ссылки превратить в plain.
-    # Внешний фон страницы — белый, а сам контент письма (текст, картинка,
-    # кнопка) лежит на светло-голубой плашке #E8F2FA. Подвал отписки потом
-    # инжектится в email_sender ПОСЛЕ голубой плашки, на белом фоне.
-    html_body = (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '</head><body style="margin:0;padding:20px;background:#ffffff;">'
-        f'<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
-        f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;">'
-        f'<div style="background:#E8F2FA;padding:30px 24px;border-radius:16px;">'
-        f'{html_image}'
-        f'{html_video_cover}'
-        f'<div>{html_inner}</div>'
-        f'{html_button}'
-        f'</div>'
-        f'</div></body></html>'
+    # ⚠️ Тело письма собирает ОДНА функция — общая с тестовой отправкой
+    # (app/services/email_body.py). Раньше здесь жила вторая копия той же
+    # логики (кнопки, linkify, ресайз фото, обложка видео): копии разошлись,
+    # и клиент проверял в тесте вёрстку, которой в боевой рассылке не было.
+    # Новая точка отправки письма — звать build_email_body, а не собирать HTML
+    # на месте.
+    built = await build_email_body(
+        text=raw_text,
+        photo_url=photo_url,
+        video_url=video_url,
+        media_type=media_type,
+        button_text=button_text,
+        button_url=button_url,
+        buttons=buttons,
     )
-
-    # Plain-часть: HTML вырезан + текстовая кнопка.
-    body_text = _strip_html(raw_text)
-    if is_video_email:
-        body_text = body_text.rstrip() + f"\n\n▶ Смотреть видео: {video_url}"
-    if button_text and button_url:
-        body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
-    elif buttons:
-        body_text = body_text.rstrip() + "\n\n" + "\n".join(
-            f"{(b.get('text') or b.get('label') or 'Открыть')}: {b.get('url','')}" for b in buttons
-        )
+    html_body = built.html
+    body_text = built.text
+    built_inline_images = built.inline_images
 
     # Домен клиента, если подключён (миграция 270) — иначе основной.
     # Пиксель и клик-редирект должны жить на домене отправителя: ссылка,
@@ -2443,25 +2236,10 @@ async def _send_broadcast_email_part(
         ok = False
         err: str | None = None
         msg_id: str | None = None
-        # Если фото удалось скачать — передаём байты как inline-attachment,
-        # на который ссылается <img src="cid:broadcast_image"> в html_body.
-        # Аналогично — обложка видео (cid:broadcast_video_cover).
-        inline_images_arg = None
-        _imgs = []
-        if inline_image_data:
-            _imgs.append({
-                "content_id": inline_image_cid,
-                "data": inline_image_data,
-                "subtype": inline_image_subtype,
-            })
-        if video_thumb_data:
-            _imgs.append({
-                "content_id": video_thumb_cid,
-                "data": video_thumb_data,
-                "subtype": "jpeg",
-            })
-        if _imgs:
-            inline_images_arg = _imgs
+        # ⚠️ Вложения обязательно передать в send: HTML ссылается на них по
+        # Content-ID (<img src="cid:...">), без вложения ссылка будет битой и
+        # письмо уйдёт без картинки. Собраны один раз до цикла получателей.
+        inline_images_arg = built_inline_images or None
 
         try:
             msg_id = sender.send(

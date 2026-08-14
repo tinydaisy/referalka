@@ -41,7 +41,13 @@ interface EmailQuality {
 export default function AdminClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [total, setTotal] = useState(0)
-  const [search, setSearch] = useState('')
+  // Поиск можно задать адресом — `?search=почта`. Так работают ссылки «Карточка»
+  // из уведомлений ПЛЮСОНа: без этого они открывали общий список, и нужного
+  // клиента приходилось искать руками.
+  const [search, setSearch] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('search') || ''
+  })
   // Пагинация: клиентов уже больше сотни, а бэк отдаёт по 50 — без докачки
   // половина списка была не видна вовсе.
   const [limit, setLimit] = useState(50)

@@ -116,6 +116,47 @@ async def _client_telegram_id(db, client_id: int) -> str | None:
     )
 
 
+def _admin_client_link(email: str | None, client_id: int | None = None) -> str:
+    """Ссылка на карточку клиента в АДМИНКЕ (поиск по почте — он точный).
+
+    ⚠️ Только для группы уведомлений ПЛЮСОНа. Рефоводу такую ссылку не шлём —
+    доступа в админку у него нет.
+    """
+    base = f"{_dashboard_base()}/admin/clients"
+    if email:
+        from urllib.parse import quote
+        return f"{base}?search={quote(email)}"
+    return base
+
+
+async def _referrer_block(db, referrer_client_id: int | None) -> list[str]:
+    """Блок «Кто привёл» для уведомления в группу — как в уведомлениях клиентам.
+
+    Помимо имени даёт контакты партнёра и ссылку на его карточку в админке:
+    из уведомления должно быть видно, кому пошёл процент, и можно было сразу
+    открыть этого клиента.
+    """
+    if not referrer_client_id:
+        return ["<b>Кто привёл:</b> пришёл сам (без реф-ссылки)"]
+    r = await db.fetchrow(
+        "SELECT name, email, telegram_username FROM clients WHERE id = $1",
+        referrer_client_id,
+    )
+    if not r:
+        return [f"<b>Кто привёл:</b> #{referrer_client_id}"]
+    out = [
+        "<b>Кто привёл</b>",
+        f"<b>Имя:</b> {r['name'] or '—'}",
+        f"<b>Email:</b> {r['email'] or '—'}",
+        f"<b>ID клиента:</b> #{referrer_client_id}",
+    ]
+    if r["telegram_username"]:
+        u = r["telegram_username"].lstrip("@").strip()
+        out.append(f"<b>Telegram:</b> <a href=\"https://telegram.me/{u}\">@{u}</a>")
+    out.append(f"<b>Карточка:</b> {_admin_client_link(r['email'], referrer_client_id)}")
+    return out
+
+
 async def notify_founder_channel(db, text_html: str) -> bool:
     """ОСНОВАТЕЛЮ ПЛЮСОНа — в его ГРУППУ уведомлений «[Тех.поддержка] Увед. ПЛЮСОН».
 
@@ -228,14 +269,19 @@ async def notify_referrer_new_interest(
         # Копия ОСНОВАТЕЛЮ ПЛЮСОНа — в бот, в личку. Владелец платформы видит
         # ВСЕ переходы по реф-ссылкам, а не только регистрации. Чей это рефовод —
         # в шапке, иначе непонятно, о ком речь.
-        ref_name = await db.fetchval(
-            "SELECT name FROM clients WHERE id = $1", referrer_client_id
-        )
         ch_parts = [
             "🆕 <b>ПЛЮСОН · переход по партнёрской ссылке</b>",
             "",
-            f"<b>Партнёр:</b> {ref_name or '—'} (#{referrer_client_id})",
-        ] + parts[2:]
+            "<b>Кто пришёл</b>",
+            f"<b>Имя:</b> {name or '—'}",
+            f"<b>Никнейм:</b> {nick or '—'}",
+            f"<b>Площадка:</b> {label}",
+            f"<b>ID в платформе:</b> {user_id or '—'}",
+        ]
+        if link:
+            ch_parts.append(f"<b>Ссылка:</b> {link}")
+        ch_parts += [f"<b>Когда:</b> {_msk_now_str()}", ""]
+        ch_parts += await _referrer_block(db, referrer_client_id)
         await notify_founder_channel(db, "\n".join(ch_parts))
         return res
     except Exception as e:  # noqa: BLE001 — уведомление не роняет /start
@@ -265,8 +311,10 @@ async def notify_founder_new_client(
         parts = [
             "🚀 <b>ПЛЮСОН · новый клиент платформы</b>",
             "",
+            "<b>Кто зарегистрировался</b>",
             f"<b>Имя:</b> {name or '—'}",
             f"<b>Email:</b> {email or '—'}",
+            f"<b>ID клиента:</b> #{new_client_id}",
         ]
         if phone:
             parts.append(f"<b>Телефон:</b> {phone}")
@@ -275,20 +323,12 @@ async def notify_founder_new_client(
             parts.append(
                 f"<b>Telegram:</b> <a href=\"https://telegram.me/{uname}\">@{uname}</a>"
             )
-
-        if referrer_client_id:
-            ref_name = await db.fetchval(
-                "SELECT name FROM clients WHERE id = $1", referrer_client_id
-            )
-            parts.append(f"<b>Кто привёл:</b> {ref_name or '—'} (#{referrer_client_id})")
-        else:
-            parts.append("<b>Кто привёл:</b> пришёл сам (без реф-ссылки)")
-
         parts += [
             f"<b>Когда:</b> {_msk_now_str()}",
+            f"<b>Карточка:</b> {_admin_client_link(email, new_client_id)}",
             "",
-            f"<b>Карточка:</b> {_dashboard_base()}/admin/clients?id={new_client_id}",
         ]
+        parts += await _referrer_block(db, referrer_client_id)
 
         sent = await notify_founder_channel(db, "\n".join(parts))
 
@@ -334,6 +374,7 @@ async def notify_referrer_about_purchase(
     percent: int,
     cashback_kopecks: int,
     balance_kopecks: int,
+    payer_client_id: int | None = None,
 ) -> dict:
     """«Ваш реферал купил» — в каналы уведомлений И письмом на почту.
 
@@ -372,14 +413,42 @@ async def notify_referrer_about_purchase(
 
     # ── Основателю в группу ПЛЮСОНа ──
     try:
-        ref_name = await db.fetchval(
-            "SELECT name FROM clients WHERE id = $1", referrer_client_id
-        )
+        payer_row = await db.fetchrow(
+            "SELECT email, telegram_username FROM clients WHERE id = $1",
+            payer_client_id,
+        ) if payer_client_id else None
+
         founder_lines = [
             "💰 <b>ПЛЮСОН · покупка по партнёрской ссылке</b>",
             "",
-            f"<b>Партнёр:</b> {ref_name or '—'} (#{referrer_client_id})",
-        ] + lines[2:]
+            "<b>Кто купил</b>",
+            f"<b>Имя:</b> {payer}",
+        ]
+        if payer_row:
+            founder_lines.append(f"<b>Email:</b> {payer_row['email'] or '—'}")
+            founder_lines.append(f"<b>ID клиента:</b> #{payer_client_id}")
+            if payer_row["telegram_username"]:
+                u = payer_row["telegram_username"].lstrip("@").strip()
+                founder_lines.append(
+                    f"<b>Telegram:</b> <a href=\"https://telegram.me/{u}\">@{u}</a>"
+                )
+        founder_lines += [
+            f"<b>Что купил:</b> {what_paid}",
+            f"<b>Сумма покупки:</b> {_rub(amount_kopecks)}",
+        ]
+        if payer_row:
+            founder_lines.append(
+                f"<b>Карточка:</b> {_admin_client_link(payer_row['email'], payer_client_id)}"
+            )
+        founder_lines += [
+            "",
+            f"<b>Процент партнёра:</b> {percent}%",
+            f"<b>Начислено партнёру:</b> {_rub(cashback_kopecks)}",
+            f"<b>Баланс партнёра:</b> {_rub(balance_kopecks)}",
+            f"<b>Когда:</b> {_msk_now_str()}",
+            "",
+        ]
+        founder_lines += await _referrer_block(db, referrer_client_id)
         await notify_founder_channel(db, "\n".join(founder_lines))
     except Exception as e:  # noqa: BLE001 — не роняем оплату
         log.warning("notify purchase (founder) failed: %s", e)

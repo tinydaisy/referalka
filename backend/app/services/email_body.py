@@ -33,6 +33,22 @@ logger = logging.getLogger(__name__)
 IMAGE_CID = "broadcast_image"
 VIDEO_COVER_CID = "broadcast_video_cover"
 
+# ⚠️ Gmail ОБРЕЗАЕТ письмо тяжелее ~102 КБ: хвост прячется под «Показать
+# полное сообщение», а в ящике это выглядит как разорванное на куски письмо
+# с пустыми плашками и «•••» (жалоба 2026-08-14, рассылка #2571 весила 131 КБ).
+#
+# ⚠️ Картинка внутри письма занимает НЕ свой вес с диска: MIME кодирует её
+# base64, и она распухает примерно на треть (+~37% с учётом переносов строк).
+# Прежний порог 90 КБ считал вес файла и потому не спасал: 87,6 КБ на диске
+# превращались в ~120 КБ в письме, и Gmail всё равно резал.
+#
+# Поэтому целимся в ИТОГОВЫЙ вес письма и от него считаем назад:
+#   65 КБ файла × 1.37 ≈ 89 КБ в письме + HTML/подвал ≈ 95 КБ < 102 КБ.
+BASE64_OVERHEAD = 1.37
+MAX_EMAIL_BYTES = 102_000          # порог обрезки у Gmail
+MAX_IMAGE_FILE_BYTES = 65_000      # столько картинка весит НА ДИСКЕ
+MAX_IMAGE_DIMENSION = 1000         # больше для письма смысла не имеет
+
 
 @dataclass
 class EmailBody:
@@ -79,9 +95,13 @@ def _html_button(label: str, url: str) -> str:
 async def fetch_inline_photo(photo_url: str) -> tuple[bytes | None, str]:
     """Скачивает фото и при необходимости ужимает его для inline-вложения.
 
-    ⚠️ Gmail mobile и iOS Mail рендерят inline-картинку тяжелее ~100 КБ как
-    «прикрепление снизу», а не внутрь тела письма — поэтому JPEG сжимаем до
-    ~90 КБ. PNG/GIF не трогаем: у них прозрачность.
+    ⚠️ Сжимаем до `MAX_IMAGE_FILE_BYTES` — с оглядкой на base64 (см. константы
+    выше): в письме картинка весит на треть больше, чем на диске, а письмо
+    тяжелее ~102 КБ Gmail обрезает и показывает кусками.
+
+    ⚠️ PNG/GIF пережимаем в JPEG, только если они не влезают: их base64 так же
+    раздувается, а прозрачность в письме на светлой плашке не нужна. Раньше их
+    не трогали вовсе — тяжёлый PNG гарантированно рвал письмо.
     """
     try:
         async with httpx.AsyncClient(timeout=15.0) as fetcher:
@@ -108,7 +128,7 @@ async def fetch_inline_photo(photo_url: str) -> tuple[bytes | None, str]:
     else:
         subtype = "jpeg"
 
-    if subtype in ("jpeg", "webp") and len(data) > 90_000:
+    if len(data) > MAX_IMAGE_FILE_BYTES:
         try:
             import io as _io
 
@@ -117,20 +137,50 @@ async def fetch_inline_photo(photo_url: str) -> tuple[bytes | None, str]:
             with Image.open(_io.BytesIO(data)) as im:
                 im = im.convert("RGB")
                 w, h = im.size
-                max_dim = 1200
-                if max(w, h) > max_dim:
-                    scale = max_dim / max(w, h)
+                if max(w, h) > MAX_IMAGE_DIMENSION:
+                    scale = MAX_IMAGE_DIMENSION / max(w, h)
                     im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-                for q in (78, 70, 62, 55):
-                    buf = _io.BytesIO()
-                    im.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
-                    if buf.tell() <= 90_000 or q == 55:
-                        data = buf.getvalue()
-                        subtype = "jpeg"
-                        logger.info("Email: фото сжато до %s байт (q=%s)", len(data), q)
+
+                # ⚠️ Уменьшаем не только качество, но и РАЗМЕР. Раньше падало
+                # только качество (до q=55) — у крупной картинки этого не
+                # хватало, она оставалась за порогом и рвала письмо.
+                best: bytes | None = None
+                for scale in (1.0, 0.8, 0.65, 0.5):
+                    frame = im
+                    if scale < 1.0:
+                        frame = im.resize(
+                            (max(1, int(im.width * scale)), max(1, int(im.height * scale))),
+                            Image.LANCZOS,
+                        )
+                    for q in (78, 70, 62, 55):
+                        buf = _io.BytesIO()
+                        frame.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
+                        best = buf.getvalue()
+                        if len(best) <= MAX_IMAGE_FILE_BYTES:
+                            break
+                    if best and len(best) <= MAX_IMAGE_FILE_BYTES:
                         break
+
+                if best:
+                    data = best
+                    subtype = "jpeg"
+                    logger.info(
+                        "Email: фото сжато до %s байт (~%s КБ в письме)",
+                        len(data), int(len(data) * BASE64_OVERHEAD / 1024),
+                    )
         except Exception as e:
             logger.warning("Email: ресайз фото не удался (%s) — шлём как есть", e)
+
+    # Даже после сжатия картинка может не влезть (например, PIL недоступен).
+    # Вкладывать её тогда нельзя: письмо порвёт Gmail. Отдаём None — вызывающий
+    # покажет картинку прямой ссылкой, письмо останется целым.
+    if len(data) * BASE64_OVERHEAD > MAX_EMAIL_BYTES - 12_000:
+        logger.warning(
+            "Email: фото %s весит %s байт даже после сжатия — вкладывать нельзя "
+            "(письмо порвёт Gmail), оставляем ссылкой",
+            photo_url, len(data),
+        )
+        return None, subtype
 
     return data, subtype
 
