@@ -199,7 +199,6 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
   product: any; readOnly: boolean; publicBase: string; onChanged: () => void
 }) {
   const [title, setTitle] = useState(product.title || '')
-  const [subtitle, setSubtitle] = useState(product.subtitle || '')
   const [description, setDescription] = useState(product.description || '')
   const [slug, setSlug] = useState(product.slug || '')
   const [offerUrl, setOfferUrl] = useState(product.offer_url || '')
@@ -225,7 +224,6 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
     try {
       await api.products.update(product.id, {
         title: title.trim(),
-        subtitle: subtitle.trim() || null,
         description: description.trim() || null,
         slug: slug.trim(),
         offer_url: offerUrl.trim() || null,
@@ -254,14 +252,9 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
         />
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm text-gray-600">Короткое пояснение</label>
-        <input
-          value={subtitle} onChange={e => setSubtitle(e.target.value)} disabled={readOnly}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        />
-      </div>
-
+      {/* ⚠️ Поля «Короткое пояснение» больше НЕТ: двух описаний у продукта не
+          нужно — человек не понимает, чем они отличаются и что где показывается.
+          Осталось одно «Описание», оно же подзаголовок шапки лендинга. */}
       <div>
         <label className="mb-1 block text-sm text-gray-600">Описание</label>
         <textarea

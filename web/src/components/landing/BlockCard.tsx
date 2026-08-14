@@ -215,13 +215,23 @@ export default function BlockCard({
 
               {has('title') && (
                 <>
-                  <Field label="Заголовок секции">
+                  <Field label={block.kind === 'hero' ? 'Заголовок' : 'Заголовок секции'}>
                     <input
                       type="text"
                       value={block.title || ''}
                       onChange={e => onPatch({ title: e.target.value })}
                       className="input"
                     />
+                    {/* ⚠️ У шапки поле НЕОБЯЗАТЕЛЬНОЕ: пусто — берётся название
+                        продукта. Заполнено — показывается заполненное: на
+                        продающей странице нужен призыв, а не служебное
+                        название из кабинета. */}
+                    {block.kind === 'hero' && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Пусто — возьмётся название продукта. Заполните, если на
+                        странице нужен другой текст.
+                      </p>
+                    )}
                   </Field>
 
                 </>
@@ -235,6 +245,11 @@ export default function BlockCard({
                     onChange={e => onPatch({ subtitle: e.target.value })}
                     className="input"
                   />
+                  {block.kind === 'hero' && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Пусто — возьмётся «Описание» со вкладки «Основное».
+                    </p>
+                  )}
                 </Field>
               )}
 
@@ -592,6 +607,23 @@ export default function BlockCard({
 
               {block.kind === 'hero' && (
                 <>
+                  {/* ⚠️ НАДЗАГОЛОВОК — мелкая строка НАД крупным заголовком
+                      («ВИДЕНИЕ / iViSiON-8: БИЗНЕС-СОЗДАТЕЛИ»). Поля в
+                      конструкторе не было вовсе: текст был виден на странице,
+                      а править его было негде — только через базу. */}
+                  <Field label="Надзаголовок">
+                    <input
+                      type="text"
+                      value={block.overline || ''}
+                      onChange={e => onPatch({ overline: e.target.value })}
+                      className="input"
+                      placeholder="Мелкая строка над заголовком"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Например, название события или направления. Пусто — строки не будет.
+                    </p>
+                  </Field>
+
                   <div className="rounded-lg border border-gray-200 p-3">
                     <label className="flex cursor-pointer items-center gap-2">
                       <input

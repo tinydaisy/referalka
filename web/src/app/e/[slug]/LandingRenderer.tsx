@@ -837,7 +837,11 @@ function BlockBody({
               fontSize: `clamp(${Math.round((block.title_size || 72) * 0.45)}px, ${((block.title_size || 72) / 11).toFixed(1)}vw, ${block.title_size || 72}px)`,
             }}
           >
-            {isThanks ? page.post_pay_title : event.title}
+            {/* ⚠️ Заголовок по умолчанию — НАЗВАНИЕ (события/продукта), но его
+                можно переопределить полем блока: на продающей странице нужен
+                призыв («ВЫСТУПИТЕ СПИКЕРОМ…»), а не служебное название
+                продукта из кабинета. Пусто в блоке — показываем название. */}
+            {isThanks ? page.post_pay_title : (block.title || event.title)}
           </h1>
 
           {isThanks ? (
@@ -865,15 +869,14 @@ function BlockBody({
             </>
           ) : (
             <>
-              {/* Подзаголовок — «Описание для лендинга» из настроек события.
-                  Отдельного поля в конструкторе нет: название и описание
-                  правятся в одном месте, на лендинге не дублируются. */}
-              {event.description && (
+              {/* Подзаголовок — описание из настроек события/продукта; поле
+                  блока его переопределяет (как и заголовок выше). */}
+              {(block.subtitle || event.description) && (
                 // ⚠️ mx-auto только при центре: при сдвиге влево/вправо он
                 // вернул бы абзац на середину и выравнивание не сработало бы.
                 <p className={`mt-5 max-w-3xl opacity-90 ${hAlign === 'center' ? 'mx-auto' : ''}`}
                    style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}>
-                  {event.description}
+                  {block.subtitle || event.description}
                 </p>
               )}
               {block.date_position === 'below' && (
