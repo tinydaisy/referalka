@@ -546,7 +546,87 @@ async def _apply_paid_addon_order(
                         sub_id, order["client_id"],
                     )
 
+    # Кэшбэк рефоводу — со ВСЕГО, что купил приведённый клиент, а не только с
+    # тарифов. Раньше модули начисление не давали вовсе: клиент мог купить
+    # Турниры за 5000 ₽, и рефовод не получал ничего.
+    # ⚠️ Вне транзакции выдачи модуля: credit_bonus открывает свою (FOR UPDATE
+    # на балансе), а сбой начисления не должен откатывать оплаченный модуль.
+    try:
+        await _credit_addon_referral_cashback(
+            db,
+            payer_client_id=order["client_id"],
+            amount_paid_kopecks=int(order["amount_total_kopecks"] or 0),
+            feature_slug=_feature_slug,
+        )
+    except Exception as e:  # noqa: BLE001 — деньги за модуль уже приняты
+        logger.exception("addon referral cashback failed (order %s): %s", order_id, e)
+
     return {"ok": True, "status": "paid", "addon_id": addon_id}
+
+
+async def _credit_addon_referral_cashback(
+    db: asyncpg.Connection,
+    *,
+    payer_client_id: int,
+    amount_paid_kopecks: int,
+    feature_slug: Optional[str],
+) -> None:
+    """Кэшбэк рефоводу с покупки МОДУЛЯ + уведомление ему.
+
+    Зеркало `_credit_referral_cashback` из subscriptions.py, с одним отличием:
+    ⚠️ `client_bonus_transactions.source_order_id` имеет FK на `subscription_orders`,
+    поэтому id заказа модуля туда передавать НЕЛЬЗЯ — вставка упала бы по FK и
+    утащила бы за собой начисление. Заказ модуля называем в description.
+    """
+    if amount_paid_kopecks <= 0:
+        return
+
+    payer = await db.fetchrow(
+        "SELECT name, referred_by_client_id, referral_rate_percent, "
+        "       referral_accrual_until "
+        "FROM clients WHERE id = $1",
+        payer_client_id,
+    )
+    if not payer or not payer["referred_by_client_id"]:
+        return
+
+    # Ставка ЗАМОРОЖЕНА на плательщике при регистрации (миграция 227).
+    from app.services.referral_rate import effective_percent
+    percent = effective_percent(payer)
+    if percent <= 0:
+        return
+
+    from app.services.bonuses import credit_bonus, calc_cashback_kopecks
+    cashback = calc_cashback_kopecks(amount_paid_kopecks, percent=percent)
+    if cashback <= 0:
+        return
+
+    # ⚠️ У features колонка называется `name`, колонки `title` нет.
+    title = await db.fetchval(
+        "SELECT COALESCE(name, slug) FROM features WHERE slug = $1", feature_slug
+    ) if feature_slug else None
+    what = f"модуль «{title}»" if title else "модуль"
+
+    referrer_id = payer["referred_by_client_id"]
+    new_balance = await credit_bonus(
+        db,
+        client_id=referrer_id,
+        amount_kopecks=cashback,
+        source_payer_id=payer_client_id,
+        description=f"{percent}% от оплаты: {what}, клиент «{payer['name']}»",
+    )
+
+    from app.services.plusson_referral_notify import notify_referrer_about_purchase
+    await notify_referrer_about_purchase(
+        db,
+        referrer_client_id=referrer_id,
+        payer_name=payer["name"],
+        what_paid=what,
+        amount_kopecks=amount_paid_kopecks,
+        percent=percent,
+        cashback_kopecks=cashback,
+        balance_kopecks=new_balance,
+    )
 
 
 # ─── Webhook LeadPay для аддонов ──────────────────────────────────────────────
