@@ -12,6 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CardIcon } from '@/components/landing/icons'
+import SafeHtml from '@/components/SafeHtml'
 
 interface Props {
   data: any
@@ -1358,7 +1359,10 @@ function BlockBody({
                   <li key={i} className="flex gap-3 font-semibold leading-relaxed">
                     <span className="mt-2 h-2.5 w-2.5 shrink-0 rounded-full"
                           style={{ background: iconColor }} />
-                    <span>{x}</span>
+                    {/* ⚠️ Регалии клиент пишет тегами (<b>жирный</b>) — выводим
+                        разметку, а не текст: иначе на лендинге видны сами теги.
+                        SafeHtml чистит всё небезопасное. */}
+                    <SafeHtml html={x} />
                   </li>
                 ))}
               </ul>

@@ -116,12 +116,14 @@ async def record_collab_history(db, event_id: int) -> int:
                        (client_id, event_id, partner_client_id, participants_total,
                         brought_live, win_win_coefficient, organizers_count)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   -- ⚠️ Цифры пишутся ОДИН РАЗ и больше не меняются
+                   -- (DO NOTHING, не DO UPDATE). Раньше повторное завершение
+                   -- пересчитывало вклад и Win-Win заново: вернув событие в
+                   -- черновик, сдвинув дату и завершив снова, можно было
+                   -- переписать себе показатели набранными позже регистрациями.
+                   -- Результат коллаборации — свершившийся факт, он фиксируется.
                    ON CONFLICT (client_id, event_id) WHERE event_id IS NOT NULL
-                   DO UPDATE SET partner_client_id = EXCLUDED.partner_client_id,
-                                 participants_total = EXCLUDED.participants_total,
-                                 brought_live = EXCLUDED.brought_live,
-                                 win_win_coefficient = EXCLUDED.win_win_coefficient,
-                                 organizers_count = EXCLUDED.organizers_count""",
+                   DO NOTHING""",
                 cid, event_id, partner_cid, participants_total,
                 brought_live, coef, organizers_count)
             written += 1

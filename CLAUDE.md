@@ -130,7 +130,108 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
-### Вебинарная комната — стрим через видеокодер + чат + продажи + аналитика (миграция 221 от 2026-07-16, ЛОКАЛЬНО, не на проде)
+### ⚠️⚠️ ПЕРЕД ЛЮБЫМ SQL — СВЕРИТЬ СХЕМУ. Ловушки, на которых уже ошибались
+
+Документация ниже писалась годами и местами отстаёт от базы. **Источник истины — сама БД, а не этот файл.** Снимок реальной схемы прода лежит в [other_tasks/_prod_schema_snapshot.txt](other_tasks/_prod_schema_snapshot.txt) (формат `таблица|колонка|тип`, снят 2026-08-14). Обновить: `\copy (SELECT table_name||'|'||column_name||'|'||data_type FROM information_schema.columns WHERE table_schema='public' ORDER BY 1) TO ...`
+
+**Таблиц, которые часто пишут по привычке, НЕ СУЩЕСТВУЕТ:**
+
+| Пишут по ошибке | Правильно |
+|---|---|
+| `speakers` | `collaborators` + `event_collaborators` |
+| `conf_speaker_events` | **`event_collaborators`** |
+| `client_assistants` | `assistants` + `assistant_grants` (миграция 209) |
+| `telegram_users` | `platform_users` |
+| `notifications_log` | нет замены, таблица удалена |
+
+**Колонок, которых НЕТ (удалены), но они всплывают в старых текстах:**
+`contacts.email` и `contacts.email_normalized` (мигр. 282 — почта только в `platform_users`), `clients.owner_name` (никогда не было — имя основателя берётся из `clients.name`), `events.link_mode` (мигр. 240), `events.telegram_chat_ids` (мигр. 171), `events.poster_url` (мигр. 044 — афиши в `event_posters`), `platform_users.is_unsubscribed` (мигр. 034 — живёт в `platform_user_channels`), `clients.bot_token` (мигр. 033 — в `channels.bot_token`), `conf_sessions.start_datetime`/`end_datetime` (время — строки `HH:MM` в `start_time`/`end_time`), `conf_conferences.registration_url` и `.description` (мигр. 092), `collaborators.hub_*` и `collaborators.is_published_in_hub` (**дропнуты мигр. 218** — карточка Хаба живёт в `clients`), `collaborators.poster_url` / `event_collaborators.poster_url` (мигр. 121 — библиотека `collaborator_posters`), `materials.kind/url/body/duration_sec/size_bytes` (**мигр. 294** — содержимое в `material_blocks`).
+
+**Типы, на которых легко ошибиться:**
+`collaborators.tg_channel_id` — `character varying`, НЕ integer. `*_kopecks` (бонусы), `entry_link_log.id`, `event_chat_greetings.id` — `bigint`. `client_testimonials.tags` — `ARRAY`. `product_orders.amount` — `numeric(12,2)`, а `product_tariffs.price` — `integer` (приводить явно). `event_landing_pages.event_id` — теперь **nullable** (полиморфизм, мигр. 293).
+
+**⚠️ Роль `plusson` не владелец таблиц.** DDL на проде — только `sudo -u postgres psql -d plusson`, и после `CREATE TABLE` обязателен `GRANT` на таблицу и её sequence, иначе API получит `permission denied`.
+
+**⚠️ На проде лежат 9 технических backup-таблиц** (`_bak_*`, от 2026-06-25 и 2026-08-13) — это снимки перед ручными правками данных, к архитектуре отношения не имеют, в выборки не включать.
+
+### ⚠️ Расхождение кода и прод-схемы: миграция 295 НЕ НАКАЧЕНА (на 2026-08-14)
+
+`db/migrations/295_hub_niches_multi.sql` **не закоммичена и не применена на проде**, но код в рабочей копии её уже требует:
+- `clients.hub_niches TEXT[]` — читает и пишет [collab_hub.py](backend/app/api/collab_hub.py) (`_CLIENT_COLS`, `publish_my_card`, фильтр каталога);
+- `events.collab_finish_warned_at` — читает и пишет [tasks/collab_finish.py](backend/app/tasks/collab_finish.py) (`_warn_upcoming_finish`).
+
+Справочник-таблица `hub_niches` на проде **есть** (сид миграции 134) — не путать её с колонкой-массивом `clients.hub_niches`, которой нет.
+
+⚠️ **Деплой этого кода без применения 295 положит каталог Хаба и часовой Celery-таск автозавершения коллаб.** Порядок: накатить миграцию → потом деплоить код.
+
+### Подсистемы, которых раньше не было в этом файле (сверено с кодом 2026-08-14)
+
+Все перечисленные ниже — **живые**, роутеры зарегистрированы в [main.py](backend/app/main.py), задачи — в [celery_app.py](backend/app/celery_app.py).
+
+- **МедиаЛифт** ([medialift.py](backend/app/api/medialift.py), [medialift_cabinet_html.py](backend/app/api/medialift_cabinet_html.py)) — виральная автоподписка на TG-каналы: человек заходит по реф-ссылке, видит до 7 участников своей ветки, обязан подписаться на 3 (`events.medialift_required_subscriptions`), затем сам добавляет канал и становится карточкой для следующих. Это **одно служебное событие на всю платформу** (`events.module_slug='medialift'`) на сервисном клиенте, а не список событий. Реф-цепочка **не хранится** — считается рекурсивным CTE по `event_participants.referrer_ref_code`. ⚠️ Проверка подписки **fail-open**: бот не админ в канале → подписка засчитывается. Фронт — [MediaLiftTab.tsx](mini-app/src/tabs/MediaLiftTab.tsx), пункт меню виден только `is_system_service`.
+- **ПЛЮСОН Коннект** ([pluson_connect.py](backend/app/api/pluson_connect.py), [pluson_connect_token.py](backend/app/services/pluson_connect_token.py)) — человек, который есть у клиента контактом в боте, привязывает свой аккаунт ПЛЮСОНа. Бот выдаёт подписанный JWT (`kind='pluson_connect'`, 1 час), ссылка ведёт на `pluson.ru/link-pluson?token=`, там вводятся email/пароль → пишется `contacts.linked_client_id`. ⚠️ **Причина, по которой форма на нашем домене, — юридическая:** ПД вводятся на сервере в РФ с явной галочкой согласия (`consent_pd=False` → 422), в мессенджере ПД не собираем. ⚠️ Контакт ищется строго по `(client_id, platform, user_id)` **из токена**, не из URL — иначе по чужой ссылке можно было бы привязать чужой аккаунт.
+- **Бонусы** ([bonuses.py](backend/app/services/bonuses.py)) — кошелёк клиента **в копейках**: `client_bonus_transactions` (источник правды) + `client_bonus_balance` (кэш). Типы: `accrual`, `payment`, `withdrawal_hold`, `withdrawal_cancel`, `withdrawal_done`. Наполняется кэшбэком 10% с реф-программы ПЛЮСОНа, тратится на подписку или выводится. ⚠️ Каждая функция берёт `SELECT ... FOR UPDATE` на баланс — **обновлять баланс мимо этих функций нельзя**. ⚠️ `mark_withdrawal_done` баланс НЕ трогает: деньги уже списаны на `hold`, иначе двойное списание.
+- **Отзывы и кейсы** ([client_testimonials.py](backend/app/api/client_testimonials.py), фича `testimonials`, Экстра) — общая база на клиента, а не на событие: один отзыв нужен и на лендинге, и в рассылке. Отбор в галерею идёт **по тегам**, поэтому массовая загрузка сразу принимает общий набор тегов. ⚠️ `_norm_tags` жёстко нормализует (lowercase, ≤40 символов, ≤20 тегов) — иначе «Конференция» и «конференция» стали бы разными метками.
+- **Оферты** ([client_offers.py](backend/app/api/client_offers.py), фича `offers`) — текст оферты хранится у нас, публичная страница `/o/{slug}`; если оферта уже есть снаружи — `external_url`. Ссылки: `events.offer_id`, `event_tariffs.offer_id`. ⚠️ **`slug` уникален только внутри клиента, а публичный URL клиента не содержит** — при коллизии выигрывает меньший `id` (осознанный риск). Смежная, но отдельная подсистема — [legal.py](backend/app/api/legal.py): юр-данные 152-ФЗ + версионируемая политика ПД (`client_policy_versions`), **без гейта по фиче** (обязательна всем).
+- **Отзыв рассылки** ([broadcast_recall.py](backend/app/services/broadcast_recall.py)) — удаляет уже отправленные сообщения: TG `deleteMessage`, VK `messages.delete(delete_for_all=1)`, MAX `DELETE /messages`; **email отозвать невозможно**. ⚠️ `message_id` начали сохранять только с 2026-07-16 — более старые рассылки не отзываются. ⚠️ Telegram даёт удалять лишь в пределах **48 часов**. Статус `recalled` ставится только если реально что-то удалено, и отличается от `cancelled` (снята до отправки, можно запустить снова).
+- **`identity_resolver` vs `contact_merge` — НЕ дубли.** [identity_resolver.py](backend/app/services/identity_resolver.py) ходит **во внешний API** платформы: `@username` → числовой id (TG `getChat` — работает, только если человек писал боту; VK `users.get` — почти всегда; **MAX публичного API не имеет, всегда None**). [contact_merge.py](backend/app/services/contact_merge.py) работает **с нашей БД**: найти/создать/склеить контакт. Резолвер в БД не пишет и никогда не кидает исключений.
+- **Запись вебинара** ([tasks/webinar_recording.py](backend/app/tasks/webinar_recording.py)) — MediaMTX пишет сегменты на диск, задача склеивает их ffmpeg и заливает в R2 (`webinar_recordings`). ⚠️ Задача обязана выполняться **на той же машине**, где MediaMTX пишет файлы. ⚠️ Пишется **весь поток**, включая настройку спикера до эфира: обрезка по границам сессии заявлена в докстринге, но **не реализована**. ⚠️ Файл читается целиком в память — риск OOM на длинных эфирах; `duration_sec` никогда не заполняется; исходные сегменты не удаляются.
+- **Приветствия в чатах события** ([event_chat_greetings.py](backend/app/api/event_chat_greetings.py)) — набор случайных фраз, бот отвечает на кодовое слово. ⚠️ Настройки раскиданы: сами фразы в `event_chat_greetings`, а включатель и кодовое слово — в **`events.chat_greeting_enabled` / `chat_greeting_keyword` / `chat_greeting_exact`** (правятся через `PATCH /events/{id}`). ⚠️ Дефолтный набор **авто-сидится на GET** — чтение с побочным эффектом записи.
+- **Детектор чужого вебхука** ([bot_webhook_watch.py](backend/app/services/bot_webhook_watch.py), [tasks/bot_webhook_check.py](backend/app/tasks/bot_webhook_check.py), миграция 288) — Telegram отдаёт сообщения только одному получателю: если клиент подключил бота ещё и к BotHelp/Salebot, наш polling молча перестаёт получать всё, и у клиента отваливаются воронки, подарки и регистрации. Раз в час обходим ботов через `getWebhookInfo` (`channels.webhook_url` / `webhook_checked_at` / `webhook_notified_at`). ⚠️ **Вебхук сами НЕ снимаем** — это сломает клиенту его сервис; только сообщаем. ⚠️ `''` (вебхука нет) и `None` (спросить не удалось) — **разные** вещи: при `None` состояние не трогаем, иначе плашка погасла бы у сломанного бота. Письмо — один раз на проблему, плашка висит, пока проблема есть. Фронт — [BrokenBotsBanner.tsx](web/src/components/BrokenBotsBanner.tsx), данные приходят в `/auth/me` полем `broken_bots`.
+- **Экспорт участников/контактов** ([participants_export.py](backend/app/api/participants_export.py), [contacts_export.py](backend/app/api/contacts_export.py)) — read-only API для сторонних сервисов, авторизация **не JWT, а `X-Integration-Token`**. Списки: все / зарегистрированные / нет / в чате / оплатившие / неоплатившие. ⚠️ **Из всех списков вычитаются коллабораторы события** — отдаётся чистая аудитория зрителей. ⚠️ Двойная проверка: токен обязан принадлежать владельцу события, иначе 403.
+- **Ставка рефералки** ([referral_rate.py](backend/app/services/referral_rate.py), миграция 227) — процент **замораживается на приведённом клиенте при регистрации** (`clients.referral_rate_percent`, `referral_accrual_until`), а не читается глобально при начислении. Поэтому смена процента в админке действует только на новых: обещание «10% до 2027» для уже приведённых остаётся. ⚠️ Истёк `referral_accrual_until` → `effective_percent` возвращает 0.
+- **Лог входов** ([entry_link_log.py](backend/app/services/entry_link_log.py)) — сырьё каждого захода по ссылке, до создания чего-либо. Нужен, потому что **VK при холодном открытии Mini App теряет `startParam`**, и рефовод не доезжает; по логу видно, пришёл `pid` от платформы или нет. ⚠️ Таблица **write-only** (API её не читает) и **растёт без ретенции**. ⚠️ Вопреки докстрингу, подключён **только к VK** ([vk_event.py](backend/app/api/vk_event.py)), не к TG/MAX/вебу.
+- **Удалённое медиа** ([remote_media.py](backend/app/services/remote_media.py)) — клиент даёт ссылку на фото в облаке, мы скачиваем и перезаливаем в R2, потому что мессенджеры не открывают «страницу просмотра» Google Drive. Нормализует Google Drive → `uc?export=download`, Dropbox → `dl=1`. ⚠️ Лимит **20 МБ**; Google Drive на больших файлах отдаёт HTML вместо файла — это ловится и объясняется клиенту по-русски.
+
+**Мёртвый код / расхождения с докстрингами:** `bot_webhook_watch.banner_text()` не вызывается нигде (фронт рисует плашку сам); обрезка записи вебинара заявлена, но не реализована; `referrals.py:132` содержит захардкоженный `COALESCE(...,10)` мимо `DEFAULT_PERCENT`; докстринг [collab_history.py](backend/app/services/collab_history.py) до сих пор обещает «UPSERT обновляет вклад», хотя код переведён на `DO NOTHING`.
+
+### Продукты и услуги вне событий (миграции 290-294 от 2026-08-13/14, ПРОД)
+
+Уход с GetCourse. Клиент продаёт то, что событием не является: наставничество, мастер-класс, консультацию. У продукта свой лендинг `{домен}/pr/{slug}`, свои тарифы, приём оплаты и материалы, которые человек получает после покупки. Гейт — фича **`products`**, сейчас **только у тарифа `admin`** (клиентам не продаётся; перенос — одной строкой в `tariff_features`, без правок кода).
+
+**Существующие сущности намеренно не трогали:** `lead_magnets` — файл за подписку, без продающей страницы и оплаты; `client_offerings` — карточки в Экосистеме Mini App, без денег; лендинг события — жёстко на `event_id`.
+
+**Таблицы:** `products` (`slug` UNIQUE **в пределах клиента**, `status` draft/published/archived, `wording_preset`, `wording` jsonb, `offer_url`, `cover_url`), `product_tariffs` (зеркало `event_tariffs`), `product_sections` (разделы, `parent_id` — вложенность ЛЮБОЙ глубины), `materials` (общая библиотека кабинета: только `title`/`description`), `material_blocks` (содержимое), `product_materials` (связка продукт↔материал: `title_override`, `sort_order`, `min_tariff_id`, `section_id`, `show_on_landing`), `product_orders`, `product_access`, `product_cabinet_codes`.
+
+⚠️ **«Материалы» и «курс» — ОДНА сущность.** Мастер-класс с одним файлом и программа из двадцати материалов отличаются только объёмом. Отдельного «тренинга» нет. **Прогресса, открытия по расписанию и домашек НЕТ** (`sort_order` заложен на будущее).
+
+⚠️ **Библиотека материалов ОБЩАЯ на кабинет.** Материал живёт в одном месте, подключается в несколько продуктов — правка расходится везде. Нужна независимая правка → `POST /materials/{id}/copy` («Взять копией»); обратно копии уже не собрать. Название и порядок хранятся в СВЯЗКЕ (`product_materials`), а не в материале: один и тот же материал бывает «Урок 3» в одном продукте и «Бонус» в другом.
+
+⚠️ **Материал — страница из блоков** (`material_blocks.kind`: `text|image|video|file|audio|button`), а не «тип + одна ссылка». Старые поля `materials.kind/url/body/...` **удалены** миграцией 294 — код, читающий `m.url`, упадёт. **Своё видео не храним** (решение владельца): `kind='video'` — это только ссылка на YouTube/VK Видео/Rutube.
+
+⚠️ **Заказ ≠ доступ.** `product_access` отдельно от `product_orders`: доступ выдаётся и вручную (бартер, перенос базы из GetCourse), а заказ может навсегда остаться `unpaid`. Отчёт «кто купил» строить по `product_access`. Бесплатный тариф заказа вообще не создаёт.
+
+⚠️ **Номер заказа с префиксом `prd-`** (у событий `evt-`) — по нему общий вебхук в [event_orders.py](backend/app/api/event_orders.py) отличает оплату продукта. Подпись проверяется ключами **владельца продукта**, а не из переменных окружения (там ключи самого ПЛЮСОНа).
+
+⚠️ **`slug` уникален только внутри кабинета** — любая публичная точка обязана определять клиента по заголовку `Host` (или параметру `client_id`). В [pr/[slug]/page.tsx](web/src/app/pr/%5Bslug%5D/page.tsx) `Host` пробрасывается в fetch вручную — уберёшь, сломается для клиентов со своим доменом.
+
+⚠️ **Словарь формулировок** (`products.wording_preset`: `consulting` по умолчанию / `education`): у части клиентов услуги информационно-консультационные, и слова «урок», «ученик», «обучение» не должны появляться нигде, включая письма и сообщения бота. Функция `wording()` продублирована в ТРЁХ местах — [product_notify.py](backend/app/services/product_notify.py), [ProductPage.tsx](web/src/app/pr/%5Bslug%5D/ProductPage.tsx), [my/[slug]/page.tsx](web/src/app/my/%5Bslug%5D/page.tsx); меняешь словарь — правь все три.
+
+⚠️ **Фильтр материалов по тарифу — ТОЛЬКО на бэкенде** ([products_public.py](backend/app/api/products_public.py)): виден, если `min_tariff_id IS NULL` или `sort_order` тарифа материала ≤ `sort_order` тарифа купившего. Отфильтруешь в браузере — ссылки на старшие тарифы уедут тому, кто их не покупал. На витрине лендинга ссылок на материалы нет вовсе — SELECT берёт только `title`/`description`.
+
+**Кабинет купившего `/my`** — в границах КЛИЕНТА (как аккаунт GetCourse). Пароля у покупателя нет: вход по одноразовому коду на почту (хранится sha256, живёт 15 минут, гасится `used_at`). JWT с `aud='product-cabinet'` на 24 часа — ⚠️ без `aud` токеном кабинета спикера можно было бы войти сюда. Ответ `request-code` **всегда одинаковый** независимо от того, есть ли такой email — иначе перебор базы покупателей.
+
+⚠️ **Удаление материала — 409, а не каскад** (FK `RESTRICT`): сначала отвязать от продуктов. Удаление раздела: вложенные разделы CASCADE, а материалы `section_id → SET NULL` (поднимаются на верхний уровень, доступ не теряется).
+
+⚠️ **Загрузка файлов — kinds `product_media` и `material_media`**, НЕ `landing_media` (у продукта нет `event_id`, обычный `landing_media` упадёт).
+
+⚠️ **Next 14.2.3, а не 15** — `params` читать через `useParams()`, НЕ через `use(params)`, иначе Application error.
+
+**API:** кабинет `/api/v1/products*` + `/api/v1/materials*` ([products.py](backend/app/api/products.py)), лендинг `/api/v1/products/{id}/landing` ([product_landing.py](backend/app/api/product_landing.py)), публичное `/api/v1/public/products/{slug}` и `/api/v1/public/product-cabinet/*` ([products_public.py](backend/app/api/products_public.py)), заказы `/api/v1/public/product-orders/*` ([product_orders.py](backend/app/api/product_orders.py)). Фронт: [dashboard/products](web/src/app/dashboard/products/page.tsx) (вкладки Основное/Тарифы/Состав/Лендинг/Клиенты), [pr/[slug]](web/src/app/pr/%5Bslug%5D/page.tsx), [my](web/src/app/my/page.tsx). Api-группы `api.products.*`, `api.materials.*`, `api.productLanding.*`.
+
+🔴 **Известный баг:** после успешной оплаты продукта платёжка ведёт на `/thanks/product-order/{order_id}` ([product_orders.py](backend/app/api/product_orders.py)), а такой страницы во фронте **нет** — человек попадает на 404. Эндпоинт `GET /api/v1/public/product-orders/{order_id}` для неё готов и не используется.
+
+### Лендинг стал полиморфным — страница принадлежит событию ИЛИ продукту (миграция 293 от 2026-08-13, ПРОД)
+
+Конструктор блоков (миграция 240) был жёстко привязан к `event_id`. Продуктам нужен ТОТ ЖЕ конструктор — заводить второй набор блоков значило бы чинить вёрстку в двух местах.
+
+`event_landing_pages` получила `owner_type` (`event|product`, дефолт `event`), `owner_id`, `client_id`, `slug`; **`event_id` стал nullable**. ⚠️ **Блоки (`event_landing_blocks`) не трогали вообще** — они висят на `page_id` и о владельце не знают. Старое ограничение `(event_id, kind)` заменено двумя частичными уникальными индексами по владельцу.
+
+⚠️ Старый код с `JOIN events` без учёта `owner_type` **молча потеряет страницы продуктов**, а код, ожидающий `event_id NOT NULL`, — упадёт. Точки чтения/записи: [product_landing.py](backend/app/api/product_landing.py) (`get_or_create_product_page`), [product_landing_public.py](backend/app/api/product_landing_public.py).
+
+У продукта свой пресет блоков (`DEFAULT_PRODUCT_BLOCKS`): вместо программы/спикеров/мест/подарков — блок `product_content`. Живые блоки продукта: `product_content, tariffs, organizer, support, footer`. Тема клиента (`clients.lp_*`) **копируется** при создании страницы, а не привязывается — правка темы задним числом собранные лендинги не трогает.
+
+### Вебинарная комната — стрим через видеокодер + чат + продажи + аналитика (миграции 221-226 от 2026-07-16, ПРОД)
 
 Своя вебинарная комната на pluson.ru — аналог GetCourse (тип трансляции «Видеокодер»). Полный план и список файлов — [documentation/WEBINAR-ROOM-PLAN.md](documentation/WEBINAR-ROOM-PLAN.md).
 
@@ -148,7 +249,9 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 **Роутеры:** клиентский `/api/v1/events/{id}/webinar` ([modules/webinar_room.py](backend/app/api/modules/webinar_room.py)), публичный `/api/v1/public/webinar/{slug}/{day}` + WS `/ws/webinar/{slug}/{day}` ([webinar_public.py](backend/app/api/webinar_public.py)). Фронт-дашборд — [WebinarTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarTab.tsx) + [WebinarAnalytics.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarAnalytics.tsx), api-группа `api.webinar.*`.
 
-**⚠️ Для выката на прод:** миграция 221 (`sudo -u postgres`, роль plusson не владелец) + установка MediaMTX ([media-server/README.md](media-server/README.md), бинарник + systemd + nginx `/hls/` + `ufw allow 1935` + `WEBINAR_BRIDGE_TOKEN`) + nginx WebSocket-upgrade на `/ws/` + `npm install` (hls.js) в web.
+**⚠️ Источником может быть ЛЮБОЙ видеокодер, отдающий RTMP на наш адрес** — Zoom (Custom Live Streaming, есть уже на тарифе **Pro**, отдельный Zoom Webinars не нужен), OBS, Streamlabs, ffmpeg. MediaMTX не спрашивает, кто подключился: проверяется только ключ потока. **Яндекс Телемост, VK Звонки, Сферум и Google Meet НЕ подходят** — они умеют вещать только на свои площадки (Яндекс Эфир / VK Видео / YouTube), произвольный RTMP-адрес указать нельзя, а iframe у них запрещён. Из российских кастомный RTMP есть у **Контур.Толк** и **МТС Линк (Webinar.ru)** — тариф уточнять при подключении.
+
+**⚠️ Установка MediaMTX — разовая, уже выполнена** ([media-server/README.md](media-server/README.md)): бинарник + systemd `plusson-mediamtx` + nginx `/hls/` + `ufw allow 1935` + общий секрет `WEBINAR_BRIDGE_TOKEN` (он же `MTX_BRIDGE_TOKEN` в `media-server/.env`). Порты: 1935 RTMP наружу, 8888 HLS и 9997 API — только localhost. ⚠️ Миграции вебинарки на проде — только через `sudo -u postgres` (роль plusson не владелец).
 
 
 ### Дашборд аналитики — квадратики-разрезы с пересечением (миграция 284 от 2026-08-13, ПРОД)
@@ -769,13 +872,62 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Демо-строки `hub_collab_history` удалены с прода** (2026-08-06): 20 записей с `event_id IS NULL` у тестовых клиентов 40–44 (`@hub.local`, в каталоге не опубликованы). Таблица теперь только под реальные коллабы. Не возвращать — витрина должна показывать правду.
 
+#### ⚠️ Автозавершение: что НЕ трогаем и о чём предупреждаем (2026-08-14)
+
+**Событие, где среди участников только САМИ организаторы, не завершается.** «Свои» — контакты организаторов через `clients.self_collaborator_id → collaborators.contact_id`. Это верный признак, что человек ещё ПРОВЕРЯЕТ систему: он открыл своё событие сам, дата давно прошла — и автозавершение записывало ему коллаборацию, которой не было (так вышло у клиента 1 с событием 72: единственная регистрация оказалась им самим).
+
+⚠️ **Порога «сколько нужно участников» намеренно НЕТ.** Он бил бы по новичкам, у которых первая коллаба маленькая. Решение владельца: «не думаю, что люди будут накручивать рейтинг — скорее просто не будут пользоваться системой и уйдут». Защита от накрутки — преждевременная оптимизация; появится в данных, тогда и добавим.
+
+**Предупреждение за сутки** — `_warn_upcoming_finish`, всем организаторам через `notify_organizer_all_channels`. ⚠️ Именно ДО, а не после: узнать, что событие уже завершено и учтено в рейтинге, бесполезно — поправить дату человек уже не сможет. Отметка `events.collab_finish_warned_at` (миграция 295) — без неё письмо уходило бы каждый час, пока идут эти сутки. После завершения — второе уведомление, с подсказкой скопировать событие для нового захода.
+
+#### ⚠️ Цифры коллабы пишутся ОДИН РАЗ (2026-08-14)
+
+`record_collab_history` перевёден с `DO UPDATE` на **`DO NOTHING`**. Раньше повторное завершение пересчитывало вклад и Win-Win заново: вернув событие в черновик, сдвинув дату и завершив снова, можно было **переписать себе показатели** набранными позже регистрациями. Число коллабораций при этом не росло (UNIQUE), а вот коэффициент — да. Результат коллаборации — свершившийся факт, он фиксируется.
+
+⚠️ **У завершённой коллабы даты не редактируются** — `update_event` отдаёт 409 на `start_at`/`end_at` при `is_collab AND status='ended'`. Для нового захода событие КОПИРУЮТ: у копии свои даты, рейтинг за прошедшую не трогается. Без этого запрета заморозка цифр обходится сменой даты.
+
+⚠️ **Возврат завершённой коллабы в черновик НЕ удаляет запись рейтинга** — иначе неудачную коллаборацию можно было бы спрятать и стереть статистику себе и партнёрам.
+
+**В списке коллаб виден статус** события («Черновик» / «Опубликована» / «Завершена») — раньше из списка было не понять, какая коллаба уже учтена в рейтинге.
+
+### ⚠️ Публикация события: одно жёсткое условие — ДАТА (2026-08-14)
+
+**Без `start_at` (или дней программы) событие не публикуется** — 409 в `update_event`. Причина не во вкусе: событие без даты не встаёт в календарь (не по чему сортировать), не шлёт напоминания и не понимает, когда закончилось.
+
+**Всё остальное — ПРЕДУПРЕЖДЕНИЕ, а не запрет** ([EventStatusToggle.tsx](web/src/components/EventStatusToggle.tsx), проп `warnings`): перед публикацией показывается список незаполненного («афиша — в календаре карточка будет пустой») и вопрос «опубликовать всё равно?». Жёсткий запрет отпугивает: человек упирается в «нельзя» на ровном месте и уходит, а мы не знаем наверняка, что он считает готовым.
+
+⚠️ **Вебинарную комнату и ссылку на эфир НЕ проверяем вовсе** — их заводят перед самым эфиром, когда регистрации уже идут. Предупреждение о них было бы шумом.
+
+В окне подтверждения сказано, что после публикации событие **станет публичным и появится в календаре** — до этого человек не понимал, что именно меняет кнопка.
+
+### ⚠️ Ссылки события работают в ЧЕРНОВИКЕ (2026-08-14)
+
+Раньше у черновика ссылки были **замылены, копирование заблокировано** — проверить событие до публикации было невозможно в принципе. Теперь ссылки рабочие и копируются, а над списком — плашка: «событие не опубликовано, в календаре его не видно; ссылки рабочие, открывайте для проверки» ([PublicLinks.tsx](web/src/components/PublicLinks.tsx)).
+
 ### ⚠️ Коллабораторная — КОЛЛАБА СВЯЗАНА С КЛИЕНТАМИ, А НЕ СО СПИКЕРАМИ
 
 **Актуальная архитектура — [documentation/COLLAB-HUB-ARCHITECTURE.md](documentation/COLLAB-HUB-ARCHITECTURE.md).** Файл `CONCEPT-COLLAB-NETWORK.md` — устаревшее ТЗ, реализация от него разошлась, по нему НЕ ориентироваться.
 
 **Главное:**
 - Организаторы коллабы = **клиенты ПЛЮСОНа** (`event_owners.client_id → clients.id`). К `collaborators` (спикеры/партнёры) коллаба **не привязана**.
-- Карточка в каталоге Хаба = **`clients`** (имя основателя, бренд, био, регалии, `hub_category/niche/city/about`, `media_assets`, `is_published_in_hub`). Колонки `hub_*` в `collaborators` — **МЁРТВЫЕ** (0 записей, код их не читает).
+- Карточка в каталоге Хаба = **`clients`**: имя основателя, бренд, био, регалии, `is_published_in_hub`, `media_assets`, `hub_category`, `hub_niche`, **`hub_niches` (массив, миграция 295)**, `hub_city`, `hub_about`, `hub_published_at`, `hub_impact` + `hub_impact_public`, `hub_wow` + `hub_wow_public` (миграция 218).
+- ⚠️ **Колонок `hub_*` в `collaborators` НЕ СУЩЕСТВУЕТ** — они **дропнуты миграцией 218** вместе с `is_published_in_hub`. Прежняя формулировка «мёртвые, код их не читает» вводила в заблуждение: колонки уже удалены, а не просто не используются. В `collaborators` из «карточных» полей осталась только `media_assets` (её читает карточка спикера и лендинги — это осознанный дубль с `clients.media_assets`, у них разные потребители).
+
+#### Карточка каталога — правила показа (2026-08-14)
+
+⚠️ **Ниш НЕСКОЛЬКО** — `clients.hub_niches TEXT[]` (миграция 295). Человек редко укладывается в одну: психолог работает и с «Отношениями», и со «Здоровьем», и по второй его не находили. Старая `hub_niche` НЕ удалена и хранит первую из списка — её ещё читают непереведённые места; фильтр каталога ищет по массиву **И** по ней (`$1 = ANY(hub_niches) OR hub_niche=$1`), иначе выпали бы те, у кого массив пуст.
+
+⚠️ **Категории** (`HUB_CATEGORIES`, [collab_hub.py](backend/app/api/collab_hub.py) + `CATEGORIES` во фронте — держать в синхроне): офлайн-бизнес, онлайн-бизнес, фрилансер, **частный практик**, **консультант**, эксперт.
+
+⚠️ **Нет медийных активов → плашки охвата НЕТ.** `_media_tier` при нуле подписчиков возвращает `None`, а не `under_1k`: раньше всем незаполнившим рисовалось «до 1 000» — цифра выглядела как заявленный охват, хотя её никто не вводил.
+
+⚠️ **Цифры («300+ клиентов») — до 6 штук.** Столько же в форме ввода ([mini-app/page.tsx](web/src/app/dashboard/mini-app/page.tsx), `MAX_ACHIEVEMENTS`, кнопка «Добавить» гаснет) и в ОБОИХ местах показа: карточка каталога и превью своей карточки. Раньше форма разрешала сколько угодно, каталог показывал 4, превью — 3, и введённое молча исчезало.
+
+⚠️ **Низ карточки прижат к основанию** (`mt-auto`): цифры, коллаборации, Win-Win и кнопки на одном уровне у всех карточек ряда. Строка рейтинга занимает место ВСЕГДА, даже без оценок — иначе кнопки уезжали выше соседних.
+
+⚠️ **Блок «Что предлагает партнёрам» — ГОЛУБОЙ** (`#F1F6FA` / `#B9CEDD`, текст `DARK`), остальные персиковые. Это главное, ради чего открывают карточку, и оно не должно сливаться. Цвет одинаков в трёх местах: каталог, превью своей карточки, страница профиля. Заголовки блоков — заглавными (`uppercase` в CSS, не в строке).
+
+⚠️ **Маркер списка регалий — фирменный синий**, не персиковый: персиковый на белом почти не виден ([[feedback_peach_on_white_bold]]).
 - **Отдельной таблицы «коллаба» НЕТ.** Коллаб-событие = обычная строка в `events` с `is_collab=TRUE` + несколько владельцев в `event_owners`.
 - Причина: суть коллабы — **каждый ведёт СВОЮ базу через СВОЕГО бота**. Это может только клиент со своим кабинетом и ботом.
 - `clients.self_collaborator_id` — карточка-коллаб самого клиента (чтобы добавлять СЕБЯ в события). Реф-код клиента = `contacts.ref_code` контакта его self-коллаба.
@@ -1147,7 +1299,7 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 **БД (миграция 130):** `event_participants.chat_check_at TIMESTAMPTZ NULL` — время последней проверки. Результат пишется в существующее `is_in_chat` (раньше его ставил только Salebot). `chat_check_at` отличает «не проверяли» (?) от «проверили, не в чате» (✕).
 
-**Бэк:** `POST /api/v1/events/{id}/check-chats` ([events.py](backend/app/api/events.py)) → [`check_event_chat_membership`](backend/app/services/chat_membership.py). ⚠️ С миграции 171 (2026-06-27) chat_id берётся из **`events.tg_chat_id`** (чат самого события) — legacy-поле `events.telegram_chat_ids` (CSV «ID Telegram-каналов») **удалено** из БД/API/фронта. Токен — **только VIP-бот клиента** (системный @pluson_bot как fallback убран); нет своего бота → проверка не выполняется. По каждому участнику с числовым tg_id → `getChatMember(chat_id, tg_id)` с троттлингом ~25 rps. Статусы `member/administrator/creator/restricted-is_member` = в чате. Псевдо-записи `@username` и участники без TG — пропускаются (`skipped_no_tg`). Если бот не админ / чат не найден → `getChatMember` ошибка → `undetermined`: статус НЕ перезаписываем, но `chat_check_at` ставим. **⚠️ Бот ОБЯЗАН быть админом чата**, иначе всё уйдёт в `undetermined`.
+**Бэк:** `POST /api/v1/events/{id}/check-chats` ([events.py](backend/app/api/events.py)) → [`check_event_chat_membership`](backend/app/services/chat_membership.py). ⚠️ С миграции 171 (2026-06-27) chat_id берётся из **`events.tg_chat_ref`** (чат самого события; тип **integer**, рядом `vk_chat_ref` и `max_chat_ref`) — legacy-поле `events.telegram_chat_ids` (CSV «ID Telegram-каналов») **удалено** из БД/API/фронта. ⚠️ Колонки `events.tg_chat_id` не существует — в старых текстах документации она называлась так ошибочно. Токен — **только VIP-бот клиента** (системный @pluson_bot как fallback убран); нет своего бота → проверка не выполняется. По каждому участнику с числовым tg_id → `getChatMember(chat_id, tg_id)` с троттлингом ~25 rps. Статусы `member/administrator/creator/restricted-is_member` = в чате. Псевдо-записи `@username` и участники без TG — пропускаются (`skipped_no_tg`). Если бот не админ / чат не найден → `getChatMember` ошибка → `undetermined`: статус НЕ перезаписываем, но `chat_check_at` ставим. **⚠️ Бот ОБЯЗАН быть админом чата**, иначе всё уйдёт в `undetermined`.
 
 **Ответ эндпоинта:** `{ok, total, checked, in_chat, not_in_chat, skipped_no_tg, undetermined, chat_ids}`. При отсутствии `tg_chat_id` → `{ok:false, reason:'no_chat_ids', message}`.
 
@@ -1205,7 +1357,7 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 **Меню бота события** (`send_event_menu` в [start.py](backend/bot/handlers/start.py), вызывается на `/start ref_pg<slug>` для зарегистрированного и командой `/menu{event_id}`). Порядок кнопок: **VIP (формат участия) → Кабинет → Чат → Эфир → Тех. поддержка**:
 1. **«Выбрать формат участия»** (VIP) — только если задан `events.vip_url` (с подстановкой партнёрских/контактных параметров). Текст — `vip_button_label` или дефолт.
 2. **«🎁 Кабинет·Подарки»** (обычные события) / **«🎁 Кабинет·Подарки·Спикеры»** (conference/turnir) — ведёт на **Mini App ИЛИ веб-страницу события** по `clients.default_link_mode` (миграция 169: `miniapp` → Mini App, `bot` → веб `/event/{slug}#cabinet`).
-3. **«📝 Вступить в Чат»** — если есть хоть одна chat-ссылка (`chat_url_tg/vk/max`).
+3. **«📝 Вступить в Чат»** — если у события задан хоть один чат (`events.tg_chat_ref` / `vk_chat_ref` / `max_chat_ref`).
 4. **«📺 Ссылка на эфир»** — callback `evlive_`, **скрывается** галочкой `events.hide_stream_button` (она прячет кнопку стрима и в Mini App/вебе, и в меню бота, и в сообщении эфира — кнопка «Программа» там тоже ведёт на Mini App или веб по `default_link_mode`).
 5. **«🆘 Тех. поддержка»** — callback `evsupport_`, единое сообщение с каналами связи клиента.
 
@@ -1225,7 +1377,7 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 **`button_kind` ('event'|'support')** — добавлен в ОБЕ таблицы шагов. `event` = кнопка на событие/программу, `support` = на `t.me/{clients.work_tg_username}?text=Есть вопрос по регистрации`.
 
-**Плейсхолдеры reg-воронки:** `{event_title}`, `{chats}` (чаты `events.chat_url_tg/vk/max`, главный по `primary_chat_platform` — сверху и жирным «(главный)»; HTML для TG/MAX, plain для VK), `{bot_handle}` (@ник VIP-бота клиента; нет своего бота → пусто, системный @pluson_bot не подставляется), `{support_link}` (`work_tg_username`), `{program_link}`/`{gifts_link}`/`{speakers_link}`/`{vip_link}` (формат `...startapp=ref_pg{slug}_tab{tab}`). **Пустой раздел → плейсхолдер пропадает:** gifts только при `event_referral_settings.is_enabled`, speakers только conference/turnir + есть `event_collaborators`, vip только при `events.vip_url`.
+**Плейсхолдеры reg-воронки:** `{event_title}`, `{chats}` (чаты события — `events.tg_chat_ref` / `vk_chat_ref` / `max_chat_ref`, главный по `primary_chat_platform` — сверху и жирным «(главный)»; HTML для TG/MAX, plain для VK), `{bot_handle}` (@ник VIP-бота клиента; нет своего бота → пусто, системный @pluson_bot не подставляется), `{support_link}` (`work_tg_username`), `{program_link}`/`{gifts_link}`/`{speakers_link}`/`{vip_link}` (формат `...startapp=ref_pg{slug}_tab{tab}`). **Пустой раздел → плейсхолдер пропадает:** gifts только при `event_referral_settings.is_enabled`, speakers только conference/turnir + есть `event_collaborators`, vip только при `events.vip_url`.
 
 **Незарег.-воронка переписана по ТЗ (миграция 129):** новый Шаг 1 «🚨 не получилось зарегистрироваться?» через 15 мин (`button_kind='support'`, кнопка «Написать в поддержку») → бывший Шаг 1 стал 2 → бывший 2 стал 3 → старый 3 удалён. Новые плейсхолдеры `{support_link}` (только `work_tg_username`, БЕЗ fallback на канал основателя — в отличие от `{owner_telegram}`) и `{brand_name}` (`clients.brand_name||name`, оборачивается в «…»).
 
@@ -1264,9 +1416,13 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ### Подарок спикера после эфира — взаимоисключающий: ручной ИЛИ лид-магнит из ПЛЮСОНа (миграция 167 от 2026-06-25, коммит 2703993)
 
+⚠️ **Схема изменилась 2026-07-30: колонки `event_collaborators.gift_after_speech_title` / `gift_after_speech_url` УДАЛЕНЫ.** Подарков у спикера может быть несколько, поэтому они переехали в отдельную таблицу **`event_collaborator_lead_magnets`** (`ec_id`, `lead_magnet_id`, `package_id`, `manual_title`, `manual_url`, `sort_order`). Имена `gift_after_speech_title/url` остались **только как поля в JSON-ответе** [speaker_cabinet.py](backend/app/api/speaker_cabinet.py) — они собираются подзапросом из этой таблицы. В SQL по `event_collaborators` таких колонок нет.
+
 **Зачем.** Спикер дарит зрителям подарок после выступления. Два способа, **только один за раз** (не оба сразу):
-1. **Ручной** — `event_collaborators.gift_after_speech_title` + `gift_after_speech_url` (название + ссылка спикер вписывает руками).
-2. **Лид-магнит из ПЛЮСОНа** — спикер сначала подключает свой ПЛЮСОН-аккаунт попапом-логином (`collaborators.linked_client_id`), затем выбирает СВОЙ лид-магнит (`event_collaborators.gift_lead_magnet_id`) или пакет (`gift_package_id`). Турнирный критерий `auto_kind='lead_magnet'` считает `COUNT(funnel_runs)` по этому магниту/пакету.
+1. **Ручной** — `manual_title` + `manual_url` в `event_collaborator_lead_magnets` (название и ссылка вписываются руками).
+2. **Лид-магнит из ПЛЮСОНа** — спикер сначала подключает свой ПЛЮСОН-аккаунт попапом-логином (`collaborators.linked_client_id`), затем выбирает СВОЙ лид-магнит (`lead_magnet_id`) или пакет (`package_id`) в той же таблице. Турнирный критерий `auto_kind='lead_magnet'` считает `COUNT(funnel_runs)` по этому магниту/пакету.
+
+⚠️ Отдельно от этого у спикера есть **подарок для розыгрыша** — вот он живёт прямо в `event_collaborators.gift_raffle_title` / `gift_raffle_url` (не путать с подарком после эфира).
 
 **Взаимоисключение.** Заполнено максимум одно из двух (FK на `lead_magnets`/`lead_magnet_packages`, `ON DELETE SET NULL`). В `speaker_cabinet.py` (PATCH): передача `gift_lead_magnet_id`/`gift_package_id` зануляет ручные поля, и наоборот; `gift_lead_magnet_id=0` снимает обе ПЛЮСОН-привязки. Шаблон рассылки `gift` подставляет реальный выбранный подарок (для турнира). Превью шаблона перечитывает спикеров при открытии (свежий подарок без перезагрузки страницы), сортировка спикеров по алфавиту (`localeCompare ru`).
 
@@ -1918,18 +2074,11 @@ Email живёт в **`platform_users(platform_slug='email')`**, где адре
 
 ⚠️ Матрица прав ниже описывает **ограниченный** уровень.
 
-Клиент может подключить **одного** ассистента с урезанным доступом в свой кабинет. Ассистент входит на общий `/login` через свой email+пароль, в JWT получает `role='assistant'` и `sub=client_id` владельца — работает в том же кабинете, но middleware блокирует опасные действия.
+Ассистент входит на общий `/login` через свой email+пароль, в JWT получает `role='assistant'` и `sub=client_id` выбранного кабинета — работает в том же кабинете, но middleware блокирует опасные действия.
 
-**Таблица `client_assistants`** (id, client_id UNIQUE, email UNIQUE, password_hash, **password_plain**, last_login_at, created_at, updated_at). `password_plain` хранится в открытом виде специально — клиент в `/dashboard/settings` → вкладка «Ассистент» видит пароль под иконкой-глазиком и может переслать ассистенту повторно. Сознательный trade-off безопасности ради UX.
+⚠️ **ВСЁ, ЧТО НАПИСАНО НИЖЕ ПРО ТАБЛИЦУ `client_assistants` И ЭНДПОИНТЫ `/clients/me/assistant` (в единственном числе) — УСТАРЕЛО.** Таблица удалена миграцией 209, ей на смену пришли `assistants` + `assistant_grants` (описаны выше). Актуальные эндпоинты — `/clients/me/assistants` (во множественном числе), они работают с `grant_id`, а не с client_id. Колонки `password_plain` больше нет: владелец пароль не видит, помощнику отправляется новый по почте. Блок оставлен ниже только как история решения — **опираться на него в коде нельзя**.
 
-**API ассистента** ([backend/app/api/assistants.py](backend/app/api/assistants.py)) — все только для роли `owner` (не для `assistant`):
-- `GET /api/v1/clients/me/assistant` — текущий ассистент (без пароля)
-- `GET /api/v1/clients/me/assistant/password` — открытый пароль (для глазика)
-- `POST /api/v1/clients/me/assistant {email}` — генерит 12-символьный пароль (алфавит без 0/o/1/l/I), шлёт ассистенту письмо через системный email-канал ПЛЮСОНа, возвращает `{email, password}`. Защита от коллизии email с clients/admins/другими assistants.
-- `POST /api/v1/clients/me/assistant/reset-password` — генерит новый пароль и шлёт письмо
-- `DELETE /api/v1/clients/me/assistant` — полное отключение
-
-**Логин ассистента** ([auth.py:login](backend/app/api/auth.py)) — поиск идёт в порядке `clients → client_assistants → admins`. JWT при успехе: `{sub: str(client_id), email: assistant_email, role: 'assistant', assistant_id}`.
+**Логин помощника** ([auth.py:login](backend/app/api/auth.py)) — поиск идёт в порядке `clients → assistants → admins`. JWT при успехе: `{sub: str(client_id), email: assistant_email, role: 'assistant', assistant_id, grant_id}`.
 
 **`GET /auth/me`** возвращает дополнительное поле `role: 'owner'|'assistant'`. Для ассистента подменяется `email` на email самого ассистента (чтобы в шапке отображался он, а не владелец) и добавляется `assistant_id`. Поле `name` остаётся именем клиента-владельца.
 
@@ -1975,13 +2124,13 @@ Email живёт в **`platform_users(platform_slug='email')`**, где адре
 
 **Глобальный UX-фоллбек на 403** в [api.ts](web/src/lib/api.ts) — если бэк вернул 403 с detail, начинающимся на «Ассистент» или равным «Этот раздел доступен только владельцу кабинета.», `request()` ПОМИМО throw показывает `window.alert(detail)` через setTimeout. Это страхует случаи когда вызывающий код не обернул запрос в try/catch — кнопка не «тихо» ничего не делает, а сразу объясняет почему.
 
-⚠️ **GRANTы на проде и dev** после миграции 106: роль БД = `plusson` (не `plusson_user`). Команда:
+⚠️ **GRANTы на проде и dev**: роль БД = `plusson` (не `plusson_user`) и она **не владелец таблиц** — DDL на проде только через `sudo -u postgres psql -d plusson`. Актуальные таблицы помощников — `assistants` и `assistant_grants` (миграция 209):
 ```sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON client_assistants TO plusson;
-GRANT USAGE, SELECT ON client_assistants_id_seq TO plusson;
+GRANT SELECT, INSERT, UPDATE, DELETE ON assistants, assistant_grants TO plusson;
+GRANT USAGE, SELECT ON assistants_id_seq, assistant_grants_id_seq TO plusson;
 ```
 
-**Тестирование (e2e на dev, 2026-05-24):** create → пароль ✓; login as assistant → JWT role='assistant' ✓; DELETE /contacts/N → 403 ✓; GET /channels → 403 ✓; PATCH /auth/me → 403 ✓; POST /lead-magnets → 403 ✓; GET /lead-magnets → 200 ✓; GET /contacts → 200 ✓; GET /clients/me/assistant как assistant → 403 ✓; reset-password / get-password / delete — все ✓.
+**Тестирование (e2e на dev, 2026-05-24):** описано для старой одно-ассистентной схемы; сами проверки прав (403 на DELETE контакта, на `/channels`, на `PATCH /auth/me`, на запись в лид-магниты; 200 на чтение) остаются актуальными и для новой модели.
 
 ### Подписочная архитектура G (миграция 066 от 2026-05-07)
 
@@ -2327,7 +2476,8 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Пять связанных таблиц для контактов и каналов:**
 - **`platforms`** — справочник платформ (telegram/vk/max + метаданные: иконка, цвет, лимит сообщения, поддержка кнопок). Везде FK вместо TEXT-значений — нельзя записать опечатку.
-- **`contacts`** — Контакт (ЧЕЛОВЕК). Один на клиента. Хранит: name, email, phone (с нормализованными версиями для мерджа), `ref_code` UNIQUE, `first_referrer_contact_id`, tags, salebot_id, utm_source, last_contact_at, `merged_into`, `merged_ref_codes`. Один человек = одна запись.
+- **`contacts`** — Контакт (ЧЕЛОВЕК). Один на клиента. Хранит: `name`, `phone` + `phone_normalized`, `ref_code` UNIQUE, `first_referrer_contact_id`, `tags`, `salebot_id`, `utm_source`, `last_contact_at`, `merged_into`, `merged_ref_codes`, `external_ref_param`, `linked_client_id`, `plusson_referrer_code`, `was_in_webinar`. Один человек = одна запись.
+  ⚠️ **Колонок `email` и `email_normalized` в `contacts` НЕТ** (удалены миграцией 282). Почта — это идентичность в `platform_users(platform_slug='email')`, где адрес лежит в `platform_user_id`. Искать человека по почте только там (см. раздел «Почта человека — ТОЛЬКО идентичность»).
 - **`platform_users`** — Идентичность контакта на платформе. `contact_id → contacts`, `platform_slug → platforms`. Один человек может иметь несколько идентичностей: TG-аккаунт + VK-аккаунт = две записи под одним contact_id. UNIQUE(contact_id, platform_slug) и UNIQUE(client_id, platform_slug, platform_user_id).
 - **`channels`** — Каналы доставки клиента (его боты, группы VK, MAX-каналы). `platform_slug → platforms`.
 - **`platform_user_channels`** — Подписка идентичности на канал. `platform_slug` дублируется + составные FK: TG-аккаунт нельзя подписать на VK-группу. `is_unsubscribed` per-канал.
@@ -2338,8 +2488,10 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - `referrer_participant_id` ссылается на `event_participants` — реферальная связь контекстная, только внутри события.
 - ⚠️ `telegram_users` и `notifications_log` — удалены.
 - Модульные таблицы с префиксом `conf_` принадлежат модулю «Конференция».
-- Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)` **NOT NULL** (миграция 086 от 2026-05-18). Коллаб = «расширение контакта»: только должность, фото, регалии, бот-канал, личный TG и т.п.; имя/email/телефон — поля контакта. Создание идёт **только** из существующего контакта (`POST /api/v1/collaborators/ { contact_id }`) — модалка «Добавить из контактов» на `/dashboard/collaborations`. Импорт JSON (`POST /collaborators/import`) — если контакта с таким именем нет, авто-создаёт пустой и привязывает. На карточке коллаба блок «Контакт в общей базе» виден всегда; на карточке контакта (если есть запись в `collaborators`) — плашка «Этот контакт — коллаборатор» со ссылкой. Email/телефон контакта правятся inline на `/dashboard/clients` (`PATCH /api/v1/contacts/{id}`).
-- `conf_speaker_events.notes` (миграция 041 от 2026-04-27) — произвольный текст под спикера в конкретной конференции (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся.
+- ⚠️ **Таблицы `conf_speaker_events` НЕ СУЩЕСТВУЕТ** — связь «коллаб ↔ событие» живёт в **`event_collaborators`** (`speaker_id → collaborators.id`, `event_id`, `role`, `notes`, `sort_order`, `is_visible`, `is_commercial`, `priority`, `poster_id`, `speaker_topic`, `use_photo_instead_of_poster`, `knowledge_base_*`, `gift_*`). Старое имя осталось только в тексте документации и в исторических миграциях — **в SQL его не использовать**.
+- ⚠️ **Таблицы `speakers` тоже нет** — спикеры это `collaborators` + `event_collaborators`.
+- Коллабораторы — глобальная база: `collaborators` + `event_collaborators`. У `collaborators` FK `contact_id → contacts(id)` **NOT NULL** (миграция 086 от 2026-05-18). Коллаб = «расширение контакта»: только должность, фото, регалии, бот-канал, личный TG и т.п.; имя/email/телефон — поля контакта. Создание идёт **только** из существующего контакта (`POST /api/v1/collaborators/ { contact_id }`) — модалка «Добавить из контактов» на `/dashboard/collaborations`. Импорт JSON (`POST /collaborators/import`) — если контакта с таким именем нет, авто-создаёт пустой и привязывает. На карточке коллаба блок «Контакт в общей базе» виден всегда; на карточке контакта (если есть запись в `collaborators`) — плашка «Этот контакт — коллаборатор» со ссылкой. Email/телефон контакта правятся inline на `/dashboard/clients` (`PATCH /api/v1/contacts/{id}`).
+- `event_collaborators.notes` (миграция 041 от 2026-04-27; ⚠️ раньше в документации ошибочно называлась `conf_speaker_events.notes`) — произвольный текст под спикера в конкретном событии (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся. Спикер может заполнять её сам, если включён тумблер `event_collaborators.show_notes_field` (миграция 201).
 - `contacts.external_ref_param` (миграция 058 от 2026-05-05, перенесено с `collaborators` на `contacts` миграцией 103 от 2026-05-23) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки **контакта** с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Поле живёт на уровне контакта — любой контакт может быть партнёром во внешней системе, не обязательно коллаборатор. Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. Редактируется на карточке контакта в `/dashboard/clients` (строка «Партнёрский параметр» рядом с реф-кодом, `PATCH /contacts/{id} { external_ref_param }`). **Общая логика** — [`backend/app/services/external_landing.py`](backend/app/services/external_landing.py): `resolve_external_ref_param(client_id, pid)` + `build_external_landing_url(...)`. Резолв идёт по `contacts.ref_code` (или `merged_ref_codes`) → `contacts.external_ref_param`. **Где приписывается** — все 4 точки, в которых открывается `events.landing_url`:
   1. `GET /api/v1/public/events/{slug}/landing-redirect` ([client_profile.py](backend/app/api/client_profile.py)) — для inline-скрипта `mini-app/index_tg.html` ДО React. Только при `status='published'` и не-зарегистрированном пользователе.
   2. `GET /api/v1/public/events/{slug}/external-ref?pid=…` (новый, [client_profile.py](backend/app/api/client_profile.py)) — справочник pid→`external_ref_param`. Работает независимо от status. Используется фронтами там, где `landing-redirect` не срабатывает.
@@ -2373,11 +2525,11 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 **Ручной мердж** — кнопка «Объединить» в карточке. Все `platform_users`/`event_participants`/`collaborators`/`referrer_*` → главный контакт. Реф-код второстепенного → в `merged_ref_codes` JSONB. Второстепенный: `merged_into = главный.id`, `is_active = false`.
 
 ### ⚠️ Реф-код — один на человека, живёт в `contacts.ref_code` (миграция 032 от 26.04.2026, переехал в contacts миграцией 036)
-- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (миграция 032)
+- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (миграция 032; самой таблицы `conf_speaker_events` тоже давно нет)
 - В `contacts.first_referrer_contact_id` хранится «кто впервые привёл человека в базу клиента»
 - В `event_participants.referrer_ref_code` остаётся per-event реферер
 - Резолв реферера: `JOIN contacts WHERE c.ref_code = referrer_ref_code` (с fallback на `merged_ref_codes`)
-- Резолв спикера: `c.ref_code → collaborators.contact_id → conf_speaker_events`
+- Резолв спикера: `c.ref_code → collaborators.contact_id → event_collaborators`
 
 ### Лид-магниты + реф-программа как вкладка события (миграция 035 от 26.04.2026, обновлено миграцией 059 от 05.05.2026)
 - Таблица **`lead_magnets`** (id, client_id, name, description, url) — общая база per-client. Один материал = одна запись (чек-лист, гайд, видео).

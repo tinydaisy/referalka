@@ -30,17 +30,26 @@ async def require_collab_hub(client=Depends(get_current_client), db: asyncpg.Con
 router = APIRouter(prefix="/collab-hub", tags=["Коллабораторная (Хаб)"],
                    dependencies=[Depends(require_collab_hub)])
 
-HUB_CATEGORIES = ['offline_business', 'online_business', 'freelancer', 'private_practice', 'expert']
+HUB_CATEGORIES = ['offline_business', 'online_business', 'freelancer', 'private_practice', 'consultant', 'expert']
 
 
-def _media_tier(total_subs: int) -> str:
+def _media_tier(total_subs: int):
+    """Градация охвата по сумме подписчиков.
+
+    ⚠️ Ноль подписчиков — это НЕ «до 1 000», а «неизвестно»: возвращаем None и
+    не показываем плашку вовсе. Раньше всем, кто не заполнил медийные активы,
+    рисовалось «до 1 000» — цифра выглядела как заявленный охват, хотя её никто
+    не вводил, и партнёр в каталоге видел заведомо неверные данные.
+    """
     if total_subs >= 10000:
         return 'over_10k'
     if total_subs >= 5000:
         return '5k_10k'
     if total_subs >= 1000:
         return '1k_5k'
-    return 'under_1k'
+    if total_subs > 0:
+        return 'under_1k'
+    return None
 
 
 def _sum_subscribers(media_assets) -> int:
@@ -93,6 +102,9 @@ def _client_card(row, public: bool = False) -> dict:
         'is_published_in_hub': d.get('is_published_in_hub'),
         'hub_category': d.get('hub_category'),
         'hub_niche': d.get('hub_niche'),
+        # ⚠️ Ниш может быть несколько. hub_niche (одна) оставлен для старых
+        # мест, которые ещё читают одиночное поле.
+        'hub_niches': list(d.get('hub_niches') or ([d['hub_niche']] if d.get('hub_niche') else [])),
         'hub_city': d.get('hub_city'),
         'hub_about': d.get('hub_about'),
         'hub_impact': (None if public and not impact_public else d.get('hub_impact')),
@@ -104,7 +116,7 @@ def _client_card(row, public: bool = False) -> dict:
 
 _CLIENT_COLS = """id, name, brand_name, owner_photo_url, profile_photo_url, bio,
     owner_positioning, positioning, owner_achievements, social_links, media_assets,
-    is_published_in_hub, hub_category, hub_niche, hub_city, hub_about,
+    is_published_in_hub, hub_category, hub_niche, hub_niches, hub_city, hub_about,
     hub_impact, hub_impact_public, hub_wow, hub_wow_public"""
 
 
@@ -124,6 +136,7 @@ class HubCardIn(BaseModel):
     is_published_in_hub: bool = True
     hub_category: Optional[str] = None
     hub_niche: Optional[str] = None
+    hub_niches: Optional[list] = None   # несколько ниш; hub_niche = первая из них
     hub_city: Optional[str] = None
     hub_about: Optional[str] = None
     hub_impact: Optional[str] = None        # «Что я создаю и меняю в стране/мире…»
@@ -149,15 +162,20 @@ async def publish_my_card(data: HubCardIn, client=Depends(get_current_client), d
         raise HTTPException(400, "Неизвестная категория")
     cid = int(client["sub"])
     ma = json.dumps(data.media_assets) if data.media_assets is not None else None
+    # ⚠️ Ниши: пишем массив и синхронно кладём первую в старое одиночное поле —
+    # его ещё читают места, не переведённые на список.
+    niches = [n for n in (data.hub_niches or []) if n] or ([data.hub_niche] if data.hub_niche else [])
+    first_niche = niches[0] if niches else None
     await db.execute(
         """UPDATE clients
               SET is_published_in_hub=$2, hub_category=$3, hub_niche=$4, hub_city=$5, hub_about=$6,
+                  hub_niches=$12::text[],
                   media_assets=COALESCE($7::jsonb, media_assets),
                   hub_impact=$8, hub_impact_public=$9, hub_wow=$10, hub_wow_public=$11,
                   hub_published_at=CASE WHEN $2 AND hub_published_at IS NULL THEN NOW() ELSE hub_published_at END
             WHERE id=$1""",
-        cid, data.is_published_in_hub, data.hub_category, data.hub_niche, data.hub_city, data.hub_about, ma,
-        data.hub_impact, data.hub_impact_public, data.hub_wow, data.hub_wow_public
+        cid, data.is_published_in_hub, data.hub_category, first_niche, data.hub_city, data.hub_about, ma,
+        data.hub_impact, data.hub_impact_public, data.hub_wow, data.hub_wow_public, niches
     )
     return {"ok": True}
 
@@ -178,7 +196,10 @@ async def catalog(
     where = ["cl.is_published_in_hub=TRUE", "cl.id<>$1"]
     args: list = [int(client["sub"])]
     if niche:
-        args.append(niche); where.append(f"cl.hub_niche=${len(args)}")
+        # Совпадение по ЛЮБОЙ из ниш человека, плюс старое одиночное поле —
+        # у кого массив ещё не заполнен, тот не должен пропасть из выдачи.
+        args.append(niche)
+        where.append(f"(${len(args)} = ANY(cl.hub_niches) OR cl.hub_niche=${len(args)})")
     if category:
         args.append(category); where.append(f"cl.hub_category=${len(args)}")
     if city:

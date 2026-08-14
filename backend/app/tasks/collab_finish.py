@@ -33,6 +33,77 @@ from app.database import get_pool
 logger = logging.getLogger(__name__)
 
 
+async def _notify_owners(db, event_id: int, text: str) -> None:
+    """Уведомить ВСЕХ организаторов коллабы. Сбой одного канала не мешает остальным."""
+    from app.services.channels import notify_organizer_all_channels
+    try:
+        owners = await db.fetch(
+            "SELECT client_id FROM event_owners WHERE event_id=$1 AND status='accepted'",
+            event_id,
+        )
+    except Exception:
+        logger.exception("collab_finish: не удалось получить организаторов события %s", event_id)
+        return
+    for o in owners:
+        try:
+            await notify_organizer_all_channels(int(o["client_id"]), text, db, text_plain=text)
+        except Exception:
+            logger.exception(
+                "collab_finish: уведомление организатору %s (событие %s) не ушло",
+                o["client_id"], event_id,
+            )
+
+
+async def _warn_upcoming_finish(db) -> int:
+    """Предупредить организаторов за сутки до автозавершения.
+
+    ⚠️ Предупреждаем ДО, а не после: узнать, что событие уже завершено и учтено
+    в рейтинге, — бесполезно, поправить дату человек уже не сможет. За сутки
+    он успевает вмешаться, если просто забыл сдвинуть дату.
+
+    Отметка о посланном предупреждении — `events.collab_finish_warned_at`:
+    без неё письмо уходило бы каждый час, пока идут эти сутки.
+    """
+    rows = await db.fetch(
+        """
+        WITH ev AS (
+          SELECT e.id, e.title,
+                 (SELECT MAX((cd.day_date::timestamp
+                              + COALESCE(NULLIF(cd.close_time,''),'23:59')::time))
+                    FROM conf_days cd WHERE cd.event_id = e.id) AS conf_end,
+                 e.end_at
+            FROM events e
+           WHERE e.is_collab = TRUE
+             AND e.status = 'published'
+             AND e.collab_finish_warned_at IS NULL
+        )
+        SELECT id, title
+          FROM ev
+         WHERE COALESCE(conf_end, end_at) IS NOT NULL
+           -- Окончание ещё впереди, но наступит в ближайшие сутки.
+           AND COALESCE(conf_end, end_at) > (NOW() AT TIME ZONE 'Europe/Moscow')
+           AND COALESCE(conf_end, end_at) < (NOW() AT TIME ZONE 'Europe/Moscow') + INTERVAL '1 day'
+        """
+    )
+    sent = 0
+    for r in rows:
+        await _notify_owners(
+            db, r["id"],
+            f"⏳ Коллаба «{r['title']}» завершится завтра\n\n"
+            "После окончания событие получит статус «Завершена», а вклад каждого "
+            "организатора будет записан в рейтинг Коллабораторной.\n\n"
+            "Если дата указана неверно — поправьте её сейчас, в карточке события.",
+        )
+        try:
+            await db.execute(
+                "UPDATE events SET collab_finish_warned_at = NOW() WHERE id=$1", r["id"]
+            )
+            sent += 1
+        except Exception:
+            logger.exception("collab_finish: не отмечено предупреждение по событию %s", r["id"])
+    return sent
+
+
 async def _finish_due_collabs() -> int:
     """Найти коллабы, у которых прошёл последний эфир, и завершить их."""
     from app.services.collab_history import record_collab_history
@@ -63,6 +134,28 @@ async def _finish_due_collabs() -> int:
              -- время программы хранится строкой "HH:MM" и означает МСК).
              WHERE COALESCE(conf_end, end_at) IS NOT NULL
                AND COALESCE(conf_end, end_at) < (NOW() AT TIME ZONE 'Europe/Moscow')
+               -- ⚠️ НЕ завершаем событие, где среди участников только САМИ
+               -- организаторы (их собственные контакты через self_collaborator).
+               -- Это верный признак, что человек ещё ПРОВЕРЯЕТ систему, а не
+               -- провёл коллаборацию: он открыл своё событие сам, дата давно
+               -- прошла — и автозавершение записывало ему коллаборацию, которой
+               -- не было. Порога «сколько нужно участников» здесь намеренно НЕТ:
+               -- он бил бы по новичкам, у которых первая коллаба маленькая.
+               AND EXISTS (
+                     SELECT 1
+                       FROM event_participants p
+                      WHERE p.event_id = ev.id
+                        AND p.contact_id IS NOT NULL
+                        AND p.contact_id NOT IN (
+                              SELECT co.contact_id
+                                FROM event_owners eo
+                                JOIN clients cl ON cl.id = eo.client_id
+                                JOIN collaborators co ON co.id = cl.self_collaborator_id
+                               WHERE eo.event_id = ev.id
+                                 AND eo.status = 'accepted'
+                                 AND co.contact_id IS NOT NULL
+                        )
+                   )
             """
         )
         for r in rows:
@@ -93,16 +186,40 @@ async def _finish_due_collabs() -> int:
                     "collab_finish: event %s (%s) → ended, история записана",
                     event_id, (r["title"] or "")[:40],
                 )
+                await _notify_owners(
+                    db, event_id,
+                    f"🏁 Коллаба «{r['title']}» завершена\n\n"
+                    "Событие прошло, вклад каждого организатора записан в рейтинг "
+                    "Коллабораторной.\n\n"
+                    "Чтобы провести ещё одну — скопируйте это событие: "
+                    "у копии будут свои даты, а рейтинг за прошедшую останется как есть.",
+                )
             except Exception:
                 logger.exception("collab_finish: не удалось завершить событие %s", event_id)
     return finished
+
+
+async def _run_once() -> int:
+    """Один проход: сперва предупредить тех, кому завершение предстоит, затем завершить."""
+    pool = await get_pool()
+    if not pool:
+        return 0
+    async with pool.acquire() as db:
+        try:
+            warned = await _warn_upcoming_finish(db)
+            if warned:
+                logger.info("collab_finish: предупреждений о завершении — %s", warned)
+        except Exception:
+            # Предупреждения не должны мешать самому завершению.
+            logger.exception("collab_finish: рассылка предупреждений упала")
+    return await _finish_due_collabs()
 
 
 @shared_task(name="app.tasks.collab_finish.finish_ended_collabs")
 def finish_ended_collabs():
     """Celery-обёртка. Раз в час: завершить коллабы, у которых прошёл эфир."""
     try:
-        n = asyncio.run(_finish_due_collabs())
+        n = asyncio.run(_run_once())
         if n:
             logger.info("collab_finish: завершено коллаб — %s", n)
         return n

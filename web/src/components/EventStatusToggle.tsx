@@ -9,24 +9,45 @@ interface Props {
   eventId: number
   status: Status | string
   onChange: (next: Status) => void
+  /** Чего не хватает событию — показываем перед публикацией списком.
+   *  Не запрет: человек может опубликовать и так. */
+  warnings?: string[]
 }
 
 // Кнопка-переключатель статуса события.
 // Черновик: акцентная кнопка «Опубликовать» (золото) — действие очевидно.
 // Опубликовано: зелёный статус + тонкая ссылка «вернуть в черновик».
-export function EventStatusToggle({ eventId, status, onChange }: Props) {
+export function EventStatusToggle({ eventId, status, onChange, warnings = [] }: Props) {
   const [busy, setBusy] = useState(false)
   const isDraft = status === 'draft'
 
   async function toggle() {
     if (busy) return
     const next: Status = isDraft ? 'published' : 'draft'
+
+    // ⚠️ Перед публикацией показываем, чего не хватает, но НЕ запрещаем.
+    // Жёсткое условие одно — дата (её проверяет бэкенд): без неё событие
+    // не работает. Остальное человек решает сам: кто-то проводит событие
+    // без афиши, и мешать ему нельзя — упрётся в запрет и уйдёт.
+    if (isDraft) {
+      const head = 'После публикации событие станет публичным: появится в календаре '
+        + 'у участников и откроется всем, у кого есть ссылка.'
+      const ok = confirm(
+        warnings.length
+          ? `${head}\n\nПри этом не заполнено:\n${warnings.map(w => `• ${w}`).join('\n')}`
+            + '\n\nОпубликовать всё равно?'
+          : `${head}\n\nОпубликовать?`
+      )
+      if (!ok) return
+    }
+
     setBusy(true)
     try {
       await api.events.update(eventId, { status: next })
       onChange(next)
-    } catch {
-      alert('Не удалось обновить статус')
+    } catch (e: any) {
+      // Понятный текст с бэкенда (например, «укажите дату») показываем как есть.
+      alert(e?.message || 'Не удалось обновить статус')
     } finally {
       setBusy(false)
     }
@@ -42,7 +63,7 @@ export function EventStatusToggle({ eventId, status, onChange }: Props) {
         <button
           onClick={toggle}
           disabled={busy}
-          title="Опубликовать — событие появится в Mini App у участников"
+          title="Опубликовать — событие станет публичным и появится в календаре у участников"
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap border-2 disabled:opacity-50"
           style={{
             background: '#FFCFA4',

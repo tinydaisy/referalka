@@ -214,9 +214,9 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 
 **Один реф-код на человека** (миграция 032 от 26.04.2026, переехал в contacts миграцией 036):
 - Источник истины — `contacts.ref_code` UNIQUE (раньше `platform_users.ref_code`, миграция 036 перенесла на уровень человека)
-- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ
+- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (самой таблицы `conf_speaker_events` тоже нет — см. `event_collaborators` ниже)
 - Резолв «по коду найти человека»: `JOIN contacts c WHERE c.ref_code = ?`
-- Резолв спикера: `c.ref_code → collaborators.contact_id → conf_speaker_events`
+- Резолв спикера: `c.ref_code → collaborators.contact_id → event_collaborators`
 - В `contacts.first_referrer_contact_id` хранится «кто впервые привёл контакт в базу клиента»; в `event_participants.referrer_ref_code` — per-event реферер (один человек на разные события мог прийти от разных)
 - Если реф-код был у слитого контакта — резолвится через `contacts.merged_ref_codes` JSONB
 
@@ -298,23 +298,25 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - `event_id`, `start_date`, `end_date`, `stream_url_day_1/2`, `is_live`, `vip_upsell_url`
 
 **`collaborators`** — глобальная база коллабораторов (НЕ per-client; общая для всей платформы)
-- `name`, `title`, `achievements[]`, `photo_url`, `tg_channel_url`, `tg_channel_id`, `personal_tg_id`, `personal_tg_username`, `assistant_tg_username`, `instagram_url`, `website_url`
-- ⚠️ `poster_url` УДАЛЕНА миграцией 121 — афиши теперь в таблице `collaborator_posters` (библиотека на коллаба)
-- `created_by_client_id` → клиент, который завёл первым
-- **`platform_user_id`** → `platform_users(id)` (миграция 032) — каждый коллаб связан с Контактом, и через него — с реф-кодом
-- **`external_ref_param`** TEXT (миграция 058) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим/не валидируем. **Применяется в** `GET /api/v1/public/events/{slug}/landing-redirect`: если `pid` резолвится в коллаборатора с непустым `external_ref_param`, его параметр приписывается к `events.landing_url` через `&` в конце URL
+- Реальные колонки (сверено с продом 2026-08-14): `id`, `name`, `title`, `achievements`, `photo_url`, `photo_folder_url`, `video_folder_url`, `video_url`, `tg_channel_url`, `tg_channel_id` (⚠️ тип **character varying**, не integer), `vk_url`, `vk_channel_id`, `max_url`, `max_channel_id`, `instagram_url`, `website_url`, `assistant_tg_username`, `contact_id`, `linked_client_id`, `access_code`, `media_assets`, `ask_topics`, `show_ask_topics_field`, `created_by_client_id`, `created_at`, `updated_at`
+- ⚠️ **`platform_user_id` в `collaborators` НЕТ** — связь с человеком идёт через **`contact_id` → `contacts(id)`** (NOT NULL с миграции 086)
+- ⚠️ **`personal_tg_id` / `personal_tg_username` УДАЛЕНЫ** — личные аккаунты живут в `platform_users` через `contact_id`
+- ⚠️ **`external_ref_param` перенесён на `contacts`** миграцией 103 — в `collaborators` его больше нет
+- ⚠️ `poster_url` УДАЛЕНА миграцией 121 — афиши в таблице `collaborator_posters` (библиотека на коллаба)
+- ⚠️ Колонки `hub_*` и `is_published_in_hub` **дропнуты миграцией 218** — карточка Коллабораторной живёт в `clients`
 - ⚠️ Таблицы `speakers` нет; PK называется `speakers_pkey` исторически, но таблица одна — `collaborators`
 
-**`conf_speaker_events`** — участие коллаборатора в конкретной конференции (Many-to-Many)
+**`event_collaborators`** — участие коллаборатора в конкретном событии (Many-to-Many)
+> ⚠️ **Раньше в этой документации таблица ошибочно называлась `conf_speaker_events`. Такой таблицы НЕ СУЩЕСТВУЕТ** — и никогда не появится. В SQL использовать только `event_collaborators`. В коде переменные для её id часто зовутся `cse_id`/`ec_id` — это одно и то же.
 - `speaker_id` → `collaborators`, `event_id` → `events`
-- `role` (organizer/headliner/commercial/speaker/partner/general_partner)
-- `speaker_topic`, `gift_after_speech_title/url`, `gift_raffle_title/url`, `keyword_code`
-- `poster_id` FK на `collaborator_posters` (ON DELETE SET NULL, миграция 121) — какая афиша из библиотеки коллаба используется в этой конференции. NULL = первая из библиотеки (fallback на чтение)
-- ⚠️ `poster_url` УДАЛЕНА миграцией 121 — поведение заменено через `poster_id` + библиотеку
-- `partner_url`, `extra_info`, `bot_in_channel`, `is_visible`, `sort_order`, `priority`
-- `exclude_gift_from_broadcast`, `exclude_channel_from_subscription`
-- ⚠️ Удалено: `ref_code` (живёт в `platform_users` через `collaborators.platform_user_id`, миграция 032)
-- Реф-код спикера резолвится: `cse → collaborators.platform_user_id → platform_users.ref_code`
+- `role` (organizer/jury/headliner/speaker/general_partner/partner)
+- `speaker_topic`, `notes`, `keyword_code`, `gift_raffle_title`, `gift_raffle_url`
+- ⚠️ **`gift_after_speech_title/url` УДАЛЕНЫ 2026-07-30** — подарки после эфира переехали в `event_collaborator_lead_magnets` (`ec_id`, `lead_magnet_id`, `package_id`, `manual_title`, `manual_url`, `sort_order`); прежние имена остались только полями JSON-ответа кабинета спикера
+- `gift_lead_magnet_id`, `gift_package_id`, `show_gift_after_speech_field`, `exclude_gift_from_broadcast`
+- `poster_id` FK на `collaborator_posters` (ON DELETE SET NULL, миграция 121) — какая афиша из библиотеки используется в этом событии. NULL = первая из библиотеки. `use_photo_instead_of_poster` (миграция 237) — в этом событии вместо афиши брать фото коллаба
+- `is_visible`, `sort_order`, `priority`, `is_commercial`, `bot_in_channel`, `exclude_channel_from_subscription`
+- `knowledge_base_title`, `knowledge_base_url`, `show_topic_field`, `show_knowledge_base_field`, `show_notes_field`
+- ⚠️ Удалено: `ref_code` (миграция 032). Реф-код спикера резолвится так: `event_collaborators.speaker_id → collaborators.contact_id → contacts.ref_code`
 
 **`collaborator_posters`** (миграция 121) — библиотека афиш коллаба
 - `id`, `collaborator_id` → `collaborators(id)` (CASCADE), `url`, `label`, `sort_order`, `created_at`
@@ -412,7 +414,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 | module_slug | Тип | Доп. таблицы |
 |---|---|---|
 | `base` | Базовая реф. кампания | — |
-| `conference` | Конференция | conf_conferences, speakers, conf_speaker_events, conf_sessions, ... |
+| `conference` | Конференция | conf_conferences, collaborators, event_collaborators, conf_sessions, conf_days, conf_stages, ... |
 | `award` | Премия | award_* (будущее) |
 | `tournament` | Турнир | tournament_* (будущее) |
 
@@ -510,7 +512,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - `{materials_list}` — нумерованный список названий «1. ...» «2. ...» (text_1)
 - `{materials_with_links}` — «1. Название — <ссылка>» (text_2)
 - `{client_brand_name}` — `clients.brand_name || clients.name`
-- `{client_owner_name}` — `clients.owner_name`
+- `{client_owner_name}` — ⚠️ **колонки `clients.owner_name` НЕ существует**. Имя основателя берётся из **`clients.name`** (`SELECT name AS owner_name` в [funnel_service.py](../backend/app/services/funnel_service.py))
 - `{client_owner_achievements}` — `clients.owner_achievements` JSONB форматирован «• label: value»
 - `{subscription_channel}` — `@username` из `clients.social_links.telegram`
 - `{owner_telegram}` — то же (для упоминания в Тексте 3)

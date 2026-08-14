@@ -206,6 +206,9 @@ export default function ConferencePage() {
           eventId={eventId}
           status={event?.status || 'draft'}
           onChange={(s) => setEvent((e: any) => ({ ...e, status: s }))}
+          /* ⚠️ Подсказки, а не запреты. Вебинарную комнату не проверяем: её
+             заводят перед эфиром, когда регистрации уже идут. */
+          warnings={!event?.poster_url ? ['афиша — в календаре карточка будет пустой'] : []}
         />
         <ChangeEventTypeButton eventId={eventId} currentType={event?.module_slug || 'base'} />
         <button

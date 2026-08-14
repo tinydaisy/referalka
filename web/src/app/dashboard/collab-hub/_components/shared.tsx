@@ -20,7 +20,7 @@ export function Lightbox({ src, onClose }: { src: string; onClose: () => void })
 }
 
 export const CATEGORIES: Record<string, string> = {
-  offline_business: 'Офлайн-бизнес', online_business: 'Онлайн-бизнес', freelancer: 'Фрилансер', private_practice: 'Частный практик', expert: 'Эксперт',
+  offline_business: 'Офлайн-бизнес', online_business: 'Онлайн-бизнес', freelancer: 'Фрилансер', private_practice: 'Частный практик', consultant: 'Консультант', expert: 'Эксперт',
 }
 export const TIERS: Record<string, string> = {
   under_1k: 'до 1 000', '1k_5k': 'до 5 000', '5k_10k': '5–10 тыс', over_10k: 'выше 10 тыс',
@@ -77,7 +77,8 @@ export function BioBlock({ bio, open, className = '' }: { bio: string; open: boo
     <ul className={`text-sm text-gray-500 space-y-1 list-none ${className}`}>
       {shown.map((line, i) => (
         <li key={i} className="flex gap-1.5">
-          <span style={{ color: PEACH }} className="shrink-0">•</span>
+          {/* Маркер — фирменный синий: персиковый на белом почти не виден. */}
+          <span style={{ color: DARK }} className="shrink-0">•</span>
           <span>{line}</span>
         </li>
       ))}
@@ -206,7 +207,9 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           <div className="flex flex-wrap gap-1 mt-1">
             {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
             {/* Ниша — раньше не показывалась в карточке вообще */}
-            {item.hub_niche && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[item.hub_niche] || item.hub_niche}</span>}
+            {(item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])).map((sl: string) => (
+              <span key={sl} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[sl] || sl}</span>
+            ))}
             <MediaTierBadge tier={item.media_tier} />
             {/* Город — рядом с нишей, а не в подвале карточки: там он терялся
                 под цифрами коллабораций, и найти земляка в списке было нельзя. */}
@@ -241,20 +244,22 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           </button>}
         </div>
       )}
+      {/* ⚠️ ВЕСЬ НИЗ КАРТОЧКИ ПРИЖАТ К ОСНОВАНИЮ (mt-auto): цифры, коллаборации,
+          рейтинг и кнопки стоят на одном уровне у всех карточек ряда, сколько бы
+          текста ни было выше. Блок цифр раньше шёл ДО прижатия — у карточки без
+          цифр на его месте оставалась дыра, и ряд выглядел разъехавшимся. */}
+      <div className="mt-auto" />
       {achievements.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
-          {achievements.slice(0, 4).map((a: any, i: number) => (
+          {/* ⚠️ До 6 цифр — столько же, сколько человек может ввести в форме.
+              Раньше показывались 4, и часть введённого молча пропадала. */}
+          {achievements.slice(0, 6).map((a: any, i: number) => (
             <span key={i} className="text-[11px] px-2 py-1 rounded-lg bg-gray-50 text-gray-600">
               {a.value ? <b style={{ color: DARK }}>{a.value}</b> : null} {a.label}
             </span>
           ))}
         </div>
       )}
-      {/* ⚠️ ПОДВАЛ ПРИЖАТ К НИЗУ (mt-auto): цифры, рейтинг и кнопки стоят на
-          одном уровне у всех карточек ряда, сколько бы текста ни было выше.
-          Без этого у одного участника кнопки оказывались посреди карточки, а у
-          соседа — у самого низа, и ряд выглядел разъехавшимся. */}
-      <div className="mt-auto" />
       <div className="grid grid-cols-2 gap-2 mt-3">
         <div className="rounded-xl bg-gray-50 p-2 text-center">
           <div className="font-bold text-sm" style={{ color: DARK }}>{item.collabs_count ?? 0}</div>
@@ -607,13 +612,13 @@ export function MyCardView() {
   // media_assets — медийность КЛИЕНТА (clients.media_assets). Именно её каталог Хаба
   // показывает как «до 1 000 / до 10 000 / …». Раньше поля не было в форме → оно было
   // пустым почти у всех, и в каталоге у всех рисовалась нижняя градация.
-  const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_city: '', hub_about: '', hub_impact: '', hub_impact_public: true, hub_wow: '', hub_wow_public: true, media_assets: [] })
+  const [form, setForm] = useState<any>({ is_published_in_hub: true, hub_category: '', hub_niche: '', hub_niches: [], hub_city: '', hub_about: '', hub_impact: '', hub_impact_public: true, hub_wow: '', hub_wow_public: true, media_assets: [] })
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState('')
   const load = async () => {
     const r: any = await api.collabHub.myCard()
     setCard(r.card)
-    setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '', hub_impact: r.card.hub_impact || '', hub_impact_public: r.card.hub_impact_public ?? true, hub_wow: r.card.hub_wow || '', hub_wow_public: r.card.hub_wow_public ?? true, media_assets: Array.isArray(r.card.media_assets) ? r.card.media_assets : [] })
+    setForm({ is_published_in_hub: r.card.is_published_in_hub ?? true, hub_category: r.card.hub_category || '', hub_niche: r.card.hub_niche || '', hub_niches: Array.isArray(r.card.hub_niches) ? r.card.hub_niches : (r.card.hub_niche ? [r.card.hub_niche] : []), hub_city: r.card.hub_city || '', hub_about: r.card.hub_about || '', hub_impact: r.card.hub_impact || '', hub_impact_public: r.card.hub_impact_public ?? true, hub_wow: r.card.hub_wow || '', hub_wow_public: r.card.hub_wow_public ?? true, media_assets: Array.isArray(r.card.media_assets) ? r.card.media_assets : [] })
   }
   useEffect(() => { load().catch(() => {}); api.collabHub.niches().then((r: any) => setNiches(r.niches || [])).catch(() => {}) }, [])
   const save = async () => {
@@ -644,7 +649,9 @@ export function MyCardView() {
               {card.positioning && <div className="text-sm text-gray-500 mt-0.5">{card.positioning}</div>}
               <div className="flex flex-wrap gap-1 mt-1 items-center">
                 {form.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[form.hub_category] || form.hub_category}</span>}
-                {form.hub_niche && <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches.find(n => n.slug === form.hub_niche)?.title || form.hub_niche}</span>}
+                {(form.hub_niches || []).map((sl: string) => (
+                  <span key={sl} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches.find(n => n.slug === sl)?.title || sl}</span>
+                ))}
                 <MediaTierBadge tier={card.media_tier} />
               </div>
             </div>
@@ -677,9 +684,12 @@ export function MyCardView() {
           )}
           {/* Регалии — каждая с новой строки (как введены в профиле Основателя). */}
           {card.bio && <BioBlock bio={card.bio} open className="mt-4" />}
+          {/* ⚠️ До 6 цифр — столько же, сколько показывает карточка в каталоге
+              и сколько можно ввести в форме. Здесь стояло 3, и введённые
+              четвёртая-шестая цифры молча исчезали из превью. */}
           {achievements.length > 0 && (
             <div className="grid grid-cols-3 gap-2 mt-4">
-              {achievements.slice(0, 3).map((a: any, i: number) => (
+              {achievements.slice(0, 6).map((a: any, i: number) => (
                 <div key={i} className="rounded-xl bg-gray-50 p-2 text-center">
                   <div className="font-bold text-sm" style={{ color: DARK }}>{a.value}</div>
                   <div className="text-[11px] text-gray-500 leading-tight">{a.label}</div>
@@ -701,9 +711,29 @@ export function MyCardView() {
           <option value="">— не выбрано —</option>{Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <label className="block text-sm font-medium text-gray-700 mb-1">Ниша</label>
-        <select value={form.hub_niche} onChange={e => setForm({ ...form, hub_niche: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3">
-          <option value="">— не выбрано —</option>{niches.map(n => <option key={n.slug} value={n.slug}>{n.title}</option>)}
-        </select>
+        {/* ⚠️ Ниш можно выбрать НЕСКОЛЬКО: человек редко укладывается в одну
+            (психолог работает и с «Отношениями», и со «Здоровьем»). В каталоге
+            его найдут по любой из отмеченных. */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {niches.map(n => {
+            const on = (form.hub_niches || []).includes(n.slug)
+            return (
+              <button key={n.slug} type="button"
+                onClick={() => setForm((f: any) => ({
+                  ...f,
+                  hub_niches: on
+                    ? (f.hub_niches || []).filter((x: string) => x !== n.slug)
+                    : [...(f.hub_niches || []), n.slug],
+                }))}
+                className="text-xs px-2.5 py-1 rounded-full border transition"
+                style={on
+                  ? { background: DARK, borderColor: DARK, color: '#fff' }
+                  : { borderColor: '#d1d5db', color: '#6b7280' }}>
+                {on ? '✓ ' : ''}{n.title}
+              </button>
+            )
+          })}
+        </div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Город (для офлайн-коллабораций)</label>
         <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
         {/* ⚠️ ЗДЕСЬ ОБЫЧНЫЕ ПОЛЯ С ТЕГАМИ, А НЕ ВИЗУАЛЬНЫЙ РЕДАКТОР.
@@ -777,7 +807,19 @@ export function CollabsView() {
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-gray-400" />
               <a href={`/dashboard/events/${c.event_id}`} className="font-medium hover:underline" style={{ color: DARK }}>{c.title}</a>
-              <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: PEACH, color: DARK }}>Коллаба</span>
+              {/* ⚠️ Статус события — из списка было не понять, какая коллаба
+                  ещё готовится, какая идёт, а какая уже завершена и учтена
+                  в рейтинге. Завершённую нельзя перезапустить сменой даты —
+                  для нового захода её копируют. */}
+              <span className="text-xs px-2 py-0.5 rounded-full ml-auto"
+                style={c.status === 'ended'
+                  ? { background: '#E8F0F6', color: DARK }
+                  : c.status === 'published'
+                    ? { background: '#E7F6EC', color: '#1B7F4C' }
+                    : { background: '#F3F4F6', color: '#6B7280' }}>
+                {c.status === 'ended' ? 'Завершена' : c.status === 'published' ? 'Опубликована' : 'Черновик'}
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>Коллаба</span>
             </div>
             {/* ФИО организаторов */}
             <div className="flex flex-wrap gap-1.5 mt-2">

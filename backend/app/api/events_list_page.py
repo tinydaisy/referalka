@@ -16,6 +16,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from app.database import get_db
+from app.services.safe_html import safe_html
 import asyncpg
 import html as _html
 import urllib.parse as _up
@@ -249,10 +250,12 @@ def _about_html(client, brand: str) -> str:
     brand_facts = _facts_html(_jsonb_list(client.get("achievements")))
 
     owner_name = esc(client["name"] or "")
-    owner_pos = esc(client["owner_positioning"] or "")
+    owner_pos = safe_html(client["owner_positioning"] or "")
     owner_photo = client["owner_photo_url"]
     owner_facts = _facts_html(_jsonb_list(client.get("owner_achievements")))
-    bio = esc(client["bio"] or "")
+    # ⚠️ Регалии клиент пишет тегами (<b>жирный</b>) — показываем разметку,
+    # а не экранированный текст. safe_html оставляет только безопасные теги.
+    bio = safe_html(client["bio"] or "")
     socials = _socials_html(_jsonb_dict(client.get("social_links")))
 
     brand_photo_html = (f'<img class="ab-photo" src="{esc(brand_photo)}" alt="" '
@@ -264,7 +267,10 @@ def _about_html(client, brand: str) -> str:
         owner_photo_html = (f'<img class="ow-photo" src="{esc(owner_photo)}" alt="" '
                             f'onerror="this.style.display=\'none\'">' if owner_photo else "")
         owner_pos_html = f'<p class="ow-pos">{owner_pos}</p>' if owner_pos else ""
-        bio_html = f'<p class="ow-bio">{bio}</p>' if bio else ""
+        # ⚠️ Обёртка <div>, а не <p>: в регалиях бывают свои абзацы и списки,
+        # а вкладывать <p>/<ul> внутрь <p> нельзя — браузер рвёт разметку и
+        # текст рассыпается.
+        bio_html = f'<div class="ow-bio">{bio}</div>' if bio else ""
         owner_block = f"""
         <div class="ab-card ow-card">
           <div class="ow-head">

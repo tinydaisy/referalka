@@ -94,6 +94,28 @@ def _session(authorization: Optional[str] = Header(None)) -> dict:
     return _decode(authorization[7:])
 
 
+async def _is_owner(request: Request, client_id) -> bool:
+    """Смотрит ли страницу ЕЁ владелец — клиент ПЛЮСОНа из кабинета.
+
+    ⚠️ Нужно, чтобы владелец видел свой ЧЕРНОВИК: иначе проверить лендинг до
+    публикации невозможно. Токен берём из заголовка `Authorization` (обычный
+    клиентский JWT кабинета) — это НЕ токен кабинета покупателя (`_decode`),
+    у него другая аудитория и другие поля.
+
+    Ошибка разбора токена = «не владелец»: посторонний просто получит 404,
+    как и раньше.
+    """
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return False
+    try:
+        data = jwt.decode(auth[7:], settings.jwt_secret, algorithms=["HS256"],
+                          options={"verify_aud": False})
+        return str(data.get("sub")) == str(client_id)
+    except Exception:
+        return False
+
+
 async def _client_by_host(db, request: Request) -> Optional[int]:
     """Чей это домен. На pluson.ru вернёт None — там кабинет открывается по
     номеру кабинета в адресе."""
@@ -133,7 +155,13 @@ async def product_public(
             raise HTTPException(status_code=404, detail="Уточните адрес кабинета")
         row = rows[0] if rows else None
 
-    if not row or row["status"] != "published":
+    # ⚠️ ЧЕРНОВИК ВИДИТ ЕГО ВЛАДЕЛЕЦ. Иначе страницу невозможно проверить до
+    # публикации — а смотреть на неё нужно именно до: «до публикации мне надо
+    # понимать, что я публикую и как выглядит лендинг». Посторонним черновик
+    # по-прежнему отдаёт 404.
+    if not row:
+        raise HTTPException(status_code=404, detail="Страница не найдена")
+    if row["status"] != "published" and not await _is_owner(request, row["client_id"]):
         raise HTTPException(status_code=404, detail="Страница не найдена")
 
     product_id = row["id"]

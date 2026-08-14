@@ -290,8 +290,12 @@ export default function MiniAppSettingsPage() {
     ;[next[idx], next[j]] = [next[j], next[idx]]
     update('start_buttons', next)
   }
+  // ⚠️ Не больше 6 цифр: столько показывает карточка в каталоге. Разрешить
+  // больше — часть введённого молча не отобразилась бы.
+  const MAX_ACHIEVEMENTS = 6
   function addAch(field: 'achievements' | 'owner_achievements') {
     if (!profile) return
+    if (profile[field].length >= MAX_ACHIEVEMENTS) return
     update(field, [...profile[field], { label: '', value: '' }])
   }
   function removeAch(field: 'achievements' | 'owner_achievements', idx: number) {
@@ -505,10 +509,11 @@ export default function MiniAppSettingsPage() {
           <Section
             step={3}
             title="Факты в цифрах"
-            hint="Карточки под фото бренда. Пара «цифра + подпись». Если фактов нет — блок не показывается."
+            hint="Карточки под фото бренда. Пара «цифра + подпись». Не больше 6 — столько показывает карточка в каталоге. Если фактов нет — блок не показывается."
             action={
               <button onClick={() => addAch('achievements')}
-                      className="text-sm flex items-center gap-1" style={{ color: BRAND }}>
+                      disabled={profile.achievements.length >= MAX_ACHIEVEMENTS}
+                      className="text-sm flex items-center gap-1 disabled:opacity-40" style={{ color: BRAND }}>
                 <Plus size={15} /> Добавить
               </button>
             }
@@ -570,10 +575,11 @@ export default function MiniAppSettingsPage() {
           <Section
             step={2}
             title="Факты в цифрах"
-            hint="Цифры о основателе — на странице «Об основателе». Если пусто — блок скрыт."
+            hint="Цифры об основателе — на странице «Об основателе» и в карточке каталога. Не больше 6. Если пусто — блок скрыт."
             action={
               <button onClick={() => addAch('owner_achievements')}
-                      className="text-sm flex items-center gap-1" style={{ color: BRAND }}>
+                      disabled={profile.owner_achievements.length >= MAX_ACHIEVEMENTS}
+                      className="text-sm flex items-center gap-1 disabled:opacity-40" style={{ color: BRAND }}>
                 <Plus size={15} /> Добавить
               </button>
             }

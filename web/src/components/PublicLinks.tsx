@@ -34,7 +34,10 @@ export default function PublicLinks({
   slug: string | null | undefined
   eventId?: number
   onSlugSaved?: (newSlug: string) => void | Promise<void>
-  /** Если 'draft' — ссылки затуманены, копирование заблокировано (партнёру отдавать нельзя). */
+  /** Если 'draft' — над списком показывается плашка «в календаре не видно».
+   *  ⚠️ Сами ссылки при этом РАБОЧИЕ и копируются: проверять событие нужно
+   *  именно до публикации, а раньше они были замылены и скопировать их
+   *  было нельзя — протестировать событие не получалось вовсе. */
   eventStatus?: 'draft' | 'published' | 'ended' | null
   /** Текущий тип ссылок события: 'miniapp' (Mini App) | 'bot' (через ботов). */
   linkMode?: 'miniapp' | 'bot' | null
@@ -172,10 +175,9 @@ export default function PublicLinks({
   const showNoChannelsBanner = !!slug && !hasAnyPlatformLink
 
   const copy = async (key: string, url: string) => {
-    if (isDraft) {
-      alert('Событие в черновике — ссылка не сработает у получателя. Сначала опубликуйте событие (статус справа сверху).')
-      return
-    }
+    // ⚠️ В черновике ссылки РАБОЧИЕ и копируются: иначе событие невозможно
+    // проверить до публикации — а проверять надо именно до. О том, что событие
+    // ещё не видно в календаре, предупреждает плашка над списком ссылок.
     try {
       await navigator.clipboard.writeText(url)
     } catch {
@@ -201,20 +203,10 @@ export default function PublicLinks({
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-800">{l.label}</p>
-          {isDraft ? (
-            <span
-              className="text-xs text-[#25455D] truncate block select-none"
-              style={{ filter: 'blur(4px)' }}
-              title="Опубликуйте событие, чтобы открыть ссылку"
-            >
-              {l.url}
-            </span>
-          ) : (
-            <a href={l.url} target="_blank" rel="noreferrer"
-               className="text-xs text-[#25455D] truncate block hover:underline">
-              {l.url}
-            </a>
-          )}
+          <a href={l.url} target="_blank" rel="noreferrer"
+             className="text-xs text-[#25455D] truncate block hover:underline">
+            {l.url}
+          </a>
         </div>
         {l.platform && (() => {
           const off = offList.includes(l.platform!)
@@ -239,14 +231,12 @@ export default function PublicLinks({
         })()}
         <button
           onClick={() => copy(l.key, l.url)}
-          className={`p-2 rounded-lg ${isDraft ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-500'}`}
-          title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать ссылку'}
+          className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+          title="Скопировать ссылку"
         >
           {copied === l.key ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
         </button>
-        {!isDraft && (
-          <QrLinkButton url={l.url} name={l.label} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 flex items-center" iconSize={15} iconClass="" />
-        )}
+        <QrLinkButton url={l.url} name={l.label} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 flex items-center" iconSize={15} iconClass="" />
       </div>
       {l.hint && <p className="text-xs text-gray-400 mt-1.5 ml-12">{l.hint}</p>}
     </div>
@@ -337,8 +327,10 @@ export default function PublicLinks({
         <>
           {isDraft && (
             <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 leading-relaxed">
-              ⚠️ Событие в черновике — эти ссылки <b>не работают</b> у получателей.
-              Чтобы запустить, переключите статус «Опубликовано» в правом верхнем углу.
+              ⚠️ Событие не опубликовано — <b>в календаре его не видно</b>, участники
+              сами на него не выйдут. Ссылки при этом рабочие: открывайте их, чтобы
+              проверить, как всё выглядит. Когда будете готовы — переключите статус
+              «Опубликовано» в правом верхнем углу.
             </div>
           )}
 
