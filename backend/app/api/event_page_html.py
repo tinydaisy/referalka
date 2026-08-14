@@ -103,7 +103,7 @@ async def _load_collaborators(db, event_id):
                       LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
                       LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
                      WHERE eclm.ec_id = cse.id) AS gift_magnet_names,
-                   c.name, c.title, c.achievements, c.photo_url,
+                   btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.achievements, c.photo_url,
                    c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
@@ -138,7 +138,7 @@ async def _load_program(db, event_id):
         """SELECT s.day, s.start_time, s.end_time,
                   COALESCE(NULLIF(cst.topic,''), s.title) AS title,
                   cse.id AS sp_ec_id,
-                  col.name AS sp_name, col.title AS sp_title,
+                  btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'') ELSE COALESCE(col.name,'')||' '||COALESCE(col.last_name,'') END) AS sp_name, col.title AS sp_title,
                   col.photo_url AS sp_photo
              FROM conf_sessions s
              -- is_visible=FALSE → слот остаётся, имя/фото скрытого спикера не выводим.

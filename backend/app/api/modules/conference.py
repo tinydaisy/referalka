@@ -1227,7 +1227,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
                   cse.knowledge_base_title, cse.knowledge_base_url,
-                  sp.name, sp.title, sp.photo_url,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.photo_url,
                   sp.tg_channel_url, sp.vk_url, sp.max_url, sp.instagram_url,
                   sp.website_url,
                   sp.achievements,
@@ -2157,7 +2157,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
                   COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title, s.gift_description,
                   s.track_label, s.track_color, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
-                  col.name AS speaker_name, col.title AS speaker_title,
+                  btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'') ELSE COALESCE(col.name,'')||' '||COALESCE(col.last_name,'') END) AS speaker_name, col.title AS speaker_title,
                   col.photo_url, cse.role AS speaker_role
            FROM conf_sessions s
            -- is_visible=FALSE → слот остаётся, скрытый спикер не показывается.

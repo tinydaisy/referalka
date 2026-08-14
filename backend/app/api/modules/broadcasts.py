@@ -94,6 +94,7 @@ from app.services.message_builder import (
     send_telegram_message,
 )
 from app.services import collaborator_sort
+from app.services.email_body import build_email_body
 
 RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -3256,7 +3257,27 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
             email_body = content.get("text_email")
             if email_body is None:
                 email_body = await _txt("email")
-            html = str(email_body).replace("\n", "<br>")
+            # ⚠️ Тело письма собираем ТЕМ ЖЕ кодом, что и боевая рассылка
+            # (build_email_body), а не «текст с <br>». Раньше здесь была
+            # ровно такая примитивная сборка — и в тестовое письмо не
+            # попадали ни фото, ни обложка видео, ни кнопка: клиент видел
+            # «в Telegram картинка пришла, а на почту нет» и не мог
+            # проверить вёрстку до боевой отправки (жалоба 2026-08-14).
+            # Фото уходит INLINE по Content-ID, поэтому inline_images
+            # обязательно передать в sender.send — иначе <img src="cid:…">
+            # останется битым.
+            email_btn_url = await _burl("email")
+            built = await build_email_body(
+                text=str(email_body),
+                photo_url=photo,
+                video_url=video,
+                media_type=m_type,
+                button_text=btn_text,
+                button_url=email_btn_url,
+                buttons=buttons or None,
+            )
+            html = built.html
+            email_body = built.text
             subj = content.get("subject") or "Тестовая рассылка"
             sender = EmailSender()
             pub_base = await client_public_url(db, client_id)
@@ -3280,6 +3301,7 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                         subject=subj,
                         body_text=str(email_body),
                         body_html=html,
+                        inline_images=(built.inline_images or None),
                         unsubscribe_token=unsub,
                         public_base_url=pub_base,
                     )

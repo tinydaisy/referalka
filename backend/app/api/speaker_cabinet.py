@@ -24,6 +24,11 @@ from app.database import get_db
 from app.services import r2_storage
 from app.services.image_processor import process_image, is_image
 from app.services.support_message import support_block_for_event
+# Порядок слов в имени: список выбора себя и занятые слоты — «Фамилия Имя»
+# (там ИЩУТ), профиль спикера — «Имя Фамилия» (там ПОКАЗЫВАЮТ).
+from app.services.person_name import (
+    display_name, search_name, SEARCH_NAME_ORDER_SQL, SEARCH_NAME_SQL,
+)
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
@@ -49,14 +54,9 @@ def _decode(token: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Сессия истекла или невалидна ({e})")
 
 
-def _split_full_name(name: str) -> tuple[str, str]:
-    s = (name or "").strip()
-    if not s:
-        return "", ""
-    parts = s.split(maxsplit=1)
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], parts[1]
+# ⚠️ Угадывание «имя = первое слово» УДАЛЕНО (миграция 302).
+# Оно врало на записях «Фамилия Имя» и противоречило турниру, который тем же
+# приёмом считал первое слово ФАМИЛИЕЙ. Теперь имя и фамилия — отдельные поля.
 
 
 @router.get("/{event_slug}/speakers", summary="Список фамилий спикеров события (публично)")
@@ -69,22 +69,23 @@ async def list_speakers_for_login(event_slug: str, db: asyncpg.Connection = Depe
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     rows = await db.fetch(
-        """SELECT cse.id AS speaker_event_id, c.id AS collaborator_id, c.name
+        f"""SELECT cse.id AS speaker_event_id, c.id AS collaborator_id,
+                  c.name, c.last_name
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
             WHERE cse.event_id = $1
-            ORDER BY c.name""",
+            ORDER BY {SEARCH_NAME_ORDER_SQL('c')}""",
         ev["id"]
     )
+    # Спикер ищет СЕБЯ в списке — значит «Фамилия Имя» (список поиска).
     items = []
     for r in rows:
-        first, last = _split_full_name(r["name"])
         items.append({
             "speaker_event_id": r["speaker_event_id"],
             "collaborator_id": r["collaborator_id"],
-            "first_name": first,
-            "last_name": last,
-            "full_name": r["name"],
+            "first_name": r["name"] or "",
+            "last_name": r["last_name"] or "",
+            "full_name": search_name(r["name"], r["last_name"]),
         })
     return {
         "event_id": ev["id"],
@@ -193,7 +194,7 @@ async def get_me(
                   cse.show_knowledge_base_field, cse.show_notes_field,
                   c.ask_topics, c.show_ask_topics_field,
                   cse.bot_in_channel,
-                  c.id AS collaborator_id, c.name, c.title, c.achievements,
+                  c.id AS collaborator_id, c.name, c.last_name, c.title, c.achievements,
                   c.photo_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   -- Заодно уважаем per-event выбор афиши (cse.poster_id).
@@ -442,7 +443,7 @@ async def patch_me(
     contact_id = coll["contact_id"]
 
     # 1. Профиль (collaborators)
-    profile_fields = ["name", "title", "achievements", "photo_url",
+    profile_fields = ["name", "last_name", "title", "achievements", "photo_url",
                       "photo_folder_url", "video_folder_url",
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
@@ -461,7 +462,8 @@ async def patch_me(
         from app.api.collaborators import normalize_tg_username
         upd["assistant_tg_username"] = normalize_tg_username(data.assistant_tg_username)
     # Понятные ограничения длины (вместо падения БД varchar(N)).
-    _LIMITS = {"name": (255, "Имя"), "title": (500, "Регалии / должность"),
+    _LIMITS = {"name": (255, "Имя"), "last_name": (255, "Фамилия"),
+               "title": (500, "Регалии / должность"),
                "tg_channel_url": (500, "Ссылка Telegram"), "vk_url": (500, "Ссылка ВКонтакте"),
                "max_url": (500, "Ссылка MAX"), "instagram_url": (500, "Ссылка Instagram"),
                "website_url": (500, "Ссылка на сайт")}
@@ -1504,8 +1506,9 @@ async def register_pluson(
     if exists:
         raise HTTPException(status_code=409, detail="Этот email уже зарегистрирован — войдите вместо регистрации")
 
-    coll = await db.fetchrow("SELECT name FROM collaborators WHERE id = $1", c_id)
-    name = (coll["name"] if coll else None) or "Спикер"
+    # ⚠️ asyncpg.Record не поддерживает .get() — фамилию берём явным полем SELECT.
+    coll = await db.fetchrow("SELECT name, last_name FROM collaborators WHERE id = $1", c_id)
+    name = (display_name(coll["name"], coll["last_name"]) if coll else "") or "Спикер"
 
     # Переиспользуем штатную регистрацию (trial, реф-код, подписка и т.п.)
     res = await auth_register(
@@ -1641,7 +1644,8 @@ async def speaker_program(
         """
         SELECT s.id, s.day, s.start_time, s.end_time, s.sort_order,
                s.speaker_id AS occupant_ec_id, s.topic_id,
-               col.name AS occupant_name,
+               btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'')
+                          ELSE COALESCE(col.last_name,'')||' '||COALESCE(col.name,'') END) AS occupant_name,
                COALESCE(NULLIF(cst.topic,''),
                  (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t
                     WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1),

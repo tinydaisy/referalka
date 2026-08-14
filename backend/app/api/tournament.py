@@ -34,6 +34,9 @@ import jwt
 from app.auth import get_current_client
 from app.database import get_db
 from app.config import settings
+# Имена в турнире — в порядке «Фамилия Имя»: здесь людей ИЩУТ глазами
+# в списках номинаций, распределении жюри и турнирной таблице.
+from app.services.person_name import SEARCH_NAME_SQL, SEARCH_NAME_ORDER_SQL
 
 router = APIRouter(prefix="/events/{event_id}/tournament", tags=["Турнир — оценки"])
 jury_router = APIRouter(prefix="/api/v1/public/tournament-jury", tags=["Турнир — кабинет жюри"])
@@ -198,7 +201,8 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
     # При заданном этапе — только спикеры, ПОИМЁННО привязанные к нему
     # (event_collaborator_stages). Без этапа — все спикеры события.
     ec_rows = [] if not show_ec else await db.fetch(
-        """SELECT cse.id AS sid, c.name, ct.ref_code, ct.id AS contact_id,
+        f"""SELECT cse.id AS sid, {SEARCH_NAME_SQL('c')} AS name,
+                  ct.ref_code, ct.id AS contact_id,
                   c.video_url, c.video_folder_url,
                   (SELECT pu.username FROM platform_users pu
                      WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
@@ -211,7 +215,7 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
               AND ($2::int IS NULL OR EXISTS (
                     SELECT 1 FROM event_collaborator_stages ecs
                      WHERE ecs.ec_id = cse.id AND ecs.stage_id = $2))
-            ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
+            ORDER BY {SEARCH_NAME_ORDER_SQL('c')}, cse.id""",
         event_id, stage_id,
     )
     for r in ec_rows:
@@ -233,7 +237,8 @@ async def _jurors(event_id: int, db: asyncpg.Connection, *,
     # больше не лезет колонкой на каждый тур автоматически — хочет судить, пусть
     # его привяжут к этапу, как обычное жюри. Без этапа (stage_id IS NULL) — все.
     rows = await db.fetch(
-        """SELECT cse.id AS juror_ec_id, c.name, ct.ref_code, ct.id AS contact_id, cse.role
+        f"""SELECT cse.id AS juror_ec_id, {SEARCH_NAME_SQL('c')} AS name,
+                  ct.ref_code, ct.id AS contact_id, cse.role
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN contacts ct ON ct.id = c.contact_id
@@ -241,7 +246,7 @@ async def _jurors(event_id: int, db: asyncpg.Connection, *,
               AND ($2::int IS NULL OR EXISTS (
                     SELECT 1 FROM event_collaborator_stages ecs
                      WHERE ecs.ec_id = cse.id AND ecs.stage_id = $2))
-            ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
+            ORDER BY {SEARCH_NAME_ORDER_SQL('c')}, cse.id""",
         event_id, stage_id,
     )
     return [dict(r) for r in rows]
@@ -1415,11 +1420,11 @@ async def set_manual_score(event_id: int, data: ManualScoreIn, client=Depends(ge
 async def list_feedback(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
-        """SELECT f.subject_kind, f.subject_id, f.body, jc.name AS juror_name
+        f"""SELECT f.subject_kind, f.subject_id, f.body, {SEARCH_NAME_SQL('jc')} AS juror_name
              FROM tournament_feedback f
              JOIN event_collaborators jec ON jec.id = f.juror_ec_id
              JOIN collaborators jc ON jc.id = jec.speaker_id
-            WHERE f.event_id = $1 ORDER BY jc.name""",
+            WHERE f.event_id = $1 ORDER BY {SEARCH_NAME_ORDER_SQL('jc')}""",
         event_id)
     return {"feedback": [{"key": _skey(r["subject_kind"], r["subject_id"]), "body": r["body"], "juror_name": r["juror_name"]} for r in rows]}
 
@@ -1443,7 +1448,7 @@ async def create_snapshot(event_id: int, data: SnapshotIn, client=Depends(get_cu
     await _check_access(event_id, int(client["sub"]), db, write=True)
     result = await _compute(event_id, data.stage_id, db)
     fb = await db.fetch(
-        """SELECT f.subject_kind, f.subject_id, f.body, jc.name AS juror_name
+        f"""SELECT f.subject_kind, f.subject_id, f.body, {SEARCH_NAME_SQL('jc')} AS juror_name
              FROM tournament_feedback f
              JOIN event_collaborators jec ON jec.id = f.juror_ec_id
              JOIN collaborators jc ON jc.id = jec.speaker_id
@@ -1590,7 +1595,7 @@ async def task_control(
         f"""
         SELECT ts.*, tc.title AS criterion_title,
                CASE ts.subject_kind
-                 WHEN 'ec' THEN (SELECT c.name FROM event_collaborators ec
+                 WHEN 'ec' THEN (SELECT {SEARCH_NAME_SQL('c')} FROM event_collaborators ec
                                    JOIN collaborators c ON c.id=ec.speaker_id WHERE ec.id=ts.subject_id)
                  WHEN 'ep' THEN (SELECT c.name FROM event_participants ep
                                    JOIN contacts c ON c.id=ep.contact_id WHERE ep.id=ts.subject_id)
@@ -2063,7 +2068,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
 
     # комментарии жюри (с привязкой к этапу)
     fb_rows = await db.fetch(
-        """SELECT f.body, f.stage_id, jc.name AS juror_name
+        f"""SELECT f.body, f.stage_id, {SEARCH_NAME_SQL('jc')} AS juror_name
              FROM tournament_feedback f
              JOIN event_collaborators jec ON jec.id = f.juror_ec_id
              JOIN collaborators jc ON jc.id = jec.speaker_id
@@ -2076,7 +2081,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
     # Назначенные мне жюри по этапам + проставил ли каждый хоть одну оценку.
     # Участник видит своих жюри ДАЖЕ без оценок (со статусом «не проставлено»).
     assign_rows = await db.fetch(
-        """SELECT a.stage_id, a.juror_ec_id, jc.name AS juror_name,
+        f"""SELECT a.stage_id, a.juror_ec_id, {SEARCH_NAME_SQL('jc')} AS juror_name,
                   EXISTS (SELECT 1 FROM tournament_scores ts
                             WHERE ts.event_id=a.event_id AND ts.juror_ec_id=a.juror_ec_id
                               AND ts.subject_kind='ec' AND ts.subject_id=$2) AS has_scored
@@ -2084,7 +2089,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
              JOIN event_collaborators jec ON jec.id = a.juror_ec_id
              JOIN collaborators jc ON jc.id = jec.speaker_id
             WHERE a.event_id=$1 AND a.subject_kind='ec' AND a.subject_id=$2
-            ORDER BY jc.name""",
+            ORDER BY {SEARCH_NAME_ORDER_SQL('jc')}""",
         event_id, se_id)
     jurors_by_stage: dict = {}
     for a in assign_rows:

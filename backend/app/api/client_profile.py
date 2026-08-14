@@ -385,7 +385,7 @@ async def public_event_collaborators(
 ):
     sql = """
         SELECT ec.id, ec.role, ec.sort_order,
-               co.id AS collaborator_id, co.name, co.title, co.photo_url,
+               co.id AS collaborator_id, btrim(CASE WHEN COALESCE(btrim(co.last_name),'')='' THEN COALESCE(co.name,'') ELSE COALESCE(co.name,'')||' '||COALESCE(co.last_name,'') END) AS name, co.title, co.photo_url,
                co.achievements, co.tg_channel_url, co.instagram_url,
                co.website_url,
                pu_tg.username AS personal_tg_username

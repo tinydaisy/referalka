@@ -200,7 +200,7 @@ async def get_public_landing(
             # ⚠️ Связь с карточкой коллаба — `event_collaborators.speaker_id`
             # (не collaborator_id), тема — `speaker_topic`. Проверено по схеме.
             f"""SELECT cse.id, cse.role, cse.speaker_topic AS topic,
-                      c.name, c.title, c.achievements, c.photo_url,
+                      btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.achievements, c.photo_url,
                       c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
@@ -239,7 +239,7 @@ async def get_public_landing(
     if "partners" in kinds:
         rows = await db.fetch(
             f"""SELECT cse.id, cse.role, cse.partner_url,
-                      c.name, c.title, c.photo_url, c.achievements,
+                      btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.photo_url, c.achievements,
                       c.tg_channel_url, c.vk_url, c.max_url, c.website_url
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
@@ -281,7 +281,7 @@ async def get_public_landing(
         sessions = await db.fetch(
             """SELECT s.id, s.day, s.start_time, s.end_time, s.speaker_id,
                       COALESCE(cst.topic, s.title) AS title,
-                      c.name AS speaker_name, c.title AS speaker_position,
+                      btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name, c.title AS speaker_position,
                       c.photo_url AS speaker_photo_url
                  FROM conf_sessions s
                  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id

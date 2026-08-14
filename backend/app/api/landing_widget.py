@@ -306,7 +306,7 @@ async def widget_collaborators(
                       ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                       LIMIT 1) AS poster_url,
                    cse.knowledge_base_title, cse.knowledge_base_url,
-                   c.name, c.title, c.title AS position, c.achievements,
+                   btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.title AS position, c.achievements,
                    c.photo_url,
                    c.tg_channel_url, c.vk_url, c.max_url,
                    c.instagram_url, c.website_url,
@@ -396,7 +396,7 @@ async def widget_program(
                   s.gift_description, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   cse.role AS speaker_role,
-                  col.id AS sp_id, col.name AS sp_name, col.title AS sp_title,
+                  col.id AS sp_id, btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'') ELSE COALESCE(col.name,'')||' '||COALESCE(col.last_name,'') END) AS sp_name, col.title AS sp_title,
                   col.photo_url AS sp_photo_url, col.achievements AS sp_achievements,
                   col.tg_channel_url AS sp_tg_channel_url,
                   col.vk_url AS sp_vk_url, col.max_url AS sp_max_url,
