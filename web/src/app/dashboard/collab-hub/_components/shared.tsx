@@ -265,7 +265,13 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       {bio && (
         <div className="mt-2">
           {/* clamp — на обёртке, которую и меряем (BioBlock не принимает ref). */}
-          <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-4'}>
+          {/* ⚠️ Ограничение по ВЫСОТЕ (4 строки ≈ 5rem), а не line-clamp:
+              line-clamp режет только сплошной текст и НЕ действует на список
+              <ul> из отдельных пунктов. Из-за этого у одних участников
+              регалии показывались целиком, у других обрезались — правило
+              выглядело случайным. */}
+          <div ref={bioRef}
+               style={bioOpen ? undefined : { maxHeight: '5rem', overflow: 'hidden' }}>
             <BioBlock bio={bio} />
           </div>
           {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5 shrink-0" style={{ color: '#C77B3B' }}>
@@ -273,11 +279,10 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           </button>}
         </div>
       )}
-      {/* ⚠️ Прижатия к низу (mt-auto) здесь НЕТ. Карточка тянется до высоты
-          самой высокой в ряду, и прижатый подвал оставлял под коротким текстом
-          пустую дыру в полэкрана. Ровность даёт другое: у всех блоков
-          одинаковое число строк (3 у персиковых, 4 у регалий) и шапка
-          фиксированной высоты — тогда и подвал сходится сам. */}
+      {/* ⚠️ ПОДВАЛ ПРИЖАТ К НИЗУ: цифры, рейтинг и кнопки стоят на одном уровне
+          у всех карточек ряда, сколько бы текста ни было выше. Над ним —
+          разделительная линия. */}
+      <div className="mt-auto" />
       <div className="mt-3 border-t" style={{ borderColor: hexA(DARK, 0.18) }} />
       {achievements.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
