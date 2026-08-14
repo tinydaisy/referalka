@@ -253,6 +253,25 @@ export default function BlockCard({
                 </Field>
               )}
 
+              {/* ⚠️ НАДЗАГОЛОВОК — мелкая строка НАД крупным заголовком
+                  («ВИДЕНИЕ / iViSiON-8: БИЗНЕС-СОЗДАТЕЛИ»). Стоит после
+                  подзаголовка: так все три текстовых поля шапки идут подряд,
+                  одной группой. */}
+              {block.kind === 'hero' && (
+                <Field label="Надзаголовок">
+                  <input
+                    type="text"
+                    value={block.overline || ''}
+                    onChange={e => onPatch({ overline: e.target.value })}
+                    className="input"
+                    placeholder="Мелкая строка над заголовком"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Например, название события или направления. Пусто — строки не будет.
+                  </p>
+                </Field>
+              )}
+
               {has('body') && (
                 <Field label={block.kind === 'footer' ? 'Дополнительный текст в подвале' : 'Текст'}>
                   <textarea
@@ -607,23 +626,6 @@ export default function BlockCard({
 
               {block.kind === 'hero' && (
                 <>
-                  {/* ⚠️ НАДЗАГОЛОВОК — мелкая строка НАД крупным заголовком
-                      («ВИДЕНИЕ / iViSiON-8: БИЗНЕС-СОЗДАТЕЛИ»). Поля в
-                      конструкторе не было вовсе: текст был виден на странице,
-                      а править его было негде — только через базу. */}
-                  <Field label="Надзаголовок">
-                    <input
-                      type="text"
-                      value={block.overline || ''}
-                      onChange={e => onPatch({ overline: e.target.value })}
-                      className="input"
-                      placeholder="Мелкая строка над заголовком"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Например, название события или направления. Пусто — строки не будет.
-                    </p>
-                  </Field>
-
                   <div className="rounded-lg border border-gray-200 p-3">
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
