@@ -23,6 +23,7 @@ from app.database import get_db
 from app.services.client_domains import client_id_by_domain
 from app.services.preview_token import is_preview_owner
 from app.services.landing_theme import apply_theme_fields
+from app.services.landing_support import support_links
 
 logger = logging.getLogger(__name__)
 
@@ -213,12 +214,11 @@ async def get_product_landing(
                 "legal_inn": c.get("legal_inn"),
                 "offer_url": product["offer_url"],
             }
-            data["support"] = {
-                "tg": c.get("work_tg_username"),
-                "vk": c.get("work_vk"),
-                "max": c.get("work_max"),
-                "phone": c.get("phone"),
-            }
+            # ⚠️ Формат ОДИН на все лендинги (см. landing_support.py). Здесь
+            # была своя сборка с ключом `tg` и сырыми никами — фронт общий и
+            # ждёт `telegram` со ссылкой, поэтому Telegram на странице продукта
+            # пропадал, а остальные контакты вели в никуда.
+            data["support"] = support_links(c)
 
     # ⚠️ Логотип и имя бренда нужны ШАПКЕ-МЕНЮ (плавающей панели сверху) —
     # независимо от того, включён ли блок подвала или организатора. У продукта

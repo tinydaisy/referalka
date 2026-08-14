@@ -25,6 +25,7 @@ import asyncpg
 from app.database import get_db
 from app.services.landing_fonts import font_family_css, normalize_font
 from app.services.landing_theme import apply_theme_fields
+from app.services.landing_support import support_links
 from app.services.collaborator_sort import order_by_sql
 from app.services.preview_token import preview_client_id
 
@@ -373,22 +374,8 @@ async def get_public_landing(
 
     # ── Есть вопросы → каналы поддержки клиента ───────────────────────────
     if "support" in kinds and owner:
-        # В поля поддержки клиент вписывает и голый ник, и готовую ссылку —
-        # нормализуем, иначе получается «https://telegram.me/https://…».
-        def _link(val: str | None, base: str) -> str | None:
-            v = (val or "").strip()
-            if not v:
-                return None
-            if v.startswith("http://") or v.startswith("https://"):
-                return v
-            return base + v.lstrip("@")
-
-        data["support"] = {
-            # ⚠️ telegram.me, не t.me — правило проекта
-            "telegram": _link(owner["work_tg_username"], "https://telegram.me/"),
-            "vk": _link(owner["work_vk"], "https://vk.com/"),
-            "max": _link(owner["work_max"], "https://max.ru/"),
-        }
+        # Формат общий для всех лендингов — см. landing_support.py.
+        data["support"] = support_links(owner)
 
     # ── Футер: реквизиты + политика + оферта ──────────────────────────────
     if "footer" in kinds and owner:
