@@ -56,6 +56,12 @@ export default function LandingTab({ eventId, event }: Props) {
   const [copySourceId, setCopySourceId] = useState<number | null>(null)
   const [copyTariffs, setCopyTariffs] = useState(true)
   const [copyBusy, setCopyBusy] = useState(false)
+  // Выбор источника оформления: свой кабинет / другой организатор коллабы /
+  // стандартный стиль платформы. Список грузим по клику, как доноров лендинга.
+  const [themeOpen, setThemeOpen] = useState(false)
+  const [themeSources, setThemeSources] = useState<any[]>([])
+  const [themeChoice, setThemeChoice] = useState<string>('')
+  const [themeBusy, setThemeBusy] = useState(false)
   // Списки для выпадающих настроек блоков: какой тариф подсветить и какую
   // оферту показать в подвале. Оба необязательны — раздел может быть закрыт
   // тарифом, тогда список просто пустой.
@@ -197,13 +203,43 @@ export default function LandingTab({ eventId, event }: Props) {
 
   // Тема копируется в страницу при создании; для уже собранной страницы —
   // явная кнопка, иначе правка «Стилей лендингов» не видна на лендинге.
-  const applyTheme = async () => {
-    if (!page) return
-    if (!confirm('Перетянуть оформление из «Стили лендингов» в эту страницу?\n\nЦвета, шрифты, отступы и ширина заменятся. Содержимое блоков не изменится.')) return
+  //
+  // ⚠️ У КОЛЛАБЫ выбор обязателен: страница создаётся в стандартном стиле
+  // платформы (своей темы у общего события нет), и чьё оформление взять —
+  // решают организаторы, а не порядок строк в базе.
+  const openTheme = async () => {
+    setThemeOpen(true)
+    if (themeSources.length) return
+    setThemeBusy(true)
     try {
-      const updated = await api.eventLanding.applyTheme(eventId, page.id)
+      const res = await api.eventLanding.themeSources(eventId)
+      setThemeSources(res.sources || [])
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось загрузить список организаторов')
+    } finally { setThemeBusy(false) }
+  }
+
+  const doApplyTheme = async () => {
+    if (!page) return
+    const toDefault = themeChoice === 'default'
+    const src = themeSources.find(s => String(s.id) === themeChoice)
+    if (!toDefault && !src) return
+    if (!confirm(
+      (toDefault
+        ? 'Вернуть странице стандартный стиль ПЛЮСОНа?'
+        : `Применить оформление «${src?.title || 'организатора'}»?`) +
+      '\n\nЦвета, шрифты, отступы и ширина заменятся. Содержимое блоков не изменится.'
+    )) return
+    setThemeBusy(true)
+    try {
+      const updated = await api.eventLanding.applyTheme(eventId, page.id, toDefault
+        ? { reset_to_default: true }
+        : { source_client_id: src.id })
       setPages(prev => prev.map(p => p.id === page.id ? { ...p, ...updated } : p))
-    } catch (e: any) { alert(e?.message || 'Не удалось применить тему') }
+      setThemeOpen(false)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось применить стиль')
+    } finally { setThemeBusy(false) }
   }
 
   const openCopy = async () => {
@@ -329,8 +365,8 @@ export default function LandingTab({ eventId, event }: Props) {
             <Copy className="h-4 w-4" /> Скопировать из другого события
           </button>
           <button
-            onClick={applyTheme}
-            title="Взять цвета, шрифты и отступы из Настройки → Стили лендингов"
+            onClick={openTheme}
+            title="Взять цвета, шрифты и отступы из «Стилей лендингов» — своих или другого организатора"
             className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             <Palette className="h-4 w-4" /> Применить стили
@@ -901,6 +937,110 @@ export default function LandingTab({ eventId, event }: Props) {
               >
                 {copyBusy && <Loader2 className="h-4 w-4 animate-spin" />}
                 {copyBusy ? 'Копируем…' : 'Скопировать'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Выбор оформления. У обычного события в списке один пункт (свои
+          стили) — окно тогда просто подтверждает действие; у коллабы
+          выбирается стиль любого из организаторов. */}
+      {themeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
+          >
+            <h3 className="text-lg font-semibold text-gray-900">Применить стили</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Заменим цвета, шрифты, отступы и ширину. Блоки и тексты останутся
+              как есть. Потом что угодно можно поправить вручную ниже.
+            </p>
+
+            <div className="my-4 space-y-2">
+              {themeSources.map(s => (
+                <label
+                  key={s.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50"
+                >
+                  <input
+                    type="radio"
+                    name="theme-src"
+                    checked={themeChoice === String(s.id)}
+                    onChange={() => setThemeChoice(String(s.id))}
+                    className="h-4 w-4 border-gray-300 text-brand focus:ring-brand"
+                  />
+                  {/* Полоска цветов — чтобы выбирать глазами, а не по имени:
+                      названия кабинетов о стиле ничего не говорят. */}
+                  <span
+                    className="h-8 w-12 shrink-0 rounded border border-gray-200"
+                    style={{
+                      background: `linear-gradient(45deg, ${s.lp_bg_color || '#25455D'}, ${s.lp_bg_color_2 || '#0a1520'})`,
+                    }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-gray-900">
+                      {s.title}
+                    </span>
+                    <span className="block truncate text-xs text-gray-500">
+                      {s.owner_name}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 gap-1">
+                    <span className="h-4 w-4 rounded-full border border-gray-200"
+                          style={{ background: s.lp_color_heading || '#FFCFA4' }} />
+                    <span className="h-4 w-4 rounded-full border border-gray-200"
+                          style={{ background: s.lp_btn_color || '#FFCFA4' }} />
+                  </span>
+                </label>
+              ))}
+
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50">
+                <input
+                  type="radio"
+                  name="theme-src"
+                  checked={themeChoice === 'default'}
+                  onChange={() => setThemeChoice('default')}
+                  className="h-4 w-4 border-gray-300 text-brand focus:ring-brand"
+                />
+                <span
+                  className="h-8 w-12 shrink-0 rounded border border-gray-200"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-gray-900">
+                    Стандартный стиль ПЛЮСОНа
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    Тёмно-синий фон, золотые акценты — как у новой страницы
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {themeSources.length > 1 && (
+              <p className="rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
+                Это общее событие: у каждого организатора своё оформление.
+                По умолчанию страница собрана в стандартном стиле — выберите,
+                чьи фирменные цвета взять.
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setThemeOpen(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={doApplyTheme}
+                disabled={!themeChoice || themeBusy}
+                className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {themeBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {themeBusy ? 'Применяем…' : 'Применить'}
               </button>
             </div>
           </div>

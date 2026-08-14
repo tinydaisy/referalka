@@ -650,9 +650,16 @@ export const api = {
       request(`/api/v1/events/${eventId}/landing/pages/${pageId}/reorder`, {
         method: 'POST', body: JSON.stringify({ ids }),
       }),
-    applyTheme: (eventId: number, pageId: number) =>
+    // Чьи стили можно применить: у обычного события — свои, у коллабы —
+    // любого из организаторов (у коллаб-события своей темы нет).
+    themeSources: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/landing/theme-sources`),
+    applyTheme: (eventId: number, pageId: number, data?: {
+      source_client_id?: number | null
+      reset_to_default?: boolean
+    }) =>
       request(`/api/v1/events/${eventId}/landing/pages/${pageId}/apply-theme`, {
-        method: 'POST',
+        method: 'POST', body: JSON.stringify(data || {}),
       }),
     setSeats: (eventId: number, data: {
       seats_total: number | null

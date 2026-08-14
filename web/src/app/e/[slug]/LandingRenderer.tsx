@@ -1723,8 +1723,14 @@ function BlockBody({
             )}
           </div>
           {!!legal.length && <div>{legal.join(' · ')}</div>}
+          {/* ⚠️ У коллабы в копирайте — ВСЕ организаторы. Юр-данные выше
+              остаются одного продавца (деньги принимает он), но подписывать
+              общее событие именем одного партнёра неверно. */}
           <div className="opacity-60">
-            © {new Date().getFullYear()} {f.brand_name}
+            © {new Date().getFullYear()}{' '}
+            {Array.isArray(content?.organizers) && content.organizers.length > 1
+              ? content.organizers.map((o: any) => o.name).filter(Boolean).join(' · ')
+              : f.brand_name}
           </div>
         </div>
       )
@@ -2127,7 +2133,11 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
 
   if (!list.length) return null
 
-  const cols = Math.max(1, Math.min(6, block.columns || 4))
+  // ⚠️ Колонок не больше, чем самих партнёров. Иначе лишние дорожки остаются
+  // ПУСТЫМИ: при 3 колонках и 2 партнёрах сетка (она блочная и занимает всю
+  // ширину) центрирует ТРИ дорожки, третья пустует справа — и карточки
+  // оказываются левее середины. Настройка клиента остаётся потолком.
+  const cols = Math.max(1, Math.min(6, block.columns || 4, list.length))
   // Партнёры по умолчанию лентой: логотипов обычно много и они разной ширины.
   const scroll = (block.display_mode || 'scroll') === 'scroll'
   const cardW = block.media_size || 260
@@ -2150,12 +2160,12 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
       <div className="lp-grid grid gap-5"
            style={{
              ['--lp-cols-lg' as any]: cols,
-             // ⚠️ Партнёров МЕНЬШЕ, чем колонок (частый случай: 2 партнёра при
-             // сетке на 3) — пустая колонка оставалась справа, и ряд выглядел
-             // прижатым к левому краю. Задаём колонке конкретную ширину:
-             // она перестаёт растягиваться, и ряд встаёт по центру.
-             // Полный ряд ведёт себя как раньше (`1fr` из .lp-grid).
-             ...(list.length < cols ? { ['--lp-col-w' as any]: `${cardW}px` } : {}),
+             // ⚠️ Партнёров МАЛО (1–2) — колонке задаём конкретную ширину,
+             // иначе две колонки по 1fr растянутся на весь контейнер (880px)
+             // и «центрировать» станет нечего: карточки просто станут
+             // огромными. С фиксированной шириной узкий ряд встаёт по центру.
+             // От 3 карточек ряд и так заполняет строку — оставляем 1fr.
+             ...(list.length < 3 ? { ['--lp-col-w' as any]: `${cardW}px` } : {}),
            }}>
         {cards}
       </div>
