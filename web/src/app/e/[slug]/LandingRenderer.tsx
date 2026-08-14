@@ -1121,17 +1121,6 @@ function BlockBody({
         })
         .filter(Boolean) as Array<{ title: string; text: string }>
       return (
-        <div>
-        {/* ⚠️ Большая картинка секции — во всю ширину контента. В блоке
-            «что вы получаете» это благодарственные письма «Опоры России»:
-            маленькой картинкой сбоку не разобрать, что на них, и
-            доказательство не работает. */}
-        {block.image_url && (
-          <div className="mb-6 overflow-hidden rounded-2xl"
-               style={{ border: `1px solid ${hexToRgba(iconColor, .25)}` }}>
-            <img src={block.image_url} alt="" loading="lazy" className="block w-full" />
-          </div>
-        )}
         <div className={`space-y-3 ${glowCls}`} style={glowVars}>
           {list.map((t, i) => (
             <div key={i} className="flex items-start gap-4 p-4"
@@ -1160,7 +1149,6 @@ function BlockBody({
               </span>
             </div>
           ))}
-        </div>
         </div>
       )
     }
