@@ -46,6 +46,8 @@ DEFAULT_PRODUCT_BLOCKS: list[dict] = [
     {"kind": "values",          "is_active": False},
     {"kind": "numbers",         "is_active": False},
     {"kind": "difference",      "is_active": False},
+    # Этапы по вертикальной линии — «как всё происходит по шагам».
+    {"kind": "process",         "is_active": False},
     {"kind": "product_content", "is_active": True},
     {"kind": "organizer",       "is_active": True},
     {"kind": "gallery",         "is_active": False},

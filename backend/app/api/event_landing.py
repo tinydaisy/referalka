@@ -45,6 +45,9 @@ DEFAULT_MAIN_BLOCKS: list[dict] = [
     {"kind": "gifts",      "is_active": True},
     {"kind": "numbers",    "is_active": False},
     {"kind": "difference", "is_active": False},
+    # Этапы по вертикальной линии: «приём заявок → эфиры → финал». Нужен
+    # премиям и турнирам, где важна последовательность, а не набор карточек.
+    {"kind": "process",    "is_active": False},
     {"kind": "speakers",   "is_active": True},
     {"kind": "partners",   "is_active": False},
     {"kind": "program",    "is_active": True},

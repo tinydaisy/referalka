@@ -23,7 +23,7 @@ export interface BlockMeta {
   live?: boolean
   repeatable?: boolean
   /** Какие поля показывать в редакторе блока. */
-  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'audience_cards' | 'numbers' | 'seats' | 'gallery'>
+  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'audience_cards' | 'numbers' | 'seats' | 'gallery' | 'steps'>
 }
 
 export const BLOCK_META: Record<BlockKind, BlockMeta> = {
@@ -81,6 +81,14 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     label: 'Цифры',
     hint: 'От 2 до 4 цифр с подписями — как регалии основателя.',
     fields: ['title', 'numbers', 'button'],
+  },
+  process: {
+    kind: 'process',
+    label: 'Процесс по шагам',
+    hint: 'Этапы по вертикальной линии: приём заявок → эфиры → финал. '
+        + 'Карточки встают по сторонам линии поочерёдно. У шага бывают дата, '
+        + 'описание и картинка.',
+    fields: ['title', 'subtitle', 'steps', 'button'],
   },
   difference: {
     kind: 'difference',

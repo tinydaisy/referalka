@@ -280,7 +280,21 @@ export default function BlockCard({
                 />
               )}
 
-              {has('numbers') && <NumbersEditor items={numbers} onChange={setNumbers} />}
+              {has('numbers') && (
+                <NumbersEditor items={numbers} onChange={setNumbers}
+                               eventId={eventId} uploadKind={uploadKind} />
+              )}
+
+              {has('steps') && (
+                <StepsEditor
+                  items={Array.isArray(items)
+                    ? items.filter((i: any) => i && typeof i === 'object')
+                    : []}
+                  onChange={next => onPatch({ items: next })}
+                  eventId={eventId}
+                  uploadKind={uploadKind}
+                />
+              )}
 
               {has('gallery') && (
                 <div className="rounded-lg border border-gray-200 p-3">
@@ -1338,12 +1352,107 @@ function CardsEditor({
   )
 }
 
+/**
+ * Шаги процесса — этапы по вертикальной линии.
+ *
+ * ⚠️ Порядок здесь ЗНАЧИМ (в отличие от карточек ценностей): это
+ * последовательность «приём заявок → эфиры → финал», поэтому есть стрелки
+ * перемещения, а не только удаление.
+ */
+function StepsEditor({
+  items, onChange, eventId, uploadKind = 'landing_media',
+}: {
+  items: Array<{ date?: string; title?: string; text?: string; image?: string }>
+  onChange: (v: any[]) => void
+  eventId?: number
+  uploadKind?: UploadKind
+}) {
+  const upd = (i: number, patch: any) => {
+    const next = [...items]; next[i] = { ...next[i], ...patch }; onChange(next)
+  }
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (j < 0 || j >= items.length) return
+    const next = [...items]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    onChange(next)
+  }
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">Шаги</label>
+      <p className="mb-2 text-xs text-gray-400">
+        Идут сверху вниз по линии, карточки встают по её сторонам поочерёдно.
+      </p>
+      <div className="space-y-2">
+        {items.map((s, i) => (
+          <div key={i} className="rounded-lg border border-gray-200 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-xs text-gray-400">Шаг {i + 1}</span>
+              <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => move(i, -1)} disabled={i === 0}
+                        className="rounded px-1.5 py-1 text-gray-400 hover:bg-gray-100 disabled:opacity-30"
+                        title="Выше">↑</button>
+                <button onClick={() => move(i, 1)} disabled={i === items.length - 1}
+                        className="rounded px-1.5 py-1 text-gray-400 hover:bg-gray-100 disabled:opacity-30"
+                        title="Ниже">↓</button>
+                <button onClick={() => onChange(items.filter((_, j) => j !== i))}
+                        className="rounded px-2 py-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                        title="Удалить шаг">✕</button>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
+              <input
+                type="text" value={s.date || ''}
+                onChange={e => upd(i, { date: e.target.value })}
+                placeholder="май — июль"
+                className="input"
+              />
+              <input
+                type="text" value={s.title || ''}
+                onChange={e => upd(i, { title: e.target.value })}
+                placeholder="Приём заявок"
+                className="input font-medium"
+              />
+            </div>
+            <textarea
+              rows={2} value={s.text || ''}
+              onChange={e => upd(i, { text: e.target.value })}
+              placeholder="Что происходит на этом шаге"
+              className="input mt-2"
+            />
+            <div className="mt-2">
+              <div className="mb-1 text-xs font-medium text-gray-600">Картинка (необязательно)</div>
+              <FileUploader
+                mode="single"
+                kind={uploadKind}
+                eventId={eventId}
+                value={s.image || null}
+                onChange={url => upd(i, { image: url })}
+                aspectClass="aspect-video"
+                emptyText="Загрузите картинку"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => onChange([...items, { date: '', title: '', text: '' }])}
+        className="mt-2 text-sm font-medium text-brand hover:underline"
+      >
+        + Добавить шаг
+      </button>
+    </div>
+  )
+}
+
 /** Цифры с подписями — формат как регалии основателя. */
 function NumbersEditor({
-  items, onChange,
+  items, onChange, eventId, uploadKind = 'landing_media',
 }: {
-  items: Array<{ value: string; label: string }>
+  items: Array<{ value: string; label: string; image?: string; image_caption?: string }>
   onChange: (v: any[]) => void
+  eventId?: number
+  uploadKind?: UploadKind
 }) {
   const upd = (i: number, patch: any) => {
     const next = [...items]; next[i] = { ...next[i], ...patch }; onChange(next)
@@ -1353,6 +1462,13 @@ function NumbersEditor({
       <label className="mb-1 block text-sm font-medium text-gray-700">
         Цифры (от 2 до 4)
       </label>
+      {/* ⚠️ Картинка привязана к КОНКРЕТНОЙ цифре, а не собрана в общий блок
+          «доказательства»: собранные отдельно скриншоты выглядят оторванно —
+          непонятно, какую цифру подтверждает какой из них. */}
+      <p className="mb-2 text-xs text-gray-400">
+        К каждой цифре можно приложить скриншот-подтверждение — он покажется
+        прямо под ней.
+      </p>
       <div className="space-y-2">
         {/* ⚠️ Полю подписи нужны `flex-1 min-w-0`: у `.input` есть width:100%,
             но во flex-строке ширина считается от содержимого, и без этих
@@ -1381,6 +1497,25 @@ function NumbersEditor({
               >
                 ✕
               </button>
+            </div>
+            <div className="w-full sm:w-56 sm:shrink-0">
+              <FileUploader
+                mode="single"
+                kind={uploadKind}
+                eventId={eventId}
+                value={n.image || null}
+                onChange={url => upd(i, { image: url })}
+                aspectClass="aspect-video"
+                emptyText="Скриншот-подтверждение"
+              />
+              {n.image && (
+                <input
+                  type="text" value={n.image_caption || ''}
+                  onChange={e => upd(i, { image_caption: e.target.value })}
+                  placeholder="Подпись под скриншотом"
+                  className="input mt-1 w-full text-xs"
+                />
+              )}
             </div>
           </div>
         ))}

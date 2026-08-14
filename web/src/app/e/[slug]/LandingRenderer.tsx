@@ -1073,6 +1073,67 @@ function BlockBody({
       )
     }
 
+    /* ── Процесс: этапы по вертикальной линии ──────────────────────────── */
+    // Для премий, турниров и конференций: «приём заявок → оценочные эфиры →
+    // народное признание → финал». Обычной сеткой карточек ПОСЛЕДОВАТЕЛЬНОСТЬ
+    // не читается — не видно, что за чем идёт. Здесь линия задаёт направление,
+    // а карточки встают по её сторонам поочерёдно.
+    //
+    // items: [{ date, title, text, image }]
+    case 'process': {
+      const list = Array.isArray(items) ? items.filter((s: any) => s && (s.title || s.text)) : []
+      const line = hexToRgba(iconColor, .45)
+      return (
+        <div className="relative">
+          {/* Линия: на телефоне уходит влево (места на две колонки нет),
+              на широком экране — по центру. */}
+          <div className="absolute bottom-0 left-[11px] top-0 w-px md:left-1/2 md:-translate-x-1/2"
+               style={{ background: `linear-gradient(180deg, transparent, ${line} 8%, ${line} 92%, transparent)` }} />
+          <div className="space-y-8 md:space-y-2">
+            {list.map((s: any, i: number) => {
+              const right = i % 2 === 1   // чередование сторон
+              return (
+                <div key={i} className="relative md:grid md:grid-cols-2 md:gap-10">
+                  {/* Точка на линии */}
+                  <div className="absolute left-[11px] top-3 z-10 -translate-x-1/2 md:left-1/2">
+                    <span className="block h-3 w-3 rounded-full"
+                          style={{ background: iconColor, boxShadow: `0 0 0 5px ${hexToRgba(iconColor, .18)}` }} />
+                  </div>
+                  {/* Пустая половина — чтобы карточка ушла на нужную сторону */}
+                  {right && <div className="hidden md:block" />}
+                  <div className={`ml-8 md:ml-0 ${right ? '' : 'md:text-right'}`}>
+                    <div className="p-5" style={cardStyle}>
+                      {s.date && (
+                        <div className="mb-1 text-[.8em] uppercase tracking-wider opacity-70">
+                          {s.date}
+                        </div>
+                      )}
+                      {s.title && (
+                        <h3 className="text-[1.05em] font-bold uppercase tracking-wider"
+                            style={{ color: page.color_heading || '#FFCFA4' }}>
+                          {s.title}
+                        </h3>
+                      )}
+                      {s.text && (
+                        <p className="mt-2 text-[.9em] leading-relaxed opacity-90">{s.text}</p>
+                      )}
+                      {s.image && (
+                        <div className="mt-4 overflow-hidden rounded-xl"
+                             style={{ border: `1px solid ${hexToRgba(iconColor, .25)}` }}>
+                          <img src={s.image} alt={s.title || ''} loading="lazy"
+                               className="block w-full" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+
     /* ── Цифры ─────────────────────────────────────────────────────────── */
     case 'numbers': {
       const list = Array.isArray(items) ? items.filter((n: any) => n && (n.value || n.label)) : []
@@ -1092,7 +1153,7 @@ function BlockBody({
         <div className="lp-grid lp-grid-2sm grid gap-x-6 gap-y-10"
              style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 4)) }}>
           {list.map((n: any, i: number) => (
-            <div key={i} className="p-5 text-center" style={cardStyle}>
+            <div key={i} className="flex flex-col p-5 text-center" style={cardStyle}>
               <div className="text-[2.6em] font-bold leading-none sm:text-[3.2em]"
                    style={metalNum}>
                 <CountUp value={n.value} />
@@ -1108,6 +1169,20 @@ function BlockBody({
                    style={{ fontSize: block.text_size ? `${block.text_size}px` : '.9em' }}>
                 {n.label}
               </div>
+              {/* ⚠️ Скриншот-ДОКАЗАТЕЛЬСТВО прямо под своей цифрой (`n.image`).
+                  Собранные отдельным блоком «доказательства» внизу страницы, они
+                  выглядели оторванно: непонятно, какую цифру подтверждает какая
+                  картинка. Здесь связь видна сразу. */}
+              {n.image && (
+                <div className="mt-4 overflow-hidden rounded-xl"
+                     style={{ border: `1px solid ${hexToRgba(iconColor, .25)}` }}>
+                  <img src={n.image} alt={n.image_caption || n.label || ''}
+                       loading="lazy" className="block w-full" />
+                </div>
+              )}
+              {n.image_caption && (
+                <div className="mt-2 text-[.75em] opacity-60">{n.image_caption}</div>
+              )}
             </div>
           ))}
         </div>
