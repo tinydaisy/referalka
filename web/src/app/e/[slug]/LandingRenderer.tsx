@@ -560,7 +560,10 @@ function Section({
       : undefined,
   }
 
-  const title = block.title
+  // ⚠️ У ШАПКИ заголовок рисует она сама (крупным, с металликом, вместе с
+  // надзаголовком и пилюльками). Обёртка секции его показывать НЕ должна —
+  // иначе один и тот же текст выводится на странице дважды подряд.
+  const title = block.kind === 'hero' ? '' : block.title
   const body = block.body
 
   // Свечение карточек: класс на контейнер сетки + переменные цвета.
@@ -671,7 +674,9 @@ function Section({
     </h2>
   ) : null
 
-  const subtitle = block.subtitle ? (
+  // ⚠️ У шапки подзаголовок, как и заголовок, рисует она сама — иначе он
+  // выводится дважды подряд.
+  const subtitle = (block.subtitle && block.kind !== 'hero') ? (
     <p className="mt-3 opacity-80"
        style={{
          textAlign: (block.title_align || 'left') as any,

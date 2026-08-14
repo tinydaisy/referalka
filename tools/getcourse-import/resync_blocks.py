@@ -22,7 +22,14 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
+
+
+def _words(html: str) -> str:
+    """Текст без разметки и лишних пробелов — чтобы сравнивать содержание."""
+    t = re.sub(r"<[^>]+>", " ", html or "").replace("&nbsp;", " ")
+    return re.sub(r"\s+", " ", t).strip()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXPORT = os.path.join(HERE, "export.json")
@@ -34,6 +41,10 @@ async def main() -> None:
     ap.add_argument("--dsn", default=os.environ.get("DATABASE_URL", ""))
     ap.add_argument("--export", default=EXPORT)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force-markup", action="store_true",
+                    help="обновлять и когда выгрузка КОРОЧЕ — при чистке "
+                         "разметки (снятие <div>) текст закономерно короче, "
+                         "хотя слов в нём столько же")
     args = ap.parse_args()
 
     with open(args.export, encoding="utf-8") as f:
@@ -66,7 +77,17 @@ async def main() -> None:
                 continue
             new_body = b.get("body") or ""
             new_url = b.get("url") or ""
-            # Только если выгрузка ДЛИННЕЕ — чужие правки не затираем.
+
+            if args.force_markup:
+                # ⚠️ Правим РАЗМЕТКУ, а не содержание: обновляем, только если
+                # набор слов совпал. Иначе затёрли бы правку, сделанную
+                # человеком в кабинете.
+                if _words(new_body) == _words(r["body"]) and new_body != r["body"]:
+                    fixes.append((r["id"], r["title"], len(r["body"]),
+                                  len(new_body), new_body or None, new_url or None))
+                continue
+
+            # Обычный режим: только если выгрузка ДЛИННЕЕ.
             if len(new_body) > len(r["body"]) or len(new_url) > len(r["url"]):
                 fixes.append((r["id"], r["title"], len(r["body"]),
                               len(new_body), new_body or None, new_url or None))
