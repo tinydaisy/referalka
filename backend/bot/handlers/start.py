@@ -906,6 +906,20 @@ async def handle_start(message: Message, command: CommandObject):
                         tg_id=user.id if user else None,
                         referral_code=referral_code,
                     )
+                    # «Новый интерес» — РЕФОВОДУ, а не владельцу бота: партнёрская
+                    # программа принадлежит тому, чей код в ссылке.
+                    from app.services.plusson_referral_notify import (
+                        notify_referrer_new_interest,
+                    )
+                    await notify_referrer_new_interest(
+                        conn,
+                        referrer_client_id=referrer_client_id,
+                        platform="telegram",
+                        user_id=user.id if user else None,
+                        username=user.username if user else None,
+                        first_name=user.first_name if user else None,
+                        last_name=user.last_name if user else None,
+                    )
             if referrer_client_id:
                 # Регистрация в САМОЙ платформе — всегда основной домен,
                 # доменом клиента тут не пахнет.

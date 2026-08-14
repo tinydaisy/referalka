@@ -337,12 +337,16 @@ async def update_block(
     sets, vals = [], []
     for field in BLOCK_PATCH_FIELDS:
         if field in fs:
-            v = getattr(data, field)
-            # ⚠️ items — JSONB: asyncpg не примет список как есть.
-            if field == "items":
-                v = json.dumps(v or [], ensure_ascii=False)
-            vals.append(v)
+            vals.append(getattr(data, field))
             sets.append(f"{field} = ${len(vals)}")
+
+    # ⚠️ `items` НЕТ в BLOCK_PATCH_FIELDS (там только скалярные настройки) —
+    # это отдельная ветка, как в лендинге события. Без неё правки карточек
+    # молча выбрасывались: сервер отвечал 200, а в базу ничего не писал, и
+    # клиент вносил один и тот же текст по нескольку раз.
+    if "items" in fs:
+        vals.append(json.dumps(data.items or [], ensure_ascii=False))
+        sets.append(f"items = ${len(vals)}::jsonb")
     if not sets:
         row = await db.fetchrow("SELECT * FROM event_landing_blocks WHERE id = $1", block_id)
         return _ser_product_block(row)
