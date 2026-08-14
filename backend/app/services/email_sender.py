@@ -189,19 +189,22 @@ def _plain_to_html(text: str) -> str:
 
 
 def _wrap_html_body(inner_html: str) -> str:
-    """Оборачивает «голый» HTML в полный документ с шапкой и centered-контейнером.
+    """Оборачивает «голый» HTML в полный документ с centered-контейнером.
     Применяется когда у нас был только plain-text → автогенерируем HTML.
-    Контент письма помещается на светло-голубом фоне (#E8F2FA) — фирменный
-    стиль email-вёрстки ПЛЮСОНа (подвал отписки потом ставится ниже, на белом)."""
+
+    ⚠️ БЕЗ голубой плашки-контейнера (была `background:#E8F2FA` + скругление).
+    Gmail читает вложенный цветной блок как отдельную «карточку» и сворачивает
+    письмо по его границе: содержимое уходит под «...», а плашка остаётся
+    пустым синим прямоугольником. Держать вёрстку в синхроне с build_email_body
+    (email_body.py) — там плашка убрана по той же причине.
+    """
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '</head><body style="margin:0;padding:20px;background:#ffffff;">'
+        '</head><body style="margin:0;padding:24px 20px;background:#ffffff;">'
         '<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
         'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;">'
-        '<div style="background:#E8F2FA;padding:30px 24px;border-radius:16px;">'
         f'{inner_html}'
-        '</div>'
         '</div></body></html>'
     )
 
