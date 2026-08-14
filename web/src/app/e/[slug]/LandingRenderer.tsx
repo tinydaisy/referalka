@@ -1075,7 +1075,12 @@ function BlockBody({
                          // ⚠️ На узком экране настройка не применяется (см.
                          // w-full выше): там картинка всегда во всю ширину.
                          ['--lp-img-w' as any]: `${block.card_img_size || 100}%`,
-                         aspectRatio: String(block.card_img_ratio || 1.6),
+                         // ⚠️ Пропорция идёт ПЕРЕМЕННОЙ, а не свойством
+                         // `aspectRatio`: инлайн-стиль перебил бы правило
+                         // `.lp-card-img`, которое снимает пропорцию на
+                         // телефоне (иначе вертикальный скриншот сжимается
+                         // в узкую полоску посреди карточки).
+                         ['--lp-img-ratio' as any]: String(block.card_img_ratio || 1.6),
                          borderRadius: `${block.card_img_radius_x || 0}% / ${block.card_img_radius_y || 0}%`,
                          background: 'rgba(255,255,255,.06)',
                          // ⚠️ «Вписать целиком» (contain) вместо обрезки: на
