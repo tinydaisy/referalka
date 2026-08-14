@@ -20,11 +20,19 @@
         "blocks": [
           {
             "kind": "text",
+            "body": "<h3>Шаг 1</h3>"
+          },
+          {
+            "kind": "text",
             "body": "<div data-v-ec9eeb01-s=\"\"><div data-v-ec9eeb01-s=\"\"><div id=\"ltBlock2181884000\" data-block-id=\"2181884000\" data-code=\"b-59c54\"><div><div><div><div><div data-main-><div data-editable=\"true\" data-param=\"text\"><p>Для подключения телеграма перейдите в раздел Профиль –&gt; Уведомления</p></div></div></div></div></div></div></div></div></div>"
           },
           {
             "kind": "image",
-            "url": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png"
+            "url": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Шаг 2</h3>"
           },
           {
             "kind": "text",
@@ -32,7 +40,15 @@
           },
           {
             "kind": "text",
+            "body": "<h3>Шаг 3</h3>"
+          },
+          {
+            "kind": "text",
             "body": "<div data-v-ec9eeb01-s=\"\"><div data-v-ec9eeb01-s=\"\"><div id=\"ltBlock2181884521\" data-block-id=\"2181884521\" data-code=\"b-44cfe\"><div><div><div><div><div data-main-><div data-editable=\"true\" data-param=\"text\"><p>Перейдите по ссылке и нажмите на кнопку “Открыть приложение Telegram”.</p></div></div></div></div></div></div></div></div></div>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Шаг 4</h3>"
           },
           {
             "kind": "text",
@@ -56,7 +72,7 @@
         "gc_id": 344405664,
         "title": "Шаг 3. Подключите свой тг-канал к реферальной системе набора аудитории",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -80,7 +96,7 @@
         "gc_id": 344210765,
         "title": "Шаблон таблицы “Финансовая панель: 7 показателей для стабильного роста в деньгах”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -92,7 +108,7 @@
         "gc_id": 344212463,
         "title": "Мастер-класс по продажам \"ПИЛЮЛИ КУДАПЛАТИН\"",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -112,7 +128,7 @@
         "gc_id": 344212924,
         "title": "8 тактик коммуникации при негативном опыте клиентов (16 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -135,12 +151,20 @@
             "body": "<p>Привлечение клиентов - это искусство!</p><p>&nbsp;</p><p><span>На встрече разобрали:</span></p><p><span>—24 формата лид-магнитов, чтобы люди выбирали именно вам</span></p><p><span>—Экспресс способы проведения кастдевов</span></p><p><span>—5 способов создания лид-магнитов, чтобы их протестировать и не тратить кучу времени на бесполезный материал</span></p><p><span>—Схема упаковки телеграм-канала</span></p><p><span>—Креативная схема оформления личного профиля</span></p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=MacFxTmNkX4"
           },
           {
             "kind": "text",
             "body": "<div><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://drive.google.com/file/d/1VbtDWz2huDWouPBkvdsWnciO4f9Ggyi_/view\">Презентация </a>со встречи.</div>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Бонусные материалы для внедрения:</h3>"
           },
           {
             "kind": "text",
@@ -152,7 +176,7 @@
         "gc_id": 345415780,
         "title": "Мастер-класс «Выступления, которые продают: как сделать сцену частью воронки»",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "video",
@@ -196,7 +220,7 @@
         "gc_id": 344210265,
         "title": "ВВОДНАЯ ИНФОРМАЦИЯ",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -208,7 +232,7 @@
         "gc_id": 344210266,
         "title": "УРОК 1 - ПОДКЛЮЧЕНИЕ БАНКОВСКИХ КАРТОЧЕК",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -228,7 +252,7 @@
         "gc_id": 344210267,
         "title": "УРОК 2 - КАТЕГОРИИ РАСХОДОВ И ДОХОДОВ",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -248,7 +272,7 @@
         "gc_id": 344210268,
         "title": "УРОК 3 - УЧЕТ ДОЛГОВ",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -268,7 +292,7 @@
         "gc_id": 344210269,
         "title": "УРОК 4 - УЧЕТ ТРАНЗИТНЫХ ОПЕРАЦИЙ",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -288,7 +312,7 @@
         "gc_id": 344210270,
         "title": "УРОК 5 - ФИЛЬТР ОПЕРАЦИЙ И ЕЖЕМЕСЯЧНАЯ СВОДКА",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -308,7 +332,7 @@
         "gc_id": 344210271,
         "title": "УРОК 6 - АНАЛИТИКА И ЕЖЕМЕСЯЧНАЯ СВОДКА",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -336,7 +360,7 @@
         "gc_id": 344244200,
         "title": "12 креативных способов проявиться и запомниться на нетворкингах и получить заявки на свои продукты и услуги",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -348,7 +372,7 @@
         "gc_id": 344244248,
         "title": "Запись выступления в Сколково: “Алгоритм генерации креативных решений для привлечения клиентов без вложений”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -364,7 +388,7 @@
         "gc_id": 344244326,
         "title": "20 креативных идей, как донести ценность продукта за 1 видео",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -384,7 +408,7 @@
         "gc_id": 344354021,
         "title": "Переключатель вероятностей",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -400,7 +424,7 @@
         "gc_id": 344354026,
         "title": "Я-концепция эксперта с высоким чеком",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -416,7 +440,7 @@
         "gc_id": 344354027,
         "title": "Энергия харизмы",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -432,7 +456,7 @@
         "gc_id": 344354028,
         "title": "Перепрошивка денежных сценариев",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -456,7 +480,7 @@
         "gc_id": 344456965,
         "title": "Готовая схема чат-бота для SaleBot: выдача лид-магнита за подписку на канал",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -468,7 +492,7 @@
         "gc_id": 344457042,
         "title": "6 узких мест воронки: поправь их для повышения количества людей на своих эфирах и вебинарах",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -480,7 +504,7 @@
         "gc_id": 344457043,
         "title": "Воронка найма ассистента (поиск / ценовая политика)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -504,7 +528,7 @@
         "gc_id": 344059764,
         "title": "I-VISION 1 (23 января) Про креативный маркетинг, трафик и продажи для экспертов, предпринимателей и маркетологов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -520,7 +544,7 @@
         "gc_id": 344084676,
         "title": "I-VISION 2 (24-25 марта) Деньги. Статус. Капитал",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -536,7 +560,7 @@
         "gc_id": 344084677,
         "title": "I-VISION 3 (16-17 июня 2025) Медийность. Продажи. Привлечение",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -565,7 +589,7 @@
         "gc_id": 344603538,
         "title": "I-VISION 4 (17-18 сентября) Экспертный бизнес в новых реалиях",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -661,7 +685,7 @@
         "gc_id": 345748294,
         "title": "I-VISION 5 (26-27 ноября 2025) Усилители продаж и продвижения 2026",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -730,7 +754,7 @@
         "gc_id": 344244153,
         "title": "(51 мин) Как обрести внутренний статус на 1.000.000, чтобы уверенно называть любую цену своих услуг",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -750,7 +774,7 @@
         "gc_id": 344244154,
         "title": "Видео-разбор: “Лучшая воронка продаж высокочековых продуктов без без изматывающих бесплатных консультаций ”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -766,7 +790,7 @@
         "gc_id": 344613177,
         "title": "Тренинг-практикум по технике нативных продаж через переписки",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -807,7 +831,7 @@
         "gc_id": 345241364,
         "title": "Заявка и договор оферты",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -819,7 +843,7 @@
         "gc_id": 345241698,
         "title": "Вводная информация о наставничестве",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -828,6 +852,10 @@
           {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=87oadvqoykI&t=11s"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Организационные моменты</h3>"
           },
           {
             "kind": "video",
@@ -839,7 +867,7 @@
         "gc_id": 345241748,
         "title": "Шаблоны",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -851,11 +879,15 @@
         "gc_id": 345241798,
         "title": "Мое видение",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего.</p><p>&nbsp;</p><p>Для выполнения практических рекомендаций вам понадобится ваша рабочая тетрадь&nbsp;</p><p>Посмотрите материалы:</p>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Часть 1: КАК СТАВИТЬ ЦЕЛИ.</h3>"
           },
           {
             "kind": "video",
@@ -867,6 +899,10 @@
           },
           {
             "kind": "text",
+            "body": "<h3>Практические рекомендации:</h3>"
+          },
+          {
+            "kind": "text",
             "body": "<div><p><span>1. Напишите свои инсайты от материалов&nbsp;</span><br><span>2. В рабочей тетради:</span><br><span>- Откройте лист \"ДЕКЛАРАЦИЯ НАМЕРЕНИЯ\" и пропишите свое видение себя на уровне сферы деятельности, личностных качеств и состояний.&nbsp;</span><br><span>- Откройте лист \"ЦЕЛИ НА НАСТАВНИЧЕСТВО\" - поставьте себе яркую, амбициозную цель. И припишите артефакты - то самое приятное, чем вы себя порадуете и заякорите свой успех&nbsp;</span></p><p><span>- Откройте лист \"ДЕКОМПОЗИЦИЯ\" - и сделайте экспресс-оценку того, как и какими чеками вы достигните своей цели</span></p></div>"
           }
         ]
@@ -875,11 +911,15 @@
         "gc_id": 345241883,
         "title": "Как окупить участие",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего.</p><p>Знаю-знаю! Всем хочется как можно быстрее окупить участие в наставничестве и сделать еще х100 сверху!</p><p>Поэтому для самых рвущихся (или у кого с деньгами свосем плохо, жить не на что и очень горит) - варианты, как окупить участие!</p>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>ВАРИАНТ 1: ПРОДАВАТЬ ИДЕЮ ДЛИТЕЛЬНОГО СОПРОВОЖДЕНИЯ (2, 3, 6, 12 мес) ЕЩЕ ДО УПАКОВКИ ПРОДУКТА</h3>"
           },
           {
             "kind": "text",
@@ -895,11 +935,19 @@
           },
           {
             "kind": "text",
+            "body": "<h3>ВАРИАНТ 2: СТАТЬ ПАРТНЕРОМ ИЛИ РЕФЕРАЛОМ ТЕРРИТОРИИ ПРОДАЖ i-vision и зарабатывать полупассивно или активно на рекомендациях.</h3>"
+          },
+          {
+            "kind": "text",
             "body": "<p><span><strong>Реферал</strong> - это 3% от суммы чека с вашей рекомендации. Это полупассивный вид заработка. Так как &nbsp;вы просто рекомендуете продукты i-vision (мастер-классы, тест-драйвы, наставничество). Если человек перешел по вашей персональной ссылке приобретает наш продукт - вы получаете свое агентское вознаграждение. А оказанием услуги, ведением и сопровождением клиента занимается i-vision</span></p><p><span><strong>Партнер</strong> - это доход от 3% до 20% от суммы чека по вашей рекомендации. Это уже активный вид заработка. Отличие от реферала в том, что здесь вы развиваетесь в качестве куратора и наставника прямо в проекте i-vision. Помогаете вести клиентов. В зависимости от суммы оборота растет ваш карьерный уровень и % от чека. Преимущество в том, что вы получаете готовый продукт, готовый маркетинг, готовые воронки продаж и неограниченное нахождение в поле Маргариты Форбс - и возможность перенять ее навыки, опыт и мышление</span></p><p><span>Подробнее о партнерской системе i-vision - посмотрите в видео:</span></p>"
           },
           {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=MO0Q-hzd7Tc"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Ссылка на маркетинг-план i-vision:</h3>"
           },
           {
             "kind": "text",
@@ -919,7 +967,7 @@
         "gc_id": 345248502,
         "title": "Как найти свой икигай  и создать свой уникальный продукт",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -939,7 +987,7 @@
         "gc_id": 345248662,
         "title": "Упаковка личности и экспертности",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -959,7 +1007,7 @@
         "gc_id": 345249285,
         "title": "Трансерфинг в продажах. Сакральный взгляд. Как материализовать идеального клиента",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -979,7 +1027,7 @@
         "gc_id": 345251086,
         "title": "Уникальность и позиционирование",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -999,7 +1047,7 @@
         "gc_id": 345251116,
         "title": "ЦА и оффер",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1019,7 +1067,7 @@
         "gc_id": 345251191,
         "title": "Мастер-класс самопрезентация",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1047,7 +1095,7 @@
         "gc_id": 345251275,
         "title": "Внутренний статус",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1067,7 +1115,7 @@
         "gc_id": 345252117,
         "title": "Продажа идеи продукта еще до его реализации",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1087,7 +1135,7 @@
         "gc_id": 345252149,
         "title": "Алгоритм продающей сессии",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1107,7 +1155,7 @@
         "gc_id": 345252376,
         "title": "Продажи через базовые потребности",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1127,7 +1175,7 @@
         "gc_id": 345252392,
         "title": "Отработка возражений",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1147,7 +1195,7 @@
         "gc_id": 345252443,
         "title": "Техника отработки негативных возражений через логику клиента",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1167,7 +1215,7 @@
         "gc_id": 345252724,
         "title": "Мастер-класс по продажам \"ПИЛЮЛИ КУДАПЛАТИН\"",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1187,7 +1235,7 @@
         "gc_id": 345252750,
         "title": "Как продавать на чек 1 000 000",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1203,7 +1251,7 @@
         "gc_id": 345252770,
         "title": "Как довести клиента до оплаты",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1215,7 +1263,7 @@
         "gc_id": 345252924,
         "title": "8 тактик коммуникации при негативном опыте клиентов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1239,7 +1287,7 @@
         "gc_id": 345252963,
         "title": "Как делать теплую ручную рассылку (бесплатный способ продвижения)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1259,7 +1307,7 @@
         "gc_id": 345253038,
         "title": "ТОП-10 офферов для привлечения клиентов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1279,7 +1327,7 @@
         "gc_id": 345253127,
         "title": "Гайд: Техника привлечения клиентов через чаты",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1291,7 +1339,7 @@
         "gc_id": 345253216,
         "title": "Виды воронок и как догревать клиента",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1311,7 +1359,7 @@
         "gc_id": 345253247,
         "title": "Рекомендации по ведению ТГ канала от экспертов по посевам в ТГ",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1323,7 +1371,7 @@
         "gc_id": 345253777,
         "title": "Привлечение клиентов через живые разборы (индивидуальные или групповые)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1339,7 +1387,7 @@
         "gc_id": 345253287,
         "title": "35 Заголовков для рилсов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1351,7 +1399,7 @@
         "gc_id": 345253306,
         "title": "Схемы/сценарии прогревов в инстаграм и телеграм",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1363,7 +1411,7 @@
         "gc_id": 345253693,
         "title": "Матрица создания лид-магнитов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1375,7 +1423,7 @@
         "gc_id": 345253948,
         "title": "Структура продающего вебинара",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1387,7 +1435,7 @@
         "gc_id": 345254973,
         "title": "12 креативных способов проявиться и запомниться на нетворкингах и получить заявки на свои продукты и услуги",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1399,7 +1447,7 @@
         "gc_id": 345255165,
         "title": "Как провести выходной по версии форбс и сделать на этом продающий контент",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1419,7 +1467,7 @@
         "gc_id": 345255699,
         "title": "Встраивание Я-концепции “Я ВОСТРЕБОВАННЫЙ ЭКСПЕРТ”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1435,7 +1483,7 @@
         "gc_id": 345255719,
         "title": "Притворись пока не станешь",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1455,7 +1503,7 @@
         "gc_id": 345255896,
         "title": "Как избавляться от негативных сценариев жизни (практика ХООПОНОПОНО)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1483,7 +1531,7 @@
         "gc_id": 345256173,
         "title": "2 линзы колеса баланса для построения стратегии жизни и повышения ее качества",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1503,7 +1551,7 @@
         "gc_id": 345256607,
         "title": "Мастер-класс по финансовому планированию",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1523,7 +1571,7 @@
         "gc_id": 345257561,
         "title": "Техника смены денежных сценариев",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1547,7 +1595,7 @@
         "gc_id": 345257657,
         "title": "Узкие места в воронке. Подкрути эти 6 параметров в воронке и увеличь конверсию продаж",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1559,7 +1607,7 @@
         "gc_id": 345258002,
         "title": "(30 мин) Как выстроить системный инфобизнес в 2024 году: компоненты системы и мышление",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1579,7 +1627,7 @@
         "gc_id": 345258260,
         "title": "Вопросы перед созданием воронки и единиц контента в ней",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1591,7 +1639,7 @@
         "gc_id": 345258265,
         "title": "Как создать воронку продаж за 12 шагов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1643,7 +1691,7 @@
         "gc_id": 345258466,
         "title": "Как делегировать продажи и масштабироваться (39 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1671,7 +1719,7 @@
         "gc_id": 345258507,
         "title": "Выдача лид-магнита на канале по кнопке за подписку",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1683,7 +1731,7 @@
         "gc_id": 346897336,
         "title": "Видео-разбор: “Лучшая воронка продаж высокочековых продуктов без без изматывающих бесплатных консультаций ”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1707,7 +1755,7 @@
           },
           {
             "kind": "image",
-            "url": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png"
+            "url": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png"
           },
           {
             "kind": "text",
@@ -1727,7 +1775,7 @@
         "gc_id": 345258517,
         "title": "Как делать авторассылку в чат-боте Ботхелп",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1743,7 +1791,7 @@
         "gc_id": 345258531,
         "title": "Как закупать номера для телеги и вотсап и подбирать каналы для сбора аудитории",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1759,7 +1807,7 @@
         "gc_id": 345258582,
         "title": "Вебинар юриста",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1775,7 +1823,7 @@
         "gc_id": 345258651,
         "title": "Вебинар Камилы по посевам",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1791,7 +1839,7 @@
         "gc_id": 345258661,
         "title": "Список подрядчиков",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1803,7 +1851,7 @@
         "gc_id": 345258762,
         "title": "Скидки и промокоды на сервисы приема оплаты",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -1830,12 +1878,20 @@
             "body": "<p>Привлечение клиентов - это искусство!</p><p>&nbsp;</p><p><span>На встрече разобрали:</span></p><p><span>—24 формата лид-магнитов, чтобы люди выбирали именно вам</span></p><p><span>—Экспресс способы проведения кастдевов</span></p><p><span>—5 способов создания лид-магнитов, чтобы их протестировать и не тратить кучу времени на бесполезный материал</span></p><p><span>—Схема упаковки телеграм-канала</span></p><p><span>—Креативная схема оформления личного профиля</span></p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=MacFxTmNkX4"
           },
           {
             "kind": "text",
             "body": "<div><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://drive.google.com/file/d/1VbtDWz2huDWouPBkvdsWnciO4f9Ggyi_/view\">Презентация </a>со встречи.</div>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Бонусные материалы для внедрения:</h3>"
           },
           {
             "kind": "text",
@@ -1847,7 +1903,7 @@
         "gc_id": 346897324,
         "title": "Мастер-класс «Выступления, которые продают: как сделать сцену частью воронки»",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "video",
@@ -1895,7 +1951,7 @@
         "gc_id": 349323607,
         "title": "Как привлекать подписчиков через организацию именной конференции",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2020,7 +2076,7 @@
         "gc_id": 345258975,
         "title": "Идея программы 1: альтернативные способы привлечения клиентов без вложений.",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2044,7 +2100,7 @@
         "gc_id": 345258988,
         "title": "Идея продукта 2: как пробивать баннерную слепоту и доносить ценность своих услуг через отражение талантов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2068,7 +2124,7 @@
         "gc_id": 345258999,
         "title": "1.1 Организационная встреча и мастер-класс «Стратегия узнаваемости и личного бренда»",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2096,7 +2152,7 @@
         "gc_id": 345259212,
         "title": "1.2 Структура продающей идеи для идеологического маркетинга",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2124,7 +2180,7 @@
         "gc_id": 345259254,
         "title": "Бонус 1: Как проходить челлендж \"Живу по версии Форбс\"",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2136,7 +2192,7 @@
         "gc_id": 345260535,
         "title": "2.1 - Как привлекать клиентов руками самой аудитории через вебинарные воронки и автоматизацию",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2164,7 +2220,7 @@
         "gc_id": 345260536,
         "title": "2.2 Как привлекать подписчиков через организацию именной конференции",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2192,11 +2248,15 @@
         "gc_id": 345260537,
         "title": "Бонус 2: Запись мастер-класса \"Пилюли КУДАПЛАТИН\": как продавать, чтобы клиент сам убеждал себя, что ему нужно купить",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего!</p><p>Как продавать, чтобы клиент сам убеждал себя, что ему нужно купить</p><p><br><strong>Тайминг мастер-класса :</strong>&nbsp;<br><br><br><strong>00:21:18</strong> Откуда берутся возражения&nbsp;<br><strong>00:25:00</strong> Ошибка #1. Слабый образ клиента. Как создать сильный образ клиента и продолжать беседу, даже когда кажется, что все безнадежно<br><strong>00:36:38</strong> Отработка возражения «Надо посоветоваться»<br><strong>00:52:00</strong> Ошибка #2. Слишком быстро сдаваться в продаже. Отработка возражения \"Сейчас не могу купить\"<br><strong>00:59:00</strong> Ошибка #3. Навязывание мнения<br><strong>01:17:00</strong> Уникальный подход в продаже «МЕНЯ НЕТ»<br><strong>01:20:00</strong> Как усилить эффект от пилюль «КУДАПЛАТИН». Масштабное комбо из «КРЕО-КРЕМА» и маски «ВСЕСАМОНИКС»<br><strong>01:27:00</strong> Как с помощью креативного маркетинга легче привлекать клиентов и тратить меньше времени на контент&nbsp;<br>&nbsp;</p>"
+          },
+          {
+            "kind": "video",
+            "url": "https://youtu.be/MNgmrRuvD_w"
           },
           {
             "kind": "text",
@@ -2208,7 +2268,7 @@
         "gc_id": 345260539,
         "title": "3.1 Как привлекать клиентов через чаты и продавать не продавая",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2217,6 +2277,10 @@
           {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=fH0dZZyJ3-8"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Рутуб</h3>"
           },
           {
             "kind": "video",
@@ -2232,7 +2296,7 @@
         "gc_id": 345260540,
         "title": "3.2 Продающие состояния",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2264,7 +2328,7 @@
         "gc_id": 345260538,
         "title": "Бонус 3: Продажи через базовые потребности",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2284,7 +2348,7 @@
         "gc_id": 345260541,
         "title": "4.1 Форматы креативов и прогревов для донесения смыслов продукта за 1 видео через разные жанры",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2304,8 +2368,12 @@
         "gc_id": 345260542,
         "title": "4.2 Практика: подготовка к написанию сценария креативного видео",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
+          {
+            "kind": "text",
+            "body": "<h3>Рутуб:</h3>"
+          },
           {
             "kind": "video",
             "url": "https://rutube.ru/video/private/243f0807129c3a1de67e4bcf65f132a0/?utm_source=embed&utm_medium=referral&utm_campaign=main_logo&utm_content=243f0807129c3a1de67e4bcf65f132a0&utm_term=start.bizon365.ru&t=0&p=C2PNrGGTNuOs3FuB3AcH4g"
@@ -2316,8 +2384,12 @@
         "gc_id": 345260543,
         "title": "4.3 Как создавать много цепляющих лид-магнитов (встреча Сергеем Загородников)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
+          {
+            "kind": "text",
+            "body": "<h3>Рутуб:</h3>"
+          },
           {
             "kind": "video",
             "url": "https://rutube.ru/video/private/d8fe9acd1b026ac8ee7e06f8e9740f9d/?utm_source=embed&utm_medium=referral&utm_campaign=main_logo&utm_content=d8fe9acd1b026ac8ee7e06f8e9740f9d&utm_term=start.bizon365.ru&t=0&p=rHhNyg6m2EAJy0oUtKL3zg"
@@ -2332,11 +2404,15 @@
         "gc_id": 345260544,
         "title": "Бонус 4. Визуал через нейросети (3 урока)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего. В этом уроке будет 3 части - 3 видео</p>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>ЧАСТЬ 1: ПРОМПТИНГ</h3>"
           },
           {
             "kind": "video",
@@ -2347,8 +2423,16 @@
             "body": "<p><span><strong>Сервис для покупки фрипика: @Plati_i_tochka_bot (</strong></span><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://t.me/Plati_i_tochka_bot\"><span><strong>https://t.me/Plati_i_tochka_bot</strong></span></a><span><strong>)</strong></span></p><p><strong>Инструкция для подготовки фото</strong>: <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://drive.google.com/file/d/1yzAcD-VZdknzuJGM6FpRj5mfzZXNE7VQ/view?usp=sharing\">https://drive.google.com/file/d/1yzAcD-VZdknzuJGM6FpRj5mfzZXNE7VQ/view?usp=sharing</a></p><p><strong>Презентация урока:</strong> <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://drive.google.com/file/d/1pkhPHVRxxRAiURuk06toxPIN8cQD3tzF/view?usp=sharing\">https://drive.google.com/file/d/1pkhPHVRxxRAiURuk06toxPIN8cQD3tzF/view?usp=sharing</a></p><p><span><strong>Практические рекомендации:</strong></span></p><p>- Подготовить промт<br>- Зарегистрироваться во фрипик<br>- СОбрать 20-50 шт фоток по шаблону</p><p>&nbsp;</p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>ЧАСТЬ 2 - Создание фотосессия</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://rutube.ru/video/private/2b0422f376599479cdf3061d9d0b60df/?utm_source=embed&utm_medium=referral&utm_campaign=main_logo&utm_content=2b0422f376599479cdf3061d9d0b60df&utm_term=start.bizon365.ru&t=0&p=LkPZOWKfiywV9yiBxylBqQ"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>ЧАСТЬ 3</h3>"
           },
           {
             "kind": "video",
@@ -2360,7 +2444,7 @@
         "gc_id": 345260545,
         "title": "5.1 Секреты видео-съемки и монтажа",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "video",
@@ -2384,15 +2468,23 @@
         "gc_id": 344897464,
         "title": "Организационная информация",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего!</p><p><br></p>\n\n<p>Поздравляю с первым шагом в мир продаж по версии Марго Форбс!&nbsp;</p><p><br></p>\n\n<p>Спринт по креативному маркетингу и упаковке&nbsp; - начало вашего пути, чтобы стать узнаваемыми и востребованными экспертами. И виртуозно:</p><p><br></p><ul><li>пробивать баннерную слепоту и ловко привлекать клиентов без вложений</li><li>продавать высокими чеками 150к, 250к, 500к</li><li>выступать спикером и усиливать личный бренд</li><li>иметь системный бизнес на своей экспертности&nbsp;</li></ul>\n\n\n\n\n\n\n\n\n\n<p>Самое важное - спринт (как и все мои продукты) - это не обучение! Это внедрение и практика! Делание бизнеса здесь и сейчас</p><p><br></p>\n\n<p><strong>ЖИВЫЕ ВСТРЕЧИ С ОТВЕТАМИ НА ВОПРОСЫ:</strong></p><p><strong><br></strong></p>\n\n<ul><li>будут проходить&nbsp;по пятницам: в 12:00 мск 21 и 28 февраля&nbsp;</li><li>формат 5-10 минут на каждого человека</li><li>с вечера скидываете отчет - что сделали, что не получилось, какие есть вопросы</li><li>я отвечаю</li></ul><p><strong><br></strong></p>\n\n\n\n\n\n\n\n\n\n<p><strong>ОНЛАЙН-НЕТВОРКИНГИ:</strong></p><p><strong><br></strong></p>\n\n<ul><li>у вас будет участие в 2х онлайн-нетворкингах 19 и 25 февраля <a href=\"https://t.me/+tgSxvWxLWipkNThi\">в чате конференции i-vision</a></li></ul><p><br></p>\n\n\n\n<p><strong>ОБРАТНАЯ СВЯЗЬ:</strong></p><p><strong><br></strong></p>\n\n<ul><li>Все общение и обратная связь будет в этом <a href=\"https://t.me/+pPgnf2ElZQUzYzZi\">чате</a> - добавьте его в отдельную папку и включите уведомления</li><li>Это спринт. Никого не тащу и не пинаю. Обратную связь даю тем, кто просит. Насильно же богатым никого не сделаешь?&nbsp;</li><li>Обратная связь кроме живых встреч в чате изначально не планировалась. Но я так не умею :) когда вижу что могу быть вкладом в человека</li><li>Обратную связь буду давать голосовыми сообщениями в течение дня в период с 09:00-18:00 мск&nbsp;</li><li>Чтобы задать мне вопрос в чате - пожалуйста, ставьте тег @margo_forbs и пишите текстом. Голосовые слушать не будет возможности</li></ul>\n\n\n\n\n\n\n\n\n\n<p><strong>ПРОЧИЕ МОМЕНТЫ:</strong></p><p><strong><br></strong></p>\n\n<ul><li>Для удобства видео в каждом уроке предлагаем на 2 площадках: YOUTUBE (смотреть с впн) и RUTUBE.</li><li>Посмотрите приветственное видео</li><li>Cоздайте себе папку на гугл-диске \"Продажи по версии Марго Форбс\". Чтоб вам самим было все четко, системно и удобно. Там будете формировать фундамент своих крутых продуктов и услуг,&nbsp; чтоб круто продавать чеками 150к - 500к&nbsp;</li><li>ПО всем техническим вопросам пиши в службу поддержки <a href=\"https://t.me/forbs_service2\">https://t.me/forbs_service2</a></li><li>Будь в фокусе, выполняй практические рекомендации. И погнали к продажам по версии Марго Форбс!</li></ul>"
           },
           {
+            "kind": "text",
+            "body": "<h3>НА YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=tTWzU8lC6YM"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           }
         ]
       },
@@ -2400,11 +2492,15 @@
         "gc_id": 344897522,
         "title": "1.1 Твердые факты о себе - Проявленность из сильного образа (31 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего! Готовы встретиться с сильной версией себя?&nbsp;</p><p><br></p>\n\n\n\n<p>Сегодня будем работать над тем, чтобы вас очень хотели и дорого имели :)&nbsp;</p><p><br></p>\n\n\n\n<p><strong>ПРОЯВЛЕННОСТЬ ИЗ СИЛЬНОГО ОБРАЗА</strong></p><p><strong><br></strong></p>\n\n<ul><li>Посмотри 2 видео: теорию и практику работы с таблицей</li><li>Забери из этой папки к себе все материалы Дня 1</li><li>Создай копию шаблона \"Распаковка Сильного образа\" в свою гугл-папку</li><li>Заполни эту таблицу \"Распаковка Сильного образа\" . Внимание! В таблице 2 листа:</li></ul><p><span>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; -&nbsp;выпиши в 1м листе мечты и потребности своей аудитории - и напиши твердые факты своей жизни, экспертности,&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;продукта, которые подтверждают эти мечты и потребности</span></p><p><span>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;- выбери 5 самых сильных фактов и запиши их на 2й лист</span></p><p><span>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;- открой доступ на таблицу по ссылке</span></p><p><span>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;- в помощь к заполнению таблицы у тебя есть еще готовые боли и страхи в разных нишах и бонусные распаковки</span></p><p><span><br></span></p><ul><li>Напишите топ-5 фактов&nbsp;</li><li></li></ul>\n\n\n\n<p><br></p>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
           },
           {
             "kind": "video",
@@ -2413,6 +2509,10 @@
           {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=s2XFYXMb9AU"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE</h3>"
           },
           {
             "kind": "video",
@@ -2428,11 +2528,19 @@
         "gc_id": 344897663,
         "title": "1.2. Наконец, те самые продающие смыслы продукта (41 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего!&nbsp;&nbsp;</p><p><br></p>\n\n\n\n<p>После этого видео и практики можно будет завершить спринт :)&nbsp;</p><p>Шучу, еще же нужно будет все внедрить. И тем не менее</p><p><strong><br></strong></p>\n\n\n\n<p><strong>НАКОНЕЦ, ТЕ САМЫЕ ПРОДАЮЩИЕ СМЫСЛЫ</strong></p><p><strong><br></strong></p>\n\n<ul><li>Посмотри 2 видео: теорию и практику работы с таблицей</li><li>Забери из <a href=\"https://drive.google.com/drive/folders/1gmTiLtaXSiLjNfcTZM65Jcw1Nh6h1Z9O?usp=sharing\">этой папки к себе</a> все материалы Дня 2</li><li>Создай копию <a href=\"https://docs.google.com/spreadsheets/d/1al8l0jC5sdYw0aN5QomAuEnJaheYKm9y4_8j6ICTOy4/edit?usp=sharing\">шаблона \"Вопросы для создания воронки\"</a> в свою гугл-папку</li><li>Заполни эту таблицу \"Вопросы для создания воронки\" . Внимание! В таблице 2 листа:</li></ul>\n\n\n\n\n\n\n\n<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-Заполни 4 части вопросов для создания воронки (всего 13 вопросов)</p>\n\n<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-Сформулируйте свое УТП (лист 2)</p>\n\n<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-Составьте 4-5 продающих офферов на конечный результат своего продукта</p>\n\n<ul><li>пришли свои офферы и ссылку в чат с хештегом #день2</li><li>попроси у группы обратную связь - что их цепляет больше всего и докрути формулировки</li></ul>\n\n\n\n<p>Давай обратную связь другим участникам тоже. Будь вкладом в других тоже</p>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           },
           {
             "kind": "video",
@@ -2441,6 +2549,10 @@
           {
             "kind": "video",
             "url": "https://rutube.ru/play/embed/dbdca335b1899d3a021d8357bf36589b/?p=j8AsSKfRySiHSlLhxLl21Q"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Заголовок блока</h3>"
           }
         ]
       },
@@ -2448,15 +2560,23 @@
         "gc_id": 344897842,
         "title": "1.3 Продающие состояния в проявленности",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего! Готовы усилить свои продажи продающими состояниями?</p><p><br></p>\n\n<p><strong>ПРОДАЮЩИЕ СОСТОЯНИЯ</strong></p><p><strong><br></strong></p>\n\n\n\n<ul><li>Посмотри видео</li><li>Запишите&nbsp;4 видеокружочка в чат спринта:&nbsp; твердые факты о себе, с твои твердым оффером и фразой “читай,&nbsp; если хочешь так же” в 4х разных эмоциях (сразу выбери фон без лишних вещей и оденьтесь поприличнее):</li></ul>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span><strong>&nbsp; </strong>&nbsp; </span><span>&nbsp;- Фанатизм</span>&nbsp;- восторженно расскажи о себе и своем продукте<br><span>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;</span><span><strong> &nbsp;</strong></span>-Дразнилка&nbsp;- подразни нас своими результатами, так чтобы нам досадно стало, что мы еще не на твоем уровне<strong><br></strong>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-Сексуальность&nbsp;<span>- соблазни нас своими результатами и тем что мы получим в твоем сопровождении</span><p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; <span>&nbsp; &nbsp;<span>-Злость</span>&nbsp;</span>&nbsp;<span>(используй крик, маты): Ну как вы не понимаете?! Задолбало, что клиенты делают то-то и то-то и не знаю что&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;можно так-то и так-то)</span></p>\n\n<p>Напиши&nbsp; в чат. Что почувствовал(а) после записи кружочков?&nbsp; Что понравилось больше всего? Какая эмоция&nbsp; далось сложнее?</p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=FlBHCY6Fx8I"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           },
           {
             "kind": "video",
@@ -2468,23 +2588,39 @@
         "gc_id": 344898125,
         "title": "1.4 Экспресс-тестирование офферов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего! Хватит ехать кукухой и гадать, какие смыслы цепляют аудиторию!&nbsp;</p>\n\n\n\n<p><br></p><p><strong>ЭКСПРЕСС-ТЕСТИРОВАНИЕ ОФФЕРОВ<br></strong></p><p><strong><br></strong></p>\n\n<ul><li>Посмотри 2 видео: теорию и инструкцию по созданию Яндекс-форм</li><li>Забери из&nbsp;<a href=\"https://drive.google.com/drive/folders/1SA-88w2cSLtxyudfJy8LPeZ9EYR6zzyV?usp=drive_link\">этой папки</a> к себе все материалы Дня 4: список ключевых фраз, 35 заголовков для рисл&nbsp;</li><li>Заполни мою <span><a href=\"https://forms.yandex.ru/u/6629e22d3e9d088cfb502952/\">анкету-опросник</a></span></li><li>Сделай <a href=\"https://forms.yandex.ru/u/6629e22d3e9d088cfb502952/\">по моему примеру</a> анкету в Яндекс Форме из офферов, болей, страхов и желаний ЦА (из практики дней 1 и 2)&nbsp;</li><li>Собери 20-30 ответов от представителей своей ЦА</li><li>Проанализируй и выбери самые сильные офферы</li><li>Пришли ответы в чат спринта</li></ul>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=vBfj1Hnx5_k"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Инструкция по тому, как сделать яндекс форму и настроить уведомления на почту о заполнении</h3>"
           },
           {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=VjKUfKPfirw"
           },
           {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://rutube.ru/play/embed/7523512e4d0a9b0e2e89773cc1baeb82/?p=fawESFtG2n5okkNFLPOiCQ"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Инструкция по тому, как сделать яндекс форму и настроить уведомления на почту о заполнении</h3>"
           },
           {
             "kind": "video",
@@ -2496,15 +2632,23 @@
         "gc_id": 344898152,
         "title": "2.1 Простые способы создать лид-магнит",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-наибогатейшего!</p><p><br></p>\n\n<p>На предыдущей неделе Вы сделали (а я надеюсь вы это сделали - ибо это спринт):</p>\n\n<ul><li>Варианты офферов и формулировки потребностей</li><li>Экспресс-кастдевы по моей технологии (протестировали офферы)</li><li>Анализ того, что аудитория подсветила вам, что ее волнует больше всего</li></ul>\n\n\n\n\n\n<p><span>И ТЕПЕРЬ ЗАДАЧА : ВЗЯТЬ САМУЮ ЧАСТУЮ ПОТРЕБНОСТЬ АУДИТОРИИ И СДЕЛАТЬ ЛИД-МАГНИТ ДЛЯ ЕЕ ЗАКРЫТИЯ.</span></p>\n\n<p>Как это сделать?</p><p><br></p>\n\n<p><strong>ПРОСТЫЕ СПОСОБЫ СОЗДАТЬ ЛИД-МАГНИТ</strong></p>\n\n<p>1. Возьмите самоу востребованную боль аудитории из вашего проведенного анализа</p>\n\n<p>2. Придумайте заголовок. Используйте в помощь:</p>\n\n<p><a href=\"https://drive.google.com/file/d/1JrerJB6NQsz3QGr1yiebhEwUUk3gqmHk/view?usp=drive_link\">35 шаблонов заголовков для рилсов и постов</a></p>\n\n<p><a href=\"https://docs.google.com/document/d/1AqpsIQcYfKP0o7B02-AgsZDU2cw-6dXI/edit?usp=drive_link&amp;ouid=107696733463575321262&amp;rtpof=true&amp;sd=true\">ТОП-10 продающих офферов</a></p><p><br></p>\n\n<p>3. Создайте лид-магнит одним из 4х способов, приведенных в видео. Примеры сервисов:&nbsp;</p>\n\n<p><a href=\"https://xmind.ai/\">https://xmind.ai/</a></p>\n\n<p><a href=\"https://www.mindmeister.com/?r=1240440\">https://www.mindmeister.com/?r=1240440</a></p><p><br></p>\n\n<p>Пример лид-магнита в виде майнд-карты:</p>\n\n<p><a href=\"https://xmind.ai/share/Z35uhfb1?xid=EGinJaUA\">12 нестандартных способов привлекать клиентов с нетворкингов</a></p><p><br></p>\n\n\n\n<p>4. Пришлите ссылку на свой лид-манит в чат</p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=7_unZ2FpHRs"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           },
           {
             "kind": "video",
@@ -2516,15 +2660,23 @@
         "gc_id": 344898226,
         "title": "2.2 Упаковка телеграм-канала",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/b1e652a7a7d04f12a4060596b6afa22f.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/bf0c627c6d5f4b0e8678a5d31d7af674.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>ПРОДАЮЩАЯ УПАКОВКА ТЕЛЕГРАМ-КАНАЛА</p><p><br></p><ol><li>Упакуйте телеграм-канал по рекомендациям из видео</li><li>Сделайте описание, название канала, и 2 закрепа в следующей последовательности:</li></ol>\n\n\n\n\n\n<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-Пост с выдачей лид-магнита</p>\n\n\n\n<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-Пост-навигацию</p>\n\n\n\n\n\n<p>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;3. Пришлите ссылки на посты в чат</p><p><br></p>\n\n\n\n<p>Инструкция, как реализовать выдачу лид-магнита на канале за подписку по кнопке</p>\n\n<p><a href=\"https://teletype.in/@dyuskeevv/pr2Tjng-39e\">https://teletype.in/@dyuskeevv/pr2Tjng-39e</a></p><p><br></p>\n\n\n\n<p>Примеры реализации:</p>\n\n<p>На канале моей ученицы: <a href=\"https://t.me/kokorevatatjana/265\">https://t.me/kokorevatatjana/265</a></p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=0hFS-mwWCkE"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           }
         ]
       },
@@ -2532,15 +2684,23 @@
         "gc_id": 344898246,
         "title": "2.3 Креативная упаковка личного профиля телеграмм",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<div>Добрейшего-богатейшего</div><div>&nbsp;</div><p><strong>КРЕАТИВНАЯ УПАКОВКА ЛИЧНОГО ПРОФИЛЯ ТЕЛЕГРАММ</strong></p><p>&nbsp;</p><ol><li>Задача минимум: согласно рекомендациям из видео перепишите в личном профиле тг:&nbsp; Имя + описание с призывом на лид-магнит + вставьте сслыку на ваш канал (если канала нет - создайте)</li><li>Задача максимум: сделайте продающую карусель из фото, прогревающую к лид-магниту<ul><li>Примеры продающих каруселей:<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://drive.google.com/drive/folders/1cQ1TmWCFEZmNL-cHBMMFY9FgppLzpG8U?usp=drive_link\"> Смотрите тут</a></li><li>Пример реализации карусели в моем профиле тг: <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://t.me/margo_forbs\">https://t.me/margo_forbs!</a></li></ul></li></ol>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=0fSq5p6xJL0"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           },
           {
             "kind": "video",
@@ -2552,15 +2712,23 @@
         "gc_id": 344898281,
         "title": "2.4 Как привлекать клиентов без вложений и без ежедневного контента?",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<p>Добрейшего-богатейшего!</p><p>Вот и подошел к концу наш спринт по креативной упаковке. Упаковка есть! Машина готова, баки полные бенззина! Теперь только действовать!</p><p>&nbsp;</p><p><strong>КАК ПРИВЛЕКАТЬ КЛИЕНТОВ БЕЗ ВЛОЖЕНИЙ И БЕЗ ЕЖЕДНЕВНОГО КОНТЕНТА ?</strong></p><p>В видео рассмотрен обзор десятка способов привлечения клиентов. Выбирайте себе любой удобный способ привлечения - и делайте крутые продажи.</p><p><strong>А если хотите масштабироваться по версии Форбс : привлечь&nbsp; 300-1000 подписчиков, выступить 1-3 раза спикером с ТОПами рынка и монетизировать аудиторию чеками 150-500к&nbsp; - пишите слово \"масштаб\" мой личный тг-аккаунт </strong><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://t.me/margo_forbs\"><strong>https://t.me/margo_forbs</strong></a></p><p>Обсудим варианты сотрудничества, и какими навыками и ресурсами я могу быть вкладом в ваш финансовый рост.</p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=r8dcwBummlE"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>RUTUBE:</h3>"
           },
           {
             "kind": "video",
@@ -2587,7 +2755,7 @@
         "gc_id": 344207388,
         "title": "(18 мин) 4 денежные стратегии. Мышление расходами, доходами, капиталом",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2607,7 +2775,7 @@
         "gc_id": 344207389,
         "title": "(21 мин) 3 вида богатства. Активы и пассивы.",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2643,7 +2811,7 @@
         "gc_id": 344207390,
         "title": "Урок 1.1 “Проработка направлений для постановки целей”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2671,7 +2839,7 @@
         "gc_id": 344207391,
         "title": "Урок 1.2 “Постановка и оцифровка целей“",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2691,7 +2859,7 @@
         "gc_id": 344207392,
         "title": "Урок 1.3. “Матрица приоритетов“",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2719,7 +2887,7 @@
         "gc_id": 344207393,
         "title": "Урок 2.1 “Где лежат деньги? (подсчет кошельков)”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2739,7 +2907,7 @@
         "gc_id": 344207394,
         "title": "Урок 2.2 “Разбор 5ти показателей финансовой эффективности“",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2759,7 +2927,7 @@
         "gc_id": 344207395,
         "title": "Урок 2.3 “Финансовая подушка“",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2779,7 +2947,7 @@
         "gc_id": 344207396,
         "title": "Урок 2.4 “Сложный процент. Калькулятор сложного процента”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2807,7 +2975,7 @@
         "gc_id": 344207397,
         "title": "Урок 3.1 \"Планирование расходов и удовольствий”",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2835,7 +3003,7 @@
         "gc_id": 344207398,
         "title": "Урок 3.2. “Планирование доходов и стратегия создания капитала и достижения целей“",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2871,7 +3039,7 @@
         "gc_id": 344207399,
         "title": "Защита личного финансового плана",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2899,7 +3067,7 @@
         "gc_id": 344207400,
         "title": "Накопительные счета и вклады",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2923,7 +3091,7 @@
         "gc_id": 344207401,
         "title": "Как находить курсы валют и металлов на сайте ЦБ",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2939,7 +3107,7 @@
         "gc_id": 344207402,
         "title": "ЛФП - фундамент инвестиций",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2959,7 +3127,7 @@
         "gc_id": 344207403,
         "title": "Зачем и как инвестировать",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2975,7 +3143,7 @@
         "gc_id": 344207404,
         "title": "Брокерский счет. ИИС. Инвестиции металлы",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -2991,7 +3159,7 @@
         "gc_id": 344207405,
         "title": "Облигации",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3015,7 +3183,7 @@
         "gc_id": 344207406,
         "title": "Когда пора разделять личные и бизнес-финансы (23 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3031,7 +3199,7 @@
         "gc_id": 344207407,
         "title": "Что такое кассовые разрывы. Как из них выйти и как их предотвратить (19:28 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3047,7 +3215,7 @@
         "gc_id": 344207408,
         "title": "Как оцифровать свой бизнес/проект (24:18 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3063,7 +3231,7 @@
         "gc_id": 344207409,
         "title": "Как разделить личные и бизнес-финансы (8:49 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3079,7 +3247,7 @@
         "gc_id": 344207410,
         "title": "Как управлять доходом и продажами через маркетинговый план (44:13 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3103,7 +3271,7 @@
         "gc_id": 345268909,
         "title": "Организационная информация",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3119,7 +3287,7 @@
         "gc_id": 345269027,
         "title": "1.1 Твердые факты о себе - Проявленность из сильного образа (31 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3147,7 +3315,7 @@
         "gc_id": 345269042,
         "title": "1.2. Наконец, те самые продающие смыслы продукта (41 мин)",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3159,7 +3327,7 @@
         "gc_id": 345269043,
         "title": "1.3 Продающие состояния в проявленности",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3175,7 +3343,7 @@
         "gc_id": 345269044,
         "title": "1.4 Экспресс-тестирование офферов",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3199,7 +3367,7 @@
         "gc_id": 345269045,
         "title": "2.1 Простые способы создать лид-магнит",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3223,7 +3391,7 @@
         "gc_id": 345269046,
         "title": "2.2 Упаковка телеграм-канала",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3239,7 +3407,7 @@
         "gc_id": 345269047,
         "title": "2.3 Креативная упаковка личного профиля телеграмм",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3255,7 +3423,7 @@
         "gc_id": 345269048,
         "title": "2.4 Как привлекать клиентов без вложений и без ежедневного контента?",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3279,7 +3447,7 @@
         "gc_id": 345242298,
         "title": "Вводная информация",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3291,11 +3459,15 @@
         "gc_id": 345242508,
         "title": "Запись мастер-класса",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
             "body": "<div><p>Добрейшего-богатейшего!</p><p>Поздравляю вас! Вы счастливчик! Ибо в ваших руках технология САМЫХ ЭКОЛОГИЧНЫХ продаж в мире!</p><p>Доступ к мастер-классу открыт 5 дней!&nbsp;</p><p>При просмотре мастер-класса - выписывайте свои вопросы или возражения при продажах, с которыми вы сталкиваетесь.</p><p>В течение двух дней после открытия доступа у вас есть возможность получить обратную связь и ответы на свои вопросы</p><p>Просто напишите их в службу поддержки https://t.me/forbs_service&nbsp;</p><p><br><strong>Тайминг мастер-класса :</strong>&nbsp;<br><br><br><strong>00:21:18</strong> Откуда берутся возражения&nbsp;<br><strong>00:25:00</strong> Ошибка #1. Слабый образ клиента. Как создать сильный образ клиента и продолжать беседу, даже когда кажется, что все безнадежно<br><strong>00:36:38</strong> Отработка возражения «Надо посоветоваться»<br><strong>00:52:00</strong> Ошибка #2. Слишком быстро сдаваться в продаже. Отработка возражения \"Сейчас не могу купить\"<br><strong>00:59:00</strong> Ошибка #3. Навязывание мнения<br><strong>01:17:00</strong> Уникальный подход в продаже «МЕНЯ НЕТ»<br><strong>01:20:00</strong> Как усилить эффект от пилюль «КУДАПЛАТИН». Масштабное комбо из «КРЕО-КРЕМА» и маски «ВСЕСАМОНИКС»<br><strong>01:27:00</strong> Как с помощью креативного маркетинга легче привлекать клиентов и тратить меньше времени на контент&nbsp;</p><p>&nbsp;</p></div>"
+          },
+          {
+            "kind": "video",
+            "url": "https://youtu.be/MNgmrRuvD_w"
           },
           {
             "kind": "text",
@@ -3324,7 +3496,7 @@
         "gc_id": 345390280,
         "title": "Мастер-класс «Выступления, которые продают: как сделать сцену частью воронки»",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "video",
@@ -3348,7 +3520,7 @@
         "gc_id": 345264734,
         "title": "Приветствие и знакомство",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3368,7 +3540,7 @@
         "gc_id": 345264735,
         "title": "Аудит твоей точки А и точка сборки с Марго Форбс",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3388,7 +3560,7 @@
         "gc_id": 345264737,
         "title": "Как попасть на точку сборки к Марго Форбс",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3408,7 +3580,7 @@
         "gc_id": 345264742,
         "title": "(24 мин) 4 способа поднять чек и перейти к продаже дорогих продуктов  хотя бы за 200к/500к и до 1.000.000р и выше",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3428,7 +3600,7 @@
         "gc_id": 345264845,
         "title": "(26 мин) Как выстроить системный инфобизнес в 2025 году: компоненты системы и мышление",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3448,7 +3620,7 @@
         "gc_id": 345268772,
         "title": "(39 мин) Как делегировать продажи и масштабироваться",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3476,7 +3648,7 @@
         "gc_id": 345268781,
         "title": "(51 мин) Как обрести  внутренний статус на 1.000.000, чтобы уверенно называть любую цену своих услуг",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3504,7 +3676,7 @@
         "gc_id": 345268798,
         "title": "12 креативных способов проявиться и запомниться на нетворкингах и получить заявки на свои продукты и услуги",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3516,7 +3688,7 @@
         "gc_id": 345268811,
         "title": "Узкие места в воронке. Подкрути эти 6 параметров в воронке и увеличь конверсию продаж",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3528,7 +3700,7 @@
         "gc_id": 345268819,
         "title": "9 формул уникального позиционирования",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",
@@ -3555,12 +3727,20 @@
             "body": "<p>Привлечение клиентов - это искусство!</p><p>&nbsp;</p><p><span>На встрече разобрали:</span></p><p><span>—24 формата лид-магнитов, чтобы люди выбирали именно вам</span></p><p><span>—Экспресс способы проведения кастдевов</span></p><p><span>—5 способов создания лид-магнитов, чтобы их протестировать и не тратить кучу времени на бесполезный материал</span></p><p><span>—Схема упаковки телеграм-канала</span></p><p><span>—Креативная схема оформления личного профиля</span></p>"
           },
           {
+            "kind": "text",
+            "body": "<h3>YOUTUBE:</h3>"
+          },
+          {
             "kind": "video",
             "url": "https://www.youtube.com/watch?v=MacFxTmNkX4"
           },
           {
             "kind": "text",
             "body": "<div><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://drive.google.com/file/d/1VbtDWz2huDWouPBkvdsWnciO4f9Ggyi_/view\">Презентация </a>со встречи.</div>"
+          },
+          {
+            "kind": "text",
+            "body": "<h3>Бонусные материалы для внедрения:</h3>"
           },
           {
             "kind": "text",
@@ -3572,7 +3752,7 @@
         "gc_id": 346849483,
         "title": "Мастер-класс «Выступления, которые продают: как сделать сцену частью воронки»",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "video",
@@ -3588,7 +3768,7 @@
         "gc_id": 346849510,
         "title": "Готовая схема чат-бота для SaleBot: выдача лид-магнита за подписку на канал",
         "description": "",
-        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/6487fb028cc44bee9cb19f3feb263a67.png",
+        "header_image": "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/clients/1/materials/media/713dda1cf8f846c193c5eddc0593c20c.png",
         "blocks": [
           {
             "kind": "text",

@@ -354,16 +354,12 @@ async def update_product(
     if "status" in fs:
         if data.status not in ("draft", "published", "archived"):
             raise HTTPException(status_code=400, detail="Неизвестный статус")
-        # ⚠️ Оферта обязательна перед публикацией: продажа без неё создаёт
-        # клиенту проблему, о которой он вспомнит поздно.
-        if data.status == "published":
-            cur = await _get_product(db, client_id, product_id)
-            offer = data.offer_url if "offer_url" in fs else cur["offer_url"]
-            if not (offer or "").strip():
-                raise HTTPException(
-                    status_code=400,
-                    detail="Добавьте ссылку на оферту — без неё продукт нельзя опубликовать.",
-                )
+        # ⚠️ Оферта — ПРЕДУПРЕЖДЕНИЕ, а не запрет (2026-08-14). Раньше без неё
+        # публикация отдавала 400: человек жал кнопку, получал отказ и оставался
+        # с черновиком, чья страница отвечает «Страница не найдена» — со стороны
+        # это выглядит как сломанная ссылка, а не как незаполненное поле.
+        # Тот же принцип, что при публикации события: жёсткое условие одно —
+        # без него сущность не работает; остальное клиент решает сам.
         put("status", data.status)
 
     if "wording_preset" in fs:

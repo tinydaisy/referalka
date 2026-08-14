@@ -3,7 +3,7 @@
 /**
  * Карточка продукта (миграция 290).
  *
- * Вкладки по образцу карточки события: Основное, Тарифы, Состав, Клиенты.
+ * Вкладки по образцу карточки события: Основное, Тарифы, Материалы, Клиенты.
  * «Лендинг» появится, когда конструктор блоков будет развязан с события.
  *
  * ⚠️ Адрес страницы показываем на домене клиента (publicBase), а не на
@@ -86,7 +86,7 @@ export default function ProductCardPage() {
         {([
           ['main', 'Основное', Settings2],
           ['tariffs', 'Тарифы', Wallet],
-          ['content', 'Состав', Layers],
+          ['content', 'Материалы', Layers],
           ['landing', 'Лендинг', LayoutTemplate],
           ['buyers', 'Клиенты', Users],
         ] as const).map(([key, label, Icon]) => (
@@ -136,28 +136,61 @@ function StatusToggle({ product, readOnly, onChanged }: {
       await api.products.update(product.id, { status })
       onChanged()
     } catch (e: any) {
-      // Бэк не даёт опубликовать без оферты — текст ошибки уже понятный.
       alert(e?.message || 'Не удалось изменить статус')
     } finally { setSaving(false) }
   }
 
-  if (readOnly) return null
+  if (readOnly) {
+    return (
+      <span className={`rounded-full border px-3 py-1 text-xs ${
+        product.status === 'published'
+          ? 'border-green-200 bg-green-50 text-green-700'
+          : 'border-amber-200 bg-amber-50 text-amber-700'
+      }`}>
+        {product.status === 'published' ? 'Опубликован' : 'Черновик'}
+      </span>
+    )
+  }
 
-  const next = product.status === 'published' ? 'draft' : 'published'
-  const label = product.status === 'published' ? 'Опубликован' : 'Черновик'
-  const cls = product.status === 'published'
-    ? 'border-green-200 bg-green-50 text-green-700'
-    : 'border-amber-200 bg-amber-50 text-amber-700'
+  const published = product.status === 'published'
+
+  const publish = () => {
+    // ⚠️ Оферта — предупреждение, а не запрет: решение за клиентом. Раньше
+    // бэкенд просто отказывал, и человек оставался с черновиком, чья
+    // страница отвечает «Страница не найдена».
+    if (!(product.offer_url || '').trim()) {
+      const ok = confirm(
+        'Ссылка на оферту не заполнена — на странице продукта её не будет.\n\n' +
+        'Опубликовать всё равно?'
+      )
+      if (!ok) return
+    }
+    setStatus('published')
+  }
 
   return (
-    <button
-      onClick={() => setStatus(next)}
-      disabled={saving}
-      className={`rounded-full border px-3 py-1 text-xs ${cls}`}
-      title={product.status === 'published' ? 'Снять с публикации' : 'Опубликовать'}
-    >
-      {label}
-    </button>
+    <div className="flex items-center gap-2">
+      <span className={`rounded-full border px-3 py-1 text-xs ${
+        published
+          ? 'border-green-200 bg-green-50 text-green-700'
+          : 'border-amber-200 bg-amber-50 text-amber-700'
+      }`}>
+        {published ? 'Опубликован' : 'Черновик'}
+      </span>
+      {published ? (
+        <button
+          onClick={() => setStatus('draft')}
+          disabled={saving}
+          className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+        >
+          Снять с публикации
+        </button>
+      ) : (
+        <button onClick={publish} disabled={saving} className="btn-gold px-4 py-1.5 text-xs">
+          Опубликовать
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -238,13 +271,20 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
           <button onClick={copy} className="text-gray-400 hover:text-gray-600" title="Скопировать ссылку">
             {copied ? <Check size={16} /> : <Copy size={16} />}
           </button>
-          {product.status === 'published' && (
-            <a href={url} target="_blank" rel="noreferrer"
-               className="text-gray-400 hover:text-gray-600" title="Открыть">
-              <ExternalLink size={16} />
-            </a>
-          )}
+          <a href={url} target="_blank" rel="noreferrer"
+             className="text-gray-400 hover:text-gray-600" title="Открыть">
+            <ExternalLink size={16} />
+          </a>
         </div>
+        {/* ⚠️ У черновика страница отвечает «Страница не найдена» — со стороны
+            это выглядит как сломанная ссылка. Пишем причину прямо здесь, иначе
+            человек ищет ошибку в адресе. */}
+        {product.status !== 'published' && (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Продукт в черновике — по этой ссылке посетители видят «Страница не найдена».
+            Нажмите «Опубликовать» вверху, чтобы страница открылась.
+          </p>
+        )}
         <p className="mt-1 text-xs text-gray-400">
           Латиница, цифры и дефис. Меняете адрес — старые ссылки перестанут работать.
         </p>
@@ -258,7 +298,7 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
         />
         <p className="mt-1 text-xs text-gray-400">
           Оферта своя у каждого продукта — она описывает именно эту услугу, её состав
-          и порядок возврата. Без неё продукт не опубликовать.
+          и порядок возврата. Опубликовать можно и без неё, но лучше заполнить.
         </p>
       </div>
 
@@ -527,7 +567,7 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
   )
 }
 
-/* ─────────────────────────────── Состав ─────────────────────────────────── */
+/* ────────────────────────────── Материалы ───────────────────────────────── */
 
 /**
  * Состав продукта — дерево «разделы + материалы».
