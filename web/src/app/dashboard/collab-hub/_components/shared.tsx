@@ -225,19 +225,18 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       <PeachBlock title="Что создаёт и меняет в мире" html={impact} />
       <PeachBlock title="Капелька безумия / WOW-факт" html={wow} />
       {/* Био/регалии — КАЖДАЯ С НОВОЙ СТРОКИ (режем по \n, не по «•»).
-          ⚠️ Жёсткого лимита в N строк ЗДЕСЬ НЕТ. Карточки в ряду и так
-          растягиваются до самой высокой (CSS-сетка), поэтому обрезка «до трёх
-          строк» не выравнивала высоту, а лишь оставляла пустоту под коротким
-          блоком: у одного участника регалии показывались целиком, у соседа —
-          обрезались, хотя место было. Блок забирает всё свободное место
-          карточки (flex-1), обрезаясь только по факту нехватки. */}
+          ⚠️ ПРАВИЛО ОДНО ДЛЯ ВСЕХ: свёрнуто — ровно 6 строк, дальше
+          «Подробнее». Так карточки выглядят одинаково независимо от того,
+          сколько человек написал о себе. Раньше лимит был 3 строки, и у
+          одних регалии показывались целиком, у других обрезались — принцип
+          со стороны выглядел случайным. */}
       {bio && (
-        <div className="mt-2 flex-1 flex flex-col min-h-0">
+        <div className="mt-2">
           {/* clamp — на обёртке, которую и меряем (BioBlock не принимает ref). */}
-          <div ref={bioRef} className={bioOpen ? '' : 'overflow-hidden flex-1 min-h-0'}>
+          <div ref={bioRef} className={bioOpen ? '' : 'line-clamp-6'}>
             <BioBlock bio={bio} open />
           </div>
-          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5 shrink-0" style={{ color: '#C77B3B' }}>
+          {(bioClamped || bioOpen) && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
             {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
           </button>}
         </div>
@@ -266,11 +265,14 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           <div className="text-[10px] text-gray-500 leading-tight">Win-Win</div>
         </div>
       </div>
-      {item.avg_rating && (
-        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+      {/* ⚠️ Строка рейтинга занимает место ВСЕГДА, даже когда оценок ещё нет:
+          иначе у карточки без рейтинга кнопки поднимались выше, чем у соседа,
+          и ряд снова выглядел неровным. */}
+      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 min-h-[1.25rem]">
+        {item.avg_rating && (
           <span className="inline-flex items-center gap-1"><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />{item.avg_rating}</span>
-        </div>
-      )}
+        )}
+      </div>
       {isMe ? (
         <a href="/dashboard/collab-hub/card" className="mt-3 w-full text-sm py-2 rounded-xl border text-center" style={{ borderColor: PEACH, color: '#C77B3B' }}>Редактировать карточку</a>
       ) : (
