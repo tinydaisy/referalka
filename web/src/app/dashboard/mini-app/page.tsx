@@ -506,7 +506,13 @@ export default function MiniAppSettingsPage() {
                      hint="Одна короткая строка под названием — что вы делаете.">
                 <input type="text" value={profile.positioning || ''}
                        onChange={e => update('positioning', e.target.value)}
-                       className="input" maxLength={120} />
+                       className="input" maxLength={90} />
+                {/* Счётчик у всех полей с лимитом: набрать сверх нормы поле не
+                    даёт, но человек должен видеть границу заранее, а не
+                    упираться в неё молча посреди фразы. */}
+                <p className="mt-1 text-xs text-gray-400">
+                  {(profile.positioning || '').length} из 90
+                </p>
               </Field>
             </div>
           </Section>

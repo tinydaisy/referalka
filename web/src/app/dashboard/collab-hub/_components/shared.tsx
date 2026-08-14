@@ -202,11 +202,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         <span className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: '#C77B3B' }}><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />ВАША КАРТОЧКА</span>
         {item.is_published_in_hub === false && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">не опубликована</span>}
       </div>}
-      {/* ⚠️ Жёсткой высоты у шапки НЕТ: h-32 обрезала содержимое — у кого
-          позиционирование в 4 строки, плашки наезжали на блок ниже, а ряд
-          тегов уходил под обрез. Ровность даёт МИНИМАЛЬНАЯ высота (min-h-32):
-          короткая шапка дотягивается до общей, длинная растёт свободно. */}
-      <div className="flex items-start gap-3 min-h-32">
+      <div className="flex items-start gap-3">
         {item.photo_url
           ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
@@ -228,37 +224,45 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
               одинаковое у всех: иначе плашки категории и ниши у каждого
               вставали на своей высоте — у кого текст в строку, у кого в
               четыре. Пустое место просто остаётся пустым. */}
-          {/* Резерва в 4 строки тут НЕТ: он раздувал шапку у всех ради одного
-              длинного текста. Ровность держит min-h-32 у самой шапки. */}
-          <div className="text-xs text-gray-500 mt-0.5">
+          {/* ⚠️ ЖЁСТКАЯ высота — ровно 4 строки (h-16 при line-height 1rem).
+              Столько занимают 140 символов, а больше форма ввести не даёт, —
+              значит высота считается точно, а не подбирается на глаз. Пустое
+              место остаётся пустым: плашки категории и ниши у всех карточек
+              начинаются на одном уровне, за ними и все блоки.
+              ⚠️ Жёсткую высоту нельзя вешать на ВСЮ шапку — так плашки
+              наезжали на блок ниже, а ряд тегов уходил под обрез. */}
+          <div className="text-xs text-gray-500 mt-0.5 h-16 overflow-hidden leading-4">
             {item.positioning || ''}
           </div>
-          {/* ⚠️ Теги в ОДНУ строку с прокруткой вправо, а не переносом: ниш
-              можно выбрать несколько, и при переносе строка тегов росла вниз —
-              у одного участника в один ряд, у другого в три, и карточки снова
-              разъезжались. Город здесь же, на одном уровне с категорией. */}
-          <div className="flex items-center gap-1 mt-auto pt-1 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
-            {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
-            {/* Ниша — раньше не показывалась в карточке вообще */}
-            {(item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])).map((sl: string) => (
-              <span key={sl} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[sl] || sl}</span>
-            ))}
-            <MediaTierBadge tier={item.media_tier} />
-
-            {/* Город — рядом с нишей, а не в подвале карточки: там он терялся
-                под цифрами коллабораций, и найти земляка в списке было нельзя. */}
-            {item.hub_city && (
-              <span className="text-xs text-gray-500 inline-flex items-center gap-1">
-                <MapPin className="w-3 h-3" />{item.hub_city}
-              </span>
-            )}
-          </div>
         </div>
+      </div>
+      {/* ⚠️ Плашки вынесены ИЗ правой колонки — на всю ширину карточки, вплотную
+          к разделительной линии. Пока они лежали рядом с фото, между ними и
+          линией оставался зазор, разный у каждого: колонка тянулась по своему
+          тексту, а линия шла под всей шапкой. Теперь плашки всегда прижаты
+          к линии снизу.
+          Строка ОДНА, с прокруткой вправо: ниш бывает несколько, и при переносе
+          она росла вниз — у одного в ряд, у другого в три. */}
+      <div className="flex items-center gap-1 mt-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0">
+        {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
+        {(item.hub_niches?.length ? item.hub_niches : (item.hub_niche ? [item.hub_niche] : [])).map((sl: string) => (
+          <span key={sl} className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: PEACH, color: '#C77B3B' }}>{niches[sl] || sl}</span>
+        ))}
+        <MediaTierBadge tier={item.media_tier} />
+        {/* Город — рядом с нишей, а не в подвале карточки: там он терялся
+            под цифрами коллабораций, и найти земляка в списке было нельзя. */}
+        {item.hub_city && (
+          <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+            <MapPin className="w-3 h-3" />{item.hub_city}
+          </span>
+        )}
       </div>
       {/* ⚠️ Разделительные линии делят карточку на три части: кто это →
           что предлагает → результаты. Фирменный синий, полупрозрачный —
           строгая линия резала бы глаз в лёгкой карточке. Линии помогают
-          сравнивать карточки построчно, а не искать глазами границы блоков. */}
+          сравнивать карточки построчно, а не искать глазами границы блоков.
+          ⚠️ mt-3 — небольшой воздух между плашками и линией. Вплотную (mt-2)
+          линия липнет к плашкам и читается хуже. */}
       <div className="mt-3 border-t" style={{ borderColor: hexA(DARK, 0.18) }} />
       {/* Персиковые блоки — НАД регалиями. Все три свёрнуты до одинаковой
           высоты и разворачиваются по «Подробнее»: иначе длинный текст у
