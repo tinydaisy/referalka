@@ -231,7 +231,18 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Next 14.2.3, а не 15** — `params` читать через `useParams()`, НЕ через `use(params)`, иначе Application error.
 
-**API:** кабинет `/api/v1/products*` + `/api/v1/materials*` ([products.py](backend/app/api/products.py)), лендинг `/api/v1/products/{id}/landing` ([product_landing.py](backend/app/api/product_landing.py)), публичное `/api/v1/public/products/{slug}` и `/api/v1/public/product-cabinet/*` ([products_public.py](backend/app/api/products_public.py)), заказы `/api/v1/public/product-orders/*` ([product_orders.py](backend/app/api/product_orders.py)). Фронт: [dashboard/products](web/src/app/dashboard/products/page.tsx) (вкладки Основное/Тарифы/Состав/Лендинг/Клиенты), [pr/[slug]](web/src/app/pr/%5Bslug%5D/page.tsx), [my](web/src/app/my/page.tsx). Api-группы `api.products.*`, `api.materials.*`, `api.productLanding.*`.
+### ⚠️ Публикация продукта: жёстких условий НЕТ, ссылка видна всегда (2026-08-14)
+
+Продукт создаётся черновиком, а публичная страница `/pr/{slug}` у черновика отвечает **«Страница не найдена»**. Со стороны клиента это выглядит как сломанная ссылка, а не как незаполненное поле, — и виноват в этом был не сам черновик, а два места вокруг него:
+
+1. **Оферта была жёстким условием** — `PATCH /events…` то есть `PATCH /products/{id} {status:'published'}` отдавал **400** «Добавьте ссылку на оферту». Теперь это **предупреждение** во фронте («опубликовать всё равно?»), бэкенд не отказывает. Тот же принцип, что при публикации события: жёсткое условие оставляем только там, где без него сущность физически не работает.
+2. **Статус выглядел как бейдж, а не кнопка** — по журналу прода за всё время не было ни одного PATCH со статусом: клиент просто не понял, что на плашку надо нажать. Теперь рядом с бейджем — явная `.btn-gold` «Опубликовать» / «Снять с публикации».
+
+⚠️ **Ссылка на страницу открывается и у черновика** (иконка «Открыть» больше не прячется), а под полем адреса висит плашка «продукт в черновике — посетители видят „Страница не найдена“». Скрывать ссылку нельзя: именно из-за этого возникало ощущение, что раздел не работает.
+
+⚠️ **Просмотр черновика владельцем не работает** — `_is_owner` в [products_public.py](backend/app/api/products_public.py) читает JWT из заголовка `Authorization`, а `/pr/{slug}` рендерится **на сервере**, куда браузер заголовок не шлёт. Чтобы посмотреть страницу до публикации, продукт нужно опубликовать. Чинится передачей токена через параметр/куку — пока не сделано.
+
+**API:** кабинет `/api/v1/products*` + `/api/v1/materials*` ([products.py](backend/app/api/products.py)), лендинг `/api/v1/products/{id}/landing` ([product_landing.py](backend/app/api/product_landing.py)), публичное `/api/v1/public/products/{slug}` и `/api/v1/public/product-cabinet/*` ([products_public.py](backend/app/api/products_public.py)), заказы `/api/v1/public/product-orders/*` ([product_orders.py](backend/app/api/product_orders.py)). Фронт: [dashboard/products](web/src/app/dashboard/products/page.tsx) (вкладки Основное/Тарифы/**Материалы**/Лендинг/Клиенты — вкладка «Состав» переименована 2026-08-14, ключ в коде остался `content`), [pr/[slug]](web/src/app/pr/%5Bslug%5D/page.tsx), [my](web/src/app/my/page.tsx). Api-группы `api.products.*`, `api.materials.*`, `api.productLanding.*`.
 
 🔴 **Известный баг:** после успешной оплаты продукта платёжка ведёт на `/thanks/product-order/{order_id}` ([product_orders.py](backend/app/api/product_orders.py)), а такой страницы во фронте **нет** — человек попадает на 404. Эндпоинт `GET /api/v1/public/product-orders/{order_id}` для неё готов и не используется.
 
