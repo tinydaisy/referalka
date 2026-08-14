@@ -157,6 +157,27 @@ async def get_product_landing(
         )
 
     # ── Тарифы ──
+    # ── Галереи из базы отзывов ───────────────────────────────────────────
+    # ⚠️ Тот же механизм, что у события: блок галереи может брать содержимое
+    # не из своих items, а из общей базы отзывов по тегам — один и тот же
+    # набор фото переиспользуется на разных лендингах и правится в одном месте.
+    # У продукта этого сбора не было вовсе, и галерея выходила пустой.
+    gal_blocks = [b for b in blocks
+                  if b["kind"] == "gallery" and b["gallery_source"] == "testimonials"]
+    if gal_blocks:
+        data["testimonials"] = {}
+        for b in gal_blocks:
+            tags = list(b["gallery_tags"] or [])
+            rows = await db.fetch(
+                """SELECT kind, url, preview_url, title, caption
+                     FROM client_testimonials
+                    WHERE client_id = $1 AND is_active
+                      AND ($2::text[] = '{}' OR tags && $2::text[])
+                    ORDER BY sort_order, id""",
+                product["client_id"], tags,
+            )
+            data["testimonials"][str(b["id"])] = [dict(r) for r in rows]
+
     if "tariffs" in kinds:
         tariffs = await db.fetch(
             """SELECT id, code, title, description, excluded_description, price,
