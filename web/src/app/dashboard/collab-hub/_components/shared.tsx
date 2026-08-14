@@ -937,10 +937,38 @@ export function MyCardView() {
                             autoCounts={card?.plusson_base || {}}
                             onChange={(next) => setForm((f: any) => ({ ...f, media_assets: next }))} />
         </div>
-        <label className="flex items-center gap-2 mb-4 text-sm">
-          <input type="checkbox" checked={form.is_published_in_hub} onChange={e => setForm({ ...form, is_published_in_hub: e.target.checked })} />
-          Опубликовать в каталоге
-        </label>
+        {/* ⚠️ Статус карточки — КНОПКА со состоянием, а не галочка: из
+            «Опубликовать в каталоге» не читалось, опубликована карточка сейчас
+            или нет. Сделано как у событий: видно текущее состояние и одно
+            понятное действие рядом. */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {form.is_published_in_hub ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border"
+                    style={{ background: '#E7F6EC', color: '#1B7F4C', borderColor: '#BFE6CD' }}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#1B7F4C' }} />
+                Опубликована в каталоге
+              </span>
+              <button type="button"
+                onClick={() => setForm((f: any) => ({ ...f, is_published_in_hub: false }))}
+                className="text-xs text-gray-500 underline hover:text-gray-700">
+                Скрыть из каталога
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-gray-400" />
+                Не опубликована — партнёры её не видят
+              </span>
+              <button type="button"
+                onClick={() => setForm((f: any) => ({ ...f, is_published_in_hub: true }))}
+                className="btn-gold px-4 py-1.5 text-sm">
+                Опубликовать
+              </button>
+            </>
+          )}
+        </div>
         {err && <p className="text-red-500 text-sm mb-2">{err}</p>}
         <button onClick={save} className="px-5 py-2.5 rounded-xl text-white font-medium" style={{ background: DARK }}>{saved ? '✓ Сохранено' : 'Сохранить'}</button>
       </div>
