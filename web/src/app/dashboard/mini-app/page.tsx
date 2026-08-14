@@ -11,10 +11,10 @@
  *   • profile (бренд + основатель) — общая кнопка «Сохранить визитку» внизу.
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
-import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
+import HtmlTextArea from '@/components/HtmlTextArea'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
@@ -132,8 +132,6 @@ export default function MiniAppSettingsPage() {
   const { isAssistant, me } = useMe()
   const hasConference = !!me?.features?.includes('conference')
   const [profile, setProfile] = useState<Profile | null>(null)
-  // Прямой доступ к полю регалий — читаем текст из него в момент сохранения.
-  const bioRef = useRef<RichTextEditorHandle>(null)
   // Вкладка площадки в блоке «Как открываются ваши ссылки» (Telegram/VK/MAX).
   const [linkTab, setLinkTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
   // Подключено ли Mini App у TG-бота: null — ещё не проверяли / Telegram не ответил.
@@ -325,10 +323,7 @@ export default function MiniAppSettingsPage() {
         owner_photo_url:    profile.owner_photo_url   || null,
         owner_positioning:  profile.owner_positioning || null,
         owner_achievements: cleanAch(profile.owner_achievements),
-        // ⚠️ Регалии берём ПРЯМО ИЗ ПОЛЯ: если набрать текст и сразу нажать
-        // «Сохранить», onChange ещё не успевает отработать и в profile лежит
-        // старое значение. Так регалии однажды и затёрлись в пустоту.
-        bio:                (bioRef.current?.getValue() ?? profile.bio) || null,
+        bio:                profile.bio || null,
         social_links:       profile.social_links,
         // бот и ссылки
         default_link_mode:      profile.default_link_mode || 'miniapp',
@@ -599,9 +594,11 @@ export default function MiniAppSettingsPage() {
                 а не уходят в Telegram — списки и абзацы там отображаются как
                 есть. Редактор сам чистит теги, руками HTML писать не нужно. */}
             <div className="max-w-2xl">
-              <RichTextEditor
-                ref={bioRef}
-                mode="web"
+              {/* ⚠️ Обычное поле с тегами, а не визуальный редактор: тот терял
+                  набранный текст (значение уходило из состояния формы, а не из
+                  поля) — так однажды затёрлись все регалии. Теги пишутся руками,
+                  как в рассылках, и проверяются до сохранения. */}
+              <HtmlTextArea
                 value={profile.bio || ''}
                 onChange={v => update('bio', v)}
                 placeholder="Ваши регалии: достижения, титулы, опыт, проекты…"

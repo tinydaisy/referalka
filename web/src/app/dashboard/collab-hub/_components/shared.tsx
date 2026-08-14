@@ -4,6 +4,7 @@ import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil
 import { api } from '@/lib/api'
 import MediaAssetsField from '@/components/MediaAssetsField'
 import SafeHtml from '@/components/SafeHtml'
+import HtmlTextArea from '@/components/HtmlTextArea'
 
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
@@ -682,29 +683,25 @@ export function MyCardView() {
         </select>
         <label className="block text-sm font-medium text-gray-700 mb-1">Город (для офлайн-бизнеса)</label>
         <input value={form.hub_city} onChange={e => setForm({ ...form, hub_city: e.target.value })} className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
-        {/* ⚠️ ЗДЕСЬ ОБЫЧНЫЕ ПОЛЯ, А НЕ ВИЗУАЛЬНЫЙ РЕДАКТОР — сознательно.
+        {/* ⚠️ ЗДЕСЬ ОБЫЧНЫЕ ПОЛЯ С ТЕГАМИ, А НЕ ВИЗУАЛЬНЫЙ РЕДАКТОР.
             Редактор на contentEditable терял набранный текст: значение уходило
-            в сохранение из состояния формы, а не из самого поля. Для трёх строк
-            о себе форматирование не нужно, а терять текст нельзя. Переносы
-            строк сохраняются, показ — через SafeHtml (он их не схлопывает). */}
+            в сохранение из состояния формы, а не из самого поля. Теги пишутся
+            руками, как в рассылках, и проверяются на корректность до сохранения. */}
         <label className="block text-sm font-medium text-gray-700 mb-1">Что предлагаете партнёрам</label>
-        <textarea rows={5} value={form.hub_about}
-          onChange={e => setForm((f: any) => ({ ...f, hub_about: e.target.value }))}
-          className="w-full border rounded-xl px-3 py-2 text-sm mb-3" />
+        <HtmlTextArea rows={5} value={form.hub_about} className="mb-3"
+          onChange={v => setForm((f: any) => ({ ...f, hub_about: v }))} />
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Что я создаю и меняю в стране/мире своей деятельностью и проектами?</label>
-        <textarea rows={5} value={form.hub_impact}
-          onChange={e => setForm((f: any) => ({ ...f, hub_impact: e.target.value }))}
-          className="w-full border rounded-xl px-3 py-2 text-sm mb-1.5" />
+        <HtmlTextArea rows={5} value={form.hub_impact} className="mb-1.5"
+          onChange={v => setForm((f: any) => ({ ...f, hub_impact: v }))} />
         <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
           <input type="checkbox" checked={form.hub_impact_public} onChange={e => setForm({ ...form, hub_impact_public: e.target.checked })} />
           Показывать в публичной карточке в каталоге
         </label>
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Моя «капелька безумия» или WOW-факт</label>
-        <textarea rows={5} value={form.hub_wow}
-          onChange={e => setForm((f: any) => ({ ...f, hub_wow: e.target.value }))}
-          className="w-full border rounded-xl px-3 py-2 text-sm mb-1.5" />
+        <HtmlTextArea rows={5} value={form.hub_wow} className="mb-1.5"
+          onChange={v => setForm((f: any) => ({ ...f, hub_wow: v }))} />
         <label className="flex items-center gap-2 mb-4 text-sm text-gray-600">
           <input type="checkbox" checked={form.hub_wow_public} onChange={e => setForm({ ...form, hub_wow_public: e.target.checked })} />
           Показывать в публичной карточке в каталоге
