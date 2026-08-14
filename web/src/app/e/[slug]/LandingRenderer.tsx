@@ -430,7 +430,13 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
     Array.isArray(page.nav_items) ? page.nav_items : []
   // Показываем только пункты, чья секция реально есть и включена.
   const present = new Set(blocks.map((b: any) => b.kind))
-  const links = items.filter(i => present.has(i.block_kind))
+  const presentIds = new Set(blocks.map((b: any) => String(b.id)))
+  const links = items.filter((i: any) =>
+    i.block_id ? presentIds.has(String(i.block_id)) : present.has(i.block_kind))
+  // Ссылка пункта: на КОНКРЕТНЫЙ блок, если он указан, иначе на первую
+  // секцию такого типа (как было раньше).
+  const navHref = (i: any) =>
+    i.block_id ? `#lp-b${i.block_id}` : `#lp-${i.block_kind}`
   // На телефоне показываем только отмеченные галочкой пункты. Ключа нет —
   // считаем видимым (так было до появления настройки).
   const mobileLinks = links.filter((i: any) => i.mobile !== false)
@@ -465,7 +471,8 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
             На телефоне пункты уезжают в раскрывашку, кнопка остаётся. */}
         <nav className="mx-auto hidden items-center gap-6 md:flex">
           {links.map(i => (
-            <a key={i.block_kind} href={`#lp-${i.block_kind}`}
+            <a key={(i as any).block_id || i.block_kind}
+               href={navHref(i)}
                className="text-[.9em] font-medium uppercase tracking-wide transition-opacity hover:opacity-70"
                style={{ color: page.color_body || '#FFFFFF' }}>
               {i.label}
@@ -503,7 +510,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
         <div className="flex flex-col gap-1 border-t px-4 pb-4 pt-2 md:hidden"
              style={{ borderColor: `${page.border_color || '#FFCFA4'}22` }}>
           {mobileLinks.map((i: any) => (
-            <a key={i.block_kind} href={`#lp-${i.block_kind}`}
+            <a key={(i as any).block_id || i.block_kind} href={navHref(i)}
                onClick={() => setOpen(false)}
                className="py-2 text-[.95em] font-medium uppercase tracking-wide"
                style={{ color: page.color_body || '#FFFFFF' }}>
@@ -698,7 +705,10 @@ function Section({
 
   return (
     <section
+      /* ⚠️ Якорь по типу — «первая секция такого типа». Галерей на странице
+         бывает несколько, поэтому ниже есть ещё якорь по НОМЕРУ блока. */
       id={`lp-${block.kind}`}
+
       /* ⚠️ `isolate` обязателен: секция создаёт свой контекст наложения.
          Без него слой фона уезжает за пределы секции — под фон СТРАНИЦЫ — и
          непрозрачная заливка корня закрывает его целиком. */
@@ -709,6 +719,9 @@ function Section({
         paddingTop: padY, paddingBottom: padY,
       }}
     >
+      {/* ⚠️ Якорь по НОМЕРУ блока: галерей и текстовых секций на странице
+          бывает несколько, и пункт меню по типу всегда уводил на первую. */}
+      <span id={`lp-b${block.id}`} className="absolute -top-20" aria-hidden="true" />
       {block.bg_image_url && (
         // ⚠️ `-z-10` здесь стоять НЕ должен: он уводил картинку ЗА корень
         // страницы, и при сплошной заливке корня (bg_mode='page') фон секции

@@ -145,8 +145,10 @@ async def get_product_landing(
         }
 
     # ── Организатор: нужен и тарифам (бренд в согласиях), поэтому выше ──
+    # ⚠️ Грузим ВСЕГДА (без условия по блокам): логотип бренда нужен
+    # шапке-меню, а она не зависит от того, какие секции включены.
     client = None
-    if kinds & {"organizer", "footer", "support", "tariffs"}:
+    if True:
         client = await db.fetchrow(
             """SELECT id, name, brand_name, brand_logo_url, profile_photo_url,
                       owner_photo_url, owner_positioning, positioning, bio,
@@ -217,6 +219,15 @@ async def get_product_landing(
                 "max": c.get("work_max"),
                 "phone": c.get("phone"),
             }
+
+    # ⚠️ Логотип и имя бренда нужны ШАПКЕ-МЕНЮ (плавающей панели сверху) —
+    # независимо от того, включён ли блок подвала или организатора. У продукта
+    # этого не отдавали вовсе, и в меню логотипа не было. Так же, как у события.
+    if client:
+        data.setdefault("brand", {
+            "name": client["brand_name"] or client["name"],
+            "logo_url": client["brand_logo_url"],
+        })
 
     return {
         "owner_type": "product",
