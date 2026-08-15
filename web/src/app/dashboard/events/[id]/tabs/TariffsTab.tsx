@@ -220,14 +220,13 @@ export default function TariffsTab({
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
       is_featured: form.is_featured,
-      // Бонус шлём, только если блок вообще доступен — иначе PATCH без фичи
-      // упрётся в 403 у клиентов, которым этот блок не показывается.
-      ...({
-        bonus_feature_id: form.bonus_feature_id ? parseInt(form.bonus_feature_id, 10) : null,
-        bonus_days: parseInt(form.bonus_days || '30', 10) || 30,
-        bonus_trial: form.bonus_trial,
-        bonus_tariff_slug: form.bonus_tariff_slug || 'trial',
-      } : {}),
+      // ⚠️ Шлём всегда: галочка «дарить доступ в ПЛЮСОН» доступна ВСЕМ
+      // клиентам. Раньше поля отправлялись только при наличии платных
+      // модулей, и подарить триал было нечем.
+      bonus_feature_id: form.bonus_feature_id ? parseInt(form.bonus_feature_id, 10) : null,
+      bonus_days: parseInt(form.bonus_days || '30', 10) || 30,
+      bonus_trial: form.bonus_trial,
+      bonus_tariff_slug: form.bonus_tariff_slug || 'trial',
     }
     setSaving(true)
     try {
