@@ -378,7 +378,9 @@ async def get_me(
     # /me/materials, — иначе адреса разъедутся между двумя экранами.
     from app.services.message_builder import event_public_base, speaker_card_link
     from app.services.client_domains import public_url_for
-    _base = await event_public_base(db, event_id)
+    # ⚠️ id события здесь — session["e_id"] (как строкой выше у can_edit),
+    # переменной event_id в этой функции нет.
+    _base = await event_public_base(db, int(session["e_id"]))
     d["card_link"] = speaker_card_link(
         row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
         base_url=_base,
