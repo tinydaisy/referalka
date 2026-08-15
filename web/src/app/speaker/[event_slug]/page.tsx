@@ -2273,6 +2273,23 @@ function InvitedTab({ token }: { token: string }) {
 }
 
 // ─────────────────────── Вкладка РЕКЛАМНЫЕ ИНТЕГРАЦИИ ───────────────────────
+// Статус рассылки в очереди. На уровне модуля, а не внутри вкладки: то же
+// самое рисует BroadcastPreviewModal ниже, а из него локальная функция вкладки
+// не видна (сборка падала «Cannot find name 'statusChip'»).
+const statusChip = (s: string) => {
+  const done = s === 'done'
+  return (
+    <span style={{
+      fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999,
+      color: done ? '#0a7d3d' : '#8a5a00',
+      background: done ? '#e3f6ea' : '#fff2dd',
+      whiteSpace: 'nowrap',
+    }}>
+      {done ? 'Отправлено' : 'В очереди'}
+    </span>
+  )
+}
+
 function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<any[]>([])
@@ -2334,20 +2351,6 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
     } finally {
       setTestBusy(false)
     }
-  }
-
-  const statusChip = (s: string) => {
-    const done = s === 'done'
-    return (
-      <span style={{
-        fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999,
-        color: done ? '#0a7d3d' : '#8a5a00',
-        background: done ? '#e3f6ea' : '#fff2dd',
-        whiteSpace: 'nowrap',
-      }}>
-        {done ? 'Отправлено' : 'В очереди'}
-      </span>
-    )
   }
 
   if (loading) return <div style={{ padding: 20, color: '#7a8c9c' }}>Загрузка…</div>
