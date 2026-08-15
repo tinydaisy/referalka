@@ -223,11 +223,26 @@ async def get_me(
                     ORDER BY pe.id LIMIT 1) AS email,
                   ctc.phone, ctc.ref_code,
                   e.title AS event_title, e.slug AS event_slug,
+                  -- Для ссылок «посмотреть себя» в шапке профиля (см. ниже).
+                  e.landing_url,
+                  own.default_link_mode,
+                  (SELECT ch.handle FROM client_channels ccx
+                     JOIN channels ch ON ch.id = ccx.channel_id
+                    WHERE ccx.client_id = own.id AND ch.platform_slug = 'telegram'
+                      AND COALESCE(ch.bot_token,'') <> ''
+                    ORDER BY ccx.is_active DESC, ccx.id LIMIT 1) AS bot_handle,
                   ers.is_enabled AS raffle_enabled,
                   cc.subscription_mode
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              JOIN events e ON e.id = cse.event_id
+             -- Владелец события: у events своего client_id нет (event_owners).
+             LEFT JOIN LATERAL (
+               SELECT cl.id, cl.default_link_mode
+                 FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
+                WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                ORDER BY eo.id LIMIT 1
+             ) own ON TRUE
              LEFT JOIN contacts ctc ON ctc.id = c.contact_id
              LEFT JOIN platform_users pu_tg
                ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
@@ -356,6 +371,20 @@ async def get_me(
     # после того, как человек заполнит форму и упрётся в отказ при сохранении.
     from app.services.module_access import module_write_allowed_by_event
     d["can_edit"] = await module_write_allowed_by_event(db, event_id=int(session["e_id"]))
+
+    # ⚠️ Ссылки «посмотреть, как я выгляжу» — прямо в шапке профиля, а не
+    # только во вкладке «Материалы»: спикер заполняет карточку вслепую и не
+    # понимает, что из неё увидит зритель. Считаем ТЕ ЖЕ функции, что в
+    # /me/materials, — иначе адреса разъедутся между двумя экранами.
+    from app.services.message_builder import event_public_base, speaker_card_link
+    from app.services.client_domains import public_url_for
+    _base = await event_public_base(db, event_id)
+    d["card_link"] = speaker_card_link(
+        row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
+        base_url=_base,
+    ) or None
+    d["landing_link"] = ((row["landing_url"] or "").strip()
+                         or public_url_for(_base, f"event/{row['event_slug']}"))
     return d
 
 

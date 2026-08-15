@@ -909,6 +909,11 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} canEdit={canEdit} />}
 
         {activeTab === 'profile' && <>
+        {/* ⚠️ Шапка профиля: «посмотреть, как я выгляжу» + чего не хватает.
+            Спикер заполняет карточку вслепую — он не видит ни лендинга, ни
+            своей карточки в каталоге, ни сообщения, которое уйдёт аудитории,
+            и не понимает, что незаполненное поле просто исчезнет из них. */}
+        <ProfilePreviewBar me={me} onOpenBroadcasts={() => setActiveTab('broadcasts')} />
         <Section title="Профиль">
           {/* Имя и фамилия — РАЗНЫЕ поля (миграция 302): по фамилии идёт
               сортировка списков, из одной строки её не вытащить. */}
@@ -1642,6 +1647,86 @@ function Section({ title, children }: { title: string, children: React.ReactNode
     <div style={{ background: '#fff', borderRadius: 14, padding: '14px 18px 20px', marginBottom: 14, boxShadow: '0 2px 6px rgba(37,69,93,0.05)' }}>
       <div style={{ fontWeight: 700, color: DARK, fontSize: 15, marginBottom: 4 }}>{title}</div>
       {children}
+    </div>
+  )
+}
+
+/**
+ * Шапка вкладки «Профиль»: три ссылки «посмотреть себя» + список незаполненного.
+ *
+ * ⚠️ Зачем. Спикер правит карточку вслепую: он не видит ни лендинга, ни своей
+ * карточки в каталоге участников, ни сообщения, которое уйдёт аудитории. Из-за
+ * этого незаполненные поля остаются незамеченными — а в рассылке пустая тема
+ * или отсутствующий подарок просто исчезают из текста, и выступление теряет
+ * половину смысла.
+ *
+ * ⚠️ Ссылки приходят с бэкенда (card_link/landing_link) — их нельзя собирать
+ * в браузере: адрес зависит от домена клиента и от режима открытия (Mini App
+ * или веб), а window.location.origin дал бы pluson.ru вместо домена клиента.
+ */
+function ProfilePreviewBar({ me, onOpenBroadcasts }: { me: any; onOpenBroadcasts: () => void }) {
+  // Чего не хватает. Считаем ровно по тем полям, которые видит зритель.
+  const missing: string[] = []
+  if (!(me.name || '').trim())       missing.push('Имя')
+  if (!(me.last_name || '').trim())  missing.push('Фамилия')
+  // Тема выступления: массив тем спикера (topics) либо тема слота.
+  const hasTopic = Array.isArray(me.topics)
+    ? me.topics.some((t: any) => (typeof t === 'string' ? t : t?.topic || '').trim())
+    : false
+  if (!hasTopic) missing.push('Тема выступления')
+  // Подарок: лид-магнит/пакет из ПЛЮСОНа либо ручной (название + ссылка).
+  const hasGift = (me.gift_lead_magnets || []).length > 0
+    || !!(me.gift_after_speech_title || '').trim()
+    || !!(me.gift_after_speech_url || '').trim()
+  if (!hasGift) missing.push('Подарок после выступления')
+  // Каналы и соцсети — хотя бы один.
+  const hasChannels = ['tg_channel_url', 'vk_url', 'max_url', 'instagram_url', 'website_url']
+    .some(k => (me[k] || '').trim())
+  if (!hasChannels) missing.push('Ваши каналы и соцсети')
+
+  const linkCss: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '9px 14px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+    background: '#F1F6FA', color: DARK, border: '1px solid #B9CEDD',
+    textDecoration: 'none', cursor: 'pointer',
+  }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 14, padding: '14px 18px 18px', marginBottom: 14, boxShadow: '0 2px 6px rgba(37,69,93,0.05)' }}>
+      <div style={{ fontWeight: 700, color: DARK, fontSize: 15 }}>Как вас увидят</div>
+      <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
+        Проверьте, как ваша карточка выглядит для аудитории. Всё, что не заполнено,
+        в этих местах просто не показывается.
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+        {me.landing_link && (
+          <a href={me.landing_link} target="_blank" rel="noreferrer" style={linkCss}>
+            Как вы выглядите на лендинге ↗
+          </a>
+        )}
+        {me.card_link && (
+          <a href={me.card_link} target="_blank" rel="noreferrer" style={linkCss}>
+            Ваша карточка в каталоге спикеров ↗
+          </a>
+        )}
+        {/* Превью «Знакомство со спикером» живёт во вкладке «Рекламные
+            интеграции» — ведём туда, а не делаем вторую копию превью. */}
+        <button onClick={onOpenBroadcasts} style={linkCss}>
+          Ваше сообщение «Знакомство со спикером» →
+        </button>
+      </div>
+
+      {missing.length > 0 && (
+        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: '#FFF7ED', border: '1px solid #FED7AA' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#9A3412' }}>
+            Не заполнено — этого аудитория не увидит:
+          </div>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13, color: '#9A3412', lineHeight: 1.6 }}>
+            {missing.map(m => <li key={m}>{m}</li>)}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
