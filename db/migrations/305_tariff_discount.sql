@@ -26,13 +26,18 @@ ALTER TABLE product_tariffs
 
 -- Значение без вида (и наоборот) — бессмыслица: непонятно, рубли это или
 -- проценты. CHECK держит пару целой.
+--
+-- ⚠️ Ветки обёрнуты в COALESCE(..., FALSE). Без этого пара
+-- (kind='percent', value=NULL) давала бы NULL, а НЕ FALSE — и CHECK пропускал
+-- бы её: в SQL любое сравнение с NULL неизвестно, а неизвестность ограничение
+-- считает выполненной. Проверено на проде: такая строка проходила.
 ALTER TABLE event_tariffs
   DROP CONSTRAINT IF EXISTS event_tariffs_discount_chk;
 ALTER TABLE event_tariffs
   ADD CONSTRAINT event_tariffs_discount_chk CHECK (
     (discount_kind IS NULL AND discount_value IS NULL)
-    OR (discount_kind = 'percent' AND discount_value > 0 AND discount_value < 100)
-    OR (discount_kind = 'amount'  AND discount_value > 0)
+    OR COALESCE(discount_kind = 'percent' AND discount_value > 0 AND discount_value < 100, FALSE)
+    OR COALESCE(discount_kind = 'amount'  AND discount_value > 0, FALSE)
   );
 
 ALTER TABLE product_tariffs
@@ -40,8 +45,8 @@ ALTER TABLE product_tariffs
 ALTER TABLE product_tariffs
   ADD CONSTRAINT product_tariffs_discount_chk CHECK (
     (discount_kind IS NULL AND discount_value IS NULL)
-    OR (discount_kind = 'percent' AND discount_value > 0 AND discount_value < 100)
-    OR (discount_kind = 'amount'  AND discount_value > 0)
+    OR COALESCE(discount_kind = 'percent' AND discount_value > 0 AND discount_value < 100, FALSE)
+    OR COALESCE(discount_kind = 'amount'  AND discount_value > 0, FALSE)
   );
 
 COMMENT ON COLUMN event_tariffs.discount_kind IS
