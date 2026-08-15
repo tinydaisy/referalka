@@ -322,11 +322,15 @@ async def get_public_landing(
     # ── Тарифы ────────────────────────────────────────────────────────────
     if "tariffs" in kinds:
         rows = await db.fetch(
-            "SELECT id, code, title, description, excluded_description, price, "
-            "discount_kind, discount_value, pay_url, "
-            "order_hint, sort_order, is_featured "
-            "FROM event_tariffs WHERE event_id = $1 AND is_active = TRUE "
-            "ORDER BY sort_order, id",
+            "SELECT t.id, t.code, t.title, t.description, t.excluded_description, t.price, "
+            "t.discount_kind, t.discount_value, t.pay_url, "
+            "t.order_hint, t.sort_order, t.is_featured, "
+            "t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, "
+            "f.name AS bonus_feature_name "
+            "FROM event_tariffs t "
+            "LEFT JOIN features f ON f.id = t.bonus_feature_id "
+            "WHERE t.event_id = $1 AND t.is_active = TRUE "
+            "ORDER BY t.sort_order, t.id",
             event["id"],
         )
         # Оферта: привязанный документ из базы приоритетнее старой ссылки.
@@ -350,6 +354,21 @@ async def get_public_landing(
             d = with_discount(r)
             if featured:
                 d["is_featured"] = d["id"] == featured
+            # ⚠️ Строка «Бонус:» собирается ЗДЕСЬ, а не пишется клиентом в
+            # описании: руками написанный текст врёт, как только меняется
+            # срок в настройке тарифа. Названы оба случая — «для новых» и
+            # «для действующих», иначе человек с кабинетом решит, что его
+            # обманули (ждал 30 дней, получил 3).
+            if d.get("bonus_feature_id") or d.get("bonus_days"):
+                from app.services.plusson_bonus_texts import tariff_bonus_line
+                from app.services.plusson_bonus_days import bonus_day_numbers
+                _trial, _extra = await bonus_day_numbers(db)
+                d["bonus_line"] = tariff_bonus_line(
+                    feature_name=d.get("bonus_feature_name"),
+                    days=int(d.get("bonus_days") or 30),
+                    trial_days=_trial, extra_days=_extra,
+                )
+            d.pop("bonus_feature_id", None)
             items.append(d)
         # Данные для согласий на странице заказа: чья политика и от чьего
         # имени рассылки. Формулировки те же, что на странице регистрации.

@@ -513,7 +513,10 @@ export default function BlockCard({
               {/* ⚠️ audience обязателен в списке: внутри лежат настройки фото
                   карточек «Для кого». Без него весь блок не рисовался, и
                   размер фото было негде задать. */}
-              {['speakers', 'partners', 'values', 'difference', 'gallery', 'numbers', 'audience'].includes(block.kind) && (
+              {/* ⚠️ tariffs тоже здесь: рендерер число колонок читал и раньше,
+                  но задать его в конструкторе было негде — тарифы всегда
+                  рисовались по 3 в ряд. */}
+              {['speakers', 'partners', 'values', 'difference', 'gallery', 'numbers', 'audience', 'tariffs'].includes(block.kind) && (
                 <>
                   <Field label={`Карточек в ряд: ${block.columns || (block.kind === 'numbers' ? 4 : 3)}`}>
                     <input

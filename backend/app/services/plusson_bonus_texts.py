@@ -92,16 +92,23 @@ def purchase_new(*, tariff_title: str, owner_name, brand_name,
 # ── 2. Куплен тариф с бонусом, кабинет уже есть ──────────────────────────
 def purchase_existing(*, tariff_title: str, owner_name, brand_name,
                       feature_name: Optional[str], days: int,
-                      had_module: bool, link: str) -> tuple[str, str]:
+                      had_module: bool, extra_days: int, link: str) -> tuple[str, str]:
     # ⚠️ Разделяем «модуль уже был» и «модуля не было»: система это знает
     # точно и не должна писать «если у вас был» — это звучит как отписка.
+    parts = []
     if feature_name and had_module:
-        what = (f"«{feature_name}» — ещё {_plural_days(days)}. "
-                f"Оплаченные ранее дни не сгорят: срок прибавится к текущему.")
+        parts.append(f"— «{feature_name}» — ещё {_plural_days(days)}. "
+                     f"Оплаченные ранее дни не сгорят: срок прибавится к текущему.")
     elif feature_name:
-        what = f"«{feature_name}» на {_plural_days(days)} — подключим к вашему кабинету."
-    else:
-        what = f"Доступ в iViSiON: ПЛЮСОН на {_plural_days(days)}."
+        parts.append(f"— «{feature_name}» на {_plural_days(days)} — "
+                     f"подключим к вашему кабинету.")
+    # ⚠️ Действующему клиенту полный триал не положен (он для новых), но и
+    # с пустыми руками оставлять нельзя — даём те же 3 дня продления, что и
+    # в подарке. Правило одно на все случаи.
+    if extra_days:
+        parts.append(f"— {_plural_days(extra_days)} к вашей текущей подписке "
+                     f"в iViSiON: ПЛЮСОН.")
+    what = "\n\n".join(parts) or f"Доступ в iViSiON: ПЛЮСОН на {_plural_days(days)}."
 
     body = _join(
         "Добрейшего-богатейшего!",
@@ -170,3 +177,32 @@ def reminder(*, subject_line: str, what: str, link: str, days_left: int) -> tupl
         _footer(),
     )
     return subject_line, body
+
+
+# ── Строка «Бонус:» под тарифом на лендинге ──────────────────────────────
+def tariff_bonus_line(*, feature_name: Optional[str], days: int,
+                      trial_days: int, extra_days: int) -> str:
+    """Готовая строка для карточки тарифа на лендинге.
+
+    ⚠️ Собирается АВТОМАТИЧЕСКИ из настройки тарифа, а не пишется руками в
+    описании. Иначе текст врёт: клиент однажды написал «1 месяц», потом
+    поменял срок в настройке — а описание осталось старым.
+
+    ⚠️ Обязательно названы ОБА случая — «для новых» и «для действующих».
+    Иначе человек с кабинетом решит, что его обманули: он ждал 30 дней, а
+    получит 3.
+
+    Пусто → строки нет (у тарифа бонус не настроен).
+    """
+    if not feature_name and not trial_days:
+        return ""
+
+    plusson = (
+        f"{_plural_days(trial_days)} доступа к iViSiON: ПЛЮСОН для новых клиентов "
+        f"или + {_plural_days(extra_days)} продления для действующих "
+        f"(система автоматизации привлечения клиентов для экспертов, спикеров "
+        f"и организаторов)"
+    )
+    if feature_name:
+        return (f"Доступ к модулю «{feature_name}» на {_plural_days(days)} + {plusson}")
+    return plusson
