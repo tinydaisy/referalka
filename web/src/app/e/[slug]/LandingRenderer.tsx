@@ -1572,6 +1572,22 @@ function BlockBody({
                     ))}
                   </ul>
                 )}
+                {/* ⚠️ Бонус ПЛЮСОНа. Строку собирает БЭКЕНД из настройки
+                    тарифа (bonus_line) — клиент не пишет её руками в
+                    описании: написанный текст врёт, как только меняется срок
+                    в настройке. Названы оба случая («для новых» / «для
+                    действующих»), иначе человек с кабинетом решит, что его
+                    обманули: ждал 30 дней, получил 3. */}
+                {x.bonus_line && (
+                  <div className="mt-4 rounded-xl px-3.5 py-3 text-[.85em] leading-relaxed"
+                       style={{
+                         border: `1px solid ${hexToRgba(iconColor, .45)}`,
+                         background: hexToRgba(iconColor, .08),
+                       }}>
+                    <span className="font-bold" style={{ color: iconColor }}>Бонус: </span>
+                    <span className="opacity-90">{x.bonus_line}</span>
+                  </div>
+                )}
                 {/* Кнопка ведёт на НАШУ форму заказа: она опознаёт человека
                     по email/телефону, создаёт заказ и уводит на оплату.
                     Бесплатный тариф форма регистрирует сразу. */}
