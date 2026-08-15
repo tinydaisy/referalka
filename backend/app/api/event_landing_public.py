@@ -325,7 +325,7 @@ async def get_public_landing(
             "SELECT t.id, t.code, t.title, t.description, t.excluded_description, t.price, "
             "t.discount_kind, t.discount_value, t.pay_url, "
             "t.order_hint, t.sort_order, t.is_featured, "
-            "t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, "
+            "t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, COALESCE(t.bonus_line_auto, TRUE) AS bonus_line_auto, "
             "f.name AS bonus_feature_name "
             "FROM event_tariffs t "
             "LEFT JOIN features f ON f.id = t.bonus_feature_id "
@@ -363,7 +363,10 @@ async def get_public_landing(
             # отмечен триал). Проверять bonus_days нельзя: у колонки
             # значение по умолчанию, и строка вылезала у всех тарифов
             # подряд — включая те, где бонуса нет.
-            if d.get("bonus_feature_id"):
+            # ⚠️ Галочка (мигр. 311): клиент может писать бонус сам в
+            # описании тарифа — тогда автостроку не рисуем, иначе в
+            # карточке получится дубль.
+            if d.get("bonus_feature_id") and d.get("bonus_line_auto"):
                 from app.services.plusson_bonus_texts import tariff_bonus_line
                 from app.services.plusson_bonus_days import bonus_day_numbers
                 _trial, _extra = await bonus_day_numbers(db)
@@ -373,6 +376,7 @@ async def get_public_landing(
                     trial_days=_trial, extra_days=_extra,
                 )
             d.pop("bonus_feature_id", None)
+            d.pop("bonus_line_auto", None)
             items.append(d)
         # Данные для согласий на странице заказа: чья политика и от чьего
         # имени рассылки. Формулировки те же, что на странице регистрации.

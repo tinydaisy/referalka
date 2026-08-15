@@ -33,6 +33,7 @@ interface Tariff {
   bonus_days?: number | null
   bonus_trial?: boolean | null
   bonus_tariff_slug?: string | null
+  bonus_line_auto?: boolean | null
   bonus_feature_name?: string | null
   buyers_count: number
   unpaid_count: number
@@ -64,6 +65,7 @@ const emptyForm = {
   code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', order_hint: '', is_active: true, is_featured: false,
   bonus_feature_id: '' as string, bonus_days: '30' as string,
   bonus_trial: false, bonus_tariff_slug: 'trial' as string,
+  bonus_line_auto: true,
   // Скидка: пустой размер = скидки нет.
   discount_kind: 'percent' as 'percent' | 'amount', discount_value: '',
 }
@@ -194,6 +196,7 @@ export default function TariffsTab({
       bonus_days: String(t.bonus_days || 30),
       bonus_trial: !!t.bonus_trial,
       bonus_tariff_slug: t.bonus_tariff_slug || 'trial',
+      bonus_line_auto: t.bonus_line_auto !== false,
       discount_kind: (t.discount_kind || 'percent') as 'percent' | 'amount',
       discount_value: t.discount_value != null ? String(t.discount_value) : '',
     })
@@ -227,6 +230,7 @@ export default function TariffsTab({
       bonus_days: parseInt(form.bonus_days || '30', 10) || 30,
       bonus_trial: form.bonus_trial,
       bonus_tariff_slug: form.bonus_tariff_slug || 'trial',
+      bonus_line_auto: form.bonus_line_auto,
     }
     setSaving(true)
     try {
@@ -626,6 +630,24 @@ export default function TariffsTab({
                         а покупателю в письме нужна точная цифра. */}
                     <span className="text-xs text-amber-900">дн.</span>
                   </div>
+                )}
+                {(form.bonus_feature_id || form.bonus_trial) && (
+                  <label className="flex items-start gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 accent-[#25455D]"
+                      checked={form.bonus_line_auto}
+                      onChange={e => setForm({ ...form, bonus_line_auto: e.target.checked })}
+                    />
+                    <span className="text-xs text-amber-900">
+                      Писать бонус на лендинге автоматически
+                      <span className="block text-amber-800/70">
+                        Строка «Бонус: …» появится в карточке тарифа сама и всегда
+                        совпадёт с настройкой. Снимите галочку, если опишете бонус
+                        своими словами в описании тарифа.
+                      </span>
+                    </span>
+                  </label>
                 )}
                 {(form.bonus_feature_id || form.bonus_trial) && !form.price && (
                   <p className="text-xs text-red-600">
