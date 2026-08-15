@@ -357,8 +357,15 @@ export default function LandingRenderer({
            бесконечную колонку, а цифра узкая и вполне помещается.
            ⚠️ НО если под цифрой стоит скриншот-доказательство, две колонки
            делают его нечитаемым (там мелкие числа) — тогда одна в ряд. */
-        .lp-grid-2sm { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 4)), 1fr); }
-        .lp-grid-2sm.lp-has-proof { grid-template-columns: 1fr; }
+        /* ⚠️ Оба правила действуют ТОЛЬКО до 560px (телефон). Раньше они шли
+           без медиазапроса и перебивали брейкпоинты .lp-grid — из-за большей
+           специфичности («.lp-grid-2sm.lp-has-proof» весомее «.lp-grid»).
+           Из-за этого цифры со скриншотами стояли по одной в ряд и на широком
+           экране, хотя клиент выбрал две колонки. */
+        @media (max-width: 559px) {
+          .lp-grid-2sm { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 4)), 1fr); }
+          .lp-grid-2sm.lp-has-proof { grid-template-columns: 1fr; }
+        }
         /* Ширина картинки в карточке: на телефоне всегда 100% (см. w-full),
            с 640px — как задал клиент настройкой «Размер фото». */
         @media (min-width: 640px) { .lp-card-img { width: var(--lp-img-w, 100%); } }

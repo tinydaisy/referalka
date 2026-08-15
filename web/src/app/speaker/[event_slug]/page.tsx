@@ -1699,6 +1699,10 @@ function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
   const missing: string[] = []
   if (!(me.name || '').trim())       missing.push('Имя')
   if (!(me.last_name || '').trim())  missing.push('Фамилия')
+  // Позиционирование (collaborators.title) — подпись под именем в карточке,
+  // на лендинге и в рассылке знакомства. Без неё человек виден без рода
+  // занятий, и карточка не работает.
+  if (!(me.title || '').trim())      missing.push('Позиционирование (кто вы)')
   // Тема выступления: массив тем спикера (topics) либо тема слота.
   const hasTopic = Array.isArray(me.topics)
     ? me.topics.some((t: any) => (typeof t === 'string' ? t : t?.topic || '').trim())
