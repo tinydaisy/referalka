@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import ViewToggle, { ViewMode } from '@/components/ViewToggle'
 import FeatureLock from '@/components/FeatureLock'
+import CopyEventModal from '@/components/CopyEventModal'
 import { useMe } from '@/hooks/useMe'
 
 function formatDate(iso: string | null | undefined): string {
@@ -67,6 +68,8 @@ export default function ConferencesPage() {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<number | null>(null)
   const [copyingId, setCopyingId] = useState<number | null>(null)
+  // id события, для которого открыто окно «что перенести в копию»
+  const [copyAskId, setCopyAskId] = useState<number | null>(null)
   const [view, setView] = useState<ViewMode>('list')
 
   const STATUS_LABELS: Record<string, { label: string; cls: string; dot: string }> = {
@@ -112,14 +115,25 @@ export default function ConferencesPage() {
     }
   }
 
-  async function handleCopy(id: number) {
+  // ⚠️ Копирование идёт через окно выбора: спикеры/жюри и партнёры
+  // переносятся только по галочке (у нового события состав обычно другой),
+  // программа не переносится никогда — она привязана к датам.
+  function handleCopy(id: number) {
+    setCopyAskId(id)
+  }
+
+  async function doCopy(opts: { with_speakers: boolean; with_partners: boolean }) {
+    const id = copyAskId
+    if (!id) return
     setCopyingId(id)
     try {
-      const res = await api.events.copy(id)
+      const res = await api.events.copy(id, opts)
       router.push(`${basePath}/${res.event.id}`)
     } catch (e: any) {
       alert(e.message || 'Ошибка копирования')
       setCopyingId(null)
+    } finally {
+      setCopyAskId(null)
     }
   }
 
@@ -283,6 +297,13 @@ export default function ConferencesPage() {
           })}
         </div>
       )}
+
+      <CopyEventModal
+        open={copyAskId !== null}
+        busy={copyingId !== null}
+        onCancel={() => setCopyAskId(null)}
+        onConfirm={doCopy}
+      />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Calendar, Plus, Copy, Trash2, ChevronRight, Users } from 'lucide-react'
 import { api } from '@/lib/api'
+import CopyEventModal from '@/components/CopyEventModal'
 import { useMe } from '@/hooks/useMe'
 import ViewToggle, { ViewMode } from '@/components/ViewToggle'
 
@@ -41,6 +42,8 @@ export default function EventsPage() {
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<ViewMode>('list')
   const [copyingId, setCopyingId] = useState<number | null>(null)
+  // id события, для которого открыто окно «что перенести в копию»
+  const [copyAskId, setCopyAskId] = useState<number | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
   useEffect(() => {
@@ -74,14 +77,24 @@ export default function EventsPage() {
   }
   useEffect(() => { load() }, [])
 
-  async function handleCopy(id: number) {
+  // ⚠️ Копирование идёт через окно выбора: спикеры/жюри и партнёры
+  // переносятся только по галочке, программа — никогда (она привязана к датам).
+  function handleCopy(id: number) {
+    setCopyAskId(id)
+  }
+
+  async function doCopy(opts: { with_speakers: boolean; with_partners: boolean }) {
+    const id = copyAskId
+    if (!id) return
     setCopyingId(id)
     try {
-      const res = await api.events.copy(id)
+      const res = await api.events.copy(id, opts)
       router.push(`/dashboard/events/${res.event.id}`)
     } catch (e: any) {
       alert(e.message || 'Ошибка копирования')
       setCopyingId(null)
+    } finally {
+      setCopyAskId(null)
     }
   }
 
@@ -226,6 +239,13 @@ export default function EventsPage() {
           })}
         </div>
       )}
+
+      <CopyEventModal
+        open={copyAskId !== null}
+        busy={copyingId !== null}
+        onCancel={() => setCopyAskId(null)}
+        onConfirm={doCopy}
+      />
     </div>
   )
 }

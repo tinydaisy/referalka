@@ -161,8 +161,16 @@ export const api = {
       request(`/api/v1/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/events/${id}`, { method: 'DELETE' }),
-    copy: (id: number) =>
-      request(`/api/v1/events/${id}/copy`, { method: 'POST' }),
+    // ⚠️ Спикеры/жюри и партнёры переносятся ТОЛЬКО по галочке в окне
+    // копирования. Программа (дни и слоты) не копируется никогда — она
+    // привязана к конкретным датам, а у копии они свои.
+    copy: (id: number, opts?: { with_speakers?: boolean; with_partners?: boolean }) =>
+      request(
+        `/api/v1/events/${id}/copy`
+          + `?with_speakers=${opts?.with_speakers ? 'true' : 'false'}`
+          + `&with_partners=${opts?.with_partners ? 'true' : 'false'}`,
+        { method: 'POST' }
+      ),
     // Смена типа: мероприятие ↔ конференция ↔ турнир. Данные не теряются —
     // участники, подарки, рассылки и лендинг висят на событии, а не на типе.
     // Повышение возможно только на оплаченный модуль (проверяет бэкенд).

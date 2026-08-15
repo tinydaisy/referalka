@@ -222,10 +222,25 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <input type="text" value={form.title} onChange={set('title')}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
-        {/* «Описание для лендинга» переехало в блок «Настройки страницы регистрации» ниже. */}
+        {/* ⚠️ Описание стоит СРАЗУ под названием — это основной текст события,
+            его ищут здесь, а не в настройках страницы регистрации (туда оно
+            когда-то переехало, и найти его стало трудно). */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Описание после регистрации
+            Описание
+          </label>
+          <textarea value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            rows={4}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
+          <p className="text-xs text-gray-400 mt-1">
+            Идёт в подзаголовок лендинга или под афишу простой формы регистрации.
+            Поддерживается HTML: {'<b>, <i>, <a href="...">, <br>, <ul><li>'}.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Текст после регистрации в мини-апп
           </label>
           <textarea value={form.description_post_register}
             onChange={e => setForm(f => ({ ...f, description_post_register: e.target.value }))}
@@ -425,6 +440,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
              внутренний/сторонний лендинг (общий компонент с мероприятиями). */}
       <LandingSettingsBlock
         onValidity={setRegError}
+        // Описание выведено выше, в «Параметрах конференции» — здесь не дублируем.
+        showDescription={false}
         description={form.description}
         onDescription={(v) => setForm(f => ({ ...f, description: v }))}
         landingUrl={form.landing_url}

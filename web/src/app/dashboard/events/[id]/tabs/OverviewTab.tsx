@@ -131,11 +131,20 @@ export default function OverviewTab({
                    className="input" placeholder="iVision-7" />
           </Field>
 
-          {/* «Описание для лендинга» переехало в блок «Настройки страницы регистрации» ниже
-              (там оно логически и живёт — это текст внутреннего лендинга). */}
+          {/* ⚠️ Описание стоит СРАЗУ под названием — это основной текст события,
+              его ищут здесь. Раньше оно было спрятано в «Настройках страницы
+              регистрации» ниже, и найти его было трудно. */}
+          <Field
+            label="Описание"
+            hint={'Идёт в подзаголовок лендинга или под афишу простой формы регистрации. Можно использовать HTML: <b>, <i>, <a>, <br>, <ul><li>.'}
+          >
+            <textarea value={description} onChange={e => setDescription(e.target.value)}
+                      rows={4} className="input"
+                      placeholder="О чём это событие — пара предложений" />
+          </Field>
 
           <Field
-            label="Описание после регистрации"
+            label="Текст после регистрации в мини-апп"
             hint={'Инструкции для зарегистрировавшихся (что делать дальше). Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата. Можно использовать HTML: <b>, <i>, <a>, <br>, <ul><li>. В простом тексте ссылки http(s) кликабельны автоматически.'}
           >
             <textarea value={descriptionPostRegister} onChange={e => setDescriptionPostRegister(e.target.value)}
@@ -261,6 +270,8 @@ export default function OverviewTab({
              внутренний/сторонний лендинг. У КОЛЛАБЫ стороннего нет. */}
       <LandingSettingsBlock
         onValidity={setRegError}
+        // Описание выведено выше, в основных настройках — здесь не дублируем.
+        showDescription={false}
         description={description}
         onDescription={setDescription}
         landingUrl={landingUrl}

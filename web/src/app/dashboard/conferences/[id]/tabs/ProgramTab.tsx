@@ -37,6 +37,11 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   const dirtyDaysRef = useRef<Set<number>>(new Set())
   useEffect(() => { dirtyDaysRef.current = dirtyDays }, [dirtyDays])
   const [dayForms, setDayForms] = useState<Record<number, any>>({})
+  // ⚠️ Формы тоже в ref: автосохранение вызывается из onBlur/onChange и берёт
+  // значения из замыкания — там они могут быть на шаг устаревшими, и в базу
+  // уехало бы предыдущее состояние поля.
+  const dayFormsRef = useRef<Record<number, any>>({})
+  useEffect(() => { dayFormsRef.current = dayForms }, [dayForms])
   // editId != null → редактируем существующий слот (в конференции раньше слот
   // можно было только удалить и завести заново).
   const [sessionModal, setSessionModal] = useState<{ day: number; editId?: number | null } | null>(null)
@@ -129,6 +134,32 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       ...prev,
       [nextNum]: { day_date: '', stream_url: '', show_for_speakers: true, has_webinar: true },
     }))
+  }
+
+  // ⚠️ АВТОСОХРАНЕНИЕ дня по уходу из поля. Раньше дата жила только в
+  // состоянии до нажатия «Сохранить программу»: человек вводил её, уходил
+  // из поля, переключался на другую вкладку — и правка пропадала, хотя
+  // выглядела введённой. Сохраняем молча, без перезагрузки программы
+  // (перезагрузка стёрла бы то, что набирается в соседних днях).
+  async function autoSaveDay(dayNum: number) {
+    if (!dirtyDaysRef.current.has(dayNum)) return
+    const f = dayFormsRef.current[dayNum] || {}
+    try {
+      await api.conference.days.upsert(eventId, dayNum, {
+        day_date: f.day_date || null,
+        stream_url: f.stream_url || null,
+        show_for_speakers: f.show_for_speakers ?? true,
+        has_webinar: f.has_webinar ?? true,
+      })
+      setDirtyDays(prev => { const n = new Set(prev); n.delete(dayNum); return n })
+      setDays(prev => prev.map((d: any) => d.day_number === dayNum
+        ? { ...d, day_date: f.day_date || null, stream_url: f.stream_url || null }
+        : d))
+    } catch {
+      // Молчим: правка осталась в dirtyDays, кнопка «Сохранить программу»
+      // видна и человек сохранит вручную. Всплывающая ошибка на каждый
+      // уход из поля мешала бы заполнять форму дальше.
+    }
   }
 
   // Глобальное сохранение всех дней программы — заменяет per-day кнопку-дискету.
@@ -310,6 +341,8 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                   setDayForms(prev => ({ ...prev, [dayNum]: { ...(prev[dayNum] || {}), day_date: v } }))
                   setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
                 }}
+                // Ушли из поля — дата уже в базе, кнопку жать не нужно.
+                onBlur={() => autoSaveDay(dayNum)}
                 className="input" />
               <label className="flex items-start gap-2 cursor-pointer select-none mt-3">
                 <input
@@ -319,6 +352,10 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                     const v = e.target.checked
                     setDayForms(prev => ({ ...prev, [dayNum]: { ...(prev[dayNum] || {}), show_for_speakers: v } }))
                     setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
+                    // Галочка — законченное действие, у неё нет «ухода из поля»:
+                    // сохраняем сразу. setTimeout — чтобы состояние успело
+                    // примениться до отправки.
+                    setTimeout(() => autoSaveDay(dayNum), 0)
                   }}
                   className="mt-0.5 accent-[#25455D]"
                 />
@@ -335,6 +372,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                     const v = e.target.checked
                     setDayForms(prev => ({ ...prev, [dayNum]: { ...(prev[dayNum] || {}), has_webinar: v } }))
                     setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
+                    setTimeout(() => autoSaveDay(dayNum), 0)
                   }}
                   className="mt-0.5 accent-[#25455D]"
                 />

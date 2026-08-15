@@ -741,6 +741,12 @@ async def change_event_type(
 @router.post("/{event_id}/copy", summary="Скопировать событие со всеми настройками")
 async def copy_event(
     event_id: int,
+    # ⚠️ Что переносить — решает клиент в окне копирования. По умолчанию НЕ
+    # переносим: состав людей у нового события обычно другой, а удалять
+    # десятки лишних карточек руками дольше, чем добавить нужных.
+    # Программа (дни и слоты) не копируется никогда — она привязана к датам.
+    with_speakers: bool = False,
+    with_partners: bool = False,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
@@ -895,9 +901,20 @@ async def copy_event(
                     new_id, *[old_conf[c] for c in cols]
                 )
 
-            # Маппинг event_collaborators для дальнейших таблиц
+            # Маппинг event_collaborators для дальнейших таблиц.
+            # ⚠️ ОРГАНИЗАТОРЫ переносятся ВСЕГДА — это владельцы события, без
+            # них копия останется без ответственных. Спикеры, жюри и партнёры —
+            # только по галочке в окне копирования.
+            skip_roles: list[str] = []
+            if not with_speakers:
+                skip_roles += ['speaker', 'headliner', 'jury']
+            if not with_partners:
+                skip_roles += ['partner', 'general_partner']
             cse_map: dict = {}
-            old_cses = await db.fetch("SELECT * FROM event_collaborators WHERE event_id = $1", event_id)
+            old_cses = await db.fetch(
+                "SELECT * FROM event_collaborators WHERE event_id = $1 AND NOT (role = ANY($2::text[]))",
+                event_id, skip_roles
+            )
             for cse in old_cses:
                 cols = [k for k in dict(cse).keys() if k not in ('id', 'event_id')]
                 placeholders = ",".join(f"${i+2}" for i in range(len(cols)))

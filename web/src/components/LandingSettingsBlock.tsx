@@ -34,9 +34,14 @@ export default function LandingSettingsBlock({
   regMode,
   onRegMode,
   onValidity,
+  showDescription = true,
 }: {
   description: string
   onDescription: (v: string) => void
+  // ⚠️ Описание может выводиться выше, в основных настройках события — там его
+  // и ищут. Тогда здесь его прятать, иначе одно и то же поле стоит на странице
+  // дважды и непонятно, какое из них главное.
+  showDescription?: boolean
   landingUrl: string
   onLandingUrl: (v: string) => void
   ctaLabel: string
@@ -166,20 +171,22 @@ export default function LandingSettingsBlock({
             </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание под афишей</label>
-            <textarea
-              value={description}
-              onChange={e => onDescription(e.target.value)}
-              rows={4}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              placeholder="О чём это событие — пара предложений. Поддерживается HTML."
-            />
-            <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
-              Продающий текст. Показывается на странице события (веб и Mini App) до регистрации.
-              Можно использовать HTML: {'<b>жирный</b>, <i>курсив</i>, <a href="...">ссылка</a>, <br>, <ul><li>списки</li></ul>'}.
-            </p>
-          </div>
+          {showDescription && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание под афишей</label>
+              <textarea
+                value={description}
+                onChange={e => onDescription(e.target.value)}
+                rows={4}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+                placeholder="О чём это событие — пара предложений. Поддерживается HTML."
+              />
+              <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+                Продающий текст. Показывается на странице события (веб и Mini App) до регистрации.
+                Можно использовать HTML: {'<b>жирный</b>, <i>курсив</i>, <a href="...">ссылка</a>, <br>, <ul><li>списки</li></ul>'}.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Текст кнопки</label>
