@@ -11,18 +11,21 @@ API (требуют JWT владельца кабинета):
   POST   /api/v1/events/{event_id}/tariffs
   PATCH  /api/v1/events/{event_id}/tariffs/{tariff_id}
   DELETE /api/v1/events/{event_id}/tariffs/{tariff_id}
+  POST   /api/v1/events/{event_id}/tariffs/reorder
   GET    /api/v1/events/{event_id}/tariffs/{tariff_id}/buyers
 
 Создано миграцией 157 (event_tariffs, event_participant_tariffs, events.offer_url).
+Скидка тарифа — миграция 305.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 import asyncpg
 
 from app.database import get_db
 from app.auth import get_current_client
 from app.services.features import client_has_feature
+from app.services.tariff_discount import with_discount
 
 router = APIRouter(prefix="/events/{event_id}/tariffs", tags=["Тарифы мероприятия"])
 
@@ -64,6 +67,10 @@ class TariffIn(BaseModel):
     pay_product_id: Optional[str] = None
     # Предупреждение над формой заказа (белым по красному).
     order_hint: Optional[str] = None
+    # Скидка (миграция 305): 'percent' | 'amount' | None.
+    # ⚠️ price — цена К ОПЛАТЕ (уже со скидкой); старая цена вычисляется.
+    discount_kind: Optional[str] = None
+    discount_value: Optional[int] = None
     sort_order: int = 0
     is_active: bool = True
     is_featured: bool = False
@@ -78,9 +85,38 @@ class TariffPatch(BaseModel):
     pay_url: Optional[str] = None
     pay_product_id: Optional[str] = None
     order_hint: Optional[str] = None
+    discount_kind: Optional[str] = None
+    discount_value: Optional[int] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
+
+
+class TariffsReorder(BaseModel):
+    """Порядок тарифов — как клиент расставил в кабинете, так и на лендинге."""
+    ids: List[int]
+
+
+def _norm_discount(kind: Optional[str], value: Optional[int]) -> tuple:
+    """Привести пару «вид + размер» к валидному состоянию.
+
+    Пустой размер или нераспознанный вид = скидки нет: хранить половину пары
+    нельзя (CHECK не пустит, да и непонятно, рубли это или проценты).
+    """
+    if not kind or value is None:
+        return None, None
+    kind = str(kind).strip().lower()
+    if kind not in ("percent", "amount"):
+        return None, None
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None, None
+    if value <= 0:
+        return None, None
+    if kind == "percent" and value >= 100:
+        raise HTTPException(status_code=400, detail="Скидка в процентах должна быть меньше 100")
+    return kind, value
 
 
 def _norm_code(code: str) -> str:
@@ -96,7 +132,8 @@ async def list_tariffs(
     await _check_event_access(db, int(client["sub"]), event_id)
     rows = await db.fetch(
         """SELECT t.id, t.code, t.title, t.description, t.excluded_description,
-                  t.price, t.pay_url, t.pay_product_id, t.order_hint,
+                  t.price, t.discount_kind, t.discount_value,
+                  t.pay_url, t.pay_product_id, t.order_hint,
                   t.sort_order, t.is_active, t.is_featured,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
@@ -107,7 +144,7 @@ async def list_tariffs(
             ORDER BY t.sort_order, t.id""",
         event_id,
     )
-    return {"items": [dict(r) for r in rows]}
+    return {"items": [with_discount(r) for r in rows]}
 
 
 @router.get("-orders", summary="Все заказы события (по всем тарифам) — для сводной таблицы")
@@ -179,18 +216,59 @@ async def create_tariff(
     )
     if exists:
         raise HTTPException(status_code=409, detail=f"Тариф с кодом «{code}» уже есть у события")
+    d_kind, d_value = _norm_discount(data.discount_kind, data.discount_value)
+
+    # Новый тариф встаёт В КОНЕЦ списка. С sort_order=0 он прыгал бы наверх
+    # и ломал уже расставленный клиентом порядок.
+    sort_order = data.sort_order
+    if not sort_order:
+        last = await db.fetchval(
+            "SELECT COALESCE(MAX(sort_order), 0) FROM event_tariffs WHERE event_id = $1",
+            event_id,
+        )
+        sort_order = int(last or 0) + 10
+
     row = await db.fetchrow(
         """INSERT INTO event_tariffs (event_id, code, title, description, excluded_description,
-                                     price, pay_url, pay_product_id, order_hint,
+                                     price, discount_kind, discount_value,
+                                     pay_url, pay_product_id, order_hint,
                                      sort_order, is_active, is_featured)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           RETURNING id, code, title, description, excluded_description, price, pay_url,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           RETURNING id, code, title, description, excluded_description, price,
+                     discount_kind, discount_value, pay_url,
                      pay_product_id, order_hint, sort_order, is_active, is_featured""",
         event_id, code, data.title.strip(), data.description, data.excluded_description,
-        data.price, data.pay_url, data.pay_product_id, data.order_hint, data.sort_order,
+        data.price, d_kind, d_value,
+        data.pay_url, data.pay_product_id, data.order_hint, sort_order,
         data.is_active, data.is_featured,
     )
-    return dict(row)
+    return with_discount(row)
+
+
+@router.post("/reorder", summary="Порядок тарифов (перетаскивание)")
+async def reorder_tariffs(
+    event_id: int,
+    data: TariffsReorder,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Как клиент расставил тарифы в кабинете, так они идут и на лендинге.
+
+    ⚠️ Объявлен ДО `/{tariff_id}` — иначе тот перехватит «reorder» как id.
+    Шаг 10 (как у блоков лендинга): между соседями можно вставить вручную.
+    """
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_vip(db, client_id)
+
+    async with db.transaction():
+        for i, tid in enumerate(data.ids):
+            await db.execute(
+                "UPDATE event_tariffs SET sort_order = $1, updated_at = NOW() "
+                "WHERE id = $2 AND event_id = $3",
+                (i + 1) * 10, int(tid), event_id,
+            )
+    return {"ok": True}
 
 
 @router.patch("/{tariff_id}", summary="Изменить тариф")
@@ -227,6 +305,16 @@ async def update_tariff(
         if not fields["title"]:
             raise HTTPException(status_code=400, detail="Название тарифа не может быть пустым")
 
+    # Скидка — ПАРА полей. Прислали хоть одно — нормализуем и пишем оба,
+    # иначе в базе останется половина (вид без размера) и упрёмся в CHECK.
+    if "discount_kind" in fields or "discount_value" in fields:
+        cur_d = await db.fetchrow(
+            "SELECT discount_kind, discount_value FROM event_tariffs WHERE id = $1", tariff_id
+        )
+        kind = fields.get("discount_kind", cur_d["discount_kind"])
+        value = fields.get("discount_value", cur_d["discount_value"])
+        fields["discount_kind"], fields["discount_value"] = _norm_discount(kind, value)
+
     if not fields:
         return {"ok": True}
 
@@ -234,11 +322,12 @@ async def update_tariff(
     row = await db.fetchrow(
         f"""UPDATE event_tariffs SET {sets}, updated_at = NOW()
              WHERE id = $1 AND event_id = $2
-         RETURNING id, code, title, description, excluded_description, price, pay_url,
-                   pay_product_id, order_hint, sort_order, is_active""",
+         RETURNING id, code, title, description, excluded_description, price,
+                   discount_kind, discount_value, pay_url,
+                   pay_product_id, order_hint, sort_order, is_active, is_featured""",
         tariff_id, event_id, *fields.values(),
     )
-    return dict(row)
+    return with_discount(row)
 
 
 @router.delete("/{tariff_id}", summary="Удалить тариф")

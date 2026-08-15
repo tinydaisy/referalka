@@ -28,6 +28,7 @@ from app.services.landing_theme import apply_theme_fields
 from app.services.landing_support import support_links
 from app.services.collaborator_sort import order_by_sql
 from app.services.preview_token import preview_client_id
+from app.services.tariff_discount import with_discount
 
 router = APIRouter(prefix="/api/v1/public/event-landing", tags=["Лендинг события (публично)"])
 
@@ -321,7 +322,8 @@ async def get_public_landing(
     # ── Тарифы ────────────────────────────────────────────────────────────
     if "tariffs" in kinds:
         rows = await db.fetch(
-            "SELECT id, code, title, description, excluded_description, price, pay_url, "
+            "SELECT id, code, title, description, excluded_description, price, "
+            "discount_kind, discount_value, pay_url, "
             "order_hint, sort_order, is_featured "
             "FROM event_tariffs WHERE event_id = $1 AND is_active = TRUE "
             "ORDER BY sort_order, id",
@@ -343,7 +345,9 @@ async def get_public_landing(
         )
         items = []
         for r in rows:
-            d = dict(r)
+            # with_discount дописывает old_price / discount_percent —
+            # зачёркнутую цену считаем в одном месте, а не в каждом рендерере.
+            d = with_discount(r)
             if featured:
                 d["is_featured"] = d["id"] == featured
             items.append(d)

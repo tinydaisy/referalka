@@ -19,6 +19,8 @@ export default function AdminReferralSettingsPage() {
   const [chatSaved, setChatSaved] = useState(false)
   const [signupUntil, setSignupUntil] = useState('')
   const [accrualUntil, setAccrualUntil] = useState('')
+  // Сколько дней триала добавляет реф-ссылка поверх базы тарифа (миграция 306).
+  const [trialBonus, setTrialBonus] = useState('23')
 
   function load() {
     setLoading(true)
@@ -28,6 +30,7 @@ export default function AdminReferralSettingsPage() {
         setPercent(String(r.percent))
         setSignupUntil(r.signup_until || '')
         setAccrualUntil(r.accrual_until || '')
+        setTrialBonus(String(r.trial_bonus_days ?? 23))
         setLoading(false)
       })
       .catch((e: any) => { setErr(e?.message || 'Не удалось загрузить'); setLoading(false) })
@@ -62,8 +65,10 @@ export default function AdminReferralSettingsPage() {
         percent: Number(percent),
         signup_until: signupUntil,
         accrual_until: accrualUntil,
+        trial_bonus_days: Number(trialBonus),
       })
       setData(r)
+      setTrialBonus(String(r.trial_bonus_days ?? trialBonus))
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (e: any) {
@@ -80,7 +85,8 @@ export default function AdminReferralSettingsPage() {
         <Percent size={22} /> Реферальная программа
       </h1>
       <p className="text-sm text-gray-500 mb-6">
-        Ставка кэшбэка, которую получает клиент с оплат приведённых им людей.
+        Ставка кэшбэка с оплат приведённых людей и то, насколько длиннее триал
+        у тех, кто пришёл по реф-ссылке.
       </p>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex gap-3">
@@ -105,6 +111,25 @@ export default function AdminReferralSettingsPage() {
             />
             <span className="text-gray-500">% с каждой оплаты приведённого</span>
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Бонус к триалу за реф-ссылку
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number" min={0} max={365} value={trialBonus}
+              onChange={e => setTrialBonus(e.target.value)}
+              className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FFCFA4] focus:border-transparent"
+            />
+            <span className="text-gray-500">дней сверх базового триала</span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1.5">
+            Пришёл сам, без ссылки — <b>{data?.trial_base_days ?? 7} дней</b>.
+            Пришёл по реф-ссылке — <b>{(data?.trial_base_days ?? 7) + (Number(trialBonus) || 0)} дней</b>.
+            Базовый срок меняется в тарифе «Триал Профи», здесь — только надбавка.
+          </p>
         </div>
 
         <div>

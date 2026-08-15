@@ -507,6 +507,7 @@ class ReferralSettingsUpdate(BaseModel):
     percent: Optional[int] = None
     signup_until: Optional[str] = None      # 'YYYY-MM-DD'
     accrual_until: Optional[str] = None     # 'YYYY-MM-DD'
+    trial_bonus_days: Optional[int] = None  # +дней триала за реф-ссылку (мигр. 306)
 
 
 @admin_router.get("/referral-settings", summary="Настройки реф-программы")
@@ -522,10 +523,19 @@ async def admin_get_referral_settings(
                   count(*) FILTER (WHERE referral_accrual_until <  CURRENT_DATE) AS expired
              FROM clients WHERE referred_by_client_id IS NOT NULL"""
     )
+    # База триала — из самого тарифа: админу надо видеть итог («7 + 23 = 30»),
+    # иначе непонятно, что реально получит пришедший по ссылке.
+    trial_base = await db.fetchval(
+        "SELECT default_duration_days FROM tariffs WHERE slug = 'trial'"
+    ) or 7
+    bonus = int(s.get("trial_bonus_days") or 0)
     return {
         "percent": s["percent"],
         "signup_until": str(s["signup_until"]),
         "accrual_until": str(s["accrual_until"]),
+        "trial_bonus_days": bonus,
+        "trial_base_days": int(trial_base),
+        "trial_total_days": int(trial_base) + bonus,
         "updated_at": s.get("updated_at"),
         "referred_total": stats["total"],
         "referred_active": stats["active"],
@@ -547,6 +557,11 @@ async def admin_update_referral_settings(
             raise HTTPException(400, "Процент должен быть от 0 до 100")
         args.append(data.percent)
         fields.append(f"percent = ${len(args)}")
+    if data.trial_bonus_days is not None:
+        if not (0 <= data.trial_bonus_days <= 365):
+            raise HTTPException(400, "Бонус к триалу должен быть от 0 до 365 дней")
+        args.append(data.trial_bonus_days)
+        fields.append(f"trial_bonus_days = ${len(args)}")
     for key in ("signup_until", "accrual_until"):
         val = getattr(data, key)
         if val:

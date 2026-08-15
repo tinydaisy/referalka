@@ -38,6 +38,7 @@ from app.config import settings
 from app.database import get_db
 from app.services.client_domains import client_id_by_domain
 from app.services.preview_token import is_preview_owner
+from app.services.tariff_discount import with_discount
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,7 @@ async def product_public(
 
     tariffs = await db.fetch(
         """SELECT id, code, title, description, excluded_description, price,
+                  discount_kind, discount_value,
                   order_hint, is_featured, sort_order
              FROM product_tariffs
             WHERE product_id = $1 AND is_active
@@ -201,7 +203,7 @@ async def product_public(
             "wording": _jsonb(row["wording"]),
         },
         "client": dict(client) if client else None,
-        "tariffs": [dict(t) for t in tariffs],
+        "tariffs": [with_discount(t) for t in tariffs],
         "sections": [dict(s) for s in sections],
         "content": [dict(i) for i in items],
     }

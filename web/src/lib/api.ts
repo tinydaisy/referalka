@@ -1506,7 +1506,7 @@ export const api = {
   },
   adminReferralSettings: {
     get: () => request('/api/v1/admin/referral-settings'),
-    update: (data: { percent?: number; signup_until?: string; accrual_until?: string }) =>
+    update: (data: { percent?: number; signup_until?: string; accrual_until?: string; trial_bonus_days?: number }) =>
       request('/api/v1/admin/referral-settings', {
         method: 'PATCH',
         body: JSON.stringify(data),

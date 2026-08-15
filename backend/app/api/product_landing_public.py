@@ -24,6 +24,7 @@ from app.services.client_domains import client_id_by_domain
 from app.services.preview_token import is_preview_owner
 from app.services.landing_theme import apply_theme_fields
 from app.services.landing_support import support_links
+from app.services.tariff_discount import with_discount
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,7 @@ async def get_product_landing(
     if "tariffs" in kinds:
         tariffs = await db.fetch(
             """SELECT id, code, title, description, excluded_description, price,
+                      discount_kind, discount_value,
                       order_hint, is_featured, sort_order
                  FROM product_tariffs
                 WHERE product_id = $1 AND is_active
@@ -193,7 +195,7 @@ async def get_product_landing(
         # ⚠️ Тот же формат, что у события ({items, offer_url, ...}) — рендерер
         # общий, массив он бы не понял.
         data["tariffs"] = {
-            "items": [dict(t) for t in tariffs],
+            "items": [with_discount(t) for t in tariffs],
             "offer_url": product["offer_url"],
             "privacy_url": (
                 f"/c/{client['id']}/privacy"

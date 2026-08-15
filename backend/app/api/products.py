@@ -42,6 +42,7 @@ from app.database import get_db
 from app.auth import get_current_client
 from app.services.features import client_has_feature
 from app.services.assistant_access import assistant_is_restricted
+from app.services.tariff_discount import with_discount
 
 router = APIRouter(tags=["Продукты/услуги"])
 
@@ -161,6 +162,9 @@ class TariffIn(BaseModel):
     # Код товара нужен только LeadPay — у Продамуса и Т-Банка его нет.
     pay_product_id: Optional[str] = None
     order_hint: Optional[str] = None
+    # Скидка (миграция 305). ⚠️ price — цена К ОПЛАТЕ (со скидкой).
+    discount_kind: Optional[str] = None
+    discount_value: Optional[int] = None
     sort_order: int = 0
     is_active: bool = True
     is_featured: bool = False
@@ -175,9 +179,29 @@ class TariffPatch(BaseModel):
     pay_url: Optional[str] = None
     pay_product_id: Optional[str] = None
     order_hint: Optional[str] = None
+    discount_kind: Optional[str] = None
+    discount_value: Optional[int] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
+
+
+def _norm_tariff_discount(kind: Optional[str], value: Optional[int]) -> tuple:
+    """Вид и размер скидки — только парой (см. event_tariffs._norm_discount)."""
+    if not kind or value is None:
+        return None, None
+    kind = str(kind).strip().lower()
+    if kind not in ("percent", "amount"):
+        return None, None
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None, None
+    if value <= 0:
+        return None, None
+    if kind == "percent" and value >= 100:
+        raise HTTPException(status_code=400, detail="Скидка в процентах должна быть меньше 100")
+    return kind, value
 
 
 class MaterialIn(BaseModel):
@@ -560,7 +584,7 @@ async def list_tariffs(
         """,
         product_id,
     )
-    return {"tariffs": [dict(r) for r in rows]}
+    return {"tariffs": [with_discount(r) for r in rows]}
 
 
 @router.post("/products/{product_id}/tariffs", summary="Создать тариф")
@@ -586,20 +610,57 @@ async def create_tariff(
     if busy:
         raise HTTPException(status_code=409, detail="Тариф с таким кодом уже есть")
 
+    d_kind, d_value = _norm_tariff_discount(data.discount_kind, data.discount_value)
+
+    # Новый тариф — в конец списка, чтобы не сбить расставленный порядок.
+    sort_order = data.sort_order
+    if not sort_order:
+        last = await db.fetchval(
+            "SELECT COALESCE(MAX(sort_order), 0) FROM product_tariffs WHERE product_id = $1",
+            product_id,
+        )
+        sort_order = int(last or 0) + 10
+
     row = await db.fetchrow(
         """
         INSERT INTO product_tariffs
             (product_id, code, title, description, excluded_description,
-             price, pay_url, pay_product_id, order_hint,
+             price, discount_kind, discount_value, pay_url, pay_product_id, order_hint,
              sort_order, is_active, is_featured)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         RETURNING *
         """,
         product_id, code, data.title, data.description, data.excluded_description,
-        data.price, data.pay_url, data.pay_product_id, data.order_hint,
-        data.sort_order, data.is_active, data.is_featured,
+        data.price, d_kind, d_value, data.pay_url, data.pay_product_id, data.order_hint,
+        sort_order, data.is_active, data.is_featured,
     )
-    return dict(row)
+    return with_discount(row)
+
+
+@router.post("/products/{product_id}/tariffs/reorder", summary="Порядок тарифов")
+async def reorder_tariffs(
+    product_id: int,
+    data: ReorderIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Порядок тарифов из кабинета = порядок на лендинге.
+
+    ⚠️ Объявлен ДО `/{tariff_id}` — иначе «reorder» уедет в него как id.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    async with db.transaction():
+        for i, tid in enumerate(data.ids):
+            await db.execute(
+                "UPDATE product_tariffs SET sort_order = $1, updated_at = NOW() "
+                "WHERE id = $2 AND product_id = $3",
+                (i + 1) * 10, int(tid), product_id,
+            )
+    return {"ok": True}
 
 
 @router.patch("/products/{product_id}/tariffs/{tariff_id}", summary="Изменить тариф")
@@ -647,8 +708,17 @@ async def update_tariff(
         if col in fs:
             put(col, getattr(data, col))
 
+    # Скидка — пара полей: прислали одно, дописываем второе из текущего
+    # состояния, иначе в базе осталась бы половина и упёрлись бы в CHECK.
+    if "discount_kind" in fs or "discount_value" in fs:
+        kind = data.discount_kind if "discount_kind" in fs else cur["discount_kind"]
+        value = data.discount_value if "discount_value" in fs else cur["discount_value"]
+        d_kind, d_value = _norm_tariff_discount(kind, value)
+        put("discount_kind", d_kind)
+        put("discount_value", d_value)
+
     if not sets:
-        return dict(cur)
+        return with_discount(cur)
 
     args.append(tariff_id)
     row = await db.fetchrow(
@@ -656,7 +726,7 @@ async def update_tariff(
         f"WHERE id = ${len(args)} RETURNING *",
         *args,
     )
-    return dict(row)
+    return with_discount(row)
 
 
 @router.delete("/products/{product_id}/tariffs/{tariff_id}", summary="Удалить тариф")

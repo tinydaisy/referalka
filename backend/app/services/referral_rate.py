@@ -14,11 +14,16 @@ DEFAULT_PERCENT = 10
 DEFAULT_SIGNUP_UNTIL = date(2026, 7, 31)
 DEFAULT_ACCRUAL_UNTIL = date(2027, 7, 31)
 
+# Сколько дней триала добавляет валидная реф-ссылка поверх базы тарифа `trial`
+# (миграция 306). База = 7 дней, бонус = 23 → по ссылке ровно месяц. Смысл в
+# том, чтобы реф-ссылке было что предложить: без рекомендации — короткая проба.
+DEFAULT_TRIAL_BONUS_DAYS = 23
+
 
 async def get_settings(db) -> dict:
     """Текущие настройки программы. Нет строки → дефолты (10% / 2026 / 2027)."""
     row = await db.fetchrow(
-        "SELECT percent, signup_until, accrual_until, updated_at "
+        "SELECT percent, signup_until, accrual_until, trial_bonus_days, updated_at "
         "FROM referral_program_settings WHERE id = 1"
     )
     if not row:
@@ -26,9 +31,20 @@ async def get_settings(db) -> dict:
             "percent": DEFAULT_PERCENT,
             "signup_until": DEFAULT_SIGNUP_UNTIL,
             "accrual_until": DEFAULT_ACCRUAL_UNTIL,
+            "trial_bonus_days": DEFAULT_TRIAL_BONUS_DAYS,
             "updated_at": None,
         }
     return dict(row)
+
+
+async def get_trial_bonus_days(db) -> int:
+    """Бонус к триалу за реф-ссылку. Сбой чтения → дефолт (регистрацию не роняем)."""
+    try:
+        s = await get_settings(db)
+        val = s.get("trial_bonus_days")
+        return int(val) if val is not None else DEFAULT_TRIAL_BONUS_DAYS
+    except Exception:
+        return DEFAULT_TRIAL_BONUS_DAYS
 
 
 async def freeze_rate_for_new_client(db, client_id: int) -> None:

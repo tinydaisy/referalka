@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 
 # Сколько дополнительных дней триала получает клиент, пришедший по реф-коду
 # (реф-программа ПЛЮСОНа). Плюсуется ПОВЕРХ базового триала и активной промо.
-REFERRAL_TRIAL_BONUS_DAYS = 7
+#
+# ⚠️ Число живёт в настройках реф-программы (`referral_program_settings.
+# trial_bonus_days`, миграция 306) и меняется из админки — читать его только
+# через `get_trial_bonus_days`. Константы здесь больше нет: раньше она была
+# захардкожена (7 дней), и сменить соотношение «база/бонус» можно было лишь
+# деплоем. Сейчас: база тарифа `trial` = 7 дней, бонус = 23 → по реф-ссылке
+# ровно месяц, без ссылки — неделя.
 
 
 def _new_integration_token() -> str:
@@ -130,7 +136,7 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
     )
     if not trial_tariff:
         raise HTTPException(status_code=500, detail="Тариф 'trial' не настроен в системе")
-    base_trial_days = trial_tariff["default_duration_days"] or 14
+    base_trial_days = trial_tariff["default_duration_days"] or 7
 
     # Применение активной promo `trial_bonus_days` для тарифа `trial`.
     # Под FOR UPDATE, чтобы used_count++ и проверка max_uses были атомарны
@@ -161,7 +167,10 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         # Реф-бонус: пришёл по валидному реф-коду → +7 дней триала поверх базы и
         # промо-акции. referred_by_client_id уже отрезолвлен выше (None если код
         # невалидный/мусорный — тогда бонуса нет).
-        referral_bonus_days = REFERRAL_TRIAL_BONUS_DAYS if referred_by_client_id else 0
+        from app.services.referral_rate import get_trial_bonus_days
+        referral_bonus_days = (
+            await get_trial_bonus_days(db) if referred_by_client_id else 0
+        )
         trial_days = base_trial_days + bonus_days + referral_bonus_days
 
         # Ставка реф-программы ЗАМОРАЖИВАЕТСЯ на клиенте в момент регистрации
@@ -336,7 +345,7 @@ async def referrer_info(
     # если есть). Чтобы на лендинге писать конкретно «37 дней», а не «на 7 больше».
     base_days = await db.fetchval(
         "SELECT default_duration_days FROM tariffs WHERE slug = 'trial'"
-    ) or 14
+    ) or 7
     promo_bonus = await db.fetchval(
         """SELECT value FROM promotions
             WHERE is_active = TRUE AND type = 'trial_bonus_days'
@@ -346,11 +355,13 @@ async def referrer_info(
               AND (max_uses  IS NULL OR used_count < max_uses)
             ORDER BY id LIMIT 1"""
     ) or 0
-    total_days = int(base_days) + int(promo_bonus) + REFERRAL_TRIAL_BONUS_DAYS
+    from app.services.referral_rate import get_trial_bonus_days
+    bonus_days = await get_trial_bonus_days(db)
+    total_days = int(base_days) + int(promo_bonus) + bonus_days
     return {
         "valid": True,
         "referrer_name": name or "",
-        "bonus_days": REFERRAL_TRIAL_BONUS_DAYS,
+        "bonus_days": bonus_days,
         "total_days": total_days,
     }
 

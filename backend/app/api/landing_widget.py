@@ -19,6 +19,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Response
 from app.database import get_db
+from app.services.tariff_discount import with_discount
 import asyncpg
 import json
 
@@ -151,17 +152,20 @@ async def widget_tariffs(
 
     offer_url = await db.fetchval("SELECT offer_url FROM events WHERE id = $1", event_id)
     rows = await db.fetch(
-        """SELECT code, title, description, price, pay_url, sort_order
+        """SELECT code, title, description, price,
+                  discount_kind, discount_value, pay_url, sort_order
              FROM event_tariffs
             WHERE event_id = $1 AND is_active = TRUE
             ORDER BY sort_order, id""",
         event_id,
     )
+    # old_price / discount_percent отдаём и сюда: клиент верстает свой лендинг
+    # сам, и без них зачёркнутую цену ему пришлось бы считать руками.
     return {
         "event_slug": event["slug"],
         "event_id": event_id,
         "offer_url": offer_url,
-        "tariffs": [dict(r) for r in rows],
+        "tariffs": [with_discount(r) for r in rows],
     }
 
 
