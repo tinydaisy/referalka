@@ -31,6 +31,8 @@ interface Tariff {
   // Бонус в ПЛЮСОНе (миграция 307): что выдать покупателю при оплате.
   bonus_feature_id?: number | null
   bonus_days?: number | null
+  bonus_trial?: boolean | null
+  bonus_tariff_slug?: string | null
   bonus_feature_name?: string | null
   buyers_count: number
   unpaid_count: number
@@ -61,6 +63,7 @@ interface Buyer {
 const emptyForm = {
   code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', order_hint: '', is_active: true, is_featured: false,
   bonus_feature_id: '' as string, bonus_days: '30' as string,
+  bonus_trial: false, bonus_tariff_slug: 'trial' as string,
   // Скидка: пустой размер = скидки нет.
   discount_kind: 'percent' as 'percent' | 'amount', discount_value: '',
 }
@@ -189,6 +192,8 @@ export default function TariffsTab({
       is_featured: !!t.is_featured,
       bonus_feature_id: t.bonus_feature_id ? String(t.bonus_feature_id) : '',
       bonus_days: String(t.bonus_days || 30),
+      bonus_trial: !!t.bonus_trial,
+      bonus_tariff_slug: t.bonus_tariff_slug || 'trial',
       discount_kind: (t.discount_kind || 'percent') as 'percent' | 'amount',
       discount_value: t.discount_value != null ? String(t.discount_value) : '',
     })
@@ -217,9 +222,11 @@ export default function TariffsTab({
       is_featured: form.is_featured,
       // Бонус шлём, только если блок вообще доступен — иначе PATCH без фичи
       // упрётся в 403 у клиентов, которым этот блок не показывается.
-      ...(bonusFeatures.length ? {
+      ...({
         bonus_feature_id: form.bonus_feature_id ? parseInt(form.bonus_feature_id, 10) : null,
         bonus_days: parseInt(form.bonus_days || '30', 10) || 30,
+        bonus_trial: form.bonus_trial,
+        bonus_tariff_slug: form.bonus_tariff_slug || 'trial',
       } : {}),
     }
     setSaving(true)
@@ -555,28 +562,60 @@ export default function TariffsTab({
                        className="input-tar" placeholder="https://..." />
               </Field>
             )}
-            {/* Бонус в ПЛЮСОНе (миграция 307). Блока нет у тех, кому фича не
-                выдана: деньги за тариф идут на кассу клиента, а модуль
-                списывается с ПЛЮСОНа — так можно только там, где касса общая. */}
-            {bonusFeatures.length > 0 && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2.5">
+            {/* ⚠️ Блок виден ВСЕМ: дарить доступ в ПЛЮСОН может любой клиент —
+                человек регистрируется под его реф-кодом, и клиент получает
+                кэшбэк. А выбор платного МОДУЛЯ и тарифа «Профи» показывается
+                только тем, у кого есть фича (admin): это уже наши деньги. */}
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2.5">
                 <div className="text-sm font-medium text-amber-900">Доступ в ПЛЮСОН за покупку</div>
+                <label className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-[#25455D]"
+                    checked={form.bonus_trial}
+                    onChange={e => setForm({ ...form, bonus_trial: e.target.checked })}
+                  />
+                  <span className="text-xs text-amber-900">
+                    Дарить доступ в iViSiON: ПЛЮСОН
+                    <span className="block text-amber-800/70">
+                      Новому пользователю — полный бесплатный период, у кого кабинет
+                      уже есть — 3 дня продления. Покупатель закрепится за вами,
+                      и вы получите кэшбэк с его оплат.
+                    </span>
+                  </span>
+                </label>
+                {bonusFeatures.length > 0 && (<>
                 <p className="text-xs text-amber-800/80">
-                  После оплаты покупатель получит кабинет ПЛЮСОНа с выбранным модулем.
-                  Кабинета нет — создадим и пришлём на почту ссылку для входа; уже есть —
-                  просто продлим модуль.
+                  Можно добавить платный модуль ПЛЮСОНа — покупатель получит его
+                  вместе с доступом.
                 </p>
                 <select
                   value={form.bonus_feature_id}
                   onChange={e => setForm({ ...form, bonus_feature_id: e.target.value })}
                   className="input-tar bg-white"
                 >
-                  <option value="">Не выдавать</option>
+                  <option value="">Без модуля</option>
                   {bonusFeatures.map(f => (
                     <option key={f.id} value={String(f.id)}>{f.name}</option>
                   ))}
                 </select>
                 {form.bonus_feature_id && (
+                  <div className="space-y-1">
+                    <span className="text-xs text-amber-900">Вместе с модулем дарим</span>
+                    {/* Модуль без подписки почти бесполезен: разделы гейтятся
+                        фичей, но запись в кабинете закрыта без тарифа. */}
+                    <select
+                      value={form.bonus_tariff_slug}
+                      onChange={e => setForm({ ...form, bonus_tariff_slug: e.target.value })}
+                      className="input-tar bg-white"
+                    >
+                      <option value="trial">Бесплатный период</option>
+                      <option value="pro">Тариф Профи</option>
+                    </select>
+                  </div>
+                )}
+                </>)}
+                {(form.bonus_feature_id || form.bonus_trial) && (
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-amber-900">На срок</span>
                     <input
@@ -589,13 +628,12 @@ export default function TariffsTab({
                     <span className="text-xs text-amber-900">дн.</span>
                   </div>
                 )}
-                {form.bonus_feature_id && !form.price && (
+                {(form.bonus_feature_id || form.bonus_trial) && !form.price && (
                   <p className="text-xs text-red-600">
                     У тарифа не указана сумма — оплаты не будет, значит и доступ не выдастся.
                   </p>
                 )}
-              </div>
-            )}
+            </div>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />
               Тариф активен

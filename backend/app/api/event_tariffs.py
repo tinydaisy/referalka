@@ -78,6 +78,11 @@ class TariffIn(BaseModel):
     # с этим модулем. NULL = бонуса нет. Гейт — фича `tariff_plusson_bonus`.
     bonus_feature_id: Optional[int] = None
     bonus_days: Optional[int] = None
+    # Дарить доступ в ПЛЮСОН (триал/Профи). Доступно ВСЕМ клиентам,
+    # в отличие от модуля — тот только у admin.
+    bonus_trial: Optional[bool] = None
+    # Что дарим вместе с модулем: 'trial' (по умолчанию) или 'pro'.
+    bonus_tariff_slug: Optional[str] = None
 
 
 class TariffPatch(BaseModel):
@@ -96,6 +101,11 @@ class TariffPatch(BaseModel):
     is_featured: Optional[bool] = None
     bonus_feature_id: Optional[int] = None
     bonus_days: Optional[int] = None
+    # Дарить доступ в ПЛЮСОН (триал/Профи). Доступно ВСЕМ клиентам,
+    # в отличие от модуля — тот только у admin.
+    bonus_trial: Optional[bool] = None
+    # Что дарим вместе с модулем: 'trial' (по умолчанию) или 'pro'.
+    bonus_tariff_slug: Optional[str] = None
 
 
 class TariffsReorder(BaseModel):
@@ -166,6 +176,40 @@ async def _norm_bonus(db, client_id: int, feature_id, days) -> tuple:
     return int(feature_id), d
 
 
+async def _norm_bonus_trial(db, client_id: int, trial, tariff_slug, feature_id) -> tuple:
+    """Проверить «дарить доступ в ПЛЮСОН» перед записью (миграция 309).
+
+    Отдаёт (bonus_trial, bonus_tariff_slug).
+
+    ⚠️ Сам ТРИАЛ доступен ВСЕМ клиентам: человек регистрируется под
+    реф-кодом клиента, клиент получает кэшбэк — раздавать выгодно обоим.
+    Гейт `tariff_plusson_bonus` тут не нужен, он про платный МОДУЛЬ.
+
+    ⚠️ А вот дарить ПРОФИ может только тот, у кого есть эта фича (admin):
+    Профи — наши деньги, а не клиента. Без проверки любой клиент прямым
+    PATCH прописал бы себе раздачу платного тарифа платформы.
+
+    ⚠️ Модуль выдан → триал включаем принудительно: модуль без активной
+    подписки почти бесполезен (разделы гейтятся фичей, но запись в кабинете
+    закрыта), и человек получил бы доступ, которым не может пользоваться.
+    """
+    slug = (tariff_slug or "").strip().lower() or None
+    if slug not in (None, "trial", "pro"):
+        raise HTTPException(status_code=400, detail="Неизвестный тариф бонуса")
+
+    if slug == "pro":
+        if not await client_has_feature(db, client_id, "tariff_plusson_bonus"):
+            raise HTTPException(
+                status_code=403,
+                detail="Дарить тариф Профи можно только с доступом администратора.",
+            )
+
+    on = bool(trial)
+    if feature_id:
+        on = True
+    return on, (slug if on else None)
+
+
 @router.get("-bonus-features", summary="Модули ПЛЮСОНа, которые можно выдать бонусом")
 async def bonus_features(
     event_id: int,
@@ -194,7 +238,7 @@ async def list_tariffs(
                   t.price, t.discount_kind, t.discount_value,
                   t.pay_url, t.pay_product_id, t.order_hint,
                   t.sort_order, t.is_active, t.is_featured,
-                  t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days,
+                  t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, t.bonus_trial, t.bonus_tariff_slug,
                   (SELECT name FROM features f WHERE f.id = t.bonus_feature_id) AS bonus_feature_name,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
@@ -291,22 +335,26 @@ async def create_tariff(
 
     b_feature, b_days = await _norm_bonus(
         db, client_id, data.bonus_feature_id, data.bonus_days)
+    b_trial, b_tariff = await _norm_bonus_trial(
+        db, client_id, data.bonus_trial, data.bonus_tariff_slug, b_feature)
 
     row = await db.fetchrow(
         """INSERT INTO event_tariffs (event_id, code, title, description, excluded_description,
                                      price, discount_kind, discount_value,
                                      pay_url, pay_product_id, order_hint,
                                      sort_order, is_active, is_featured,
-                                     bonus_feature_id, bonus_days)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                                     bonus_feature_id, bonus_days,
+                                     bonus_trial, bonus_tariff_slug)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
            RETURNING id, code, title, description, excluded_description, price,
                      discount_kind, discount_value, pay_url,
                      pay_product_id, order_hint, sort_order, is_active, is_featured,
-                     bonus_feature_id, bonus_days""",
+                     bonus_feature_id, bonus_days, bonus_trial, bonus_tariff_slug""",
         event_id, code, data.title.strip(), data.description, data.excluded_description,
         data.price, d_kind, d_value,
         data.pay_url, data.pay_product_id, data.order_hint, sort_order,
         data.is_active, data.is_featured, b_feature, b_days,
+        b_trial, b_tariff,
     )
     return with_discount(row)
 
@@ -392,6 +440,18 @@ async def update_tariff(
         dys = fields.get("bonus_days", cur_b["bonus_days"])
         fields["bonus_feature_id"], fields["bonus_days"] = await _norm_bonus(
             db, client_id, feat, dys)
+
+    # То же для «дарить доступ в ПЛЮСОН»: проверка ОБЯЗАТЕЛЬНА и здесь,
+    # иначе гейт на «Профи» обходится обычным PATCH существующего тарифа.
+    if "bonus_trial" in fields or "bonus_tariff_slug" in fields or "bonus_feature_id" in fields:
+        cur_t = await db.fetchrow(
+            "SELECT bonus_trial, bonus_tariff_slug, bonus_feature_id "
+            "FROM event_tariffs WHERE id = $1", tariff_id)
+        tr = fields.get("bonus_trial", cur_t["bonus_trial"])
+        sl = fields.get("bonus_tariff_slug", cur_t["bonus_tariff_slug"])
+        ft = fields.get("bonus_feature_id", cur_t["bonus_feature_id"])
+        fields["bonus_trial"], fields["bonus_tariff_slug"] = await _norm_bonus_trial(
+            db, client_id, tr, sl, ft)
 
     if not fields:
         return {"ok": True}
