@@ -762,9 +762,13 @@ async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) 
     # не бросает: оплата уже принята, участник зарегистрирован, и сорвавшаяся
     # выдача бонуса не должна превращаться в ошибку вебхука (иначе платёжка
     # сочтёт оповещение недоставленным и начнёт слать повторы).
+    # ⚠️ Доступ здесь НЕ включается — создаётся купон и уходит письмо со
+    # ссылкой. Раньше кабинет заводился сразу по вебхуку, и дни горели, пока
+    # письмо лежало непрочитанным: человек открывал его через две недели и
+    # обнаруживал, что от 30 дней осталось 16 (миграция 308).
     try:
-        from app.services.tariff_plusson_bonus import grant_tariff_bonus
-        await grant_tariff_bonus(db, order_id)
+        from app.services.plusson_bonus import issue_bonus_coupon
+        await issue_bonus_coupon(db, order_id)
     except Exception as e:
         logger.warning("Бонус ПЛЮСОНа по заказу %s не выдан: %s", order_id, e)
 

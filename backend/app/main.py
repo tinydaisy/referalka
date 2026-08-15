@@ -9,7 +9,7 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
@@ -111,6 +111,8 @@ app.include_router(products.router, prefix="/api/v1")
 # приходят на ОБЩИЙ роут /integrations/client-pay/* (см. event_orders.py):
 # отдельного адреса завести нельзя, различаем по префиксу номера `prd-`.
 app.include_router(product_orders.router)
+# Активация бонусного доступа в ПЛЮСОН по ссылке из письма (мигр. 308).
+app.include_router(plusson_bonus_public.router)
 # Витрина продукта /pr/{slug} и кабинет купившего /my — у роутера свой префикс.
 app.include_router(products_public.router)
 # Конструктор лендинга продукта (миграция 293) — те же блоки, что у события.
