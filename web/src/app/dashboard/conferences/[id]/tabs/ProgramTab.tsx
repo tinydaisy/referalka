@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Plus, Calendar, Trash2, Save, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
@@ -32,6 +32,10 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   // dirtyDays — какие day_number имеют несохранённые правки (для подсветки кнопки).
   // Сбрасывается после успешного сохранения.
   const [dirtyDays, setDirtyDays] = useState<Set<number>>(new Set())
+  // ⚠️ Тот же набор в ref: load() читает его из замыкания, а там значение
+  // состояния может быть устаревшим — и несохранённый ввод затёрся бы.
+  const dirtyDaysRef = useRef<Set<number>>(new Set())
+  useEffect(() => { dirtyDaysRef.current = dirtyDays }, [dirtyDays])
   const [dayForms, setDayForms] = useState<Record<number, any>>({})
   // editId != null → редактируем существующий слот (в конференции раньше слот
   // можно было только удалить и завести заново).
@@ -87,21 +91,44 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       setDays(loadedDays)
       setSessions(sRes.sessions || [])
       setSpeakers(spRes.speakers || [])
-      const forms: Record<number, any> = {}
-      loadedDays.forEach((d: any) => {
-        forms[d.day_number] = { day_date: d.day_date || '', stream_url: d.stream_url || '', show_for_speakers: d.show_for_speakers ?? true, has_webinar: d.has_webinar ?? true }
+      // ⚠️ НЕСОХРАНЁННЫЙ ввод переживает перезагрузку. Раньше формы дней
+      // пересобирались строго из ответа сервера, и любой load() (например
+      // после «Добавить день») стирал уже набранную, но ещё не сохранённую
+      // дату — человек правит дальше и теряет введённое.
+      // Поэтому у дней из dirtyDays оставляем то, что человек уже ввёл.
+      setDayForms(prev => {
+        const forms: Record<number, any> = {}
+        loadedDays.forEach((d: any) => {
+          const fromServer = {
+            day_date: d.day_date || '',
+            stream_url: d.stream_url || '',
+            show_for_speakers: d.show_for_speakers ?? true,
+            has_webinar: d.has_webinar ?? true,
+          }
+          forms[d.day_number] = dirtyDaysRef.current.has(d.day_number) && prev[d.day_number]
+            ? prev[d.day_number]
+            : fromServer
+        })
+        return forms
       })
-      setDayForms(forms)
     } finally {
       setLoading(false)
     }
   }
   useEffect(() => { load() }, [eventId])
 
+  // ⚠️ Новый день добавляется В СОСТОЯНИЕ, без перезагрузки всей программы.
+  // Раньше здесь был load(): он перечитывал всё с сервера и стирал дату,
+  // которую человек уже набрал в другом дне, но ещё не сохранил.
   async function addDay() {
     const nextNum = days.length > 0 ? Math.max(...days.map((d: any) => d.day_number)) + 1 : 1
-    await api.conference.days.upsert(eventId, nextNum, { day_date: null })
-    load()
+    const created = await api.conference.days.upsert(eventId, nextNum, { day_date: null })
+    const row = created?.day || { day_number: nextNum, day_date: null, stream_url: null, show_for_speakers: true, has_webinar: true }
+    setDays(prev => [...prev, row])
+    setDayForms(prev => ({
+      ...prev,
+      [nextNum]: { day_date: '', stream_url: '', show_for_speakers: true, has_webinar: true },
+    }))
   }
 
   // Глобальное сохранение всех дней программы — заменяет per-day кнопку-дискету.
