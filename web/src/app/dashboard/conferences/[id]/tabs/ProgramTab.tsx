@@ -131,8 +131,16 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
 
   async function deleteDay(dayNum: number) {
     if (!confirm(tp.deleteDayConfirm(dayNum))) return
-    const daySessions = sessions.filter((s: any) => s.day === dayNum)
-    await Promise.all(daySessions.map((s: any) => api.conference.sessions.delete(eventId, s.id)))
+    // ⚠️ Раньше удалялись ТОЛЬКО сессии дня, а сам день — нет: он пропадал
+    // с экрана и возвращался после перезагрузки. У дня без сессий не уходило
+    // вообще ни одного запроса, и удаление выглядело сломанным.
+    // Эндпоинт сам чистит сессии дня, поэтому удалять их отдельно не нужно.
+    try {
+      await api.conference.days.delete(eventId, dayNum)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось удалить день')
+      return
+    }
     setDays(remaining => remaining.filter((d: any) => d.day_number !== dayNum))
     setSessions(prev => prev.filter((s: any) => s.day !== dayNum))
   }
