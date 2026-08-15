@@ -620,16 +620,20 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
           <div>
             <label className="mb-1 block text-sm text-gray-600">Скидка</label>
             <div className="flex gap-2">
+              {/* Ширины inline — чтобы селектор не растянулся, а поле ввода
+                  не схлопнулось (см. ту же правку в тарифах события). */}
               <select value={discountKind}
                       onChange={e => setDiscountKind(e.target.value as 'percent' | 'amount')}
-                      className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                      style={{ flex: '0 0 5rem' }}
+                      className="rounded-lg border border-gray-300 px-2 py-2 text-sm">
                 <option value="percent">%</option>
                 <option value="amount">₽</option>
               </select>
               <input value={discountValue}
                      onChange={e => setDiscountValue(e.target.value.replace(/[^0-9]/g, ''))}
                      inputMode="numeric" placeholder={discountKind === 'percent' ? '20' : '5000'}
-                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                     style={{ flex: '1 1 auto', minWidth: 0 }}
+                     className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             </div>
             {oldPricePreview ? (
               <p className="mt-1 text-xs text-gray-600">

@@ -30,7 +30,7 @@ interface Tariff {
   order_hint?: string | null
   // Бонус в ПЛЮСОНе (миграция 307): что выдать покупателю при оплате.
   bonus_feature_id?: number | null
-  bonus_months?: number | null
+  bonus_days?: number | null
   bonus_feature_name?: string | null
   buyers_count: number
   unpaid_count: number
@@ -60,7 +60,7 @@ interface Buyer {
 
 const emptyForm = {
   code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', order_hint: '', is_active: true, is_featured: false,
-  bonus_feature_id: '' as string, bonus_months: '1' as string,
+  bonus_feature_id: '' as string, bonus_days: '30' as string,
   // Скидка: пустой размер = скидки нет.
   discount_kind: 'percent' as 'percent' | 'amount', discount_value: '',
 }
@@ -188,7 +188,7 @@ export default function TariffsTab({
       is_active: t.is_active,
       is_featured: !!t.is_featured,
       bonus_feature_id: t.bonus_feature_id ? String(t.bonus_feature_id) : '',
-      bonus_months: String(t.bonus_months || 1),
+      bonus_days: String(t.bonus_days || 30),
       discount_kind: (t.discount_kind || 'percent') as 'percent' | 'amount',
       discount_value: t.discount_value != null ? String(t.discount_value) : '',
     })
@@ -219,7 +219,7 @@ export default function TariffsTab({
       // упрётся в 403 у клиентов, которым этот блок не показывается.
       ...(bonusFeatures.length ? {
         bonus_feature_id: form.bonus_feature_id ? parseInt(form.bonus_feature_id, 10) : null,
-        bonus_months: parseInt(form.bonus_months || '1', 10) || 1,
+        bonus_days: parseInt(form.bonus_days || '30', 10) || 30,
       } : {}),
     }
     setSaving(true)
@@ -404,7 +404,7 @@ export default function TariffsTab({
                   {t.bonus_feature_id && (
                     <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-medium">
                       🎁 ПЛЮСОН: {t.bonus_feature_name || 'модуль'}
-                      {(t.bonus_months || 1) > 1 ? ` · ${t.bonus_months} мес.` : ''}
+                      {` · ${t.bonus_days || 30} дн.`}
                     </span>
                   )}
                   {t.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{t.description}</p>}
@@ -481,16 +481,22 @@ export default function TariffsTab({
             </Field>
             <Field label="Скидка"
                    hint="Если есть — на лендинге рядом с ценой появится вторая, зачёркнутая. Пусто = скидки нет">
+              {/* ⚠️ Ширины заданы inline, а НЕ классами w-20/flex-1: у .input-tar
+                  стоит `width:100%` из <style jsx>, и он перебивал Tailwind —
+                  селектор «%/₽» растягивался на строку, а поле ввода
+                  схлопывалось в кружок, куда нельзя было попасть. */}
               <div className="flex gap-2">
                 <select value={form.discount_kind}
                         onChange={e => setForm({ ...form, discount_kind: e.target.value as 'percent' | 'amount' })}
-                        className="input-tar w-28">
+                        className="input-tar"
+                        style={{ width: '5rem', flex: '0 0 5rem' }}>
                   <option value="percent">%</option>
                   <option value="amount">₽</option>
                 </select>
                 <input value={form.discount_value}
                        onChange={e => setForm({ ...form, discount_value: e.target.value.replace(/[^0-9]/g, '') })}
-                       className="input-tar flex-1"
+                       className="input-tar"
+                       style={{ flex: '1 1 auto', minWidth: 0 }}
                        placeholder={form.discount_kind === 'percent' ? '20' : '5000'}
                        inputMode="numeric" />
               </div>
@@ -574,11 +580,13 @@ export default function TariffsTab({
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-amber-900">На срок</span>
                     <input
-                      value={form.bonus_months}
-                      onChange={e => setForm({ ...form, bonus_months: e.target.value.replace(/[^0-9]/g, '') })}
+                      value={form.bonus_days}
+                      onChange={e => setForm({ ...form, bonus_days: e.target.value.replace(/[^0-9]/g, '') })}
                       className="input-tar bg-white" style={{ width: 80 }} inputMode="numeric"
                     />
-                    <span className="text-xs text-amber-900">мес.</span>
+                    {/* ⚠️ Срок ТОЛЬКО в днях: «месяц» — это то ли 30, то ли 31,
+                        а покупателю в письме нужна точная цифра. */}
+                    <span className="text-xs text-amber-900">дн.</span>
                   </div>
                 )}
                 {form.bonus_feature_id && !form.price && (
