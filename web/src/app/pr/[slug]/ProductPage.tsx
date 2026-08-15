@@ -9,7 +9,7 @@
  * ⚠️ Формулировки — из словаря продукта: у консультационного пресета нигде не
  * должно быть «уроков», «программы обучения» и «учеников».
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -23,6 +23,16 @@ export default function ProductPage({ data, slug }: { data: any; slug: string })
   const { product, client, tariffs, sections, content } = data
   const W = wording(product.wording_preset)
   const [orderTariff, setOrderTariff] = useState<any>(null)
+
+  // ⚠️ Кнопка тарифа с ЛЕНДИНГА ведёт сюда с ?tariff={id} — открываем форму
+  // заказа сразу. Раньше параметр никто не читал: человек приходил на витрину
+  // и ничего не происходило, будто кнопка не работает.
+  useEffect(() => {
+    const id = new URL(window.location.href).searchParams.get('tariff')
+    if (!id) return
+    const t = (tariffs || []).find((x: any) => String(x.id) === String(id))
+    if (t) setOrderTariff(t)
+  }, [tariffs])
 
   // Дерево состава: разделы верхнего уровня + материалы без раздела.
   const tree = useMemo(() => buildTree(sections, content), [sections, content])
