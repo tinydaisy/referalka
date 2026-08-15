@@ -6,6 +6,10 @@ from app.database import get_db
 from app.services import collaborator_sort
 from app.services.webinar_service import day_stream_url
 from app.services.client_domains import client_public_link
+# ⚠️ Имя спикера собирать ТОЛЬКО этим хелпером: «Имя Фамилия» для показа.
+# Голый col.name отдаёт одно имя — фамилия пропадает (миграция 302 вынесла её
+# в отдельную колонку last_name).
+from app.services.person_name import DISPLAY_NAME_SQL
 import asyncpg
 import re
 import json
@@ -2334,9 +2338,9 @@ async def list_sessions(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
-        """SELECT s.*,
+        f"""SELECT s.*,
                   COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
-                  col.name as speaker_name, col.title as speaker_title,
+                  {DISPLAY_NAME_SQL("col")} AS speaker_name, col.title as speaker_title,
                   col.photo_url,
                   pu_tg.username AS personal_tg_username,
                   cse.role as speaker_role, cse.is_commercial,
@@ -2397,11 +2401,11 @@ async def list_sessions(
 @router.get("/sessions/day/{day}", summary="Сессии по дню (для Mini App)")
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
-        """SELECT s.id, s.day, s.start_time, s.end_time,
+        f"""SELECT s.id, s.day, s.start_time, s.end_time,
                   COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color, s.track_id,
                   s.speaker_id AS speaker_event_id,
-                  col.name as speaker_name, col.title as speaker_title,
+                  {DISPLAY_NAME_SQL("col")} AS speaker_name, col.title as speaker_title,
                   col.photo_url, cse.role as speaker_role,
                   (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
            FROM conf_sessions s
@@ -2737,7 +2741,7 @@ async def list_broadcasts(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
-        """SELECT b.*, col.name as speaker_name, s.title as session_title,
+        f"""SELECT b.*, {DISPLAY_NAME_SQL("col")} AS speaker_name, s.title as session_title,
                   s.start_time as session_time
            FROM conf_broadcast_messages b
            LEFT JOIN event_collaborators cse ON cse.id = b.speaker_id
@@ -2881,8 +2885,8 @@ async def generate_broadcasts_from_schedule(
 ):
     await check_conference_access(event_id, int(client["sub"]), db, write=True)
     sessions = await db.fetch(
-        """SELECT s.*, d.day_date,
-                  spg.name AS speaker_name, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
+        f"""SELECT s.*, d.day_date,
+                  {DISPLAY_NAME_SQL("spg")} AS speaker_name, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
@@ -3007,7 +3011,7 @@ async def list_secret_codes(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     codes = await db.fetch(
-        """SELECT sc.*, col.name as speaker_name FROM conf_secret_codes sc
+        f"""SELECT sc.*, {DISPLAY_NAME_SQL("col")} AS speaker_name FROM conf_secret_codes sc
            LEFT JOIN event_collaborators cse ON cse.id = sc.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE sc.event_id = $1""",
