@@ -222,11 +222,17 @@ async def create_order(
             # чужому адресу нельзя подсмотреть чужой номер.
             return {"ok": False, "need_choice": True,
                     "candidates": cands, "can_create_new": can_new}
-        contact_id = found or await find_or_create_contact(
-            db, client_id=client_id, name=data.name, email=data.email,
-            phone=data.phone, lookup_telegram_username=data.telegram_username,
-            utm_source=data.utm_source,
-        )
+        if not found:
+            # ⚠️ find_or_create_contact возвращает ПАРУ (id, создан ли новый).
+            # Раньше пара целиком уезжала в contact_id и дальше в SQL —
+            # заказ падал 500 «tuple object cannot be interpreted as an
+            # integer», и кнопка «Выбрать» не открывала оплату.
+            found, _ = await find_or_create_contact(
+                db, client_id=client_id, name=data.name, email=data.email,
+                phone=data.phone, lookup_telegram_username=data.telegram_username,
+                utm_source=data.utm_source,
+            )
+        contact_id = found
 
     # Кто привёл (?pid= в адресе страницы) — фиксируем у контакта.
     if data.ref_code:
