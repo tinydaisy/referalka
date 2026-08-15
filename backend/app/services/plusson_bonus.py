@@ -132,12 +132,12 @@ async def issue_bonus_coupon(db: asyncpg.Connection, order_id: int) -> dict:
         await db.execute(
             """INSERT INTO plusson_bonus_coupons
                  (order_id, event_tariff_id, issuer_client_id, email, contact_id,
-                  name, phone, feature_id, days, token_hash, expires_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW() + ($11 || ' days')::interval)
+                  name, phone, feature_id, days, token_hash, token, expires_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, NOW() + ($12 || ' days')::interval)
                ON CONFLICT (order_id) DO NOTHING""",
             order_id, o["tariff_id"], owner["id"], email, o["contact_id"],
             name, phone, feature_id, int(o["bonus_days"] or 30),
-            _hash(token), str(COUPON_TTL_DAYS),
+            _hash(token), token, str(COUPON_TTL_DAYS),
         )
 
         trial_days, extra_days = await bonus_day_numbers(db)

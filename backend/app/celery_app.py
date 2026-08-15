@@ -6,7 +6,7 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
+    include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check"]
 )
@@ -19,6 +19,12 @@ celery.conf.update(
     accept_content=["json"],
     beat_schedule={
         # Каждую минуту проверяем расписание рассылок
+        # Напоминания о неактивированном бонусе ПЛЮСОНа (мигр. 308).
+        # Раз в час: график считается в днях, чаще незачем.
+        "plusson-bonus-reminders": {
+            "task": "app.tasks.plusson_bonus_reminders.send_reminders",
+            "schedule": 3600.0,
+        },
         "check-broadcasts": {
             "task": "app.tasks.broadcast.check_and_send_broadcasts",
             "schedule": 60.0,
