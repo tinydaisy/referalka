@@ -13,6 +13,10 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [referrerPid, setReferrerPid] = useState<string | null>(null)
+  // Кто пригласил и на сколько дней длиннее триал. Цифры с бэкенда
+  // (`/auth/referrer-info`) — база тарифа + бонус из настроек реф-программы,
+  // хардкода быть не должно: бонус меняется из админки.
+  const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number; total_days: number; base_days: number } | null>(null)
   // МедиаЛифт: id платформы из воронки → авто-связка карточки коллаба с новым аккаунтом.
   const [mlIds, setMlIds] = useState<{ tg?: string; vk?: string; max?: string }>({})
 
@@ -21,8 +25,17 @@ export default function RegisterPage() {
     const q = new URLSearchParams(window.location.search)
     const fromUrl = q.get('pid')
     if (fromUrl) localStorage.setItem('pluson_referrer_pid', fromUrl)
-    setReferrerPid(fromUrl || localStorage.getItem('pluson_referrer_pid'))
+    const effective = fromUrl || localStorage.getItem('pluson_referrer_pid')
+    setReferrerPid(effective)
     setMlIds({ tg: q.get('ml_tg_id') || undefined, vk: q.get('ml_vk_id') || undefined, max: q.get('ml_max_id') || undefined })
+    // Мусорный/несуществующий код плашку не показывает (как на лендинге).
+    if (effective) {
+      api.auth.referrerInfo(effective)
+        .then((r: any) => {
+          if (r?.valid) setReferrer({ referrer_name: r.referrer_name, bonus_days: r.bonus_days, total_days: r.total_days, base_days: r.base_days })
+        })
+        .catch(() => {})
+    }
   }, [])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -94,9 +107,24 @@ export default function RegisterPage() {
 
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Создайте аккаунт</h2>
           {referrerPid && (
-            <p className="mb-6 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
-              🎁 Вас пригласили по реф-коду <b>{referrerPid}</b>
-            </p>
+            <div className="mb-6 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+              {referrer ? (
+                <>
+                  <div>
+                    🎁 Продлённый триал — <b>{referrer.total_days} дней</b>
+                    {referrer.base_days > 0 && referrer.bonus_days > 0 && (
+                      <> вместо <s className="opacity-60">{referrer.base_days}</s></>
+                    )}
+                    {referrer.referrer_name && <>. Вас пригласил {referrer.referrer_name}</>}
+                  </div>
+                  <div className="text-xs text-emerald-600/80 mt-0.5">
+                    Триал даётся один раз — при регистрации нового кабинета
+                  </div>
+                </>
+              ) : (
+                <>🎁 Вас пригласили по реф-коду <b>{referrerPid}</b></>
+              )}
+            </div>
           )}
           {!referrerPid && <div className="mb-6" />}
 

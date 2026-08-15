@@ -2104,7 +2104,8 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
       {cards}
     </div>
   ) : (
-    <div className="lp-grid grid gap-5" style={{ ['--lp-cols-lg' as any]: cols }}>
+    <div className="lp-grid grid gap-5"
+         style={{ ['--lp-cols-lg' as any]: Math.min(cols, list.length) }}>
       {cards}
     </div>
   )
@@ -2164,15 +2165,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   if (!scroll) {
     return (
       <div className="lp-grid grid gap-5"
-           style={{
-             ['--lp-cols-lg' as any]: cols,
-             // ⚠️ Партнёров МАЛО (1–2) — колонке задаём конкретную ширину,
-             // иначе две колонки по 1fr растянутся на весь контейнер (880px)
-             // и «центрировать» станет нечего: карточки просто станут
-             // огромными. С фиксированной шириной узкий ряд встаёт по центру.
-             // От 3 карточек ряд и так заполняет строку — оставляем 1fr.
-             ...(list.length < 3 ? { ['--lp-col-w' as any]: `${cardW}px` } : {}),
-           }}>
+           style={{ ['--lp-cols-lg' as any]: Math.min(cols, list.length) }}>
         {cards}
       </div>
     )

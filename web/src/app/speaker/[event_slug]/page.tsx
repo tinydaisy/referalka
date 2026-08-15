@@ -1749,48 +1749,9 @@ function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
         <div style={{ marginTop: 10, fontSize: 13, color: '#9A3412' }}>{introErr}</div>
       )}
 
-      {/* Окно превью: то же фото и тот же текст, что уйдут аудитории. */}
-      {intro && (
-        <div
-          onClick={() => setIntro(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 16, zIndex: 1000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%',
-              maxHeight: '85vh', overflowY: 'auto', padding: 18,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>
-                Знакомство со спикером
-              </div>
-              <button type="button" onClick={() => setIntro(null)}
-                style={{ border: 'none', background: 'transparent', fontSize: 22, color: '#7a8c9c', cursor: 'pointer', lineHeight: 1 }}>
-                ×
-              </button>
-            </div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-              Так вас увидит аудитория события.
-            </div>
-            {intro.photo && (
-              <img src={intro.photo} alt="" style={{ width: '100%', borderRadius: 12, marginBottom: 12 }} />
-            )}
-            <div style={{ fontSize: 14, lineHeight: 1.6, color: '#1f2d3a', whiteSpace: 'pre-wrap' }}
-                 dangerouslySetInnerHTML={{ __html: intro.text || '' }} />
-            {intro.button_text && (
-              <div style={{ marginTop: 14, textAlign: 'center', padding: '10px 14px', borderRadius: 10, background: '#F1F6FA', border: '1px solid #B9CEDD', fontSize: 13, fontWeight: 600, color: DARK }}>
-                {intro.button_text}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* ⚠️ Готовый компонент, а не копия разметки: превью должно
+          выглядеть ОДИНАКОВО здесь и во вкладке «Рекламные интеграции». */}
+      {intro && <BroadcastPreviewModal item={intro} onClose={() => setIntro(null)} />}
 
       {missing.length > 0 && (
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: '#FFF7ED', border: '1px solid #FED7AA' }}>
@@ -2559,60 +2520,71 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
         </div>
       )}
 
-      {preview && (
-        <div
-          onClick={() => setPreview(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 16, zIndex: 1000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%',
-              maxHeight: '85vh', overflowY: 'auto', padding: 18,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{preview.name}</div>
-              <button type="button" onClick={() => setPreview(null)}
-                style={{ border: 'none', background: 'transparent', fontSize: 22, color: '#7a8c9c', cursor: 'pointer', lineHeight: 1 }}>
-                ×
-              </button>
-            </div>
-            <div style={{ marginBottom: 10 }}>{statusChip(preview.status)}</div>
-            {preview.media_type === 'video' && preview.video ? (
-              <video src={preview.video} controls style={{ width: '100%', borderRadius: 12, marginBottom: 12, maxHeight: 260 }} />
-            ) : preview.photo ? (
-              <img src={preview.photo} alt="" style={{ width: '100%', borderRadius: 12, marginBottom: 12, objectFit: 'contain', maxHeight: 320 }} />
-            ) : null}
-            <div
-              style={{ fontSize: 14, color: '#1a2b38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}
-              dangerouslySetInnerHTML={{ __html: preview.text || '' }}
-            />
-            {preview.button_text && (
-              <div style={{
-                marginTop: 14, textAlign: 'center', padding: '10px 12px',
-                borderRadius: 12, border: '1px solid #d4dee5', color: '#2563eb',
-                fontSize: 14, fontWeight: 600,
-              }}>
-                {preview.button_text}
-              </div>
-            )}
-            {Array.isArray(preview.buttons) && preview.buttons.map((btn: any, i: number) => btn?.text && (
-              <div key={i} style={{
-                marginTop: 8, textAlign: 'center', padding: '10px 12px',
-                borderRadius: 12, border: '1px solid #d4dee5', color: '#2563eb',
-                fontSize: 14, fontWeight: 600,
-              }}>
-                {btn.text}
-              </div>
-            ))}
-          </div>
+      {preview && <BroadcastPreviewModal item={preview} onClose={() => setPreview(null)} />}
+    </div>
+  )
+}
+
+/**
+ * Окно превью рассылки — ОДНА реализация на весь кабинет.
+ *
+ * ⚠️ Раньше разметка жила внутри MyBroadcastsTab, и «показать превью» из
+ * другого места было нечем — приходилось бы копировать вёрстку. Второй копии
+ * быть не должно: они разъедутся, и превью в двух местах станет разным.
+ */
+function BroadcastPreviewModal({ item, onClose }: { item: any; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16, zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%',
+          maxHeight: '85vh', overflowY: 'auto', padding: 18,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{item.name}</div>
+          <button type="button" onClick={onClose}
+            style={{ border: 'none', background: 'transparent', fontSize: 22, color: '#7a8c9c', cursor: 'pointer', lineHeight: 1 }}>
+            ×
+          </button>
         </div>
-      )}
+        {item.status && <div style={{ marginBottom: 10 }}>{statusChip(item.status)}</div>}
+        {item.media_type === 'video' && item.video ? (
+          <video src={item.video} controls style={{ width: '100%', borderRadius: 12, marginBottom: 12, maxHeight: 260 }} />
+        ) : item.photo ? (
+          <img src={item.photo} alt="" style={{ width: '100%', borderRadius: 12, marginBottom: 12, objectFit: 'contain', maxHeight: 320 }} />
+        ) : null}
+        <div
+          style={{ fontSize: 14, color: '#1a2b38', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}
+          dangerouslySetInnerHTML={{ __html: item.text || '' }}
+        />
+        {item.button_text && (
+          <div style={{
+            marginTop: 14, textAlign: 'center', padding: '10px 12px',
+            borderRadius: 12, border: '1px solid #d4dee5', color: '#2563eb',
+            fontSize: 14, fontWeight: 600,
+          }}>
+            {item.button_text}
+          </div>
+        )}
+        {Array.isArray(item.buttons) && item.buttons.map((btn: any, i: number) => btn?.text && (
+          <div key={i} style={{
+            marginTop: 8, textAlign: 'center', padding: '10px 12px',
+            borderRadius: 12, border: '1px solid #d4dee5', color: '#2563eb',
+            fontSize: 14, fontWeight: 600,
+          }}>
+            {btn.text}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

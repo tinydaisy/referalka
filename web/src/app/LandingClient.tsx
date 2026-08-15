@@ -59,7 +59,7 @@ export default function LandingClient() {
   const [addonModules, setAddonModules] = useState<Feature[]>([])
   const [pid, setPid] = useState<string | null>(null)
   // Инфо о пригласившем — заполняется только если pid ВАЛИДНЫЙ (реальный код).
-  const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number; total_days: number } | null>(null)
+  const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number; total_days: number; base_days: number } | null>(null)
 
   useEffect(() => {
     // Парсим pid из URL и сохраняем в localStorage — пригодится при регистрации
@@ -75,7 +75,7 @@ export default function LandingClient() {
             if (r?.valid) {
               localStorage.setItem('pluson_referrer_pid', effective)
               setPid(effective)
-              setReferrer({ referrer_name: r.referrer_name, bonus_days: r.bonus_days, total_days: r.total_days })
+              setReferrer({ referrer_name: r.referrer_name, bonus_days: r.bonus_days, total_days: r.total_days, base_days: r.base_days })
             } else {
               localStorage.removeItem('pluson_referrer_pid')
               setPid(null)
@@ -156,13 +156,25 @@ export default function LandingClient() {
           {referrer && (
             <div className="mt-5 inline-flex flex-col items-center gap-1 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3">
               <span className="text-amber-900 font-semibold text-sm sm:text-base">
-                🎁 Вам доступен продлённый триал — {referrer.total_days} дней
+                🎁 Продлённый триал — {referrer.total_days} дней
+                {referrer.base_days > 0 && referrer.bonus_days > 0 && (
+                  <> вместо <s className="opacity-60">{referrer.base_days}</s></>
+                )}
               </span>
               {referrer.referrer_name && (
                 <span className="text-xs sm:text-sm text-amber-700">
                   Вас пригласил {referrer.referrer_name}
                 </span>
               )}
+              {/* Без этой строки люди считают, что каждый переход по ссылке снова
+                  даёт бесплатный месяц. Триал выдаётся ОДИН раз — при создании
+                  кабинета; у кого он уже есть, ссылка ничего не продлевает.
+                  Формулировка «даётся один раз», а не «если вы новый клиент»:
+                  до регистрации мы не знаем, новый человек или нет, и вопрос
+                  в лоб звучит как подозрение. */}
+              <span className="text-xs text-amber-700/80">
+                Триал даётся один раз — при регистрации нового кабинета
+              </span>
             </div>
           )}
         </div>
@@ -206,7 +218,7 @@ export default function LandingClient() {
 
           <div className="flex flex-wrap justify-center gap-5 sm:gap-7 max-w-5xl mx-auto [&>*]:w-full [&>*]:sm:w-[300px]">
             {tariffs.map(t => (
-              <TariffCard key={t.id} t={t} registerHref={registerHref} featureLabels={featureLabels} trialBonus={trialBonus} />
+              <TariffCard key={t.id} t={t} registerHref={registerHref} featureLabels={featureLabels} trialBonus={trialBonus} referrer={referrer} />
             ))}
           </div>
 
@@ -256,11 +268,14 @@ export default function LandingClient() {
   )
 }
 
-function TariffCard({ t, registerHref, featureLabels, trialBonus }: { t: Tariff; registerHref: string; featureLabels: Record<string, string>; trialBonus?: Promotion }) {
+function TariffCard({ t, registerHref, featureLabels, trialBonus, referrer }: { t: Tariff; registerHref: string; featureLabels: Record<string, string>; trialBonus?: Promotion; referrer?: { total_days: number } | null }) {
   const isPro = t.slug === 'pro'
   const isTrial = t.slug === 'trial'
   // Срок триала с учётом активной акции: база + бонусные дни.
   const trialDays = t.default_duration_days + (isTrial && trialBonus ? Number(trialBonus.value || 0) : 0)
+  // Человек пришёл по реф-ссылке — в карточке должен стоять ЕГО срок, иначе
+  // сверху обещаем месяц, а в тарифе рядом написано «7 дней».
+  const refDays = isTrial && referrer?.total_days ? referrer.total_days : null
   return (
     <div className={`relative rounded-2xl p-5 sm:p-7 border shadow-sm flex flex-col bg-white ${
       isPro ? 'border-amber-200 ring-2 ring-amber-100' : 'border-gray-100'
@@ -277,10 +292,20 @@ function TariffCard({ t, registerHref, featureLabels, trialBonus }: { t: Tariff;
       )}
       <h3 className="font-bold text-xl text-gray-900">{t.name}</h3>
       {isTrial && (
-        <p className="mt-1 text-sm text-gray-500">Попробуй тариф «Профи» бесплатно — {trialDays} дней</p>
+        <p className="mt-1 text-sm text-gray-500">
+          Попробуй тариф «Профи» бесплатно — {refDays ?? trialDays} дней
+        </p>
+      )}
+      {isTrial && refDays && refDays > trialDays && (
+        <p className="mt-1 text-xs font-semibold text-emerald-600">
+          🎁 По реф-ссылке: {refDays} дней вместо {trialDays}
+        </p>
       )}
       {isTrial && trialBonus && (
         <p className="mt-1 text-xs font-semibold text-emerald-600">🎁 Акция: {trialDays} дней вместо {t.default_duration_days}</p>
+      )}
+      {isTrial && (
+        <p className="mt-1 text-xs text-gray-400">Один раз, при регистрации нового кабинета</p>
       )}
 
       <div className="mt-3 mb-1 min-h-[3.5rem] flex flex-col">
