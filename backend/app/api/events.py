@@ -920,30 +920,13 @@ async def copy_event(
                     cse_map[tp['cse_id']], *[tp[c] for c in cols]
                 )
 
-            # conf_days
-            days = await db.fetch("SELECT * FROM conf_days WHERE event_id = $1", event_id)
-            for d in days:
-                cols = [k for k in dict(d).keys() if k not in ('id', 'event_id')]
-                placeholders = ",".join(f"${i+2}" for i in range(len(cols)))
-                await db.execute(
-                    f"INSERT INTO conf_days (event_id, {','.join(cols)}) VALUES ($1, {placeholders})",
-                    new_id, *[d[c] for c in cols]
-                )
-
-            # conf_sessions (speaker_id → event_collaborators.id, mapping)
-            sessions = await db.fetch("SELECT * FROM conf_sessions WHERE event_id = $1", event_id)
-            for s in sessions:
-                cols_dict = dict(s)
-                cols_dict.pop('id', None)
-                cols_dict.pop('event_id', None)
-                if 'speaker_id' in cols_dict and cols_dict['speaker_id']:
-                    cols_dict['speaker_id'] = cse_map.get(cols_dict['speaker_id'])
-                cols = list(cols_dict.keys())
-                placeholders = ",".join(f"${i+2}" for i in range(len(cols)))
-                await db.execute(
-                    f"INSERT INTO conf_sessions (event_id, {','.join(cols)}) VALUES ($1, {placeholders})",
-                    new_id, *cols_dict.values()
-                )
+            # ⚠️ ПРОГРАММА (conf_days + conf_sessions) НЕ КОПИРУЕТСЯ — решение
+            # владельца. Программа привязана к КОНКРЕТНЫМ датам и таймингу:
+            # у нового события даты другие (start_at/end_at копия не наследует
+            # вовсе), и перенесённые дни со слотами показывали бы расписание
+            # прошедшего события — его всё равно приходилось удалять руками.
+            # Спикеры (event_collaborators) при этом переносятся: состав обычно
+            # тот же, а слоты они разбирают заново.
 
             # conf_secret_codes (speaker_id mapping)
             codes = await db.fetch("SELECT * FROM conf_secret_codes WHERE event_id = $1", event_id)
@@ -981,11 +964,22 @@ async def copy_event(
         # broadcast_templates — копируем шаблоны (без расписания/очереди)
         templates = await db.fetch("SELECT * FROM broadcast_templates WHERE event_id = $1", event_id)
         for tpl in templates:
-            cols = [k for k in dict(tpl).keys() if k not in ('id', 'event_id', 'created_at', 'updated_at')]
+            td = dict(tpl)
+            for k in ('id', 'event_id', 'created_at', 'updated_at'):
+                td.pop(k, None)
+            # ⚠️ Привязка «к выступлению спикера» указывает на слот ОРИГИНАЛА,
+            # а программа у копии не переносится — ссылка вела бы в чужое
+            # событие. Снимаем её: режим переключается на день программы
+            # (NULL в custom_bind_kind трактуется как 'day').
+            if td.get('custom_slot_session_id'):
+                td['custom_slot_session_id'] = None
+                if td.get('custom_bind_kind') == 'slot':
+                    td['custom_bind_kind'] = 'day'
+            cols = list(td.keys())
             placeholders = ",".join(f"${i+2}" for i in range(len(cols)))
             await db.execute(
                 f"INSERT INTO broadcast_templates (event_id, {','.join(cols)}) VALUES ($1, {placeholders})",
-                new_id, *[tpl[c] for c in cols]
+                new_id, *td.values()
             )
 
         # ── Тарифы события ────────────────────────────────────────────────
