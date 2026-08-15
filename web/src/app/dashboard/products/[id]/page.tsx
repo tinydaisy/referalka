@@ -17,7 +17,7 @@ import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
 import ProductLandingTab from './LandingTab'
 import {
-  ArrowLeft, Plus, Trash2, X, Copy, Check, ChevronDown, ChevronRight,
+  ArrowLeft, Plus, Trash2, X, Copy, Check, ChevronDown, ChevronUp, ChevronRight,
   MoreHorizontal, Settings2, Wallet, Layers, Users, ExternalLink, Eye, EyeOff,
   LayoutTemplate,
 } from 'lucide-react'
@@ -377,6 +377,22 @@ function TariffsTab({ productId, readOnly }: { productId: number; readOnly: bool
   }
   useEffect(() => { load() }, [productId])
 
+  /** Порядок тарифов в кабинете = порядок на лендинге. Список меняем сразу,
+   *  не дожидаясь ответа, иначе стрелка кажется залипшей. */
+  const move = async (index: number, dir: -1 | 1) => {
+    const to = index + dir
+    if (to < 0 || to >= list.length) return
+    const next = [...list]
+    ;[next[index], next[to]] = [next[to], next[index]]
+    setList(next)
+    try {
+      await api.products.reorderTariffs(productId, next.map(t => t.id))
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить порядок')
+      await load()
+    }
+  }
+
   if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
 
   return (
@@ -406,16 +422,19 @@ function TariffsTab({ productId, readOnly }: { productId: number; readOnly: bool
       )}
 
       <div className="space-y-2">
-        {list.map(t => (
-          <TariffRow key={t.id} productId={productId} tariff={t} readOnly={readOnly} onChanged={load} />
+        {list.map((t, i) => (
+          <TariffRow key={t.id} productId={productId} tariff={t} readOnly={readOnly} onChanged={load}
+                     onMove={readOnly ? undefined : d => move(i, d)}
+                     canUp={i > 0} canDown={i < list.length - 1} />
         ))}
       </div>
     </div>
   )
 }
 
-function TariffRow({ productId, tariff, readOnly, onChanged }: {
+function TariffRow({ productId, tariff, readOnly, onChanged, onMove, canUp, canDown }: {
   productId: number; tariff: any; readOnly: boolean; onChanged: () => void
+  onMove?: (dir: -1 | 1) => void; canUp?: boolean; canDown?: boolean
 }) {
   const [editing, setEditing] = useState(false)
 
@@ -441,6 +460,21 @@ function TariffRow({ productId, tariff, readOnly, onChanged }: {
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4">
+      {/* Стрелки порядка: в этой последовательности тарифы идут на лендинге. */}
+      {onMove && (
+        <div className="-my-1 flex shrink-0 flex-col">
+          <button onClick={() => onMove(-1)} disabled={!canUp}
+                  className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-25 disabled:hover:text-gray-400"
+                  title="Выше">
+            <ChevronUp size={15} />
+          </button>
+          <button onClick={() => onMove(1)} disabled={!canDown}
+                  className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-25 disabled:hover:text-gray-400"
+                  title="Ниже">
+            <ChevronDown size={15} />
+          </button>
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-medium text-gray-900">{tariff.title}</span>
@@ -456,7 +490,17 @@ function TariffRow({ productId, tariff, readOnly, onChanged }: {
           )}
         </div>
         <div className="text-xs text-gray-400">
-          {tariff.price ? `${tariff.price} ₽` : 'Бесплатно'}
+          {tariff.old_price != null && (
+            <span className="line-through mr-1">
+              {Number(tariff.old_price).toLocaleString('ru-RU')} ₽
+            </span>
+          )}
+          {tariff.price ? `${Number(tariff.price).toLocaleString('ru-RU')} ₽` : 'Бесплатно'}
+          {tariff.discount_percent != null && (
+            <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+              −{tariff.discount_percent}%
+            </span>
+          )}
           {tariff.paid_count > 0 && ` · оплат: ${tariff.paid_count}`}
         </div>
       </div>
@@ -481,12 +525,30 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
   const [title, setTitle] = useState(tariff?.title || '')
   const [description, setDescription] = useState(tariff?.description || '')
   const [excluded, setExcluded] = useState(tariff?.excluded_description || '')
+  // price — цена К ОПЛАТЕ (со скидкой). Старая цена не хранится, её считает
+  // бэкенд по discount_kind/discount_value.
   const [price, setPrice] = useState<string>(tariff?.price != null ? String(tariff.price) : '')
+  const [discountKind, setDiscountKind] = useState<'percent' | 'amount'>(tariff?.discount_kind || 'percent')
+  const [discountValue, setDiscountValue] = useState<string>(
+    tariff?.discount_value != null ? String(tariff.discount_value) : '')
   const [payProductId, setPayProductId] = useState(tariff?.pay_product_id || '')
   const [payUrl, setPayUrl] = useState(tariff?.pay_url || '')
   const [isActive, setIsActive] = useState(tariff?.is_active ?? true)
   const [isFeatured, setIsFeatured] = useState(tariff?.is_featured ?? false)
   const [saving, setSaving] = useState(false)
+
+  // Цена до скидки — только для подсказки в форме (боевой расчёт на бэке).
+  const oldPricePreview = (() => {
+    const p = parseInt(price, 10)
+    const v = parseInt(discountValue, 10)
+    if (!Number.isFinite(p) || !Number.isFinite(v) || v <= 0 || p < 0) return null
+    if (discountKind === 'percent') {
+      if (v >= 100) return null
+      const o = Math.round((p * 100) / (100 - v))
+      return o > p ? o : null
+    }
+    return p + v
+  })()
 
   const save = async () => {
     if (!title.trim() || !code.trim()) return
@@ -498,6 +560,9 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
         description: description.trim() || null,
         excluded_description: excluded.trim() || null,
         price: price.trim() ? Number(price) : null,
+        // Пустой размер = скидки нет.
+        discount_kind: discountValue.trim() ? discountKind : null,
+        discount_value: discountValue.trim() ? Number(discountValue) : null,
         pay_product_id: payProductId.trim() || null,
         pay_url: payUrl.trim() || null,
         is_active: isActive,
@@ -550,14 +615,41 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
             <label className="mb-1 block text-sm text-gray-600">Цена, ₽</label>
             <input value={price} onChange={e => setPrice(e.target.value)} inputMode="numeric"
                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-            <p className="mt-1 text-xs text-gray-400">Пусто или 0 — бесплатный доступ</p>
+            <p className="mt-1 text-xs text-gray-400">Цена к оплате. Пусто или 0 — бесплатный доступ</p>
           </div>
           <div>
-            <label className="mb-1 block text-sm text-gray-600">Код товара</label>
-            <input value={payProductId} onChange={e => setPayProductId(e.target.value)}
-                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-            <p className="mt-1 text-xs text-gray-400">Нужен только для LeadPay</p>
+            <label className="mb-1 block text-sm text-gray-600">Скидка</label>
+            <div className="flex gap-2">
+              <select value={discountKind}
+                      onChange={e => setDiscountKind(e.target.value as 'percent' | 'amount')}
+                      className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                <option value="percent">%</option>
+                <option value="amount">₽</option>
+              </select>
+              <input value={discountValue}
+                     onChange={e => setDiscountValue(e.target.value.replace(/[^0-9]/g, ''))}
+                     inputMode="numeric" placeholder={discountKind === 'percent' ? '20' : '5000'}
+                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            {oldPricePreview ? (
+              <p className="mt-1 text-xs text-gray-600">
+                На лендинге:{' '}
+                <span className="text-gray-400 line-through">{oldPricePreview.toLocaleString('ru-RU')} ₽</span>{' '}
+                <span className="font-semibold text-gray-900">
+                  {parseInt(price, 10).toLocaleString('ru-RU')} ₽
+                </span>
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-gray-400">Пусто — скидки нет</p>
+            )}
           </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-gray-600">Код товара</label>
+          <input value={payProductId} onChange={e => setPayProductId(e.target.value)}
+                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <p className="mt-1 text-xs text-gray-400">Нужен только для LeadPay</p>
         </div>
 
         <div>

@@ -71,8 +71,22 @@ export default function ProductPage({ data, slug }: { data: any; slug: string })
                   }`}
                 >
                   <div className="text-lg font-semibold text-gray-900">{t.title}</div>
-                  <div className="mt-1 text-2xl font-bold text-gray-900">
-                    {t.price ? `${t.price.toLocaleString('ru-RU')} ₽` : 'Бесплатно'}
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="text-2xl font-bold text-gray-900">
+                      {t.price ? `${t.price.toLocaleString('ru-RU')} ₽` : 'Бесплатно'}
+                    </span>
+                    {t.old_price != null && (
+                      <>
+                        <span className="text-base text-gray-400 line-through">
+                          {Number(t.old_price).toLocaleString('ru-RU')} ₽
+                        </span>
+                        {t.discount_percent != null && (
+                          <span className="rounded-full bg-[#25455D] px-2 py-0.5 text-xs font-bold text-white">
+                            −{t.discount_percent}%
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {t.description && (

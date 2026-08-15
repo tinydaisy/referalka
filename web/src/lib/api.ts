@@ -710,6 +710,11 @@ export const api = {
       }),
     remove: (eventId: number, tariffId: number) =>
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}`, { method: 'DELETE' }),
+    // Порядок тарифов: как расставлены в кабинете, так идут и на лендинге.
+    reorder: (eventId: number, ids: number[]) =>
+      request(`/api/v1/events/${eventId}/tariffs/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
     buyers: (eventId: number, tariffId: number) =>
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers`),
     addBuyer: (eventId: number, tariffId: number, data: { participant_id?: number; contact_id?: number; amount?: number; status?: 'paid' | 'unpaid'; note?: string }) =>
@@ -966,6 +971,10 @@ export const api = {
       }),
     deleteTariff: (id: number, tid: number) =>
       request(`/api/v1/products/${id}/tariffs/${tid}`, { method: 'DELETE' }),
+    reorderTariffs: (id: number, ids: number[]) =>
+      request(`/api/v1/products/${id}/tariffs/reorder`, {
+        method: 'POST', body: JSON.stringify({ ids }),
+      }),
 
     // Состав продукта — связки с материалами библиотеки
     materials: (id: number) => request(`/api/v1/products/${id}/materials`),

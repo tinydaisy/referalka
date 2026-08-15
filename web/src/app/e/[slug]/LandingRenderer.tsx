@@ -1514,11 +1514,28 @@ function BlockBody({
                   {x.title}
                 </div>
                 {x.price != null && (
-                  <div className="mt-2 text-[2em] font-bold"
-                       style={page.price_color
-                         ? { fontFamily: page.font_heading_css, color: page.price_color }
-                         : headingStyle}>
-                    {Number(x.price).toLocaleString('ru-RU')} ₽
+                  <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <div className="text-[2em] font-bold"
+                         style={page.price_color
+                           ? { fontFamily: page.font_heading_css, color: page.price_color }
+                           : headingStyle}>
+                      {Number(x.price).toLocaleString('ru-RU')} ₽
+                    </div>
+                    {/* Старая цена (old_price) приходит с бэкенда уже посчитанной
+                        по скидке тарифа — на фронте её не вычисляем. */}
+                    {x.old_price != null && (
+                      <>
+                        <span className="text-[1.05em] line-through opacity-50">
+                          {Number(x.old_price).toLocaleString('ru-RU')} ₽
+                        </span>
+                        {x.discount_percent != null && (
+                          <span className="rounded-full px-2 py-0.5 text-[.7em] font-bold uppercase"
+                                style={{ background: iconColor, color: page.bg_color || '#0a1520' }}>
+                            −{x.discount_percent}%
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
                 {/* Два списка: что входит (галочка) и чего нет (зачёркнуто).

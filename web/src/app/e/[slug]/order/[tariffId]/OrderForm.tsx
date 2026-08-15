@@ -332,8 +332,17 @@ export default function OrderForm({
           >
             {tariff.title}
           </h1>
-          <div className="mt-3 text-[1.6em] font-bold">
-            {isFree ? 'Бесплатно' : `${price.toLocaleString('ru-RU')} ₽`}
+          <div className="mt-3 flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
+            <span className="text-[1.6em] font-bold">
+              {isFree ? 'Бесплатно' : `${price.toLocaleString('ru-RU')} ₽`}
+            </span>
+            {/* Скидка видна и здесь: человек пришёл с лендинга, где была
+                зачёркнутая цена, и не должен решить, что попал не туда. */}
+            {!isFree && tariff.old_price != null && (
+              <span className="text-[1em] line-through opacity-50">
+                {Number(tariff.old_price).toLocaleString('ru-RU')} ₽
+              </span>
+            )}
           </div>
         </div>
 

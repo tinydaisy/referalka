@@ -15,7 +15,13 @@ interface Tariff {
   title: string
   description: string | null
   excluded_description: string | null
+  // price — цена К ОПЛАТЕ (уже со скидкой). old_price / discount_percent
+  // приходят с бэкенда посчитанными, руками их не вычисляем.
   price: number | null
+  discount_kind?: 'percent' | 'amount' | null
+  discount_value?: number | null
+  old_price?: number | null
+  discount_percent?: number | null
   pay_url: string | null
   sort_order: number
   is_active: boolean
@@ -55,6 +61,22 @@ interface Buyer {
 const emptyForm = {
   code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', order_hint: '', is_active: true, is_featured: false,
   bonus_feature_id: '' as string, bonus_months: '1' as string,
+  // Скидка: пустой размер = скидки нет.
+  discount_kind: 'percent' as 'percent' | 'amount', discount_value: '',
+}
+
+/** Цена до скидки — только для подсказки в форме. Боевое значение считает
+ *  бэкенд (services/tariff_discount.py), здесь просто показываем, что выйдет. */
+function calcOldPrice(price: string, kind: 'percent' | 'amount', value: string): number | null {
+  const p = parseInt(price, 10)
+  const v = parseInt(value, 10)
+  if (!Number.isFinite(p) || !Number.isFinite(v) || v <= 0 || p < 0) return null
+  if (kind === 'percent') {
+    if (v >= 100) return null
+    const old = Math.round((p * 100) / (100 - v))
+    return old > p ? old : null
+  }
+  return p + v
 }
 
 export default function TariffsTab({
@@ -167,6 +189,8 @@ export default function TariffsTab({
       is_featured: !!t.is_featured,
       bonus_feature_id: t.bonus_feature_id ? String(t.bonus_feature_id) : '',
       bonus_months: String(t.bonus_months || 1),
+      discount_kind: (t.discount_kind || 'percent') as 'percent' | 'amount',
+      discount_value: t.discount_value != null ? String(t.discount_value) : '',
     })
     setShowForm(true)
   }
@@ -184,6 +208,10 @@ export default function TariffsTab({
       pay_product_id: form.pay_product_id.trim() || null,
       order_hint: form.order_hint.trim() || null,
       price: form.price.trim() ? parseInt(form.price.trim(), 10) : null,
+      // Пустой размер = скидки нет; бэкенд занулит и вид, чтобы в базе не
+      // осталось половины пары.
+      discount_kind: form.discount_value.trim() ? form.discount_kind : null,
+      discount_value: form.discount_value.trim() ? parseInt(form.discount_value.trim(), 10) : null,
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
       is_featured: form.is_featured,
@@ -211,6 +239,23 @@ export default function TariffsTab({
     if (!confirm(`Удалить тариф «${t.title}»? Записи об оплатах этого тарифа тоже удалятся.`)) return
     await api.eventTariffs.remove(eventId, t.id)
     await load()
+  }
+
+  /** Переставить тариф на позицию выше/ниже. Порядок в кабинете = порядок
+   *  на лендинге. Список обновляем сразу, не дожидаясь ответа — иначе
+   *  стрелка кажется залипшей. */
+  async function move(index: number, dir: -1 | 1) {
+    const to = index + dir
+    if (to < 0 || to >= items.length) return
+    const next = [...items]
+    ;[next[index], next[to]] = [next[to], next[index]]
+    setItems(next)
+    try {
+      await api.eventTariffs.reorder(eventId, next.map(t => t.id))
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить порядок')
+      await load()
+    }
   }
 
   if (loading) return <div className="py-16 flex justify-center"><Spinner /></div>
@@ -315,9 +360,24 @@ export default function TariffsTab({
           </div>
         ) : (
           <div className="space-y-2.5">
-            {items.map(t => (
+            {items.map((t, idx) => (
               <div key={t.id} className="border border-gray-200 rounded-xl overflow-hidden">
               <div className="p-4 flex items-start gap-3">
+                {/* Порядок тарифов — в этой же последовательности они идут на
+                    лендинге. Стрелки, а не перетаскивание: работает на телефоне
+                    и не конфликтует с полями внутри карточки. */}
+                <div className="flex flex-col shrink-0 -my-1">
+                  <button onClick={() => move(idx, -1)} disabled={idx === 0}
+                          className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-25 disabled:hover:text-gray-400"
+                          title="Выше">
+                    <ChevronUp size={15} />
+                  </button>
+                  <button onClick={() => move(idx, 1)} disabled={idx === items.length - 1}
+                          className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-25 disabled:hover:text-gray-400"
+                          title="Ниже">
+                    <ChevronDown size={15} />
+                  </button>
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-gray-800">{t.title}</span>
@@ -326,7 +386,19 @@ export default function TariffsTab({
                       <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">выключен</span>
                     )}
                     {t.price != null && (
-                      <span className="text-sm text-gray-500">{t.price.toLocaleString('ru-RU')} ₽</span>
+                      <span className="text-sm text-gray-500">
+                        {t.old_price != null && (
+                          <span className="text-gray-400 line-through mr-1.5">
+                            {t.old_price.toLocaleString('ru-RU')} ₽
+                          </span>
+                        )}
+                        {t.price.toLocaleString('ru-RU')} ₽
+                      </span>
+                    )}
+                    {t.discount_percent != null && (
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">
+                        −{t.discount_percent}%
+                      </span>
                     )}
                   </div>
                   {t.bonus_feature_id && (
@@ -403,9 +475,40 @@ export default function TariffsTab({
               <input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
                      className="input-tar font-mono" placeholder="vip" />
             </Field>
-            <Field label="Сумма, ₽" hint="Оставьте пустым, если «по запросу»">
+            <Field label="Сумма, ₽" hint="Это цена к оплате. Оставьте пустым, если «по запросу»">
               <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value.replace(/[^0-9]/g, '') })}
                      className="input-tar" placeholder="29000" inputMode="numeric" />
+            </Field>
+            <Field label="Скидка"
+                   hint="Если есть — на лендинге рядом с ценой появится вторая, зачёркнутая. Пусто = скидки нет">
+              <div className="flex gap-2">
+                <select value={form.discount_kind}
+                        onChange={e => setForm({ ...form, discount_kind: e.target.value as 'percent' | 'amount' })}
+                        className="input-tar w-28">
+                  <option value="percent">%</option>
+                  <option value="amount">₽</option>
+                </select>
+                <input value={form.discount_value}
+                       onChange={e => setForm({ ...form, discount_value: e.target.value.replace(/[^0-9]/g, '') })}
+                       className="input-tar flex-1"
+                       placeholder={form.discount_kind === 'percent' ? '20' : '5000'}
+                       inputMode="numeric" />
+              </div>
+              {/* Сразу показываем, что увидит покупатель — иначе «20%» и
+                  «5000 ₽» приходится считать в уме. */}
+              {(() => {
+                const old = calcOldPrice(form.price, form.discount_kind, form.discount_value)
+                if (!old) return null
+                return (
+                  <div className="mt-2 text-xs text-gray-600">
+                    На лендинге:{' '}
+                    <span className="text-gray-400 line-through">{old.toLocaleString('ru-RU')} ₽</span>{' '}
+                    <span className="font-semibold text-gray-900">
+                      {parseInt(form.price, 10).toLocaleString('ru-RU')} ₽
+                    </span>
+                  </div>
+                )
+              })()}
             </Field>
             <Field label="Что входит" hint="По пункту в строке — на лендинге станут галочками">
               <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
