@@ -887,6 +887,29 @@ export default function BlockCard({
 
               {/* Размеры остального текста секции — отдельно от заголовка. */}
               <div className="grid gap-4 sm:grid-cols-2">
+                {/* ⚠️ Надзаголовок — только у шапки: в обычных секциях его нет.
+                    Размер читался рендерером и раньше, но регулятора не было —
+                    поменять его можно было только через базу. */}
+                {block.kind === 'hero' && (
+                  <Field label={`Размер надзаголовка: ${block.overline_size || 30} px`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range" min={10} max={64} step={1}
+                        value={block.overline_size ?? 30}
+                        onChange={e => onPatch({ overline_size: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                      {block.overline_size != null && (
+                        <button
+                          onClick={() => onPatch({ overline_size: null })}
+                          className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                        >
+                          сбросить
+                        </button>
+                      )}
+                    </div>
+                  </Field>
+                )}
                 <Field label={`Размер ${block.kind === 'hero' ? 'описания' : 'подзаголовка'}: ${block.subtitle_size ? `${block.subtitle_size} px` : 'обычный'}`}>
                   <div className="flex items-center gap-3">
                     <input

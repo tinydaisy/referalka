@@ -910,8 +910,14 @@ function BlockBody({
               медитаций» над «Г.У.Р.У.»). Цветом основного текста, чтобы не
               спорить с золотым названием. */}
           {!isThanks && block.overline && (
+            // ⚠️ mb-5 — такой же отступ, как у подзаголовка снизу (mt-5):
+            // название стоит ровно посередине между надзаголовком и
+            // подзаголовком. Было mb-2 — сверху зазор 8px, снизу 20px,
+            // и шапка выглядела съехавшей вверх.
+            // ⚠️ Без uppercase: текст показывается ровно так, как его набрал
+            // клиент. Заглавные буквы — его решение, а не наше.
             <p
-              className="mb-2 font-bold uppercase leading-tight tracking-wide"
+              className="mb-5 font-bold leading-tight tracking-wide"
               style={{
                 fontSize: `clamp(${Math.round((block.overline_size || 30) * 0.6)}px, ${((block.overline_size || 30) / 24).toFixed(1)}vw, ${block.overline_size || 30}px)`,
               }}
