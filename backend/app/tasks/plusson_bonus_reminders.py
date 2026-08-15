@@ -19,8 +19,11 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from app.celery_app import celery_app
-from app.database import get_pool
+from celery import shared_task
+
+import asyncpg
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ SCHEDULE = [
 ]
 
 
-@celery_app.task(name="app.tasks.plusson_bonus_reminders.send_reminders")
+@shared_task(name="app.tasks.plusson_bonus_reminders.send_reminders")
 def send_reminders():
     return asyncio.run(_run())
 
@@ -45,9 +48,11 @@ async def _run() -> dict:
     from app.services import plusson_bonus_texts as T
     from app.services.plusson_bonus import _link  # noqa: используем формат ссылки
 
-    pool = await get_pool()
+    # ⚠️ Своё соединение, как в остальных задачах: пул живёт в процессе API,
+    # а Celery — отдельный процесс.
+    db = await asyncpg.connect(settings.database_url)
     sent = 0
-    async with pool.acquire() as db:
+    try:
         rows = await db.fetch(
             """SELECT id, email, contact_id, issuer_client_id, feature_id, days,
                       created_at, expires_at, reminders_sent, token
@@ -99,6 +104,9 @@ async def _run() -> dict:
                 sent += 1
             except Exception:
                 logger.warning("bonus-reminder: письмо на %s не ушло", r["email"])
+
+    finally:
+        await db.close()
 
     if sent:
         logger.info("bonus-reminder: отправлено %s напоминаний", sent)
