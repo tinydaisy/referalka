@@ -913,7 +913,7 @@ export default function SpeakerCabinetPage() {
             Спикер заполняет карточку вслепую — он не видит ни лендинга, ни
             своей карточки в каталоге, ни сообщения, которое уйдёт аудитории,
             и не понимает, что незаполненное поле просто исчезнет из них. */}
-        <ProfilePreviewBar me={me} onOpenBroadcasts={() => setActiveTab('broadcasts')} />
+        {token && <ProfilePreviewBar me={me} token={token} />}
         <Section title="Профиль">
           {/* Имя и фамилия — РАЗНЫЕ поля (миграция 302): по фамилии идёт
               сортировка списков, из одной строки её не вытащить. */}
@@ -1664,7 +1664,37 @@ function Section({ title, children }: { title: string, children: React.ReactNode
  * в браузере: адрес зависит от домена клиента и от режима открытия (Mini App
  * или веб), а window.location.origin дал бы pluson.ru вместо домена клиента.
  */
-function ProfilePreviewBar({ me, onOpenBroadcasts }: { me: any; onOpenBroadcasts: () => void }) {
+function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
+  // Превью «Знакомство со спикером» открывается ПРЯМО ЗДЕСЬ — окном с тем же
+  // фото и текстом, что уйдут аудитории. Отправлять человека в другую вкладку
+  // ради этого незачем: он хочет увидеть себя, а не искать рассылку в списке.
+  const [intro, setIntro] = useState<any | null>(null)
+  const [introBusy, setIntroBusy] = useState(false)
+  const [introErr, setIntroErr] = useState<string | null>(null)
+
+  async function openIntro() {
+    setIntroBusy(true); setIntroErr(null)
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/my-broadcasts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const d = await r.json()
+      const list: any[] = d.broadcasts || []
+      // Нужен именно шаблон знакомства; если его нет — честно говорим об этом,
+      // а не показываем пустое окно.
+      const b = list.find(x => x.type === 'speaker_intro')
+      if (!b) {
+        setIntroErr('Организатор ещё не создал рассылку «Знакомство со спикером» для этого события.')
+      } else {
+        setIntro(b)
+      }
+    } catch {
+      setIntroErr('Не удалось загрузить превью. Попробуйте ещё раз.')
+    } finally {
+      setIntroBusy(false)
+    }
+  }
+
   // Чего не хватает. Считаем ровно по тем полям, которые видит зритель.
   const missing: string[] = []
   if (!(me.name || '').trim())       missing.push('Имя')
@@ -1710,12 +1740,57 @@ function ProfilePreviewBar({ me, onOpenBroadcasts }: { me: any; onOpenBroadcasts
             Ваша карточка в каталоге спикеров ↗
           </a>
         )}
-        {/* Превью «Знакомство со спикером» живёт во вкладке «Рекламные
-            интеграции» — ведём туда, а не делаем вторую копию превью. */}
-        <button onClick={onOpenBroadcasts} style={linkCss}>
-          Ваше сообщение «Знакомство со спикером» →
+        <button onClick={openIntro} disabled={introBusy} style={linkCss}>
+          {introBusy ? 'Загружаю…' : 'Ваше сообщение «Знакомство со спикером» 👁'}
         </button>
       </div>
+
+      {introErr && (
+        <div style={{ marginTop: 10, fontSize: 13, color: '#9A3412' }}>{introErr}</div>
+      )}
+
+      {/* Окно превью: то же фото и тот же текст, что уйдут аудитории. */}
+      {intro && (
+        <div
+          onClick={() => setIntro(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16, zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%',
+              maxHeight: '85vh', overflowY: 'auto', padding: 18,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>
+                Знакомство со спикером
+              </div>
+              <button type="button" onClick={() => setIntro(null)}
+                style={{ border: 'none', background: 'transparent', fontSize: 22, color: '#7a8c9c', cursor: 'pointer', lineHeight: 1 }}>
+                ×
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+              Так вас увидит аудитория события.
+            </div>
+            {intro.photo && (
+              <img src={intro.photo} alt="" style={{ width: '100%', borderRadius: 12, marginBottom: 12 }} />
+            )}
+            <div style={{ fontSize: 14, lineHeight: 1.6, color: '#1f2d3a', whiteSpace: 'pre-wrap' }}
+                 dangerouslySetInnerHTML={{ __html: intro.text || '' }} />
+            {intro.button_text && (
+              <div style={{ marginTop: 14, textAlign: 'center', padding: '10px 14px', borderRadius: 10, background: '#F1F6FA', border: '1px solid #B9CEDD', fontSize: 13, fontWeight: 600, color: DARK }}>
+                {intro.button_text}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {missing.length > 0 && (
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: '#FFF7ED', border: '1px solid #FED7AA' }}>

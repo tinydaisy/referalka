@@ -24,6 +24,9 @@ from app.database import get_db
 from app.services import r2_storage
 from app.services.image_processor import process_image, is_image
 from app.services.support_message import support_block_for_event
+# ⚠️ На уровне модуля: хелпер _resolve_landing_link зовётся из нескольких
+# функций, локальный импорт внутри одной из них ему недоступен.
+from app.services.client_domains import public_url_for
 # Порядок слов в имени: список выбора себя и занятые слоты — «Фамилия Имя»
 # (там ИЩУТ), профиль спикера — «Имя Фамилия» (там ПОКАЗЫВАЮТ).
 from app.services.person_name import (
@@ -385,8 +388,8 @@ async def get_me(
         row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
         base_url=_base,
     ) or None
-    d["landing_link"] = ((row["landing_url"] or "").strip()
-                         or public_url_for(_base, f"event/{row['event_slug']}"))
+    d["landing_link"] = await _resolve_landing_link(
+        db, int(session["e_id"]), row["event_slug"], row["landing_url"], _base)
     return d
 
 
@@ -1088,6 +1091,35 @@ async def get_me_materials(
     }
 
 
+async def _resolve_landing_link(db, event_id: int, event_slug: str,
+                                landing_url: str | None, base_url: str) -> str:
+    """Адрес, по которому спикер увидит СЕБЯ НА ЛЕНДИНГЕ события.
+
+    ⚠️ Порядок именно такой:
+    1. Сторонний лендинг клиента (`events.landing_url`) — если он задан, вся
+       продающая страница живёт там.
+    2. Наш конструктор `/e/{slug}` — если страница СОБРАНА И ОПУБЛИКОВАНА.
+    3. Иначе — веб-страница события `/event/{slug}` (веб-версия Mini App).
+
+    Пункт 2 раньше отсутствовал: при пустом `landing_url` ссылка сразу падала
+    на `/event/{slug}`, и спикер попадал в веб-версию Mini App вместо лендинга,
+    хотя лендинг был собран и опубликован. Непубликованный лендинг сюда не
+    годится — он отдаёт «Страница не найдена».
+    """
+    ext = (landing_url or "").strip()
+    if ext:
+        return ext
+    published = await db.fetchval(
+        """SELECT p.is_published FROM event_landing_pages p
+            WHERE p.event_id = $1 AND p.kind = 'main'
+            LIMIT 1""",
+        event_id,
+    )
+    if published:
+        return public_url_for(base_url, f"e/{event_slug}")
+    return public_url_for(base_url, f"event/{event_slug}")
+
+
 @router.get("/me/my-broadcasts", summary="Рассылки, где фигурирует этот спикер (в этом событии)")
 async def get_me_broadcasts(
     session: dict = Depends(_auth_session),
@@ -1129,10 +1161,8 @@ async def get_me_broadcasts(
     card_link = speaker_card_link(me["event_slug"], se_id,
                                   me["default_link_mode"], me["bot_handle"],
                                   base_url=_base)
-    # Ссылка на лендинг события: сторонний лендинг клиента, если задан,
-    # иначе — публичная веб-страница события.
-    landing_link = (me["landing_url"] or "").strip() or \
-        public_url_for(_base, f"event/{me['event_slug']}")
+    landing_link = await _resolve_landing_link(
+        db, event_id, me["event_slug"], me["landing_url"], _base)
 
     rows = await db.fetch(
         """
