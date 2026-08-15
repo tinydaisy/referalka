@@ -74,6 +74,10 @@ class TariffIn(BaseModel):
     sort_order: int = 0
     is_active: bool = True
     is_featured: bool = False
+    # Бонус в ПЛЮСОНе (миграция 307): при оплате покупателю выдаётся кабинет
+    # с этим модулем. NULL = бонуса нет. Гейт — фича `tariff_plusson_bonus`.
+    bonus_feature_id: Optional[int] = None
+    bonus_months: Optional[int] = None
 
 
 class TariffPatch(BaseModel):
@@ -90,6 +94,8 @@ class TariffPatch(BaseModel):
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
+    bonus_feature_id: Optional[int] = None
+    bonus_months: Optional[int] = None
 
 
 class TariffsReorder(BaseModel):
@@ -123,6 +129,56 @@ def _norm_code(code: str) -> str:
     return (code or "").strip().lower()
 
 
+async def _norm_bonus(db, client_id: int, feature_id, months) -> tuple:
+    """Проверить бонус ПЛЮСОНа перед записью (миграция 307).
+
+    Отдаёт (feature_id, months). Бонуса нет → (None, 1).
+
+    ⚠️ Проверка фичи здесь ОБЯЗАТЕЛЬНА, хотя UI поле и прячет: без неё любой
+    клиент прямым PATCH прописал бы себе выдачу нашего платного модуля за
+    свои деньги.
+    """
+    if not feature_id:
+        return None, max(1, int(months or 1))
+
+    if not await client_has_feature(db, client_id, "tariff_plusson_bonus"):
+        raise HTTPException(
+            status_code=403,
+            detail="Выдача доступа в ПЛЮСОН из тарифа недоступна на вашем тарифе.",
+        )
+
+    # Выдавать можно только модули (`is_addon`) — тарифы платформы сюда не
+    # кладём: тариф меняет подписку целиком, это другой разговор.
+    ok = await db.fetchval(
+        "SELECT 1 FROM features WHERE id = $1 AND is_addon = TRUE", int(feature_id))
+    if not ok:
+        raise HTTPException(status_code=400, detail="Такого модуля нет")
+
+    try:
+        m = int(months or 1)
+    except (TypeError, ValueError):
+        m = 1
+    if not (1 <= m <= 36):
+        raise HTTPException(status_code=400, detail="Срок бонуса — от 1 до 36 месяцев")
+    return int(feature_id), m
+
+
+@router.get("-bonus-features", summary="Модули ПЛЮСОНа, которые можно выдать бонусом")
+async def bonus_features(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Справочник для селектора в карточке тарифа. Нет фичи — пустой список,
+    фронт тогда просто не рисует блок."""
+    await _check_event_access(db, int(client["sub"]), event_id)
+    if not await client_has_feature(db, int(client["sub"]), "tariff_plusson_bonus"):
+        return {"available": False, "items": []}
+    rows = await db.fetch(
+        "SELECT id, slug, name FROM features WHERE is_addon = TRUE ORDER BY name")
+    return {"available": True, "items": [dict(r) for r in rows]}
+
+
 @router.get("", summary="Тарифы мероприятия + счётчик оплативших")
 async def list_tariffs(
     event_id: int,
@@ -135,6 +191,8 @@ async def list_tariffs(
                   t.price, t.discount_kind, t.discount_value,
                   t.pay_url, t.pay_product_id, t.order_hint,
                   t.sort_order, t.is_active, t.is_featured,
+                  t.bonus_feature_id, t.bonus_months,
+                  (SELECT name FROM features f WHERE f.id = t.bonus_feature_id) AS bonus_feature_name,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
@@ -228,19 +286,24 @@ async def create_tariff(
         )
         sort_order = int(last or 0) + 10
 
+    b_feature, b_months = await _norm_bonus(
+        db, client_id, data.bonus_feature_id, data.bonus_months)
+
     row = await db.fetchrow(
         """INSERT INTO event_tariffs (event_id, code, title, description, excluded_description,
                                      price, discount_kind, discount_value,
                                      pay_url, pay_product_id, order_hint,
-                                     sort_order, is_active, is_featured)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                                     sort_order, is_active, is_featured,
+                                     bonus_feature_id, bonus_months)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
            RETURNING id, code, title, description, excluded_description, price,
                      discount_kind, discount_value, pay_url,
-                     pay_product_id, order_hint, sort_order, is_active, is_featured""",
+                     pay_product_id, order_hint, sort_order, is_active, is_featured,
+                     bonus_feature_id, bonus_months""",
         event_id, code, data.title.strip(), data.description, data.excluded_description,
         data.price, d_kind, d_value,
         data.pay_url, data.pay_product_id, data.order_hint, sort_order,
-        data.is_active, data.is_featured,
+        data.is_active, data.is_featured, b_feature, b_months,
     )
     return with_discount(row)
 
@@ -315,6 +378,18 @@ async def update_tariff(
         value = fields.get("discount_value", cur_d["discount_value"])
         fields["discount_kind"], fields["discount_value"] = _norm_discount(kind, value)
 
+    # Бонус ПЛЮСОНа — тоже пара полей (что выдать + на сколько). Прислали
+    # хоть одно — проверяем оба вместе с текущим состоянием, иначе можно
+    # оставить срок без модуля или наоборот.
+    if "bonus_feature_id" in fields or "bonus_months" in fields:
+        cur_b = await db.fetchrow(
+            "SELECT bonus_feature_id, bonus_months FROM event_tariffs WHERE id = $1", tariff_id
+        )
+        feat = fields.get("bonus_feature_id", cur_b["bonus_feature_id"])
+        mon = fields.get("bonus_months", cur_b["bonus_months"])
+        fields["bonus_feature_id"], fields["bonus_months"] = await _norm_bonus(
+            db, client_id, feat, mon)
+
     if not fields:
         return {"ok": True}
 
@@ -324,7 +399,8 @@ async def update_tariff(
              WHERE id = $1 AND event_id = $2
          RETURNING id, code, title, description, excluded_description, price,
                    discount_kind, discount_value, pay_url,
-                   pay_product_id, order_hint, sort_order, is_active, is_featured""",
+                   pay_product_id, order_hint, sort_order, is_active, is_featured,
+                   bonus_feature_id, bonus_months""",
         tariff_id, event_id, *fields.values(),
     )
     return with_discount(row)

@@ -103,8 +103,11 @@ export default function LandingRenderer({
     : data.event
   // Куда ведут кнопки: у события — регистрация, у продукта — заказ тарифа.
   const ctaHref = isProduct ? `/pr/${slug}#tariffs` : `/event/${slug}/register`
+  // ⚠️ У продукта и события ОДНА страница заказа с одной формой, различается
+  // только префикс адреса. Раньше продукт вёл на витрину с ?tariff={id} —
+  // параметр там никто не читал, и кнопка выглядела нерабочей.
   const orderHref = (tariffId: number | string) =>
-    isProduct ? `/pr/${slug}?tariff=${tariffId}` : `/e/${slug}/order/${tariffId}`
+    isProduct ? `/pr/${slug}/order/${tariffId}` : `/e/${slug}/order/${tariffId}`
   const radius = page.radius ?? 5
 
   /**

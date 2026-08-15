@@ -697,6 +697,9 @@ export const api = {
   eventTariffs: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs`),
     allOrders: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs-orders`),
+    // Модули ПЛЮСОНа, которые тариф может выдать бонусом (миграция 307).
+    // {available:false} = у клиента нет фичи → блок в форме не рисуем.
+    bonusFeatures: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs-bonus-features`),
     create: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/tariffs`, {
         method: 'POST', body: JSON.stringify(data),

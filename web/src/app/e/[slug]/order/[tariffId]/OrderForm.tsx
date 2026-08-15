@@ -23,11 +23,15 @@ interface Props {
   contactId: string | null
   pid: string | null
   utmSource: string | null
+  // ⚠️ 'event' | 'product'. Форма ОДНА на обе сущности — различается только
+  // адрес приёмника заказа. Вторая копия формы уже приводила к тому, что у
+  // продукта не было Telegram-ника и согласия на рассылку.
+  ownerType?: 'event' | 'product'
 }
 
 export default function OrderForm({
   page, event, tariff, offerUrl, privacyUrl, brandName, ownerName, slug, contactId,
-  pid, utmSource,
+  pid, utmSource, ownerType = 'event',
 }: Props) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -37,7 +41,7 @@ export default function OrderForm({
   // он их только проверил: набирая заново, человек путает свои же аккаунты
   // (ник от одного, почта от другого) и упирается в экран «Это вы?».
   useEffect(() => {
-    if (!contactId) return
+    if (!contactId || ownerType === 'product') return
     fetch(`/api/v1/public/event-orders/known/${tariff.id}/${contactId}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -70,7 +74,9 @@ export default function OrderForm({
   // данных» + человек пришёл из бота → регистрируем сразу, форму не
   // показываем: контакты у нас уже есть, спрашивать их заново незачем.
   const [autoReg, setAutoReg] = useState(
-    isFree && !!event.skip_contact_form && !!contactId,
+    // ⚠️ Только у события: у продукта нет ни skip_contact_form, ни эндпоинта
+    // быстрой регистрации — форма показывается обычным порядком.
+    ownerType !== 'product' && isFree && !!event.skip_contact_form && !!contactId,
   )
   useEffect(() => {
     if (!autoReg) return
@@ -87,7 +93,7 @@ export default function OrderForm({
   // Пришёл из бота по ссылке с ?c= — подставляем его контакты, чтобы не
   // вводил заново. Поля остаются редактируемыми: телефон мог измениться.
   useEffect(() => {
-    if (!contactId) return
+    if (!contactId || ownerType === 'product') return
     fetch(`/api/v1/public/event-orders/prefill/${tariff.id}/${contactId}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -152,7 +158,13 @@ export default function OrderForm({
 
     setBusy(true)
     try {
-      const res = await fetch('/api/v1/public/event-orders/create', {
+      // ⚠️ Одна форма на событие и на продукт — отличается только адрес
+      // приёмника. Заводить вторую копию формы нельзя: они разъезжаются
+      // (у продукта уже не хватало Telegram-ника и согласия на рассылку).
+      const orderApi = ownerType === 'product'
+        ? '/api/v1/public/product-orders/create'
+        : '/api/v1/public/event-orders/create'
+      const res = await fetch(orderApi, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

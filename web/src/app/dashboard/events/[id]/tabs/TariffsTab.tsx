@@ -22,6 +22,10 @@ interface Tariff {
   is_featured?: boolean
   pay_product_id?: string | null
   order_hint?: string | null
+  // Бонус в ПЛЮСОНе (миграция 307): что выдать покупателю при оплате.
+  bonus_feature_id?: number | null
+  bonus_months?: number | null
+  bonus_feature_name?: string | null
   buyers_count: number
   unpaid_count: number
 }
@@ -50,6 +54,7 @@ interface Buyer {
 
 const emptyForm = {
   code: '', title: '', description: '', excluded_description: '', price: '', pay_url: '', pay_product_id: '', order_hint: '', is_active: true, is_featured: false,
+  bonus_feature_id: '' as string, bonus_months: '1' as string,
 }
 
 export default function TariffsTab({
@@ -82,6 +87,9 @@ export default function TariffsTab({
   // у тарифа — код товара (мы сами создаём заказ) или внешнюю ссылку.
   const [payReady, setPayReady] = useState(false)
   const [needsProductId, setNeedsProductId] = useState(false)
+  // Модули ПЛЮСОНа, которые тариф может выдать бонусом (миграция 307).
+  // Пустой список = у клиента нет фичи, блок в форме не показываем.
+  const [bonusFeatures, setBonusFeatures] = useState<{ id: number; slug: string; name: string }[]>([])
   // подвкладка: настройка тарифов / сводная таблица заказов (запоминается в URL ?sub=).
   // Если subTab передан сверху (родитель управляет через группировку вкладок) —
   // используем его и прячем свою панель подвкладок (hideSubNav).
@@ -110,6 +118,13 @@ export default function TariffsTab({
       })
       .catch(() => {})
   }, [])
+
+  // Молча: без фичи бэкенд отдаёт available:false — блока просто не будет.
+  useEffect(() => {
+    api.eventTariffs.bonusFeatures(eventId)
+      .then((r: any) => setBonusFeatures(r?.available ? (r.items || []) : []))
+      .catch(() => {})
+  }, [eventId])
 
   // Молча: раздел оферт закрыт на тарифе без фичи offers — тогда остаётся
   // только ссылка, селектор покажет пустой список с подсказкой.
@@ -150,6 +165,8 @@ export default function TariffsTab({
       pay_url: t.pay_url || '',
       is_active: t.is_active,
       is_featured: !!t.is_featured,
+      bonus_feature_id: t.bonus_feature_id ? String(t.bonus_feature_id) : '',
+      bonus_months: String(t.bonus_months || 1),
     })
     setShowForm(true)
   }
@@ -170,6 +187,12 @@ export default function TariffsTab({
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
       is_featured: form.is_featured,
+      // Бонус шлём, только если блок вообще доступен — иначе PATCH без фичи
+      // упрётся в 403 у клиентов, которым этот блок не показывается.
+      ...(bonusFeatures.length ? {
+        bonus_feature_id: form.bonus_feature_id ? parseInt(form.bonus_feature_id, 10) : null,
+        bonus_months: parseInt(form.bonus_months || '1', 10) || 1,
+      } : {}),
     }
     setSaving(true)
     try {
@@ -306,6 +329,12 @@ export default function TariffsTab({
                       <span className="text-sm text-gray-500">{t.price.toLocaleString('ru-RU')} ₽</span>
                     )}
                   </div>
+                  {t.bonus_feature_id && (
+                    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-medium">
+                      🎁 ПЛЮСОН: {t.bonus_feature_name || 'модуль'}
+                      {(t.bonus_months || 1) > 1 ? ` · ${t.bonus_months} мес.` : ''}
+                    </span>
+                  )}
                   {t.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{t.description}</p>}
                   {t.pay_url && (
                     <a href={t.pay_url} target="_blank" rel="noreferrer"
@@ -416,6 +445,45 @@ export default function TariffsTab({
                 <input value={form.pay_url} onChange={e => setForm({ ...form, pay_url: e.target.value })}
                        className="input-tar" placeholder="https://..." />
               </Field>
+            )}
+            {/* Бонус в ПЛЮСОНе (миграция 307). Блока нет у тех, кому фича не
+                выдана: деньги за тариф идут на кассу клиента, а модуль
+                списывается с ПЛЮСОНа — так можно только там, где касса общая. */}
+            {bonusFeatures.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2.5">
+                <div className="text-sm font-medium text-amber-900">Доступ в ПЛЮСОН за покупку</div>
+                <p className="text-xs text-amber-800/80">
+                  После оплаты покупатель получит кабинет ПЛЮСОНа с выбранным модулем.
+                  Кабинета нет — создадим и пришлём на почту ссылку для входа; уже есть —
+                  просто продлим модуль.
+                </p>
+                <select
+                  value={form.bonus_feature_id}
+                  onChange={e => setForm({ ...form, bonus_feature_id: e.target.value })}
+                  className="input-tar bg-white"
+                >
+                  <option value="">Не выдавать</option>
+                  {bonusFeatures.map(f => (
+                    <option key={f.id} value={String(f.id)}>{f.name}</option>
+                  ))}
+                </select>
+                {form.bonus_feature_id && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-amber-900">На срок</span>
+                    <input
+                      value={form.bonus_months}
+                      onChange={e => setForm({ ...form, bonus_months: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="input-tar bg-white" style={{ width: 80 }} inputMode="numeric"
+                    />
+                    <span className="text-xs text-amber-900">мес.</span>
+                  </div>
+                )}
+                {form.bonus_feature_id && !form.price && (
+                  <p className="text-xs text-red-600">
+                    У тарифа не указана сумма — оплаты не будет, значит и доступ не выдастся.
+                  </p>
+                )}
+              </div>
             )}
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />

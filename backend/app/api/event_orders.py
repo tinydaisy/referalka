@@ -757,6 +757,17 @@ async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) 
     except Exception as e:
         logger.warning("Письмо об оплате заказа %s не отправлено: %s", order_id, e)
 
+    # Бонус в ПЛЮСОНе (миграция 307): тариф может выдавать покупателю кабинет
+    # с модулем. Тариф без бонуса — функция сразу выходит. Своих исключений
+    # не бросает: оплата уже принята, участник зарегистрирован, и сорвавшаяся
+    # выдача бонуса не должна превращаться в ошибку вебхука (иначе платёжка
+    # сочтёт оповещение недоставленным и начнёт слать повторы).
+    try:
+        from app.services.tariff_plusson_bonus import grant_tariff_bonus
+        await grant_tariff_bonus(db, order_id)
+    except Exception as e:
+        logger.warning("Бонус ПЛЮСОНа по заказу %s не выдан: %s", order_id, e)
+
     logger.info("Заказ %s оплачен (%s)", order_id, provider)
     return {"ok": True, "paid": True}
 
