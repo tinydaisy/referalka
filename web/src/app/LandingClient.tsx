@@ -156,7 +156,7 @@ export default function LandingClient() {
           {referrer && (
             <div className="mt-5 inline-flex flex-col items-center gap-1 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3">
               <span className="text-amber-900 font-semibold text-sm sm:text-base">
-                🎁 Продлённый триал — {referrer.total_days} дней
+                🎁 Бесплатный доступ — {referrer.total_days} дней
                 {referrer.base_days > 0 && referrer.bonus_days > 0 && (
                   <> вместо <s className="opacity-60">{referrer.base_days}</s></>
                 )}

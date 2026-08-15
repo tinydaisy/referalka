@@ -111,7 +111,7 @@ export default function RegisterPage() {
               {referrer ? (
                 <>
                   <div>
-                    🎁 Продлённый триал — <b>{referrer.total_days} дней</b>
+                    🎁 Бесплатный доступ — <b>{referrer.total_days} дней</b>
                     {referrer.base_days > 0 && referrer.bonus_days > 0 && (
                       <> вместо <s className="opacity-60">{referrer.base_days}</s></>
                     )}
