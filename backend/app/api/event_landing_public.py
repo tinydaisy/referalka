@@ -359,7 +359,11 @@ async def get_public_landing(
             # срок в настройке тарифа. Названы оба случая — «для новых» и
             # «для действующих», иначе человек с кабинетом решит, что его
             # обманули (ждал 30 дней, получил 3).
-            if d.get("bonus_feature_id") or d.get("bonus_days"):
+            # ⚠️ ТОЛЬКО если бонус включён явно (выбран модуль или
+            # отмечен триал). Проверять bonus_days нельзя: у колонки
+            # значение по умолчанию, и строка вылезала у всех тарифов
+            # подряд — включая те, где бонуса нет.
+            if d.get("bonus_feature_id"):
                 from app.services.plusson_bonus_texts import tariff_bonus_line
                 from app.services.plusson_bonus_days import bonus_day_numbers
                 _trial, _extra = await bonus_day_numbers(db)
