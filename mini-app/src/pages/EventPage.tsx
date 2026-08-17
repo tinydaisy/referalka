@@ -40,6 +40,11 @@ interface Props {
 const NAV_NOT_REG: NavItem[] = [
   { id: 'landing',   label: 'Лендинг',    icon: 'landing'   },
   { id: 'program',   label: 'Программа',  icon: 'program',   locked: true },
+  // ⚠️ «Спикеры» показываем и до регистрации (под замком) — в вебе эта вкладка
+  // в том же состоянии ОТКРЫТА, и человек видел разное в браузере и в
+  // приложении. Замок объясняет, что нужно зарегистрироваться, — это честнее,
+  // чем прятать раздел, который на витрине события заведомо есть.
+  { id: 'speakers',  label: 'Спикеры',    icon: 'speakers',  locked: true },
   { id: 'game',      label: 'Подарки',       icon: 'game',      locked: true },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
   { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem', locked: true },
@@ -621,15 +626,34 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
               {eventDateLabel(event)}
             </p>
           </div>
-          {event.client_brand_logo && (
-            <img src={event.client_brand_logo} alt=""
-                 onClick={() => setTab('ecosystem')}
-                 style={{
-                   width: 36, height: 36, borderRadius: 8, objectFit: 'contain',
-                   background: 'transparent',
-                   cursor: 'pointer', flexShrink: 0,
-                 }} />
-          )}
+          {/* ⚠️ У КОЛЛАБЫ — логотипы ВСЕХ организаторов, а не одного: событие
+              общее, и показывать бренд только «первого владельца» неверно.
+              Шапка одна на все вкладки, поэтому логотипы видны везде.
+              У обычного события организатор один — ведёт себя как раньше. */}
+          {(() => {
+            const collabLogos: string[] = event?.is_collab
+              ? (event.collab_owners || [])
+                  .map((o: any) => o.brand_logo_url)
+                  .filter(Boolean)
+              : []
+            const logos = collabLogos.length
+              ? collabLogos
+              : (event.client_brand_logo ? [event.client_brand_logo] : [])
+            if (!logos.length) return null
+            return (
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                {logos.map((url, i) => (
+                  <img key={i} src={url} alt=""
+                       onClick={() => setTab('ecosystem')}
+                       style={{
+                         width: 36, height: 36, borderRadius: 8, objectFit: 'contain',
+                         background: 'transparent',
+                         cursor: 'pointer', flexShrink: 0,
+                       }} />
+                ))}
+              </div>
+            )
+          })()}
         </div>
       </div>
 
@@ -690,7 +714,15 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
           const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
           window.location.assign(`${base}/event/${s}`)
         }} />}
-        {tab === 'ecosystem' && event.client_id && <EcosystemTab clientId={event.client_id} />}
+        {/* ⚠️ У коллабы передаём ВСЕХ организаторов: вкладка тогда показывает
+            сначала список брендов, а карточку — по выбору. Без этого был виден
+            только «первый владелец», второй организатор — нигде. */}
+        {tab === 'ecosystem' && event.client_id && (
+          <EcosystemTab
+            clientId={event.client_id}
+            owners={event.is_collab ? event.collab_owners : undefined}
+          />
+        )}
       </div>
 
       <BottomNav items={navItems} active={tab} onTab={setTab} />

@@ -946,9 +946,14 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         # `has_policy` — политика реально опубликована. У кого её нет — ссылку не
         # даём (вела бы на пустую страницу), но в согласии на рассылки он всё равно
         # перечисляется: рассылать по своей базе он будет.
+        # ⚠️ Кроме согласий, этот же список — источник для ДВУХ мест интерфейса
+        # коллабы: логотипы всех организаторов в шапке (на всех вкладках) и
+        # экран-список «О проекте» (сначала бренды, потом карточка каждого).
+        # Поэтому отдаём и оформление: логотип, фото, позиционирование.
         owners = await db.fetch(
             """SELECT c.id AS client_id,
                       COALESCE(NULLIF(c.brand_name, ''), c.name) AS name,
+                      c.brand_logo_url, c.profile_photo_url, c.positioning,
                       (c.privacy_policy_published_at IS NOT NULL
                        AND COALESCE(c.privacy_policy_text, '') <> '') AS has_policy
                  FROM event_owners eo

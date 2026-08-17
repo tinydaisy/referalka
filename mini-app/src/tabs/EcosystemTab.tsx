@@ -4,7 +4,22 @@ import OwnerPage from '../pages/OwnerPage'
 import EventDescription from '../components/EventDescription'
 import { linkify } from '../utils/linkify'
 
-interface Props { clientId: number }
+interface Props {
+  clientId: number
+  /** Организаторы КОЛЛАБ-события (`collab_owners`). Если их больше одного —
+   *  вкладка сначала показывает СПИСОК брендов, и только по клику открывает
+   *  карточку выбранного. Раньше показывался один «первый владелец», и
+   *  второй организатор общего события не был виден нигде. */
+  owners?: CollabOwner[]
+}
+
+export interface CollabOwner {
+  client_id: number
+  name: string
+  brand_logo_url?: string | null
+  profile_photo_url?: string | null
+  positioning?: string | null
+}
 
 interface Achievement { label: string; value: string }
 interface Profile {
@@ -120,7 +135,73 @@ function OfferingCard({ o }: { o: Offering }) {
   )
 }
 
-export default function EcosystemTab({ clientId }: Props) {
+/** Список брендов организаторов коллабы — первый экран вкладки «О проекте». */
+function OwnersList({ owners, onPick }: { owners: CollabOwner[]; onPick: (id: number) => void }) {
+  return (
+    <div className="fade-in">
+      <div style={{
+        padding: '20px 18px 16px',
+        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        color: 'white',
+      }}>
+        <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>Проекты организаторов</div>
+        <div style={{ fontSize: 13, color: 'rgba(255,207,164,0.85)', marginTop: 6 }}>
+          Событие проводят {owners.length} организатора — выберите, чей проект посмотреть
+        </div>
+      </div>
+      <div style={{ padding: 14, display: 'grid', gap: 10 }}>
+        {owners.map(o => (
+          <div key={o.client_id} className="card"
+               onClick={() => onPick(o.client_id)}
+               style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+            {o.brand_logo_url || o.profile_photo_url ? (
+              <img src={(o.brand_logo_url || o.profile_photo_url) as string} alt=""
+                   style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'contain', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 52, height: 52, borderRadius: 10, flexShrink: 0,
+                background: 'rgba(37,69,93,0.08)', color: DARK,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700, fontSize: 14,
+              }}>{initials(o.name)}</div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.25 }}>{o.name}</div>
+              {o.positioning && (
+                <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }}>
+                  {o.positioning}
+                </div>
+              )}
+            </div>
+            <div style={{ fontSize: 22, color: PEACH, fontWeight: 700 }}>›</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function EcosystemTab({ clientId, owners }: Props) {
+  // У коллабы с несколькими организаторами первый экран — список брендов.
+  // Выбрали бренд → показываем ЕГО карточку (тот же код, что у обычного
+  // события), с кнопкой «Назад» к списку.
+  const collabOwners = (owners || []).filter(o => o?.client_id)
+  const isMultiOwner = collabOwners.length > 1
+  const [pickedId, setPickedId] = useState<number | null>(null)
+  const shownId = isMultiOwner ? pickedId : clientId
+
+  if (isMultiOwner && !pickedId) {
+    return <OwnersList owners={collabOwners} onPick={setPickedId} />
+  }
+  return (
+    <EcosystemCard
+      clientId={shownId as number}
+      onBackToOwners={isMultiOwner ? () => setPickedId(null) : undefined}
+    />
+  )
+}
+
+function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackToOwners?: () => void }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [paid, setPaid] = useState<Offering[]>([])
   const [free, setFree] = useState<Offering[]>([])
@@ -160,6 +241,17 @@ export default function EcosystemTab({ clientId }: Props) {
 
   return (
     <div className="fade-in">
+      {/* Возврат к списку организаторов — только в коллабе (их несколько). */}
+      {onBackToOwners && (
+        <div onClick={onBackToOwners}
+             style={{
+               display: 'inline-flex', alignItems: 'center', gap: 6,
+               padding: '8px 4px', cursor: 'pointer',
+               color: DARK, fontSize: 14, fontWeight: 600,
+             }}>
+          <span style={{ fontSize: 18 }}>‹</span> Все организаторы
+        </div>
+      )}
       {/* Шапка-бренд */}
       <div style={{
         padding: '20px 18px 16px',
