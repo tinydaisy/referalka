@@ -839,9 +839,16 @@ async def handle_start(message: Message, command: CommandObject):
                         event_slug,
                     )
                     if event:
+                        # ⚠️ КОЛЛАБА: база — по рефоводу/боту, а не «первый
+                        # владелец» (services/event_client.py).
+                        from app.services.event_client import resolve_event_client
+                        _cid = await resolve_event_client(
+                            db, event_id=event["id"], client_id=event["client_id"],
+                            source_client_id=await _client_id_by_bot(db, message.bot.id),
+                        )
                         contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
                             db,
-                            client_id=event["client_id"],
+                            client_id=_cid,
                             platform_slug='telegram',
                             platform_user_id=str(user.id),
                             username=user.username or "",

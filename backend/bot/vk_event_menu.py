@@ -261,6 +261,13 @@ async def handle_vk_event_signup(event_id: int, vk_user_id: int, db, ctx) -> Non
             ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
         event_id,
     )
+    # ⚠️ КОЛЛАБА: база — того организатора, через чьё сообщество зашёл человек
+    # (`ctx.client_id`), а не «первый владелец» (services/event_client.py).
+    from app.services.event_client import resolve_event_client
+    client_id = await resolve_event_client(
+        db, event_id=event_id, client_id=client_id,
+        source_client_id=getattr(ctx, "client_id", None),
+    )
     # contact_id — строго в базе клиента-владельца события (см. пояснение ниже,
     # в handle_vk_event_menu_back: у человека может быть несколько vk-идентичностей).
     contact_id = await db.fetchval(

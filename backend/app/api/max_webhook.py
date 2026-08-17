@@ -1344,9 +1344,16 @@ async def _process_start(
         # Резолв client_id
         client_id = client_id_override or 0
         if not client_id and event_slug:
-            row = await conn.fetchrow("SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", event_slug)
+            row = await conn.fetchrow("SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", event_slug)
             if row:
-                client_id = row["client_id"]
+                # ⚠️ КОЛЛАБА: база — по рефоводу из ссылки, а не «первый
+                # владелец» (services/event_client.py). Клиент бота здесь
+                # неизвестен — иначе он уже стоял бы в client_id_override.
+                from app.services.event_client import resolve_event_client
+                client_id = await resolve_event_client(
+                    conn, event_id=row["id"], client_id=row["client_id"],
+                    partner_id=partner_ref_code or None,
+                )
         if not client_id:
             row = await conn.fetchrow("SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1")
             client_id = row["id"] if row else 0

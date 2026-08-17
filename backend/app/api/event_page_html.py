@@ -2383,7 +2383,15 @@ async def event_page(slug: str, c: str = "", email: str = "",
     if needs_sub and ev.get("client_id"):
         try:
             from app.services.share_links import build_event_chat_bot_links
-            chat_bot_links = await build_event_chat_bot_links(db, ev["client_id"], event_id)
+            # ⚠️ КОЛЛАБА: бот — того организатора, в чьей базе человек, а не
+            # «первого владельца». Иначе кнопка чата вела бы в чужого бота, где
+            # человека нет: он бы не прошёл проверку подписки и не получил чат.
+            from app.services.event_client import resolve_event_client
+            _chat_cid = await resolve_event_client(
+                db, event_id=event_id, client_id=ev["client_id"],
+                contact_id=contact_id,
+            )
+            chat_bot_links = await build_event_chat_bot_links(db, _chat_cid, event_id)
         except Exception:
             chat_bot_links = {}
 

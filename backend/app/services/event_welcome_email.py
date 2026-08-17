@@ -38,10 +38,13 @@ def _drop_empty_lines(text: str) -> str:
             if not nxt:
                 continue
         res.append(line)
-    # Схлопываем тройные и более переносы, оставшиеся после удаления.
+    # ⚠️ Схлопываем только ЧЕТЫРЕ и более переносов подряд — они остаются на
+    # месте удалённых строк. Тройной перенос НЕ трогаем: это осознанный отступ
+    # между пунктами письма (просьба владельца — «каждый пункт через 2 пустые
+    # строки»), схлопывание ломало бы вёрстку.
     txt = "\n".join(res)
-    while "\n\n\n" in txt:
-        txt = txt.replace("\n\n\n", "\n\n")
+    while "\n\n\n\n" in txt:
+        txt = txt.replace("\n\n\n\n", "\n\n\n")
     return txt.strip()
 
 
@@ -190,10 +193,43 @@ async def send_welcome_email_if_needed(
     )
     gifts_url = public_url_for(_public_base, f"event/{event['slug']}{_c}#game") if gifts_on else ""
 
-    # Чаты события — тот же блок, что в догреве ({chats}).
+    # ⚠️ Чаты — ссылкой В БОТА, а не прямыми ссылками на чаты. У события может
+    # быть включена обязательная подписка на каналы организаторов: бот её
+    # проверит и сам выдаст ссылки (тот же путь, что у кнопки «Вступить в Чат»
+    # в боте и на веб-странице). Прямые ссылки обходили бы эту проверку.
+    # Подписка не требуется → отдаём чаты списком, лишний шаг ни к чему.
+    chats_block = ""
     try:
-        from app.tasks.nurture_reg import build_chats_block
-        chats_block = await build_chats_block(db, event_id=event_id, html=False)
+        sub_mode = await db.fetchval(
+            "SELECT subscription_mode FROM conf_conferences WHERE event_id = $1", event_id)
+        needs_sub = ((sub_mode or "all_speakers") != "none") if sub_mode is not None else bool(
+            await db.fetchval("SELECT require_subscription FROM events WHERE id = $1", event_id))
+        if needs_sub:
+            from app.services.share_links import build_event_chat_bot_links
+            # ⚠️ Бот — того организатора, в чьей базе ЧЕЛОВЕК (в коллабе у
+            # каждого свой): в чужом боте его нет, подписку он не пройдёт.
+            from app.services.event_client import resolve_event_client
+            _chat_cid = await resolve_event_client(
+                db, event_id=event_id, client_id=event["client_id"],
+                contact_id=contact_id,
+            )
+            links = await build_event_chat_bot_links(db, _chat_cid, event_id)
+            # ⚠️ Показываем ТОЛЬКО те площадки, где человек РЕАЛЬНО есть —
+            # где у контакта заведена идентичность. Иначе ему предложат,
+            # например, МАКС, которым он не пользуется: ссылка откроет
+            # пустого бота, и в чат он так и не попадёт.
+            _plats = {r["platform_slug"] for r in await db.fetch(
+                """SELECT platform_slug FROM platform_users
+                    WHERE contact_id = $1 AND platform_slug IN ('telegram','vk','max')""",
+                contact_id,
+            )}
+            _order = [("telegram", "Телеграм"), ("vk", "ВКонтакте"), ("max", "МАХ")]
+            chats_block = "\n".join(
+                f"{label}: {links[k]}" for k, label in _order
+                if links.get(k) and k in _plats)
+        if not chats_block:
+            from app.tasks.nurture_reg import build_chats_block
+            chats_block = await build_chats_block(db, event_id=event_id, html=False)
     except Exception:
         chats_block = ""
 
