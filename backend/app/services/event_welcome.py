@@ -409,7 +409,21 @@ async def send_event_open_message(
                 return {"ok": True, "skipped": "event not found"}
 
             event_id = ev["id"]
-            client_id = client_id_hint or ev["client_id"]
+            # ⚠️ В КОЛЛАБЕ базу определяет РЕФОВОД, а не порядок владельцев.
+            # `client_id_hint` — клиент Mini App (из адреса `/c/{N}/tg/`), но он
+            # приходит пустым, если организатор прописал Main Mini App в
+            # @BotFather без номера (проверить это со стороны платформы нельзя —
+            # Telegram такой настройки по API не отдаёт). Тогда без учёта
+            # реф-кода человек уезжал к «первому владельцу»: пришёл по ссылке
+            # одного организатора, а контакт, рассылки и привлечение доставались
+            # другому (проверено на проде 2026-08-17, событие 92).
+            from app.services.external_landing import _collab_base_client
+            client_id = await _collab_base_client(
+                conn, event_id=event_id,
+                client_id=client_id_hint or ev["client_id"],
+                partner_id=partner_id or None,
+                source_client_id=client_id_hint or None,
+            )
 
             async with conn.transaction():
                 contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
