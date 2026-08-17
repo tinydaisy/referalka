@@ -26,6 +26,10 @@ class RegisterParticipantRequest(BaseModel):
     ref_code: Optional[str] = None
     partner_tg_id: Optional[str] = None
     contact_id: Optional[int] = None  # сквозной contact_id (из startapp ct<N>) — против дублей
+    # ⚠️ Клиент, чей Mini App открыт (из адреса `/c/{N}/tg/`). Нужен КОЛЛАБЕ:
+    # человек должен регистрироваться в базе того организатора, через кого
+    # пришёл, а не «первого владельца» события.
+    client_id: Optional[int] = None
     platform: Literal["telegram", "vk", "max"] = "telegram"
     # Согласия (152-ФЗ). Обе галочки обязательные на форме регистрации.
     # Если форма пришла из flow «возврат с лендинга» (/r/{slug}) — клиент
@@ -85,6 +89,21 @@ async def register_participant(
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено или не опубликовано")
+
+    # ⚠️ КОЛЛАБА: база — по рефоводу из ссылки, иначе по клиенту Mini App
+    # (`client_id`, приходит из адреса `/c/{N}/tg/`), и только потом «первый
+    # владелец». Без этого человек регистрировался в базе одного организатора,
+    # а Mini App другого показывал его незарегистрированным — со всеми
+    # вкладками под замками (найдено на проде 2026-08-17, событие 92).
+    from app.services.external_landing import _collab_base_client
+    _base_client = await _collab_base_client(
+        db, event_id=event["id"], client_id=event["client_id"],
+        partner_id=(data.ref_code or None),
+        source_client_id=(data.client_id or None),
+    )
+    event = dict(event)
+    event["client_id"] = _base_client
+
     redirect = await _resolve_post_register_redirect(db, event["client_id"], data.event_slug)
 
     # Создаём/находим контакт + идентичность (автомердж по email/phone).

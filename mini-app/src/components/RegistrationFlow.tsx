@@ -64,6 +64,12 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
       const last_name = rest.join(' ')
       const r = await registerParticipant({
         event_slug: event.slug,
+        // ⚠️ Клиент, чей Mini App открыт (из `/c/{N}/tg/`). В КОЛЛАБЕ по нему
+        // выбирается база регистрации, если в ссылке нет реф-кода: иначе
+        // человек регистрировался у «первого владельца», а Mini App того
+        // организатора, через кого он пришёл, показывал его незарегистрированным
+        // — все вкладки под замками.
+        client_id: botClientId || undefined,
         tg_id: tgUser?.id,
         username: tgUser?.username,
         first_name,
