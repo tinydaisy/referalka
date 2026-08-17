@@ -910,12 +910,18 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
             {coOrganizers.map(c => (
-              <div key={c.id} className="card" style={{
-                padding: 14,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-              }}>
+              // ⚠️ Карточка кликабельна — ведёт на вкладку «Спикеры», к полной
+              // карточке этого человека. Раньше это был мёртвый блок: имена
+              // организаторов коллабы показывались, но открыть их было нельзя.
+              <div key={c.id} className="card"
+                onClick={() => onOpenSpeaker?.(c.id)}
+                style={{
+                  padding: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  cursor: onOpenSpeaker ? 'pointer' : 'default',
+                }}>
                 {c.photo_url ? (
                   <img src={c.photo_url} alt=""
                     style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />

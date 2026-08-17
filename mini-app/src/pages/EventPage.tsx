@@ -295,9 +295,17 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const hidesWelcome = ['contest', 'turnir'].includes(event?.module_slug)
   const showWelcomeTab = registered && participant?.welcomed_at == null && !hidesWelcome
 
-  // Отдельная вкладка «Спикеры» — только для конференций и турниров.
-  // Для обычных мероприятий, конкурсов и др. — не показываем.
-  const hasSpeakersTab = ['conference', 'turnir'].includes(event?.module_slug)
+  // Вкладка «Спикеры» — если у события ЕСТЬ ЛЮДИ (карточки спикеров,
+  // организаторов, жюри, партнёров), как это давно делает веб-страница
+  // события (`has_people`). ⚠️ Раньше условие было по ТИПУ события
+  // (только conference/turnir), и у КОЛЛАБЫ вкладки не было вовсе: карточки
+  // организаторов есть, лента аватаров есть, а открыть их некуда — имена под
+  // программой не вели никуда. Веб при этом спикеров показывал, и один и тот
+  // же человек видел разное в приложении и в браузере.
+  // `has_people` может не прийти со старого бэка → падаем на прежнее правило.
+  const hasSpeakersTab = event?.has_people !== undefined
+    ? !!event.has_people
+    : ['conference', 'turnir'].includes(event?.module_slug)
 
   // Кастомные названия вкладок из настроек клиента (пусто → дефолт из константы NAV_*).
   const tabLabels: Record<string, string | undefined> = {

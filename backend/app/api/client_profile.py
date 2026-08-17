@@ -969,6 +969,18 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
     for _o in d["collab_owners"]:
         _o["public_base"] = await client_public_url(db, _o.get("client_id"))
 
+    # ⚠️ Есть ли у события ЛЮДИ (спикеры/организаторы/жюри/партнёры карточками).
+    # По этому признаку Mini App решает, показывать ли вкладку «Спикеры», — как
+    # это давно делает веб-страница события (`has_people` в event_page_html).
+    # Раньше Mini App смотрел на ТИП события (только conference/turnir), и у
+    # коллабы вкладки не было вовсе: карточки организаторов есть, а открыть их
+    # нельзя — имена внизу программы не вели никуда.
+    d["has_people"] = bool(await db.fetchval(
+        """SELECT 1 FROM event_collaborators
+            WHERE event_id = $1 AND is_visible = TRUE LIMIT 1""",
+        row["id"],
+    ))
+
     return d
 
 
