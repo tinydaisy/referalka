@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { BookOpen, ChevronRight } from 'lucide-react'
 import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 import { SECTIONS } from './sections'
-import { SectionsNav } from './_components'
+import { SectionsNav, HelpSearch } from './_components'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
@@ -43,7 +43,10 @@ export default function HelpIndexPage() {
           телефоне колонки стоят друг под другом, и вертикальная линия там
           повисла бы поперёк вёрстки. */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-6 lg:gap-8">
-        <div className="order-1 min-w-0 space-y-3">
+        <div className="order-1 min-w-0">
+          <HelpSearch />
+
+          <div className="space-y-3">
           {SECTIONS.map(s => (
             <Link
               key={s.id}
@@ -62,6 +65,7 @@ export default function HelpIndexPage() {
               <ChevronRight size={20} className="text-gray-300 flex-shrink-0" />
             </Link>
           ))}
+          </div>
 
           <div className="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
             <div className="text-sm font-semibold text-gray-800 mb-1">Не нашли ответ?</div>

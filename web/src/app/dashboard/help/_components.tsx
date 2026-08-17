@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight, Copy, Check, ExternalLink } from 'lucide-react'
+import { ChevronRight, Copy, Check, ExternalLink, Search, X } from 'lucide-react'
 import { SECTIONS, type Article } from './sections'
 
 const BRAND = '#25455D'
@@ -49,6 +49,134 @@ export function SectionsNav({ activeId }: { activeId?: string }) {
         })}
       </ul>
     </nav>
+  )
+}
+
+/**
+ * Поиск по всем инструкциям сразу.
+ *
+ * ⚠️ Ищем и по заголовку, и по ОПИСАНИЮ статьи. Описания у нас длинные и
+ * содержат живые слова, которыми человек и будет искать («афиша», «зум»,
+ * «подарок», «вебхук»), — по одним заголовкам половина запросов не находилась бы.
+ *
+ * ⚠️ Совпадение ищется по КАЖДОМУ слову запроса отдельно (И), а не по фразе
+ * целиком: «настроить лендинг коллаборации» иначе не нашло бы статью
+ * «Как настроить лендинг коллаборации» из-за порядка слов.
+ *
+ * ⚠️ Буква «ё» приводится к «е»: заголовки написаны через «ё» («Подарки»,
+ * «где загрузить»), а с клавиатуры её печатают редко.
+ */
+function normalize(s: string) {
+  return s.toLowerCase().replace(/ё/g, 'е')
+}
+
+/**
+ * Синонимы: слово из запроса → что реально написано в статьях.
+ *
+ * ⚠️ Нужны там, где человек пишет по-русски, а в тексте латиница (или
+ * наоборот). Проверено вживую: «зум» не находил статью про вебинарную комнату,
+ * хотя вся статья про него, — в описании стоит «Zoom».
+ */
+const SYNONYMS: Record<string, string> = {
+  зум: 'zoom', обс: 'obs', телеграм: 'telegram', телеграмм: 'telegram',
+  тг: 'telegram', вк: 'вконтакте', макс: 'max', кюар: 'qr', куар: 'qr',
+  геткурс: 'getcourse', тильда: 'tilda',
+  // Числа люди пишут словами, а в описаниях они цифрами («3 и более спикеров»).
+  два: '2', две: '2', три: '3', трех: '3', троих: '3', четыре: '4', пять: '5',
+}
+
+/**
+ * Совпадение слова с текстом — по ОСНОВЕ, а не по точному вхождению.
+ *
+ * ⚠️ Русские окончания иначе всё ломают. Проверено вживую: «подарок» не
+ * находил «подарки», «рассылка» — «рассылок». Поэтому у слов длиннее пяти
+ * букв отбрасываются последние две (подар|ок → подар|ки), у слов покороче —
+ * одна. Дальше хватает совпадения по началу в любую сторону, чтобы работали
+ * и «регистрации» → «регистрация», и наоборот.
+ *
+ * ⚠️ Две буквы — предел: отбрасывать больше начнёт склеивать разные слова
+ * («программа» и «прогресс» дали бы одну основу).
+ */
+function matches(word: string, words: string[]): boolean {
+  const w = SYNONYMS[word] || word
+  const cut = w.length > 5 ? 2 : w.length > 3 ? 1 : 0
+  const stem = cut ? w.slice(0, w.length - cut) : w
+  return words.some(t => t.startsWith(stem) || (t.length > 3 && w.startsWith(t)))
+}
+
+export function HelpSearch() {
+  const [q, setQ] = useState('')
+
+  const all = useMemo(
+    () => SECTIONS.flatMap(s => s.articles.map(a => ({ article: a, section: s }))),
+    [],
+  )
+
+  const results = useMemo(() => {
+    // Запрос режем ТЕМИ ЖЕ правилами, что и текст статей, иначе «win-win»
+    // ищется целиком и не находит слова «win» в описании.
+    const words = normalize(q).split(/[^a-zа-я0-9]+/).filter(w => w.length >= 2)
+    if (!words.length) return []
+    return all.filter(({ article, section }) => {
+      const hay = normalize(`${article.title} ${article.description} ${section.title}`)
+        .split(/[^a-zа-я0-9]+/).filter(Boolean)
+      return words.every(w => matches(w, hay))
+    })
+  }, [q, all])
+
+  const active = q.trim().length >= 2
+
+  return (
+    <div className="mb-5">
+      <div className="relative">
+        <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Поиск по инструкциям"
+          className="w-full pl-11 pr-10 py-3 bg-white rounded-xl border border-gray-200 text-sm outline-none focus:border-gray-400 transition-colors"
+        />
+        {q && (
+          <button
+            onClick={() => setQ('')}
+            aria-label="Очистить поиск"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+
+      {active && (
+        <div className="mt-3">
+          {results.length === 0 ? (
+            <div className="p-4 bg-white rounded-xl border border-gray-200">
+              <div className="text-sm font-semibold text-gray-800 mb-1">Ничего не нашлось</div>
+              <p className="text-sm text-gray-600">
+                Попробуйте другое слово — например «афиша», «бот», «рассылка», «лендинг».
+                Или посмотрите разделы ниже.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="text-xs text-gray-400 mb-2 px-1">
+                Нашлось: {results.length}
+              </div>
+              <div className="space-y-2">
+                {results.map(({ article, section }) => (
+                  <div key={article.href}>
+                    <div className="text-xs text-gray-400 mb-1 px-1">
+                      {section.emoji} {section.title}
+                    </div>
+                    <ArticleCard article={article} />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
