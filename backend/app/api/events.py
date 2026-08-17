@@ -15,6 +15,25 @@ router = APIRouter(prefix="/events", tags=["События"])
 # Алфавит без визуально похожих символов (без 0/o, 1/l/i)
 _SLUG_CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
 
+# ⚠️ Письмо о регистрации включено У КАЖДОГО нового события и заполнено
+# готовым текстом. Раньше и галочка, и текст были пустыми: из 50 событий на
+# проде письмо было настроено у 4 — то есть человек оставлял почту и не
+# получал подтверждения. Настройку никто не помнит, а на конверсию она влияет
+# прямо (решение владельца, 2026-08-17). Клиент может переписать текст под
+# себя или снять галочку.
+# Плейсхолдеры — см. services/event_welcome_email.py.
+DEFAULT_WELCOME_SUBJECT = "Вы зарегистрированы: {event_title}"
+DEFAULT_WELCOME_TEXT = (
+    "Здравствуйте, {name}!\n\n"
+    "Вы зарегистрированы на «{event_title}».\n"
+    "Когда: {event_date}\n\n"
+    "Чтобы не потерять событие — откройте его в мессенджере, там будут "
+    "ссылка на эфир, чаты и все материалы:\n"
+    "{tg_url}\n\n"
+    "Страница события: {event_landing_url}\n\n"
+    "До встречи!"
+)
+
 
 def _short_code(n: int = 5) -> str:
     return ''.join(secrets.choice(_SLUG_CODE_ALPHABET) for _ in range(n))
@@ -292,8 +311,10 @@ async def create_event(
         INSERT INTO events (slug, title, description, landing_url, address,
                             start_at, end_at, webhook_url,
                             module_slug, points_free, points_paid, require_subscription,
-                            skip_contact_form, registration_mode, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft')
+                            skip_contact_form, registration_mode, status,
+                            welcome_enabled, welcome_email_subject, welcome_text)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft',
+                TRUE,$15,$16)
         RETURNING *
         """,
         slug, data.title, data.description, data.landing_url, data.address,
@@ -304,6 +325,7 @@ async def create_event(
         # работает всегда. Сторонний сайт ставим сразу, только если клиент
         # прямо при создании указал его адрес (тогда выбор очевиден).
         "external" if (data.landing_url or "").strip() else "form",
+        DEFAULT_WELCOME_SUBJECT, DEFAULT_WELCOME_TEXT,
     )
     # владелец события — в event_owners (источник истины)
     await db.execute(

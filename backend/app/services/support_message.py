@@ -147,6 +147,20 @@ def build_support_message_html(work_tg=None, work_vk=None, work_max=None) -> str
     return f"{_html.escape(SUPPORT_INTRO)}\n\n{body}"
 
 
+def organizer_title(name: str | None, brand_name: str | None) -> str:
+    """Подпись организатора: «Имя Фамилия (бренд)».
+
+    Бренд в скобках — чтобы человек узнал и самого организатора, и проект,
+    под которым он ему знаком. Бренда нет или он совпадает с именем → только
+    имя (скобки с тем же текстом выглядели бы ошибкой).
+    """
+    person = (name or "").strip()
+    brand = (brand_name or "").strip()
+    if brand and brand.casefold() != person.casefold():
+        return f"{person} ({brand})" if person else brand
+    return person or brand
+
+
 async def support_text_for_event(db, event_id: int, *, html: bool) -> str:
     """Готовое сообщение поддержки по событию — ОДНА точка для всех ботов.
 
@@ -156,7 +170,7 @@ async def support_text_for_event(db, event_id: int, *, html: bool) -> str:
     """
     is_collab = await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id)
     rows = await db.fetch(
-        """SELECT COALESCE(NULLIF(c.brand_name,''), c.name) AS name,
+        """SELECT c.name, c.brand_name,
                   c.work_tg_username, c.work_vk, c.work_max
              FROM events e
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
@@ -166,7 +180,8 @@ async def support_text_for_event(db, event_id: int, *, html: bool) -> str:
         event_id,
     )
     if is_collab and len(rows) > 1:
-        items = [(r["name"], r["work_tg_username"], r["work_vk"], r["work_max"]) for r in rows]
+        items = [(organizer_title(r["name"], r["brand_name"]),
+                  r["work_tg_username"], r["work_vk"], r["work_max"]) for r in rows]
         return (build_support_message_html_multi(items) if html
                 else build_support_message_plain_multi(items))
     row = rows[0] if rows else None
@@ -187,7 +202,7 @@ def build_support_message_plain_multi(organizers) -> str:
             continue
         body = "\n".join(f"{label}: {url}" for label, url in rows)
         title = (name or "").strip()
-        head = f"Организатор {title}\n" if title else ""
+        head = f"Организатор: {title}\n" if title else ""
         blocks.append(f"{head}{body}")
     if not blocks:
         return "Возникли вопросы? Напишите организаторам события."
@@ -208,9 +223,10 @@ def build_support_message_html_multi(organizers) -> str:
         Организатор Имя2
         ...
 
-    `organizers` — [(имя, work_tg, work_vk, work_max), ...] в порядке
-    event_owners. Организаторы без единого заполненного канала пропускаются:
-    заголовок без контактов бесполезен.
+    `organizers` — [(подпись, work_tg, work_vk, work_max), ...] в порядке
+    event_owners; подпись собирает `organizer_title` («Имя Фамилия (бренд)»).
+    Организаторы без единого заполненного канала пропускаются: заголовок без
+    контактов бесполезен.
     """
     blocks: list[str] = []
     for name, work_tg, work_vk, work_max in organizers:
@@ -222,7 +238,7 @@ def build_support_message_html_multi(organizers) -> str:
             for label, url in rows
         )
         title = _html.escape((name or "").strip())
-        head = f"<b>Организатор {title}</b>\n" if title else ""
+        head = f"<b>Организатор: {title}</b>\n" if title else ""
         blocks.append(f"{head}{body}")
     if not blocks:
         return "Возникли вопросы? Напишите организаторам события."
