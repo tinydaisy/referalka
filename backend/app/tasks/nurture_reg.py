@@ -200,6 +200,7 @@ def _format_text(
     support_link: str,
     section_urls: dict,
     support_link_org: str = "",
+    support_link_collabs: str = "",
 ) -> str:
     """Подставляет плейсхолдеры. replace (не .format) — текст содержит HTML с {…}."""
     out = text or ""
@@ -209,6 +210,9 @@ def _format_text(
     # ⚠️ {support_link_org} — ТОЛЬКО коллаб-событие: служба заботы организатора, от которого
     # пришёл участник. Заменяем ДО {support_link}, иначе тот съест префикс.
     out = out.replace("{support_link_org}", support_link_org or support_link or "")
+    # ⚠️ {support_link_collabs} — КОЛЛАБА: контакты ВСЕХ организаторов блоками
+    # «Организатор Имя» + каналы. Вне коллабы падает на обычный support_link.
+    out = out.replace("{support_link_collabs}", support_link_collabs or support_link or "")
     out = out.replace("{support_link}",  support_link or "")  # уже HTML <a> или текст
     out = out.replace("{vip_link}",      escape(section_urls.get("vip_link") or "", quote=True))
     out = out.replace("{gifts_link}",    escape(section_urls.get("gifts_link") or "", quote=True))
@@ -283,6 +287,17 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         except Exception:
             support_link_org = ""
 
+    # {support_link_collabs} — контакты ВСЕХ организаторов коллабы блоками.
+    support_link_collabs = ""
+    try:
+        from app.services.support_message import support_text_for_event
+        if await db.fetchval("SELECT is_collab FROM events WHERE id=$1", run_row["event_id"]):
+            support_link_collabs = await support_text_for_event(
+                db, run_row["event_id"], html=True,
+            )
+    except Exception:
+        support_link_collabs = ""
+
     ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", run_row["contact_id"])
 
     # Получатель: TG и VK идентичности
@@ -327,6 +342,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
                 chats_block=chats_block,
                 bot_handle=bot_handle,
                 support_link=support_link,
+                support_link_collabs=support_link_collabs,
                 support_link_org=support_link_org,
                 section_urls=section_urls,
             )

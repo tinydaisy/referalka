@@ -940,27 +940,14 @@ async def _handle_max_support(chat_id, event_id: int, bot_token: str | None) -> 
     """Сообщение «Тех.поддержка» — каналы связи клиента-владельца события.
     Вызывается из callback `evsupport_<id>` и deeplink `/start evsupport_<id>`
     (кнопка «Тех.поддержка» в рассылках)."""
-    from app.services.support_message import build_support_message_plain
+    # ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (см. support_text_for_event).
+    from app.services.support_message import support_text_for_event
     pool = await get_pool()
     if not pool:
         return
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """SELECT c.work_tg_username, c.work_vk, c.work_max
-                 FROM events e
-                 JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
-                 JOIN clients c ON c.id = eo.client_id
-                WHERE e.id = $1 ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
-            event_id,
-        )
-    wtg = row["work_tg_username"] if row else ""
-    wvk = row["work_vk"] if row else ""
-    wmax = row["work_max"] if row else ""
-    await max_send_message(
-        chat_id,
-        build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
-        token=bot_token,
-    )
+        text = await support_text_for_event(conn, event_id, html=False)
+    await max_send_message(chat_id, text, token=bot_token)
 
 
 _MERGE_USAGE_MAX = (

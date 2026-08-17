@@ -53,6 +53,7 @@ def _format_text(
     owner_telegram: str = "",
     support_link: str = "",
     support_link_org: str = "",
+    support_link_collabs: str = "",
     brand_name: str = "",
 ) -> str:
     """Подставляет плейсхолдеры. Безопасно — формат-строка может содержать
@@ -65,6 +66,11 @@ def _format_text(
     # от которого пришёл участник (у каждого своя база и свой бот). Если определить не
     # удалось — падаем на общий support_link (служба владельца события).
     out = out.replace("{support_link_org}", support_link_org or support_link or "")
+    # ⚠️ {support_link_collabs} — КОЛЛАБА: контакты ВСЕХ организаторов блоками
+    # «Организатор Имя» + его каналы. Отличается от {support_link_org} (только
+    # тот, кто привёл) и от {support_link} (владелец события). Вне коллабы
+    # падает на обычный support_link — плейсхолдер не уедет получателю сырым.
+    out = out.replace("{support_link_collabs}", support_link_collabs or support_link or "")
     out = out.replace("{support_link}",     support_link or "")    # уже HTML-тег <a> или текст
     out = out.replace("{brand_name}",       f"«{escape(brand_name)}»" if brand_name else "")
     return out
@@ -273,6 +279,19 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         except Exception:
             support_link_org = ""
 
+    # {support_link_collabs} — контакты ВСЕХ организаторов коллабы блоками.
+    # Считается только для коллаб-события: у обычного организатор один и
+    # плейсхолдер падает на обычный support_link (см. _format_text).
+    support_link_collabs = ""
+    try:
+        from app.services.support_message import support_text_for_event
+        if await db.fetchval("SELECT is_collab FROM events WHERE id=$1", run_row["event_id"]):
+            support_link_collabs = await support_text_for_event(
+                db, run_row["event_id"], html=True,
+            )
+    except Exception:
+        support_link_collabs = ""
+
     text = _format_text(
         step_row["text"],
         event_title=event_title,
@@ -280,6 +299,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         owner_telegram=owner_tg,
         support_link=support_link,
         support_link_org=support_link_org,
+        support_link_collabs=support_link_collabs,
         brand_name=brand_name,
     )
     button_label = step_row["button_label"] or "Зарегистрироваться"

@@ -429,22 +429,11 @@ async def run_event_support(message: Message, event_id: int) -> None:
     """Единое сообщение с каналами связи клиента-владельца события (ВК / ТГ / MAX).
     Вызывается из callback-кнопки меню (`evsupport_<id>`) и из внешней ссылки
     `?start=evsupport_<id>` (кнопка «Тех.поддержка» в рассылках)."""
-    from app.services.support_message import build_support_message_html
+    # ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (см. support_text_for_event).
+    from app.services.support_message import support_text_for_event
     pool = await get_pool()
     async with pool.acquire() as db:
-        row = await db.fetchrow(
-            """SELECT c.work_tg_username, c.work_vk, c.work_max
-                 FROM events e
-                 JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
-                 JOIN clients c ON c.id = eo.client_id
-                WHERE e.id = $1
-                ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
-            event_id,
-        )
-    work_tg = row["work_tg_username"] if row else ""
-    work_vk = row["work_vk"] if row else ""
-    work_max = row["work_max"] if row else ""
-    text = build_support_message_html(work_tg=work_tg, work_vk=work_vk, work_max=work_max)
+        text = await support_text_for_event(db, event_id, html=True)
     await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 

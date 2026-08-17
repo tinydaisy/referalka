@@ -147,6 +147,89 @@ def build_support_message_html(work_tg=None, work_vk=None, work_max=None) -> str
     return f"{_html.escape(SUPPORT_INTRO)}\n\n{body}"
 
 
+async def support_text_for_event(db, event_id: int, *, html: bool) -> str:
+    """Готовое сообщение поддержки по событию — ОДНА точка для всех ботов.
+
+    ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (блок на каждого), у обычного
+    события — контакты владельца, как было. Держать эту развилку в каждом боте
+    отдельно нельзя: разъедется, как уже было с выбором владельца.
+    """
+    is_collab = await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id)
+    rows = await db.fetch(
+        """SELECT COALESCE(NULLIF(c.brand_name,''), c.name) AS name,
+                  c.work_tg_username, c.work_vk, c.work_max
+             FROM events e
+             JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
+             JOIN clients c ON c.id = eo.client_id
+            WHERE e.id = $1
+            ORDER BY (eo.role='owner') DESC, eo.id""",
+        event_id,
+    )
+    if is_collab and len(rows) > 1:
+        items = [(r["name"], r["work_tg_username"], r["work_vk"], r["work_max"]) for r in rows]
+        return (build_support_message_html_multi(items) if html
+                else build_support_message_plain_multi(items))
+    row = rows[0] if rows else None
+    fn = build_support_message_html if html else build_support_message_plain
+    return fn(
+        work_tg=row["work_tg_username"] if row else "",
+        work_vk=row["work_vk"] if row else "",
+        work_max=row["work_max"] if row else "",
+    )
+
+
+def build_support_message_plain_multi(organizers) -> str:
+    """Plain-версия `build_support_message_html_multi` — для VK и MAX."""
+    blocks: list[str] = []
+    for name, work_tg, work_vk, work_max in organizers:
+        rows = _lines(work_tg, work_vk, work_max)
+        if not rows:
+            continue
+        body = "\n".join(f"{label}: {url}" for label, url in rows)
+        title = (name or "").strip()
+        head = f"Организатор {title}\n" if title else ""
+        blocks.append(f"{head}{body}")
+    if not blocks:
+        return "Возникли вопросы? Напишите организаторам события."
+    return f"{SUPPORT_INTRO}\n\n" + "\n\n".join(blocks)
+
+
+def build_support_message_html_multi(organizers) -> str:
+    """Сообщение поддержки КОЛЛАБ-события — контакты ВСЕХ организаторов.
+
+    ⚠️ У коллабы организаторы равноправны, и человек не знает, к кому из них
+    обращаться: показывать контакты одного «первого владельца» неверно —
+    второй остаётся недоступен. Поэтому блок на каждого:
+
+        Организатор Имя
+        Телеграм: ссылка
+        ВКонтакте: ссылка
+
+        Организатор Имя2
+        ...
+
+    `organizers` — [(имя, work_tg, work_vk, work_max), ...] в порядке
+    event_owners. Организаторы без единого заполненного канала пропускаются:
+    заголовок без контактов бесполезен.
+    """
+    blocks: list[str] = []
+    for name, work_tg, work_vk, work_max in organizers:
+        rows = _lines(work_tg, work_vk, work_max)
+        if not rows:
+            continue
+        body = "\n".join(
+            f'{_html.escape(label)}: <a href="{_html.escape(url)}">{_html.escape(url)}</a>'
+            for label, url in rows
+        )
+        title = _html.escape((name or "").strip())
+        head = f"<b>Организатор {title}</b>\n" if title else ""
+        blocks.append(f"{head}{body}")
+    if not blocks:
+        return "Возникли вопросы? Напишите организаторам события."
+    # Два переноса между организаторами — блоки читаются раздельно.
+    return f"{_html.escape(SUPPORT_INTRO)}\n\n" + "\n\n".join(blocks)
+
+
 _REPLY_INTRO = "Спасибо, видим ваше сообщение и скоро вам ответим 💛"
 _REPLY_BRIDGE = "Так же вы можете связаться с тех поддержкой напрямую — напишите по этим контактам:"
 
