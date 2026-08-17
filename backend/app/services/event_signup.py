@@ -35,8 +35,10 @@ async def signup_participant_in_bot(db, *, event_id: int, contact_id: int) -> bo
                  DO UPDATE SET is_registered = TRUE""",
             event_id, contact_id,
         )
+        # ⚠️ send_menu=False — меню шлёт сам вызывающий, ответом на нажатие
+        # кнопки в боте. Иначе человек получил бы два одинаковых меню подряд.
         await finalize_participant_registration(
-            db, event_id=event_id, contact_id=contact_id)
+            db, event_id=event_id, contact_id=contact_id, send_menu=False)
         return True
     except Exception as e:
         log.warning("signup_participant_in_bot failed (event=%s contact=%s): %s",

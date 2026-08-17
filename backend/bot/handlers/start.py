@@ -1412,15 +1412,26 @@ async def _send_finished_event_menu(message: Message, ev, contact_id: int | None
     return True
 
 
-async def send_event_menu(message: Message, event_id: int, contact_id: int | None, db) -> None:
+async def send_event_menu(
+    message: Message | None, event_id: int, contact_id: int | None, db,
+    *, tg_id: int | str | None = None, bot_token: str | None = None,
+) -> None:
     """Меню кабинета зарегистрированного участника события.
 
     ⚠️ Если событие уже завершилось — меню не показывается вовсе: уходит
     сообщение «событие завершилось» + кнопка на ближайшее предстоящее событие
     организатора (см. `_send_finished_event_menu`).
 
-    Вызывается из ветки «зареган» в `_handle_ref_event_bot_flow` и из команды
-    `/menu{event_id}`. Кнопки строятся в зависимости от настроек события:
+    Два режима отправки:
+      • `message` — ответом на входящее сообщение (заход в бота, `/menu{id}`);
+      • `tg_id` + `bot_token` — БЕЗ входящего сообщения. Нужен, когда человек
+        зарегистрировался не в боте (Mini App, веб-форма, оплата): раньше меню
+        в этом случае не приходило вовсе, и человек не получал ни чата, ни
+        эфира — при том что воронка догрева зовёт его «закрепить этот бот».
+
+    Вызывается из ветки «зареган» в `_handle_ref_event_bot_flow`, из команды
+    `/menu{event_id}` и из `send_event_menu_after_signup`. Кнопки строятся в
+    зависимости от настроек события:
       • «Выбрать формат участия» — только если задан events.vip_url (VIP-ссылка
         обогащается параметрами контакта через enrich_external_url);
       • «Вступить в Чат» — callback evchat_{event_id}, только если есть хоть один
@@ -1464,7 +1475,9 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
     # больше нет). Вместо него — «событие завершилось» + приглашение на
     # ближайшее предстоящее событие организатора кнопкой-ссылкой. Если
     # предстоящих событий нет — только текст благодарности, без кнопок.
-    if await _send_finished_event_menu(message, ev, contact_id, db):
+    # ⚠️ Отвечает только на входящее сообщение; при отправке после регистрации
+    # (message=None) ветка не нужна — на завершённое событие не регистрируются.
+    if message is not None and await _send_finished_event_menu(message, ev, contact_id, db):
         return
 
     # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
@@ -1555,6 +1568,38 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     poster_url = (ev["poster_url"] or "").strip()
+
+    # Режим «без входящего сообщения»: шлём напрямую по tg_id токеном бота
+    # клиента. Кнопки меню — callback (чат/эфир/поддержка), поэтому общая
+    # send_telegram_message не годится: она умеет только url-кнопки.
+    if message is None:
+        if not (tg_id and bot_token):
+            return
+        payload_kb = kb.model_dump(exclude_none=True)
+        async with httpx.AsyncClient(timeout=20) as cl:
+            if poster_url and len(text) <= 1024:
+                try:
+                    r = await cl.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        json={"chat_id": str(tg_id), "photo": poster_url,
+                              "caption": text, "parse_mode": "HTML",
+                              "reply_markup": payload_kb},
+                    )
+                    if r.json().get("ok"):
+                        return
+                except Exception as e:
+                    log.warning("send_event_menu(direct) photo failed: %s", e)
+            try:
+                await cl.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={"chat_id": str(tg_id), "text": text,
+                          "parse_mode": "HTML", "disable_web_page_preview": True,
+                          "reply_markup": payload_kb},
+                )
+            except Exception as e:
+                log.warning("send_event_menu(direct) text failed: %s", e)
+        return
+
     if poster_url and len(text) <= 1024:
         try:
             await message.answer_photo(poster_url, caption=text, reply_markup=kb,
@@ -1565,6 +1610,53 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                         poster_url, e)
     await message.answer(text, reply_markup=kb, parse_mode="HTML",
                          disable_web_page_preview=True)
+
+
+async def send_event_menu_after_signup(db, *, event_id: int, contact_id: int) -> None:
+    """Прислать меню события человеку, который зарегистрировался НЕ в боте.
+
+    Зачем: меню (чат, эфир, кабинет, поддержка) отправлялось только когда
+    человек сам заходил в бота по ссылке события. Зарегистрировавшийся из
+    Mini App или с веб-формы не получал его вовсе — и не получил бы никогда,
+    пока не догадается перейти по ссылке повторно. При этом воронка догрева
+    сразу пишет ему «запомните и закрепите этот бот», а бот пустой.
+
+    ⚠️ Бот берём у ВЛАДЕЛЬЦА КОНТАКТА (`contacts.client_id`), а не у события:
+    в коллабе человек лежит в базе того организатора, через кого пришёл, и
+    писать ему должен ЕГО бот. Токен чужого бота отправит сообщение от имени
+    постороннего организатора — человек не поймёт, кто ему пишет.
+
+    ⚠️ Только Telegram: MAX и VK своих меню событий не имеют.
+    Все ошибки глушим — это дополнение к регистрации, а не её часть.
+    """
+    try:
+        row = await db.fetchrow(
+            """SELECT c.client_id,
+                      (SELECT pu.platform_user_id FROM platform_users pu
+                        WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                        LIMIT 1) AS tg_id
+                 FROM contacts c WHERE c.id = $1""",
+            contact_id,
+        )
+        if not row or not row["client_id"]:
+            return
+        tg_id = (row["tg_id"] or "").strip()
+        # Псевдо-запись `@ник` (идентичность известна только по нику) для
+        # отправки не годится — нужен числовой id.
+        if not tg_id.isdigit():
+            return
+
+        from app.services.channels import get_client_telegram_token
+        token = await get_client_telegram_token(row["client_id"], db)
+        if not token:
+            return
+
+        await send_event_menu(
+            None, event_id, contact_id, db, tg_id=tg_id, bot_token=token,
+        )
+    except Exception as e:
+        log.warning("send_event_menu_after_signup failed (event=%s contact=%s): %s",
+                    event_id, contact_id, e)
 
 
 async def _start_lead_magnet_funnel(message: Message, kind: str, slug: str,

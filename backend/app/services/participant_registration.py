@@ -20,12 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 async def finalize_participant_registration(
-    db, *, event_id: int, contact_id: int,
+    db, *, event_id: int, contact_id: int, send_menu: bool = True,
 ) -> None:
     """Финализация регистрации — общая для всех путей входа.
 
     Сначала проверяет, что у участника is_registered=TRUE. Если нет —
     выходит молча (вызов из ветки, где регистрации не случилось).
+
+    `send_menu=False` — когда вызывающий сам шлёт меню события (регистрация
+    ПРЯМО В БОТЕ: там оно уходит ответом на нажатие кнопки). Иначе человек
+    получил бы два одинаковых меню подряд.
     """
     is_reg = await db.fetchval(
         """SELECT TRUE FROM event_participants
@@ -43,6 +47,21 @@ async def finalize_participant_registration(
         )
     except Exception as e:
         logger.warning(f"nurture stop failed for event={event_id} contact={contact_id}: {e}")
+
+    # Меню события (кабинет, чат, эфир, поддержка) — ДО воронки догрева.
+    # ⚠️ Порядок значим: первый шаг догрева зовёт «закрепите этот бот», и если
+    # меню придёт после него, человек сначала увидит призыв к пустому боту.
+    # Раньше меню слалось только при заходе В БОТА по ссылке события —
+    # зарегистрировавшийся из Mini App или с веб-формы не получал ни чата,
+    # ни эфира, пока сам не перейдёт по ссылке ещё раз.
+    if send_menu:
+        try:
+            from bot.handlers.start import send_event_menu_after_signup
+            await send_event_menu_after_signup(
+                db, event_id=event_id, contact_id=contact_id,
+            )
+        except Exception as e:
+            logger.warning(f"event menu after signup failed for event={event_id} contact={contact_id}: {e}")
 
     try:
         from app.api.event_nurture_reg import start_nurture_reg_run_if_eligible
