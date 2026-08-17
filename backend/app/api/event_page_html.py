@@ -50,6 +50,8 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
             "landing_url, start_at, end_at, is_collab, skip_contact_form, "
+            # Галочки площадок (миграция 263) — куда организаторы ведут зрителей.
+            "disabled_platforms, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
             "WHEN 'vk' THEN events.vk_chat_ref WHEN 'max' THEN events.max_chat_ref ELSE events.tg_chat_ref END) AS chat_url, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg, "
@@ -870,8 +872,16 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
     else:
         needs_sub = bool(event.get("require_subscription"))
 
+    # ⚠️ Показываем только ВКЛЮЧЁННЫЕ площадки (миграция 312): организаторы
+    # договариваются, куда вести зрителей. Чат на выключенной площадке
+    # остаётся (туда пишут), но новых людей туда не отправляем.
+    from app.services.event_platforms import enabled_from_row
+    _enabled = enabled_from_row(event)
+
     plat_buttons = []  # (platform, display_name, href, is_primary)
     for plat in order:
+        if plat not in _enabled:
+            continue
         direct_url, plat_name = chat_map.get(plat, (None, ""))
         direct_url = (direct_url or "").strip()
         if not direct_url:

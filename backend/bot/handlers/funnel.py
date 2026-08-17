@@ -145,6 +145,12 @@ def _build_chat_links_message(
         ("max", "МАХ", "Чат в МАХ", mx),
     ]
     items = [it for it in items if it[3]]
+    # ⚠️ Только ВКЛЮЧЁННЫЕ площадки (галочки события, миграция 263):
+    # организаторы сами решают, куда вести зрителей. Чат на выключенной
+    # площадке остаётся (туда пишут), но новых людей туда не отправляем.
+    from app.services.event_platforms import enabled_from_row
+    _enabled = enabled_from_row(ev)
+    items = [it for it in items if it[0] in _enabled]
     # Главный — первым.
     items.sort(key=lambda it: 0 if it[0] == primary else 1)
 
@@ -197,6 +203,9 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
     async with pool.acquire() as db:
         ev = await db.fetchrow(
             """SELECT id, require_subscription,
+                      -- Коллаба: рычаг «подписка на каналы ВСЕХ организаторов»
+                      -- + галочки площадок (какие вообще предлагаем).
+                      is_collab, require_subscribe_all_owners, disabled_platforms,
                       (SELECT eo.client_id FROM event_owners eo
                         WHERE eo.event_id = events.id AND eo.status = 'accepted'
                         ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -234,6 +243,24 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
             speakers = await _gather_event_chat_channels(event_id, mode, db, ev["client_id"])
             channels = founder + speakers
 
+        # ⚠️ КОЛЛАБА с рычагом «подписка на каналы ВСЕХ организаторов»
+        # (require_subscribe_all_owners). Логика уже написана для Mini App —
+        # переиспользуем её, а не пишем вторую: там каждый канал проверяется
+        # ботом СВОЕГО организатора (он админ своего канала, чужих ботов в
+        # чужие каналы добавлять не надо). До 2026-08-17 боты про этот рычаг
+        # не знали вовсе, и человек, нажавший «Вступить в Чат» в боте или с
+        # веб-страницы, попадал в чат, подписавшись только на одного.
+        collab_not_subscribed: list[dict] = []
+        if ev.get("is_collab") and ev.get("require_subscribe_all_owners"):
+            try:
+                from app.api.subscription_check import _check_collab_owners
+                collab_not_subscribed, _ok = await _check_collab_owners(
+                    event_id, user_tg_id, db)
+            except Exception as e:
+                # Сбой проверки не запирает человека перед чатом.
+                log.warning("evchat collab owners check failed (event=%s): %s", event_id, e)
+                collab_not_subscribed = []
+
         # Проверяем подписку по каждому каналу.
         not_all_subscribed = False
         verdicts: dict[int, str] = {}  # speaker_id → 'subscribed'|'not_subscribed'|'fake_pass'
@@ -262,6 +289,20 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
                         if v == "not_subscribed":
                             not_all_subscribed = True
             # нет токена → пропускаем проверку (не блокируем)
+
+        # Каналы организаторов коллабы, на которые человек не подписан, —
+        # в общий список: для него это такие же «подпишитесь, чтобы войти».
+        if collab_not_subscribed:
+            not_all_subscribed = True
+            for o in collab_not_subscribed:
+                channels.append({
+                    "speaker_id": f"owner:{o.get('tg_channel_id')}",
+                    "role": "organizer",
+                    "name": o.get("name") or "",
+                    "tg_channel_id": o.get("tg_channel_id"),
+                    "tg_channel_url": o.get("tg_channel_url"),
+                    "personal_tg_id": None,
+                })
 
         # ── НЕ подписан на все нужные каналы — показываем список каналов ──────
         if channels and not_all_subscribed:

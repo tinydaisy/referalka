@@ -127,6 +127,11 @@ def _build_chat_links_message_vk(ev, event_id: int, work_tg: str | None = None):
         ("max", "МАХ", "Чат в МАХ", mx),
     ]
     items = [it for it in items if it[3]]
+    # ⚠️ Только ВКЛЮЧЁННЫЕ площадки (галочки события, миграция 263) — как в
+    # TG-боте и на веб-странице. Организаторы сами решают, куда вести зрителей.
+    from app.services.event_platforms import enabled_from_row
+    _enabled = enabled_from_row(ev)
+    items = [it for it in items if it[0] in _enabled]
     items.sort(key=lambda it: 0 if it[0] == primary else 1)
 
     text = (
@@ -150,7 +155,7 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«Вступить в Чат» (VK) — проверка подписки на VK-сообщества спикеров, затем
     выдача чат-ссылок. Порт funnel.py:handle_event_chat_join с VK groups.isMember."""
     ev = await db.fetchrow(
-        """SELECT id, require_subscription,
+        """SELECT id, require_subscription, disabled_platforms,
                   (SELECT eo.client_id FROM event_owners eo
                     WHERE eo.event_id = events.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,

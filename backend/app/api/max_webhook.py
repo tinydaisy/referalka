@@ -2140,7 +2140,7 @@ async def _handle_max_chat_join(
     каналов с id → сразу выдаём ссылки на чаты.
     """
     ev = await conn.fetchrow(
-        """SELECT id, require_subscription,
+        """SELECT id, require_subscription, disabled_platforms,
                   (SELECT eo.client_id FROM event_owners eo
                     WHERE eo.event_id = events.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -2201,6 +2201,11 @@ async def _handle_max_chat_join(
         ("max", "Мах", "Чат в МАХ", mx),
     ]
     items = [it for it in items if it[3]]
+    # ⚠️ Только ВКЛЮЧЁННЫЕ площадки (галочки события, миграция 263) — как в
+    # TG/VK-ботах и на веб-странице. Организаторы сами решают, куда вести.
+    from app.services.event_platforms import enabled_from_row
+    _enabled = enabled_from_row(ev)
+    items = [it for it in items if it[0] in _enabled]
     if not items:
         await max_send_message(
             chat_id,

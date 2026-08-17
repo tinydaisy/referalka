@@ -698,6 +698,11 @@ async def build_event_chat_bot_links(
     """
     payload = f"evchat_{event_id}"
     handles = await get_client_bot_handles(db, client_id)
+    # ⚠️ Только ВКЛЮЧЁННЫЕ площадки события (миграция 312): организаторы сами
+    # решают, куда вести зрителей. Выключенная площадка не предлагается нигде.
+    from app.services.event_platforms import enabled_platforms
+    _enabled = await enabled_platforms(db, event_id)
+    handles = {k: v for k, v in handles.items() if k in _enabled}
     result: dict[str, str] = {}
 
     # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
