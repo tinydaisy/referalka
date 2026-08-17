@@ -299,25 +299,19 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     )
     button_label = (step_row["button_label"] or "").strip()
     button_kind = step_row["button_kind"] if "button_kind" in step_row else "event"
-    # Кнопка «Написать в поддержку» — ДЛЯ КАЖДОЙ ПЛОЩАДКИ СВОЯ (TG → work_tg_username,
-    # VK → work_vk, MAX → work_max). Нет поддержки на площадке → кнопки нет вообще.
+    # ⚠️ Кнопка ведёт в БОТА, а тот отвечает сообщением со ВСЕМИ каналами связи
+    # (тот же ответ, что даёт команда поддержки) — deeplink `evsupport_{event_id}`.
+    # Раньше кнопка вела прямой ссылкой на ОДИН канал той площадки, где человек
+    # читает, и если у клиента там поддержки не заведено — кнопки не было вовсе.
+    # Сами контакты в ТЕКСТ догрева не подставляем: они приходят отдельным
+    # сообщением по нажатию, чтобы не загромождать письмо.
     support_btn_by_platform: dict[str, str] = {}
     if button_kind == "support":
-        from urllib.parse import quote
-        from app.services.support_message import _norm_tg, _norm_url
-        _w = await db.fetchrow(
-            "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1", client_id)
-        if _w:
-            _q = quote("Есть вопрос по регистрации")
-            _tg = _norm_tg(_w["work_tg_username"])
-            if _tg:
-                support_btn_by_platform["telegram"] = f"{_tg}?text={_q}"
-            _vk = _norm_url(_w["work_vk"])
-            if _vk:
-                support_btn_by_platform["vk"] = _vk
-            _mx = _norm_url(_w["work_max"])
-            if _mx:
-                support_btn_by_platform["max"] = _mx
+        from app.services.share_links import (
+            get_client_bot_handles, build_support_command_links,
+        )
+        _handles = await get_client_bot_handles(db, client_id)
+        support_btn_by_platform = build_support_command_links(_handles, run_row["event_id"])
 
     sent = False
     for ident in identities:

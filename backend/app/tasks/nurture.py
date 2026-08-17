@@ -284,25 +284,18 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     )
     button_label = step_row["button_label"] or "Зарегистрироваться"
     button_kind = step_row["button_kind"] if "button_kind" in step_row else "event"
-    # URL кнопки «Написать в поддержку» — ДЛЯ КАЖДОЙ ПЛОЩАДКИ СВОЙ.
-    # ⚠️ Раньше всегда строился телеграмный `t.me/{work_tg}` — человек, читающий
-    # сообщение во ВКонтакте, получал кнопку в Telegram. Теперь: TG → work_tg_username,
-    # VK → work_vk, MAX → work_max. Нет поддержки на площадке → КНОПКИ НЕТ ВООБЩЕ
-    # (пустой URL Telegram/VK всё равно не примут, а кнопка в никуда бесполезна).
-    from app.services.support_message import _norm_tg, _norm_url
+    # ⚠️ Кнопка ведёт в БОТА, а тот отвечает сообщением со ВСЕМИ каналами связи
+    # (тот же ответ, что даёт команда поддержки) — deeplink `evsupport_{event_id}`.
+    # Раньше кнопка вела прямой ссылкой на ОДИН канал той площадки, где человек
+    # читает, и если у клиента там поддержки не заведено — кнопки не было вовсе.
+    # Теперь человек в любом случае получает все контакты сразу.
     support_btn_by_platform: dict[str, str] = {}
-    if button_kind == "support" and contact_row:
-        from urllib.parse import quote
-        _q = quote("Есть вопрос по регистрации")
-        _tg = _norm_tg(work_tg_username)
-        if _tg:
-            support_btn_by_platform["telegram"] = f"{_tg}?text={_q}"
-        _vk = _norm_url(contact_row["work_vk"])
-        if _vk:
-            support_btn_by_platform["vk"] = _vk
-        _mx = _norm_url(contact_row["work_max"])
-        if _mx:
-            support_btn_by_platform["max"] = _mx
+    if button_kind == "support":
+        from app.services.share_links import (
+            get_client_bot_handles, build_support_command_links,
+        )
+        _handles = await get_client_bot_handles(db, ctx_client_id)
+        support_btn_by_platform = build_support_command_links(_handles, run_row["event_id"])
 
     # Получатель: ищем идентичности контакта в TG и VK
     identities = await db.fetch(

@@ -312,6 +312,16 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
         )}
       </div>
 
+      {/* Один раз на весь раздел, НАД списком шагов. Очередь догрева проверяется
+          раз в 5 минут (celery beat nurture-tick / nurture-reg-tick, 300 сек),
+          поэтому шаг уходит не ровно в свою секунду. Без этой подписи клиент
+          считает опоздание поломкой (жалоба 2026-08-17: «пришло через 19 минут
+          вместо 15»). */}
+      <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4 text-[13px] text-blue-900">
+        Отправка может опоздать на несколько минут: очередь проверяется
+        раз в 5 минут. Указали 15 минут — придёт в промежутке 15–20.
+      </div>
+
       {steps.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center text-sm text-gray-500">
           Шагов пока нет. Добавьте первый ниже.
