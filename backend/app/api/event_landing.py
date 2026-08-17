@@ -352,6 +352,16 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
         )
     t = dict(theme) if theme else {}
 
+    # ⚠️ В ON CONFLICT ниже условие `WHERE owner_type = 'event'` ОБЯЗАТЕЛЬНО.
+    # Миграция 293 (полиморфизм: страница принадлежит событию ИЛИ продукту)
+    # заменила обычный UNIQUE(event_id, kind) на ЧАСТИЧНЫЙ индекс
+    # `event_landing_pages_event_kind_uniq ... WHERE owner_type = 'event'`.
+    # Postgres не сопоставляет ON CONFLICT с частичным индексом, если в запросе
+    # нет того же условия, — и падает с InvalidColumnReferenceError
+    # «no unique or exclusion constraint matching the ON CONFLICT specification».
+    # Ловилось это не сразу: у событий, где страница создана ДО миграции, вкладка
+    # открывалась как ни в чём не бывало, а любое событие с ещё не созданным
+    # лендингом отдавало 500 (найдено 2026-08-17 на коллабе клиентов 62 и 112).
     async with db.transaction():
         page = await db.fetchrow(
             """INSERT INTO event_landing_pages
@@ -367,7 +377,8 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                   icon_color, icon_metallic, radius, body_size,
                   content_width, pad_x, section_gap)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
-               ON CONFLICT (event_id, kind) DO UPDATE SET updated_at = NOW()
+               ON CONFLICT (event_id, kind) WHERE owner_type = 'event'
+                 DO UPDATE SET updated_at = NOW()
                RETURNING *""",
             event_id, kind,
             t.get("lp_bg_color") or "#25455D",
