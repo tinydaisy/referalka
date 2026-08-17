@@ -26,9 +26,12 @@
 клиента — клиент видит реферал в своей платформе.
 """
 import re
+import logging
 from typing import Optional, Any
 from urllib.parse import urlencode
 import asyncpg
+
+logger = logging.getLogger(__name__)
 
 
 _LANDING_FLAG_RE = re.compile(r"^[a-z0-9-]{1,16}$")
@@ -400,6 +403,70 @@ def build_external_landing_url(
     )
 
 
+async def _is_event_owner(db, event_id: int, client_id: Optional[int]) -> bool:
+    """Является ли клиент принявшим приглашение организатором события."""
+    if not client_id:
+        return False
+    return bool(await db.fetchval(
+        """SELECT 1 FROM event_owners
+            WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
+        event_id, client_id,
+    ))
+
+
+async def _collab_base_client(
+    db, *, event_id: int, client_id: int,
+    partner_id: Optional[str] = None,
+    source_client_id: Optional[int] = None,
+) -> int:
+    """В чью базу вести человека в КОЛЛАБ-событии.
+
+    ⚠️ Не «первый владелец из `event_owners`» — у коллабы владельцы равноправны,
+    и порядок строк ничего не значит. Правило (решение владельца, 2026-08-17):
+
+      1. **Реф-код в ссылке** → база того организатора, чей это код. Он привёл —
+         ему и вести, ему и засчитывается привлечение.
+      2. **Реф-кода нет** → база владельца БОТА или MINI APP, через который
+         человек зашёл (`source_client_id`). Человек пришёл к конкретному
+         организатору, а не «в событие вообще».
+      3. Ни того, ни другого (веб-ссылка без контекста) → как пришло.
+
+    Оба кандидата проверяются на участие в событии: иначе по чужому коду или
+    из чужого бота человека можно было бы увести в постороннюю базу.
+
+    Обычного события это не касается — там владелец один, и все ветки дают его.
+    """
+    try:
+        if not await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id):
+            return client_id
+
+        # 1) Кто привёл — по реф-коду из ссылки.
+        if partner_id:
+            by_ref = await db.fetchval(
+                """SELECT c.client_id
+                     FROM contacts c
+                     JOIN event_owners eo
+                       ON eo.client_id = c.client_id
+                      AND eo.event_id = $2
+                      AND eo.status = 'accepted'
+                    WHERE (c.ref_code = $1 OR c.merged_ref_codes ? $1)
+                    LIMIT 1""",
+                partner_id, event_id,
+            )
+            if by_ref:
+                return by_ref
+
+        # 2) Через чей бот / Mini App зашёл.
+        if await _is_event_owner(db, event_id, source_client_id):
+            return source_client_id
+
+        return client_id
+    except Exception:
+        # Сбой определения не должен ронять заход человека в событие.
+        logger.exception("_collab_base_client failed: event=%s", event_id)
+        return client_id
+
+
 async def resolve_or_create_participant(
     db,
     *,
@@ -411,6 +478,7 @@ async def resolve_or_create_participant(
     utm_source: Optional[str] = None,
     known_contact_id: Optional[int] = None,
     partner_id: Optional[str] = None,
+    source_client_id: Optional[int] = None,
 ) -> tuple[Optional[int], Optional[int]]:
     """Находит (или создаёт) event_participants.id для пары
     (платформенный пользователь, событие). Возвращает (participant_id, contact_id).
@@ -423,11 +491,28 @@ async def resolve_or_create_participant(
     с пустым participant_id (баг до 2026-06-09: контакт создавался только
     фоновой задачей send_event_open_message — уже ПОСЛЕ сборки URL).
 
+    ⚠️ У КОЛЛАБ-события владельцев несколько, а `client_id` приходит сюда
+    выбранным как «первый из `event_owners`» (сортировка по роли и id строки) —
+    для коллабы это неверно. Суть коллабы: **каждый организатор ведёт СВОЮ базу
+    через СВОЕГО бота**, поэтому человек должен попасть в базу того, ЧЕРЕЗ КОГО
+    пришёл, а не того, чья строка владельцев оказалась первой. Ниже база
+    переопределяется параметром `source_client_id` (см. `_collab_base_client`).
+
+    Что ломалось без этого (проверено на проде 2026-08-17, событие 92): человек
+    по ссылке Нурии попадал в базу Лилии, её реф-код искался в базе Лилии, где
+    его нет — рефовод молча терялся (`referrer_ref_code = NULL`), привлечение не
+    засчитывалось никому, а уведомления слал бот не того организатора.
+
     Любые ошибки → (None, None).
     """
     if not platform_user_id:
         return None, None
     try:
+        client_id = await _collab_base_client(
+            db, event_id=event_id, client_id=client_id,
+            partner_id=partner_id, source_client_id=source_client_id,
+        )
+
         row = await db.fetchrow(
             """SELECT c.id, c.merged_into
                  FROM platform_users pu

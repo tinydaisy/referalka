@@ -252,6 +252,30 @@ async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: 
         log.warning("persist_plusson_referrer_code failed: %s", e)
 
 
+async def _client_id_by_bot(conn, bot_id: int | None) -> int | None:
+    """Владелец бота, в который человек написал (bot_id → channels → client_channels).
+
+    Нужен коллабе: человек должен попасть в базу того организатора, через чьего
+    бота зашёл, а не «первого владельца события» (см. `_collab_base_client`).
+    Ошибки глушим — это уточнение, а не обязательный шаг.
+    """
+    if not bot_id:
+        return None
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        ch = await find_channel_by_bot_id(bot_id, conn)
+        if not ch:
+            return None
+        return await conn.fetchval(
+            """SELECT client_id FROM client_channels
+                WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+            ch["id"],
+        )
+    except Exception as e:
+        log.warning("_client_id_by_bot failed: %s", e)
+        return None
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message, command: CommandObject):
     # В группах/беседах бот МОЛЧИТ — не отвечает на /start@bot и т.п.,
@@ -1201,11 +1225,15 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
 
         # Если записи нет (или contact_id не достали) — создаём participant, чтобы
         # получить contact_id для ссылок pluson.ru/event/{slug}?c={contact_id}.
+        # ⚠️ `source_client_id` — владелец ЭТОГО бота: в коллабе человек должен
+        # попасть в базу того организатора, через чьего бота зашёл, а не
+        # «первого владельца» из ev["client_id"] (см. _collab_base_client).
         if contact_id is None:
             _pid_part, contact_id = await resolve_or_create_participant(
                 db, client_id=ev["client_id"], event_id=ev["id"],
                 platform_slug="telegram", platform_user_id=str(user.id),
                 known_contact_id=known_contact_id, partner_id=pid,
+                source_client_id=await _client_id_by_bot(db, message.bot.id),
             )
 
         # ── МедиаЛифт: своя многоуровневая воронка ПРЯМО В БОТЕ ──────────────
