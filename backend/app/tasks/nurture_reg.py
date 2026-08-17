@@ -224,17 +224,25 @@ def _format_text(
 # ─── Низкоуровневая отправка (кнопка опциональна) ──────────────────────
 
 async def _send_via_telegram(bot_token: str, chat_id: str, text: str,
-                             button_label: str | None, url: str | None) -> None:
-    """sendMessage с опциональной inline-кнопкой. Если button_label пуст —
-    сообщение уходит без клавиатуры (для шагов «как дела?» без CTA)."""
+                             button_label: str | None, url: str | None,
+                             extra_buttons: list[tuple[str, str]] | None = None) -> None:
+    """sendMessage с опциональными inline-кнопками. Если button_label пуст —
+    сообщение уходит без клавиатуры (для шагов «как дела?» без CTA).
+    `extra_buttons` — дополнительные строки под главной (напр. поддержка)."""
     payload = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
+    rows = []
     if button_label and url:
-        payload["reply_markup"] = {"inline_keyboard": [[{"text": button_label, "url": url}]]}
+        rows.append([{"text": button_label, "url": url}])
+    for _lbl, _u in (extra_buttons or []):
+        if _u:
+            rows.append([{"text": _lbl, "url": _u}])
+    if rows:
+        payload["reply_markup"] = {"inline_keyboard": rows}
     async with httpx.AsyncClient(timeout=15) as cli:
         r = await cli.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
         if r.status_code != 200:
@@ -348,23 +356,33 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             )
             # Кнопка: 'support' → t.me/{поддержка}?text=…; иначе — на программу события
             # (платформо-зависимый URL: для VK — vk.com/app…, для TG — t.me/…).
+            # ⚠️ Вкладку передаём В БИЛДЕР (а не клеим строкой к готовому URL):
+            # в веб/бот-режиме ссылка это `?start=ref_pg…`, и хвост `_tabprogram`
+            # ломал бы её. Билдер сам знает режим клиента на этой площадке.
+            main_url = await _build_app_url(
+                db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code,
+                contact_id=run_row["contact_id"], tab="program",
+            )
+            # ⚠️ Здесь аудитория УЖЕ зарегистрирована, поэтому главная кнопка —
+            # «Открыть программу», а поддержка идёт ВТОРОЙ строкой (в отличие от
+            # догрева незарегистрированных, где первая кнопка — регистрация).
+            extra: list[tuple[str, str]] = []
             if button_kind == "support":
-                url = support_btn_by_platform.get(plat, "")
+                url = main_url
+                label = "Открыть программу"
+                _sup = support_btn_by_platform.get(plat, "")
+                if _sup:
+                    extra.append((button_label or "Написать в тех.поддержку", _sup))
             else:
-                # ⚠️ Вкладку передаём В БИЛДЕР (а не клеим строкой к готовому URL):
-                # в веб/бот-режиме ссылка это `?start=ref_pg…`, и хвост `_tabprogram`
-                # ломал бы её. Билдер сам знает режим клиента на этой площадке.
-                url = await _build_app_url(
-                    db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code,
-                    contact_id=run_row["contact_id"], tab="program",
-                )
+                url = main_url
+                label = button_label or None
             if plat == "telegram":
                 # Только свой VIP-бот клиента. Системный @pluson_bot как fallback убран —
                 # нет своего бота → шаг на TG не отправляем (graceful, без падения).
                 tok = await get_client_telegram_token(client_id, db)
                 if not tok:
                     continue
-                await _send_via_telegram(tok, pid, text, button_label or None, url)
+                await _send_via_telegram(tok, pid, text, label, url, extra_buttons=extra)
                 sent = True
             elif plat == "vk":
                 vk_token = await db.fetchval(
@@ -379,7 +397,8 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
                 )
                 if not vk_token:
                     continue
-                await _send_via_vk(vk_token, int(pid), text, button_label or None, url)
+                # VK: кнопка одна — главное действие (программа/CTA шага).
+                await _send_via_vk(vk_token, int(pid), text, label, url)
                 sent = True
         except Exception as e:
             logger.warning("nurture_reg send failed run_id=%s plat=%s pid=%s: %s",

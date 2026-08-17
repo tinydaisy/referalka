@@ -156,7 +156,8 @@ async def _build_app_url(
     return ""
 
 
-async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_label: str, url: str) -> None:
+async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_label: str, url: str,
+                             extra_buttons: list[tuple[str, str]] | None = None) -> None:
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -165,8 +166,14 @@ async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_lab
     }
     # Нет URL (напр. у клиента не настроена поддержка на этой площадке) → шлём
     # БЕЗ кнопки. Кнопка в никуда бесполезна, а Telegram её и не примет.
+    rows = []
     if url:
-        payload["reply_markup"] = {"inline_keyboard": [[{"text": button_label, "url": url}]]}
+        rows.append([{"text": button_label, "url": url}])
+    for _lbl, _u in (extra_buttons or []):
+        if _u:
+            rows.append([{"text": _lbl, "url": _u}])
+    if rows:
+        payload["reply_markup"] = {"inline_keyboard": rows}
     async with httpx.AsyncClient(timeout=15) as cli:
         r = await cli.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
         if r.status_code != 200:
@@ -337,18 +344,32 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         plat = ident["platform_slug"]
         pid = ident["platform_user_id"]
         try:
-            # Кнопка «support» → поддержка ЭТОЙ площадки; иначе — на событие.
+            # ⚠️ Кнопка «Зарегистрироваться» — ПЕРВОЙ и у ВСЕХ шагов, включая
+            # шаг поддержки: цель догрева — довести до регистрации, и человек
+            # не должен искать, куда нажать. Ведёт по настройкам события
+            # (форма / наш лендинг / сторонний сайт) и клиента (Mini App / веб)
+            # — их разбирает уже сама ссылка на событие.
+            # «Написать в тех.поддержку» идёт ВТОРОЙ строкой.
+            reg_url = await _build_app_url(
+                db, platform=plat, client_id=client_id, slug=run_row["slug"],
+                ref_code=ref_code, contact_id=run_row["contact_id"])
+            extra: list[tuple[str, str]] = []
             if button_kind == "support":
-                url = support_btn_by_platform.get(plat, "")
+                url = reg_url
+                label = "Зарегистрироваться"
+                _sup = support_btn_by_platform.get(plat, "")
+                if _sup:
+                    extra.append((button_label or "Написать в тех.поддержку", _sup))
             else:
-                url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code, contact_id=run_row["contact_id"])
+                url = reg_url
+                label = button_label
             if plat == "telegram":
                 # Только свой VIP-бот клиента. Системный @pluson_bot как fallback убран —
                 # нет своего бота → шаг на TG не отправляем (graceful, без падения).
                 tok = await get_client_telegram_token(client_id, db)
                 if not tok:
                     continue
-                await _send_via_telegram(tok, pid, text, button_label, url)
+                await _send_via_telegram(tok, pid, text, label, url, extra_buttons=extra)
                 sent = True
             elif plat == "vk":
                 # Токен главного VK-канала клиента
@@ -364,7 +385,9 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
                 )
                 if not vk_token:
                     continue
-                await _send_via_vk(vk_token, int(pid), text, button_label, url)
+                # VK: кнопка одна — ставим регистрацию (главное действие).
+                # Поддержка во ВК приходит текстом сообщения бота по /support.
+                await _send_via_vk(vk_token, int(pid), text, label, url)
                 sent = True
         except Exception as e:
             logger.warning("nurture send failed run_id=%s plat=%s pid=%s: %s",
