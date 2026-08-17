@@ -19,6 +19,32 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _drop_empty_lines(text: str) -> str:
+    """Убирает строки, где плейсхолдер не раскрылся и осталась одна подпись.
+
+    ⚠️ Нужно потому, что часть ссылок опциональна: реф-программа выключена,
+    чатов у события нет, у клиента не подключён бот. Без этого в письме
+    оставались бы обрубки вроде «🎁 Заберите подарки:» без самой ссылки —
+    хуже, чем отсутствие строки.
+    """
+    lines = (text or "").split("\n")
+    res: list[str] = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        # Подпись к ссылке («🎁 Заберите подарки:»), за которой пусто или
+        # конец письма → плейсхолдер не раскрылся, строку убираем.
+        if s.endswith(":") and "http" not in s and len(s) < 60:
+            nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            if not nxt:
+                continue
+        res.append(line)
+    # Схлопываем тройные и более переносы, оставшиеся после удаления.
+    txt = "\n".join(res)
+    while "\n\n\n" in txt:
+        txt = txt.replace("\n\n\n", "\n\n")
+    return txt.strip()
+
+
 def _format_dt(dt) -> str:
     if not dt:
         return ""
@@ -147,6 +173,30 @@ async def send_welcome_email_if_needed(
     _public_base = await client_public_url(db, event["client_id"])
     landing_url = public_url_for(_public_base, f"l/{event['slug']}")
 
+    # ⚠️ Ссылки в письме — ВЕБ-версия события и обязательно с `?c={contact_id}`.
+    # Письмо читают в почте, а не в мессенджере: ссылка на Mini App там просто
+    # не откроется. А без contact_id страница не знает, кто пришёл, — человек
+    # видит форму регистрации вместо своего кабинета с подарками.
+    _c = f"?c={contact_id}"
+    cabinet_url = public_url_for(_public_base, f"event/{event['slug']}{_c}#cabinet")
+    program_url = public_url_for(_public_base, f"event/{event['slug']}{_c}#program")
+
+    # Подарки — только если реф-программа события включена: иначе ссылка вела бы
+    # на пустой раздел, и обещание в письме оказалось бы ложным.
+    gifts_on = await db.fetchval(
+        """SELECT 1 FROM event_referral_settings
+            WHERE event_id = $1 AND is_enabled = TRUE LIMIT 1""",
+        event_id,
+    )
+    gifts_url = public_url_for(_public_base, f"event/{event['slug']}{_c}#game") if gifts_on else ""
+
+    # Чаты события — тот же блок, что в догреве ({chats}).
+    try:
+        from app.tasks.nurture_reg import build_chats_block
+        chats_block = await build_chats_block(db, event_id=event_id, html=False)
+    except Exception:
+        chats_block = ""
+
     # Подставляем плейсхолдеры в шаблон
     body = (event["welcome_text"] or "")
     body = (
@@ -157,7 +207,14 @@ async def send_welcome_email_if_needed(
         .replace("{event_landing_url}", landing_url)
         .replace("{tg_url}", tg_url)
         .replace("{vk_url}", vk_url)
+        .replace("{gifts_url}", gifts_url)
+        .replace("{cabinet_url}", cabinet_url)
+        .replace("{program_url}", program_url)
+        .replace("{chats}", chats_block)
     )
+    # Пустой плейсхолдер оставляет висящую строку («Подарки: ») — убираем
+    # строки, где после подстановки не осталось ничего, кроме подписи.
+    body = _drop_empty_lines(body)
 
     subject = event["welcome_email_subject"] or f"Добро пожаловать на «{event['title']}»"
 
