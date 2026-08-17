@@ -466,6 +466,34 @@ def _rich_text(s) -> str:
     return "".join(out_parts).replace("\r\n", "\n").replace("\n", "<br>")
 
 
+_HTML_TAG_RE = _re.compile(r'<\/?[a-z][\s\S]*?>', _re.I)
+
+
+def _looks_like_html(s: str) -> bool:
+    """Есть ли в строке HTML-теги. Тот же грубый детектор, что в Mini App
+    (mini-app/src/utils/htmlSanitize.ts) — держать в синхроне."""
+    return bool(s) and bool(_HTML_TAG_RE.search(s))
+
+
+def _user_html(s) -> str:
+    """Описание события в HTML-странице.
+
+    ⚠️ Переносы строк клиент делает в textarea, а в HTML они схлопываются в
+    пробелы — без замены на <br> весь текст слипается в одну простыню
+    (так и было до 2026-08-17). Замена нужна и HTML-тексту тоже: там это
+    легко упустить — теги-то работают, а абзацы молча пропадают.
+
+    Текст с тегами отдаём как есть, без тегов — экранируем. Логика
+    повторяет Mini App (EventDescription + sanitizeHtml), держать
+    в синхроне."""
+    raw = (str(s) if s is not None else "").strip()
+    if not raw:
+        return ""
+    if not _looks_like_html(raw):
+        raw = esc(raw)
+    return raw.replace("\r\n", "\n").replace("\n", "<br>")
+
+
 def _fmt_time(v):
     if v is None:
         return ""
@@ -885,9 +913,10 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
             '</div></div>'
         )
 
-    # Описание после регистрации (HTML как есть)
-    dpr = event.get("description_post_register") or ""
-    if dpr.strip():
+    # Описание после регистрации. ⚠️ Не вставлять «как есть» — переносы строк
+    # клиента схлопнутся в пробелы и текст слипнется в простыню (так и было).
+    dpr = _user_html(event.get("description_post_register"))
+    if dpr:
         out += f'<div class="desc">{dpr}</div>'
 
     # Программа: ВСЕ этапы (даже без дней — с описанием/датами, как в Mini App),
