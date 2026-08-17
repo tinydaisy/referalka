@@ -26,9 +26,10 @@
 import asyncio
 import logging
 
+import asyncpg
 from celery import shared_task
 
-from app.database import get_pool
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -104,107 +105,110 @@ async def _warn_upcoming_finish(db) -> int:
     return sent
 
 
-async def _finish_due_collabs() -> int:
-    """Найти коллабы, у которых прошёл последний эфир, и завершить их."""
+async def _finish_due_collabs(db) -> int:
+    """Найти коллабы, у которых прошёл последний эфир, и завершить их.
+
+    ⚠️ Соединение приходит СНАРУЖИ (одиночное asyncpg.connect из _run_once),
+    а не берётся из глобального пула: пул привязан к event loop первого вызова
+    и в Celery падает из нового loop — см. tasks/funnel.py.
+    """
     from app.services.collab_history import record_collab_history
 
-    pool = await get_pool()
-    if not pool:
-        return 0
     finished = 0
-    async with pool.acquire() as db:
-        rows = await db.fetch(
-            """
-            WITH ev AS (
-              SELECT e.id,
-                     e.title,
-                     (SELECT MAX((cd.day_date::timestamp
-                                  + COALESCE(NULLIF(cd.close_time,''),'23:59')::time))
-                        FROM conf_days cd WHERE cd.event_id = e.id) AS conf_end,
-                     e.end_at,
-                     (SELECT count(*) FROM event_owners eo
-                       WHERE eo.event_id = e.id AND eo.status = 'accepted') AS owners_count
-                FROM events e
-               WHERE e.is_collab = TRUE
-                 AND e.status = 'published'
-            )
-            SELECT id, title, owners_count
-              FROM ev
-             -- Момент окончания известен И уже прошёл (сравниваем по МСК —
-             -- время программы хранится строкой "HH:MM" и означает МСК).
-             WHERE COALESCE(conf_end, end_at) IS NOT NULL
-               AND COALESCE(conf_end, end_at) < (NOW() AT TIME ZONE 'Europe/Moscow')
-               -- ⚠️ НЕ завершаем событие, где среди участников только САМИ
-               -- организаторы (их собственные контакты через self_collaborator).
-               -- Это верный признак, что человек ещё ПРОВЕРЯЕТ систему, а не
-               -- провёл коллаборацию: он открыл своё событие сам, дата давно
-               -- прошла — и автозавершение записывало ему коллаборацию, которой
-               -- не было. Порога «сколько нужно участников» здесь намеренно НЕТ:
-               -- он бил бы по новичкам, у которых первая коллаба маленькая.
-               AND EXISTS (
-                     SELECT 1
-                       FROM event_participants p
-                      WHERE p.event_id = ev.id
-                        AND p.contact_id IS NOT NULL
-                        AND p.contact_id NOT IN (
-                              SELECT co.contact_id
-                                FROM event_owners eo
-                                JOIN clients cl ON cl.id = eo.client_id
-                                JOIN collaborators co ON co.id = cl.self_collaborator_id
-                               WHERE eo.event_id = ev.id
-                                 AND eo.status = 'accepted'
-                                 AND co.contact_id IS NOT NULL
-                        )
-                   )
-            """
+    rows = await db.fetch(
+        """
+        WITH ev AS (
+          SELECT e.id,
+                 e.title,
+                 (SELECT MAX((cd.day_date::timestamp
+                              + COALESCE(NULLIF(cd.close_time,''),'23:59')::time))
+                    FROM conf_days cd WHERE cd.event_id = e.id) AS conf_end,
+                 e.end_at,
+                 (SELECT count(*) FROM event_owners eo
+                   WHERE eo.event_id = e.id AND eo.status = 'accepted') AS owners_count
+            FROM events e
+           WHERE e.is_collab = TRUE
+             AND e.status = 'published'
         )
-        for r in rows:
-            event_id = r["id"]
-            try:
-                # Статус и запись истории — в ОДНОЙ транзакции: иначе событие
-                # могло бы стать `ended` без начисленного вклада, и повторно
-                # оно бы уже не попало в выборку (фильтр по 'published').
-                #
-                # ⚠️ `record_collab_history` глушит свои ошибки и возвращает 0 —
-                # исключение до транзакции не долетит, поэтому проверяем результат
-                # ЯВНО и откатываемся сами. Иначе коллаба тихо закрылась бы без
-                # рейтинга, и починить это можно было бы только руками.
-                async with db.transaction():
-                    await db.execute(
-                        "UPDATE events SET status='ended' WHERE id=$1 AND status='published'",
-                        event_id,
+        SELECT id, title, owners_count
+          FROM ev
+         -- Момент окончания известен И уже прошёл (сравниваем по МСК —
+         -- время программы хранится строкой "HH:MM" и означает МСК).
+         WHERE COALESCE(conf_end, end_at) IS NOT NULL
+           AND COALESCE(conf_end, end_at) < (NOW() AT TIME ZONE 'Europe/Moscow')
+           -- ⚠️ НЕ завершаем событие, где среди участников только САМИ
+           -- организаторы (их собственные контакты через self_collaborator).
+           -- Это верный признак, что человек ещё ПРОВЕРЯЕТ систему, а не
+           -- провёл коллаборацию: он открыл своё событие сам, дата давно
+           -- прошла — и автозавершение записывало ему коллаборацию, которой
+           -- не было. Порога «сколько нужно участников» здесь намеренно НЕТ:
+           -- он бил бы по новичкам, у которых первая коллаба маленькая.
+           AND EXISTS (
+                 SELECT 1
+                   FROM event_participants p
+                  WHERE p.event_id = ev.id
+                    AND p.contact_id IS NOT NULL
+                    AND p.contact_id NOT IN (
+                          SELECT co.contact_id
+                            FROM event_owners eo
+                            JOIN clients cl ON cl.id = eo.client_id
+                            JOIN collaborators co ON co.id = cl.self_collaborator_id
+                           WHERE eo.event_id = ev.id
+                             AND eo.status = 'accepted'
+                             AND co.contact_id IS NOT NULL
                     )
-                    written = await record_collab_history(db, event_id)
-                    # 0 законен, когда организатор ОДИН (коллабы по факту нет) —
-                    # такое событие просто завершаем без записи истории.
-                    if not written and int(r["owners_count"] or 0) >= 2:
-                        raise RuntimeError(
-                            "история коллабы не записана — откат, статус остаётся published"
-                        )
-                finished += 1
-                logger.info(
-                    "collab_finish: event %s (%s) → ended, история записана",
-                    event_id, (r["title"] or "")[:40],
+               )
+        """
+    )
+    for r in rows:
+        event_id = r["id"]
+        try:
+            # Статус и запись истории — в ОДНОЙ транзакции: иначе событие
+            # могло бы стать `ended` без начисленного вклада, и повторно
+            # оно бы уже не попало в выборку (фильтр по 'published').
+            #
+            # ⚠️ `record_collab_history` глушит свои ошибки и возвращает 0 —
+            # исключение до транзакции не долетит, поэтому проверяем результат
+            # ЯВНО и откатываемся сами. Иначе коллаба тихо закрылась бы без
+            # рейтинга, и починить это можно было бы только руками.
+            async with db.transaction():
+                await db.execute(
+                    "UPDATE events SET status='ended' WHERE id=$1 AND status='published'",
+                    event_id,
                 )
-                await _notify_owners(
-                    db, event_id,
-                    f"🏁 Коллаба «{r['title']}» завершена\n\n"
-                    "Событие прошло, вклад каждого организатора записан в рейтинг "
-                    "Коллабораторной.\n\n"
-                    "Чтобы провести ещё одну — скопируйте это событие: "
-                    "у копии будут свои даты, а рейтинг за прошедшую останется как есть.",
-                )
-            except Exception:
-                logger.exception("collab_finish: не удалось завершить событие %s", event_id)
+                written = await record_collab_history(db, event_id)
+                # 0 законен, когда организатор ОДИН (коллабы по факту нет) —
+                # такое событие просто завершаем без записи истории.
+                if not written and int(r["owners_count"] or 0) >= 2:
+                    raise RuntimeError(
+                        "история коллабы не записана — откат, статус остаётся published"
+                    )
+            finished += 1
+            logger.info(
+                "collab_finish: event %s (%s) → ended, история записана",
+                event_id, (r["title"] or "")[:40],
+            )
+            await _notify_owners(
+                db, event_id,
+                f"🏁 Коллаба «{r['title']}» завершена\n\n"
+                "Событие прошло, вклад каждого организатора записан в рейтинг "
+                "Коллабораторной.\n\n"
+                "Чтобы провести ещё одну — скопируйте это событие: "
+                "у копии будут свои даты, а рейтинг за прошедшую останется как есть.",
+            )
+        except Exception:
+            logger.exception("collab_finish: не удалось завершить событие %s", event_id)
     return finished
 
 
 async def _run_once() -> int:
-    """Один проход: сперва предупредить тех, кому завершение предстоит, затем завершить."""
-    pool = await get_pool()
-    if not pool:
-        return 0
-    async with pool.acquire() as db:
+    """Один проход: сперва предупредить тех, кому завершение предстоит, затем завершить.
+
+    ⚠️ Одиночное соединение, НЕ глобальный get_pool(): пул привязан к event loop
+    первого вызова и в Celery падает из нового loop — см. tasks/funnel.py.
+    """
+    db = await asyncpg.connect(settings.database_url)
+    try:
         try:
             warned = await _warn_upcoming_finish(db)
             if warned:
@@ -212,14 +216,28 @@ async def _run_once() -> int:
         except Exception:
             # Предупреждения не должны мешать самому завершению.
             logger.exception("collab_finish: рассылка предупреждений упала")
-    return await _finish_due_collabs()
+        return await _finish_due_collabs(db)
+    finally:
+        try:
+            await db.close()
+        except Exception:
+            pass
+
+
+def _run_async(coro):
+    """Свежий event loop на каждый запуск задачи (см. комментарий в _run_once)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @shared_task(name="app.tasks.collab_finish.finish_ended_collabs")
 def finish_ended_collabs():
     """Celery-обёртка. Раз в час: завершить коллабы, у которых прошёл эфир."""
     try:
-        n = asyncio.run(_run_once())
+        n = _run_async(_run_once())
         if n:
             logger.info("collab_finish: завершено коллаб — %s", n)
         return n

@@ -16,24 +16,36 @@ import subprocess
 import tempfile
 from datetime import datetime
 
+import asyncpg
+
 from app.celery_app import celery
-from app.database import get_pool
 from app.config import settings
 from app.services import r2_storage
 
 RECORDINGS_DIR = os.environ.get("WEBINAR_RECORDINGS_DIR", "/var/www/plusson/media-server/recordings")
 
 
+def _run_async(coro):
+    """Свежий event loop на каждый запуск задачи — см. комментарий ниже."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 @celery.task(name="app.tasks.webinar_recording.upload_session_recording")
 def upload_session_recording(session_id: int):
-    asyncio.run(_run(session_id))
+    _run_async(_run(session_id))
 
 
 async def _run(session_id: int):
-    pool = await get_pool()
-    if not pool:
-        return
-    async with pool.acquire() as conn:
+    # ⚠️ Одиночное соединение, НЕ глобальный get_pool(): пул привязан к event
+    # loop первого вызова, и из нового loop его соединения падают («another
+    # operation is in progress» / «attached to a different loop»). Так молча
+    # терялись письма воронки лид-магнита — см. tasks/funnel.py.
+    conn = await asyncpg.connect(settings.database_url)
+    try:
         sess = await conn.fetchrow(
             "SELECT s.id, s.room_id, s.started_at, s.ended_at, "
             "       wr.stream_key, "
@@ -49,48 +61,51 @@ async def _run(session_id: int):
             "VALUES ($1,$2,'processing',$3,$4) RETURNING id",
             sess["room_id"], session_id, sess["started_at"], sess["ended_at"])
 
-    src_dir = os.path.join(RECORDINGS_DIR, "live", sess["stream_key"], sess["stream_key"])
-    if not os.path.isdir(src_dir):
-        src_dir = os.path.join(RECORDINGS_DIR, "live", sess["stream_key"])
+        src_dir = os.path.join(RECORDINGS_DIR, "live", sess["stream_key"], sess["stream_key"])
+        if not os.path.isdir(src_dir):
+            src_dir = os.path.join(RECORDINGS_DIR, "live", sess["stream_key"])
 
-    segs = sorted(glob.glob(os.path.join(src_dir, "*.mp4")))
-    if not segs:
-        await _mark_failed(pool, rec_id, "нет сегментов записи")
-        return
-
-    tmp_out = tempfile.mktemp(suffix=".mp4")
-    try:
-        # склейка сегментов (concat demuxer)
-        listfile = tempfile.mktemp(suffix=".txt")
-        with open(listfile, "w") as f:
-            for s in segs:
-                f.write(f"file '{s}'\n")
-        r = subprocess.run(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-             "-c", "copy", tmp_out],
-            capture_output=True, timeout=1800)
-        os.unlink(listfile)
-        if r.returncode != 0 or not os.path.exists(tmp_out):
-            await _mark_failed(pool, rec_id, "ffmpeg concat error")
+        segs = sorted(glob.glob(os.path.join(src_dir, "*.mp4")))
+        if not segs:
+            await _mark_failed(conn, rec_id, "нет сегментов записи")
             return
 
-        size = os.path.getsize(tmp_out)
-        with open(tmp_out, "rb") as f:
-            data = f.read()
-        key = f"clients/{sess['client_id']}/webinar/{sess['room_id']}/rec_{session_id}.mp4"
-        url = await r2_storage.upload_bytes(key, data, "video/mp4")
+        tmp_out = tempfile.mktemp(suffix=".mp4")
+        try:
+            # склейка сегментов (concat demuxer)
+            listfile = tempfile.mktemp(suffix=".txt")
+            with open(listfile, "w") as f:
+                for s in segs:
+                    f.write(f"file '{s}'\n")
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
+                 "-c", "copy", tmp_out],
+                capture_output=True, timeout=1800)
+            os.unlink(listfile)
+            if r.returncode != 0 or not os.path.exists(tmp_out):
+                await _mark_failed(conn, rec_id, "ffmpeg concat error")
+                return
 
-        async with pool.acquire() as conn:
+            size = os.path.getsize(tmp_out)
+            with open(tmp_out, "rb") as f:
+                data = f.read()
+            key = f"clients/{sess['client_id']}/webinar/{sess['room_id']}/rec_{session_id}.mp4"
+            url = await r2_storage.upload_bytes(key, data, "video/mp4")
+
             await conn.execute(
                 "UPDATE webinar_recordings SET status='ready', url=$1, r2_key=$2, size_bytes=$3 WHERE id=$4",
                 url, key, size, rec_id)
-    except Exception as e:
-        await _mark_failed(pool, rec_id, str(e)[:200])
+        except Exception as e:
+            await _mark_failed(conn, rec_id, str(e)[:200])
+        finally:
+            if os.path.exists(tmp_out):
+                os.unlink(tmp_out)
     finally:
-        if os.path.exists(tmp_out):
-            os.unlink(tmp_out)
+        try:
+            await conn.close()
+        except Exception:
+            pass
 
 
-async def _mark_failed(pool, rec_id, msg):
-    async with pool.acquire() as conn:
-        await conn.execute("UPDATE webinar_recordings SET status='failed' WHERE id=$1", rec_id)
+async def _mark_failed(conn, rec_id, msg):
+    await conn.execute("UPDATE webinar_recordings SET status='failed' WHERE id=$1", rec_id)
