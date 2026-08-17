@@ -1464,6 +1464,28 @@ def _offering_card(o) -> str:
     )
 
 
+def _venue_panels_multi(items) -> str:
+    """Вкладка «О проекте» у КОЛЛАБ-события — карточка КАЖДОГО организатора.
+
+    ⚠️ Событие общее, организаторы равноправны: показывать бренд только
+    «первого владельца» неверно — второй не был виден нигде. Карточки идут
+    подряд, каждая со своим заголовком-разделителем (в Mini App то же самое
+    сделано списком с переходом — там есть навигация, здесь страница одна).
+    """
+    parts = []
+    for profile, offerings in items:
+        if not profile:
+            continue
+        name = esc(profile["brand_name"] or profile["name"] or "")
+        parts.append(
+            f'<div class="org-sep">{name}</div>' if len(items) > 1 else ""
+        )
+        parts.append(_venue_panel(profile, offerings or []))
+    if not parts:
+        return '<div class="empty">Нет данных об экосистеме.</div>'
+    return "".join(parts)
+
+
 def _venue_panel(profile, offerings) -> str:
     """Вкладка «О площадке» = копия EcosystemTab + OwnerPage."""
     if not profile:
@@ -1553,7 +1575,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
                 share_texts, share_images, ref_enabled,
                 client, ref_cabinet=None, venue_profile=None,
                 venue_offerings=None, share_videos=None,
-                chat_bot_links=None) -> str:
+                chat_bot_links=None, venue_multi=None) -> str:
     title = esc(event.get("title") or event.get("slug"))
     brand_raw = ((client["brand_name"] if client else None)
                  or (client["name"] if client else None) or "")
@@ -1602,7 +1624,9 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         # Кабинет неизвестен (нет ?c / ?email не нашёл) — показываем форму
         # ввода email, чтобы человек открыл свои подарки без реф-ссылки.
         cabinet_html = _cabinet_email_gate(event)
-    venue_html = _venue_panel(venue_profile, venue_offerings or [])
+    # У коллабы — карточки всех организаторов, иначе одного (как было).
+    venue_html = (_venue_panels_multi(venue_multi) if venue_multi
+                  else _venue_panel(venue_profile, venue_offerings or []))
 
     # ── Вкладки ──
     # Кастомные названия из настроек клиента (пусто → дефолт). Веб-вкладки
@@ -1646,9 +1670,22 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     panels += f'<div class="panel" id="venue">{venue_html}</div>'
 
     # Логотип бренда (как в углу Mini App) + название. Логотип показываем, если задан.
-    brand_logo = (client["brand_logo_url"] if client and "brand_logo_url" in client else None) or ""
-    brand_logo_img = (f'<img class="brand-logo-hero" src="{esc(brand_logo)}" alt="{brand}">'
-                      if brand_logo else "")
+    # ⚠️ У КОЛЛАБЫ — логотипы ВСЕХ организаторов подряд: событие общее, бренд
+    # одного «первого владельца» показывать неверно. Название рядом при этом не
+    # пишем — оно было бы только у одного из них.
+    collab_logos = [
+        (p["brand_logo_url"] or "") for p, _o in (venue_multi or []) if p
+    ]
+    collab_logos = [u for u in collab_logos if u]
+    if len(collab_logos) > 1:
+        brand_logo_img = "".join(
+            f'<img class="brand-logo-hero" src="{esc(u)}" alt="">' for u in collab_logos
+        )
+        brand = ""
+    else:
+        brand_logo = (client["brand_logo_url"] if client and "brand_logo_url" in client else None) or ""
+        brand_logo_img = (f'<img class="brand-logo-hero" src="{esc(brand_logo)}" alt="{brand}">'
+                          if brand_logo else "")
     if brand_logo_img or brand:
         brand_block = (f'<div class="brand">{brand_logo_img}'
                        f'{f"<span>{brand}</span>" if brand else ""}</div>')
@@ -1671,6 +1708,11 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .hero {{ background: linear-gradient(45deg, #25455D, #0a1520); color:#fff; padding: 22px 18px 16px; }}
   .hero .brand {{ font-size: 12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:6px; display:flex; align-items:center; gap:10px; }}
   .brand-logo-hero {{ height:40px; width:auto; max-width:130px; object-fit:contain; flex:0 0 auto; }}
+  /* Заголовок-разделитель между организаторами коллабы на вкладке «О проекте» */
+  .org-sep {{ margin:18px 0 10px; padding:10px 14px; border-radius:12px;
+    background:linear-gradient(45deg,#25455D,#0a1520); color:#FFCFA4;
+    font-weight:800; font-size:13px; letter-spacing:1.5px; text-transform:uppercase;
+    text-align:center; }}
   .hero h1 {{ font-size: 21px; margin: 0; line-height:1.25; }}
   .tabs {{ display:flex; gap:4px; padding: 10px 12px; background:#fff; position: sticky; top:0; z-index:5;
     overflow-x:auto; border-bottom:1px solid #eef1f4; }}
@@ -2297,6 +2339,19 @@ async def event_page(slug: str, c: str = "", email: str = "",
     if ev.get("client_id"):
         venue_profile, venue_offerings = await _load_venue(db, ev["client_id"])
 
+    # ⚠️ У КОЛЛАБЫ на вкладке «О проекте» — все организаторы, а не один
+    # «первый владелец» (см. _venue_panels_multi). Порядок тот же, что везде.
+    venue_multi = []
+    if ev.get("is_collab"):
+        _owner_ids = [r["client_id"] for r in await db.fetch(
+            """SELECT eo.client_id FROM event_owners eo
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY (eo.role = 'owner') DESC, eo.id""",
+            event_id,
+        )]
+        for _cid in _owner_ids:
+            venue_multi.append(await _load_venue(db, _cid))
+
     # ?c={contact_id} — реф-кабинет конкретного человека. Битый/пустой → None.
     contact_id = int(c) if c and c.isdigit() else None
     # ?email={email} — fallback: находим contact_id по email-идентичности.
@@ -2379,6 +2434,7 @@ async def event_page(slug: str, c: str = "", email: str = "",
         share_texts, share_images, ref_enabled, client,
         ref_cabinet=ref_cabinet,
         venue_profile=venue_profile, venue_offerings=venue_offerings,
+        venue_multi=venue_multi,
         share_videos=share_videos, chat_bot_links=chat_bot_links,
     )
     return HTMLResponse(
