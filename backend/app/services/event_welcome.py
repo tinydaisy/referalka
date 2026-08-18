@@ -417,12 +417,18 @@ async def send_event_open_message(
             # реф-кода человек уезжал к «первому владельцу»: пришёл по ссылке
             # одного организатора, а контакт, рассылки и привлечение доставались
             # другому (проверено на проде 2026-08-17, событие 92).
+            # ⚠️ Площадочный id обязателен: если человек УЖЕ участник события,
+            # база берётся из его участия — и повторный заход (кнопка в боте,
+            # возврат, календарь) не заведёт ему второй контакт у другого
+            # организатора. Без этого именно event_start создавал дубль через
+            # 10 секунд после верного захода (прод, 2026-08-18).
             from app.services.external_landing import _collab_base_client
             client_id = await _collab_base_client(
                 conn, event_id=event_id,
                 client_id=client_id_hint or ev["client_id"],
                 partner_id=partner_id or None,
                 source_client_id=client_id_hint or None,
+                platform_slug="telegram", platform_user_id=str(tg_id),
             )
 
             async with conn.transaction():
