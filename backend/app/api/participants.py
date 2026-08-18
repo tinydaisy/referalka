@@ -803,8 +803,13 @@ async def get_participant_in_event(
     # Поддерживаемые платформы. Имя query-параметра tg_id оставлено для
     # обратной совместимости со старыми клиентами — на самом деле это
     # platform_user_id любой из платформ.
-    if platform not in ("telegram", "vk", "max"):
+    # ⚠️ `contact` — веб-витрина в браузере: там нет площадочного id, человек
+    # приходит по ссылке из письма/бота с `?c={contact_id}`. Без этого режима
+    # зарегистрированному показывалась форма регистрации: участие искалось
+    # только через platform_users, а в браузере искать было нечем.
+    if platform not in ("telegram", "vk", "max", "contact"):
         raise HTTPException(status_code=400, detail="Unknown platform")
+    by_contact = platform == "contact"
 
     # Событие — нужно для топа (его считаем независимо от участия пользователя).
     event_id = await db.fetchval(
@@ -815,38 +820,62 @@ async def get_participant_in_event(
 
     # Контакт у клиента ЭТОГО события (по platform_user_id). Email/phone отсюда —
     # если оба поля заполнены, фронт пропускает форму регистрации.
-    prefill = await db.fetchrow(
-        """SELECT (SELECT pe.platform_user_id FROM platform_users pe
-                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
-                     ORDER BY pe.id LIMIT 1) AS email,
-                  c.phone, c.name
-             FROM events e
-             JOIN platform_users pu ON pu.client_id IN (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted')
-                                    AND pu.platform_slug = $3
-                                    AND pu.platform_user_id = $2
-             JOIN contacts c ON c.id = pu.contact_id
-            WHERE e.slug = $1
-            ORDER BY EXISTS (SELECT 1 FROM event_participants ep
-                              WHERE ep.event_id = e.id AND ep.contact_id = c.id) DESC,
-                     pu.id DESC
-            LIMIT 1""",
-        event_slug, str(tg_id), platform
-    )
+    if by_contact:
+        prefill = await db.fetchrow(
+            """SELECT (SELECT pe.platform_user_id FROM platform_users pe
+                         WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                         ORDER BY pe.id LIMIT 1) AS email,
+                      c.phone, c.name
+                 FROM contacts c
+                WHERE c.id = $2
+                  AND c.client_id IN (SELECT eo.client_id FROM event_owners eo
+                                       JOIN events e ON e.id = eo.event_id
+                                      WHERE e.slug = $1 AND eo.status = 'accepted')
+                LIMIT 1""",
+            event_slug, int(tg_id),
+        )
+    else:
+        prefill = await db.fetchrow(
+            """SELECT (SELECT pe.platform_user_id FROM platform_users pe
+                         WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                         ORDER BY pe.id LIMIT 1) AS email,
+                      c.phone, c.name
+                 FROM events e
+                 JOIN platform_users pu ON pu.client_id IN (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted')
+                                        AND pu.platform_slug = $3
+                                        AND pu.platform_user_id = $2
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE e.slug = $1
+                ORDER BY EXISTS (SELECT 1 FROM event_participants ep
+                                  WHERE ep.event_id = e.id AND ep.contact_id = c.id) DESC,
+                         pu.id DESC
+                LIMIT 1""",
+            event_slug, str(tg_id), platform
+        )
     prefill_dict = dict(prefill) if prefill else None
 
-    row = await db.fetchrow(
-        """SELECT ep.id, ep.event_id, ep.contact_id, c.ref_code, c.name AS contact_name,
+    _row_select = """SELECT ep.id, ep.event_id, ep.contact_id, c.ref_code, c.name AS contact_name,
                   ep.is_registered, ep.is_in_chat,
                   ep.registered_at, ep.activated_at, ep.welcomed_at,
                   e.title AS event_title, e.module_slug
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id
-             JOIN contacts c ON c.id = ep.contact_id
+             JOIN contacts c ON c.id = ep.contact_id"""
+    if by_contact:
+        row = await db.fetchrow(
+            _row_select + """
+            WHERE e.slug = $1 AND ep.contact_id = $2
+            LIMIT 1""",
+            event_slug, int(tg_id),
+        )
+    else:
+        row = await db.fetchrow(
+            _row_select + """
              JOIN platform_users pu ON pu.contact_id = c.id
             WHERE e.slug = $1 AND pu.platform_slug = $3 AND pu.platform_user_id = $2
             LIMIT 1""",
-        event_slug, str(tg_id), platform
-    )
+            event_slug, str(tg_id), platform
+        )
     my_pid = row["id"] if row else None
 
     # Топ-рейтинг события: кто сколько привёл зарегавшихся.

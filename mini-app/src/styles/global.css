@@ -253,8 +253,12 @@ body {
 }
 
 /* === Modal === */
-.modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 300; display: flex; flex-direction: column; justify-content: flex-end; }
-.modal-sheet { background: var(--surface); border-top-left-radius: 20px; border-top-right-radius: 20px; padding: 20px 16px 24px; max-height: 85vh; overflow-y: auto; color: var(--text); }
+.modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 300; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+/* ⚠️ Ширина как у #root (430px). Модалка лежит в `position: fixed` и из
+   колонки приложения выпадает: в мессенджере окно узкое и это незаметно,
+   а в браузере на большом экране форма растягивалась во всю ширину, хотя
+   сам кабинет остаётся узким (прод, 2026-08-18). */
+.modal-sheet { width: 100%; max-width: 430px; background: var(--surface); border-top-left-radius: 20px; border-top-right-radius: 20px; padding: 20px 16px 24px; max-height: 85vh; overflow-y: auto; color: var(--text); }
 .modal-sheet h2 { color: var(--text); font-size: 18px; margin-bottom: 16px; font-weight: 700; }
 .modal-sheet label { color: var(--muted); font-size: 12px; display: block; margin-bottom: 6px; font-weight: 500; }
 .modal-sheet .field { margin-bottom: 14px; }

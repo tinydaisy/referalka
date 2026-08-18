@@ -10,7 +10,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
  */
 function platformQuery(prefix: '&' | '?' = '&'): string {
   const p = getPlatformName()
-  return p === 'telegram' || p === 'web' ? '' : `${prefix}platform=${p}`
+  // ⚠️ web → platform=contact: в браузере нет площадочного id, человек приходит
+  // по ссылке с `?c={contact_id}`, и бэк ищет участие по контакту. Без этого
+  // зарегистрированному снова показывали форму регистрации — искать его было
+  // нечем (прод, 2026-08-18).
+  if (p === 'web') return `${prefix}platform=contact`
+  return p === 'telegram' ? '' : `${prefix}platform=${p}`
 }
 
 /**
