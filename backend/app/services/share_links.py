@@ -77,12 +77,18 @@ PLUSON_VK_HANDLE = "ivision_pluson"  # короткий адрес систем�
 PLUSON_MAX_HANDLE = "id890306512862_1_bot"  # системный MAX-бот «ПЛЮСОН-СЕРВИС»
 
 
-def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None, link_mode: str = 'miniapp') -> str:
+def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None, link_mode: str = 'miniapp', client_id: Optional[int] = None) -> str:
     """Реф-ссылка в Telegram Mini App.
 
     Если задан contact_id (известный человек) — в payload добавляется `_ct{id}`,
     чтобы при клике на чужой платформе человек привязался к своему контакту,
     а не создал дубль. Если None — поведение как раньше (обратная совместимость).
+
+    ⚠️ `client_id` → `_cid{N}`: чьё приложение открывать. Нужен КОЛЛАБЕ — иначе
+    Mini App не знает, в чьём он контексте, и бэкенд заводит человека «первому
+    владельцу» события: пишет чужой бот, ссылки ведут в чужой кабинет. Из
+    адреса `/c/{N}/tg/` это не всегда видно — организатор мог прописать Main
+    Mini App в @BotFather без номера, а проверить это по API нельзя.
     """
     # ТОЛЬКО свой бот клиента. Системный @pluson_bot как fallback убран — если у
     # клиента нет своего TG-бота, ссылки в Telegram не строим (пусто).
@@ -96,6 +102,8 @@ def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id:
         parts.append(f"tab{tab}")
     if contact_id:
         parts.append(f"ct{contact_id}")
+    if client_id:
+        parts.append(f"cid{client_id}")
     payload = '_'.join(parts)
     # link_mode='bot' → бот-флоу: t.me/{bot}?start=ref_pg… (бот шлёт воронку события
     # в ЛС). link_mode='miniapp' (дефолт) → открывается Mini App через startapp.
@@ -376,7 +384,10 @@ async def build_share_links(
 
     result: dict[str, str] = {}
     if handles.get("telegram"):
-        result["telegram"] = telegram_link(event_slug, bot_handle=handles["telegram"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_telegram"))
+        # ⚠️ client_id в ссылку — чтобы Mini App знал, в чьём он контексте
+        # (см. telegram_link). Без этого у коллабы человек уезжает к «первому
+        # владельцу»: пишет чужой бот, ссылки ведут в чужой кабинет.
+        result["telegram"] = telegram_link(event_slug, bot_handle=handles["telegram"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_telegram"), client_id=client_id)
     if handles.get("vk") and vk_app_id:
         result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_vk"))
     if handles.get("max"):

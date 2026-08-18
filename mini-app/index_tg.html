@@ -110,12 +110,24 @@
       }
     });
 
+    // ⚠️ Клиент, ЧЬЁ приложение открыто — из адреса `/c/{N}/tg/`. В ссылке
+    // (`_cid`) он есть не всегда: кнопка «Зарегистрироваться» из бота и возврат
+    // на событие приходят без него. Без этого бэкенд у КОЛЛАБЫ заводил человека
+    // «первому владельцу» — чужому организатору, и писал чужой бот.
+    if (!clientId) {
+      var _m = window.location.pathname.match(/^\/c\/(\d+)\//);
+      if (_m) clientId = parseInt(_m[1], 10) || 0;
+    }
+
     function fireStart() {
       try {
         fetch('/api/v1/event', {
           method: 'POST',
           keepalive: true,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Plusson-Client': clientId ? String(clientId) : ''
+          },
           body: JSON.stringify({
             user_id:    String(u.id || ''),
             event:      'event_start',

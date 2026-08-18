@@ -649,7 +649,16 @@ export default function App() {
       if (utmSource) qs.set('utm_source', utmSource)
       if (flags && flags.length) qs.set('q', flags.join(','))
       const url = `${import.meta.env.VITE_API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/landing-redirect${qs.toString() ? `?${qs}` : ''}`
-      const res = await fetch(url)
+      // ⚠️ Заголовок с номером клиента — этот запрос идёт мимо общего слоя
+      // (api.ts:req), поэтому ставим вручную. Без него бэкенд не знает, в чьём
+      // Mini App человек, и у КОЛЛАБЫ заводит его «первому владельцу»: заход
+      // без реф-кода (кнопка «Зарегистрироваться» из бота, возврат на событие)
+      // создавал второй контакт у чужого организатора, и писал чужой бот.
+      const _cidHdr = (() => {
+        const m = window.location.pathname.match(/^\/c\/(\d+)\//)
+        return m ? m[1] : (new URLSearchParams(window.location.search).get('cid') || '')
+      })()
+      const res = await fetch(url, _cidHdr ? { headers: { 'X-Plusson-Client': _cidHdr } } : undefined)
       if (res.ok) {
         const data = await res.json()
         if (data && data.redirect_url) {
