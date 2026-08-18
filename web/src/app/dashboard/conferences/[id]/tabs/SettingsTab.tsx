@@ -60,6 +60,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     skip_contact_form: !!event?.skip_contact_form,
     // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт Mini App.
     landing_cta_label: event?.landing_cta_label || '',
+    // Дубль кнопки под описанием (миграция 314): длинный текст уводит верхнюю
+    // кнопку за экран. ⚠️ В resync-useEffect ниже НЕ добавлять — по той же
+    // причине, что и skip_contact_form: снятая галочка затиралась бы обратно.
+    landing_cta_repeat: !!event?.landing_cta_repeat,
     // Как называть участника (миграция 304): спикер / номинант / участник.
     person_wording: event?.person_wording || 'speaker',
     // Что показывать на «Итогах» при завершении события (миграция 195).
@@ -147,6 +151,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.skip_contact_form !== !!event?.skip_contact_form) eventPatch.skip_contact_form = form.skip_contact_form
       if (form.landing_cta_label !== (event?.landing_cta_label || ''))
         eventPatch.landing_cta_label = form.landing_cta_label.trim() || null
+      if (form.landing_cta_repeat !== !!event?.landing_cta_repeat)
+        eventPatch.landing_cta_repeat = form.landing_cta_repeat
       if (form.person_wording !== (event?.person_wording || 'speaker'))
         eventPatch.person_wording = form.person_wording
       if (form.description !== (event?.description || ''))
@@ -448,6 +454,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onLandingUrl={(v) => setForm(f => ({ ...f, landing_url: v }))}
         ctaLabel={form.landing_cta_label}
         onCtaLabel={(v) => setForm(f => ({ ...f, landing_cta_label: v }))}
+        ctaRepeat={form.landing_cta_repeat}
+        onCtaRepeat={(v) => setForm(f => ({ ...f, landing_cta_repeat: v }))}
         skipContactForm={form.skip_contact_form}
         onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
         allowExternal={!event?.is_collab}

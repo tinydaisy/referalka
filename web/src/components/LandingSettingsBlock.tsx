@@ -27,6 +27,7 @@ export default function LandingSettingsBlock({
   description, onDescription,
   landingUrl, onLandingUrl,
   ctaLabel, onCtaLabel,
+  ctaRepeat, onCtaRepeat,
   skipContactForm, onSkipContactForm,
   allowExternal = true,
   hasLanding = false,
@@ -46,6 +47,9 @@ export default function LandingSettingsBlock({
   onLandingUrl: (v: string) => void
   ctaLabel: string
   onCtaLabel: (v: string) => void
+  /** Дублировать кнопку под описанием (миграция 314). */
+  ctaRepeat?: boolean
+  onCtaRepeat?: (v: boolean) => void
   skipContactForm: boolean
   onSkipContactForm: (v: boolean) => void
   /** false — только внутренний лендинг (коллаб-событие) */
@@ -200,6 +204,24 @@ export default function LandingSettingsBlock({
             <p className="text-xs text-gray-400 mt-1.5">
               Главная кнопка события. Пусто — будет «Хочу участвовать».
             </p>
+
+            {/* ⚠️ Кнопка дублируется ПОД описанием, а не заменяет верхнюю:
+                у длинного описания верхняя кнопка уезжает за экран, и человек,
+                дочитавший до конца, остаётся без действия. */}
+            {onCtaRepeat && (
+              <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+                <input type="checkbox" checked={!!ctaRepeat}
+                  onChange={e => onCtaRepeat(e.target.checked)}
+                  className="mt-0.5 accent-[#25455D]" />
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Повторить кнопку под описанием</p>
+                  <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
+                    При длинном описании кнопка вверху уезжает — дочитавший не увидит,
+                    что делать дальше.
+                  </p>
+                </div>
+              </label>
+            )}
           </div>
 
           {/* ⚠️ Галочка ОДНА на оба варианта — то же поле skip_contact_form.

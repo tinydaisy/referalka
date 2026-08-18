@@ -45,6 +45,8 @@ export default function OverviewTab({
   const [regError, setRegError] = useState('')
   // Текст кнопки на встроенном лендинге (миграция 212). Пусто → дефолт из Mini App.
   const [landingCtaLabel, setLandingCtaLabel] = useState(event.landing_cta_label || '')
+  // Дубль кнопки под описанием (миграция 314): длинный текст уводит верхнюю кнопку за экран.
+  const [landingCtaRepeat, setLandingCtaRepeat] = useState<boolean>(!!event.landing_cta_repeat)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -102,6 +104,7 @@ export default function OverviewTab({
       if (regMode !== (event.registration_mode || null))         payload.registration_mode = regMode
       const lcl = landingCtaLabel.trim()
       if (lcl !== (event.landing_cta_label || ''))             payload.landing_cta_label = lcl || null
+      if (landingCtaRepeat !== !!event.landing_cta_repeat)     payload.landing_cta_repeat = landingCtaRepeat
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -278,6 +281,8 @@ export default function OverviewTab({
         onLandingUrl={setLandingUrl}
         ctaLabel={landingCtaLabel}
         onCtaLabel={setLandingCtaLabel}
+        ctaRepeat={landingCtaRepeat}
+        onCtaRepeat={setLandingCtaRepeat}
         skipContactForm={skipContactForm}
         hasLanding={!!event?.landing_published}
         landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}

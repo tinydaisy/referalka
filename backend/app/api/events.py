@@ -160,6 +160,9 @@ class UpdateEventRequest(BaseModel):
     # Текст кнопки на встроенном лендинге события (миграция 212). Пусто → дефолт:
     # «КАК ГОЛОСОВАТЬ?» у конкурса, «Зарегистрироваться» у остальных типов.
     landing_cta_label: Optional[str] = None
+    # Повторить кнопку регистрации под описанием (миграция 314): при длинном
+    # тексте кнопка вверху уезжает, и дочитавший не понимает, что делать.
+    landing_cta_repeat: Optional[bool] = None
     # Как называть участника: speaker|nominee|member (миграция 304).
     # Одно слово на всё событие — интерфейс, рассылки, кабинет.
     person_wording: Optional[str] = None
@@ -805,7 +808,7 @@ async def copy_event(
                   vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
-                  skip_contact_form, landing_cta_label, registration_mode,
+                  skip_contact_form, landing_cta_label, landing_cta_repeat, registration_mode,
                   person_wording)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
@@ -815,7 +818,7 @@ async def copy_event(
                        $17,$18,
                        $19,$20,
                        $21,$22,
-                       $23,$24,$25,$26)
+                       $23,$24,$25,$26,$27)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -834,6 +837,7 @@ async def copy_event(
             src.get('accent_button'),
             src.get('skip_contact_form') or False,
             src.get('landing_cta_label'),
+            src.get('landing_cta_repeat'),
             # Способ регистрации переносим как есть: раньше он терялся, и копия
             # события молча уезжала на дефолт вместо настройки оригинала.
             src.get('registration_mode') or 'form',

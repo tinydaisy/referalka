@@ -73,9 +73,17 @@ export default function LandingTab({ event, onRegister }: Props) {
     </button>
   )
 
-  // Дубль кнопки под описанием — только если описание длинное (> 26 строк на экране).
+  // Дубль кнопки под описанием.
+  // ⚠️ Решает ГАЛОЧКА клиента (events.landing_cta_repeat, миграция 314), а не
+  // измерение высоты: порог всегда врёт — у одного клиента три абзаца это уже
+  // много, у другого длинный текст свёрстан так, что вторая кнопка мешает.
+  // Клиент видит свою страницу и решает сам.
+  // Автоопределение оставлено ЗАПАСНЫМ вариантом: у событий, созданных до
+  // галочки, поведение не меняется — иначе у них кнопка внизу молча пропала бы.
   // ⚠️ Хук ВЫШЕ early-return (ветка конкурса) — иначе React #310.
-  const { ref: descRef, isLong: descIsLong } = useIsLongDescription(event?.description)
+  const { ref: descRef, isLong: descAutoLong } = useIsLongDescription(event?.description)
+  const descIsLong = event?.landing_cta_repeat === true
+    || (event?.landing_cta_repeat == null && descAutoLong)
 
   // ─── Контест: своя разметка ──────────────────────────────────────
   if (isContest) {
