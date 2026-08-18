@@ -389,16 +389,35 @@ async def public_event_collaborators(
                -- коллаба text[], у клиента jsonb [{label,value}] — склеиваем.
                COALESCE(NULLIF(co.title,''), cl_self.owner_positioning) AS title,
                COALESCE(NULLIF(co.photo_url,''), cl_self.owner_photo_url) AS photo_url,
+               -- ⚠️ Регалии: своя карточка → профиль ОСНОВАТЕЛЯ → регалии
+               -- БРЕНДА. У клиента их два набора, и заполнен бывает любой:
+               -- у Нурии в основателе 2, а в бренде 3 (прод, 2026-08-18).
                CASE WHEN COALESCE(array_length(co.achievements,1),0) > 0
                     THEN co.achievements
                     ELSE ARRAY(
                       SELECT btrim(COALESCE(e->>'value','') || ' ' || COALESCE(e->>'label',''))
                         FROM jsonb_array_elements(
-                               COALESCE(cl_self.owner_achievements,'[]'::jsonb)) AS e
+                               CASE WHEN jsonb_array_length(COALESCE(cl_self.owner_achievements,'[]'::jsonb)) > 0
+                                    THEN cl_self.owner_achievements
+                                    ELSE COALESCE(cl_self.achievements,'[]'::jsonb) END) AS e
                        WHERE COALESCE(e->>'value','') <> '' OR COALESCE(e->>'label','') <> '')
                END AS achievements,
-               co.tg_channel_url, co.instagram_url,
-               co.website_url,
+               -- ⚠️ Соцсети — тот же фолбэк на профиль клиента, что у фото:
+               -- у организатора коллабы каналы заполнены в кабинете
+               -- (clients.social_links: telegram_channels / vk_channels /
+               -- max_channels — МАССИВЫ, берём первый), а карточка
+               -- коллаборатора пустая. Без этого в карточке спикера не было
+               -- ни одной ссылки (прод, 2026-08-18).
+               COALESCE(NULLIF(co.tg_channel_url,''),
+                        cl_self.social_links->'telegram_channels'->0->>'url') AS tg_channel_url,
+               COALESCE(NULLIF(co.vk_url,''),
+                        cl_self.social_links->'vk_channels'->0->>'url') AS vk_url,
+               COALESCE(NULLIF(co.max_url,''),
+                        cl_self.social_links->'max_channels'->0->>'url') AS max_url,
+               COALESCE(NULLIF(co.instagram_url,''),
+                        cl_self.social_links->>'instagram') AS instagram_url,
+               COALESCE(NULLIF(co.website_url,''),
+                        cl_self.social_links->>'website') AS website_url,
                pu_tg.username AS personal_tg_username
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
