@@ -1242,14 +1242,18 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   COALESCE(NULLIF(sp.photo_url,''), cl_self.owner_photo_url) AS photo_url,
                   sp.tg_channel_url, sp.vk_url, sp.max_url, sp.instagram_url,
                   sp.website_url,
-                  -- ⚠️ Типы РАЗНЫЕ: collaborators.achievements — text[],
-                  -- clients.owner_achievements — jsonb. Приводим фолбэк к
-                  -- text[], иначе `jsonb_array_length(text[])` роняет весь
-                  -- эндпоинт 500-й (проверено на проде 2026-08-18).
+                  -- ⚠️ Форматы РАЗНЫЕ: у коллаба achievements — text[] (готовые
+                  -- строки), у клиента owner_achievements — jsonb вида
+                  -- [{"label": "лет в маркетинге", "value": "12+"}]. Склеиваем
+                  -- пары в строку «12+ лет в маркетинге», иначе наружу уезжает
+                  -- сырой JSON — так и было видно в Mini App (прод, 2026-08-18).
                   CASE WHEN COALESCE(array_length(sp.achievements, 1), 0) > 0
                        THEN sp.achievements
-                       ELSE ARRAY(SELECT jsonb_array_elements_text(
-                                    COALESCE(cl_self.owner_achievements, '[]'::jsonb)))
+                       ELSE ARRAY(
+                         SELECT btrim(COALESCE(e->>'value','') || ' ' || COALESCE(e->>'label',''))
+                           FROM jsonb_array_elements(
+                                  COALESCE(cl_self.owner_achievements, '[]'::jsonb)) AS e
+                          WHERE COALESCE(e->>'value','') <> '' OR COALESCE(e->>'label','') <> '')
                   END AS achievements,
                   pu_tg.username AS personal_tg_username
            FROM event_collaborators cse

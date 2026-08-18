@@ -1642,13 +1642,30 @@ async def list_event_collaborators(
     sql = """
         SELECT ec.id, ec.role, ec.sort_order, ec.is_visible, ec.priority,
                ec.bot_in_channel, ec.exclude_channel_from_subscription,
-               co.id AS collaborator_id, co.name, co.title, co.photo_url,
-               co.achievements, co.tg_channel_url, co.tg_channel_id,
+               co.id AS collaborator_id, co.name,
+               -- ⚠️ ОРГАНИЗАТОР КОЛЛАБЫ — это КЛИЕНТ: фото и регалии заполнены
+               -- в профиле кабинета (clients.owner_*), а карточка коллаборатора
+               -- у него пустая — её никто не заводил руками. Без фолбэка блок
+               -- «Ведут мероприятие» в Mini App шёл без фото (прод, 2026-08-18).
+               -- Форматы регалий разные: у коллаба text[], у клиента jsonb
+               -- вида [{"label":…,"value":…}] — склеиваем в «12+ лет в маркетинге».
+               COALESCE(NULLIF(co.title,''), cl_self.owner_positioning) AS title,
+               COALESCE(NULLIF(co.photo_url,''), cl_self.owner_photo_url) AS photo_url,
+               CASE WHEN COALESCE(array_length(co.achievements,1),0) > 0
+                    THEN co.achievements
+                    ELSE ARRAY(
+                      SELECT btrim(COALESCE(e->>'value','') || ' ' || COALESCE(e->>'label',''))
+                        FROM jsonb_array_elements(
+                               COALESCE(cl_self.owner_achievements,'[]'::jsonb)) AS e
+                       WHERE COALESCE(e->>'value','') <> '' OR COALESCE(e->>'label','') <> '')
+               END AS achievements,
+               co.tg_channel_url, co.tg_channel_id,
                pu_tg.platform_user_id AS personal_tg_id,
                pu_tg.username         AS personal_tg_username,
                co.instagram_url, co.website_url, ct.ref_code
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
+          LEFT JOIN clients cl_self ON cl_self.self_collaborator_id = co.id
           LEFT JOIN contacts ct ON ct.id = co.contact_id
           LEFT JOIN platform_users pu_tg
             ON pu_tg.contact_id = co.contact_id AND pu_tg.platform_slug = 'telegram'

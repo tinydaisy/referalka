@@ -248,9 +248,12 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
       {onBackToOwners && (
         <div onClick={onBackToOwners}
              style={{
-               position: 'sticky', top: 0, zIndex: 5,
+               // ⚠️ БЕЗ отрицательного отступа и без sticky: кнопка стоит НАД
+               // шапкой бренда, а не поверх неё. С `margin:-16px` и `sticky`
+               // она наезжала на название бренда и перекрывала его
+               // (жалоба 2026-08-18).
                display: 'flex', alignItems: 'center', gap: 6,
-               margin: '-16px -16px 0', padding: '12px 16px',
+               margin: '0 -16px 0', padding: '12px 16px',
                cursor: 'pointer', background: 'var(--surface)',
                borderBottom: '1px solid var(--border)',
                color: DARK, fontSize: 15, fontWeight: 700,
