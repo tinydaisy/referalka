@@ -973,11 +973,21 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         owners = await db.fetch(
             """SELECT c.id AS client_id,
                       COALESCE(NULLIF(c.brand_name, ''), c.name) AS name,
+                      -- ⚠️ Имя основателя — из его карточки коллаборатора
+                      -- (там оно разбито на имя и фамилию, миграция 302).
+                      -- Показывается в скобках рядом с брендом: у коллабы в
+                      -- списке проектов одни названия компаний, и непонятно,
+                      -- чей это проект. Фолбэк на clients.name — техническое
+                      -- имя из регистрации, лучше чем пусто.
+                      COALESCE(NULLIF(btrim(
+                        COALESCE(col.name, '') || ' ' || COALESCE(col.last_name, '')
+                      ), ''), c.name) AS owner_name,
                       c.brand_logo_url, c.profile_photo_url, c.positioning,
                       (c.privacy_policy_published_at IS NOT NULL
                        AND COALESCE(c.privacy_policy_text, '') <> '') AS has_policy
                  FROM event_owners eo
                  JOIN clients c ON c.id = eo.client_id
+                 LEFT JOIN collaborators col ON col.id = c.self_collaborator_id
                 WHERE eo.event_id = $1 AND eo.status = 'accepted'
                 ORDER BY (eo.role = 'owner') DESC, eo.id""",
             row["id"],

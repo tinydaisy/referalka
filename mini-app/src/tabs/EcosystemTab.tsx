@@ -16,6 +16,8 @@ interface Props {
 export interface CollabOwner {
   client_id: number
   name: string
+  /** Имя и фамилия основателя — показываем в скобках рядом с брендом. */
+  owner_name?: string | null
   brand_logo_url?: string | null
   profile_photo_url?: string | null
   positioning?: string | null
@@ -166,7 +168,14 @@ function OwnersList({ owners, onPick }: { owners: CollabOwner[]; onPick: (id: nu
               }}>{initials(o.name)}</div>
             )}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.25 }}>{o.name}</div>
+              {/* ⚠️ Имя основателя в скобках: у коллабы в списке одни названия
+                  компаний, и по ним не понять, чей это проект. */}
+              <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.25 }}>
+                {o.name}
+                {o.owner_name && o.owner_name !== o.name && (
+                  <span style={{ fontWeight: 500, color: '#6b7c8e' }}> ({o.owner_name})</span>
+                )}
+              </div>
               {o.positioning && (
                 <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }}>
                   {o.positioning}
