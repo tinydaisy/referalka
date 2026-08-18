@@ -673,6 +673,7 @@ function Section({
     cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
     glowCls={glowCls} glowVars={glowVars}
     event={event} content={content} slug={slug} withTrack={withTrack}
+    forPdf={forPdf} pageUrl={pageUrl}
   />
 
   /* Картинка-контент секции (не фон): встаёт рядом с содержимым или над ним. */
@@ -887,6 +888,7 @@ function BlockBody({
   ctaHref, orderHref,
   block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
   glowCls = '', glowVars = {}, withTrack = (u: string) => u,
+  forPdf = false, pageUrl = '',
 }: any) {
   const items = block.items
 
