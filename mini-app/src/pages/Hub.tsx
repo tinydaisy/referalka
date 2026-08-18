@@ -65,6 +65,15 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
       {/* Шапка только на Календаре. На Экосистеме — её собственная шапка-визитка. */}
       {tab === 'calendar' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18, position: 'relative' }}>
+          {/* ⚠️ «К списку лидеров» — только если человек ДЕЙСТВИТЕЛЬНО пришёл
+              из списка (общий @pluson_bot, экран выбора). В боте КЛИЕНТА
+              никакого «списка лидеров» нет: кнопка уводила в чужой кабинет —
+              открыт Mini App Нурии, а показывался кабинет другого человека
+              с его событиями (жалоба 2026-08-18).
+              Признак: в адресе есть `/c/{N}/`, но пришли мы туда переходом
+              из селектора — тогда в истории остаётся откуда. Проще и надёжнее
+              — показывать кнопку только в ОБЩЕМ приложении (без `/c/{N}/`). */}
+          {!/^\/c\/\d+\//.test(window.location.pathname) && (
           <button
             onClick={() => {
               // Сохраняем launch params VK / TG initData при возврате
@@ -83,6 +92,7 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
             }}
             title="К списку лидеров"
           >← К списку лидеров</button>
+          )}
           {brandLogo && (
             <img src={brandLogo} alt=""
                  onClick={() => setTab('ecosystem')}
