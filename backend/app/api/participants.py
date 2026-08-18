@@ -143,18 +143,20 @@ async def register_participant(
         known_contact_id=data.contact_id,
     )
 
-    # ⚠️ КОЛЛАБА: человек заводится в базе КАЖДОГО организатора — они
-    # равноправны, событие общее, и обмен аудиторией и есть смысл коллабы
-    # (решение владельца, 2026-08-18). Контакт у каждого клиента свой, это не
-    # дубль. Для основного организатора (где мы уже создали контакт выше)
-    # вызов просто ничего не изменит.
-    from app.services.event_client import mirror_contact_to_all_owners
-    await mirror_contact_to_all_owners(
-        db, event_id=event["id"], contact_id=contact_id,
-        platform_slug=data.platform, platform_user_id=str(data.tg_id),
-        username=reg_username, first_name=reg_first, last_name=reg_last,
-        email=data.email, phone=data.phone,
-    )
+    # ⚠️ КОЛЛАБА: человек заводится у ВСЕХ организаторов ТОЛЬКО когда непонятно,
+    # чей он — пришёл «ниоткуда»: по пересланной веб-ссылке, без бота/Mini App и
+    # без реф-кода. Организаторы равноправны, и отдавать такого создателю
+    # события неправильно (решение владельца, 2026-08-18).
+    # ⚠️ Пришёл через бота или по чьей-то ссылке — он человек ТОГО организатора,
+    # и второму его не отдаём: у каждого своя база, это не общий котёл.
+    if not (data.client_id or data.ref_code):
+        from app.services.event_client import mirror_contact_to_all_owners
+        await mirror_contact_to_all_owners(
+            db, event_id=event["id"], contact_id=contact_id,
+            platform_slug=data.platform, platform_user_id=str(data.tg_id),
+            username=reg_username, first_name=reg_first, last_name=reg_last,
+            email=data.email, phone=data.phone,
+        )
 
     # Сохраняем согласия (152-ФЗ).
     # consent_pd обязательно True если форма передаёт — фиксируем дату/IP/версию политики.
