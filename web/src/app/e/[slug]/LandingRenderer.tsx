@@ -1033,7 +1033,7 @@ function BlockBody(props: any) {
                 block.seats_position === 'side' ? 'flex-row' : 'flex-col'
               }`}>
                 {block.show_seats && content.seats && (
-                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
+                  <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} forPdf={forPdf} />
                 )}
                 {/* Подпись кнопки — только из настроек блока. Значений по
                     умолчанию в коде нет: не задана — кнопки не будет. */}
@@ -1063,7 +1063,7 @@ function BlockBody(props: any) {
     case 'seats':
       return content.seats
         ? <div className="text-center">
-            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} />
+            <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} forPdf={forPdf} />
           </div>
         : null
 
@@ -1378,14 +1378,18 @@ function BlockBody(props: any) {
     case 'numbers': {
       const list = Array.isArray(items) ? items.filter((n: any) => n && (n.value || n.label)) : []
       // Цифры — крупным металликом из цвета иконок; число колонок настраивается.
-      const metalNum: React.CSSProperties = {
-        fontFamily: page.font_heading_css,
-        background: metallic(iconColor),
-        WebkitBackgroundClip: 'text',
-        backgroundClip: 'text',
-        color: 'transparent',
-        lineHeight: 1,
-      }
+      // ⚠️ В PDF — сплошной цвет вместо металлика: градиент по буквам печатается
+      // контурами (Type3) и разъезжается на телефоне (см. headingStyle).
+      const metalNum: React.CSSProperties = forPdf
+        ? { fontFamily: page.font_heading_css, color: iconColor, lineHeight: 1 }
+        : {
+            fontFamily: page.font_heading_css,
+            background: metallic(iconColor),
+            WebkitBackgroundClip: 'text',
+            backgroundClip: 'text',
+            color: 'transparent',
+            lineHeight: 1,
+          }
       // ⚠️ Число колонок — это НАСТРОЙКА, а не «сколько влезло»: auto-fit
       // игнорировал её на широком экране. На узких экранах колонок всегда
       // меньше (см. .lp-grid), но потолок задаёт клиент.
@@ -1959,13 +1963,17 @@ function HeroPills({
   )
 }
 
-function SeatsBadge({ seats, iconColor, radius }: any) {
-  const metalText: React.CSSProperties = {
-    background: metallic(iconColor),
-    WebkitBackgroundClip: 'text',
-    backgroundClip: 'text',
-    color: 'transparent',
-  }
+function SeatsBadge({ seats, iconColor, radius, forPdf = false }: any) {
+  // ⚠️ В PDF металлик заменяем сплошным цветом — иначе буквы печатаются
+  // контурами и «наезжают» в мобильных просмотрщиках (см. headingStyle).
+  const metalText: React.CSSProperties = forPdf
+    ? { color: iconColor }
+    : {
+        background: metallic(iconColor),
+        WebkitBackgroundClip: 'text',
+        backgroundClip: 'text',
+        color: 'transparent',
+      }
   const pos = seats.label_position || 'top'
   // ⚠️ Подпись — ТОГО ЖЕ размера, что и цифра: это одна надпись «Осталось
   // мест 30/100», просто из двух частей. Мельчить её нельзя — было в 3 раза
