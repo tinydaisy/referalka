@@ -248,12 +248,19 @@ async def public_client_events(
                WHERE e.module_slug IN ('conference', 'turnir')
             ),
             user_participation AS (
-              SELECT ep.event_id, ep.is_registered
+              -- ⚠️ DISTINCT ON: у КОЛЛАБЫ человек может числиться участником
+              -- через контакты РАЗНЫХ организаторов (у каждого своя база), и
+              -- без этого LEFT JOIN ниже множил строку — в календаре одно и то
+              -- же событие показывалось дважды (жалоба 2026-08-18).
+              -- Из нескольких записей берём «зарегистрирован»: он важнее, чем
+              -- «интересовался», иначе человек увидел бы себя незаписанным.
+              SELECT DISTINCT ON (ep.event_id) ep.event_id, ep.is_registered
                 FROM event_participants ep
                 JOIN contacts c        ON c.id  = ep.contact_id
                 JOIN platform_users pu ON pu.contact_id = c.id
                WHERE pu.platform_slug = 'telegram'
                  AND pu.platform_user_id = $2
+               ORDER BY ep.event_id, ep.is_registered DESC, ep.id
             )
             -- Для конференций приоритет — даты программы (conf_days). Но если
             -- программа ещё не заведена, а в events.start_at дата уже выставлена —
