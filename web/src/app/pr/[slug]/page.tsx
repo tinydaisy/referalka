@@ -70,9 +70,16 @@ export default async function Page({
   params, searchParams,
 }: {
   params: { slug: string }
-  searchParams: { pid?: string; c?: string; utm_source?: string; preview?: string }
+  searchParams: {
+    pid?: string; c?: string; utm_source?: string; preview?: string
+    /** `1` — страницу открыл наш рендерер PDF. */
+    pdf?: string
+  }
 }) {
   const preview = searchParams?.preview
+  // Абсолютный адрес страницы — для ссылок внутри PDF (домен может быть свой).
+  const prHost = headers().get('host') || ''
+  const prPageUrl = prHost ? `https://${prHost}/pr/${params.slug}` : ''
   // Собранный лендинг главнее: если клиент его опубликовал — показываем блоки.
   const landing = await getLanding(params.slug, preview)
   if (landing) {
@@ -86,6 +93,8 @@ export default async function Page({
           pid={searchParams?.pid ?? null}
           contactId={searchParams?.c ?? null}
           utmSource={searchParams?.utm_source ?? null}
+          forPdf={searchParams?.pdf === '1'}
+          pageUrl={prPageUrl}
         />
       </>
     )

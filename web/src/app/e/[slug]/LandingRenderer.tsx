@@ -28,6 +28,10 @@ interface Props {
   pid?: string | null
   contactId?: string | null
   utmSource?: string | null
+  /** Страницу печатает наш рендерер PDF: интерактив (карусель) заменяем статикой. */
+  forPdf?: boolean
+  /** Абсолютный адрес этой страницы — нужен ссылкам в PDF (относительные там мертвы). */
+  pageUrl?: string
 }
 
 /**
@@ -83,6 +87,7 @@ function shade(hex: string, pct: number): string {
 
 export default function LandingRenderer({
   data, slug, pid = null, contactId = null, utmSource = null, ownerType = 'event',
+  forPdf = false, pageUrl = '',
 }: Props) {
   // Хвост с метками: подставляем в каждую ссылку, чтобы реф-код не терялся
   // при переходе на форму заказа или регистрацию.
@@ -451,6 +456,8 @@ export default function LandingRenderer({
           content={content}
           slug={slug}
           withTrack={withTrack}
+          forPdf={forPdf}
+          pageUrl={pageUrl}
         />
       ))}
     </div>
@@ -601,7 +608,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
 function Section({
   ctaHref, orderHref,
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
-  withTrack,
+  withTrack, forPdf, pageUrl,
 }: any) {
   // В режиме «градиент по блокам» каждая секция получает полный градиент —
   // переход виден внутри каждой, а не размазан по всей странице.
@@ -1738,6 +1745,8 @@ function BlockBody({
       return <GalleryBlock
         block={block} content={content} cardStyle={gCards}
         radius={radius} iconColor={iconColor}
+        forPdf={forPdf}
+        moreHref={pageUrl ? `${pageUrl.split('#')[0]}#lp-b${block.id}` : ''}
       />
     }
 
@@ -1961,7 +1970,9 @@ function SeatsBadge({ seats, iconColor, radius }: any) {
  * непонятно, что ленту вообще можно листать. Стрелки акцентного цвета,
  * прячутся, когда листать больше некуда.
  */
-function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
+function GalleryBlock({
+  block, content, cardStyle, radius, iconColor, forPdf = false, moreHref = '',
+}: any) {
   const scroller = useRef<HTMLDivElement>(null)
   const [atStart, setAtStart] = useState(true)
   const [atEnd, setAtEnd] = useState(false)
@@ -2094,6 +2105,39 @@ function GalleryBlock({ block, content, cardStyle, radius, iconColor }: any) {
       <div className="lp-grid grid gap-4"
            style={{ ['--lp-cols-lg' as any]: Math.max(1, Math.min(6, block.columns || 3)) }}>
         {cards}
+      </div>
+    )
+  }
+
+  /* ⚠️ В PDF карусель бесполезна: прокрутки на бумаге нет, и человек видел
+     ТОЛЬКО первую карточку — остальные обрезаны краем листа, без единого
+     намёка, что рядом есть ещё. Поэтому в файле показываем первую карточку и
+     честную кнопку «Смотреть ещё» со ссылкой на эту же секцию живого лендинга
+     (ссылка абсолютная — относительная в PDF мертва).
+     ⚠️ Сетку (`mode: 'grid'`) не трогаем: там видно всё и так. */
+  if (forPdf && cards.length > 1) {
+    return (
+      <div>
+        <div className="flex justify-center">{cards[0]}</div>
+        <div className="mt-4 text-center">
+          {moreHref ? (
+            <a
+              href={moreHref}
+              className="inline-block px-5 py-3 text-[.85em] font-bold uppercase"
+              style={{
+                borderRadius: radius,
+                background: iconColor,
+                color: '#0a1520',
+              }}
+            >
+              Смотреть ещё {cards.length - 1} — на сайте
+            </a>
+          ) : (
+            <span className="text-[.85em] opacity-70">
+              Ещё {cards.length - 1} — на сайте
+            </span>
+          )}
+        </div>
       </div>
     )
   }

@@ -76,6 +76,16 @@ async def finalize_participant_registration(
     except Exception as e:
         logger.warning(f"email re-opt-in failed for event={event_id} contact={contact_id}: {e}")
 
+    # У КОЛЛАБЫ почта и телефон участника попадают в базу каждого организатора:
+    # они приводят людей вместе и равноправны, поэтому связь с участником должна
+    # быть у всех. Мессенджеры при этом НЕ раздаём — человек не запускал чужого
+    # бота (см. share_contact_with_all_owners).
+    try:
+        from app.services.event_client import share_contact_with_all_owners
+        await share_contact_with_all_owners(db, event_id=event_id, contact_id=contact_id)
+    except Exception as e:
+        logger.warning(f"share contact with owners failed for event={event_id} contact={contact_id}: {e}")
+
     try:
         from app.services.event_welcome_email import send_welcome_email_if_needed
         await send_welcome_email_if_needed(

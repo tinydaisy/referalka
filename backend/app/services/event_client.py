@@ -96,28 +96,25 @@ async def event_owner_client_ids(db, event_id: int) -> list[int]:
     return [r["client_id"] for r in rows]
 
 
-async def share_web_contact_with_all_owners(
-    db, *, event_id: int, platform_slug: str, platform_user_id: str,
-    username: str | None = None, first_name: str | None = None,
-    last_name: str | None = None, email: str | None = None, phone: str | None = None,
-) -> None:
-    """Записать человека в базу КАЖДОГО организатора коллабы.
+async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -> None:
+    """Раздать ПОЧТУ И ТЕЛЕФОН зарегистрировавшегося всем организаторам коллабы.
 
-    ⚠️ ТОЛЬКО ОДИН СЛУЧАЙ: человек зарегистрировался на ВЕБ-СТРАНИЦЕ события —
-    не через бота, не через Mini App, без реф-кода. То есть неизвестно, чей он.
-    Организаторы равноправны, и отдавать такого создателю события неправильно
-    (решение владельца, 2026-08-18).
+    Организаторы равноправны и приводят людей вместе, поэтому контактные данные
+    участника должны быть у каждого — иначе партнёр, чья аудитория пришла, не
+    может даже написать письмо (решение владельца, 2026-08-18).
 
-    ⚠️ Только ПОСЛЕ регистрации: до неё о человеке нет ничего — ни почты, ни
-    телефона, записывать нечего.
+    ⚠️ ТОЛЬКО почта и телефон. Идентичности мессенджеров (tg_id, vk_id) НЕ
+    копируем: человек не запускал бота второго организатора и не разрешал ему
+    писать. Насильно привязывать к чужому боту нельзя — это спам и, для VK,
+    прямое нарушение правил площадки. Написать партнёр сможет письмом; в бот —
+    только если человек сам туда придёт.
 
-    ⚠️ Что реально получит второй организатор: карточку контакта с почтой и
-    телефоном. НАПИСАТЬ он по ней не сможет, пока человек сам не запустит его
-    бота — это ограничение мессенджеров, а не наше. Поэтому смысл записи —
-    почта и телефон, а не переписка.
+    ⚠️ Только ПОСЛЕ регистрации: до неё почты и телефона нет, раздавать нечего.
 
-    ⚠️ НЕ звать, когда контекст есть (бот, Mini App, реф-код): там человек
-    принадлежит конкретному организатору, у каждого своя база.
+    ⚠️ Ищем/создаём контакт у партнёра через `upsert_contact_with_identity` с
+    ПОЧТОЙ как идентичностью (`platform_slug='email'`) — она и есть ключ. Так
+    человек, который уже есть у партнёра, не задвоится: сработает штатный
+    автомердж по почте и телефону.
 
     Идемпотентно; ошибки глушим — это дополнение к регистрации, а не её часть.
     """
@@ -127,23 +124,40 @@ async def share_web_contact_with_all_owners(
         owner_ids = await event_owner_client_ids(db, event_id)
         if len(owner_ids) < 2:
             return
+
+        row = await db.fetchrow(
+            """SELECT c.id, c.client_id, c.name, c.phone,
+                      (SELECT pe.platform_user_id FROM platform_users pe
+                        WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                        ORDER BY pe.id LIMIT 1) AS email
+                 FROM contacts c WHERE c.id = $1""",
+            contact_id,
+        )
+        if not row:
+            return
+        email, phone = (row["email"] or "").strip(), (row["phone"] or "").strip()
+        # Без почты раздавать нечего: телефон без почты не даёт партнёру ни
+        # канала связи в системе, ни надёжного ключа для поиска человека.
+        if not email:
+            return
+
         from app.services.contact_merge import upsert_contact_with_identity
         for cid in owner_ids:
+            if cid == row["client_id"]:
+                continue  # у него человек уже есть — это его собственный контакт
             try:
                 await upsert_contact_with_identity(
                     db, client_id=cid,
-                    platform_slug=platform_slug,
-                    platform_user_id=str(platform_user_id),
-                    username=username, first_name=first_name, last_name=last_name,
-                    email=email, phone=phone,
+                    platform_slug="email", platform_user_id=email,
+                    first_name=row["name"], email=email, phone=phone or None,
                 )
             except Exception:
                 logger.warning(
-                    "share_web_contact: не удалось записать контакт клиенту %s (event=%s)",
+                    "share_contact: не удалось записать контакт клиенту %s (event=%s)",
                     cid, event_id,
                 )
     except Exception:
-        logger.exception("share_web_contact_with_all_owners failed: event=%s", event_id)
+        logger.exception("share_contact_with_all_owners failed: event=%s", event_id)
 
 
 async def resolve_event_client(

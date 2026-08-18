@@ -3043,21 +3043,10 @@ async def event_register_submit(slug: str, request: Request,
                  DO UPDATE SET is_registered = TRUE""",
             event_id, target_cid,
         )
-        # ⚠️ КОЛЛАБА, веб-регистрация: человек пришёл на страницу события НЕ
-        # через бота и не через Mini App — неизвестно, чей он. Организаторы
-        # равноправны, поэтому его почта и телефон записываются в базу КАЖДОГО
-        # (решение владельца, 2026-08-18). Написать по такой карточке второй
-        # организатор не сможет, пока человек сам не запустит его бота, —
-        # смысл записи именно в контактных данных.
-        try:
-            from app.services.event_client import share_web_contact_with_all_owners
-            await share_web_contact_with_all_owners(
-                db, event_id=event_id,
-                platform_slug="email", platform_user_id=email_norm,
-                first_name=name, email=email_norm, phone=phone,
-            )
-        except Exception:
-            pass
+        # ⚠️ Раздачу контакта организаторам коллабы делает сама
+        # finalize_participant_registration — она общая для ВСЕХ путей входа
+        # (бот, Mini App, веб, вебхуки). Здесь отдельного вызова быть не должно:
+        # иначе правило пришлось бы дублировать в каждой точке регистрации.
         await finalize_participant_registration(
             db, event_id=event_id, contact_id=target_cid)
 

@@ -14,6 +14,7 @@
  * `Authorization` из браузера у неё нет.
  */
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import LandingRenderer from './LandingRenderer'
 import PreviewBar from '@/components/PreviewBar'
 
@@ -56,10 +57,22 @@ export async function generateMetadata(
 export default async function EventLandingPage(
   { params, searchParams }: {
     params: { slug: string }
-    searchParams: { pid?: string; c?: string; utm_source?: string; preview?: string }
+    searchParams: {
+      pid?: string; c?: string; utm_source?: string; preview?: string
+      /** `1` — страницу открыл наш рендерер PDF (см. backend/app/services/landing_pdf.py). */
+      pdf?: string
+    }
   },
 ) {
   const preview = searchParams?.preview
+  // ⚠️ Режим печати. Нужен там, где на бумаге интерактив не работает: у
+  // галереи-карусели прокрутки в PDF нет, и человек видел только первую
+  // карточку без всякого намёка, что рядом есть ещё.
+  const forPdf = searchParams?.pdf === '1'
+  // Абсолютный адрес страницы — для ссылок внутри PDF (относительные там мертвы).
+  // Домен берём из заголовка запроса: у клиента он может быть свой.
+  const host = headers().get('host') || ''
+  const pageUrl = host ? `https://${host}/e/${params.slug}` : ''
   const data = await getLanding(params.slug, 'main', preview)
 
   if (!data) {
@@ -85,7 +98,9 @@ export default async function EventLandingPage(
       <LandingRenderer data={data} slug={params.slug}
                        pid={searchParams.pid || null}
                        contactId={searchParams.c || null}
-                       utmSource={searchParams.utm_source || null} />
+                       utmSource={searchParams.utm_source || null}
+                       forPdf={forPdf}
+                       pageUrl={pageUrl} />
     </>
   )
 }
