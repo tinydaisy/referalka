@@ -161,8 +161,12 @@ export default function RegisteredReturnPage() {
     try {
       const ctrl = new AbortController()
       const t = setTimeout(() => ctrl.abort(), 4000)
+      // ⚠️ Передаём реф-код: в КОЛЛАБЕ по нему выбирается бот того
+      // организатора, по чьей ссылке пришёл человек. Без кода — владелец
+      // события, как было.
       const r = await fetch(
-        `${API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/bot-handle`,
+        `${API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/bot-handle`
+        + (qPid ? `?pid=${encodeURIComponent(qPid)}` : ''),
         { signal: ctrl.signal },
       )
       clearTimeout(t)

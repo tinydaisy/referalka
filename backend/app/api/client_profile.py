@@ -671,18 +671,29 @@ async def public_event_external_ref(
     "/events/{slug}/bot-handle",
     summary="Handle telegram-бота для события (VIP-клиент или общий @pluson_bot)",
 )
-async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(get_db)):
+async def public_event_bot_handle(
+    slug: str,
+    pid: Optional[str] = Query(None),
+    db: asyncpg.Connection = Depends(get_db),
+):
     """Используется страницей /r/{slug} в fallback'е — отдаёт client_id события
     и handle СВОЕГО бота клиента (если есть). Системный @pluson_bot больше не
     подставляется (2026-07-08): нет своего бота → bot_handle=None, фронт уводит
     на веб-страницу события."""
-    # TODO: коллаба — контекста человека нет (эндпоинт зовут без pid и без
-    # контакта), поэтому бот берётся у «первого владельца» события.
     row = await db.fetchrow(
-        "SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )
     if not row:
         return {"bot_handle": None, "is_vip_bot": False, "client_id": None}
+
+    # ⚠️ КОЛЛАБА: ведём в бота ТОГО организатора, по чьей ссылке пришёл человек
+    # (`pid`), а не «первого владельца». Без реф-кода определить некого —
+    # остаётся владелец события, как было.
+    from app.services.event_client import resolve_event_client
+    row = dict(row)
+    row["client_id"] = await resolve_event_client(
+        db, event_id=row["id"], client_id=row["client_id"], partner_id=pid or None,
+    )
     vip_handle = await db.fetchval(
         """SELECT ch.handle
              FROM channels ch
