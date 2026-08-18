@@ -202,7 +202,7 @@ def build_speaker_socials(tg_channel_url=None, vk_url=None, max_url=None,
     return "\n".join(lines)
 
 
-async def resolve_landing_url(conn, event_id: int) -> str:
+async def resolve_landing_url(conn, event_id: int, *, client_id: int | None = None) -> str:
     """Ссылка регистрации для {landing_url} / {registration_url}.
 
     ⚠️ ПУСТЫМ не бывает: у события ВСЕГДА есть страница регистрации.
@@ -236,7 +236,15 @@ async def resolve_landing_url(conn, event_id: int) -> str:
     mode = row["registration_mode"]
     ext, slug, has_lp = row["ext"], row["slug"], row["has_lp"]
     # Ссылка уходит аудитории клиента → собираем на ЕГО домене.
-    base = await event_public_base(conn, event_id)
+    # ⚠️ КОЛЛАБА: домен ТОГО организатора, чей бот/приложение открыл человек
+    # (`client_id`), а не «первого владельца» события. Иначе кнопка
+    # «Зарегистрироваться» в боте Нурии вела на домен Лилии — и дальше по
+    # цепочке человек доставался ей же (прод, 2026-08-18).
+    if client_id:
+        from app.services.client_domains import client_public_url
+        base = await client_public_url(conn, client_id)
+    else:
+        base = await event_public_base(conn, event_id)
     # ⚠️ Простая страница = СРАЗУ ФОРМА /event/{slug}/register, а не /event/{slug}:
     # на странице события кнопки «Зарегистрироваться» нет (только мелкая ссылка
     # внутри блока подарков), человек с рассылки упирался бы в тупик.

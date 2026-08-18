@@ -1235,12 +1235,14 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         # ⚠️ `source_client_id` — владелец ЭТОГО бота: в коллабе человек должен
         # попасть в базу того организатора, через чьего бота зашёл, а не
         # «первого владельца» из ev["client_id"] (см. _collab_base_client).
+        # Клиент ЭТОГО бота — нужен и здесь, и ниже для ссылки регистрации.
+        _bot_cid = await _client_id_by_bot(db, message.bot.id)
         if contact_id is None:
             _pid_part, contact_id = await resolve_or_create_participant(
                 db, client_id=ev["client_id"], event_id=ev["id"],
                 platform_slug="telegram", platform_user_id=str(user.id),
                 known_contact_id=known_contact_id, partner_id=pid,
-                source_client_id=await _client_id_by_bot(db, message.bot.id),
+                source_client_id=_bot_cid,
             )
 
         # ── МедиаЛифт: своя многоуровневая воронка ПРЯМО В БОТЕ ──────────────
@@ -1289,7 +1291,9 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         # всё равно вёл на простую форму.
         from app.services.message_builder import resolve_landing_url
         landing_url = (ev["landing_url"] or "").strip()
-        _reg_page = await resolve_landing_url(db, ev["id"])
+        # ⚠️ КОЛЛАБА: ссылка регистрации — на домене ТОГО организатора, в чьём
+        # боте человек (`_bot_cid`), а не «первого владельца» события.
+        _reg_page = await resolve_landing_url(db, ev["id"], client_id=_bot_cid)
         _sep = "&" if "?" in _reg_page else "?"
         internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
         # Сторонний сайт ведём прежним путём (там свои параметры и webhook),
