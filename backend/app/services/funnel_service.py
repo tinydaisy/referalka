@@ -389,29 +389,73 @@ async def _vk_admin_user_token_for_client(client_id: int, db) -> tuple[Optional[
     return user_token, group_id
 
 
+# Лимит Telegram на одно сообщение. Длиннее — `400 message is too long`,
+# причём сообщение НЕ доходит целиком.
+TG_MESSAGE_LIMIT = 4096
+
+
+def split_long_message(text: str, limit: int = TG_MESSAGE_LIMIT) -> list[str]:
+    """Режет длинный текст на части по границе абзаца (иначе — строки, иначе —
+    жёстко по лимиту).
+
+    ⚠️ Нужно потому, что текст воронки собирается из плейсхолдеров, и его длину
+    клиент не контролирует: у одного клиента `{client_owner_bio}` оказалась на
+    5892 символа, и Telegram отверг ВСЁ сообщение — человек получал только фото
+    без текста и без кнопки «ГОТОВО», то есть воронка обрывалась (прод,
+    2026-08-18). Резать по абзацу, а не по символу: разрыв внутри HTML-тега
+    даёт `can't parse entities` и сообщение снова не уходит.
+    """
+    if len(text) <= limit:
+        return [text]
+    parts: list[str] = []
+    rest = text
+    while len(rest) > limit:
+        chunk = rest[:limit]
+        # Ищем, где разорвать: сначала пустая строка, потом перенос, потом пробел.
+        cut = max(chunk.rfind("\n\n"), chunk.rfind("\n"), chunk.rfind(" "))
+        if cut < limit // 2:      # разумной границы нет — режем по лимиту
+            cut = limit
+        parts.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        parts.append(rest)
+    return parts
+
+
 async def _send_message(token: str, chat_id, text: str, reply_markup: Optional[dict] = None) -> Optional[int]:
-    """Возвращает message_id или None при ошибке."""
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    if reply_markup is not None:
-        payload["reply_markup"] = reply_markup
-    try:
-        async with httpx.AsyncClient(timeout=15) as http:
-            r = await http.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json=payload
-            )
-            data = r.json()
-            if data.get("ok"):
-                return data["result"].get("message_id")
-            log.warning("sendMessage failed: %s", data)
-    except Exception as e:
-        log.warning("sendMessage error: %s", e)
-    return None
+    """Возвращает message_id или None при ошибке.
+
+    ⚠️ Длинный текст уходит НЕСКОЛЬКИМИ сообщениями, кнопка — с последним:
+    иначе человек остаётся без кнопки «ГОТОВО» и воронка обрывается.
+    """
+    chunks = split_long_message(text)
+    last_id: Optional[int] = None
+    for i, chunk in enumerate(chunks):
+        is_last = i == len(chunks) - 1
+        payload = {
+            "chat_id": chat_id,
+            "text": chunk,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if reply_markup is not None and is_last:
+            payload["reply_markup"] = reply_markup
+        try:
+            async with httpx.AsyncClient(timeout=15) as http:
+                r = await http.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json=payload
+                )
+                data = r.json()
+                if data.get("ok"):
+                    last_id = data["result"].get("message_id")
+                    continue
+                log.warning("sendMessage failed: %s", data)
+                return None
+        except Exception as e:
+            log.warning("sendMessage error: %s", e)
+            return None
+    return last_id
 
 
 # Лимит Telegram на caption под фото/видео = 1024 символа. На обычное
