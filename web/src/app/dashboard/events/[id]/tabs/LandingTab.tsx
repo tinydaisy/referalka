@@ -357,7 +357,10 @@ export default function LandingTab({ eventId, event }: Props) {
               : 'Пока черновик — посторонние страницу не увидят. Вы можете открыть её кнопкой «Посмотреть черновик».'}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        {/* ⚠️ items-start, а не items-center: у кнопки PDF во время сборки
+            появляется подпись, и при центрировании она приподнимала бы весь
+            ряд кнопок. */}
+        <div className="flex shrink-0 items-start gap-2">
           <button
             onClick={openCopy}
             title="Перенести блоки и оформление лендинга из другого вашего события"

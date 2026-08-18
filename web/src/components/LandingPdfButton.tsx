@@ -109,10 +109,11 @@ export default function LandingPdfButton({
   }
 
   return (
-    // ⚠️ `relative` + абсолютная подпись: кнопка стоит в ряду с другими
-    // (`flex items-center`), и подпись в обычном потоке сдвинула бы её вверх
-    // относительно соседних кнопок, разъезжая весь ряд.
-    <div className="relative inline-flex flex-col items-start">
+    // ⚠️ Подпись — В ПОТОКЕ, а не `absolute`. Абсолютная не раздвигает соседей,
+    // и на вкладке продукта она легла ПОВЕРХ галочки «Опубликовать страницу»
+    // (жалоба «налезает текст»). Ряд кнопок от подписи не разъезжается за счёт
+    // `items-start` у самой обёртки — она тянется вниз, а не толкает соседей.
+    <div className="inline-flex flex-col items-start">
       <button
         onClick={click}
         disabled={busy}
@@ -126,7 +127,7 @@ export default function LandingPdfButton({
       {busy && (
         // ⚠️ Про перезагрузку пишем сразу: человек, не понимая, жив ли процесс,
         // первым делом обновляет страницу — и теряет уже готовый файл.
-        <span className="absolute left-0 top-full mt-1 w-max max-w-[22rem] text-xs text-gray-500">
+        <span className="mt-1 max-w-[22rem] text-xs leading-snug text-gray-500">
           Обычно 10–20 секунд. Не закрывайте и не обновляйте страницу — файл придёт сюда.
         </span>
       )}
