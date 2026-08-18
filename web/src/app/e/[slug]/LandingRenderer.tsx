@@ -148,7 +148,15 @@ export default function LandingRenderer({
       fontFamily: page.font_heading_css,
       lineHeight: 1.05,
     }
-    if (page.heading_metallic) {
+    // ⚠️⚠️ В PDF металлик ОТКЛЮЧАЕМ. Он сделан через `background-clip: text`
+    // (градиент, обрезанный по форме букв), а такой текст Chrome при печати
+    // не может сохранить текстом — он превращает КАЖДУЮ БУКВУ в контур (шрифт
+    // Type3). На компьютере контуры рисуются точно, а просмотрщики на
+    // телефонах округляют их по-своему, и заголовки «наезжают» друг на друга,
+    // хотя весь остальной текст цел. Ровно эта жалоба и была: «на компе
+    // хорошо, на телефоне заголовки кривые».
+    // Сплошной цвет = настоящий текст в PDF: одинаково везде, и файл легче.
+    if (page.heading_metallic && !forPdf) {
       return {
         ...base,
         background: metallic(page.color_heading || '#FFCFA4'),
@@ -158,7 +166,7 @@ export default function LandingRenderer({
       } as React.CSSProperties
     }
     return { ...base, color: page.color_heading || '#FFCFA4' }
-  }, [page])
+  }, [page, forPdf])
 
   // Заливка кнопки: свой градиент из двух цветов → металлик → сплошной цвет.
   // Для padding-box слой должен быть именно фоном-картинкой: сплошной цвет
@@ -628,7 +636,11 @@ function Section({
   // Секция может переопределить цвет заголовка (например, белым вместо
   // фирменного) и признак металлика — не трогая тему всей страницы.
   const ownColor = block.title_color || page.color_heading || '#FFCFA4'
-  const ownMetal = block.title_metallic == null ? !!page.heading_metallic : !!block.title_metallic
+  // ⚠️ В PDF металлик выключен — см. пояснение у headingStyle: буквы иначе
+  // печатаются контурами (Type3) и разъезжаются на телефоне.
+  const ownMetal = forPdf
+    ? false
+    : (block.title_metallic == null ? !!page.heading_metallic : !!block.title_metallic)
   const ownHeading: React.CSSProperties = ownMetal
     ? { fontFamily: page.font_heading_css, lineHeight: 1.05,
         background: metallic(ownColor), WebkitBackgroundClip: 'text',
@@ -884,12 +896,13 @@ function Section({
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-function BlockBody({
-  ctaHref, orderHref,
-  block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
-  glowCls = '', glowVars = {}, withTrack = (u: string) => u,
-  forPdf = false, pageUrl = '',
-}: any) {
+function BlockBody(props: any) {
+  const {
+    ctaHref, orderHref,
+    block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
+    glowCls = '', glowVars = {}, withTrack = (u: string) => u,
+    forPdf = false, pageUrl = '',
+  } = props
   const items = block.items
 
   switch (block.kind) {
@@ -1664,8 +1677,30 @@ function BlockBody({
     // Вёрстка с боевого лендинга: крупное фото слева, справа имя,
     // позиционирование и биография точками. Рамка золотая, фон прозрачный.
     case 'organizer': {
-      const o = content.organizer
-      if (!o) return null
+      // ⚠️ У КОЛЛАБЫ организаторов несколько и они равноправны — рисуем карточку
+      // КАЖДОГО. Раньше блок показывал только «первого владельца», и партнёра
+      // на общем лендинге не было вовсе (прод, 2026-08-18).
+      const orgCards: any[] = Array.isArray(content.organizer_cards) && content.organizer_cards.length
+        ? content.organizer_cards
+        : (content.organizer ? [content.organizer] : [])
+      if (!orgCards.length) return null
+      // Несколько организаторов — рисуем ту же карточку рекурсивно, подменяя
+      // content.organizer. Копия разметки разъехалась бы с оригиналом при
+      // первой же правке оформления.
+      if (orgCards.length > 1) {
+        return (
+          <div className="flex flex-col gap-6">
+            {orgCards.map((card: any, i: number) => (
+              <BlockBody
+                key={i}
+                {...props}
+                content={{ ...content, organizer: card, organizer_cards: null }}
+              />
+            ))}
+          </div>
+        )
+      }
+      const o = orgCards[0]
       const photo = o.owner_photo_url || o.brand_photo_url
       // Биография — построчно; ведущие маркеры из текста срезаем, точка своя.
       const bio: string[] = String(o.bio || '')

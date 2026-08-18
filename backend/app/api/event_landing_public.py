@@ -258,20 +258,42 @@ async def get_public_landing(
 
     # ── Организатор ───────────────────────────────────────────────────────
     if "organizer" in kinds and owner:
-        social = _jsonb(owner["social_links"])
-        data["organizer"] = {
-            "brand_name": owner["brand_name"] or owner["name"],
-            "brand_logo_url": owner["brand_logo_url"],
-            "brand_photo_url": owner["profile_photo_url"],
-            "brand_positioning": owner["positioning"],
-            "brand_achievements": _jsonb(owner["achievements"]),
-            "owner_name": owner["name"],
-            "owner_photo_url": owner["owner_photo_url"],
-            "owner_positioning": owner["owner_positioning"],
-            "owner_achievements": _jsonb(owner["owner_achievements"]),
-            "bio": owner["bio"],
-            "social_links": social if isinstance(social, dict) else {},
-        }
+        def _org_card(row) -> dict:
+            social = _jsonb(row["social_links"])
+            return {
+                "brand_name": row["brand_name"] or row["name"],
+                "brand_logo_url": row["brand_logo_url"],
+                "brand_photo_url": row["profile_photo_url"],
+                "brand_positioning": row["positioning"],
+                "brand_achievements": _jsonb(row["achievements"]),
+                "owner_name": row["name"],
+                "owner_photo_url": row["owner_photo_url"],
+                "owner_positioning": row["owner_positioning"],
+                "owner_achievements": _jsonb(row["owner_achievements"]),
+                "bio": row["bio"],
+                "social_links": social if isinstance(social, dict) else {},
+            }
+
+        data["organizer"] = _org_card(owner)
+
+        # ⚠️ У КОЛЛАБЫ организаторов НЕСКОЛЬКО и они равноправны — блок обязан
+        # показать всех. Раньше отдавался только «первый владелец» (LIMIT 1 в
+        # выборке выше), то есть тот, кто раньше принял приглашение: партнёра
+        # на общем лендинге не было вовсе (прод, 2026-08-18).
+        # Одиночному событию поле не нужно — там организатор один.
+        if ev.get("is_collab"):
+            rows = await db.fetch(
+                """SELECT cl.id, cl.name, cl.brand_name, cl.brand_logo_url,
+                          cl.profile_photo_url, cl.positioning, cl.achievements,
+                          cl.owner_photo_url, cl.owner_positioning,
+                          cl.owner_achievements, cl.bio, cl.social_links
+                     FROM event_owners eo
+                     JOIN clients cl ON cl.id = eo.client_id
+                    WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id""",
+                event["id"],
+            )
+            data["organizer_cards"] = [_org_card(r) for r in rows]
 
     # ── Программа (этапы → дни → слоты) ───────────────────────────────────
     if "program" in kinds:
