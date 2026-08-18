@@ -1639,7 +1639,10 @@ def render_page(event, collabs, days, stages, sessions, gifts,
             slot_by_ec[ec] = (sdate, stime)
     speakers_html = _speakers_panel(collabs, slot_by_ec) if has_people else ""
     cabinet_html = ""
-    if ref_cabinet:
+    # ⚠️ Вкладка «Подарки» — ТОЛЬКО при включённой реф-программе. Раньше для
+    # опознанного человека она строилась всегда, и у события с выключенной
+    # программой открывалась пустой (жалоба 2026-08-18).
+    if ref_cabinet and ref_enabled:
         cabinet_html = _cabinet_panel(
             ref_cabinet, event, gifts, share_texts, share_images,
             ref_enabled, brand_raw, event.get("title") or "", start_at,
