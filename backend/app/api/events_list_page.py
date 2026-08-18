@@ -334,7 +334,11 @@ async def events_list_page(
         "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
         f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
     )
-    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+    # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента, если он загружен. Буква на
+    # фирменном фоне ПЛЮСОНа остаётся запасным вариантом: страница открыта под
+    # брендом клиента, и узнаваться во вкладке должен он (решение владельца,
+    # 2026-08-18).
+    favicon_uri = brand_logo or ("data:image/svg+xml," + _up.quote(favicon_svg))
 
     logo_html = (f'<img class="blogo" src="{esc(brand_logo)}" alt="">'
                  if brand_logo else "")

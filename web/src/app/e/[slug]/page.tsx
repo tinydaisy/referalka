@@ -43,13 +43,23 @@ export async function generateMetadata(
   const data = await getLanding(params.slug, 'main')
   if (!data) return { title: 'Событие' }
   const { event } = data
+  // ⚠️ Картинка превью и значок вкладки — ВСЕГДА логотип бренда клиента
+  // (clients.brand_logo_url). Не афиша: страница открыта под его брендом, и в
+  // переписке должен узнаваться он. Без этого Telegram брал первую попавшуюся
+  // картинку со страницы — и у клиента показывался логотип ПЛЮСОНа
+  // (прод, 2026-08-18).
+  const brandLogo = data.data?.brand?.logo_url || data.data?.organizer?.brand_logo_url
+  const ogImage = brandLogo || event.poster_url
   return {
     title: event.title,
     description: event.description?.slice(0, 200) || undefined,
+    // Фавикон вкладки — тоже логотип клиента: страница открыта на ЕГО домене
+    // и под его брендом, наш значок там выглядит чужим.
+    icons: brandLogo ? { icon: brandLogo } : undefined,
     openGraph: {
       title: event.title,
       description: event.description?.slice(0, 200) || undefined,
-      images: event.poster_url ? [event.poster_url] : undefined,
+      images: ogImage ? [ogImage] : undefined,
     },
   }
 }

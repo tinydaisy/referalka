@@ -1604,7 +1604,10 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
     )
     import urllib.parse as _up
-    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+    # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента: страница открыта под его
+    # брендом (часто на его домене), и узнаваться должен он. Буква на фоне
+    # ПЛЮСОНа осталась запасным вариантом (решение владельца, 2026-08-18).
+    favicon_uri = (blogo or "") or ("data:image/svg+xml," + _up.quote(favicon_svg))
 
     has_people = bool(collabs)
     module = event.get("module_slug") or "base"
@@ -2607,7 +2610,9 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
     )
     import urllib.parse as _up
-    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+    # ⚠️ Значок вкладки — логотип клиента: форма открыта под его брендом.
+    _blogo = (client["brand_logo_url"] if client else None) or ""
+    favicon_uri = _blogo or ("data:image/svg+xml," + _up.quote(favicon_svg))
 
     return f"""<!DOCTYPE html>
 <html lang="ru">
@@ -3300,7 +3305,10 @@ async def public_tournament_table(slug: str, stage_id: int,
         "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
         f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>")
     import urllib.parse as _up
-    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+    # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента: страница открыта под его
+    # брендом (часто на его домене), и узнаваться должен он. Буква на фоне
+    # ПЛЮСОНа осталась запасным вариантом (решение владельца, 2026-08-18).
+    favicon_uri = (brand_logo or "") or ("data:image/svg+xml," + _up.quote(favicon_svg))
 
     # ── Шапка таблицы: группировка колонок по пакетам ──
     groups = []  # [{pkg_id, title, weight, normalize, aggregate, scheme, span}]
@@ -3694,7 +3702,10 @@ async def public_tournament_reglament(slug: str, stage_id: int,
         "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
         f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>")
     import urllib.parse as _up
-    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+    # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента: страница открыта под его
+    # брендом (часто на его домене), и узнаваться должен он. Буква на фоне
+    # ПЛЮСОНа осталась запасным вариантом (решение владельца, 2026-08-18).
+    favicon_uri = (brand_logo or "") or ("data:image/svg+xml," + _up.quote(favicon_svg))
 
     SCORER_RU = {"jury": "среднее по оценкам жюри", "vote": "народное голосование",
                  "manual": "ручной ввод организатором", "auto": "автоматически из системы"}

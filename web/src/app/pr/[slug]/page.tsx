@@ -55,13 +55,19 @@ export async function generateMetadata(
   const data = (await getLanding(params.slug)) || (await getProduct(params.slug))
   if (!data) return { title: 'Страница не найдена' }
   const p = data.product
+  // ⚠️ Значок вкладки и картинка превью — ЛОГОТИП БРЕНДА клиента: страница
+  // открыта на его площадке и под его брендом, узнаваться должен он. Без этого
+  // Telegram подставлял первую попавшуюся картинку со страницы, и в переписке
+  // у клиента показывался логотип ПЛЮСОНа (прод, 2026-08-18).
+  const brandLogo = (data as any).data?.organizer?.brand_logo_url
   return {
     title: p.title,
     description: p.subtitle || p.description?.slice(0, 200) || undefined,
+    icons: brandLogo ? { icon: brandLogo } : undefined,
     openGraph: {
       title: p.title,
       description: p.subtitle || p.description?.slice(0, 200) || undefined,
-      images: p.cover_url ? [p.cover_url] : undefined,
+      images: brandLogo ? [brandLogo] : (p.cover_url ? [p.cover_url] : undefined),
     },
   }
 }
