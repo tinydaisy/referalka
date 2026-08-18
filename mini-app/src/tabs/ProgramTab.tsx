@@ -461,9 +461,12 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
 
   // Дублируем массив только если контент шире экрана (для бесшовного auto-scroll).
   // Иначе показываем спикеров один раз без анимации.
+  // ⚠️ У КОЛЛАБЫ выступают сами организаторы — они в `coOrganizers`, а не в
+  // `speakers` (те заполняются только у конференций). Лента одна на оба случая.
+  const speakersForStrip = isConference ? speakers : coOrganizers
   const speakersLoop = useMemo(
-    () => (shouldLoop ? [...speakers, ...speakers] : speakers),
-    [speakers, shouldLoop],
+    () => (shouldLoop ? [...speakersForStrip, ...speakersForStrip] : speakersForStrip),
+    [speakersForStrip, shouldLoop],
   )
 
   const goToSpeaker = (speakerEventId?: number) => {
@@ -484,8 +487,12 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
 
   return (
     <div className="fade-in">
-      {/* Авто-скролл лента спикеров */}
-      {isConference && speakers.length > 0 && (
+      {/* Авто-скролл лента спикеров.
+          ⚠️ Показываем и у КОЛЛАБЫ: там выступают сами организаторы, и они
+          лежат в `coOrganizers`, а не в `speakers`. Раньше условие было
+          «только конференция», и в Mini App ленты не было вовсе — при том что
+          веб-страница её показывала (жалоба 2026-08-18). */}
+      {(isConference ? speakers : coOrganizers).length > 0 && (
         <div
           ref={speakersScrollRef}
           style={{
