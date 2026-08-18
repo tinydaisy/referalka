@@ -930,23 +930,28 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         except ValueError:
             logger.warning(f"MAX evsupport callback bad payload: {payload!r}")
             return
-        await _handle_max_support(chat_id, event_id, bot_token)
+        await _handle_max_support(chat_id, event_id, bot_token, client_id_override)
         return
 
     logger.info(f"MAX message_callback unknown payload={payload!r}")
 
 
-async def _handle_max_support(chat_id, event_id: int, bot_token: str | None) -> None:
+async def _handle_max_support(chat_id, event_id: int, bot_token: str | None,
+                              client_id: int | None = None) -> None:
     """Сообщение «Тех.поддержка» — каналы связи клиента-владельца события.
     Вызывается из callback `evsupport_<id>` и deeplink `/start evsupport_<id>`
     (кнопка «Тех.поддержка» в рассылках)."""
-    # ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (см. support_text_for_event).
+    # ⚠️ У КОЛЛАБЫ отвечает ТОТ организатор, в чьём боте человек сидит
+    # (`client_id` = client_id_override, владелец обрабатывающего бота), — иначе
+    # партнёр работает на доведение чужой аудитории. Системный бот клиента не
+    # знает — тогда отдаём контакты всех организаторов, как раньше.
     from app.services.support_message import support_text_for_event
     pool = await get_pool()
     if not pool:
         return
     async with pool.acquire() as conn:
-        text = await support_text_for_event(conn, event_id, html=False)
+        text = await support_text_for_event(
+            conn, event_id, html=False, client_id=client_id)
     await max_send_message(chat_id, text, token=bot_token)
 
 
@@ -1175,7 +1180,7 @@ async def _process_start(
             event_id = None
         if event_id:
             try:
-                await _handle_max_support(chat_id, event_id, bot_token)
+                await _handle_max_support(chat_id, event_id, bot_token, client_id_override)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"MAX evsupport deeplink failed (event={event_id}): {e}")
             return

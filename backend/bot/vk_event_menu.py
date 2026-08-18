@@ -458,10 +458,13 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
 async def handle_vk_event_support(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«🆘 Тех. поддержка» (VK) — единое сообщение с каналами связи клиента-
     владельца события (ВК / Телеграм / MAX)."""
-    # ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (см. support_text_for_event).
+    # ⚠️ У КОЛЛАБЫ отвечает ТОТ организатор, в чьём сообществе человек написал:
+    # `ctx.client_id` — владелец бота, обрабатывающего этот запрос. Контакты всех
+    # организаторов остаются запасным вариантом, если клиент не определился.
     from app.services.support_message import support_text_for_event
     await vk_send_message(
         vk_user_id,
-        await support_text_for_event(db, event_id, html=False),
+        await support_text_for_event(
+            db, event_id, html=False, client_id=getattr(ctx, "client_id", None)),
         token=ctx.token,
     )

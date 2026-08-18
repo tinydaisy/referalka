@@ -472,11 +472,18 @@ async def run_event_support(message: Message, event_id: int) -> None:
     """Единое сообщение с каналами связи клиента-владельца события (ВК / ТГ / MAX).
     Вызывается из callback-кнопки меню (`evsupport_<id>`) и из внешней ссылки
     `?start=evsupport_<id>` (кнопка «Тех.поддержка» в рассылках)."""
-    # ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (см. support_text_for_event).
+    # ⚠️ У КОЛЛАБЫ отвечает ТОТ организатор, в чьём боте человек сидит, — иначе
+    # партнёр работает на доведение чужой аудитории. Владельца бота резолвим по
+    # bot_id (channels → client_channels); не вышло — support_text_for_event сам
+    # отдаст контакты всех организаторов (запасной вариант).
     from app.services.support_message import support_text_for_event
+    from bot.handlers.start import _client_id_by_bot
     pool = await get_pool()
     async with pool.acquire() as db:
-        text = await support_text_for_event(db, event_id, html=True)
+        bot_client_id = await _client_id_by_bot(
+            db, message.bot.id if message.bot else None)
+        text = await support_text_for_event(
+            db, event_id, html=True, client_id=bot_client_id)
     await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 

@@ -161,16 +161,21 @@ def organizer_title(name: str | None, brand_name: str | None) -> str:
     return person or brand
 
 
-async def support_text_for_event(db, event_id: int, *, html: bool) -> str:
+async def support_text_for_event(db, event_id: int, *, html: bool,
+                                 client_id: int | None = None) -> str:
     """Готовое сообщение поддержки по событию — ОДНА точка для всех ботов.
 
-    ⚠️ У КОЛЛАБЫ — контакты ВСЕХ организаторов (блок на каждого), у обычного
-    события — контакты владельца, как было. Держать эту развилку в каждом боте
-    отдельно нельзя: разъедется, как уже было с выбором владельца.
+    ⚠️ У КОЛЛАБЫ отвечает ТОТ ОРГАНИЗАТОР, В ЧЬЁМ БОТЕ человек — его и отдаём
+    (`client_id`). Раньше слались контакты всех сразу, и получалось, что за
+    доведение чужой аудитории отвечает партнёр: человек пришёл по ссылке Нурии,
+    а писал в поддержку Лилии (решение владельца, 2026-08-18).
+
+    Контакты ВСЕХ организаторов остаются запасным вариантом — когда неизвестно,
+    чей бот (`client_id` не передан): лучше дать все контакты, чем ни одного.
     """
     is_collab = await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id)
     rows = await db.fetch(
-        """SELECT c.name, c.brand_name,
+        """SELECT c.id, c.name, c.brand_name,
                   c.work_tg_username, c.work_vk, c.work_max
              FROM events e
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
@@ -179,6 +184,12 @@ async def support_text_for_event(db, event_id: int, *, html: bool) -> str:
             ORDER BY (eo.role='owner') DESC, eo.id""",
         event_id,
     )
+    # Бот известен и его владелец — организатор события: отвечает он один.
+    if client_id:
+        mine = [r for r in rows if r["id"] == client_id]
+        if mine:
+            rows = mine
+            is_collab = False
     if is_collab and len(rows) > 1:
         items = [(organizer_title(r["name"], r["brand_name"]),
                   r["work_tg_username"], r["work_vk"], r["work_max"]) for r in rows]
