@@ -11,6 +11,10 @@
 export default function PreviewBar() {
   return (
     <div
+      /* ⚠️ Метка для печати в PDF: по ней плашка убирается из файла. Она
+         служебная — в PDF, который клиент отправляет своей аудитории, ей не
+         место. См. `_PRINT_CSS` в backend/app/services/landing_pdf.py. */
+      data-preview-bar
       className="sticky top-0 z-50 w-full px-4 py-2 text-center text-sm font-medium"
       style={{ background: '#FFCFA4', color: '#25455D' }}
     >
