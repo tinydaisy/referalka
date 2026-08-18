@@ -164,14 +164,16 @@ def _build_chat_links_message(
         text += f'➤ <a href="{_html.escape(url)}">{label}{main_mark}</a>\n\n'
         rows.append([InlineKeyboardButton(text=btn, url=url)])
 
-    work_tg = (work_tg or "").strip().lstrip("@")
-    if work_tg:
-        wt = _html.escape(work_tg)
-        text += (
-            "\n\n\n\n--- По всем техническим вопросам обращайтесь в "
-            f'<a href="https://telegram.me/{wt}">@{wt}</a>'
-        )
+    # ⚠️ Контакт поддержки В ТЕКСТ НЕ ВСТАВЛЯЕМ. У коллабы организаторов
+    # несколько, и подпись одним ником выглядела так, будто событие ведёт он
+    # один (в чатах события показывался контакт только одного — прод,
+    # 2026-08-18). Вместо этого — нейтральная строка и кнопка: по ней бот
+    # отдаёт контакты ВСЕХ организаторов (см. support_text_for_event).
+    text += "\n\n\n\n--- По всем техническим вопросам обращайтесь в тех.поддержку."
 
+    rows.append([InlineKeyboardButton(
+        text="🆘 Написать в тех.поддержку", callback_data=f"evsupport_{event_id}"
+    )])
     rows.append([InlineKeyboardButton(
         text="⬅️ Меню события", callback_data=f"evmenu_{event_id}"
     )])

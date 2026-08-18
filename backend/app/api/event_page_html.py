@@ -105,10 +105,24 @@ async def _load_collaborators(db, event_id):
                       LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
                       LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
                      WHERE eclm.ec_id = cse.id) AS gift_magnet_names,
-                   btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.achievements, c.photo_url,
+                   btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name,
+                   -- ⚠️ Организатор коллабы — это КЛИЕНТ: фото и регалии в его
+                   -- профиле кабинета, карточка коллаборатора пустая. Тот же
+                   -- фолбэк, что в Mini App (прод, 2026-08-18).
+                   COALESCE(NULLIF(c.title,''), cl_self.owner_positioning) AS title,
+                   COALESCE(NULLIF(c.photo_url,''), cl_self.owner_photo_url) AS photo_url,
+                   CASE WHEN COALESCE(array_length(c.achievements,1),0) > 0
+                        THEN c.achievements
+                        ELSE ARRAY(
+                          SELECT btrim(COALESCE(e->>'value','') || ' ' || COALESCE(e->>'label',''))
+                            FROM jsonb_array_elements(
+                                   COALESCE(cl_self.owner_achievements,'[]'::jsonb)) AS e
+                           WHERE COALESCE(e->>'value','') <> '' OR COALESCE(e->>'label','') <> '')
+                   END AS achievements,
                    c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
+              LEFT JOIN clients cl_self ON cl_self.self_collaborator_id = c.id
               LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
               LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
              WHERE cse.event_id = $1 AND cse.is_visible = TRUE
