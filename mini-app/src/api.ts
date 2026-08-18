@@ -13,13 +13,42 @@ function platformQuery(prefix: '&' | '?' = '&'): string {
   return p === 'telegram' || p === 'web' ? '' : `${prefix}platform=${p}`
 }
 
+/**
+ * Клиент, ЧЬЁ приложение открыто — из адреса `/c/{N}/tg/`.
+ *
+ * ⚠️ Добавляется ко ВСЕМ запросам заголовком. Иначе бэкенд не знает, в чьём
+ * Mini App сидит человек, и у КОЛЛАБЫ берёт «первого владельца» события — то
+ * есть чужого организатора. Так человек, зашедший из календаря в приложении
+ * Нурии, получал сообщения от бота Лилии (прод, 2026-08-18).
+ *
+ * Заголовком, а не параметром: путей входа много (ссылка, календарь, deeplink,
+ * переход между вкладками), и дописывать `cid` в каждый запрос — тот же
+ * поштучный ремонт, из-за которого баг всплывал снова и снова.
+ */
+function appClientId(): string {
+  try {
+    const m = window.location.pathname.match(/^\/c\/(\d+)\//)
+    if (m) return m[1]
+    return new URLSearchParams(window.location.search).get('cid') || ''
+  } catch {
+    return ''
+  }
+}
+
 export async function req(path: string, options?: RequestInit) {
+  const cid = appClientId()
   // cache: 'no-store' — Telegram WebView (особенно iOS) активно кеширует GET,
   // из-за чего reload-ы при переключении вкладок возвращали старые данные.
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     cache: 'no-store',
     ...options,
+    // ⚠️ Заголовки — ПОСЛЕ ...options: иначе свои заголовки вызывающего
+    // затирали бы X-Plusson-Client, и клиент приложения снова терялся.
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string> | undefined),
+      ...(cid ? { 'X-Plusson-Client': cid } : {}),
+    },
   })
   if (!res.ok) {
     const raw = await res.text()

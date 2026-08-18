@@ -69,6 +69,11 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=assistant_permission_guard_middl
 # Гейт по подтверждению email — блокирует только write по рассылкам.
 # Добавлен последним → исполняется первым (быстрый выход для не-broadcast путей).
 app.add_middleware(BaseHTTPMiddleware, dispatch=email_verification_guard_middleware)
+# Клиент открытого Mini App (`X-Plusson-Client`) → в контекст запроса.
+# Добавлен последним → исполняется ПЕРВЫМ: значение нужно всем обработчикам
+# ниже, чтобы у коллабы не уехать к «первому владельцу» события.
+from app.middleware.app_client import AppClientMiddleware  # noqa: E402
+app.add_middleware(AppClientMiddleware)
 
 # Подключаем роутеры
 app.include_router(auth.router,         prefix="/api/v1")

@@ -124,6 +124,18 @@ async def resolve_event_client(
                 return by_ref
 
         # 2) Через чей бот / Mini App зашёл.
+        # ⚠️ Если вызывающий не передал явно — берём клиента ОТКРЫТОГО Mini App
+        # из заголовка запроса (middleware/app_client.py). Без этого запасного
+        # пути человек, зашедший в приложении одного организатора НЕ по ссылке
+        # (например, из календаря), уезжал к «первому владельцу»: путей входа
+        # много, и передавать клиента в каждом вызове поштучно — то же самое
+        # латание, из-за которого баг всплывал снова и снова.
+        if source_client_id is None:
+            try:
+                from app.middleware.app_client import get_app_client_id
+                source_client_id = get_app_client_id()
+            except Exception:
+                source_client_id = None
         if await is_event_owner(db, event_id, source_client_id):
             return source_client_id
 
