@@ -1,7 +1,9 @@
 'use client'
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Edit2, Send } from 'lucide-react'
+import { api } from '@/lib/api'
 
 export default function BroadcastsLayout({ children }: { children: React.ReactNode }) {
   const { id } = useParams()
@@ -13,6 +15,17 @@ export default function BroadcastsLayout({ children }: { children: React.ReactNo
   // конференций (и сайдбар подсвечивал «Конференции»).
   const section = pathname.match(/^\/dashboard\/(conferences|tournaments|events|contests)\//)?.[1] || 'conferences'
   const base = `/dashboard/${section}/${id}`
+
+  // ⚠️ У КОЛЛАБЫ раздел называется «Моя очередь рассылок»: организаторы
+  // равноправны, каждый ведёт СВОЮ очередь по своей базе и чужие не видит.
+  // Общее слово «Рассылки» читалось как одна очередь на всех.
+  const [isCollab, setIsCollab] = useState(false)
+  useEffect(() => {
+    if (!id) return
+    api.events.get(Number(id))
+      .then((e: any) => setIsCollab(!!(e?.event?.is_collab ?? e?.is_collab)))
+      .catch(() => { /* не смогли — оставляем общий заголовок */ })
+  }, [id])
 
   const navItems = [
     { href: `${base}/broadcasts/templates`, label: 'Шаблоны', icon: Edit2 },
@@ -28,8 +41,14 @@ export default function BroadcastsLayout({ children }: { children: React.ReactNo
           <ArrowLeft size={18} />
         </Link>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Рассылки</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Шаблоны сообщений и очередь автоматических рассылок</p>
+          <h2 className="text-xl font-bold text-gray-900">
+            {isCollab ? 'Моя очередь рассылок' : 'Рассылки'}
+          </h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {isCollab
+              ? 'Каждый организатор настраивает свою очередь — шаблоны при этом общие для всех'
+              : 'Шаблоны сообщений и очередь автоматических рассылок'}
+          </p>
         </div>
       </div>
 
