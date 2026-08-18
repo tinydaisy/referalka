@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink } from 'lucide-react'
 import PreviewLinkButton from '@/components/PreviewLinkButton'
+import LandingPdfButton from '@/components/LandingPdfButton'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
@@ -222,11 +223,20 @@ export default function ProductLandingTab({ productId, product, readOnly = false
         {/* ⚠️ Пока лендинг не опубликован, по обычной ссылке открывается витрина,
             а собранную страницу посмотреть было НЕЧЕМ — настраивать её
             приходилось вслепую. Кнопка открывает её по временной ссылке. */}
-        {!page.is_published && (
-          <div className="mt-3">
+        {/* ⚠️ Кнопка PDF — и у черновика, и у опубликованной: файл нужен тем,
+            у кого ссылка не открывается (сеть режет домен, встроенный браузер
+            мессенджера падает, нет интернета). Собирается в мобильной вёрстке. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {!page.is_published && (
             <PreviewLinkButton url={url} label="Посмотреть, как получилось" />
-          </div>
-        )}
+          )}
+          <LandingPdfButton
+            onDownload={() => api.productLanding.pdf(
+              productId, page.id, `${product?.title || 'Лендинг'}.pdf`,
+            )}
+            className="px-3 py-1.5 text-xs"
+          />
+        </div>
         {!readOnly && (
           <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
             <input

@@ -31,6 +31,9 @@ from app.auth import get_current_client
 from app.services.features import client_has_feature
 from app.services.assistant_access import assistant_is_restricted
 from app.api.event_landing import PagePatch, BlockPatch
+from app.services.client_domains import client_public_link
+from app.services.preview_token import make_preview_token
+from app.services.landing_pdf_response import pdf_response
 
 logger = logging.getLogger(__name__)
 
@@ -396,3 +399,37 @@ async def delete_block(
         block_id, product_id,
     )
     return {"ok": True}
+
+
+# ── PDF страницы ──────────────────────────────────────────────────────────
+
+@router.get("/pages/{page_id}/pdf", summary="Лендинг продукта файлом PDF")
+async def product_landing_pdf(
+    product_id: int, page_id: int,
+    user: dict = Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Отдать страницу продукта одним PDF — «как на телефоне».
+
+    То же, что у события: у части людей ссылка не открывается, и файл —
+    единственный способ показать им страницу.
+
+    ⚠️ У продукта `status` публичную страницу НЕ закрывает (внешнего каталога
+    нет, ссылку рассылают напрямую), а вот ЛЕНДИНГ публикуется отдельно. Токен
+    предпросмотра поэтому цепляем по `is_published` страницы, а не по статусу
+    продукта — иначе PDF черновика приходил бы с «Страница не найдена».
+    """
+    client_id, product = await _check(db, user, product_id)
+    await _assert_page(db, page_id, product_id)
+
+    page = await db.fetchrow(
+        "SELECT kind, is_published FROM event_landing_pages WHERE id = $1",
+        page_id,
+    )
+
+    path = f"/pr/{product['slug']}" + ("/thanks" if page["kind"] == "post_pay" else "")
+    url = await client_public_link(db, client_id, path)
+    if not page["is_published"]:
+        url += f"?preview={make_preview_token(client_id)}"
+
+    return await pdf_response(url, filename_base=product["title"] or product["slug"])

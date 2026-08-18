@@ -131,6 +131,47 @@ function buildContactsParams(
   return params
 }
 
+/**
+ * Скачать PDF лендинга (мобильная версия страницы).
+ *
+ * ⚠️ Идём через fetch с токеном, а НЕ ссылкой <a href>: эндпоинт требует
+ * авторизации, и обычная ссылка вернула бы 401 (та же причина, что у выгрузки
+ * контактов в CSV).
+ *
+ * ⚠️ Имя файла берём из заголовка ответа: сервер отдаёт его по RFC 5987
+ * (`filename*=UTF-8''…`), чтобы русское название события сохранилось как есть.
+ */
+async function downloadPdf(path: string, fallbackName: string) {
+  const token = getToken()
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Не удалось собрать PDF')
+  }
+
+  // Имя из Content-Disposition: сначала filename* (там кириллица), потом обычное.
+  let name = fallbackName
+  const cd = res.headers.get('Content-Disposition') || ''
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+  if (star) {
+    try { name = decodeURIComponent(star[1]) } catch { /* оставим запасное */ }
+  }
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  // Освобождаем память не сразу: Safari отменяет скачивание, если ссылку
+  // отозвать в тот же тик.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
 export const api = {
   auth: {
     register: (data: any) =>
@@ -612,6 +653,9 @@ export const api = {
   // ей передаётся нужная api-группа. Разные имена = вторая копия вкладки.
   productLanding: {
     get: (productId: number) => request(`/api/v1/products/${productId}/landing`),
+    /** PDF страницы — мобильная версия одним файлом. */
+    pdf: (productId: number, pageId: number, name = 'landing.pdf') =>
+      downloadPdf(`/api/v1/products/${productId}/landing/pages/${pageId}/pdf`, name),
     patchPage: (productId: number, pageId: number, data: any) =>
       request(`/api/v1/products/${productId}/landing/pages/${pageId}`, {
         method: 'PATCH', body: JSON.stringify(data),
@@ -634,6 +678,9 @@ export const api = {
 
   eventLanding: {
     get: (eventId: number) => request(`/api/v1/events/${eventId}/landing`),
+    /** PDF страницы — мобильная версия одним файлом (для тех, у кого не открывается ссылка). */
+    pdf: (eventId: number, pageId: number, name = 'landing.pdf') =>
+      downloadPdf(`/api/v1/events/${eventId}/landing/pages/${pageId}/pdf`, name),
     patchPage: (eventId: number, pageId: number, data: any) =>
       request(`/api/v1/events/${eventId}/landing/pages/${pageId}`, {
         method: 'PATCH', body: JSON.stringify(data),

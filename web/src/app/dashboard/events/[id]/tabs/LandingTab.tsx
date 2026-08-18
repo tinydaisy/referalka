@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
 import PreviewLinkButton from '@/components/PreviewLinkButton'
+import LandingPdfButton from '@/components/LandingPdfButton'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
@@ -394,6 +395,14 @@ export default function LandingTab({ eventId, event }: Props) {
               className="px-4 py-2 text-sm font-medium border-gray-300"
             />
           )}
+          {/* ⚠️ Файл для тех, у кого ссылка не открывается: корпоративная сеть
+              режет домен, встроенный браузер мессенджера падает, нет интернета.
+              Собирается в мобильной вёрстке — её и увидит человек в PDF. */}
+          <LandingPdfButton
+            onDownload={() => api.eventLanding.pdf(
+              eventId, page.id, `${meta?.title || 'Лендинг'}.pdf`,
+            )}
+          />
         </div>
       </div>
 

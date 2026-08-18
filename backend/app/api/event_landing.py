@@ -27,6 +27,9 @@ from app.database import get_db
 from app.auth import get_current_client
 from app.services.features import client_has_feature
 from app.services.landing_fonts import FONTS, normalize_font
+from app.services.client_domains import client_public_link
+from app.services.preview_token import make_preview_token
+from app.services.landing_pdf_response import pdf_response
 
 router = APIRouter(prefix="/events/{event_id}/landing", tags=["Конструктор лендинга"])
 
@@ -1130,3 +1133,49 @@ async def landing_copy_from(
 
     return {"ok": True, "pages": copied_pages, "blocks": copied_blocks,
             "tariffs": copied_tariffs}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF страницы
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/pages/{page_id}/pdf", summary="Лендинг файлом PDF (мобильная версия)")
+async def landing_pdf(
+    event_id: int,
+    page_id: int,
+    user=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Отдать лендинг одним PDF — «как на телефоне».
+
+    ⚠️ Зачем вообще: у части аудитории ссылка не открывается (корпоративная
+    сеть режет домен, встроенный браузер мессенджера падает, нет интернета).
+    Таким людям организатор отправляет файл — иначе показать страницу нечем.
+
+    ⚠️ Печатаем ПО ПУБЛИЧНОМУ АДРЕСУ на домене клиента, а не по внутреннему:
+    так в файл попадает ровно то, что видит посетитель, вместе с темой и
+    живыми данными. Домен берём хелпером — литералов `pluson.ru` в коде нет.
+
+    ⚠️ Черновик открываем себе сами — подписанным токеном предпросмотра
+    (`?preview=`). Без него неопубликованная страница отдала бы 404, а PDF
+    нужен как раз на согласовании, до публикации.
+    """
+    client_id = int(user["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_feature(db, client_id)
+
+    page = await db.fetchrow(
+        """SELECT p.id, p.kind, p.is_published, e.slug, e.title
+             FROM event_landing_pages p
+             JOIN events e ON e.id = p.event_id
+            WHERE p.id = $1 AND p.event_id = $2""",
+        page_id, event_id,
+    )
+    if not page:
+        raise HTTPException(status_code=404, detail="Страница лендинга не найдена")
+
+    path = f"/e/{page['slug']}" + ("/thanks" if page["kind"] == "post_pay" else "")
+    url = await client_public_link(db, client_id, path)
+    if not page["is_published"]:
+        url += f"?preview={make_preview_token(client_id)}"
+
+    return await pdf_response(url, filename_base=page["title"] or page["slug"])
