@@ -127,6 +127,9 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
   const [loading, setLoading] = useState(true)
   const [highlightId, setHighlightId] = useState<number | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Развёрнутые регалии по спикеру: в карточке видно первые три, остальное
+  // прячется под «Подробнее» (у части людей их несколько десятков).
+  const [openAch, setOpenAch] = useState<Record<number, boolean>>({})
   // Слот спикера в программе: ec_id (event_collaborators.id) → «дата время».
   const [slotByEc, setSlotByEc] = useState<Record<number, string>>({})
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
@@ -320,17 +323,40 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                 </div>
               </div>
 
-              {/* Регалии — СВЕРХУ (как в веб-версии карточки спикера) */}
-              {ach.length > 0 && (
-                <ul style={{ margin: '0 0 8px', padding: 0, listStyle: 'none' }}>
-                  {ach.map((a, i) => (
-                    <li key={i} style={{ fontSize: 12, color: '#3a4a5a', lineHeight: 1.4, paddingLeft: 14, position: 'relative', marginBottom: 3 }}>
-                      <span style={{ position: 'absolute', left: 0, top: -1, color: DARK, fontWeight: 700, fontSize: 14 }}>•</span>
-                      {a}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {/* Регалии — СВЕРХУ (как в веб-версии карточки спикера).
+                  ⚠️ Показываем ПЕРВЫЕ ТРИ, остальное — под «Подробнее».
+                  У части людей в карточке лежит развёрнутый рассказ о себе на
+                  несколько десятков строк (переехал из профиля основателя): без
+                  сворачивания одна карточка занимала весь экран, и соседние
+                  спикеры становились ненаходимы. */}
+              {ach.length > 0 && (() => {
+                const opened = !!openAch[sp.id]
+                const shown = opened ? ach : ach.slice(0, 3)
+                return (
+                  <div style={{ marginBottom: 8 }}>
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                      {shown.map((a, i) => (
+                        <li key={i} style={{ fontSize: 12, color: '#3a4a5a', lineHeight: 1.4, paddingLeft: 14, position: 'relative', marginBottom: 3 }}>
+                          <span style={{ position: 'absolute', left: 0, top: -1, color: DARK, fontWeight: 700, fontSize: 14 }}>•</span>
+                          {a}
+                        </li>
+                      ))}
+                    </ul>
+                    {ach.length > 3 && (
+                      <button
+                        onClick={() => setOpenAch(s => ({ ...s, [sp.id]: !opened }))}
+                        style={{
+                          background: 'none', border: 'none', padding: '4px 0 0 14px',
+                          color: DARK, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 4,
+                        }}>
+                        {opened ? 'Свернуть' : 'Подробнее'}
+                        <span style={{ fontSize: 10, transform: opened ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>▼</span>
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Тема + слот + подарок — ПОД регалиями (как в веб-версии) */}
               {(topicsList.length > 0 || slotByEc[sp.id] || sp.gift_after_speech_title || sp.gift_lm_name || sp.gift_lp_name) && (
