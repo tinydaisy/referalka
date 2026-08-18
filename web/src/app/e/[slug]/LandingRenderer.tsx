@@ -842,8 +842,12 @@ function Section({
               {subtitle}
             </div>
             <div className={block.layout === 'right' ? 'md:order-1' : ''}>
-              {body && <p className="mb-6 whitespace-pre-wrap opacity-90"
-                          style={textSizeStyle}>{body}</p>}
+              {/* ⚠️ Через SafeHtml, а не голым текстом: клиенты вставляют
+                  описания из заметок и мессенджеров вместе с <b>/<br>, и
+                  сырые теги уезжали читателю прямо в текст. Санитайз чистит
+                  чужие скрипты, переносы строк сохраняются. */}
+              {body && <SafeHtml html={body} className="mb-6 opacity-90"
+                                 style={textSizeStyle} />}
               <div style={textSizeStyle}>{inner}</div>
               {ownButton}
             </div>
@@ -856,8 +860,8 @@ function Section({
                 Раньше она двигала только заголовок: клиент ставил «по центру»,
                 а абзац под ним оставался прижатым влево — выглядело как
                 недоделка. */}
-            {body && <p className="mt-4 whitespace-pre-wrap opacity-90"
-                        style={{ ...textSizeStyle, textAlign: align as any }}>{body}</p>}
+            {body && <SafeHtml html={body} className="mt-4 opacity-90"
+                                style={{ ...textSizeStyle, textAlign: align as any }} />}
             {/* Отступ нужен, только когда выше реально что-то есть: у голого
                 элемента-кнопки заголовка и текста нет, и mt-8 давал дыру. */}
             <div className={heading || subtitle || body ? 'mt-8' : ''}
@@ -954,10 +958,11 @@ function BlockBody({
           {isThanks ? (
             <>
               {page.post_pay_text && (
-                <p className="mx-auto mt-5 max-w-2xl whitespace-pre-wrap opacity-90"
-                   style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}>
-                  {page.post_pay_text}
-                </p>
+                <SafeHtml
+                  html={page.post_pay_text}
+                  className="mx-auto mt-5 max-w-2xl opacity-90"
+                  style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}
+                />
               )}
               {/* На странице после оплаты выбор мессенджера — целевое
                   действие, поэтому кнопки полноценные. На телефоне держим их
@@ -981,10 +986,11 @@ function BlockBody({
               {(block.subtitle || event.description) && (
                 // ⚠️ mx-auto только при центре: при сдвиге влево/вправо он
                 // вернул бы абзац на середину и выравнивание не сработало бы.
-                <p className={`mt-5 max-w-3xl opacity-90 ${hAlign === 'center' ? 'mx-auto' : ''}`}
-                   style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}>
-                  {block.subtitle || event.description}
-                </p>
+                <SafeHtml
+                  html={block.subtitle || event.description}
+                  className={`mt-5 max-w-3xl opacity-90 ${hAlign === 'center' ? 'mx-auto' : ''}`}
+                  style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}
+                />
               )}
               {block.date_position === 'below' && (
                 <HeroPills
@@ -1591,9 +1597,22 @@ function BlockBody({
                 {/* Кнопка ведёт на НАШУ форму заказа: она опознаёт человека
                     по email/телефону, создаёт заказ и уводит на оплату.
                     Бесплатный тариф форма регистрирует сразу. */}
+                {/* Кнопка ведёт на НАШУ форму заказа. Ширина и положение —
+                    настройки БЛОКА (одни на все карточки ряда: разнобой в
+                    ряду выглядел бы как сбой вёрстки).
+                    ⚠️ Прижимаем через align-self, а не text-align: карточка —
+                    это flex-колонка, и text-align сдвинул бы только надпись
+                    внутри кнопки, а сама кнопка осталась бы во всю ширину. */}
                 <a
                   href={withTrack(orderHref(x.id))}
-                  className="mt-6 block px-5 py-3.5 text-center font-bold uppercase"
+                  className={`mt-6 px-5 py-3.5 text-center font-bold uppercase ${
+                    block.btn_width === 'auto'
+                      ? `inline-block ${
+                          block.btn_align === 'left' ? 'self-start'
+                          : block.btn_align === 'right' ? 'self-end'
+                          : 'self-center'}`
+                      : 'block'
+                  }`}
                   style={btnStyle}
                 >
                   {Number(x.price) > 0 ? 'Выбрать' : 'Участвовать'}

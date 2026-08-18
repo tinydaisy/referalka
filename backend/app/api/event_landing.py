@@ -103,6 +103,24 @@ PAGE_PATCH_FIELDS: tuple = (
         "post_pay_title", "post_pay_text",
     )
 
+def normalize_block_button(field: str, val):
+    """Значения настроек кнопки блока — общая проверка для события и продукта.
+
+    ⚠️ Сверяем в коде, а не CHECK-ом в БД: новый вариант раскладки тогда
+    добавляется кодом, без миграции (как у `title_align` и `card_style`).
+    Мусор приводим к дефолту, а не роняем запрос: настройка оформления не
+    повод отдать клиенту ошибку.
+
+    ⚠️ Зовётся из ОБЕИХ точек записи блока — у продукта своя ветка UPDATE, и
+    без этого вызова туда прошло бы любое значение.
+    """
+    if field == "btn_width" and val is not None:
+        return val if val in ("full", "auto") else "full"
+    if field == "btn_align" and val is not None:
+        return val if val in ("left", "center", "right") else "center"
+    return val
+
+
 BLOCK_PATCH_FIELDS: tuple = (
         "admin_name", "title", "subtitle", "body", "button_label", "button_url", "is_active",
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
@@ -113,6 +131,7 @@ BLOCK_PATCH_FIELDS: tuple = (
         "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
         "overline", "overline_size", "hero_align",
         "featured_glow",
+        "btn_width", "btn_align",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -262,6 +281,9 @@ class BlockPatch(BaseModel):
     overline_size: Optional[int] = None
     hero_align: Optional[str] = None
     featured_glow: Optional[int] = None
+    # Кнопка в карточке тарифа: во всю ширину или по тексту, и куда прижата.
+    btn_width: Optional[str] = None
+    btn_align: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
@@ -711,6 +733,7 @@ async def patch_block(
             val = max(10, min(80, int(val)))
         if field == "featured_glow" and val is not None:
             val = max(0, min(90, int(val)))
+        val = normalize_block_button(field, val)
         if field == "icon_size" and val is not None:
             val = max(24, min(200, int(val)))
         if field in ("card_img_radius_x", "card_img_radius_y") and val is not None:

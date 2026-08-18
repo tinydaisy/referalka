@@ -334,13 +334,15 @@ async def update_block(
     if not ok:
         raise HTTPException(status_code=404, detail="Секция не найдена")
 
-    from app.api.event_landing import BLOCK_PATCH_FIELDS
+    from app.api.event_landing import BLOCK_PATCH_FIELDS, normalize_block_button
 
     fs = data.model_fields_set
     sets, vals = [], []
     for field in BLOCK_PATCH_FIELDS:
         if field in fs:
-            vals.append(getattr(data, field))
+            # ⚠️ Та же проверка значений, что у события: своя ветка UPDATE без
+            # неё приняла бы любую строку в настройки оформления.
+            vals.append(normalize_block_button(field, getattr(data, field)))
             sets.append(f"{field} = ${len(vals)}")
 
     # ⚠️ `items` НЕТ в BLOCK_PATCH_FIELDS (там только скалярные настройки) —

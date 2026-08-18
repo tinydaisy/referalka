@@ -415,6 +415,55 @@ export default function BlockCard({
                 </Field>
               )}
 
+              {/* Кнопка в карточке тарифа: ширина и положение.
+                  ⚠️ Настройка на БЛОКЕ, а не на каждом тарифе: кнопки в ряду
+                  карточек должны выглядеть одинаково, иначе ряд разъезжается. */}
+              {block.kind === 'tariffs' && (
+                <Field label="Кнопка в карточке тарифа">
+                  <div className="flex gap-2">
+                    {([
+                      ['full', 'Во всю ширину'], ['auto', 'По размеру текста'],
+                    ] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => onPatch({ btn_width: val })}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                          (block.btn_width || 'full') === val
+                            ? 'border-brand bg-brand/5 font-medium text-brand'
+                            : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Положение имеет смысл только у кнопки по размеру текста:
+                      растянутую во всю ширину двигать некуда. */}
+                  {block.btn_width === 'auto' && (
+                    <div className="mt-2">
+                      <div className="mb-1 text-sm text-gray-700">Где стоит кнопка</div>
+                      <div className="flex gap-2">
+                        {([
+                          ['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа'],
+                        ] as const).map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => onPatch({ btn_align: val })}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                              (block.btn_align || 'center') === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </Field>
+              )}
+
               {/* Оферта подвала — из общей базы оферт. */}
               {block.kind === 'footer' && (
                 <Field label="Оферта в подвале">
