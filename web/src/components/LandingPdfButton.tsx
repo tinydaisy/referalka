@@ -8,16 +8,45 @@
  * может не быть. Таким людям организатор отправляет файл: показать страницу
  * больше нечем.
  *
- * ⚠️ Сборка занимает секунды (браузер на сервере открывает страницу, ждёт
- * шрифты и картинки, печатает). Поэтому кнопка обязана показывать процесс —
- * без этого человек жмёт её повторно, считая, что «не работает», и запускает
- * вторую печать поверх первой.
+ * ⚠️ ПОЧЕМУ ЗДЕСЬ ЭТАПЫ, А НЕ ПРОЦЕНТЫ. Настоящего прогресса у печати нет:
+ * браузер на сервере печатает страницу одним неделимым действием и наружу
+ * ничего не сообщает — «47 %» пришлось бы выдумать, а выдуманный процент,
+ * который замирает, врёт хуже, чем его отсутствие. Поэтому показываем то, что
+ * знаем точно: какой этап идёт (по времени от старта) и сколько секунд прошло.
+ * Живой счётчик секунд — главное: он доказывает, что процесс не умер.
+ *
+ * ⚠️ Клиент спрашивал: «а если перезагрузить страницу — оно прекратится?»
+ * Формально сборка на сервере доживёт до конца, но файл до человека НЕ дойдёт:
+ * соединение оборвётся, и результат уйдёт в никуда. Поэтому под кнопкой прямо
+ * написано «не закрывайте страницу» — это дешевле, чем объяснять потом.
+ *
+ * ⚠️ Страховка по времени (`HARD_TIMEOUT_SEC`) обязательна: если сеть отвалится
+ * молча, `fetch` может висеть бесконечно, и кнопка навсегда останется в
+ * «Собираем…». Лучше честно сказать «не дождались» и вернуть кнопку в работу.
  *
  * ⚠️ Работает и у ЧЕРНОВИКА: бэкенд сам подставляет токен предпросмотра. PDF
  * нужен как раз на согласовании, до публикации.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FileDown, Loader2 } from 'lucide-react'
+
+/** Через сколько секунд сдаёмся и отпускаем кнопку. */
+const HARD_TIMEOUT_SEC = 180
+
+/**
+ * Этапы по времени от старта. Цифры — с замеров на проде: лёгкий лендинг
+ * собирается ~8 с, тяжёлый (12 МБ картинок) ~13 с.
+ *
+ * ⚠️ Последний этап без верхней границы и с честной формулировкой: если
+ * страница окажется тяжелее обычного, надпись не должна выглядеть как зависание.
+ */
+const STAGES: { until: number; text: string }[] = [
+  { until: 4,   text: 'Открываем страницу…' },
+  { until: 9,   text: 'Загружаем картинки и шрифты…' },
+  { until: 16,  text: 'Печатаем в PDF…' },
+  { until: 40,  text: 'Страница большая, ещё печатаем…' },
+  { until: 1e9, text: 'Почти готово, дособираем файл…' },
+]
 
 export default function LandingPdfButton({
   onDownload,
@@ -30,29 +59,77 @@ export default function LandingPdfButton({
   title?: string
 }) {
   const [busy, setBusy] = useState(false)
+  const [sec, setSec] = useState(0)
+  const timer = useRef<any>(null)
+
+  // Счётчик секунд идёт, пока собираем. Он же — доказательство, что не зависло.
+  useEffect(() => {
+    if (!busy) return
+    timer.current = setInterval(() => setSec(s => s + 1), 1000)
+    return () => clearInterval(timer.current)
+  }, [busy])
+
+  // ⚠️ Пока идёт сборка — предупреждаем при попытке закрыть или обновить
+  // вкладку. Файл живёт в этом соединении: обновил страницу — сборка на
+  // сервере досчитается впустую, а человек решит, что «не работает».
+  useEffect(() => {
+    if (!busy) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [busy])
+
+  const stage = STAGES.find(s => sec < s.until)?.text || STAGES[STAGES.length - 1].text
 
   const click = async () => {
     if (busy) return                       // защита от второго запуска печати
     setBusy(true)
+    setSec(0)
     try {
-      await onDownload()
+      // ⚠️ Гонка с таймером: без неё молча оборвавшаяся сеть оставила бы
+      // кнопку в «Собираем…» навсегда.
+      await Promise.race([
+        onDownload(),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(
+              'Не дождались файла за 3 минуты. Возможно, страница очень тяжёлая '
+              + 'или пропала связь. Попробуйте ещё раз.',
+            )),
+            HARD_TIMEOUT_SEC * 1000,
+          ),
+        ),
+      ])
     } catch (e: any) {
       alert(e?.message || 'Не получилось собрать PDF. Попробуйте ещё раз.')
     } finally {
       setBusy(false)
+      setSec(0)
     }
   }
 
   return (
-    <button
-      onClick={click}
-      disabled={busy}
-      title={title}
-      className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 ${className}`}
-    >
-      {busy
-        ? <><Loader2 className="h-4 w-4 animate-spin" /> Собираем PDF…</>
-        : <><FileDown className="h-4 w-4" /> Скачать PDF</>}
-    </button>
+    // ⚠️ `relative` + абсолютная подпись: кнопка стоит в ряду с другими
+    // (`flex items-center`), и подпись в обычном потоке сдвинула бы её вверх
+    // относительно соседних кнопок, разъезжая весь ряд.
+    <div className="relative inline-flex flex-col items-start">
+      <button
+        onClick={click}
+        disabled={busy}
+        title={title}
+        className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 ${className}`}
+      >
+        {busy
+          ? <><Loader2 className="h-4 w-4 animate-spin" /> {stage} {sec} с</>
+          : <><FileDown className="h-4 w-4" /> Скачать PDF</>}
+      </button>
+      {busy && (
+        // ⚠️ Про перезагрузку пишем сразу: человек, не понимая, жив ли процесс,
+        // первым делом обновляет страницу — и теряет уже готовый файл.
+        <span className="absolute left-0 top-full mt-1 w-max max-w-[22rem] text-xs text-gray-500">
+          Обычно 10–20 секунд. Не закрывайте и не обновляйте страницу — файл придёт сюда.
+        </span>
+      )}
+    </div>
   )
 }

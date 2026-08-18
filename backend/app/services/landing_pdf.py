@@ -67,6 +67,11 @@ _LOAD_TIMEOUT_SEC = 45
 # Сколько ждём саму печать: на длинном лендинге Chrome собирает файл не мгновенно.
 _PRINT_TIMEOUT_SEC = 120
 
+# ⚠️ Сколько ждём дозагрузку картинок. Не бесконечно: одна битая ссылка (файл
+# удалили из хранилища) не должна держать печать — лучше отдать файл без одной
+# картинки, чем не отдать вовсе.
+_IMAGES_TIMEOUT_SEC = 20
+
 # ⚠️ Потолок высоты листа. Chrome не печатает бумагу выше ~200 дюймов: попроси
 # больше — вернётся ошибка, и клиент не получит ничего. Упёрлись в потолок →
 # печатаем несколькими листами (см. `_pdf_params`), это лучше пустоты.
@@ -327,8 +332,6 @@ async def _wait_page_ready(cdp: _Cdp, sid: str) -> None:
             pass
         await asyncio.sleep(0.5)
 
-    # Дать время «дорисоваться»: ленивые картинки и последние перестановки блоков.
-    await asyncio.sleep(2.5)
     # Прокрутка до конца и обратно — будит отложенную загрузку картинок
     # (`loading="lazy"`): без неё нижние секции печатались пустыми.
     try:
@@ -347,7 +350,30 @@ async def _wait_page_ready(cdp: _Cdp, sid: str) -> None:
         }, sid, timeout=40)
     except Exception:                                         # noqa: BLE001
         pass
-    await asyncio.sleep(1.0)
+
+    # ⚠️ Ждём КАРТИНКИ ПО ФАКТУ, а не фиксированной паузой. Раньше здесь стояли
+    # `sleep(2.5)` + `sleep(1.0)` «на всякий случай»: на лёгкой странице это
+    # 3,5 секунды впустую, а на тяжёлой всё равно не гарантия — картинки могли
+    # не успеть, и секция печаталась пустой. Теперь спрашиваем сам браузер,
+    # сколько картинок дозагрузилось, и выходим сразу, как только все готовы.
+    img_deadline = asyncio.get_event_loop().time() + _IMAGES_TIMEOUT_SEC
+    while asyncio.get_event_loop().time() < img_deadline:
+        try:
+            res = await cdp.call("Runtime.evaluate", {
+                "expression": (
+                    "(() => { const i = [...document.images];"
+                    " return i.length === 0 || i.every(x => x.complete); })()"
+                ),
+                "returnByValue": True,
+            }, sid, timeout=10)
+            if res.get("result", {}).get("value") is True:
+                break
+        except Exception:                                     # noqa: BLE001
+            pass
+        await asyncio.sleep(0.3)
+
+    # Короткая пауза на последнюю отрисовку — уже после того, как всё загружено.
+    await asyncio.sleep(0.4)
 
 
 async def _page_height(cdp: _Cdp, sid: str) -> int:

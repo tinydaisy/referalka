@@ -1115,6 +1115,10 @@ async def list_schedules(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
+    # У коллаб-события организаторов несколько и очередь у каждого своя — от этого
+    # зависит фильтр видимости ниже.
+    is_collab = bool(await db.fetchval("SELECT is_collab FROM events WHERE id=$1", event_id))
+
     rows = await db.fetch(
         """
         SELECT bs.id, bs.type, bs.fire_at, bs.status,
@@ -1182,13 +1186,21 @@ async def list_schedules(
         LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type IN ('speaker_intro', 'expert_day', 'custom')
         LEFT JOIN collaborators ci ON ci.id = cse_intro.speaker_id
         WHERE bs.event_id = $1
-          -- Коллаб-событие: каждый организатор видит рассылки ПО СВОЕЙ базе —
-          -- свои (client_id=я), общие авто-сгенерированные (client_id IS NULL),
-          -- и адресованные мне копии на подтверждение. Чужие копии — скрыты.
-          AND (bs.client_id IS NULL OR bs.client_id = $2)
+          -- Кто какие рассылки видит.
+          -- КОЛЛАБА ($3=TRUE): строго свои (client_id=я). Очередь у каждого
+          -- организатора своя — он рассылает по своей базе через своего бота, и
+          -- чужие рассылки ему не нужны и не управляемы. Записи с client_id IS NULL
+          -- (авто-сгенерированные до этой правки) тоже скрываем: непонятно, чьи они,
+          -- а движок отправки увёл бы их на «первого владельца» — то есть по чужой базе.
+          -- ОБЫЧНОЕ событие: владелец один, NULL — норма (так создаёт генерация),
+          -- поведение оставлено прежним.
+          AND (
+            CASE WHEN $3 THEN bs.client_id = $2
+                 ELSE (bs.client_id IS NULL OR bs.client_id = $2) END
+          )
         ORDER BY bs.fire_at NULLS LAST
         """,
-        event_id, client_id
+        event_id, client_id, is_collab
     )
 
     # Часовой пояс клиента для отображения
@@ -1606,7 +1618,7 @@ async def generate_schedules(
                 # expert_day может быть несколько шаблонов на событие — дедупим ещё
                 # и по template_id, чтобы разные «Экспертные дни» не схлопывались.
                 if per_template_dedup:
-                    exists = await db.fetchval(
+                    exists = await _dup_exists(
                         """SELECT 1 FROM broadcast_schedules
                            WHERE event_id=$1 AND type=$2 AND session_id=$3 AND template_id=$4""",
                         event_id, b_type, sp["id"], tmpl["id"]
@@ -1636,12 +1648,12 @@ async def generate_schedules(
         else:
             # Нет дней или коллабов — создаём одну запись без времени.
             if per_template_dedup:
-                exists = await db.fetchval(
+                exists = await _dup_exists(
                     "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type=$2 AND session_id IS NULL AND template_id=$3",
                     event_id, b_type, tmpl["id"]
                 )
             else:
-                exists = await db.fetchval(
+                exists = await _dup_exists(
                     "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type=$2 AND session_id IS NULL",
                     event_id, b_type
                 )
@@ -1650,11 +1662,12 @@ async def generate_schedules(
                     """
                     INSERT INTO broadcast_schedules
                       (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
-                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                    VALUES ($1, NULL, $2, $3, NULL, 'draft', $4, $5, $6, $7, $8, $9)
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+                    VALUES ($1, NULL, $2, $3, NULL, 'draft', $4, $5, $6, $7, $8, $9, $10)
                     """,
                     event_id, tmpl["id"], b_type, tmpl["audience_include"], tmpl["audience_exclude"],
-                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                    gen_client_id
                 )
                 created += 1
             else:
@@ -1808,7 +1821,7 @@ async def generate_schedules(
     # ── vip_offer: одна запись на событие с fire_at=NULL (пользователь сам задаёт время) ──
     if "vip_offer" in tmpl_map:
         tmpl = tmpl_map["vip_offer"]
-        exists = await db.fetchval(
+        exists = await _dup_exists(
             "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='vip_offer' AND session_id IS NULL",
             event_id
         )
@@ -1817,11 +1830,12 @@ async def generate_schedules(
                 """
                 INSERT INTO broadcast_schedules
                   (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
-                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                VALUES ($1, NULL, $2, 'vip_offer', NULL, 'draft', $3, $4, $5, $6, $7, $8)
+                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+                VALUES ($1, NULL, $2, 'vip_offer', NULL, 'draft', $3, $4, $5, $6, $7, $8, $9)
                 """,
                 event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"],
-                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                gen_client_id
             )
             created += 1
         else:
@@ -1922,7 +1936,7 @@ async def generate_schedules(
                 skipped += 1
                 continue
 
-            exists = await db.fetchval(
+            exists = await _dup_exists(
                 """SELECT 1 FROM broadcast_schedules
                    WHERE event_id=$1 AND template_id=$2 AND type='custom'""",
                 event_id, tmpl["id"]
@@ -1935,13 +1949,13 @@ async def generate_schedules(
                 INSERT INTO broadcast_schedules
                   (event_id, session_id, template_id, type, fire_at, day, status,
                    audience_include, audience_exclude,
-                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                VALUES ($1, $10, $2, 'custom', $3, $11, 'draft', $4, $5, $6, $7, $8, $9)
+                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+                VALUES ($1, $10, $2, 'custom', $3, $11, 'draft', $4, $5, $6, $7, $8, $9, $12)
                 """,
                 event_id, tmpl["id"], fire_at,
                 tmpl["audience_include"], tmpl["audience_exclude"],
                 tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
-                sched_session_id, sched_day,
+                sched_session_id, sched_day, gen_client_id,
             )
             created += 1
 
@@ -2235,8 +2249,6 @@ class AddManualRequest(BaseModel):
     note: Optional[str] = None
     # enqueue=True → сразу в очередь (status='pending'), иначе черновик (draft).
     enqueue: bool = False
-    # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
-    request_owner_confirm: bool = False
 
 
 @router.post("/schedules/add-manual", summary="Добавить рассылку вручную")
@@ -2290,11 +2302,7 @@ async def add_manual_schedule(
         tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status, client_id,
         data.day
     )
-    result = dict(row)
-    if data.request_owner_confirm:
-        from app.services.collab_broadcast import fanout_confirmations
-        result["confirm_batch_id"] = await fanout_confirmations(db, event_id, client_id, [row["id"]])
-    return result
+    return dict(row)
 
 
 # ─── Произвольная рассылка (без шаблона) ─────────────────────────────────
@@ -2320,8 +2328,6 @@ class AddCustomRequest(BaseModel):
     send_to_private_chats: bool = False
     # Каналы для отправки: None = все каналы клиента; [] = никуда; [N,M] = только эти.
     target_channel_ids: Optional[List[int]] = None
-    # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
-    request_owner_confirm: bool = False
     # Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
     # спикерские плейсхолдеры и подставляется его фото. None = обычное сообщение.
     speaker_ec_id: Optional[int] = None
@@ -2450,13 +2456,7 @@ async def add_custom_schedule(
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id,
         speaker_ec_id, status_val, data.target_channel_ids, data.day, (data.subject or None)
     )
-    result = dict(row)
-    # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).
-    if data.request_owner_confirm:
-        from app.services.collab_broadcast import fanout_confirmations
-        batch = await fanout_confirmations(db, event_id, client_id, [row["id"]])
-        result["confirm_batch_id"] = batch
-    return result
+    return dict(row)
 
 
 @router.put("/schedules/{schedule_id}/custom", summary="Редактировать произвольную рассылку")
@@ -2552,8 +2552,6 @@ class BulkAddRequest(BaseModel):
     dry_run: bool = False   # только валидация без записи
     # enqueue=True → создать сразу в очередь (status='pending'), иначе черновики (draft).
     enqueue: bool = False
-    # Коллаб-событие: попросить соорганизаторов подтвердить весь пакет (1 подтверждение).
-    request_owner_confirm: bool = False
 
 
 @router.post("/schedules/bulk-add", summary="Пакетное добавление произвольных рассылок")
@@ -2628,7 +2626,6 @@ async def bulk_add_schedules(
     import json as _json
     new_status = "pending" if data.enqueue else "draft"
     created_ids = []
-    confirm_batch = None
     async with db.transaction():
         for p in parsed:
             row = await db.fetchrow(
@@ -2649,12 +2646,8 @@ async def bulk_add_schedules(
                 p["send_to_private_chats"]
             )
             created_ids.append(row["id"])
-        # Коллаб-событие + галочка → ОДИН пакет-подтверждение на весь bulk соорганизаторам.
-        if data.request_owner_confirm and created_ids:
-            from app.services.collab_broadcast import fanout_confirmations
-            confirm_batch = await fanout_confirmations(db, event_id, client_id, created_ids)
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids,
-            "warnings": warnings, "confirm_batch_id": confirm_batch}
+            "warnings": warnings}
 
 
 @router.post("/schedules/run-all", summary="Запустить всю очередь (активировать Celery)")
@@ -2874,17 +2867,21 @@ async def copy_schedule(
 
     # ⚠️ Копия создаётся БЕЗ даты (fire_at=NULL), чтобы старая дата не утащила
     # рассылку в мгновенную отправку. Клиент указывает новую дату при запуске.
+    # client_id копии = client_id оригинала: у коллаб-события очередь у каждого
+    # организатора своя, и копия должна остаться в базе того же владельца —
+    # иначе она пропала бы из его очереди (список фильтрует по client_id).
     new_id = await db.fetchval(
         """INSERT INTO broadcast_schedules
            (event_id, template_id, session_id, type, audience_include, audience_exclude,
             audience_type, fire_at, status, is_test,
-            snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,'draft',$8,$9,$10,$11,$12)
+            snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,'draft',$8,$9,$10,$11,$12,$13)
            RETURNING id""",
         row["event_id"], row["template_id"], row["session_id"], row["type"],
         row["audience_include"], row["audience_exclude"], row["audience_type"],
         row["is_test"],
-        row["snapshot_text"], row["snapshot_photo"], row["snapshot_btn_text"], row["snapshot_btn_url"]
+        row["snapshot_text"], row["snapshot_photo"], row["snapshot_btn_text"], row["snapshot_btn_url"],
+        row["client_id"]
     )
     return {"ok": True, "id": new_id}
 
