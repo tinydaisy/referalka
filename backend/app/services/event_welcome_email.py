@@ -255,7 +255,15 @@ async def send_welcome_email_if_needed(
     # строки, где после подстановки не осталось ничего, кроме подписи.
     body = _drop_empty_lines(body)
 
-    subject = event["welcome_email_subject"] or f"Добро пожаловать на «{event['title']}»"
+    # ⚠️ В ТЕМЕ тоже раскрываем плейсхолдеры — иначе «{event_title}» уезжает
+    # человеку сырым, и письмо приходит без названия события (прод, 2026-08-18).
+    subject = (event["welcome_email_subject"] or "").strip() or f"Добро пожаловать на «{event['title']}»"
+    subject = (
+        subject
+        .replace("{event_title}", event["title"] or "")
+        .replace("{name}", contact["name"] or "друг")
+        .replace("{event_date}", _format_dt(event["start_at"]))
+    )
 
     # Token отписки — на этот email-канал клиента (если человек захочет уйти)
     from app.services.unsubscribe_token import make_email_unsubscribe_token

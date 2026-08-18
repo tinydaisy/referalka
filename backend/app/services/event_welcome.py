@@ -671,10 +671,23 @@ async def send_event_open_message(
         text = f"Привет, {name}! 👋\n\nВы записаны на «{ev_title}»."
         if date_str:
             text += f"\n\n🗓 {date_str}"
-        btn_text = "Получить подарки"
+        # ⚠️ «Получить подарки» — только если реф-программа события ВКЛЮЧЕНА.
+        # Иначе кнопка вела на пустую вкладку: человек нажимал и не понимал,
+        # где обещанные подарки (прод, 2026-08-18).
+        _ref_on = await conn.fetchval(
+            """SELECT 1 FROM event_referral_settings
+                WHERE event_id = $1 AND is_enabled = TRUE LIMIT 1""",
+            ev["id"],
+        )
         pid_part = f"_pid{ref_code}" if ref_code else ""
-        btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}_tabgame{pid_part}"
-        extra_buttons.append([cabinet_btn])
+        if _ref_on:
+            btn_text = "Получить подарки"
+            btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}_tabgame{pid_part}"
+            extra_buttons.append([cabinet_btn])
+        else:
+            # Подарков нет — ведём в кабинет события, одной кнопкой.
+            btn_text = "Открыть событие"
+            btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}{pid_part}"
     elif kind == "next_event_cta":
         succ_title = (successor_ev["title"] if successor_ev else "") or "следующее событие"
         succ_date = ""
