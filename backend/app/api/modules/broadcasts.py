@@ -568,10 +568,12 @@ async def list_templates(
         # Авто-сид: копируем клиенту шаблоны библиотеки (default_broadcast_templates,
         # правится в админке), доступные ЭТОМУ типу события и помеченные autoseed.
         # Принадлежность модулю — флаги for_event / for_conference / for_turnir.
-        ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
+        ev_row = await db.fetchrow("SELECT module_slug, is_collab FROM events WHERE id=$1", event_id)
         is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
         is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
-        for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=False):
+        # У коллабы module_slug='base' — тип события её не выдаёт, нужен свой флаг.
+        is_collab = bool(ev_row and ev_row["is_collab"])
+        for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=False, is_collab=is_collab):
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
@@ -734,6 +736,7 @@ async def load_default_templates(db) -> list[dict]:
             SELECT type, name, subject, text, text_event, photo_url, button_text, button_url,
                    schedule_mode, offset_minutes, audience_include, audience_exclude,
                    allow_custom_datetime, for_event, for_conference, for_turnir,
+                   for_collab,
                    autoseed, multi_instance, turnir_name, turnir_text
               FROM default_broadcast_templates
              WHERE is_active
@@ -770,16 +773,25 @@ def _fallback_flags(t: str, for_presets: bool) -> dict:
 
 
 async def _allowed_preset_types_for_event(db, is_conf: bool, is_turnir: bool,
-                                          for_presets: bool = False) -> list[dict]:
+                                          for_presets: bool = False,
+                                          is_collab: bool = False) -> list[dict]:
     """Шаблоны библиотеки, доступные этому типу события.
 
-    Принадлежность модулю — по флагам for_event / for_conference / for_turnir
-    (правятся в админке). Раньше это был клубок if-ов по типам.
+    Принадлежность модулю — по флагам for_event / for_conference / for_turnir /
+    for_collab (правятся в админке). Раньше это был клубок if-ов по типам.
+
+    ⚠️ Коллаб-событие проверяется ОТДЕЛЬНЫМ флагом (миграция 313). По
+    module_slug оно 'base', то есть для подбора выглядит как обычное
+    мероприятие, — а спикерские шаблоны (знакомство со спикерами, за 5 минут
+    до выступления, подарок после выступления) помечены только for_conference.
+    Поэтому у коллабы их не было вовсе, хотя выступления там есть. Включить им
+    for_event нельзя: они появились бы у всех вебинаров и эфиров, где спикеров
+    нет в принципе.
 
     for_presets=False — режим АВТО-СИДА (создание события): берём только те,
     у кого autoseed=TRUE. for_presets=True — «Добавить готовый шаблон»: берём все.
     """
-    is_plain_event = not is_conf and not is_turnir
+    is_plain_event = not is_conf and not is_turnir and not is_collab
     lib = await load_default_templates(db)
     if not lib:
         # Фолбэк: библиотека ещё не заполнена — работаем от кода, как раньше.
@@ -793,6 +805,11 @@ async def _allowed_preset_types_for_event(db, is_conf: bool, is_turnir: bool,
         if is_conf and not tpl.get("for_conference"):
             continue
         if is_turnir and not tpl.get("for_turnir"):
+            continue
+        # ⚠️ Проверяется ДО is_plain_event: у коллабы module_slug='base', иначе
+        # она провалилась бы в ветку обычного мероприятия и снова осталась без
+        # спикерских шаблонов.
+        if is_collab and not tpl.get("for_collab", tpl.get("for_event")):
             continue
         if is_plain_event and not tpl.get("for_event"):
             continue
@@ -827,15 +844,17 @@ async def list_template_presets(
     добавленных (чтобы по кнопке «Добавить шаблон» можно было выбрать готовый)."""
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
-    ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
+    ev_row = await db.fetchrow("SELECT module_slug, is_collab FROM events WHERE id=$1", event_id)
     is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
     is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
+    # У коллабы module_slug='base' — тип события её не выдаёт, нужен свой флаг.
+    is_collab = bool(ev_row and ev_row["is_collab"])
 
     existing_types = {r["type"] for r in await db.fetch(
         "SELECT DISTINCT type FROM broadcast_templates WHERE event_id=$1", event_id
     )}
     presets = []
-    for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True):
+    for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True, is_collab=is_collab):
         # Уже существующий одиночный тип — не предлагаем повторно.
         multi = tpl.get("multi_instance", tpl["type"] in MULTI_INSTANCE_PRESET_TYPES)
         if tpl["type"] in existing_types and not multi:
@@ -865,11 +884,13 @@ async def create_template_from_preset(
     текстом/кнопкой. То, что отредактировано в админке, попадает сюда сразу."""
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
-    ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
+    ev_row = await db.fetchrow("SELECT module_slug, is_collab FROM events WHERE id=$1", event_id)
     is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
     is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
+    # У коллабы module_slug='base' — тип события её не выдаёт, нужен свой флаг.
+    is_collab = bool(ev_row and ev_row["is_collab"])
 
-    tpl = next((t for t in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True)
+    tpl = next((t for t in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True, is_collab=is_collab)
                 if t["type"] == data.type), None)
     if not tpl:
         raise HTTPException(status_code=400, detail="Такой готовый шаблон недоступен для этого события")
@@ -1320,13 +1341,36 @@ async def generate_schedules(
 
     # Тип события + дата старта (для мероприятий)
     ev_row = await db.fetchrow(
-        "SELECT module_slug, start_at, end_at FROM events WHERE id=$1",
+        "SELECT module_slug, start_at, end_at, is_collab FROM events WHERE id=$1",
         event_id
     )
     is_conf = ev_row and ev_row["module_slug"] == "conference"
     is_turnir = ev_row and ev_row["module_slug"] == "turnir"
     event_start_at = ev_row["start_at"] if ev_row else None
     event_end_at = ev_row["end_at"] if ev_row else None
+    is_collab = bool(ev_row and ev_row["is_collab"])
+
+    # ⚠️ У КОЛЛАБ-события каждый организатор ведёт СВОЮ базу через СВОЙ бот, поэтому
+    # авто-сгенерированные рассылки обязаны принадлежать тому, кто нажал «Сформировать»:
+    # с client_id=NULL движок отправки (tasks/broadcast.py) падает на «первого владельца»
+    # из event_owners, и рассылка ушла бы по чужой базе через чужой бот. Плюс в очереди
+    # такая запись была бы видна всем организаторам сразу.
+    # У обычного события владелец один — оставляем NULL, как было (совместимость).
+    gen_client_id = client_id if is_collab else None
+
+    async def _dup_exists(sql: str, *args):
+        """
+        Проверка «такая рассылка уже создана».
+
+        У КОЛЛАБЫ дедуп обязан быть В ГРАНИЦАХ СВОЕЙ базы: очередь у каждого
+        организатора своя, и записи первого не должны схлопывать генерацию у
+        второго — иначе он нажмёт «Сформировать» и получит пустую очередь.
+        У обычного события владелец один: дедупим по всему событию, как раньше.
+        """
+        if is_collab:
+            sql += f" AND client_id IS NOT DISTINCT FROM ${len(args) + 1}"
+            args = (*args, gen_client_id)
+        return await db.fetchval(sql, *args)
 
     # «Событие с программой по дням» — конференция или турнир, у которого
     # есть дни программы (conf_days). Тогда дневные рассылки (2h/30min) считаем
@@ -1414,14 +1458,14 @@ async def generate_schedules(
             return
         if session_id:
             # Для спикерских рассылок — дубль по session_id + type
-            exists = await db.fetchval(
+            exists = await _dup_exists(
                 """SELECT 1 FROM broadcast_schedules
                    WHERE event_id=$1 AND template_id=$2 AND session_id=$3 AND type=$4""",
                 event_id, tmpl["id"], session_id, t
             )
         else:
             # Для дневных рассылок — дубль по fire_at + type (каждый день имеет своё время)
-            exists = await db.fetchval(
+            exists = await _dup_exists(
                 """SELECT 1 FROM broadcast_schedules
                    WHERE event_id=$1 AND template_id=$2 AND fire_at=$3 AND type=$4""",
                 event_id, tmpl["id"], fire_at, t
@@ -1433,13 +1477,13 @@ async def generate_schedules(
             """
             INSERT INTO broadcast_schedules
               (event_id, session_id, template_id, type, fire_at, day, status, audience_include, audience_exclude,
-               snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11)
+               snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11, $13)
             """,
             event_id, session_id, tmpl["id"], t, fire_at,
             tmpl["audience_include"], tmpl["audience_exclude"],
             tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
-            day
+            day, gen_client_id
         )
         created += 1
 
@@ -1459,7 +1503,7 @@ async def generate_schedules(
             send_date = conf_date - timedelta(days=1)
             _h, _m = _tmpl_time_msk(tmpl, 10, 43)
             fire_at_pre_conf = datetime(send_date.year, send_date.month, send_date.day, _h, _m, 0, tzinfo=tz_msk)
-            exists = await db.fetchval(
+            exists = await _dup_exists(
                 "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='pre_conf'",
                 event_id
             )
@@ -1470,19 +1514,20 @@ async def generate_schedules(
                     """
                     INSERT INTO broadcast_schedules
                       (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
-                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                    VALUES ($1, NULL, $2, 'pre_conf', $3, 'draft', $4, $5, $6, $7, $8, $9)
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+                    VALUES ($1, NULL, $2, 'pre_conf', $3, 'draft', $4, $5, $6, $7, $8, $9, $10)
                     """,
                     event_id, tmpl["id"], fire_at_pre_conf,
                     tmpl["audience_include"], tmpl["audience_exclude"],
-                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                    gen_client_id
                 )
                 created += 1
             else:
                 skipped += 1
         else:
             # Нет даты дня — создаём без времени
-            exists = await db.fetchval(
+            exists = await _dup_exists(
                 "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='pre_conf'",
                 event_id
             )
@@ -1491,12 +1536,13 @@ async def generate_schedules(
                     """
                     INSERT INTO broadcast_schedules
                       (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
-                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                    VALUES ($1, NULL, $2, 'pre_conf', NULL, 'draft', $3, $4, $5, $6, $7, $8)
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+                    VALUES ($1, NULL, $2, 'pre_conf', NULL, 'draft', $3, $4, $5, $6, $7, $8, $9)
                     """,
                     event_id, tmpl["id"],
                     tmpl["audience_include"], tmpl["audience_exclude"],
-                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                    gen_client_id
                 )
                 created += 1
             else:
@@ -1566,7 +1612,7 @@ async def generate_schedules(
                         event_id, b_type, sp["id"], tmpl["id"]
                     )
                 else:
-                    exists = await db.fetchval(
+                    exists = await _dup_exists(
                         """SELECT 1 FROM broadcast_schedules
                            WHERE event_id=$1 AND type=$2 AND session_id=$3""",
                         event_id, b_type, sp["id"]
@@ -1578,12 +1624,13 @@ async def generate_schedules(
                     """
                     INSERT INTO broadcast_schedules
                       (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
-                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-                    VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11)
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+                    VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11, $12)
                     """,
                     event_id, sp["id"], tmpl["id"], b_type, fire_at,
                     tmpl["audience_include"], tmpl["audience_exclude"],
-                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                    gen_client_id
                 )
                 created += 1
         else:
