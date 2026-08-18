@@ -96,52 +96,6 @@ async def event_owner_client_ids(db, event_id: int) -> list[int]:
     return [r["client_id"] for r in rows]
 
 
-async def mirror_contact_to_all_owners(
-    db, *, event_id: int, contact_id: int, platform_slug: str, platform_user_id: str,
-    username: str | None = None, first_name: str | None = None,
-    last_name: str | None = None, email: str | None = None, phone: str | None = None,
-) -> None:
-    """Завести человека в базе КАЖДОГО организатора коллабы.
-
-    ⚠️ ТОЛЬКО для случая «непонятно, чей человек»: он пришёл ниоткуда — по
-    пересланной веб-ссылке, без бота/Mini App и без реф-кода. Организаторы
-    равноправны, и отдавать такого создателю события неправильно (решение
-    владельца, 2026-08-18).
-
-    ⚠️ НЕ звать, когда контекст есть. Пришёл через бота или по чьей-то ссылке —
-    он человек ТОГО организатора: у каждого своя база, и общего котла тут нет.
-
-    Контакт у каждого клиента СВОЙ (`contacts.client_id`), поэтому это не дубль,
-    а нормальная запись в каждой базе. Идемпотентно: у кого человек уже есть —
-    просто дозаполнятся пустые поля.
-
-    Ошибки глушим: это дополнение к регистрации, а не её часть.
-    """
-    try:
-        if not await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id):
-            return
-        owner_ids = await event_owner_client_ids(db, event_id)
-        if len(owner_ids) < 2:
-            return
-        from app.services.contact_merge import upsert_contact_with_identity
-        for cid in owner_ids:
-            try:
-                await upsert_contact_with_identity(
-                    db, client_id=cid,
-                    platform_slug=platform_slug,
-                    platform_user_id=str(platform_user_id),
-                    username=username, first_name=first_name, last_name=last_name,
-                    email=email, phone=phone,
-                )
-            except Exception:
-                logger.warning(
-                    "mirror_contact: не удалось завести контакт у клиента %s (event=%s)",
-                    cid, event_id,
-                )
-    except Exception:
-        logger.exception("mirror_contact_to_all_owners failed: event=%s", event_id)
-
-
 async def resolve_event_client(
     db, *, event_id: int, client_id: int,
     partner_id: Optional[str] = None,
