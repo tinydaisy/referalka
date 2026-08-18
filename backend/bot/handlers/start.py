@@ -1399,10 +1399,18 @@ async def _send_finished_event_menu(message: Message, ev, contact_id: int | None
         # иначе веб-страница события.
         # Веб-страница события — публичная страница клиента: домен клиента,
         # если подключён (Mini App-ветка ниже её перебивает).
-        succ_url = await client_public_link(db, ev["client_id"], f"event/{succ['slug']}")
-        if (ev["default_link_mode"] or "miniapp") == "miniapp" and ev["client_id"]:
+        # ⚠️ КОЛЛАБА: ведём в Mini App/на домен ТОГО организатора, в чьей базе
+        # контакт человека, — иначе он попадёт в чужой кабинет незарегистрированным.
+        from app.services.event_client import resolve_event_client
+        succ_client_id = await resolve_event_client(
+            db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+        succ_mode = (await db.fetchval(
+            "SELECT default_link_mode FROM clients WHERE id = $1", succ_client_id
+        ) if succ_client_id != ev["client_id"] else ev["default_link_mode"]) or "miniapp"
+        succ_url = await client_public_link(db, succ_client_id, f"event/{succ['slug']}")
+        if succ_mode == "miniapp" and succ_client_id:
             from app.services.share_links import get_client_bot_handles, telegram_link
-            handles = await get_client_bot_handles(db, ev["client_id"])
+            handles = await get_client_bot_handles(db, succ_client_id)
             tg_handle = handles.get("telegram")
             if tg_handle:
                 ma = telegram_link(succ["slug"], bot_handle=tg_handle,
@@ -1487,18 +1495,29 @@ async def send_event_menu(
     if message is not None and await _send_finished_event_menu(message, ev, contact_id, db):
         return
 
+    # ⚠️ КОЛЛАБА: меню открывает КОНКРЕТНЫЙ человек — кабинет, Mini App и домен
+    # должны быть ТОГО организатора, в чьей базе его контакт. «Первый владелец»
+    # из event_owners увёл бы его в чужой Mini App, где он не зарегистрирован.
+    from app.services.event_client import resolve_event_client
+    link_client_id = await resolve_event_client(
+        db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+
     # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
     # (clients.default_link_mode). miniapp → Mini App клиента; иначе → веб события.
-    link_mode = (ev["default_link_mode"] or "miniapp")
+    # Настройка берётся у ТОГО ЖЕ клиента, иначе режим одного организатора
+    # применился бы к ссылкам другого.
+    link_mode = (await db.fetchval(
+        "SELECT default_link_mode FROM clients WHERE id = $1", link_client_id
+    ) if link_client_id != ev["client_id"] else ev["default_link_mode"]) or "miniapp"
     # Веб-страница события — публичная страница клиента: домен клиента,
     # если подключён. Mini App-ветка ниже её перебивает (адрес Mini App
     # на домен клиента не переезжает).
     cabinet_url = await client_public_link(
-        db, ev["client_id"], f"event/{slug}{cid_q}#cabinet"
+        db, link_client_id, f"event/{slug}{cid_q}#cabinet"
     )
-    if link_mode == "miniapp" and ev["client_id"]:
+    if link_mode == "miniapp" and link_client_id:
         from app.services.share_links import get_client_bot_handles, telegram_link
-        handles = await get_client_bot_handles(db, ev["client_id"])
+        handles = await get_client_bot_handles(db, link_client_id)
         tg_handle = handles.get("telegram")
         if tg_handle:
             ma = telegram_link(slug, bot_handle=tg_handle, tab="game",
@@ -1524,8 +1543,10 @@ async def send_event_menu(
             enrich_external_url,
         )
         contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
+        # Реф-код приведшего ищется В БАЗЕ человека: у коллабы в чужой базе
+        # его нет, и партнёрский параметр молча терялся бы.
         erp = await resolve_referrer_external_ref_param(
-            db, ev["client_id"], contact_id=contact_id,
+            db, link_client_id, contact_id=contact_id,
         )
         vip_target = enrich_external_url(
             vip_url,

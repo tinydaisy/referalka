@@ -947,9 +947,17 @@ async def handle_vk_event(body: VkEventRequest):
     async with pool.acquire() as conn:
         client_id = body.client_id
         if not client_id and body.event_slug:
-            row = await conn.fetchrow("SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", body.event_slug)
+            row = await conn.fetchrow("SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", body.event_slug)
             if row:
-                client_id = row["client_id"]
+                # ⚠️ КОЛЛАБА: контакт и участие создаются В БАЗЕ того организатора,
+                # чей реф-код в ссылке (или чей это контакт), а не «первого
+                # владельца» — иначе привлечение не засчитывается никому.
+                from app.services.event_client import resolve_event_client
+                client_id = await resolve_event_client(
+                    conn, event_id=row["id"], client_id=row["client_id"],
+                    partner_id=body.partner_id or None,
+                    contact_id=body.contact_id or None,
+                )
         # «Слепое» открытие: VK не пробросил hash (#evl_/#ref_pg…) в iframe → фронт
         # ушёл в /vk/event без slug и без client_id. Фиксируем ФАКТ потери hash
         # ДО резолва по app_id (для уведомления об ошибке привязки к СОБЫТИЮ —
@@ -1274,7 +1282,15 @@ async def send_vk_event_funnel(
 
     slug = event_row["slug"]
     event_id = event_row["id"]
+    # ⚠️ КОЛЛАБА: `_EVENT_FUNNEL_FIELDS` отдаёт «первого владельца» — для ссылок,
+    # домена и реф-кода приведшего нужен ТОТ организатор, в чьей базе контакт
+    # человека (см. services/event_client.py). Одна точка на все 5 вызовов.
     client_id = event_row["client_id"]
+    if contact_id or pid:
+        from app.services.event_client import resolve_event_client
+        client_id = await resolve_event_client(
+            conn, event_id=event_id, client_id=client_id,
+            contact_id=contact_id or None, partner_id=pid or None)
     title = event_row["title"] or ""
     poster_url = (event_row["poster_url"] or "").strip()
     cid_q = f"?c={contact_id}" if contact_id else ""

@@ -1674,6 +1674,12 @@ async def _send_max_event_menu(
     title = ev["title"] or ""
     cid_q = f"?c={contact_id}" if contact_id else ""
 
+    # ⚠️ КОЛЛАБА: кабинет и программу человек ОТКРЫВАЕТ — вести они должны на
+    # домен ТОГО организатора, в чьей базе его контакт, а не первого владельца.
+    from app.services.event_client import resolve_event_client
+    link_client_id = await resolve_event_client(
+        conn, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+
     text = (
         "Вы зарегистрированы на событие:\n"
         f"{title}\n\n"
@@ -1695,8 +1701,10 @@ async def _send_max_event_menu(
             contact_params = (
                 await get_contact_landing_params(conn, contact_id) if contact_id else {}
             )
+            # Реф-код приведшего ищется В БАЗЕ человека: у коллабы в чужой базе
+            # его нет, и партнёрский параметр молча терялся бы.
             erp = await resolve_referrer_external_ref_param(
-                conn, ev["client_id"], contact_id=contact_id,
+                conn, link_client_id, contact_id=contact_id,
             )
             vip_target = enrich_external_url(
                 vip_url,
@@ -1726,7 +1734,7 @@ async def _send_max_event_menu(
                   if ev["module_slug"] in ("conference", "turnir")
                   else "Программа")
     # Страницы события — публичные страницы клиента: домен клиента, если есть.
-    _pub_base = await client_public_url(conn, ev["client_id"])
+    _pub_base = await client_public_url(conn, link_client_id)
     tg_rows.append([{"text": prog_label,
                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#program")}])
 
@@ -1841,8 +1849,13 @@ async def _handle_max_live(
         text += "\n\nКнопка на стрим появится тут перед эфиром."
     cid_q = f"?c={contact_id}" if contact_id else ""
     # Страница программы — публичная страница клиента → его домен.
+    # ⚠️ КОЛЛАБА: домен ТОГО организатора, в чьей базе контакт человека.
+    from app.services.event_client import resolve_event_client
     _prog_url = await client_public_link(
-        conn, ev["client_id"], f"event/{ev['slug']}{cid_q}#program"
+        conn,
+        await resolve_event_client(
+            conn, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id),
+        f"event/{ev['slug']}{cid_q}#program",
     )
     rows.append([{"text": "Программа", "url": _prog_url}])
     rows.append([{"text": "Меню", "callback_data": f"evmenu_{event_id}"}])

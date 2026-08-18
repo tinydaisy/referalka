@@ -78,9 +78,17 @@ async def handle_max_event(body: MaxEventRequest):
         # Резолв client_id: 1) явный из тела 2) из event_slug 3) системный «ПЛЮСОН Сервис»
         client_id = body.client_id
         if not client_id and body.event_slug:
-            row = await conn.fetchrow("SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", body.event_slug)
+            row = await conn.fetchrow("SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", body.event_slug)
             if row:
-                client_id = row["client_id"]
+                # ⚠️ КОЛЛАБА: контакт и участие создаются В БАЗЕ того организатора,
+                # чей реф-код в ссылке (или чей это контакт), а не «первого
+                # владельца» — иначе привлечение не засчитывается никому.
+                from app.services.event_client import resolve_event_client
+                client_id = await resolve_event_client(
+                    conn, event_id=row["id"], client_id=row["client_id"],
+                    partner_id=body.partner_id or None,
+                    contact_id=body.contact_id or None,
+                )
         if not client_id:
             row = await conn.fetchrow("SELECT id FROM clients WHERE is_system_service=TRUE LIMIT 1")
             client_id = row["id"] if row else 0

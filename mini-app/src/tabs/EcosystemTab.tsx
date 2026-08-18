@@ -242,14 +242,20 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
   return (
     <div className="fade-in">
       {/* Возврат к списку организаторов — только в коллабе (их несколько). */}
+      {/* ⚠️ Кнопка «назад» ПОВЕРХ шапки и с фоном: шапка бренда идёт с
+          отрицательным отступом (margin:-16px) и наезжала на неё — выйти к
+          списку организаторов было нечем (жалоба 2026-08-18). */}
       {onBackToOwners && (
         <div onClick={onBackToOwners}
              style={{
-               display: 'inline-flex', alignItems: 'center', gap: 6,
-               padding: '8px 4px', cursor: 'pointer',
-               color: DARK, fontSize: 14, fontWeight: 600,
+               position: 'sticky', top: 0, zIndex: 5,
+               display: 'flex', alignItems: 'center', gap: 6,
+               margin: '-16px -16px 0', padding: '12px 16px',
+               cursor: 'pointer', background: 'var(--surface)',
+               borderBottom: '1px solid var(--border)',
+               color: DARK, fontSize: 15, fontWeight: 700,
              }}>
-          <span style={{ fontSize: 18 }}>‹</span> Все организаторы
+          <span style={{ fontSize: 20, lineHeight: 1 }}>‹</span> Все организаторы
         </div>
       )}
       {/* Шапка-бренд */}

@@ -170,8 +170,17 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
         await vk_send_message(vk_user_id, "😕 Событие не найдено.", token=ctx.token)
         return
 
+    # ⚠️ КОЛЛАБА: человек пришёл к КОНКРЕТНОМУ организатору — через его
+    # сообщество. Поддержку и каналы основателя для проверки подписки берём у
+    # него, а не у «первого владельца» события.
+    from app.services.event_client import resolve_event_client
+    client_id = await resolve_event_client(
+        db, event_id=event_id, client_id=ev["client_id"],
+        source_client_id=getattr(ctx, "client_id", None),
+    )
+
     work_tg = await db.fetchval(
-        "SELECT work_tg_username FROM clients WHERE id = $1", ev["client_id"]
+        "SELECT work_tg_username FROM clients WHERE id = $1", client_id
     )
 
     # Режим проверки: конференция → subscription_mode, мероприятие → require_subscription.
@@ -187,8 +196,8 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
     # события (с дедупом self-коллаба внутри _gather_event_vk_channels).
     channels = []
     if mode != "none":
-        founder = await _gather_founder_vk_channels(ev["client_id"], db)
-        speakers = await _gather_event_vk_channels(event_id, mode, db, ev["client_id"])
+        founder = await _gather_founder_vk_channels(client_id, db)
+        speakers = await _gather_event_vk_channels(event_id, mode, db, client_id)
         channels = founder + speakers
 
     # Проверяем подписку на каждое VK-сообщество спикера.
@@ -430,8 +439,14 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     text += "\n\nЧтобы посмотреть всю программу — нажмите на кнопку 👇"
     cid_q = f"?c={contact_id}" if contact_id else ""
     # Страница программы — публичная страница события: домен клиента.
+    # ⚠️ КОЛЛАБА: домен ТОГО организатора, в чьей базе контакт человека, —
+    # «первый владелец» отправил бы его на чужую страницу.
+    from app.services.event_client import resolve_event_client
     prog_url = await client_public_link(
-        db, ev["client_id"], f"event/{ev['slug']}{cid_q}#program"
+        db,
+        await resolve_event_client(
+            db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id),
+        f"event/{ev['slug']}{cid_q}#program",
     )
     rows.append([{"text": "Программа", "url": prog_url}])
     rows.append([{"text": "⬅️ Вернуться в меню", "callback_data": f"evmenu_{event_id}"}])

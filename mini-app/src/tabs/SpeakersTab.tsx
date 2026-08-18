@@ -231,9 +231,9 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
 
   return (
     <div style={{ padding: '16px 12px 80px' }}>
-      <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '4px 8px 14px' }}>
-        Спикеры и жюри
-      </h1>
+      {/* ⚠️ Заголовка «Спикеры и жюри» нет: вкладка уже так называется, а в
+          коллабе жюри не бывает вовсе — там только организаторы. Группы
+          внутри (Организаторы / Спикеры / Жюри) подписаны сами. */}
       {SEGMENTS.filter(s => (grouped[s.key]?.length || 0) > 0).map((segment, segIdx) => {
         const list = grouped[segment.key] || []
         const isCollapsed = !!collapsed[segment.key]

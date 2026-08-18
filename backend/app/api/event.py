@@ -111,6 +111,18 @@ async def share_to_bot(body: ShareToBotRequest):
     event_id = row["id"]
     client_id = row["client_id"]
 
+    # ⚠️ КОЛЛАБА: афиши и тексты уходят человеку В ЕГО БОТЕ — значит и канал, и
+    # токен берём у ТОГО организатора, в чьей базе его контакт. У «первого
+    # владельца» его может не быть вовсе, и сообщение не ушло бы.
+    async with pool.acquire() as conn:
+        from app.services.event_client import (
+            resolve_event_client, resolve_event_contact_id_any_owner,
+        )
+        _cid = await resolve_event_contact_id_any_owner(
+            conn, event_id, "telegram", tg_id)
+        client_id = await resolve_event_client(
+            conn, event_id=event_id, client_id=client_id, contact_id=_cid)
+
     # Регистрируем пользователя как подписчика главного TG-канала клиента.
     # Mini App может быть открыт минуя /start (через Menu Button) — без этого
     # шага человек никогда не попадёт в platform_user_channels и не будет
@@ -258,6 +270,18 @@ async def mark_link_click(body: LinkClickRequest):
             raise HTTPException(status_code=404, detail="event not found")
         event_id = row["id"]
         client_id = row["client_id"]
+
+        # ⚠️ КОЛЛАБА: клик пишется участнику — значит и контакт ищем в базе ТОГО
+        # организатора, где человек уже есть. Иначе `upsert_contact_with_identity`
+        # завёл бы ему второй контакт у «первого владельца», а клик не попал бы
+        # на его настоящую запись участника.
+        from app.services.event_client import (
+            resolve_event_client, resolve_event_contact_id_any_owner,
+        )
+        _cid = await resolve_event_contact_id_any_owner(
+            conn, event_id, platform, body.tg_id)
+        client_id = await resolve_event_client(
+            conn, event_id=event_id, client_id=client_id, contact_id=_cid)
 
         uname = body.username.lstrip('@') if body.username else None
         fname = body.first_name or None

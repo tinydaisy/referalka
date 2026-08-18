@@ -486,6 +486,7 @@ async def draw_winner(
             (SELECT pu.username FROM platform_users pu
               WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
               ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
+            e.id AS event_id,
             (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
           FROM event_raffle_winners w
           JOIN event_raffle_tickets t ON t.id = w.ticket_id
@@ -519,7 +520,14 @@ async def _send_winner_dm(db, row) -> None:
     if not tg_id:
         return  # без tg_id отправлять некуда
 
-    bot_token = await get_client_telegram_token(int(row["client_id"]), db)
+    # ⚠️ КОЛЛАБА: пишем победителю ботом ТОГО организатора, в чьей базе его
+    # контакт. Бот «первого владельца» человека не знает — ЛС не дойдёт.
+    from app.services.event_client import resolve_event_client
+    _client_id = await resolve_event_client(
+        db, event_id=row["event_id"], client_id=int(row["client_id"]),
+        contact_id=row["contact_id"])
+
+    bot_token = await get_client_telegram_token(int(_client_id), db)
     # Системный @pluson_bot как fallback убран: нет своего TG-бота клиента →
     # ЛС победителю не шлём (graceful, без падения).
     if not bot_token:

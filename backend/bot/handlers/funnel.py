@@ -531,6 +531,18 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
         from app.services.webinar_service import resolve_event_contact_id
         contact_id = await resolve_event_contact_id(db, ev["id"], "telegram", user_tg_id)
 
+        # ⚠️ КОЛЛАБА: ссылки ниже человек ОТКРЫВАЕТ — вести они должны в Mini App
+        # и на домен ТОГО организатора, в чьей базе лежит его контакт, а не
+        # первого владельца из event_owners.
+        from app.services.event_client import resolve_event_client
+        link_client_id = await resolve_event_client(
+            db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+        # Режим ссылок (Mini App / веб) — настройка ТОГО ЖЕ клиента: иначе
+        # человек уходил бы в Mini App одного организатора по настройке другого.
+        link_mode = await db.fetchval(
+            "SELECT default_link_mode FROM clients WHERE id = $1", link_client_id
+        ) if link_client_id != ev["client_id"] else ev["default_link_mode"]
+
         now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
         live_when = ""   # «3 мая 12:00 МСК»
         live_what = ""   # название сессии / события
@@ -608,11 +620,11 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
         # Веб-страница программы — публичная страница клиента (Mini App-ветка
         # ниже её перебивает: адрес Mini App на домен клиента не переезжает).
         prog_url = await client_public_link(
-            db, ev["client_id"], f"event/{ev['slug']}{cid_q}#program"
+            db, link_client_id, f"event/{ev['slug']}{cid_q}#program"
         )
-        if (ev["default_link_mode"] or "miniapp") == "miniapp" and ev["client_id"]:
+        if (link_mode or "miniapp") == "miniapp" and link_client_id:
             from app.services.share_links import get_client_bot_handles, telegram_link
-            handles = await get_client_bot_handles(db, ev["client_id"])
+            handles = await get_client_bot_handles(db, link_client_id)
             tg_handle = handles.get("telegram")
             if tg_handle:
                 ma = telegram_link(ev["slug"], bot_handle=tg_handle, tab="program",

@@ -746,15 +746,19 @@ async def get_participant_card(
     )
     if not viewer_ok:
         # Владелец клиента тоже может смотреть (через сверку telegram_username).
+        # ⚠️ КОЛЛАБА: организаторов несколько и они равноправны — сверяем со
+        # ВСЕМИ, иначе второй организатор получал бы 403 на своём же участнике.
         owner_ok = await db.fetchval(
-            """SELECT 1 FROM clients cl
+            """SELECT 1 FROM event_owners eo
+                JOIN clients cl ON cl.id = eo.client_id
                 JOIN platform_users pu
                   ON pu.platform_slug = 'telegram'
                  AND pu.platform_user_id = $1
                  AND LOWER(LTRIM(cl.telegram_username, '@')) = LOWER(pu.username)
-               WHERE cl.id = $2
+               WHERE eo.event_id = (SELECT id FROM events WHERE slug = $2)
+                 AND eo.status = 'accepted'
                LIMIT 1""",
-            str(viewer_tg_id), target["client_id"],
+            str(viewer_tg_id), event_slug,
         )
         if not owner_ok:
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -816,11 +820,14 @@ async def get_participant_in_event(
                      ORDER BY pe.id LIMIT 1) AS email,
                   c.phone, c.name
              FROM events e
-             JOIN platform_users pu ON pu.client_id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+             JOIN platform_users pu ON pu.client_id IN (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted')
                                     AND pu.platform_slug = $3
                                     AND pu.platform_user_id = $2
              JOIN contacts c ON c.id = pu.contact_id
             WHERE e.slug = $1
+            ORDER BY EXISTS (SELECT 1 FROM event_participants ep
+                              WHERE ep.event_id = e.id AND ep.contact_id = c.id) DESC,
+                     pu.id DESC
             LIMIT 1""",
         event_slug, str(tg_id), platform
     )

@@ -1232,13 +1232,22 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
                   cse.knowledge_base_title, cse.knowledge_base_url,
-                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.photo_url,
+                  btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name,
+                  -- ⚠️ ОРГАНИЗАТОР КОЛЛАБЫ — это КЛИЕНТ, и его фото/регалии
+                  -- заполнены в профиле кабинета (clients.owner_*), а карточка
+                  -- коллаборатора у него пустая: её никто не заводил руками.
+                  -- Без этого фолбэка в Mini App у организаторов коллабы не
+                  -- было ни фото, ни регалий (найдено на проде 2026-08-18).
+                  COALESCE(NULLIF(sp.title,''), cl_self.owner_positioning) AS title,
+                  COALESCE(NULLIF(sp.photo_url,''), cl_self.owner_photo_url) AS photo_url,
                   sp.tg_channel_url, sp.vk_url, sp.max_url, sp.instagram_url,
                   sp.website_url,
-                  sp.achievements,
+                  CASE WHEN COALESCE(jsonb_array_length(sp.achievements), 0) > 0
+                       THEN sp.achievements ELSE cl_self.owner_achievements END AS achievements,
                   pu_tg.username AS personal_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN clients cl_self ON cl_self.self_collaborator_id = sp.id
            LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
            LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
            LEFT JOIN platform_users pu_tg

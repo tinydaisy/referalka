@@ -51,6 +51,34 @@ async def is_event_owner(db, event_id: int, client_id: Optional[int]) -> bool:
     ))
 
 
+async def resolve_event_contact_id_any_owner(
+    db, event_id: int, platform: str, platform_user_id,
+) -> Optional[int]:
+    """contact_id человека в базе ЛЮБОГО организатора события.
+
+    ⚠️ КОЛЛАБА: организаторов несколько и они равноправны, поэтому ищем среди
+    ВСЕХ, а не у «первого из event_owners». Человека из базы второго
+    организатора иначе просто не находили: contact_id уходил NULL, и дальше по
+    цепочке он выглядел незарегистрированным — вкладки под замками, клики и
+    статистика анонимные.
+
+    Один tg/vk/max-id живёт у разных клиентов разными контактами, поэтому
+    ограничиваемся организаторами события. Предпочтение — участнику события
+    (он в нужной базе), затем более свежей идентичности.
+    """
+    return await db.fetchval(
+        """SELECT pu.contact_id FROM platform_users pu
+            WHERE pu.platform_slug = $1 AND pu.platform_user_id = $2
+              AND pu.client_id IN (SELECT eo.client_id FROM event_owners eo
+                                    WHERE eo.event_id = $3 AND eo.status = 'accepted')
+            ORDER BY EXISTS (SELECT 1 FROM event_participants ep
+                              WHERE ep.event_id = $3 AND ep.contact_id = pu.contact_id) DESC,
+                     pu.id DESC
+            LIMIT 1""",
+        platform, str(platform_user_id), event_id,
+    )
+
+
 async def resolve_event_client(
     db, *, event_id: int, client_id: int,
     partner_id: Optional[str] = None,

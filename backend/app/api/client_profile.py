@@ -85,29 +85,18 @@ async def track_speaker_click(
     if not coll:
         raise HTTPException(status_code=404, detail="Спикер не найден")
 
-    # Резолвим contact_id по любой платформе
+    # Резолвим contact_id по любой платформе.
+    # ⚠️ КОЛЛАБА: ищем среди ВСЕХ организаторов события — у «первого владельца»
+    # контакта человека может не быть вовсе, и клик записался бы анонимным.
+    from app.services.event_client import resolve_event_contact_id_any_owner
     contact_id: Optional[int] = None
-    if body.tg_id:
-        contact_id = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'telegram' AND platform_user_id = $2
-                LIMIT 1""",
-            coll["client_id"], str(body.tg_id),
-        )
-    if not contact_id and body.vk_user_id:
-        contact_id = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2
-                LIMIT 1""",
-            coll["client_id"], str(body.vk_user_id),
-        )
-    if not contact_id and body.max_user_id:
-        contact_id = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'max' AND platform_user_id = $2
-                LIMIT 1""",
-            coll["client_id"], str(body.max_user_id),
-        )
+    for _platform, _uid in (("telegram", body.tg_id),
+                            ("vk", body.vk_user_id),
+                            ("max", body.max_user_id)):
+        if contact_id or not _uid:
+            continue
+        contact_id = await resolve_event_contact_id_any_owner(
+            db, event_id, _platform, _uid)
 
     # Снапшот идентичностей контакта (миграция 110): чтобы клик пережил
     # удаление контакта (152-ФЗ) и в статистике остался виден кто кликнул.
@@ -604,25 +593,31 @@ async def public_event_vip_redirect(
         enrich_external_url,
     )
 
+    # ⚠️ КОЛЛАБА: контакт и участник создаются В БАЗЕ того организатора, чей
+    # реф-код в ссылке, а не «первого владельца» события.
+    from app.services.event_client import resolve_event_client
+    base_client_id = await resolve_event_client(
+        db, event_id=row["id"], client_id=row["client_id"], partner_id=pid)
+
     # Контакт + participant_id из tg_id/vk_id (если переданы)
     participant_id_out: Optional[int] = None
     contact_id_out: Optional[int] = None
     if tg_id is not None:
         participant_id_out, contact_id_out = await resolve_or_create_participant(
-            db, client_id=row["client_id"], event_id=row["id"],
+            db, client_id=base_client_id, event_id=row["id"],
             platform_slug='telegram', platform_user_id=str(tg_id),
             utm_source=utm_source, partner_id=pid,
         )
     elif vk_id is not None:
         participant_id_out, contact_id_out = await resolve_or_create_participant(
-            db, client_id=row["client_id"], event_id=row["id"],
+            db, client_id=base_client_id, event_id=row["id"],
             platform_slug='vk', platform_user_id=str(vk_id),
             utm_source=utm_source, partner_id=pid,
         )
 
     contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
     erp_to_use = await resolve_referrer_external_ref_param(
-        db, row["client_id"],
+        db, base_client_id,
         pid=pid,
         participant_id=participant_id_out,
         contact_id=contact_id_out,
@@ -659,11 +654,16 @@ async def public_event_external_ref(
     if not pid:
         return {"external_ref_param": None}
     row = await db.fetchrow(
-        "SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )
     if not row:
         return {"external_ref_param": None}
-    value = await resolve_external_ref_param(db, row["client_id"], pid)
+    # ⚠️ КОЛЛАБА: реф-код ищется В БАЗЕ того организатора, чей он, — в базе
+    # «первого владельца» его нет, и партнёрский параметр не находился бы.
+    from app.services.event_client import resolve_event_client
+    base_client_id = await resolve_event_client(
+        db, event_id=row["id"], client_id=row["client_id"], partner_id=pid)
+    value = await resolve_external_ref_param(db, base_client_id, pid)
     return {"external_ref_param": value}
 
 
@@ -676,6 +676,8 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
     и handle СВОЕГО бота клиента (если есть). Системный @pluson_bot больше не
     подставляется (2026-07-08): нет своего бота → bot_handle=None, фронт уводит
     на веб-страницу события."""
+    # TODO: коллаба — контекста человека нет (эндпоинт зовут без pid и без
+    # контакта), поэтому бот берётся у «первого владельца» события.
     row = await db.fetchrow(
         "SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )

@@ -23,13 +23,22 @@ MSK = timezone(timedelta(hours=3))
 _KEY_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"  # без похожих 0/o/1/l/i
 
 
-async def _event_public_link(db, event_id: int, path: str) -> str:
-    """Публичная ссылка события на домене его ВЛАДЕЛЬЦА (у events нет client_id)."""
+async def _event_public_link(db, event_id: int, path: str,
+                             contact_id: Optional[int] = None) -> str:
+    """Публичная ссылка события на домене его ОРГАНИЗАТОРА (у events нет client_id).
+
+    ⚠️ КОЛЛАБА: если известен человек — домен ТОГО организатора, в чьей базе его
+    контакт (см. services/event_client.py). Иначе — владелец события, как было.
+    """
     client_id = await db.fetchval(
         """SELECT eo.client_id FROM event_owners eo
             WHERE eo.event_id=$1 AND eo.status='accepted'
             ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
         event_id)
+    if contact_id:
+        from app.services.event_client import resolve_event_client
+        client_id = await resolve_event_client(
+            db, event_id=event_id, client_id=client_id, contact_id=contact_id)
     return await client_public_link(db, client_id, path)
 
 
@@ -38,17 +47,23 @@ def make_stream_key(n: int = 16) -> str:
 
 
 async def resolve_event_contact_id(db, event_id: int, platform: str, platform_user_id) -> Optional[int]:
-    """contact_id пользователя В БАЗЕ КЛИЕНТА-ВЛАДЕЛЬЦА события. Один tg/vk/max-id
-    живёт у разных клиентов разными контактами — резолвим строго по клиенту события,
-    иначе берётся чужой contact_id. Единая точка для всех ботов/эндпоинтов."""
-    return await db.fetchval(
-        """SELECT pu.contact_id FROM platform_users pu
-            WHERE pu.platform_slug=$1 AND pu.platform_user_id=$2
-              AND pu.client_id = (SELECT eo.client_id FROM event_owners eo
-                                    WHERE eo.event_id=$3 AND eo.status='accepted'
-                                    ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
-            ORDER BY pu.id DESC LIMIT 1""",
-        platform, str(platform_user_id), event_id)
+    """contact_id пользователя В БАЗЕ ОРГАНИЗАТОРА события. Один tg/vk/max-id
+    живёт у разных клиентов разными контактами — резолвим строго по организаторам
+    события, иначе берётся чужой contact_id. Единая точка для ботов/эндпоинтов.
+
+    ⚠️ КОЛЛАБА: организаторов несколько и они равноправны, поэтому ищем среди
+    ВСЕХ (`IN`, а не «первый из event_owners»). Раньше человека из базы второго
+    организатора тут просто не находили: contact_id уходил NULL, и дальше по
+    цепочке он выглядел незарегистрированным — вкладки под замками, ссылка
+    эфира без контакта. Предпочтение — участнику события (он в нужной базе),
+    затем более свежей идентичности.
+
+    Логика живёт в services/event_client.py — здесь только обёртка, чтобы не
+    держать вторую копию запроса (она бы разъехалась).
+    """
+    from app.services.event_client import resolve_event_contact_id_any_owner
+    return await resolve_event_contact_id_any_owner(
+        db, event_id, platform, platform_user_id)
 
 
 async def current_event_day(db, event_id: int) -> Optional[int]:
@@ -103,7 +118,7 @@ async def day_stream_url(db, event_id: int, day: Optional[int],
     if not slug:
         return ""
     # Зритель приходит из рассылки клиента → комната открывается на его домене.
-    url = await _event_public_link(db, event_id, f"webinar/{slug}/{day}")
+    url = await _event_public_link(db, event_id, f"webinar/{slug}/{day}", contact_id)
     if contact_id:
         url += f"?c={contact_id}"
     return url

@@ -82,6 +82,14 @@ async def send_welcome_email_if_needed(
     if not event or not event["welcome_enabled"] or not (event["welcome_text"] or "").strip():
         return False
 
+    # ⚠️ КОЛЛАБА: письмо уходит КОНКРЕТНОМУ человеку — почтовый канал, боты в
+    # кнопках и домен ссылок берём у ТОГО организатора, в чьей базе его контакт.
+    # У «первого владельца» может не быть ни почтового канала (письмо молча не
+    # ушло бы), ни подписки этого человека.
+    from app.services.event_client import resolve_event_client
+    client_id = await resolve_event_client(
+        db, event_id=event_id, client_id=event["client_id"], contact_id=contact_id)
+
     # event_participants для контакта
     ep_id = await db.fetchval(
         """SELECT id FROM event_participants
@@ -117,7 +125,7 @@ async def send_welcome_email_if_needed(
             WHERE cc.client_id = $1 AND cc.is_active = TRUE
               AND ch.platform_slug = 'email'
             LIMIT 1""",
-        event["client_id"],
+        client_id,
     )
     if not channel:
         return False
@@ -152,7 +160,7 @@ async def send_welcome_email_if_needed(
               AND ch.platform_slug = 'telegram'
               AND ch.is_system = FALSE
             LIMIT 1""",
-        event["client_id"],
+        client_id,
     )
     # Только свой бот клиента. Системный @pluson_bot убран — нет своего бота → нет TG-кнопки.
     tg_url = (
@@ -166,14 +174,14 @@ async def send_welcome_email_if_needed(
             WHERE cc.client_id = $1 AND cc.is_active = TRUE
               AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
             LIMIT 1""",
-        event["client_id"],
+        client_id,
     )
     vk_url = f"https://vk.me/{vk_handle}" if vk_handle else ""
 
     # Письмо уходит участнику клиента → лендинг и ссылка отписки на ЕГО домене,
     # а не на pluson.ru. Базу резолвим один раз и переиспользуем ниже.
     from app.services.client_domains import client_public_url, public_url_for
-    _public_base = await client_public_url(db, event["client_id"])
+    _public_base = await client_public_url(db, client_id)
     landing_url = public_url_for(_public_base, f"l/{event['slug']}")
 
     # ⚠️ Ссылки в письме — ВЕБ-версия события и обязательно с `?c={contact_id}`.
@@ -208,12 +216,7 @@ async def send_welcome_email_if_needed(
             from app.services.share_links import build_event_chat_bot_links
             # ⚠️ Бот — того организатора, в чьей базе ЧЕЛОВЕК (в коллабе у
             # каждого свой): в чужом боте его нет, подписку он не пройдёт.
-            from app.services.event_client import resolve_event_client
-            _chat_cid = await resolve_event_client(
-                db, event_id=event_id, client_id=event["client_id"],
-                contact_id=contact_id,
-            )
-            links = await build_event_chat_bot_links(db, _chat_cid, event_id)
+            links = await build_event_chat_bot_links(db, client_id, event_id)
             # ⚠️ Показываем ТОЛЬКО те площадки, где человек РЕАЛЬНО есть —
             # где у контакта заведена идентичность. Иначе ему предложат,
             # например, МАКС, которым он не пользуется: ссылка откроет
@@ -257,7 +260,7 @@ async def send_welcome_email_if_needed(
     # Token отписки — на этот email-канал клиента (если человек захочет уйти)
     from app.services.unsubscribe_token import make_email_unsubscribe_token
     unsub_token = make_email_unsubscribe_token(
-        client_id=event["client_id"],
+        client_id=client_id,
         contact_id=contact_id,
         client_channel_id=channel["client_channel_id"],
     )
@@ -271,7 +274,7 @@ async def send_welcome_email_if_needed(
         # и отписка ведёт туда же — ссылка на посторонний домен в письме от
         # его бренда выглядит подозрительно и для человека, и для спам-фильтра.
         channel_dict = dict(channel)
-        _mail = await client_mail_domain(db, event["client_id"])
+        _mail = await client_mail_domain(db, client_id)
         if _mail:
             channel_dict["email_domain"] = _mail["domain"]
             channel_dict["email_from_local"] = _mail["local"]

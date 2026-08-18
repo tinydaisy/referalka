@@ -63,16 +63,28 @@ async def _resolve_event_and_contact(conn: asyncpg.Connection, slug: str, user: 
         # часть розыгрыша). Если в будущем расширим — снимем проверку.
         raise HTTPException(400, "Розыгрыш доступен только в конференциях")
 
+    # ⚠️ КОЛЛАБА: билеты розыгрыша принадлежат ЧЕЛОВЕКУ — контакт берём из базы
+    # ТОГО организатора, где он уже есть. Иначе у «первого владельца» завёлся бы
+    # второй контакт, и билеты разъехались бы по двум записям.
+    from app.services.event_client import (
+        resolve_event_client, resolve_event_contact_id_any_owner,
+    )
+    _known = await resolve_event_contact_id_any_owner(
+        conn, ev["id"], "telegram", user.tg_id)
+    client_id = await resolve_event_client(
+        conn, event_id=ev["id"], client_id=ev["client_id"], contact_id=_known)
+
     contact_id, _pu_id, _new = await upsert_contact_with_identity(
         conn,
-        client_id=ev["client_id"],
+        client_id=client_id,
         platform_slug='telegram',
         platform_user_id=str(user.tg_id),
         username=(user.username.lstrip('@') if user.username else None),
         first_name=user.first_name or None,
         last_name=user.last_name or None,
+        known_contact_id=_known,
     )
-    return ev["id"], ev["client_id"], contact_id
+    return ev["id"], client_id, contact_id
 
 
 async def _ensure_participant(conn: asyncpg.Connection, event_id: int, contact_id: int):
@@ -258,12 +270,12 @@ async def get_my_raffle(slug: str, tg_id: int):
         if not ev:
             raise HTTPException(404, "Событие не найдено")
 
-        contact_id = await conn.fetchval(
-            """SELECT pu.contact_id FROM platform_users pu
-                WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram'
-                  AND pu.platform_user_id = $2 LIMIT 1""",
-            ev["client_id"], str(tg_id),
-        )
+        # ⚠️ КОЛЛАБА: контакт ищем среди ВСЕХ организаторов — у «первого
+        # владельца» его может не быть, и человек увидел бы пустой розыгрыш
+        # вместо своих билетов.
+        from app.services.event_client import resolve_event_contact_id_any_owner
+        contact_id = await resolve_event_contact_id_any_owner(
+            conn, ev["id"], "telegram", tg_id)
         if not contact_id:
             return {"tickets": [], "keywords_used": [], "won_prizes": []}
 

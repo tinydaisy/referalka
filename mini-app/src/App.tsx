@@ -510,7 +510,14 @@ export default function App() {
       if (sp && (sp.startsWith('ref') || sp.startsWith('hub'))) {
         parsed = parseStartParam(sp)
         if (parsed.eventSlug) setEventSlug(parsed.eventSlug)
-        if (parsed.clientId)  setClientId(parsed.clientId)
+        // ⚠️ `cid` из ссылки НЕ перебивает клиента из адреса `/c/{N}/tg/`.
+        // Приложение открыто в боте конкретного организатора — оно его и
+        // остаётся. Иначе Mini App Нурии, получив ссылку с cid Лилии,
+        // начинал считать себя приложением Лилии: кнопка «назад» уводила в
+        // ЕЁ хаб, показывался чужой кабинет и чужой календарь, а навигация
+        // прыгала через раз (жалоба 2026-08-18).
+        // Берём cid из ссылки, только если своего адреса нет (общий бот).
+        if (parsed.clientId && !detectClientIdFromPath()) setClientId(parsed.clientId)
         setPartnerId(parsed.partnerId)
         setUtmSource(parsed.utmSource)
         if (parsed.contactId) setContactId(parsed.contactId)
