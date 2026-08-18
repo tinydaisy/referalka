@@ -113,16 +113,28 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
     rooms = await db.fetch("SELECT * FROM webinar_rooms WHERE event_id=$1", event_id)
     rooms_by_day = {r["day_number"]: dict(r) for r in rooms}
 
+    # Дата события — запасной источник для дней без своей даты (см. ниже).
+    start_at = await db.fetchval("SELECT start_at FROM events WHERE id=$1", event_id)
+
     # Событие БЕЗ программы (обычное мероприятие, коллаба) — эфир у него один.
     # Отдаём виртуальный «день 1», иначе вкладка «Вебинарные комнаты» пустая и
     # создать комнату неоткуда. Дата — старт самого события.
     if not days:
-        start_at = await db.fetchval("SELECT start_at FROM events WHERE id=$1", event_id)
         days = [{
             "day_number": 1,
             "day_date": start_at.date() if start_at else None,
             "title": None,
         }]
+    else:
+        # ⚠️ День программы МОЖЕТ БЫТЬ БЕЗ ДАТЫ: у коллабы и у мероприятия дни
+        # часто заводят «пустыми», а дату ставят у самого события. Раньше
+        # подстановка работала только когда дней нет ВОВСЕ — и у события с
+        # пустым днём вебинарная комната показывалась без даты, а человек не
+        # понимал, когда эфир (прод, 2026-08-18).
+        days = [
+            {**dict(d), "day_date": d["day_date"] or (start_at.date() if start_at else None)}
+            for d in days
+        ]
 
     out = []
     for d in days:
