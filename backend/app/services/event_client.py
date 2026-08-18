@@ -111,10 +111,14 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
 
     ⚠️ Только ПОСЛЕ регистрации: до неё почты и телефона нет, раздавать нечего.
 
-    ⚠️ Ищем/создаём контакт у партнёра через `upsert_contact_with_identity` с
-    ПОЧТОЙ как идентичностью (`platform_slug='email'`) — она и есть ключ. Так
-    человек, который уже есть у партнёра, не задвоится: сработает штатный
-    автомердж по почте и телефону.
+    ⚠️ СНАЧАЛА ИЩЕМ человека в базе партнёра ПО ПЛОЩАДОЧНЫМ ID (tg/vk/max), и
+    только не найдя — заводим новый контакт. Человек мог давно запускать бота
+    партнёра: там он лежит без почты, и создание второго контакта по почте дало
+    бы ДУБЛЬ вместо дополнения. Поиск по площадочному id надёжнее почты, потому
+    что почта у пришедшего из бота может отсутствовать вовсе.
+
+    ⚠️ Дописываем ТОЛЬКО ПУСТОЕ (`COALESCE(NULLIF(...))`): у партнёра могут быть
+    свои, более свежие данные, затирать их нельзя.
 
     Идемпотентно; ошибки глушим — это дополнение к регистрации, а не её часть.
     """
@@ -136,16 +140,53 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
         if not row:
             return
         email, phone = (row["email"] or "").strip(), (row["phone"] or "").strip()
-        # Без почты раздавать нечего: телефон без почты не даёт партнёру ни
-        # канала связи в системе, ни надёжного ключа для поиска человека.
-        if not email:
-            return
+        if not email and not phone:
+            return  # раздавать нечего
 
-        from app.services.contact_merge import upsert_contact_with_identity
+        # Площадочные идентичности человека — по ним ищем его у партнёра.
+        idents = await db.fetch(
+            """SELECT platform_slug, platform_user_id FROM platform_users
+                WHERE contact_id = $1 AND platform_slug <> 'email'""",
+            contact_id,
+        )
+
         for cid in owner_ids:
             if cid == row["client_id"]:
-                continue  # у него человек уже есть — это его собственный контакт
+                continue  # это его собственный контакт
             try:
+                # 1) Человек уже есть у партнёра? Ищем по его площадочным id.
+                found = None
+                for i in idents:
+                    found = await db.fetchval(
+                        """SELECT pu.contact_id FROM platform_users pu
+                            WHERE pu.client_id = $1 AND pu.platform_slug = $2
+                              AND pu.platform_user_id = $3 LIMIT 1""",
+                        cid, i["platform_slug"], str(i["platform_user_id"]),
+                    )
+                    if found:
+                        break
+
+                if found:
+                    # Дополняем ПУСТЫЕ поля: телефон в контакте, почту —
+                    # отдельной идентичностью (колонки contacts.email нет).
+                    if phone:
+                        await db.execute(
+                            "UPDATE contacts SET phone = COALESCE(NULLIF(phone,''), $2) WHERE id = $1",
+                            found, phone,
+                        )
+                    if email:
+                        await db.execute(
+                            """INSERT INTO platform_users (client_id, contact_id, platform_slug, platform_user_id)
+                               VALUES ($1, $2, 'email', $3) ON CONFLICT DO NOTHING""",
+                            cid, found, email,
+                        )
+                    continue
+
+                # 2) Не нашли — заводим контакт. Ключ почта; без неё завести
+                #    нечего: телефон идентичностью в системе не является.
+                if not email:
+                    continue
+                from app.services.contact_merge import upsert_contact_with_identity
                 await upsert_contact_with_identity(
                     db, client_id=cid,
                     platform_slug="email", platform_user_id=email,
