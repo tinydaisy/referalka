@@ -17,7 +17,7 @@ export async function initPlatform(): Promise<PlatformAdapter> {
   const sp = new URLSearchParams(window.location.search)
 
   // slug события — из пути `/event/{slug}` (как parsePathSlug в App.tsx).
-  const slugMatch = window.location.pathname.match(/event\/([^/]+)/)
+  const slugMatch = window.location.pathname.match(/(?:event|w)\/([^/]+)/)
   const slug = slugMatch ? slugMatch[1] : ''
 
   // contact_id — кто этот человек (из бота / после регистрации). Опционально.

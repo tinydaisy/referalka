@@ -66,7 +66,7 @@ function parseStartParam(raw: string): {
 }
 
 function parsePathSlug(): string | null {
-  const m = window.location.pathname.match(/event\/([^/]+)/)
+  const m = window.location.pathname.match(/(?:event|w)\/([^/]+)/)
   return m ? m[1] : null
 }
 
