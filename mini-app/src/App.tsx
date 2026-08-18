@@ -675,8 +675,15 @@ export default function App() {
     setPendingOpen(false)
   }
 
+  // Клиент, узнанный ИЗ КОНТАКТА в ссылке (веб-витрина: /event/{slug}?c=N).
+  // В браузере clientId из адреса нет, но по contact_id бэк говорит, чей это
+  // человек, — и «назад» открывает календарь ЕГО организатора, а не пустой
+  // экран выбора событий общего бота.
+  const [contactClientId, setContactClientId] = useState<number | null>(null)
+  const effectiveClientId = clientId ?? contactClientId
+
   function backToHub() {
-    window.history.pushState({}, '', homePath(clientId))
+    window.history.pushState({}, '', homePath(effectiveClientId))
     setEventSlug(null)
   }
 
@@ -708,6 +715,8 @@ export default function App() {
           speakerEcId={speakerEcId}
           botClientId={clientId}
           onBack={backToHub}
+          canGoBack={!!effectiveClientId}
+          onContactClient={setContactClientId}
           onOpenEvent={openEvent}
         />
         {pendingOpen && <SpinnerOverlay />}
@@ -715,10 +724,10 @@ export default function App() {
     )
   }
 
-  if (clientId) {
+  if (effectiveClientId) {
     return (
       <>
-        <Hub clientId={clientId} tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
+        <Hub clientId={effectiveClientId} tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
         {pendingOpen && <SpinnerOverlay />}
       </>
     )

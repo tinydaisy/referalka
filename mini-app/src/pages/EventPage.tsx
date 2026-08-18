@@ -34,6 +34,12 @@ interface Props {
   // его бренд и его политику показываем в согласиях 152-ФЗ.
   botClientId?: number | null
   onBack: () => void
+  /** Есть ли куда возвращаться: в вебе клиент берётся из адреса или из
+   *  контакта в ссылке. Нет клиента — стрелку «назад» не рисуем. */
+  canGoBack?: boolean
+  /** Сообщить наверх, чей это контакт (из ответа участия) — чтобы «назад»
+   *  открыл календарь ЕГО организатора, а не пустой экран общего бота. */
+  onContactClient?: (clientId: number) => void
   onOpenEvent?: (slug: string) => void  // открыть другое событие (для блока «А дальше» в Итогах)
 }
 
@@ -95,7 +101,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, speakerEcId, botClientId, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, speakerEcId, botClientId, onBack, canGoBack = true, onContactClient, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -184,6 +190,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         my_rank:              part.my_rank,
       } : null)
       setPrefill(part?.prefill || null)
+
+      // Чей это контакт — нужно веб-витрине: по «назад» откроем календарь
+      // ЭТОГО организатора, а не пустой экран выбора событий общего бота.
+      const ccid = part?.participant?.contact_client_id
+      if (ccid) onContactClient?.(Number(ccid))
 
       // Если человек когда-то отписался от email — мы заново показываем ему
       // landing с формой регистрации, чтобы он мог снова подписаться (re-opt-in).
@@ -611,12 +622,18 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <div className="grad-header" style={{ padding: '14px 18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-          <button onClick={onBack}
-                  style={{ background: 'rgba(255, 207, 164, 0.15)', border: 'none', color: 'white',
-                           width: 36, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 20,
-                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            ‹
-          </button>
+          {/* ⚠️ Стрелка «назад» — только если есть КУДА возвращаться.
+              В вебе клиент известен либо из адреса, либо из контакта в ссылке;
+              без него возврат высаживал на экран выбора событий общего бота —
+              в браузере он пустой, и человек упирался в тупик. */}
+          {canGoBack && (
+            <button onClick={onBack}
+                    style={{ background: 'rgba(255, 207, 164, 0.15)', border: 'none', color: 'white',
+                             width: 36, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 20,
+                             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              ‹
+            </button>
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={{ color: 'white', fontSize: 15, fontWeight: 700, lineHeight: 1.25,
                          whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>

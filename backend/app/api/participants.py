@@ -857,7 +857,12 @@ async def get_participant_in_event(
     _row_select = """SELECT ep.id, ep.event_id, ep.contact_id, c.ref_code, c.name AS contact_name,
                   ep.is_registered, ep.is_in_chat,
                   ep.registered_at, ep.activated_at, ep.welcomed_at,
-                  e.title AS event_title, e.module_slug
+                  e.title AS event_title, e.module_slug,
+                  -- Чей это контакт. Нужен веб-витрине: по кнопке «назад» она
+                  -- открывает календарь ЭТОГО организатора. Без него человек
+                  -- попадал на экран выбора событий общего бота — в вебе он
+                  -- пустой и там ему делать нечего (прод, 2026-08-18).
+                  c.client_id AS contact_client_id
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id
              JOIN contacts c ON c.id = ep.contact_id"""
