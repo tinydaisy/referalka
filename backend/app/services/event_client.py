@@ -151,6 +151,8 @@ async def resolve_event_client(
     partner_id: Optional[str] = None,
     source_client_id: Optional[int] = None,
     contact_id: Optional[int] = None,
+    platform_slug: Optional[str] = None,
+    platform_user_id: Optional[str] = None,
 ) -> int:
     """В чью базу вести человека. Единственный допустимый способ — см. шапку.
 
@@ -191,6 +193,32 @@ async def resolve_event_client(
                 "SELECT client_id FROM contacts WHERE id = $1", contact_id)
             if await is_event_owner(db, event_id, by_contact):
                 return by_contact
+
+        # 2.5) Контакт не передали, но известен ID человека НА ПЛОЩАДКЕ —
+        # находим его УЖЕ СУЩЕСТВУЮЩЕЕ участие в этом событии и берём базу
+        # оттуда. Самый надёжный признак после «где сидит»: не зависит ни от
+        # ссылки, ни от того, каким запросом пришли. Человек уже был в событии —
+        # значит организатор у него определён, и менять его нельзя.
+        if platform_slug and platform_user_id:
+            by_participation = await db.fetchval(
+                """SELECT c.client_id
+                     FROM event_participants ep
+                     JOIN contacts c ON c.id = ep.contact_id
+                     JOIN platform_users pu
+                       ON pu.contact_id = c.id
+                      AND pu.platform_slug = $2
+                      AND pu.platform_user_id = $3
+                     JOIN event_owners eo
+                       ON eo.client_id = c.client_id
+                      AND eo.event_id = $1
+                      AND eo.status = 'accepted'
+                    WHERE ep.event_id = $1
+                    ORDER BY ep.is_registered DESC, ep.id
+                    LIMIT 1""",
+                event_id, platform_slug, str(platform_user_id),
+            )
+            if by_participation:
+                return by_participation
 
         # 3) Совсем нет контекста (веб-ссылка без кода контакта, вебхук) —
         #    последняя зацепка: чей реф-код в ссылке.

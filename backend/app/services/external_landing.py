@@ -456,9 +456,15 @@ async def resolve_or_create_participant(
     if not platform_user_id:
         return None, None
     try:
+        # ⚠️ Передаём и площадочный id: если человек УЖЕ участник события,
+        # база берётся из его существующего участия — не важно, каким запросом
+        # он пришёл и что было в ссылке. Без этого повторный заход без
+        # контекста заводил ему второй контакт у другого организатора, и
+        # писал чужой бот (прод, 2026-08-18).
         client_id = await _collab_base_client(
             db, event_id=event_id, client_id=client_id,
             partner_id=partner_id, source_client_id=source_client_id,
+            platform_slug=platform_slug, platform_user_id=str(platform_user_id),
         )
 
         row = await db.fetchrow(

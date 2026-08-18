@@ -1172,9 +1172,23 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         sa_parts.append("nolend")
     for fk in landing_flags:
         sa_parts.append(f"q{fk}")
-    startapp = "_".join(sa_parts)
     app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
-    mini_app_link = f"https://telegram.me/{bot_username}{app_part}?startapp={startapp}"
+
+    def _mini_app_link(_contact_id: int | None = None) -> str:
+        """Ссылка в Mini App. ⚠️ С `_ct{id}` — контактом человека В БАЗЕ ЭТОГО
+        БОТА. Бот его знает, а Mini App — нет: Telegram не сообщает странице,
+        чьему боту она принадлежит. Без контакта у КОЛЛАБЫ приложение теряло
+        контекст, и человек уезжал к «первому владельцу» события: писал чужой
+        бот, заводился второй контакт (прод, 2026-08-18).
+        Контакт универсальнее номера клиента — он один на все площадки, и по
+        нему сразу известна база (`contacts.client_id`)."""
+        parts = list(sa_parts)
+        if _contact_id:
+            parts.append(f"ct{_contact_id}")
+        return f"https://telegram.me/{bot_username}{app_part}?startapp={'_'.join(parts)}"
+
+    # Пока контакт не резолвлен (он определяется ниже) — ссылка без него.
+    mini_app_link = _mini_app_link()
 
     from app.services.external_landing import (
         resolve_or_create_participant,
@@ -1244,6 +1258,12 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
                 known_contact_id=known_contact_id, partner_id=pid,
                 source_client_id=_bot_cid,
             )
+
+        # Контакт известен → пересобираем ссылку Mini App вместе с ним.
+        # ⚠️ Без этого приложение открывается «ничьим» и у коллабы уводит
+        # человека к «первому владельцу» события (см. _mini_app_link).
+        if contact_id:
+            mini_app_link = _mini_app_link(contact_id)
 
         # ── МедиаЛифт: своя многоуровневая воронка ПРЯМО В БОТЕ ──────────────
         # Не зависит от Mini App (у @pluson_bot он может быть не подключён):
