@@ -143,6 +143,19 @@ async def register_participant(
         known_contact_id=data.contact_id,
     )
 
+    # ⚠️ КОЛЛАБА: человек заводится в базе КАЖДОГО организатора — они
+    # равноправны, событие общее, и обмен аудиторией и есть смысл коллабы
+    # (решение владельца, 2026-08-18). Контакт у каждого клиента свой, это не
+    # дубль. Для основного организатора (где мы уже создали контакт выше)
+    # вызов просто ничего не изменит.
+    from app.services.event_client import mirror_contact_to_all_owners
+    await mirror_contact_to_all_owners(
+        db, event_id=event["id"], contact_id=contact_id,
+        platform_slug=data.platform, platform_user_id=str(data.tg_id),
+        username=reg_username, first_name=reg_first, last_name=reg_last,
+        email=data.email, phone=data.phone,
+    )
+
     # Сохраняем согласия (152-ФЗ).
     # consent_pd обязательно True если форма передаёт — фиксируем дату/IP/версию политики.
     # consent_marketing → если False (или не передано), email-подписка остаётся отписанной;
