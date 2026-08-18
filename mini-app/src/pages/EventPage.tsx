@@ -69,17 +69,12 @@ const NAV_ENDED: NavItem[] = [
   { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
   { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]
-// Веб-витрина (pluson.ru/event/{slug}) для незарегистрированного гостя:
-// публичные вкладки открыты (Программа/Спикеры/Экосистема), а персональные
-// (Подарки/Розыгрыш) — под замком, т.к. требуют участника/contact_id.
-const NAV_WEB_PUBLIC: NavItem[] = [
-  { id: 'landing',   label: 'Лендинг',    icon: 'landing'   },
-  { id: 'program',   label: 'Программа',  icon: 'program'   },
-  { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
-  { id: 'game',      label: 'Подарки',    icon: 'game',      locked: true },
-  { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
-  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
-]
+// ⚠️ Отдельного набора вкладок для веба БЫТЬ НЕ ДОЛЖНО. Раньше здесь лежал
+// NAV_WEB_PUBLIC, где незарегистрированному гостю Программа и Спикеры были
+// ОТКРЫТЫ, — и человек видел разное в браузере и в приложении, хотя код общий.
+// Незарегистрированный везде видит один и тот же набор с замками (NAV_NOT_REG):
+// замок объясняет, что нужно зарегистрироваться, и это одинаково честно на
+// любой площадке.
 
 function isEnded(event: any): boolean {
   if (event?.status === 'ended') return true
@@ -343,13 +338,13 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     (n.id !== 'raffle'   || raffleOn)
   ).map(applyLabel)
 
-  const isWeb = getPlatformName() === 'web'
   const navItemsEnded = participant
     ? filterByEnabled(NAV_ENDED)
     : filterByEnabled(NAV_ENDED).filter(n => n.id !== 'game')
   let navItems = state === 'not_registered'
-                     // Веб-витрина без регистрации: публичные вкладки открыты.
-                     ? (isWeb ? filterByEnabled(NAV_WEB_PUBLIC) : filterByEnabled(NAV_NOT_REG))
+                     // Один набор на все площадки: в вебе и в приложении
+                     // незарегистрированный видит одинаковые вкладки с замками.
+                     ? filterByEnabled(NAV_NOT_REG)
                  : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
   // Прямая ссылка на карточку спикера — вкладка «Спикеры» доступна как витрина,
