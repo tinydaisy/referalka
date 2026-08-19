@@ -343,8 +343,13 @@ async def check_dns(domain_id: int,
     return {"result": details, "domain": _serialize(updated)}
 
 
+class IssueCertIn(BaseModel):
+    source: str = "letsencrypt"   # letsencrypt | zerossl
+
+
 @router.post("/{domain_id}/issue-cert")
 async def issue_cert(domain_id: int,
+                     data: IssueCertIn | None = None,
                      user: dict = Depends(get_current_client),
                      db: asyncpg.Connection = Depends(get_db)):
     client_id = int(user["sub"])
@@ -368,8 +373,11 @@ async def issue_cert(domain_id: int,
         )
 
     domain = row["domain"]
+    source = (data.source if data else "letsencrypt")
+    if source not in ("letsencrypt", "zerossl"):
+        raise HTTPException(status_code=400, detail="Неизвестный способ выпуска")
     try:
-        expires = certs.issue_certificate(domain)
+        expires = certs.issue_certificate(domain, source=source)
     except certs.CertError as e:
         await db.execute(
             "UPDATE client_domains SET status='error', last_error=$2, "
@@ -391,6 +399,81 @@ async def issue_cert(domain_id: int,
     )
     cd.invalidate_cache(client_id=client_id, domain=domain)
     return _serialize(updated)
+
+
+class UploadCertIn(BaseModel):
+    certificate: str
+    private_key: str
+
+
+@router.get("/{domain_id}/cert-sources", summary="Способы получить сертификат")
+async def cert_sources(domain_id: int,
+                       user: dict = Depends(get_current_client),
+                       db: asyncpg.Connection = Depends(get_db)):
+    """Какие карточки показывать клиенту. ⚠️ ZeroSSL не выдаёт сертификаты
+    на .ru — для таких доменов карточку не показываем вовсе, чтобы клиент
+    не упирался в отказ."""
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    row = await _get_row(db, client_id, domain_id)
+    return {"sources": certs.cert_sources_for(row["domain"]),
+            "domain": row["domain"]}
+
+
+@router.post("/{domain_id}/upload-cert", summary="Загрузить свой сертификат")
+async def upload_cert(domain_id: int, data: UploadCertIn,
+                      user: dict = Depends(get_current_client),
+                      db: asyncpg.Connection = Depends(get_db)):
+    """Установить сертификат, полученный клиентом у своего регистратора.
+
+    ⚠️ Проверка идёт ДО записи: неверная пара «сертификат+ключ» роняет nginx
+    и уносит ВСЕ сайты сервера, не только этот домен.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_edit(user)
+    row = await _get_row(db, client_id, domain_id)
+
+    if row["kind"] != "landing":
+        raise HTTPException(status_code=400,
+                            detail="Сертификат нужен только домену страниц")
+
+    domain = row["domain"]
+    try:
+        res = certs.install_uploaded_cert(domain, data.certificate, data.private_key)
+    except certs.CertError as e:
+        await db.execute(
+            "UPDATE client_domains SET status='error', last_error=$2, "
+            "       last_error_at=NOW(), updated_at=NOW() WHERE id=$1",
+            domain_id, str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+    updated = await db.fetchrow(
+        """
+        UPDATE client_domains
+           SET status='active', cert_issued_at = NOW(), cert_expires_at = $2,
+               cert_name = $3, last_error = NULL, last_error_at = NULL,
+               updated_at = NOW()
+         WHERE id = $1
+        RETURNING *
+        """,
+        domain_id, res["expires_at"], domain)
+    cd.invalidate_cache(client_id=client_id, domain=domain)
+    out = _serialize(updated)
+    out["cert_issuer"] = res["issuer"]
+    return out
+
+
+@router.post("/{domain_id}/check-cert", summary="Проверить сертификат по сети")
+async def check_cert(domain_id: int,
+                     user: dict = Depends(get_current_client),
+                     db: asyncpg.Connection = Depends(get_db)):
+    """Что РЕАЛЬНО видит посетитель. ⚠️ Смотрим по сети, а не файл на диске:
+    файл может быть свежим, а домен уведён или nginx не перечитал конфиг."""
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    row = await _get_row(db, client_id, domain_id)
+    return certs.live_cert_info(row["domain"])
 
 
 @router.patch("/{domain_id}")

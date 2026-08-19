@@ -23,8 +23,10 @@ ECDSA и снова потерять часть аудитории.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -44,10 +46,14 @@ class CertError(Exception):
     """Не удалось выпустить сертификат или подключить домен."""
 
 
-def _run(cmd: list[str], *, timeout: int = 180) -> tuple[int, str]:
+def _run(cmd: list[str], *, timeout: int = 180,
+         stdin_null: bool = False) -> tuple[int, str]:
+    """stdin_null=True нужен openssl s_client — без закрытого stdin он висит,
+    ожидая ввода, и упирается в таймаут."""
     try:
         p = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=timeout, check=False)
+                           timeout=timeout, check=False,
+                           stdin=subprocess.DEVNULL if stdin_null else None)
         return p.returncode, ((p.stdout or "") + (p.stderr or "")).strip()
     except subprocess.TimeoutExpired:
         return 124, f"Команда не уложилась в {timeout} с"
@@ -91,8 +97,14 @@ server {{
 """
 
 
-def _full_config(domain: str) -> str:
-    """Боевой конфиг: 80 → редирект, 443 с сертификатом и общими location."""
+def _full_config(domain: str, cert_path: str = "", key_path: str = "") -> str:
+    """Боевой конфиг: 80 → редирект, 443 с сертификатом и общими location.
+
+    Пути к сертификату зависят от источника: Let's Encrypt и ZeroSSL пишут
+    в свои каталоги, загруженный клиентом лежит в UPLOADED_DIR.
+    """
+    cert_path = cert_path or f"/etc/letsencrypt/live/{domain}/fullchain.pem"
+    key_path = key_path or f"/etc/letsencrypt/live/{domain}/privkey.pem"
     return f"""# Домен клиента {domain} — публичные страницы ПЛЮСОНа на своём домене.
 # Создаётся автоматически (миграция 270). Руками не править:
 # при перевыпуске сертификата файл перезаписывается.
@@ -113,8 +125,8 @@ server {{
     listen 443 ssl;
     server_name {domain};
 
-    ssl_certificate     /etc/letsencrypt/live/{domain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;
+    ssl_certificate     {cert_path};
+    ssl_certificate_key {key_path};
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
@@ -123,9 +135,11 @@ server {{
 """
 
 
-def write_site_config(domain: str, *, with_ssl: bool) -> None:
+def write_site_config(domain: str, *, with_ssl: bool,
+                      cert_path: str = "", key_path: str = "") -> None:
     domain = domain.strip().lower()
-    body = _full_config(domain) if with_ssl else _http_only_config(domain)
+    body = (_full_config(domain, cert_path, key_path) if with_ssl
+            else _http_only_config(domain))
     _site_path(domain).write_text(body, encoding="utf-8")
 
 
@@ -176,7 +190,73 @@ def cert_expiry(domain: str) -> Optional[datetime]:
             return None
 
 
-def issue_certificate(domain: str, *, force: bool = False) -> datetime:
+def _file_expiry(path) -> Optional[datetime]:
+    """Срок действия сертификата из файла на диске."""
+    code, out = _run(["openssl", "x509", "-in", str(path), "-noout", "-enddate"],
+                     timeout=30)
+    if code != 0:
+        return None
+    m = re.search(r"notAfter=(.+)", out)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1).strip(), "%b %d %H:%M:%S %Y %Z").replace(
+            tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+ACME_SH = "/root/.acme.sh/acme.sh"
+ZEROSSL_DIR = Path("/root/.acme.sh")
+
+
+def zerossl_available(domain: str) -> bool:
+    """Можно ли выпустить сертификат ZeroSSL для этого домена.
+
+    ⚠️ ZeroSSL (Sectigo) НЕ выдаёт сертификаты на зону .ru — отвечает
+    rejectedIdentifier «DNS identifier is disallowed». Проверено на четырёх
+    доменах; .online при этом выпускается за минуту. Это блокировка по зоне,
+    а не ошибка настройки, поэтому для .ru карточку даже не показываем.
+    """
+    d = domain.strip().lower()
+    if d.endswith(".ru") or d.endswith(".su") or d.endswith(".рф"):
+        return False
+    return Path(ACME_SH).exists()
+
+
+def cert_sources_for(domain: str) -> list[str]:
+    """Какие способы получить сертификат доступны этому домену."""
+    out = ["letsencrypt"]
+    if zerossl_available(domain):
+        out.append("zerossl")
+    out.append("upload")
+    return out
+
+
+def _issue_zerossl(domain: str, force: bool) -> None:
+    """Выпуск через ZeroSSL (acme.sh). Корень Sectigo USERTrust — старый,
+    известен и старым устройствам, в отличие от нового корня Let's Encrypt."""
+    cmd = [ACME_SH, "--home", str(ZEROSSL_DIR), "--issue",
+           "-d", domain, "-w", "/var/www/html",
+           "--server", "zerossl", "--keylength", "2048"]
+    if force:
+        cmd.append("--force")
+    code, out = _run(cmd, timeout=300)
+    if code != 0 and "Cert success" not in out:
+        if "disallowed" in out:
+            raise CertError(
+                "ZeroSSL не выдаёт сертификаты для этой доменной зоны. "
+                "Выберите другой способ.")
+        raise CertError(f"ZeroSSL не выпустил сертификат: {out[-300:]}")
+
+
+def zerossl_paths(domain: str) -> tuple[Path, Path]:
+    d = ZEROSSL_DIR / domain.strip().lower()
+    return d / "fullchain.cer", d / f"{domain.strip().lower()}.key"
+
+
+def issue_certificate(domain: str, *, force: bool = False,
+                      source: str = "letsencrypt") -> datetime:
     """Выпустить сертификат и подключить домен к nginx. Вернуть дату окончания.
 
     Порядок важен: сначала временный HTTP-конфиг (иначе certbot не пройдёт
@@ -211,23 +291,222 @@ def issue_certificate(domain: str, *, force: bool = False) -> datetime:
     if force:
         cmd.append("--force-renewal")
 
-    code, out = _run(cmd, timeout=300)
-    if code != 0:
-        # Конфиг оставляем: домен уже ведёт на нас, и 80-й порт с редиректом
-        # лучше, чем полное отсутствие ответа. Клиент увидит ошибку в кабинете.
-        raise CertError(_humanize_certbot_error(out))
+    if source == "zerossl":
+        if not zerossl_available(domain):
+            raise CertError(
+                "ZeroSSL не выдаёт сертификаты для этой доменной зоны. "
+                "Выберите другой способ.")
+        _issue_zerossl(domain, force)
+        cert_path, key_path = zerossl_paths(domain)
+    else:
+        code, out = _run(cmd, timeout=300)
+        if code != 0:
+            # Конфиг оставляем: домен уже ведёт на нас, и 80-й порт с редиректом
+            # лучше, чем полное отсутствие ответа. Клиент увидит ошибку в кабинете.
+            raise CertError(_humanize_certbot_error(out))
+        cert_path = Path(f"/etc/letsencrypt/live/{domain}/fullchain.pem")
+        key_path = Path(f"/etc/letsencrypt/live/{domain}/privkey.pem")
 
     # 3. Боевой конфиг с 443.
-    write_site_config(domain, with_ssl=True)
+    write_site_config(domain, with_ssl=True,
+                      cert_path=str(cert_path), key_path=str(key_path))
     ok, out = nginx_reload()
     if not ok:
         raise CertError(f"Сертификат выпущен, но nginx не принял конфиг: {out[:400]}")
 
-    exp = cert_expiry(domain)
+    exp = cert_expiry(domain) if source != "zerossl" else _file_expiry(cert_path)
     if exp is None:
         raise CertError("Сертификат выпущен, но не удалось прочитать срок действия")
     logger.info("Сертификат для %s выпущен до %s", domain, exp)
     return exp
+
+
+# ── загруженный клиентом сертификат ─────────────────────────────────────────
+UPLOADED_DIR = Path("/etc/ssl/plusson-uploaded")
+
+
+def uploaded_paths(domain: str) -> tuple[Path, Path]:
+    """Пути к загруженному клиентом сертификату и ключу."""
+    d = UPLOADED_DIR / domain.strip().lower()
+    return d / "fullchain.pem", d / "privkey.pem"
+
+
+def _pem_blocks(text: str, kind: str) -> list[str]:
+    """Вырезать из текста все блоки нужного типа. Клиент вставляет как есть —
+    с пояснениями, лишними переводами строк и подписью письма."""
+    pat = re.compile(
+        rf"-----BEGIN [A-Z ]*{kind}-----.*?-----END [A-Z ]*{kind}-----",
+        re.S)
+    return pat.findall(text or "")
+
+
+def validate_uploaded_cert(domain: str, cert_text: str, key_text: str) -> dict:
+    """Проверить загруженный сертификат ДО установки.
+
+    ⚠️ Проверяем всё до записи в nginx: неверная пара «сертификат+ключ»
+    роняет nginx целиком, а вместе с ним ВСЕ сайты на сервере.
+    Возвращает {ok, error, issuer, expires_at, domains}.
+    """
+    domain = domain.strip().lower()
+
+    certs = _pem_blocks(cert_text, "CERTIFICATE")
+    if not certs:
+        return {"ok": False, "error":
+                "Не нашли сертификат. Нужен текст, начинающийся с "
+                "-----BEGIN CERTIFICATE-----"}
+    keys = _pem_blocks(key_text, "PRIVATE KEY")
+    if not keys:
+        return {"ok": False, "error":
+                "Не нашли приватный ключ. Нужен текст, начинающийся с "
+                "-----BEGIN PRIVATE KEY----- или -----BEGIN RSA PRIVATE KEY-----"}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cp = Path(tmp) / "c.pem"
+        kp = Path(tmp) / "k.pem"
+        cp.write_text("\n".join(certs) + "\n", encoding="utf-8")
+        kp.write_text(keys[0] + "\n", encoding="utf-8")
+
+        leaf = Path(tmp) / "leaf.pem"
+        leaf.write_text(certs[0] + "\n", encoding="utf-8")
+
+        # 1) сертификат вообще читается
+        code, out = _run(["openssl", "x509", "-in", str(leaf), "-noout",
+                          "-subject", "-issuer", "-enddate"], timeout=30)
+        if code != 0:
+            return {"ok": False, "error": "Файл сертификата повреждён или это не сертификат"}
+        info = out
+
+        # 2) ключ читается и ПОДХОДИТ к сертификату
+        c1, m_cert = _run(["openssl", "x509", "-in", str(leaf), "-noout", "-modulus"], timeout=30)
+        c2, m_key = _run(["openssl", "rsa", "-in", str(kp), "-noout", "-modulus"], timeout=30)
+        if c2 != 0:
+            return {"ok": False, "error": "Приватный ключ повреждён или защищён паролем"}
+        if c1 != 0 or m_cert.strip() != m_key.strip():
+            return {"ok": False, "error":
+                    "Приватный ключ не подходит к сертификату — это ключ от другого "
+                    "сертификата. Возьмите оба файла из одного заказа."}
+
+        # 3) сертификат выписан на ЭТОТ домен
+        _, txt = _run(["openssl", "x509", "-in", str(leaf), "-noout", "-text"], timeout=30)
+        names = set(re.findall(r"DNS:([^\s,]+)", txt))
+        cn = re.search(r"Subject:.*?CN\s*=\s*([^\s,/]+)", txt)
+        if cn:
+            names.add(cn.group(1))
+        if not _covers_domain(names, domain):
+            got = ", ".join(sorted(names)[:5]) or "—"
+            return {"ok": False, "error":
+                    f"Сертификат выписан на другой домен ({got}), а не на {domain}"}
+
+        # 4) срок не истёк
+        code, _ = _run(["openssl", "x509", "-in", str(leaf), "-noout", "-checkend", "0"], timeout=30)
+        if code != 0:
+            return {"ok": False, "error": "Срок действия сертификата уже истёк"}
+
+    issuer = re.search(r"issuer=.*?CN\s*=\s*([^\n/]+)", info)
+    exp = re.search(r"notAfter=(.+)", info)
+    expires_at = None
+    if exp:
+        try:
+            expires_at = datetime.strptime(exp.group(1).strip(),
+                                           "%b %d %H:%M:%S %Y %Z")
+        except Exception:
+            pass
+    return {"ok": True, "error": None,
+            "issuer": (issuer.group(1).strip() if issuer else "—"),
+            "expires_at": expires_at,
+            "domains": sorted(names)}
+
+
+def _covers_domain(names: set[str], domain: str) -> bool:
+    """Покрывает ли сертификат домен (с учётом wildcard *.example.ru)."""
+    for n in names:
+        n = n.strip().lower()
+        if n == domain:
+            return True
+        if n.startswith("*.") and domain.endswith(n[1:]) and \
+                domain.count(".") == n.count("."):
+            return True
+    return False
+
+
+def install_uploaded_cert(domain: str, cert_text: str, key_text: str) -> dict:
+    """Проверить и установить загруженный клиентом сертификат.
+
+    ⚠️ Сначала полная проверка (validate_uploaded_cert), только потом запись:
+    неверная пара кладёт nginx и уносит ВСЕ сайты сервера.
+    ⚠️ При неудачном reload откатываемся на прежний конфиг — иначе домен
+    остаётся без сайта.
+    """
+    domain = domain.strip().lower()
+    res = validate_uploaded_cert(domain, cert_text, key_text)
+    if not res["ok"]:
+        raise CertError(res["error"])
+
+    certs = _pem_blocks(cert_text, "CERTIFICATE")
+    keys = _pem_blocks(key_text, "PRIVATE KEY")
+
+    cert_path, key_path = uploaded_paths(domain)
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(cert_path.parent, 0o700)
+
+    prev = _site_path(domain).read_text(encoding="utf-8") if _site_path(domain).exists() else None
+
+    cert_path.write_text("\n".join(certs) + "\n", encoding="utf-8")
+    key_path.write_text(keys[0] + "\n", encoding="utf-8")
+    os.chmod(cert_path, 0o644)
+    os.chmod(key_path, 0o600)
+
+    write_site_config(domain, with_ssl=True,
+                      cert_path=str(cert_path), key_path=str(key_path))
+    ok, out = nginx_reload()
+    if not ok:
+        if prev is not None:
+            _site_path(domain).write_text(prev, encoding="utf-8")
+        else:
+            remove_site_config(domain)
+        _run(["systemctl", "reload", "nginx"], timeout=30)
+        raise CertError(f"nginx не принял сертификат: {out[:300]}")
+
+    logger.info("Загружен сертификат для %s (%s, до %s)",
+                domain, res["issuer"], res["expires_at"])
+    return res
+
+
+def live_cert_info(domain: str) -> dict:
+    """Что РЕАЛЬНО отдаётся посетителю — проверка по сети, а не по файлу.
+
+    ⚠️ Смотрим глазами посетителя: файл на диске может быть свежим, а домен
+    уведён на чужой сервер, или nginx не перечитал конфиг.
+    """
+    domain = domain.strip().lower()
+    code, out = _run([
+        "openssl", "s_client", "-connect", f"{domain}:443",
+        "-servername", domain, "-verify_return_error"], timeout=25, stdin_null=True)
+    if "BEGIN CERTIFICATE" not in out:
+        return {"ok": False, "error": "Сайт не отвечает по HTTPS"}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "s.pem"
+        blocks = _pem_blocks(out, "CERTIFICATE")
+        if not blocks:
+            return {"ok": False, "error": "Сервер не отдал сертификат"}
+        p.write_text(blocks[0] + "\n", encoding="utf-8")
+        _, info = _run(["openssl", "x509", "-in", str(p), "-noout",
+                        "-issuer", "-enddate"], timeout=20)
+
+    issuer = re.search(r"CN\s*=\s*([^\n/]+)", info)
+    exp = re.search(r"notAfter=(.+)", info)
+    expires_at = None
+    if exp:
+        try:
+            expires_at = datetime.strptime(exp.group(1).strip(), "%b %d %H:%M:%S %Y %Z")
+        except Exception:
+            pass
+    days = (expires_at - datetime.utcnow()).days if expires_at else None
+    return {"ok": True, "error": None,
+            "issuer": (issuer.group(1).strip() if issuer else "—"),
+            "expires_at": expires_at, "days_left": days,
+            "chain_len": len(_pem_blocks(out, "CERTIFICATE"))}
 
 
 def revoke_domain(domain: str) -> None:

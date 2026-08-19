@@ -288,10 +288,22 @@ export default function DomainsTab() {
     }
   }
 
-  const issueCert = async (id: number) => {
+  const [certInfo, setCertInfo] = useState<Record<number, any>>({})
+
+  const checkCert = async (id: number) => {
     setBusyId(id)
     try {
-      await api.miniApp.domains.issueCert(id)
+      const r: any = await api.miniApp.domains.checkCert(id)
+      setCertInfo(prev => ({ ...prev, [id]: r }))
+    } catch (e: any) {
+      setCertInfo(prev => ({ ...prev, [id]: { ok: false, error: e?.message || 'Ошибка' } }))
+    } finally { setBusyId(null) }
+  }
+
+  const issueCert = async (id: number, source: 'letsencrypt' | 'zerossl' = 'letsencrypt') => {
+    setBusyId(id)
+    try {
+      await api.miniApp.domains.issueCert(id, source)
       await load()
       alert('Сертификат выпущен — домен работает.')
     } catch (e: any) {
@@ -476,15 +488,34 @@ export default function DomainsTab() {
                   {busyId === d.id ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                   Проверить DNS
                 </button>
-                {d.status !== 'active' && (
-                  <button onClick={() => issueCert(d.id)}
-                          disabled={busyId === d.id || !d.dns_ok}
-                          className="btn-gold inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                          title={!d.dns_ok ? 'Сначала проверьте DNS' : ''}>
-                    <ShieldCheck size={15} /> Выпустить сертификат
+                {d.status === 'active' && (
+                  <button onClick={() => checkCert(d.id)} disabled={busyId === d.id}
+                          className="btn-primary inline-flex items-center gap-2">
+                    <ShieldCheck size={15} /> Проверить сертификат
                   </button>
                 )}
               </div>
+
+              {d.status === 'active' && certInfo[d.id] && (
+                <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${
+                  certInfo[d.id].ok ? 'bg-emerald-50 text-emerald-900' : 'bg-red-50 text-red-900'}`}>
+                  {certInfo[d.id].ok ? (
+                    <>
+                      <b>Сертификат работает.</b> Выдал: {certInfo[d.id].issuer}.
+                      {certInfo[d.id].days_left != null &&
+                        ` Осталось ${certInfo[d.id].days_left} дн.`}
+                    </>
+                  ) : (
+                    <><b>Не работает.</b> {certInfo[d.id].error}</>
+                  )}
+                </div>
+              )}
+
+              {d.status !== 'active' && d.dns_ok && (
+                <CertPicker domain={d} busy={busyId === d.id}
+                            onIssue={(src) => issueCert(d.id, src)}
+                            onUploaded={load} />
+              )}
               {d.status !== 'active' && !d.dns_ok && (
                 <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
                   <Clock size={12} /> Сертификат можно выпустить после того, как домен начнёт вести на нас.
@@ -660,6 +691,133 @@ function MailDomainCard({ d, busy, onCheck, onRemove, onSave }: {
           Сохранить
         </button>
       </div>
+    </div>
+  )
+}
+
+
+/** Карточки выбора: как получить сертификат.
+ *
+ * ⚠️ ZeroSSL показывается ТОЛЬКО для не-.ru доменов — Sectigo отвечает
+ * «DNS identifier is disallowed» на всю зону .ru (проверено на четырёх
+ * доменах, .online при этом выпускается). Список доступных вариантов
+ * решает бэкенд, здесь его не дублируем.
+ */
+function CertPicker({ domain, busy, onIssue, onUploaded }: {
+  domain: any
+  busy: boolean
+  onIssue: (src: 'letsencrypt' | 'zerossl') => void
+  onUploaded: () => void
+}) {
+  const [sources, setSources] = useState<string[]>([])
+  const [openUpload, setOpenUpload] = useState(false)
+  const [cert, setCert] = useState('')
+  const [key, setKey] = useState('')
+  const [err, setErr] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.miniApp.domains.certSources(domain.id)
+      .then((r: any) => setSources(r.sources || []))
+      .catch(() => setSources(['letsencrypt', 'upload']))
+  }, [domain.id])
+
+  const upload = async () => {
+    setErr(''); setSaving(true)
+    try {
+      await api.miniApp.domains.uploadCert(domain.id,
+        { certificate: cert, private_key: key })
+      setOpenUpload(false); setCert(''); setKey('')
+      onUploaded()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось установить сертификат')
+    } finally { setSaving(false) }
+  }
+
+  const Card = ({ children }: any) => (
+    <div className="flex-1 min-w-[240px] rounded-2xl border border-slate-200 bg-white p-4 flex flex-col">
+      {children}
+    </div>
+  )
+
+  return (
+    <div className="mt-4">
+      <h4 className="font-semibold text-slate-900">Чтобы ваш сайт открывался у всех</h4>
+      <p className="text-sm text-slate-600 mt-1 mb-3">
+        Без сертификата браузеры вообще не пускают на сайт. Выберите, как его получить:
+      </p>
+
+      <div className="flex flex-wrap gap-3">
+        <Card>
+          <div className="font-semibold text-slate-900">Let’s Encrypt</div>
+          <div className="text-xs text-slate-500 mt-0.5">Бесплатно</div>
+          <p className="text-sm text-slate-600 mt-2">Обновляется само.</p>
+          <p className="text-sm text-amber-700 mt-2 flex-1">
+            ⚠️ У части людей со старыми телефонами и компьютерами сайт может не открыться.
+          </p>
+          <button onClick={() => onIssue('letsencrypt')} disabled={busy}
+                  className="btn-primary mt-3 w-full justify-center inline-flex items-center gap-2">
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+            Получить
+          </button>
+        </Card>
+
+        {sources.includes('zerossl') && (
+          <Card>
+            <div className="font-semibold text-slate-900">ZeroSSL</div>
+            <div className="text-xs text-slate-500 mt-0.5">Бесплатно</div>
+            <p className="text-sm text-slate-600 mt-2">Обновляется само.</p>
+            <p className="text-sm text-emerald-700 mt-2 flex-1">
+              ✅ Открывается у всех.
+            </p>
+            <button onClick={() => onIssue('zerossl')} disabled={busy}
+                    className="btn-gold mt-3 w-full justify-center inline-flex items-center gap-2">
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+              Получить
+            </button>
+          </Card>
+        )}
+
+        <Card>
+          <div className="font-semibold text-slate-900">Свой сертификат</div>
+          <p className="text-sm text-slate-600 mt-2 flex-1">
+            Бесплатный сертификат часто дают там, где вы покупали домен.
+            Например, у reg.ru в разделе «SSL-сертификаты» есть
+            «Бесплатный SSL-сертификат» от GlobalSign.
+          </p>
+          <button onClick={() => setOpenUpload(v => !v)}
+                  className="btn-primary mt-3 w-full justify-center">
+            Загрузить
+          </button>
+        </Card>
+      </div>
+
+      {openUpload && (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm text-slate-700 mb-3">
+            Скопируйте из личного кабинета регистратора <b>два блока текста</b> и вставьте сюда.
+          </p>
+          <label className="block text-sm font-medium text-slate-800 mb-1">
+            Сертификат <span className="font-normal text-slate-500">— начинается с -----BEGIN CERTIFICATE-----</span>
+          </label>
+          <textarea value={cert} onChange={e => setCert(e.target.value)} rows={5}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono text-xs" />
+          <p className="text-xs text-slate-500 mt-1 mb-3">
+            Если регистратор прислал ещё «промежуточный сертификат» — вставьте его следом, в это же поле.
+          </p>
+          <label className="block text-sm font-medium text-slate-800 mb-1">
+            Приватный ключ <span className="font-normal text-slate-500">— начинается с -----BEGIN PRIVATE KEY-----</span>
+          </label>
+          <textarea value={key} onChange={e => setKey(e.target.value)} rows={5}
+                    className="w-full rounded-xl border border-slate-300 p-2 font-mono text-xs" />
+          {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
+          <button onClick={upload} disabled={saving || !cert.trim() || !key.trim()}
+                  className="btn-gold mt-3 inline-flex items-center gap-2 disabled:opacity-40">
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+            Установить
+          </button>
+        </div>
+      )}
     </div>
   )
 }

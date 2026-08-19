@@ -1251,8 +1251,20 @@ export const api = {
         request(`/api/v1/clients/me/domains/${id}/check-dns`, { method: 'POST' }),
       // Выпуск доступен только после успешной проверки DNS — иначе Let's Encrypt
       // упрётся в лимит неудачных попыток (5 в час на домен).
-      issueCert: (id: number) =>
-        request(`/api/v1/clients/me/domains/${id}/issue-cert`, { method: 'POST' }),
+      issueCert: (id: number, source: 'letsencrypt' | 'zerossl' = 'letsencrypt') =>
+        request(`/api/v1/clients/me/domains/${id}/issue-cert`,
+                { method: 'POST', body: JSON.stringify({ source }) }),
+      // Какие способы доступны домену. ⚠️ ZeroSSL не выдаёт сертификаты на .ru —
+      // для таких доменов бэкенд не вернёт этот вариант, карточку не рисуем.
+      certSources: (id: number) =>
+        request(`/api/v1/clients/me/domains/${id}/cert-sources`),
+      // Загрузка своего сертификата (получен клиентом у регистратора домена).
+      uploadCert: (id: number, data: { certificate: string; private_key: string }) =>
+        request(`/api/v1/clients/me/domains/${id}/upload-cert`,
+                { method: 'POST', body: JSON.stringify(data) }),
+      // Проверка ПО СЕТИ: что реально видит посетитель, а не что лежит на диске.
+      checkCert: (id: number) =>
+        request(`/api/v1/clients/me/domains/${id}/check-cert`, { method: 'POST' }),
       update: (id: number, data: any) =>
         request(`/api/v1/clients/me/domains/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       // Что открывается на КОРНЕ домена (миграция 278): витрина событий,
