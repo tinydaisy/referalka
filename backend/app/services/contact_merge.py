@@ -184,7 +184,30 @@ async def find_or_create_contact(
             db, client_id=client_id, contact_id=contact_id,
             email=email_norm, first_name=name,
         )
+    await _after_contact_created(db, client_id)
     return contact_id, True
+
+
+async def _after_contact_created(db, client_id: int) -> None:
+    """Проверка лимита контактов тарифа после создания нового контакта.
+
+    ⚠️ Вызывается ПОСЛЕ вставки, а не до: контакт создаётся всегда, даже сверх
+    лимита (человек сам пришёл в бот — терять его нельзя). Проверка лишь
+    переводит клиента на подходящий тариф и шлёт уведомления.
+
+    ⚠️ Никогда не бросает исключение — сбой проверки не должен ронять
+    регистрацию человека.
+    """
+    try:
+        from app.services.contact_limits import check_contact_limit
+        from app.services.contact_limit_notify import notify_contact_limit
+        event = await check_contact_limit(db, client_id)
+        if event:
+            await notify_contact_limit(db, client_id, event)
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(
+            "contact limit hook failed (client %s): %s", client_id, e)
 
 
 async def _generate_unique_ref_code(db, max_tries: int = 10) -> str:
@@ -681,6 +704,8 @@ async def _upsert_contact_with_identity_locked(
         platform_meta=platform_meta,
     )
 
+    if is_new:
+        await _after_contact_created(db, client_id)
     return contact_id, pu_id, is_new
 
 

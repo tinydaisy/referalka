@@ -146,12 +146,23 @@ async def _store_bytes_in_r2(
 
 async def store_media_from_url(
     *, client_id: int, contact_id: Optional[int], message_id: Optional[int],
-    file_url: str, media_kind: str,
+    file_url: str, media_kind: str, file_name: Optional[str] = None,
 ) -> Optional[str]:
     """Скачать файл по временному URL (TG getFile / VK / MAX) и положить в R2.
 
     Голосовые сюда не передаём (их не храним). Возвращает постоянный R2 URL.
+
+    ⚠️ Запрещённые типы (п. 7.10 Оферты) НЕ скачиваем вовсе: файл присылает
+    участник, и запретить ему выбрать .exe мы не можем — значит просто не
+    кладём такое в хранилище. Само сообщение при этом сохраняется, теряется
+    только вложение.
     """
+    from app.services.file_safety import is_blocked_file
+    _name = file_name or file_url.split("/")[-1].split("?")[0]
+    if is_blocked_file(_name):
+        log.info("dialog media skipped (blocked type): %s", _name)
+        return None
+
     try:
         async with httpx.AsyncClient(timeout=30) as http:
             r = await http.get(file_url)
@@ -176,6 +187,12 @@ async def store_media_from_url(
         ext = ct_map[ct]
     elif "." in file_url.split("/")[-1].split("?")[0]:
         ext = file_url.split("/")[-1].split("?")[0].rsplit(".", 1)[-1][:8] or "bin"
+
+    # Повторная проверка по фактическому типу и итоговому расширению: имя из
+    # мессенджера могло прийти без расширения, и запрет по нему не сработал.
+    if is_blocked_file(f"f.{ext}", ct):
+        log.info("dialog media skipped after download (blocked): ext=%s ct=%s", ext, ct)
+        return None
 
     return await _store_bytes_in_r2(
         client_id=client_id, contact_id=contact_id, message_id=message_id,

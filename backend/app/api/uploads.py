@@ -113,7 +113,13 @@ async def upload_file(
             raise HTTPException(400, detail=f"{kind} требует collaborator_id")
         await _check_collaborator_belongs(collaborator_id, client_id, db)
 
-    # 2. Читаем содержимое. Для видео лимит выше — 100 МБ (cap Cloudflare).
+    # 2. Проверка типа файла (п. 7.10 Оферты) — ДО чтения содержимого,
+    # чтобы не тянуть в память заведомо запрещённый файл.
+    from app.services.file_safety import is_blocked_file, blocked_file_message
+    if is_blocked_file(file.filename, file.content_type):
+        raise HTTPException(400, detail=blocked_file_message(file.filename))
+
+    # 3. Читаем содержимое. Для видео лимит выше — 100 МБ (cap Cloudflare).
     raw = await file.read()
     if len(raw) == 0:
         raise HTTPException(400, detail="Пустой файл")
@@ -121,7 +127,7 @@ async def upload_file(
     if len(raw) > size_limit:
         raise HTTPException(413, detail=f"Файл больше {_human_bytes(size_limit)}")
 
-    # 3. Ресайз картинок (если применимо). Видео сохраняем как есть.
+    # 4. Ресайз картинок (если применимо). Видео сохраняем как есть.
     content_type = file.content_type or "application/octet-stream"
     if kind in VIDEO_KINDS:
         if not _is_video(content_type):
@@ -136,7 +142,7 @@ async def upload_file(
 
     size = len(raw)
 
-    # 4. Проверка квоты
+    # 5. Проверка квоты
     quota_row = await db.fetchrow(
         "SELECT storage_used_bytes, storage_quota_bytes FROM clients WHERE id = $1",
         client_id,

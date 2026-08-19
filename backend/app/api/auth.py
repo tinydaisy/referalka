@@ -581,6 +581,30 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     except Exception:                                   # noqa: BLE001
         # Плашка — вещь вспомогательная: её сбой не должен ронять вход в кабинет.
         out["broken_bots"] = []
+    # ⚠️ Состояние лимита контактов (миграции 315-316). Отдаём то, что уже
+    # посчитано при создании контакта, а не считаем здесь: COUNT по contacts на
+    # каждом открытии кабинета — лишняя нагрузка, а число меняется редко.
+    try:
+        lim = await db.fetchrow(
+            """SELECT c.contact_limit_notified_kind AS kind, t.contact_limit AS limit_value,
+                      (SELECT COUNT(*) FROM contacts ct
+                        WHERE ct.client_id = c.id AND ct.merged_into IS NULL) AS used
+                 FROM clients c
+                 LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+                 LEFT JOIN tariffs t ON t.id = cs.tariff_id
+                WHERE c.id = $1""",
+            client_id,
+        )
+        out["contact_limit"] = (
+            {
+                "kind": lim["kind"],
+                "used": int(lim["used"] or 0),
+                "limit": int(lim["limit_value"]) if lim["limit_value"] else None,
+            }
+            if lim and lim["kind"] else None
+        )
+    except Exception:                                   # noqa: BLE001
+        out["contact_limit"] = None
     # Роль текущего токена: 'owner' для самого клиента, 'assistant' для ассистента
     # (миграция 105). Используется фронтом для скрытия пунктов меню и DELETE-кнопок.
     out["role"] = "assistant" if payload.get("role") == "assistant" else "owner"
