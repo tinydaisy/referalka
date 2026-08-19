@@ -381,7 +381,9 @@ export default function SpeakerCabinetPage() {
         .map(line => line.replace(/^\s*[•●∙·*\-—–▶►▸✓✔]+\s*/, '').trim())
         .filter(Boolean)
       const payload: any = {
-        name: me.name, title: me.title, achievements,
+        // Имя и фамилия вместе: превью показывает карточку так, как её
+        // увидит аудитория, а там выводится полное имя.
+        name: [me.name, me.last_name].filter(Boolean).join(' '), title: me.title, achievements,
         photo_url: me.photo_url,
         photo_folder_url: me.photo_folder_url, video_folder_url: me.video_folder_url,
         tg_channel_url: me.tg_channel_url, tg_channel_id: me.tg_channel_id,
@@ -837,7 +839,11 @@ export default function SpeakerCabinetPage() {
             <div>
               <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>
-                {me.name || 'Спикер'}
+                {/* ⚠️ Имя И ФАМИЛИЯ: фамилия живёт отдельной колонкой
+                    (collaborators.last_name, миграция 302), и шапка её теряла —
+                    человек видел «Алексей — спикер» без фамилии. Порядок
+                    «Имя Фамилия» — как везде, где карточку ПОКАЗЫВАЕМ. */}
+                {[me.name, me.last_name].filter(Boolean).join(' ') || 'Спикер'}
                 {me.role && <span style={{ fontWeight: 400, opacity: 0.85 }}> — {({ jury: 'жюри', organizer: 'организатор', headliner: 'хедлайнер', speaker: 'спикер', general_partner: 'генеральный партнёр', partner: 'партнёр' } as Record<string, string>)[me.role] || me.role}</span>}
               </div>
             </div>
@@ -905,7 +911,7 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'judging' && token && <JudgingTab token={token} />}
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
         {activeTab === 'invited' && token && <InvitedTab token={token} />}
-        {activeTab === 'slot' && token && <SlotTab token={token} myName={me.name || ''} canEdit={canEdit} />}
+        {activeTab === 'slot' && token && <SlotTab token={token} myName={[me.name, me.last_name].filter(Boolean).join(' ')} canEdit={canEdit} />}
         {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} canEdit={canEdit} />}
 
         {activeTab === 'profile' && <>
