@@ -281,14 +281,21 @@ async def build_email_body(
             )
 
     # ── Кнопки ──
+    #
+    # ⚠️ Список `buttons` ГЛАВНЕЕ одиночной кнопки, а не наоборот. Одиночная
+    # (`button_text`/`button_url`) приходит почти всегда — её подставляет
+    # резолвер из шаблона. При обратном приоритете (`if button_text … elif
+    # buttons`) она перекрывала список, и в письмо попадала ОДНА кнопка,
+    # сколько бы клиент их ни добавил. В письме, в отличие от Telegram,
+    # ограничения на число кнопок нет — это обычный HTML.
     html_button = ""
-    if button_text and button_url:
-        html_button = _html_button(button_text, button_url)
-    elif buttons:
+    if buttons:
         html_button = "".join(
             _html_button((b.get("text") or b.get("label") or "Открыть"), b.get("url", ""))
-            for b in buttons
+            for b in buttons if (b.get("url") or "").strip()
         )
+    if not html_button and button_text and button_url:
+        html_button = _html_button(button_text, button_url)
 
     # Голубая плашка #E8F2FA — фирменный стиль писем ПЛЮСОНа.
     #
@@ -319,12 +326,14 @@ async def build_email_body(
     body_text = strip_html(raw_text)
     if is_video_email:
         body_text = body_text.rstrip() + f"\n\n▶ Смотреть видео: {video_url}"
-    if button_text and button_url:
+    # Тот же приоритет, что и в HTML: список главнее одиночной кнопки.
+    _btn_lines = [
+        f"{(b.get('text') or b.get('label') or 'Открыть')}: {b.get('url','')}"
+        for b in (buttons or []) if (b.get("url") or "").strip()
+    ]
+    if _btn_lines:
+        body_text = body_text.rstrip() + "\n\n" + "\n".join(_btn_lines)
+    elif button_text and button_url:
         body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
-    elif buttons:
-        body_text = body_text.rstrip() + "\n\n" + "\n".join(
-            f"{(b.get('text') or b.get('label') or 'Открыть')}: {b.get('url','')}"
-            for b in buttons
-        )
 
     return EmailBody(html=html, text=body_text, inline_images=inline_images)
