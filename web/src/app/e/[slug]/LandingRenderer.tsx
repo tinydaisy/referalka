@@ -1828,8 +1828,14 @@ function BlockBody(props: any) {
       // Состав подвала: только ИП с ФИО и ИНН + документы. Адрес, ОГРНИП,
       // email и телефон в подвал лендинга не выносим — они есть в оферте
       // и в политике, дублировать их на продающей странице незачем.
-      const legal = [f.legal_name, f.legal_inn && `${f.legal_inn_label} ${f.legal_inn}`]
-        .filter(Boolean)
+      // ⚠️ Подпись к номеру — с запасным значением: без неё в реквизитах
+      // печаталось «undefined 890306512862» (поле не приходило со страницы
+      // продукта). Чинится и на бэкенде, но здесь страхуемся: подвал видит
+      // покупатель, и «undefined» там недопустимо.
+      const legal = [
+        f.legal_name,
+        f.legal_inn && `${f.legal_inn_label || 'ИНН'} ${f.legal_inn}`,
+      ].filter(Boolean)
       return (
         <div className="space-y-3 text-[.9em] opacity-75">
           <div className="flex flex-wrap gap-x-5 gap-y-2">

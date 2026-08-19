@@ -155,7 +155,7 @@ async def get_product_landing(
             """SELECT id, name, brand_name, brand_logo_url, profile_photo_url,
                       owner_photo_url, owner_positioning, positioning, bio,
                       work_tg_username, work_vk, work_max, phone,
-                      legal_name, legal_inn, privacy_policy_version
+                      legal_name, legal_inn, legal_inn_label, privacy_policy_version
                  FROM clients WHERE id = $1""",
             product["client_id"],
         )
@@ -214,6 +214,11 @@ async def get_product_landing(
                 "brand": c.get("brand_name") or c.get("name"),
                 "legal_name": c.get("legal_name"),
                 "legal_inn": c.get("legal_inn"),
+                # ⚠️ Подпись к номеру («ИНН» / «БИН» / …) обязана приходить:
+                # без неё фронт печатал в подвале «undefined 890306512862» —
+                # прямо в реквизитах, которые видит покупатель. У события
+                # такой же fallback, здесь поля не было вовсе.
+                "legal_inn_label": c.get("legal_inn_label") or "ИНН",
                 "offer_url": product["offer_url"],
             }
             # ⚠️ Формат ОДИН на все лендинги (см. landing_support.py). Здесь

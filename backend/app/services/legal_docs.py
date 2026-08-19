@@ -13,7 +13,7 @@
 """
 
 # Редакция Публичной оферты (pluson.ru/offer)
-OFFER_VERSION = "2026-08-19"
+OFFER_VERSION = "2026-06-14"
 
 # Редакция Политики обработки персональных данных (pluson.ru/privacy)
-PRIVACY_POLICY_VERSION = "2026-08-19"
+PRIVACY_POLICY_VERSION = "2026-06-14"
