@@ -55,6 +55,69 @@ async def credit_bonus(
         return int(new_balance or 0)
 
 
+async def admin_adjust_bonus(
+    db: asyncpg.Connection,
+    *,
+    client_id: int,
+    amount_kopecks: int,
+    description: str,
+) -> int:
+    """Ручная корректировка баланса администратором (type='admin_adjust').
+
+    ⚠️ Отдельный тип операции, а не 'accrual': по истории должно быть видно,
+    что это решение администратора, а не кэшбэк с оплаты приведённого клиента.
+    Иначе ручные начисления смешались бы с автоматическими, и сверка
+    партнёрских выплат стала бы невозможной.
+
+    ⚠️ `amount_kopecks` может быть отрицательным — это списание (например,
+    возврат оплаты Приведённым клиентом, п. 4.5 партнёрской Оферты).
+    Баланс при этом НЕ уходит в минус: списывается не больше остатка.
+
+    ⚠️ `description` обязателен: запись видна клиенту в истории операций, и
+    «−5000 ₽» без объяснения выглядит как ошибка системы.
+
+    Возвращает новый баланс.
+    """
+    if amount_kopecks == 0:
+        return await get_balance(db, client_id)
+    if not (description or "").strip():
+        raise ValueError("Для ручной корректировки нужно указать причину")
+
+    async with db.transaction():
+        await db.execute(
+            "INSERT INTO client_bonus_balance (client_id, balance_kopecks) VALUES ($1, 0) ON CONFLICT DO NOTHING",
+            client_id,
+        )
+        current = await db.fetchval(
+            "SELECT balance_kopecks FROM client_bonus_balance WHERE client_id = $1 FOR UPDATE",
+            client_id,
+        )
+        current = int(current or 0)
+
+        # Списать больше, чем есть, нельзя — иначе баланс уйдёт в минус и
+        # клиент увидит отрицательное число, которое ничем не гасится.
+        delta = amount_kopecks
+        if delta < 0:
+            delta = -min(current, -delta)
+            if delta == 0:
+                return current
+
+        await db.execute(
+            """INSERT INTO client_bonus_transactions
+                 (client_id, type, amount_kopecks, description)
+               VALUES ($1, 'admin_adjust', $2, $3)""",
+            client_id, delta, description.strip(),
+        )
+        new_balance = await db.fetchval(
+            """UPDATE client_bonus_balance
+                  SET balance_kopecks = balance_kopecks + $2, updated_at = NOW()
+                WHERE client_id = $1
+                RETURNING balance_kopecks""",
+            client_id, delta,
+        )
+        return int(new_balance or 0)
+
+
 async def debit_bonus_for_payment(
     db: asyncpg.Connection,
     *,

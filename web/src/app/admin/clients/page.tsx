@@ -73,6 +73,7 @@ export default function AdminClientsPage() {
   const [inCollab, setInCollab] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
+  const [manageClient, setManageClient] = useState<Client | null>(null)
   const [qualityModal, setQualityModal] = useState<EmailQuality | null>(null)
 
   useEffect(() => {
@@ -347,6 +348,15 @@ export default function AdminClientsPage() {
                     <Calendar size={11} className="inline mr-1" />
                     {new Date(c.created_at).toLocaleDateString('ru')}
                   </td>
+                  <td className="px-3 py-4 text-center">
+                    <button
+                      onClick={() => setManageClient(c)}
+                      title="Тариф и бонусы"
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-gray-300 whitespace-nowrap"
+                    >
+                      Тариф · бонусы
+                    </button>
+                  </td>
                 </tr>
               )) : (
                 <tr>
@@ -410,6 +420,14 @@ export default function AdminClientsPage() {
           </div>
         </div>
       )}
+      {manageClient && (
+        <ManageClientModal
+          client={manageClient}
+          onClose={() => setManageClient(null)}
+          onDone={() => { setManageClient(null); load() }}
+        />
+      )}
+
     </div>
   )
 }

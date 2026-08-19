@@ -45,6 +45,8 @@ type SubView = 'settings' | 'blocks' | 'auto' | 'analytics' | 'records' | 'refer
 export default function WebinarTab({ eventId, event }: { eventId: number; event: any }) {
   const [loading, setLoading] = useState(true)
   const [level, setLevel] = useState<'room' | 'link'>('room')
+  const { me } = useMe()
+  const hasAuto = !!me?.features?.includes('autowebinar')
   const [days, setDays] = useState<DayItem[]>([])
   const [activeDay, setActiveDay] = useState<number | null>(null)
   const [subView, setSubView] = useState<SubView>('settings')
@@ -130,7 +132,9 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           {([
             ['settings', 'Настройки'],
             ['blocks', 'Продающие блоки'],
-            ['auto', 'Автовебинар'],
+            // ⚠️ Автовебинар — отдельная фича (Экстра). Обычная комната есть и
+            // на Профи, поэтому проверяем именно `autowebinar`.
+            ...(hasAuto ? [['auto', 'Автовебинар'] as const] : []),
             ['analytics', 'Аналитика'],
             ['records', 'Записи'],
             ['referrals', 'Рефералы'],

@@ -386,6 +386,49 @@ async def pay_with_bonus(
 
 # ─── Админ-эндпоинты обработки заявок ─────────────────────────────────────────
 
+class BonusAdjustRequest(BaseModel):
+    """Ручное начисление или списание бонусов администратором."""
+    amount_rub: float           # положительное — начислить, отрицательное — списать
+    description: str
+
+
+@admin_router.post("/clients/{client_id}/bonus-adjust", summary="Начислить/списать бонусы вручную")
+async def admin_adjust_bonus_endpoint(
+    client_id: int,
+    data: BonusAdjustRequest,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Ручная корректировка бонусного баланса клиента.
+
+    Нужна, когда вознаграждение начисляется вне автоматики: договорённость
+    с партнёром, компенсация, а также списание при возврате оплаты
+    Приведённым клиентом (п. 4.5 партнёрской Оферты).
+
+    ⚠️ Операция видна клиенту в истории — поэтому причина обязательна.
+    """
+    from app.services.bonuses import admin_adjust_bonus
+
+    if not (data.description or "").strip():
+        raise HTTPException(status_code=422, detail="Укажите причину — она видна клиенту в истории")
+
+    # Рубли → копейки через Decimal: float даёт 199.0*100 = 19899.999…
+    from decimal import Decimal
+    kopecks = int(Decimal(str(data.amount_rub)) * 100)
+    if kopecks == 0:
+        raise HTTPException(status_code=422, detail="Сумма не может быть нулевой")
+
+    try:
+        new_balance = await admin_adjust_bonus(
+            db, client_id=client_id, amount_kopecks=kopecks,
+            description=data.description,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return {"balance_kopecks": new_balance, "balance_rub": new_balance / 100}
+
+
 @admin_router.get("/withdrawals", summary="Список заявок на вывод")
 async def list_withdrawals(
     status: Optional[str] = None,  # 'pending'|'completed'|'cancelled'

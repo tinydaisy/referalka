@@ -340,6 +340,7 @@ async def update_client(
     client_id: int,
     is_active: Optional[bool] = None,
     tariff_slug: Optional[str] = None,
+    tariff_days: Optional[int] = None,
     collab_hub_blocked: Optional[bool] = None,
     admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db)
@@ -356,11 +357,42 @@ async def update_client(
         # Перевод на другой тариф: помечаем активную подписку expired,
         # создаём новую подписку с этим тарифом на default_duration_days, source='admin'.
         tariff = await db.fetchrow(
-            "SELECT id, default_duration_days FROM tariffs WHERE slug = $1", tariff_slug
+            "SELECT id, default_duration_days, price FROM tariffs WHERE slug = $1", tariff_slug
         )
         if not tariff:
             raise HTTPException(status_code=400, detail=f"Тариф '{tariff_slug}' не найден")
-        days = tariff["default_duration_days"] or 30
+        # Сколько дней ставить.
+        #
+        # ⚠️ По умолчанию срок НЕ начинается заново, а пересчитывается из
+        # остатка текущей подписки по формуле п. 3.9.1 Оферты:
+        #   осталось дней × цена прежнего Тарифа ÷ цена нового.
+        # Это нужно при обратном переходе на прежний Тариф (п. 3.9.3): клиент
+        # почистил базу и просит вернуть Профи — дни, прожитые на Экстра, ему
+        # не возвращаются, а остаток пересчитывается. Без пересчёта админ молча
+        # дарил бы полные 30 дней вместо положенного остатка.
+        #
+        # `tariff_days` — явный срок, если админ хочет задать своё число
+        # (выдача доступа, компенсация). Тогда пересчёт не применяется.
+        if tariff_days and tariff_days > 0:
+            days = int(tariff_days)
+        else:
+            cur = await db.fetchrow(
+                """SELECT cs.expires_at, t.price
+                     FROM client_subscriptions cs
+                     JOIN tariffs t ON t.id = cs.tariff_id
+                    WHERE cs.id = (SELECT current_subscription_id FROM clients WHERE id = $1)
+                      AND cs.status = 'active' AND cs.expires_at > NOW()""",
+                client_id,
+            )
+            days = tariff["default_duration_days"] or 30
+            if cur and cur["price"] and tariff["price"]:
+                from app.services.contact_limits import recalc_days
+                left = await db.fetchval(
+                    "SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM ($1::timestamptz - NOW())) / 86400))",
+                    cur["expires_at"],
+                )
+                if left and int(left) > 0:
+                    days = recalc_days(int(left), cur["price"], tariff["price"])
         async with db.transaction():
             await db.execute(
                 """UPDATE client_subscriptions SET status='expired', updated_at=NOW()

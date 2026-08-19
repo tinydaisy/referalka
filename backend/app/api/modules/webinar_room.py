@@ -253,6 +253,13 @@ async def upsert_room(
     if level == "link" and stream_type in ("encoder", "auto"):
         raise HTTPException(status_code=403, detail="Своя комната (видеокодер) — только на тарифе Экстра.")
 
+    # ⚠️ Автовебинар — ОТДЕЛЬНАЯ фича `autowebinar` (только Экстра), а не часть
+    # `webinar_room`: обычная комната есть и на Профи, а автовебинар нет.
+    if stream_type == "auto" and not await client_has_feature(db, cid, "autowebinar"):
+        raise HTTPException(
+            status_code=403,
+            detail="Автовебинары доступны на тарифе Экстра.")
+
     existing = await db.fetchrow(
         "SELECT * FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day_number)
 
@@ -561,6 +568,14 @@ async def session_chat(event_id: int, day_number: int, session_id: int,
 # stream_type='auto'. Чат, продающие блоки с таймингом, опросы и аналитика
 # переиспользуются как есть; иначе пришлось бы вести две реализации.
 
+async def _assert_autowebinar(db, client_id: int) -> None:
+    """⚠️ Автовебинар — ОТДЕЛЬНАЯ фича (только Экстра). Обычная вебинарная
+    комната есть и на Профи, поэтому проверять `webinar_room` недостаточно."""
+    if not await client_has_feature(db, client_id, "autowebinar"):
+        raise HTTPException(status_code=403,
+                            detail="Автовебинары доступны на тарифе Экстра.")
+
+
 class AutoScheduleIn(BaseModel):
     kind: str = "daily"            # daily | weekly | once
     weekdays: list[int] = []       # для weekly: 1=пн … 7=вс
@@ -600,7 +615,7 @@ async def auto_schedule_add(event_id: int, day_number: int, data: AutoScheduleIn
                             client=Depends(get_current_client), db=Depends(get_db)):
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
-    await _assert_webinar_feature(db, cid, need_room=True)
+    await _assert_autowebinar(db, cid)
     rid = await _room_id(db, event_id, day_number)
     row = await db.fetchrow(
         "INSERT INTO webinar_auto_schedule (room_id, kind, weekdays, at_time, once_date, is_active) "
@@ -615,7 +630,7 @@ async def auto_schedule_del(event_id: int, day_number: int, item_id: int,
                             client=Depends(get_current_client), db=Depends(get_db)):
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
-    await _assert_webinar_feature(db, cid, need_room=True)
+    await _assert_autowebinar(db, cid)
     rid = await _room_id(db, event_id, day_number)
     await db.execute("DELETE FROM webinar_auto_schedule WHERE id=$1 AND room_id=$2", item_id, rid)
     return {"ok": True}
@@ -636,7 +651,7 @@ async def auto_chat_add(event_id: int, day_number: int, data: AutoChatIn,
                         client=Depends(get_current_client), db=Depends(get_db)):
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
-    await _assert_webinar_feature(db, cid, need_room=True)
+    await _assert_autowebinar(db, cid)
     rid = await _room_id(db, event_id, day_number)
     row = await db.fetchrow(
         "INSERT INTO webinar_auto_chat (room_id, at_sec, author_name, text, is_host) "
@@ -651,7 +666,7 @@ async def auto_chat_del(event_id: int, day_number: int, item_id: int,
                         client=Depends(get_current_client), db=Depends(get_db)):
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
-    await _assert_webinar_feature(db, cid, need_room=True)
+    await _assert_autowebinar(db, cid)
     rid = await _room_id(db, event_id, day_number)
     await db.execute("DELETE FROM webinar_auto_chat WHERE id=$1 AND room_id=$2", item_id, rid)
     return {"ok": True}
@@ -668,7 +683,7 @@ async def auto_chat_from_record(event_id: int, day_number: int, session_id: int,
     """
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
-    await _assert_webinar_feature(db, cid, need_room=True)
+    await _assert_autowebinar(db, cid)
     rid = await _room_id(db, event_id, day_number)
     rows = await db.fetch(
         "SELECT m.author_name, m.text, "

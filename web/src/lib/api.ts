@@ -1489,10 +1489,13 @@ export const api = {
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),
     getClient: (id: number) => request(`/api/v1/admin/clients/${id}`),
     // Бэк принимает параметры в QUERY STRING, не в body (PATCH /admin/clients/{id})
-    updateClient: (id: number, data: { is_active?: boolean; tariff_slug?: string; collab_hub_blocked?: boolean }) => {
+    updateClient: (id: number, data: { is_active?: boolean; tariff_slug?: string; tariff_days?: number; collab_hub_blocked?: boolean }) => {
       const params = new URLSearchParams()
       if (data.is_active !== undefined) params.set('is_active', String(data.is_active))
       if (data.tariff_slug !== undefined) params.set('tariff_slug', data.tariff_slug)
+      // Явный срок в днях. Без него бэк пересчитывает остаток по формуле
+      // п. 3.9.1 Оферты (при возврате на прежний тариф — то, что нужно).
+      if (data.tariff_days !== undefined) params.set('tariff_days', String(data.tariff_days))
       if (data.collab_hub_blocked !== undefined) params.set('collab_hub_blocked', String(data.collab_hub_blocked))
       return request(`/api/v1/admin/clients/${id}?${params.toString()}`, { method: 'PATCH' })
     },
@@ -1580,6 +1583,11 @@ export const api = {
   },
   // Правовые документы платформы: оферта, политика ПД, партнёрская оферта
   // (миграция 317). Редактируются в админке, отдаются публично.
+  // Ручная корректировка бонусного баланса клиента (начисление/списание).
+  adminBonus: {
+    adjust: (clientId: number, data: { amount_rub: number; description: string }) =>
+      request(`/api/v1/admin/clients/${clientId}/bonus-adjust`, { method: 'POST', body: JSON.stringify(data) }),
+  },
   adminLegalDocs: {
     list: () => request('/api/v1/admin/legal-docs'),
     update: (slug: string, data: any) =>
