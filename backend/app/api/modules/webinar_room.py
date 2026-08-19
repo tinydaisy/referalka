@@ -533,10 +533,16 @@ async def session_chat(event_id: int, day_number: int, session_id: int,
     """Полная история чата конкретного запуска эфира — показывается рядом с его записью."""
     await ws.assert_event_owner(db, event_id, _cid(client))
     rid = await _room_id(db, event_id, day_number)
+    # ⚠️ offset_sec — секунда ЗАПИСИ, на которой написано сообщение. Считаем от
+    # started_at сессии: без него чат к записи не привязать, и перемотка по
+    # клику на реплику невозможна.
     rows = await db.fetch(
-        "SELECT m.id, m.contact_id, m.author_name, m.text, m.at, m.status "
-        "FROM webinar_chat_messages m WHERE m.room_id=$1 AND m.session_id=$2 "
-        "ORDER BY m.at", rid, session_id)
+        "SELECT m.id, m.contact_id, m.author_name, m.text, m.at, m.status, "
+        "       GREATEST(0, EXTRACT(EPOCH FROM (m.at - s.started_at))::int) AS offset_sec "
+        "  FROM webinar_chat_messages m "
+        "  JOIN webinar_sessions s ON s.id = m.session_id "
+        " WHERE m.room_id=$1 AND m.session_id=$2 "
+        " ORDER BY m.at", rid, session_id)
     return {"messages": [dict(r) for r in rows]}
 
 

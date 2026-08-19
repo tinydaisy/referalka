@@ -1071,15 +1071,7 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
   const [recs, setRecs] = useState<any[]>([])
   const [battles, setBattles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [chatModal, setChatModal] = useState<{ msgs: any[]; loading: boolean } | null>(null)
-
-  async function openChat(sessionId: number) {
-    setChatModal({ msgs: [], loading: true })
-    try {
-      const r = await api.webinar.sessionChat(eventId, day, sessionId)
-      setChatModal({ msgs: r.messages || [], loading: false })
-    } catch { setChatModal({ msgs: [], loading: false }) }
-  }
+  const [viewer, setViewer] = useState<any | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1124,11 +1116,11 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  {r.session_id && (
-                    <button onClick={() => openChat(r.session_id)} className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">💬 Чат</button>
+                  {r.status === 'ready' && r.url && (
+                    <button onClick={() => setViewer(r)} className="btn-gold text-sm">▶ Смотреть</button>
                   )}
                   {r.status === 'ready' && r.url && (
-                    <a href={r.url} download className="btn-gold text-sm">Скачать</a>
+                    <a href={r.url} download className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">Скачать</a>
                   )}
                   <button onClick={() => remove(r.id)} className="px-3 py-1.5 rounded-lg border text-sm text-gray-500 hover:text-red-500">Удалить</button>
                 </div>
@@ -1163,21 +1155,9 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
         </div>
       )}
 
-      {chatModal && (
-        <Modal title="Чат этого запуска" onClose={() => setChatModal(null)}>
-          {chatModal.loading ? <Spinner /> : !chatModal.msgs.length ? (
-            <p className="text-sm text-gray-500">В этом запуске сообщений не было.</p>
-          ) : (
-            <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
-              {chatModal.msgs.map((m: any) => (
-                <div key={m.id} className={`text-sm ${m.status !== 'visible' ? 'opacity-40 line-through' : ''}`}>
-                  <span className="font-semibold text-[#25455D]">{m.author_name || 'Гость'}:</span>{' '}
-                  <span className="text-gray-700">{m.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Modal>
+      {viewer && (
+        <RecordingViewer eventId={eventId} day={day} rec={viewer}
+                         onClose={() => setViewer(null)} />
       )}
     </div>
   )
@@ -1405,6 +1385,125 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
         </div>
       )}
       {msg && <div className="text-sm text-green-600 mt-2">{msg}</div>}
+    </div>
+  )
+}
+
+
+/** Просмотр записи эфира: слева видео, справа чат этого запуска.
+ *
+ * ⚠️ Чат и запись показываем ВМЕСТЕ — по отдельности они бесполезны: в списке
+ * реплик не видно, к какому моменту эфира они относятся, а в записи не видно,
+ * что писали зрители. Клик по реплике перематывает видео на её секунду
+ * (offset_sec считает бэкенд от started_at сессии).
+ */
+function RecordingViewer({ eventId, day, rec, onClose }: {
+  eventId: number; day: number; rec: any; onClose: () => void
+}) {
+  const [msgs, setMsgs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [cur, setCur] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const [follow, setFollow] = useState(true)
+
+  useEffect(() => {
+    if (!rec.session_id) { setLoading(false); return }
+    api.webinar.sessionChat(eventId, day, rec.session_id)
+      .then((r: any) => setMsgs(r.messages || []))
+      .catch(() => setMsgs([]))
+      .finally(() => setLoading(false))
+  }, [eventId, day, rec.session_id])
+
+  const mmss = (s: number) => {
+    const t = Math.max(0, Math.floor(s || 0))
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60
+    const p = (n: number) => String(n).padStart(2, '0')
+    return h ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`
+  }
+  const clock = (iso: string) => iso
+    ? new Date(iso).toLocaleTimeString('ru-RU',
+        { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+    : ''
+
+  const seek = (sec: number) => {
+    const v = videoRef.current
+    if (!v) return
+    v.currentTime = Math.max(0, sec)
+    v.play().catch(() => {})
+  }
+
+  // Подсветка реплики, звучащей сейчас, + автопрокрутка списка за видео.
+  const activeIdx = (() => {
+    let idx = -1
+    for (let i = 0; i < msgs.length; i++) {
+      if ((msgs[i].offset_sec ?? 0) <= cur) idx = i; else break
+    }
+    return idx
+  })()
+
+  useEffect(() => {
+    if (!follow || activeIdx < 0 || !listRef.current) return
+    const el = listRef.current.querySelector(`[data-i="${activeIdx}"]`) as HTMLElement | null
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [activeIdx, follow])
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+         role="dialog">
+      <div className="bg-white rounded-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col"
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <div className="min-w-0">
+            <div className="font-semibold text-[#25455D] truncate">Запись эфира</div>
+            <div className="text-xs text-gray-500">
+              {rec.duration_sec ? `${Math.floor(rec.duration_sec / 60)} мин` : ''}
+              {msgs.length ? ` · ${msgs.length} сообщений в чате` : ''}
+            </div>
+          </div>
+          <button onClick={onClose}
+                  className="text-gray-400 hover:text-gray-700 text-2xl leading-none px-2">×</button>
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+          <div className="lg:flex-1 bg-black flex items-center">
+            <video ref={videoRef} src={rec.url} controls preload="metadata"
+                   onTimeUpdate={e => setCur((e.target as HTMLVideoElement).currentTime)}
+                   className="w-full max-h-[60vh] lg:max-h-[78vh]" />
+          </div>
+
+          <div className="lg:w-[380px] flex flex-col border-t lg:border-t-0 lg:border-l min-h-0">
+            <div className="px-4 py-2 border-b flex items-center justify-between">
+              <span className="text-sm font-medium text-[#25455D]">Чат эфира</span>
+              <label className="text-xs text-gray-500 flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={follow}
+                       onChange={e => setFollow(e.target.checked)} />
+                следить за видео
+              </label>
+            </div>
+            <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+              {loading ? <Spinner /> : !msgs.length ? (
+                <p className="text-sm text-gray-500">В этом запуске сообщений не было.</p>
+              ) : msgs.map((m: any, i: number) => (
+                <div key={m.id} data-i={i}
+                     onClick={() => seek(m.offset_sec ?? 0)}
+                     className={`text-sm cursor-pointer rounded-lg px-2 py-1.5 transition
+                       ${i === activeIdx ? 'bg-[#FFCFA4]/30' : 'hover:bg-gray-50'}
+                       ${m.status !== 'visible' ? 'opacity-40 line-through' : ''}`}>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[11px] tabular-nums text-gray-400 shrink-0">
+                      {mmss(m.offset_sec ?? 0)}
+                    </span>
+                    <span className="font-semibold text-[#25455D]">{m.author_name || 'Гость'}</span>
+                    <span className="text-[11px] text-gray-400 ml-auto shrink-0">{clock(m.at)}</span>
+                  </div>
+                  <div className="text-gray-700 mt-0.5">{m.text}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

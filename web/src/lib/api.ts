@@ -1575,6 +1575,16 @@ export const api = {
         method: 'PATCH', body: JSON.stringify(data),
       }),
   },
+  // Правовые документы платформы: оферта, политика ПД, партнёрская оферта
+  // (миграция 317). Редактируются в админке, отдаются публично.
+  adminLegalDocs: {
+    list: () => request('/api/v1/admin/legal-docs'),
+    update: (slug: string, data: any) =>
+      request(`/api/v1/admin/legal-docs/${slug}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  },
+  legalDocs: {
+    get: (slug: string) => request(`/api/v1/public/legal-docs/${slug}`),
+  },
   adminReferralSettings: {
     get: () => request('/api/v1/admin/referral-settings'),
     update: (data: { percent?: number; signup_until?: string; accrual_until?: string; trial_bonus_days?: number }) =>

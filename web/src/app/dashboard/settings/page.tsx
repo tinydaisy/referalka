@@ -1563,6 +1563,20 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
           </button>
         )}
       </div>
+
+      {/* ⚠️ Ссылки на правовые документы — рядом с кнопкой оплаты, а не в
+          подвале: оплата это акцепт условий, и человек должен видеть, что
+          именно он принимает, в момент нажатия. */}
+      <div className="mt-3 text-xs text-gray-500 leading-snug">
+        Оплачивая доступ, вы принимаете условия{' '}
+        <a href="/offer" target="_blank" rel="noopener" className="text-[#25455D] underline">
+          Публичной оферты
+        </a>{' '}
+        и{' '}
+        <a href="/privacy" target="_blank" rel="noopener" className="text-[#25455D] underline">
+          Политики обработки персональных данных
+        </a>.
+      </div>
     </div>
   )
 }
