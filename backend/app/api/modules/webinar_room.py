@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional, List
 from datetime import datetime
 
+import re
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
@@ -47,7 +48,12 @@ def _cid(client) -> int:
 class RoomUpsert(BaseModel):
     title: Optional[str] = None
     starts_at: Optional[datetime] = None
-    stream_type: Optional[str] = None          # encoder | external_link
+    stream_type: Optional[str] = None          # encoder | external_link | auto
+    # автовебинар: крутим готовую запись как живой эфир
+    auto_recording_id: Optional[int] = None
+    auto_mode: Optional[str] = None            # schedule | on_signup
+    auto_delay_min: Optional[int] = None
+    auto_allow_seek: Optional[bool] = None
     external_url: Optional[str] = None
     hide_viewer_count: Optional[bool] = None
     chat_enabled: Optional[bool] = None
@@ -199,6 +205,10 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "title": r.get("title"),
         "starts_at": r["starts_at"].isoformat() if r.get("starts_at") else None,
         "stream_type": r.get("stream_type"),
+        "auto_recording_id": r.get("auto_recording_id"),
+        "auto_mode": r.get("auto_mode"),
+        "auto_delay_min": r.get("auto_delay_min"),
+        "auto_allow_seek": r.get("auto_allow_seek"),
         "stream_key": key,
         "rtmp_url": ws.rtmp_url(key) if key else None,
         "hls_url": ws.hls_url(key) if key else None,
@@ -240,7 +250,7 @@ async def upsert_room(
 
     # На Профи (level='link') можно только external_link.
     stream_type = data.stream_type or ("encoder" if level == "room" else "external_link")
-    if level == "link" and stream_type == "encoder":
+    if level == "link" and stream_type in ("encoder", "auto"):
         raise HTTPException(status_code=403, detail="Своя комната (видеокодер) — только на тарифе Экстра.")
 
     existing = await db.fetchrow(
@@ -544,6 +554,136 @@ async def session_chat(event_id: int, day_number: int, session_id: int,
         " WHERE m.room_id=$1 AND m.session_id=$2 "
         " ORDER BY m.at", rid, session_id)
     return {"messages": [dict(r) for r in rows]}
+
+
+# ─────────────────────────── автовебинар ───────────────────────────
+# ⚠️ Отдельной сущности «автовебинар» нет — это та же комната со
+# stream_type='auto'. Чат, продающие блоки с таймингом, опросы и аналитика
+# переиспользуются как есть; иначе пришлось бы вести две реализации.
+
+class AutoScheduleIn(BaseModel):
+    kind: str = "daily"            # daily | weekly | once
+    weekdays: list[int] = []       # для weekly: 1=пн … 7=вс
+    at_time: str                   # "HH:MM" МСК
+    once_date: Optional[str] = None
+    is_active: bool = True
+
+
+class AutoChatIn(BaseModel):
+    at_sec: int = 0
+    author_name: str
+    text: str
+    is_host: bool = False
+
+
+def _norm_hhmm(v: str) -> str:
+    """Время строкой HH:MM и всегда МСК — как в программе конференции.
+    Иначе сдвиги часовых поясов между Mini App, вебом и рассылками."""
+    v = (v or "").strip()
+    if not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", v):
+        raise HTTPException(status_code=400, detail="Время задаётся как ЧЧ:ММ, например 19:00")
+    return v
+
+
+@router.get("/{day_number}/auto/schedule", summary="Расписание автовебинара")
+async def auto_schedule_list(event_id: int, day_number: int,
+                             client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        "SELECT * FROM webinar_auto_schedule WHERE room_id=$1 ORDER BY at_time, id", rid)
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.post("/{day_number}/auto/schedule", summary="Добавить запуск")
+async def auto_schedule_add(event_id: int, day_number: int, data: AutoScheduleIn,
+                            client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    rid = await _room_id(db, event_id, day_number)
+    row = await db.fetchrow(
+        "INSERT INTO webinar_auto_schedule (room_id, kind, weekdays, at_time, once_date, is_active) "
+        "VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+        rid, data.kind, data.weekdays, _norm_hhmm(data.at_time),
+        data.once_date, data.is_active)
+    return dict(row)
+
+
+@router.delete("/{day_number}/auto/schedule/{item_id}", summary="Удалить запуск")
+async def auto_schedule_del(event_id: int, day_number: int, item_id: int,
+                            client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    rid = await _room_id(db, event_id, day_number)
+    await db.execute("DELETE FROM webinar_auto_schedule WHERE id=$1 AND room_id=$2", item_id, rid)
+    return {"ok": True}
+
+
+@router.get("/{day_number}/auto/chat", summary="Сценарий чата автовебинара")
+async def auto_chat_list(event_id: int, day_number: int,
+                         client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        "SELECT * FROM webinar_auto_chat WHERE room_id=$1 ORDER BY at_sec, id", rid)
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.post("/{day_number}/auto/chat", summary="Добавить реплику в сценарий")
+async def auto_chat_add(event_id: int, day_number: int, data: AutoChatIn,
+                        client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    rid = await _room_id(db, event_id, day_number)
+    row = await db.fetchrow(
+        "INSERT INTO webinar_auto_chat (room_id, at_sec, author_name, text, is_host) "
+        "VALUES ($1,$2,$3,$4,$5) RETURNING *",
+        rid, max(0, data.at_sec), data.author_name.strip()[:80],
+        data.text.strip()[:1000], data.is_host)
+    return dict(row)
+
+
+@router.delete("/{day_number}/auto/chat/{item_id}", summary="Удалить реплику")
+async def auto_chat_del(event_id: int, day_number: int, item_id: int,
+                        client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    rid = await _room_id(db, event_id, day_number)
+    await db.execute("DELETE FROM webinar_auto_chat WHERE id=$1 AND room_id=$2", item_id, rid)
+    return {"ok": True}
+
+
+@router.post("/{day_number}/auto/chat-from-record", summary="Взять чат из живого эфира")
+async def auto_chat_from_record(event_id: int, day_number: int, session_id: int,
+                                client=Depends(get_current_client), db=Depends(get_db)):
+    """Перенести реплики реального эфира в сценарий автовебинара.
+
+    ⚠️ Главный способ наполнить сценарий: писать полсотни реплик руками никто
+    не станет, а живой эфир уже дал настоящие вопросы в нужные моменты.
+    Тайминги берутся от started_at той сессии.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    rid = await _room_id(db, event_id, day_number)
+    rows = await db.fetch(
+        "SELECT m.author_name, m.text, "
+        "       GREATEST(0, EXTRACT(EPOCH FROM (m.at - s.started_at))::int) AS at_sec "
+        "  FROM webinar_chat_messages m JOIN webinar_sessions s ON s.id = m.session_id "
+        " WHERE m.room_id=$1 AND m.session_id=$2 AND m.status='visible' ORDER BY m.at",
+        rid, session_id)
+    n = 0
+    for r in rows:
+        await db.execute(
+            "INSERT INTO webinar_auto_chat (room_id, at_sec, author_name, text) "
+            "VALUES ($1,$2,$3,$4)",
+            rid, r["at_sec"], (r["author_name"] or "Гость")[:80], (r["text"] or "")[:1000])
+        n += 1
+    return {"ok": True, "added": n}
 
 
 @router.delete("/{day_number}/recordings/{rec_id}", summary="Удалить запись (файл + БД)")

@@ -70,6 +70,114 @@ async def _is_banned(conn, room_id: int, contact_id: Optional[int], session_key:
 
 
 # ─────────────────────────── данные комнаты ───────────────────────────
+
+async def _auto_payload(conn, room: dict, contact_id: int | None) -> dict:
+    """Данные автовебинара для зрителя: ссылка на запись и текущая секунда.
+
+    ⚠️ Стартовую секунду считает СЕРВЕР, а не браузер: иначе зритель просто
+    перезагрузил бы страницу и начал сначала, и продающие блоки по таймингу
+    потеряли бы смысл.
+
+    Два режима:
+      schedule  — общий старт по расписанию, все смотрят синхронно (как эфир);
+      on_signup — свой старт у каждого, через auto_delay_min после захода.
+    """
+    from datetime import datetime, timezone, timedelta
+
+    rec = None
+    if room.get("auto_recording_id"):
+        rec = await conn.fetchrow(
+            "SELECT url, duration_sec FROM webinar_recordings "
+            " WHERE id=$1 AND status='ready'", room["auto_recording_id"])
+    if not rec or not rec["url"]:
+        return {"auto": {"ready": False,
+                         "reason": "Запись для автовебинара не выбрана"}}
+
+    now = datetime.now(timezone.utc)
+    mode = room.get("auto_mode") or "schedule"
+    started_at = None
+
+    if mode == "on_signup":
+        # у каждого зрителя свой запуск; без contact_id опознать некого
+        if contact_id:
+            row = await conn.fetchrow(
+                "SELECT starts_at FROM webinar_auto_runs "
+                " WHERE room_id=$1 AND contact_id=$2 ORDER BY id DESC LIMIT 1",
+                room["id"], contact_id)
+            if row:
+                started_at = row["starts_at"]
+            else:
+                started_at = now + timedelta(minutes=room.get("auto_delay_min") or 0)
+                await conn.execute(
+                    "INSERT INTO webinar_auto_runs (room_id, contact_id, starts_at) "
+                    "VALUES ($1,$2,$3)", room["id"], contact_id, started_at)
+    else:
+        started_at = await _nearest_schedule_start(conn, room["id"], now)
+
+    if not started_at:
+        return {"auto": {"ready": False, "reason": "Ближайший запуск не назначен"}}
+
+    elapsed = int((now - started_at).total_seconds())
+    dur = rec["duration_sec"] or 0
+    if elapsed < 0:
+        state = "waiting"
+    elif dur and elapsed >= dur:
+        state = "ended"
+    else:
+        state = "live"
+
+    return {"auto": {
+        "ready": True,
+        "url": rec["url"],
+        "duration_sec": dur,
+        "state": state,
+        "position_sec": max(0, elapsed),
+        "starts_at": started_at.isoformat(),
+        # ⚠️ перемотка вперёд по умолчанию запрещена: она обесценивает
+        # продающие блоки, выстреливающие по таймингу
+        "allow_seek": bool(room.get("auto_allow_seek")),
+    }}
+
+
+async def _nearest_schedule_start(conn, room_id: int, now):
+    """Момент старта текущего/ближайшего запуска по расписанию (МСК).
+
+    ⚠️ Время в расписании — строка "HH:MM" по МСК (как в программе
+    конференции). Считаем в московском времени и возвращаем UTC.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    msk = ZoneInfo("Europe/Moscow")
+    now_msk = now.astimezone(msk)
+    rows = await conn.fetch(
+        "SELECT kind, weekdays, at_time, once_date FROM webinar_auto_schedule "
+        " WHERE room_id=$1 AND is_active", room_id)
+    if not rows:
+        return None
+
+    best = None
+    for r in rows:
+        try:
+            hh, mm = (r["at_time"] or "").split(":")
+            hh, mm = int(hh), int(mm)
+        except Exception:
+            continue
+        # смотрим сегодня и вчера: запуск мог начаться до полуночи и идти сейчас
+        for delta in (0, -1):
+            d = (now_msk + timedelta(days=delta)).date()
+            if r["kind"] == "once":
+                if r["once_date"] != d:
+                    continue
+            elif r["kind"] == "weekly":
+                if (d.isoweekday()) not in (r["weekdays"] or []):
+                    continue
+            start_msk = datetime(d.year, d.month, d.day, hh, mm, tzinfo=msk)
+            if start_msk <= now_msk and (best is None or start_msk > best):
+                best = start_msk
+    return best.astimezone(now.tzinfo) if best else None
+
+
 @router.get("/{slug}/{day}", summary="Данные комнаты дня для зрителя")
 async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                     pid: Optional[str] = Query(None)):
@@ -230,6 +338,8 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                 "stream_type": room.get("stream_type"),
                 "hls_url": room.get("hls_url") if is_live else None,
                 "external_url": room.get("external_url"),
+                # автовебинар: запись + с какой секунды её включить зрителю
+                **(await _auto_payload(conn, room, c) if room.get("stream_type") == "auto" else {}),
                 "hide_viewer_count": room.get("hide_viewer_count"),
                 "chat_enabled": room.get("chat_enabled"),
                 "premoderation": room.get("premoderation"),
