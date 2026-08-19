@@ -12,6 +12,9 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  // Акцепт Оферты и согласие на обработку ПД — обязательны (миграция 315).
+  const [acceptOffer, setAcceptOffer] = useState(false)
+  const [consentPd, setConsentPd] = useState(false)
   const [referrerPid, setReferrerPid] = useState<string | null>(null)
   // Кто пригласил и на сколько дней длиннее триал. Цифры с бэкенда
   // (`/auth/referrer-info`) — база тарифа + бонус из настроек реф-программы,
@@ -47,6 +50,14 @@ export default function RegisterPage() {
       setError('Пароли не совпадают')
       return
     }
+    if (!acceptOffer) {
+      setError('Примите условия Публичной оферты')
+      return
+    }
+    if (!consentPd) {
+      setError('Дайте согласие на обработку персональных данных')
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -56,6 +67,7 @@ export default function RegisterPage() {
         password: form.password, partner_code: form.partner_code || undefined,
         pid: referrerPid || undefined,  // реф-код пригласившего (миграция 125)
         ml_tg_id: mlIds.tg, ml_vk_id: mlIds.vk, ml_max_id: mlIds.max,  // МедиаЛифт autolink
+        accept_offer: acceptOffer, consent_pd: consentPd,
       })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.removeItem('pluson_referrer_pid')  // pid использован
@@ -201,6 +213,33 @@ export default function RegisterPage() {
                   {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-2.5 pt-1">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox" checked={acceptOffer}
+                  onChange={e => setAcceptOffer(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 shrink-0 accent-[#25455D] cursor-pointer"
+                />
+                <span className="text-xs text-gray-600 leading-snug">
+                  Я принимаю условия{' '}
+                  <a href="/offer" target="_blank" rel="noopener"
+                     className="text-[#25455D] underline">Публичной оферты</a>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox" checked={consentPd}
+                  onChange={e => setConsentPd(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 shrink-0 accent-[#25455D] cursor-pointer"
+                />
+                <span className="text-xs text-gray-600 leading-snug">
+                  Я даю согласие на обработку персональных данных в соответствии с{' '}
+                  <a href="/privacy" target="_blank" rel="noopener"
+                     className="text-[#25455D] underline">Политикой обработки персональных данных</a>
+                </span>
+              </label>
             </div>
 
             <button

@@ -44,6 +44,11 @@ class RegisterRequest(BaseModel):
     ml_tg_id: str | None = None
     ml_vk_id: str | None = None
     ml_max_id: str | None = None
+    # Акцепт Оферты и согласие на обработку ПД (миграция 315). Оба обязательны:
+    # без явной отметки договор считается незаключённым, а сбор персональных
+    # данных — без правового основания.
+    accept_offer: bool = False
+    consent_pd: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -61,11 +66,23 @@ class AdminLoginRequest(BaseModel):
 
 
 @router.post("/register", summary="Регистрация нового клиента")
-async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_db)):
+async def register(data: RegisterRequest, request: Request, db: asyncpg.Connection = Depends(get_db)):
     # Email всегда храним в нижнем регистре — иначе регистр развёл бы один и тот
     # же адрес на несколько аккаунтов (Gmail и почти все почтовики регистр
     # игнорируют, а точечное сравнение при входе — нет).
     data.email = (data.email or "").strip().lower()
+
+    # ⚠️ Акцепт Оферты и согласие на обработку ПД — обязательны (миграция 315).
+    # Проверка на бэкенде, а не только галочкой во фронте: без неё аккаунт
+    # заводится прямым POST мимо формы, и доказательства согласия не остаётся.
+    if not data.accept_offer:
+        raise HTTPException(status_code=422, detail="Примите условия Публичной оферты")
+    if not data.consent_pd:
+        raise HTTPException(status_code=422, detail="Дайте согласие на обработку персональных данных")
+
+    # IP берём из X-Forwarded-For (за nginx), иначе — адрес соединения.
+    _fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    _accept_ip = _fwd or (request.client.host if request.client else None)
 
     # Проверяем, не занят ли email (регистронезависимо)
     existing = await db.fetchrow("SELECT id FROM clients WHERE LOWER(email) = $1", data.email)
@@ -167,6 +184,7 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         # Реф-бонус: пришёл по валидному реф-коду → +7 дней триала поверх базы и
         # промо-акции. referred_by_client_id уже отрезолвлен выше (None если код
         # невалидный/мусорный — тогда бонуса нет).
+        from app.services.legal_docs import OFFER_VERSION, PRIVACY_POLICY_VERSION
         from app.services.referral_rate import get_trial_bonus_days
         referral_bonus_days = (
             await get_trial_bonus_days(db) if referred_by_client_id else 0
@@ -186,13 +204,18 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
             """
             INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token,
                                  referral_code, referred_by_client_id,
-                                 referral_rate_percent, referral_accrual_until)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                 referral_rate_percent, referral_accrual_until,
+                                 offer_accepted_at, offer_accepted_version,
+                                 privacy_consent_at, privacy_consent_version,
+                                 acceptance_ip)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                    NOW(), $12, NOW(), $13, $14)
             RETURNING id, name, email
             """,
             data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
             new_referral_code, referred_by_client_id,
             ref_percent, ref_accrual_until,
+            OFFER_VERSION, PRIVACY_POLICY_VERSION, _accept_ip,
         )
 
         # Создаём запись бонусного баланса (NULL не допустим, всегда нулевая запись)

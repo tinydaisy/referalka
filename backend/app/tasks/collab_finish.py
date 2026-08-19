@@ -226,11 +226,17 @@ async def _run_once() -> int:
 
 def _run_async(coro):
     """Свежий event loop на каждый запуск задачи (см. комментарий в _run_once)."""
+    # ⚠️ set_event_loop ОБЯЗАТЕЛЕН: new_event_loop() создаёт цикл, но НЕ делает
+    # его текущим. Библиотеки внутри зовут asyncio.get_event_loop() и получают
+    # ЗАКРЫТЫЙ цикл предыдущей задачи того же воркера → RuntimeError('Event loop
+    # is closed'). Так молча терялись записи вебинаров и Текст 3 воронок.
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+        asyncio.set_event_loop(None)
 
 
 @shared_task(name="app.tasks.collab_finish.finish_ended_collabs")

@@ -167,6 +167,36 @@ async def upload_bytes(key: str, data: bytes, content_type: str) -> str:
     return f"{settings.cf_r2_public_url}/{key}"
 
 
+async def upload_file(path: str, key: str, content_type: str) -> str:
+    """Загружает ФАЙЛ С ДИСКА в R2 потоком (multipart), не читая его в память.
+
+    ⚠️ Для больших файлов (запись вебинара — гигабайты) обязательно использовать
+    именно эту функцию, а не upload_bytes: чтение целиком в память кладёт процесс
+    по OOM. Так молча не заливались записи эфиров.
+    """
+    from boto3.s3.transfer import TransferConfig
+
+    client = get_r2_client()
+    cfg = TransferConfig(
+        multipart_threshold=64 * 1024 * 1024,
+        multipart_chunksize=64 * 1024 * 1024,
+        max_concurrency=2,
+        use_threads=True,
+    )
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: client.upload_file(
+            path,
+            settings.cf_r2_bucket_name,
+            key,
+            ExtraArgs={"ContentType": content_type},
+            Config=cfg,
+        ),
+    )
+    return f"{settings.cf_r2_public_url}/{key}"
+
+
 async def delete_object(key: str) -> None:
     """Удаляет объект из R2."""
     client = get_r2_client()
