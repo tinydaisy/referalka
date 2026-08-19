@@ -516,9 +516,11 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Сценарий чата наполняется ИЗ ЖИВОГО ЭФИРА** — `POST /{day}/auto/chat-from-record?session_id=`. Полсотни реплик руками никто не напишет, а прошедший эфир уже дал настоящие вопросы в нужные моменты; тайминги берутся от `started_at` той сессии.
 
-**API:** `GET/POST/DELETE /{day}/auto/schedule`, `/{day}/auto/chat`, `POST /{day}/auto/chat-from-record` ([modules/webinar_room.py](backend/app/api/modules/webinar_room.py)). Гейт — фича `webinar_room` (Экстра), как у видеокодера.
+**API:** `GET/POST/DELETE /{day}/auto/schedule`, `/{day}/auto/chat`, `POST /{day}/auto/chat-from-record` ([modules/webinar_room.py](backend/app/api/modules/webinar_room.py)). Фронт — подвкладка «Автовебинар» (`AutoWebinarTab` в [WebinarTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/WebinarTab.tsx)), api-группа `api.webinar.auto*`.
 
-⚠️ **Фронта настройки автовебинара ПОКА НЕТ** — API и публичная отдача готовы, вкладка в дашборде не сделана.
+⚠️⚠️ **Гейт — ОТДЕЛЬНАЯ фича `autowebinar` (только `vip` + `admin`), НЕ `webinar_room`.** Обычная вебинарная комната остаётся на **Профи и Триале** — забрать её значило бы отнять работающую функцию у 80 клиентов. Проверка стоит в 6 точках: сохранение комнаты со `stream_type='auto'`, CRUD расписания и сценария, перенос чата из эфира. Во фронте вкладка скрыта без фичи.
+
+⚠️ **Фича НЕ зеркалится в триал** — правило «триал = Профи» касается фич, привязанных к `pro`; `autowebinar` привязан к `vip`, поэтому автозеркала не будет.
 
 ### Дашборд аналитики — квадратики-разрезы с пересечением (миграция 284 от 2026-08-13, ПРОД)
 
