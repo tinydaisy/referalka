@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react'
 import { Check, X, Wallet, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 
+// Метки налогового статуса партнёра (миграция 319).
+const TAX_STATUS_LABEL: Record<string, string> = {
+  ip: 'ИП',
+  company: 'Юрлицо',
+  self_employed: 'Самозанятый',
+}
+
 const STATUS: Record<string, { label: string; cls: string }> = {
   pending:   { label: 'В обработке', cls: 'bg-amber-100 text-amber-800' },
   completed: { label: 'Выплачено',    cls: 'bg-green-100 text-green-800' },
@@ -69,6 +76,19 @@ export default function AdminWithdrawalsPage() {
                     </div>
                     <div className="text-sm text-gray-700">
                       <b>{w.client_name}</b> · {w.client_email}
+                      {/* ⚠️ Налоговый статус (миграция 319): выплата возможна
+                          только ИП, юрлицу или самозанятому — иначе Оферент
+                          становится налоговым агентом и обязан удержать НДФЛ. */}
+                      {' '}
+                      {w.partner_tax_status ? (
+                        <span className="inline-block px-2 py-0.5 rounded-lg text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          {TAX_STATUS_LABEL[w.partner_tax_status] || w.partner_tax_status}
+                        </span>
+                      ) : (
+                        <span className="inline-block px-2 py-0.5 rounded-lg text-[11px] bg-red-50 text-red-800 border border-red-200">
+                          статус не подтверждён — платить нельзя
+                        </span>
+                      )}
                       {w.telegram_username && ` · @${w.telegram_username}`}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">

@@ -1535,6 +1535,9 @@ export const api = {
     getOrder: (id: number) => request(`/api/v1/addons/orders/${id}`),
   },
   referrals: {
+    // Акцепт партнёрской оферты кнопкой «Стать партнёром» (миграция 318).
+    acceptPartnerOffer: (data: { tax_status: string }) =>
+      request('/api/v1/referrals/partner/accept', { method: 'POST', body: JSON.stringify(data) }),
     me: () => request('/api/v1/referrals/me'),
     withdraw: (amount_kopecks: number, payment_details: string) =>
       request('/api/v1/referrals/withdraw', {

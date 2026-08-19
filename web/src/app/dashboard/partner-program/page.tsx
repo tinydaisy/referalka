@@ -14,6 +14,11 @@ interface RefData {
   withdrawal_block_reason: string | null
   transactions: any[]
   withdrawal_requests: any[]
+  partner?: {
+    accepted_at: string | null
+    accepted_version: string | null
+    tax_status: string | null
+  } | null
   referrals: any[]
   referrals_count: number
 }
@@ -126,6 +131,37 @@ export default function PartnerProgramPage() {
             </div>
             <div className="mt-3 text-xs text-gray-500 italic">
               Бонусы можно потратить на свою подписку.
+            </div>
+
+            {/* Акцепт партнёрской оферты (миграция 319).
+                ⚠️ Отдельное действие, а не часть регистрации: в партнёрской
+                программе платим МЫ клиенту, оплаты с его стороны нет — значит
+                акцептовать оплатой нечем. Нажатие кнопки — конклюдентное
+                действие по п. 3 ст. 438 ГК.
+                ⚠️ Статус обязателен: выплата обычному физлицу сделала бы
+                Оферента налоговым агентом (ст. 226 НК), а ИП на НПД им быть
+                не может. */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              {data.partner?.accepted_at ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                    <Check size={15} /> Вы участвуете в партнёрской программе
+                  </span>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-600">
+                    статус: <b>{TAX_STATUS_LABEL[data.partner.tax_status || ''] || '—'}</b>
+                  </span>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-500 text-xs">
+                    принято {new Date(data.partner.accepted_at).toLocaleDateString('ru-RU')}
+                    {data.partner.accepted_version ? `, редакция ${data.partner.accepted_version}` : ''}
+                  </span>
+                  <a href="/partner-offer" target="_blank" rel="noopener"
+                     className="text-xs text-[#25455D] underline">оферта</a>
+                </div>
+              ) : (
+                <PartnerAcceptBlock onAccepted={load} />
+              )}
             </div>
           </div>
 
@@ -378,6 +414,94 @@ function WithdrawModal({ maxAmount, onClose, onSuccess }: {
           </p>
         </form>
       </div>
+    </div>
+  )
+}
+
+
+// ─── Принятие условий партнёрской программы ──────────────────────────────────
+
+const TAX_STATUS_LABEL: Record<string, string> = {
+  ip: 'ИП',
+  company: 'Юридическое лицо',
+  self_employed: 'Самозанятый',
+}
+
+/**
+ * Блок вступления в партнёрскую программу.
+ *
+ * ⚠️ Статус налогоплательщика обязателен: партнёрское вознаграждение
+ * выплачивается только ИП, юрлицам и самозанятым. Обычному физлицу платить
+ * нельзя — Оферент стал бы налоговым агентом (НДФЛ + взносы), а ИП на НПД
+ * налоговым агентом быть не может.
+ */
+function PartnerAcceptBlock({ onAccepted }: { onAccepted: () => void }) {
+  const [status, setStatus] = useState('')
+  const [agree, setAgree] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function accept() {
+    setSaving(true); setErr('')
+    try {
+      await api.referrals.acceptPartnerOffer({ tax_status: status })
+      onAccepted()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="text-sm font-medium text-gray-800 mb-1">Вывод бонусов деньгами</div>
+      <p className="text-xs text-gray-500 mb-3 leading-snug">
+        Чтобы выводить вознаграждение на счёт, примите условия партнёрской программы
+        и укажите свой статус. Выплаты возможны индивидуальным предпринимателям,
+        юридическим лицам и самозанятым — они платят налоги самостоятельно.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        {Object.entries(TAX_STATUS_LABEL).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setStatus(key)}
+            className={`px-3.5 py-2 rounded-xl text-sm border transition ${
+              status === key
+                ? 'border-[#25455D] bg-[#25455D] text-white'
+                : 'border-gray-200 text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <label className="flex items-start gap-2.5 cursor-pointer mb-3">
+        <input
+          type="checkbox" checked={agree}
+          onChange={e => setAgree(e.target.checked)}
+          className="mt-0.5 w-4 h-4 shrink-0 accent-[#25455D] cursor-pointer"
+        />
+        <span className="text-xs text-gray-600 leading-snug">
+          Я принимаю условия{' '}
+          <a href="/partner-offer" target="_blank" rel="noopener" className="text-[#25455D] underline">
+            Оферты об участии в партнёрской программе
+          </a>{' '}
+          и подтверждаю указанный статус
+        </span>
+      </label>
+
+      {err && <div className="text-xs text-red-600 mb-2">{err}</div>}
+
+      <button
+        onClick={accept}
+        disabled={!status || !agree || saving}
+        className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+      >
+        {saving ? 'Сохраняем…' : 'Стать партнёром'}
+      </button>
     </div>
   )
 }

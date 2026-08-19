@@ -175,7 +175,13 @@ async def list_clients(
                      ORDER BY ch.platform_slug, ch.id)
              FROM client_channels cc
              JOIN channels ch ON ch.id = cc.channel_id
-            WHERE cc.client_id = c.id AND ch.is_system = FALSE) AS channels_breakdown
+            WHERE cc.client_id = c.id AND ch.is_system = FALSE) AS channels_breakdown,
+          -- Акцепты правовых документов (миграции 315, 319): по ним видно,
+          -- с какой редакцией согласился клиент и можно ли ему платить
+          -- партнёрское вознаграждение.
+          c.offer_accepted_at, c.offer_accepted_version,
+          c.privacy_consent_at,
+          c.partner_offer_accepted_at, c.partner_tax_status
         FROM clients c
         LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
         LEFT JOIN tariffs t ON t.id = cs.tariff_id

@@ -4,6 +4,14 @@ import Link from 'next/link'
 import { Search, Users, BellOff, Calendar, Crown, UserCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 
+// Метки налогового статуса партнёра (миграция 319). Выплата партнёрского
+// вознаграждения возможна только ИП, юрлицу и самозанятому.
+const TAX_STATUS_LABEL: Record<string, string> = {
+  ip: 'ИП',
+  company: 'юрлицо',
+  self_employed: 'самозанятый',
+}
+
 interface Client {
   id: number
   name: string
@@ -13,6 +21,11 @@ interface Client {
   tariff_slug: string | null
   tariff_name: string | null
   features: string[] | null
+  offer_accepted_at?: string | null
+  offer_accepted_version?: string | null
+  privacy_consent_at?: string | null
+  partner_offer_accepted_at?: string | null
+  partner_tax_status?: string | null
   subscription_expires_at: string | null
   subscription_status: string | null
   is_active: boolean
@@ -223,6 +236,31 @@ export default function AdminClientsPage() {
                             {c.telegram_username && <span>@{c.telegram_username}</span>}
                           </div>
                         )}
+                        {/* Акцепты правовых документов (миграции 315, 319).
+                            ⚠️ У клиентов, зарегистрированных ДО внедрения
+                            отметки, полей нет — это не нарушение: они
+                            акцептовали конклюдентно (п. 3.1.5 Оферты). */}
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          {c.offer_accepted_at && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              title={`Оферта принята ${new Date(c.offer_accepted_at).toLocaleDateString('ru-RU')}`
+                                + (c.offer_accepted_version ? `, редакция ${c.offer_accepted_version}` : '')}
+                            >
+                              оферта ✓
+                            </span>
+                          )}
+                          {c.partner_tax_status && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200"
+                              title={c.partner_offer_accepted_at
+                                ? `Партнёрская оферта принята ${new Date(c.partner_offer_accepted_at).toLocaleDateString('ru-RU')}`
+                                : 'Партнёр'}
+                            >
+                              партнёр · {TAX_STATUS_LABEL[c.partner_tax_status] || c.partner_tax_status}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
