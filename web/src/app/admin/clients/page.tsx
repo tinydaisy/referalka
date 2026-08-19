@@ -74,6 +74,7 @@ export default function AdminClientsPage() {
   const [syncing, setSyncing] = useState(false)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
   const [manageClient, setManageClient] = useState<Client | null>(null)
+  const [reloadTick, setReloadTick] = useState(0)
   const [qualityModal, setQualityModal] = useState<EmailQuality | null>(null)
 
   useEffect(() => {
@@ -87,7 +88,7 @@ export default function AdminClientsPage() {
     api.admin.clients(qs.toString())
       .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
       .catch(() => {})
-  }, [search, limit, minContacts, subscription, hasBot, inCollab])
+  }, [search, limit, minContacts, subscription, hasBot, inCollab, reloadTick])
 
   // Смена фильтра/поиска — снова с первой страницы, иначе останется раздутый
   // limit от прошлого просмотра.
@@ -199,7 +200,7 @@ export default function AdminClientsPage() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                {['Клиент', 'Тариф', 'Событий', 'Контактов', 'Подписчиков', 'Своих ботов', 'Коллаб.', 'Коллаб. запрещена', 'Зарег.'].map(h => (
+                {['Клиент', 'Тариф', 'Событий', 'Контактов', 'Подписчиков', 'Своих ботов', 'Коллаб.', 'Коллаб. запрещена', 'Зарег.', ''].map(h => (
                   <th key={h} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -424,10 +425,145 @@ export default function AdminClientsPage() {
         <ManageClientModal
           client={manageClient}
           onClose={() => setManageClient(null)}
-          onDone={() => { setManageClient(null); load() }}
+          onDone={() => { setManageClient(null); setReloadTick(v => v + 1) }}
         />
       )}
 
+    </div>
+  )
+}
+
+
+// ─── Управление клиентом: тариф и бонусы ─────────────────────────────────────
+
+/**
+ * Окно ручного управления подпиской и бонусным балансом клиента.
+ *
+ * ⚠️ Смена тарифа БЕЗ указания срока пересчитывает остаток по формуле п. 3.9.1
+ * Оферты (осталось дней × цена прежнего ÷ цена нового) — именно это нужно при
+ * возврате клиента на прежний Тариф: прожитые на дорогом тарифе дни ему не
+ * возвращаются. Указанный срок отменяет пересчёт.
+ *
+ * ⚠️ Корректировка бонусов пишется отдельным типом операции (admin_adjust) и
+ * ВИДНА КЛИЕНТУ в истории — поэтому причина обязательна.
+ */
+function ManageClientModal({ client, onClose, onDone }: {
+  client: Client
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [tariff, setTariff] = useState('')
+  const [days, setDays] = useState('')
+  const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [ok, setOk] = useState('')
+
+  async function changeTariff() {
+    if (!tariff) return
+    setBusy(true); setErr(''); setOk('')
+    try {
+      await api.admin.updateClient(client.id, {
+        tariff_slug: tariff,
+        ...(days.trim() ? { tariff_days: Number(days) } : {}),
+      })
+      setOk(days.trim()
+        ? `Тариф изменён, срок ${days} дн.`
+        : 'Тариф изменён, срок пересчитан из остатка')
+      setTariff(''); setDays('')
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось сменить тариф')
+    } finally { setBusy(false) }
+  }
+
+  async function adjustBonus() {
+    const sum = Number(amount.replace(',', '.'))
+    if (!sum || !reason.trim()) return
+    setBusy(true); setErr(''); setOk('')
+    try {
+      const r: any = await api.adminBonus.adjust(client.id, { amount_rub: sum, description: reason.trim() })
+      setOk(`Готово. Баланс: ${r.balance_rub.toLocaleString('ru-RU')} ₽`)
+      setAmount(''); setReason('')
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось изменить баланс')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      {/* Клик по фону НЕ закрывает — в окне есть поля ввода */}
+      <div className="bg-white rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="font-semibold text-gray-900">{client.name}</h3>
+            <div className="text-xs text-gray-500">
+              {client.email} · сейчас {client.tariff_name || client.tariff_slug || '—'}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+
+        {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
+        {ok && <div className="mb-3 text-sm text-emerald-700">{ok}</div>}
+
+        <div className="mb-5">
+          <div className="text-sm font-medium text-gray-800 mb-2">Сменить тариф</div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {['trial', 'pro', 'vip', 'admin'].map(s => (
+              <button
+                key={s}
+                onClick={() => setTariff(s)}
+                className={`px-3 py-1.5 rounded-lg text-sm border ${
+                  tariff === s ? 'border-[#25455D] bg-[#25455D] text-white' : 'border-gray-200 text-gray-700'
+                }`}
+              >
+                {s === 'trial' ? 'Триал' : s === 'pro' ? 'Профи' : s === 'vip' ? 'Экстра' : 'Админ'}
+              </button>
+            ))}
+          </div>
+          <input
+            type="number" value={days} onChange={e => setDays(e.target.value)}
+            placeholder="Срок в днях (пусто — пересчитать остаток)"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-2"
+          />
+          <div className="text-[11px] text-gray-400 mb-2 leading-snug">
+            Пусто — остаток пересчитается по цене нового тарифа: с дорогого на дешёвый
+            дней станет больше, наоборот — меньше. Прожитые дни не возвращаются.
+          </div>
+          <button
+            onClick={changeTariff} disabled={!tariff || busy}
+            className="btn-gold px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+          >
+            Применить тариф
+          </button>
+        </div>
+
+        <div className="pt-5 border-t border-gray-100">
+          <div className="text-sm font-medium text-gray-800 mb-2">Бонусный баланс</div>
+          <input
+            type="text" value={amount} onChange={e => setAmount(e.target.value)}
+            placeholder="Сумма в рублях: 1500 или -1500 для списания"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-2"
+          />
+          <input
+            type="text" value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="Причина — её увидит клиент в истории"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-2"
+          />
+          <button
+            onClick={adjustBonus} disabled={!amount || !reason.trim() || busy}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white disabled:opacity-40"
+          >
+            Изменить баланс
+          </button>
+        </div>
+
+        <button onClick={onDone} className="mt-5 text-sm text-gray-500 underline">
+          Закрыть и обновить список
+        </button>
+      </div>
     </div>
   )
 }
