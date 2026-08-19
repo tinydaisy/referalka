@@ -1657,6 +1657,27 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/analytics?step=${step}${sessionId ? `&session_id=${sessionId}` : ''}`),
     viewers: (eventId: number, day: number, sessionId?: number | null) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/viewers${sessionId ? `?session_id=${sessionId}` : ''}`),
+    // ── автовебинар: та же комната со stream_type='auto' ──
+    // ⚠️ Отдельной сущности нет — чат, продающие блоки и аналитика общие.
+    autoSchedule: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/schedule`),
+    autoScheduleAdd: (eventId: number, day: number, data: any) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/schedule`,
+              { method: 'POST', body: JSON.stringify(data) }),
+    autoScheduleDel: (eventId: number, day: number, id: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/schedule/${id}`, { method: 'DELETE' }),
+    autoChat: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/chat`),
+    autoChatAdd: (eventId: number, day: number, data: any) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/chat`,
+              { method: 'POST', body: JSON.stringify(data) }),
+    autoChatDel: (eventId: number, day: number, id: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/chat/${id}`, { method: 'DELETE' }),
+    // Наполнить сценарий репликами прошедшего эфира — вручную полсотни
+    // сообщений никто не напишет.
+    autoChatFromRecord: (eventId: number, day: number, sessionId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/auto/chat-from-record?session_id=${sessionId}`,
+              { method: 'POST' }),
     // записи эфира
     recordings: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/recordings`),
     deleteRecording: (eventId: number, day: number, recId: number) =>

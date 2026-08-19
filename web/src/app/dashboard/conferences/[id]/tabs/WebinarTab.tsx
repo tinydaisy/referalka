@@ -40,7 +40,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   )
 }
 
-type SubView = 'settings' | 'blocks' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'
+type SubView = 'settings' | 'blocks' | 'auto' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'
 
 export default function WebinarTab({ eventId, event }: { eventId: number; event: any }) {
   const [loading, setLoading] = useState(true)
@@ -130,6 +130,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           {([
             ['settings', 'Настройки'],
             ['blocks', 'Продающие блоки'],
+            ['auto', 'Автовебинар'],
             ['analytics', 'Аналитика'],
             ['records', 'Записи'],
             ['referrals', 'Рефералы'],
@@ -164,6 +165,12 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
         )}
         {subView === 'blocks' && (
           <BlocksEditor eventId={eventId} day={active} event={event} />
+        )}
+        {subView === 'auto' && active.room && (
+          <AutoWebinarTab eventId={eventId} day={active} onSaved={load} />
+        )}
+        {subView === 'auto' && !active.room && (
+          <p className="text-sm text-gray-500">Сначала создайте комнату этого дня.</p>
         )}
         {subView === 'analytics' && active.room && (
           <WebinarAnalytics eventId={eventId} day={active.day_number} />
@@ -1504,6 +1511,269 @@ function RecordingViewer({ eventId, day, rec, onClose }: {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+/** Настройка автовебинара: какую запись крутить, когда и что пишут в чате.
+ *
+ * ⚠️ Отдельной сущности «автовебинар» нет — это та же комната со
+ * stream_type='auto'. Продающие блоки, опросы и аналитика настраиваются на
+ * своих вкладках и работают как в живом эфире.
+ */
+function AutoWebinarTab({ eventId, day, onSaved }: {
+  eventId: number; day: any; onSaved: () => void
+}) {
+  const [recs, setRecs] = useState<any[]>([])
+  const [sched, setSched] = useState<any[]>([])
+  const [chat, setChat] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const room = day.room || {}
+  const [on, setOn] = useState(room.stream_type === 'auto')
+  const [recId, setRecId] = useState<number | ''>(room.auto_recording_id || '')
+  const [mode, setMode] = useState(room.auto_mode || 'schedule')
+  const [delay, setDelay] = useState(room.auto_delay_min ?? 15)
+  const [seek, setSeek] = useState(!!room.auto_allow_seek)
+
+  // форма запуска
+  const [sKind, setSKind] = useState('daily')
+  const [sTime, setSTime] = useState('19:00')
+  const [sDays, setSDays] = useState<number[]>([])
+  const [sDate, setSDate] = useState('')
+
+  // форма реплики
+  const [cMin, setCMin] = useState('')
+  const [cName, setCName] = useState('')
+  const [cText, setCText] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [r, sc, ch] = await Promise.all([
+        api.webinar.recordings(eventId, day.day_number),
+        api.webinar.autoSchedule(eventId, day.day_number).catch(() => ({ items: [] })),
+        api.webinar.autoChat(eventId, day.day_number).catch(() => ({ items: [] })),
+      ])
+      setRecs((r.recordings || []).filter((x: any) => x.status === 'ready'))
+      setSched(sc.items || []); setChat(ch.items || [])
+    } finally { setLoading(false) }
+  }, [eventId, day.day_number])
+  useEffect(() => { load() }, [load])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await api.webinar.upsertRoom(eventId, day.day_number, {
+        stream_type: on ? 'auto' : 'encoder',
+        auto_recording_id: recId || null,
+        auto_mode: mode, auto_delay_min: Number(delay) || 0,
+        auto_allow_seek: seek,
+      })
+      onSaved()
+    } finally { setSaving(false) }
+  }
+
+  const addSched = async () => {
+    await api.webinar.autoScheduleAdd(eventId, day.day_number, {
+      kind: sKind, at_time: sTime, weekdays: sDays,
+      once_date: sKind === 'once' ? (sDate || null) : null, is_active: true,
+    })
+    setSDays([]); setSDate(''); load()
+  }
+
+  const addChat = async () => {
+    const sec = Math.round(parseFloat(cMin.replace(',', '.') || '0') * 60)
+    await api.webinar.autoChatAdd(eventId, day.day_number, {
+      at_sec: sec, author_name: cName.trim() || 'Гость', text: cText.trim(),
+    })
+    setCMin(''); setCText(''); load()
+  }
+
+  const fromRecord = async () => {
+    const rec = recs.find(r => r.id === recId) || recs[0]
+    if (!rec?.session_id) { alert('У выбранной записи нет чата эфира.'); return }
+    if (!confirm('Добавить в сценарий все реплики того эфира с их таймингами?')) return
+    const r: any = await api.webinar.autoChatFromRecord(eventId, day.day_number, rec.session_id)
+    alert(`Добавлено реплик: ${r.added}`)
+    load()
+  }
+
+  const mmss = (s: number) => {
+    const t = Math.max(0, s || 0)
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
+  }
+  const DAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
+
+  if (loading) return <Spinner />
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl bg-gray-50 border p-4">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)}
+                 className="mt-1" />
+          <span>
+            <b className="text-[#25455D]">Включить автовебинар</b>
+            <span className="block text-sm text-gray-600 mt-0.5">
+              Готовая запись показывается зрителям как живой эфир: чат, продающие
+              блоки и опросы работают по таймингу.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {on && (
+        <>
+          <div>
+            <label className="block text-sm font-medium mb-1">Какую запись показывать</label>
+            {!recs.length ? (
+              <p className="text-sm text-gray-500">
+                Готовых записей нет. Проведите эфир — запись появится на вкладке «Записи».
+              </p>
+            ) : (
+              <select value={recId} onChange={e => setRecId(Number(e.target.value) || '')}
+                      className="w-full border rounded-lg px-3 py-2 text-sm">
+                <option value="">— выберите запись —</option>
+                {recs.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {new Date(r.started_at).toLocaleDateString('ru-RU')} ·{' '}
+                    {Math.floor((r.duration_sec || 0) / 60)} мин
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Когда начинается</label>
+            <div className="flex flex-wrap gap-2">
+              {([['schedule', 'По расписанию — все смотрят вместе'],
+                 ['on_signup', 'После регистрации — свой старт у каждого']] as const)
+                .map(([k, lbl]) => (
+                <button key={k} onClick={() => setMode(k)}
+                        className={`px-3 py-1.5 rounded-lg text-sm ${mode === k
+                          ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                        style={mode === k ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            {mode === 'on_signup' && (
+              <div className="mt-2 flex items-center gap-2 text-sm">
+                Старт через
+                <input type="number" min={0} value={delay}
+                       onChange={e => setDelay(Number(e.target.value))}
+                       className="w-20 border rounded-lg px-2 py-1" />
+                минут после захода зрителя
+              </div>
+            )}
+          </div>
+
+          <label className="flex items-start gap-3 text-sm cursor-pointer">
+            <input type="checkbox" checked={seek} onChange={e => setSeek(e.target.checked)}
+                   className="mt-0.5" />
+            <span>
+              Разрешить перематывать вперёд
+              <span className="block text-xs text-gray-500">
+                По умолчанию запрещено: перемотка «проскакивает» продающие блоки,
+                которые появляются по таймингу.
+              </span>
+            </span>
+          </label>
+
+          <button onClick={save} disabled={saving} className="btn-gold">
+            {saving ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+
+          {mode === 'schedule' && (
+            <div className="border-t pt-5">
+              <h4 className="font-semibold mb-2">🗓 Расписание запусков</h4>
+              <p className="text-xs text-gray-500 mb-3">Время московское.</p>
+              {sched.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {sched.map(x => (
+                    <div key={x.id} className="flex items-center justify-between border rounded-lg px-3 py-2 text-sm">
+                      <span>
+                        {x.kind === 'daily' ? 'Каждый день'
+                          : x.kind === 'weekly' ? (x.weekdays || []).map((d: number) => DAYS[d - 1]).join(', ')
+                          : x.once_date}
+                        {' в '}<b>{x.at_time}</b>
+                      </span>
+                      <button onClick={async () => {
+                        await api.webinar.autoScheduleDel(eventId, day.day_number, x.id); load()
+                      }} className="text-gray-400 hover:text-red-500">Удалить</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <select value={sKind} onChange={e => setSKind(e.target.value)}
+                        className="border rounded-lg px-2 py-1.5 text-sm">
+                  <option value="daily">Каждый день</option>
+                  <option value="weekly">По дням недели</option>
+                  <option value="once">Один раз</option>
+                </select>
+                {sKind === 'weekly' && (
+                  <div className="flex gap-1">
+                    {DAYS.map((d, i) => (
+                      <button key={d} onClick={() => setSDays(p =>
+                        p.includes(i + 1) ? p.filter(x => x !== i + 1) : [...p, i + 1])}
+                        className={`w-9 h-8 rounded-lg text-xs ${sDays.includes(i + 1)
+                          ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600'}`}>{d}</button>
+                    ))}
+                  </div>
+                )}
+                {sKind === 'once' && (
+                  <input type="date" value={sDate} onChange={e => setSDate(e.target.value)}
+                         className="border rounded-lg px-2 py-1.5 text-sm" />
+                )}
+                <input type="time" value={sTime} onChange={e => setSTime(e.target.value)}
+                       className="border rounded-lg px-2 py-1.5 text-sm" />
+                <button onClick={addSched} className="btn-primary text-sm">Добавить</button>
+              </div>
+            </div>
+          )}
+
+          <div className="border-t pt-5">
+            <h4 className="font-semibold mb-1">💬 Сценарий чата</h4>
+            <p className="text-xs text-gray-500 mb-3">
+              Реплики появляются в чате на своей минуте записи — как будто пишут зрители.
+            </p>
+            {recs.length > 0 && (
+              <button onClick={fromRecord} className="btn-primary text-sm mb-3">
+                Взять чат из прошедшего эфира
+              </button>
+            )}
+            {chat.length > 0 && (
+              <div className="space-y-1 mb-3 max-h-72 overflow-y-auto">
+                {chat.map(x => (
+                  <div key={x.id} className="flex items-center gap-2 text-sm border rounded-lg px-3 py-1.5">
+                    <span className="tabular-nums text-xs text-gray-400 w-12 shrink-0">{mmss(x.at_sec)}</span>
+                    <b className="text-[#25455D] shrink-0">{x.author_name}</b>
+                    <span className="text-gray-700 truncate">{x.text}</span>
+                    <button onClick={async () => {
+                      await api.webinar.autoChatDel(eventId, day.day_number, x.id); load()
+                    }} className="ml-auto text-gray-400 hover:text-red-500 shrink-0">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={cMin} onChange={e => setCMin(e.target.value)} placeholder="мин"
+                     className="w-20 border rounded-lg px-2 py-1.5 text-sm" />
+              <input value={cName} onChange={e => setCName(e.target.value)} placeholder="имя"
+                     className="w-36 border rounded-lg px-2 py-1.5 text-sm" />
+              <input value={cText} onChange={e => setCText(e.target.value)} placeholder="текст реплики"
+                     className="flex-1 min-w-[200px] border rounded-lg px-2 py-1.5 text-sm" />
+              <button onClick={addChat} disabled={!cText.trim()}
+                      className="btn-primary text-sm disabled:opacity-40">Добавить</button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
