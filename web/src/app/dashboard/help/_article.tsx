@@ -156,11 +156,18 @@ export function Screenshot({ src, alt, caption }: { src: string; alt: string; ca
   const [failed, setFailed] = useState(false)
   const [ready, setReady] = useState(false)
   useEffect(() => { setFailed(false); setReady(false) }, [src])
+  // ⚠️ Ограничиваем ВЫСОТУ, а не ширину: скриншоты с телефона вертикальные, и при
+  // `w-full` растягивались на всю ширину статьи — выходили полотна во весь экран.
+  // Высота решает обе задачи разом: вертикальные ужимаются, горизонтальные
+  // остаются читаемыми. Клик открывает оригинал — мелкий текст можно рассмотреть.
   return (
     <figure className="mt-3">
       {!failed ? (
-        <img src={src} alt={alt} onError={() => setFailed(true)} onLoad={() => setReady(true)}
-             className={`w-full rounded-lg border border-gray-200 ${ready ? '' : 'hidden'}`} />
+        <a href={src} target="_blank" rel="noreferrer" className={ready ? 'inline-block' : 'hidden'}>
+          <img src={src} alt={alt} onError={() => setFailed(true)} onLoad={() => setReady(true)}
+               className="max-h-[420px] w-auto max-w-full rounded-lg border border-gray-200
+                          cursor-zoom-in hover:border-gray-300" />
+        </a>
       ) : null}
       {(failed || !ready) && (
         <div className="w-full rounded-lg border border-dashed border-gray-300 bg-gray-50 py-8 flex flex-col items-center justify-center gap-1.5">
@@ -169,6 +176,7 @@ export function Screenshot({ src, alt, caption }: { src: string; alt: string; ca
         </div>
       )}
       {caption && <figcaption className="text-xs text-gray-400 mt-1.5">{caption}</figcaption>}
+      {ready && <p className="text-[10px] text-gray-300 mt-0.5">Нажмите на картинку, чтобы открыть крупнее</p>}
     </figure>
   )
 }

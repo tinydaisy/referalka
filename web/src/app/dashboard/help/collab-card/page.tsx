@@ -179,7 +179,7 @@ function Screenshot({ src, alt, caption }: { src: string; alt: string; caption?:
         src={src}
         alt={alt}
         onError={() => setErrored(true)}
-        className="w-full rounded-xl border border-gray-200 shadow-sm"
+        className="max-h-[420px] w-auto max-w-full rounded-xl border border-gray-200 shadow-sm"
       />
       {caption && (
         <figcaption className="text-xs text-gray-500 mt-2 italic">{caption}</figcaption>
