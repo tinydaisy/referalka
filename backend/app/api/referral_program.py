@@ -238,6 +238,11 @@ async def update_poster(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
+    # ⚠️ Запоминаем СТАРЫЙ файл: при замене он остаётся в хранилище навсегда,
+    # если его не удалить. Так у одного события накопилось 5 мёртвых афиш.
+    old_url = await db.fetchval(
+        "SELECT url FROM event_posters WHERE id=$1 AND event_id=$2", poster_id, event_id)
+
     row = await db.fetchrow(
         """UPDATE event_posters SET url=$1, orientation=$2, sort=$3, day=$4
            WHERE id=$5 AND event_id=$6
@@ -246,7 +251,41 @@ async def update_poster(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Афиша не найдена")
+
+    if old_url and old_url != data.url:
+        await _drop_orphan_file(db, old_url)
     return dict(row)
+
+
+async def _drop_orphan_file(db, url: str) -> None:
+    """Удаляет файл из хранилища, если на него больше никто не ссылается.
+
+    ⚠️ Проверка «никто не ссылается» ОБЯЗАТЕЛЬНА: одна и та же картинка может
+    стоять в нескольких афишах или лендингах (копирование лендинга переиспользует
+    файлы, а не дублирует их). Удалить сразу — значит выбить картинку у соседей.
+
+    Ошибку не поднимаем: не удалившийся файл — это лишние мегабайты, а упавший
+    запрос — это сломанная замена афиши у клиента.
+    """
+    from app.services import r2_storage
+    try:
+        still_used = await db.fetchval(
+            """SELECT EXISTS (SELECT 1 FROM event_posters WHERE url = $1)
+                   OR EXISTS (SELECT 1 FROM event_landing_blocks
+                               WHERE image_url = $1 OR bg_image_url = $1
+                                  OR items::text LIKE '%' || $1 || '%')
+                   OR EXISTS (SELECT 1 FROM collaborator_posters WHERE url = $1)""",
+            url)
+        if still_used:
+            return
+        key = r2_storage.key_from_url(url)
+        if not key:
+            return          # внешняя ссылка — не наш файл
+        await r2_storage.delete_object(key)
+        await r2_storage.unregister_file(db, key)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("не удалось удалить файл %s", url)
 
 
 @router.delete("/posters/{poster_id}", summary="Удалить афишу")
@@ -256,11 +295,15 @@ async def delete_poster(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
+    url = await db.fetchval(
+        "SELECT url FROM event_posters WHERE id=$1 AND event_id=$2", poster_id, event_id)
     result = await db.execute(
         "DELETE FROM event_posters WHERE id=$1 AND event_id=$2", poster_id, event_id
     )
     if result.endswith("0"):
         raise HTTPException(status_code=404, detail="Афиша не найдена")
+    if url:
+        await _drop_orphan_file(db, url)
     return {"ok": True}
 
 

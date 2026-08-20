@@ -35,6 +35,9 @@ from app.auth import get_current_client
 from app.database import get_db
 from app.services import r2_storage
 from app.services.image_processor import process_image, is_image
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ⚠️ ЕДИНЫЙ список разрешённых kind. Держится константой, а не литералом внутри
@@ -153,17 +156,27 @@ async def upload_file(
 
     # 5. Проверка квоты
     quota_row = await db.fetchrow(
-        "SELECT storage_used_bytes, storage_quota_bytes FROM clients WHERE id = $1",
+        """SELECT storage_used_bytes, storage_quota_bytes, storage_provider
+             FROM clients WHERE id = $1""",
         client_id,
     )
     if not quota_row:
         raise HTTPException(404, detail="Клиент не найден")
     used = int(quota_row["storage_used_bytes"])
     quota = int(quota_row["storage_quota_bytes"])
-    if used + size > quota:
+    own_storage = bool(quota_row["storage_provider"])
+
+    # ⚠️ Своя квота действует только на НАШЕ хранилище. Если клиент подключил
+    # собственное — место у него своё, ограничивать его нашим лимитом неверно.
+    if not own_storage and used + size > quota:
         raise HTTPException(
             413,
-            detail=f"Превышена квота. Использовано {_human_bytes(used)} из {_human_bytes(quota)}, файл {_human_bytes(size)}.",
+            detail=(
+                f"Не хватает места: занято {_human_bytes(used)} из {_human_bytes(quota)}, "
+                f"а файл весит {_human_bytes(size)}. "
+                "Удалите ненужные файлы в разделе «Файловое хранилище» или подключите "
+                "своё бесплатное хранилище на 15 ГБ — это там же, в настройках."
+            ),
         )
 
     # 5. Строим key и грузим в R2
@@ -171,7 +184,34 @@ async def upload_file(
         client_id, kind, ext,
         event_id=event_id, collaborator_id=collaborator_id, poster_type=poster_type,
     )
-    url = await r2_storage.upload_bytes(key, raw, content_type)
+    # ⚠️ Хранилище может отказать по причинам вне нашей власти: у клиента
+    # кончилось место в Cloud.ru, сменился тариф, отозван ключ. Тогда файл
+    # просто не загрузится — и человек должен понять, ЧТО именно случилось
+    # и куда идти, а не увидеть техническую ошибку S3.
+    try:
+        url = await r2_storage.upload_bytes(key, raw, content_type)
+    except Exception as e:
+        text = str(e)
+        if own_storage:
+            if "QuotaExceeded" in text or "EntityTooLarge" in text or "insufficient" in text.lower():
+                msg = ("В вашем хранилище Cloud.ru закончилось место. Освободите его "
+                       "или увеличьте объём в кабинете Cloud.ru — бесплатно даётся 15 ГБ.")
+            elif "InvalidAccessKeyId" in text or "SignatureDoesNotMatch" in text:
+                msg = ("Ключ доступа к вашему хранилищу больше не работает — возможно, "
+                       "его удалили или истёк срок. Создайте новый ключ и обновите его "
+                       "в Настройках → Файловое хранилище.")
+            elif "AccessDenied" in text:
+                msg = ("Нет прав на запись в ваше хранилище Cloud.ru. Проверьте ключ "
+                       "в Настройках → Файловое хранилище.")
+            elif "NoSuchBucket" in text:
+                msg = ("Хранилище в Cloud.ru не найдено — возможно, его удалили. "
+                       "Подключите заново в Настройках → Файловое хранилище.")
+            else:
+                msg = f"Ваше хранилище Cloud.ru не принимает файл: {text[:150]}"
+        else:
+            msg = "Не удалось сохранить файл — попробуйте ещё раз через минуту."
+        logger.error("upload failed (client %s, own=%s): %s", client_id, own_storage, text[:300])
+        raise HTTPException(502, detail=msg)
 
     # 6. Запись в client_files + обновление used_bytes (одной транзакцией).
     # Для kind='speaker_poster' дополнительно регистрируем загрузку в
@@ -342,6 +382,7 @@ _KIND_LABEL = {
     "broadcast_video": "Видео рассылки",
     "dialog_media": "Медиа переписки",
     "webinar_recording": "Запись эфира",
+    "testimonial": "Видео-отзыв (кейс)",
     "untracked": "Загружен вручную",
 }
 
@@ -379,7 +420,7 @@ async def storage_files(
 
     rows = await db.fetch(
         """
-        SELECT f.id, f.kind, f.r2_key, f.url, f.size_bytes, f.created_at,
+        SELECT f.id, f.kind, f.r2_key, f.url, f.size_bytes, f.created_at, f.content_type,
                f.event_id, f.collaborator_id,
                e.title       AS event_title,
                e.module_slug AS event_module,
@@ -388,6 +429,12 @@ async def storage_files(
                -- Ориентация афиши: клиент грузит три штуки на событие и должен
                -- понимать, какая именно занимает место.
                (SELECT ep.orientation FROM event_posters ep WHERE ep.url = f.url LIMIT 1) AS poster_orientation,
+               -- ⚠️ У события бывают афиши ОТДЕЛЬНЫХ ДНЕЙ программы. Без номера
+               -- дня семь афиш выглядят одинаково — клиент решает, что их лишку.
+               (SELECT ep.day FROM event_posters ep WHERE ep.url = f.url LIMIT 1) AS poster_day,
+               -- Файл может числиться афишей, но быть заменён новым: место
+               -- занимает, а нигде не показывается. Такие помечаем отдельно.
+               EXISTS (SELECT 1 FROM event_posters ep WHERE ep.url = f.url) AS poster_in_use,
                -- Шаг воронки: «медиа воронки» само по себе ничего не говорит.
                (SELECT CASE WHEN ft.text_1_media_url = f.url THEN 'Текст 1'
                             WHEN ft.text_2_media_url = f.url THEN 'Текст 2' END
@@ -509,9 +556,24 @@ async def storage_files(
         if "/webinar/" in key:
             return "webinar_recording", None, None
         if "/cases/" in key:
-            return "landing_media", None, None
-        if "/products/" in key:
+            # Видео-отзывы и кейсы клиента — раздел «Отзывы и кейсы».
+            return "testimonial", None, None
+        if "/funnel_media/" in key:
+            return "funnel_media", None, None
+        if "/products/" in key or "/product/" in key:
             return "product_media", None, None
+        if "/profile/" in key:
+            return "brand_photo", None, None
+        if "/broadcast_photos/" in key or "/broadcast_videos/" in key:
+            return "broadcast_photo", None, None
+        if "/dialogs/" in key:
+            return "dialog_media", None, None
+        if "/certificates/" in key:
+            return "certificate", None, None
+        if "/referral_materials/" in key:
+            return "referral_material", None, None
+        if "/lead_magnets/" in key:
+            return "lead_magnet", None, None
         if key.startswith("lessons/"):
             return "material_media", None, None
         return None, None, None
@@ -574,6 +636,9 @@ async def storage_files(
         elif kind in ("lead_magnet", "funnel_media"):
             link = "/dashboard/lead-magnets"
             place = ("Воронка подарков · " + r["funnel_step"]) if r["funnel_step"] else "Подарки и воронки"
+        elif kind == "testimonial":
+            link = "/dashboard/testimonials"
+            place = "Отзывы и кейсы"
         elif kind == "survey_media":
             link = "/dashboard/surveys"
             place = "Анкеты"
@@ -594,8 +659,13 @@ async def storage_files(
         # ничего не даёт, когда их три штуки разной ориентации.
         _ORIENT = {"square": "квадратная", "horizontal": "горизонтальная",
                    "vertical": "вертикальная"}
-        if kind == "event_poster" and r["poster_orientation"]:
-            label = f"Афиша события — {_ORIENT.get(r['poster_orientation'], r['poster_orientation'])}"
+        if kind == "event_poster":
+            if r["poster_orientation"]:
+                o = _ORIENT.get(r["poster_orientation"], r["poster_orientation"])
+                label = (f"Афиша дня {r['poster_day']} — {o}" if r["poster_day"]
+                         else f"Общая афиша события — {o}")
+            elif not r["poster_in_use"]:
+                label = "Старая афиша (заменена, нигде не используется)"
         elif kind == "funnel_media" and r["funnel_step"]:
             label = f"Медиа воронки подарков — {r['funnel_step']}"
         elif kind in ("product_media", "material_media") and r["product_title"]:
@@ -624,6 +694,17 @@ async def storage_files(
             "is_temp": kind in ("broadcast_photo", "broadcast_video"),
             # Одна картинка часто стоит в нескольких лендингах — показываем это.
             "used_in": len(uses),
+            # Файл лежит в хранилище, но нигде не показывается — можно удалять.
+            "unused": (kind == "event_poster" and not r["poster_in_use"]),
+            # ⚠️ Превью рисуется ПРЯМО ИЗ ХРАНИЛИЩА (тег img со ссылкой) —
+            # наш сервер файл не читает и не пережимает, нагрузки на него нет.
+            # Ставим признак только картинкам: видео так показывать нельзя,
+            # браузер начнёт качать гигабайты ради кадра.
+            "is_image": (r["content_type"] or "").startswith("image/")
+                        or kind in ("event_poster", "speaker_photo", "brand_logo",
+                                    "owner_photo", "brand_photo", "landing_media",
+                                    "landing_bg", "product_media", "survey_media")
+                        and not (r["url"] or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v")),
         })
 
     # Сводка по местам — что именно съедает объём.
