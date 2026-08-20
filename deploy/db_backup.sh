@@ -47,7 +47,13 @@ fi
 if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1090
-  source <(grep -E '^CF_(ACCOUNT_ID|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|R2_BUCKET_NAME)=' "$ENV_FILE")
+  # ⚠️ Список переменных ОБЯЗАН включать адрес и регион хранилища: без
+  # CF_S3_ENDPOINT заливка уходит по старому адресу Cloudflare и падает
+  # (так и вышло при переезде на Cloud.ru 21.08.2026). Новая переменная
+  # хранилища — дописывать сюда же.
+  source <(grep -E '^CF_(ACCOUNT_ID|S3_ENDPOINT|S3_REGION|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|R2_BUCKET_NAME|R2_PUBLIC_URL)=' "$ENV_FILE")
+  export CF_ACCOUNT_ID CF_S3_ENDPOINT CF_S3_REGION CF_R2_ACCESS_KEY_ID \
+         CF_R2_SECRET_ACCESS_KEY CF_R2_BUCKET_NAME CF_R2_PUBLIC_URL
   set +a
   if python3 "$UPLOADER" upload "$OUT" >>"$LOG" 2>&1; then
     log "r2 upload ok"
