@@ -39,7 +39,7 @@ export default function CloudStorageInstructionPage() {
         { id: 'connect', title: 'Подключение к ПЛЮСОНу' },
       ]} />
 
-      <Step step={1} id="reg" title="Зарегистрируйтесь и выберите «Личное облако»">
+      <Step step="1" id="reg" title="Зарегистрируйтесь и выберите «Личное облако»">
         <p>
           Откройте <b>console.cloud.ru</b> по кнопке из раздела
           {' '}<Link href="/dashboard/settings?tab=storage" className="text-brand hover:underline">
@@ -65,7 +65,7 @@ export default function CloudStorageInstructionPage() {
           caption="Нажимаем «Личное облако», затем «Продолжить»" />
       </Step>
 
-      <Step step={2} id="anketa" title="Анкету можно пропустить">
+      <Step step="2" id="anketa" title="Анкету можно пропустить">
         <p>
           Дальше Cloud.ru спросит, с какими сервисами вы планируете работать и кто вы
           по роли. Это только настройка главной страницы их личного кабинета — на
@@ -92,7 +92,7 @@ export default function CloudStorageInstructionPage() {
           caption="Тот же шаг ниже по странице: роль. Подойдёт «Другое»" />
       </Step>
 
-      <Step step={3} id="card" title="Карту привязывать НЕ нужно">
+      <Step step="3" id="card" title="Карту привязывать НЕ нужно">
         <p>
           Появится экран «Получите 4 000 бонусов» с предложением привязать банковскую
           карту. Нажмите <b>«Сразу в кабинет»</b> — нижнюю кнопку со стрелкой.
@@ -110,7 +110,7 @@ export default function CloudStorageInstructionPage() {
           caption="Нажимаем «Сразу в кабинет», а не «Привязать карту»" />
       </Step>
 
-      <Step step={4} id="bucket" title="Создайте хранилище">
+      <Step step="4" id="bucket" title="Создайте хранилище">
         <p>
           В кабинете Cloud.ru найдите раздел <b>Object Storage</b> (объектное хранилище)
           и нажмите <b>«Создать бакет»</b>. Бакет — это и есть папка-хранилище, куда
@@ -131,7 +131,7 @@ export default function CloudStorageInstructionPage() {
         </Warn>
       </Step>
 
-      <Step step={5} id="keys" title="Создайте ключ доступа">
+      <Step step="5" id="keys" title="Создайте ключ доступа">
         <p>
           В том же кабинете найдите раздел с ключами доступа (может называться
           «Ключи доступа», «Сервисные аккаунты» или «S3-ключи») и создайте новый.
@@ -144,7 +144,7 @@ export default function CloudStorageInstructionPage() {
         </Warn>
       </Step>
 
-      <Step step={6} id="connect" title="Передайте данные нам — и всё">
+      <Step step="6" id="connect" title="Передайте данные нам — и всё">
         <p>Напишите в поддержку четыре значения:</p>
         <ul className="mt-2 space-y-1.5 text-[15px] text-gray-700">
           <li>• Access Key ID</li>
