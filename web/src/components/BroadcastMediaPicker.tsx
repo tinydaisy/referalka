@@ -229,6 +229,16 @@ export default function BroadcastMediaPicker({ value, onChange }: Props) {
         <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
       )}
 
+      {/* Автоудаление. Клиент должен знать, что этот файл не занимает место
+          навсегда — иначе непонятно, почему хранилище не растёт от рассылок.
+          Сроки должны совпадать с cleanup_broadcast_photos (tasks/broadcast.py). */}
+      {(hasPhoto || hasVideo) && (
+        <p className="text-[11px] text-gray-500 leading-snug">
+          Файл удалится из хранилища через 24 часа после отправки рассылки — место не занимает.
+          В шаблоне рассылки файл хранится, пока существует сам шаблон.
+        </p>
+      )}
+
       {/* Превью */}
       {hasPhoto && (
         <div className="flex items-start gap-2">

@@ -15,9 +15,12 @@
      ⚠️ именно пересчёт, а не «плюс разница»: счётчик мог разъехаться в обе
      стороны, и сумма — единственный источник истины.
 
-⚠️ Служебные файлы платформы (db-backups/, lessons/, img/ и прочее вне
-clients/{id}/) в квоту клиентов НЕ попадают — у них нет клиента-владельца.
-Они показываются отдельной строкой, чтобы было видно, что занимает бакет.
+⚠️ Служебным считается ТОЛЬКО то, что перечислено в SERVICE_PREFIXES (бэкапы БД).
+Всё остальное — файлы клиента, даже если лежит вне clients/{id}/: часть контента
+(уроки, видео для лендинга) заливалась вручную до появления учёта и попала в
+корень бакета. Считать её «служебной» по расположению — ошибка: это оплаченный
+клиентом контент, он обязан быть в квоте. Такие файлы приписываются владельцу
+из FALLBACK_OWNER.
 """
 import asyncio
 import os
@@ -48,6 +51,14 @@ for _p in ("/var/www/plusson/backend/.env", "/var/www/plusson/web/.env.local",
 
 APPLY = "--apply" in sys.argv
 CLIENT_KEY = re.compile(r"^clients/(\d+)/")
+
+# Служебные файлы САМОЙ платформы — единственное, что не идёт в квоту клиентов.
+SERVICE_PREFIXES = ("db-backups/",)
+
+# Владелец файлов, залитых вручную мимо кабинета (корень бакета: lessons/,
+# ivision_chastushki/, img/, posters/ и т.п.). Это контент клиента 1 — он
+# заливался до появления учёта, когда папок по клиентам ещё не было.
+FALLBACK_OWNER = 1
 
 
 def human(n):
@@ -86,9 +97,15 @@ async def main():
     for key, size in bucket_objs.items():
         if key in tracked:
             continue
+        if key.startswith(SERVICE_PREFIXES):
+            service.append((key, size))
+            continue
         m = CLIENT_KEY.match(key)
         if m and int(m.group(1)) in known_clients:
             untracked.append((key, size, int(m.group(1))))
+        elif FALLBACK_OWNER in known_clients:
+            # Вне clients/{id}/ — ручная заливка, владелец по умолчанию.
+            untracked.append((key, size, FALLBACK_OWNER))
         else:
             service.append((key, size))
     for key, (fid, cid, size) in tracked.items():
@@ -98,7 +115,7 @@ async def main():
     print(f"В бакете:            {len(bucket_objs):5d} файлов, {human(sum(bucket_objs.values()))}")
     print(f"Учтено в квоте:      {len(tracked):5d} файлов, {human(sum(v[2] for v in tracked.values()))}")
     print(f"НЕ учтено (клиенты): {len(untracked):5d} файлов, {human(sum(s for _, s, _ in untracked))}")
-    print(f"Служебные платформы: {len(service):5d} файлов, {human(sum(s for _, s in service))}  (в квоту не идут)")
+    print(f"Служебные платформы: {len(service):5d} файлов, {human(sum(s for _, s in service))}  (бэкапы БД, в квоту не идут)")
     print(f"Учтено, но нет файла:{len(orphans):5d} файлов, {human(sum(s for _, s, _, _ in orphans))}")
 
     if untracked:

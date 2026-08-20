@@ -4,6 +4,7 @@
 POST   /api/v1/uploads    — загрузить файл (multipart/form-data)
 DELETE /api/v1/uploads/{file_id} — удалить файл (по client_files.id)
 GET    /api/v1/storage/usage     — текущее использование квоты
+GET    /api/v1/storage/files     — детализация: какой файл где используется
 
 Поддерживаемые kind:
     event_poster      (требует event_id, poster_type=horizontal|vertical|square)
@@ -15,7 +16,7 @@ GET    /api/v1/storage/usage     — текущее использование �
     brand_logo        (профиль клиента: логотип в углу страниц Mini App)
     owner_photo       (профиль клиента: фото основателя)
     funnel_media      (фото/видео для текстов воронки лид-магнитов)
-    broadcast_photo   (фото для произвольной рассылки; авто-удаляется через 10 мин
+    broadcast_photo   (фото для произвольной рассылки; авто-удаляется через 24 часа
                        после отправки воркером cleanup_broadcast_photos)
     broadcast_video   (видео для рассылки; лимит 100 МБ; авто-удаляется как broadcast_photo)
     event_video       (требует event_id; общее видео события — для скачивания спикерами)
@@ -292,4 +293,185 @@ async def storage_usage(
         "used_percent": round((used / quota) * 100, 1) if quota else 0,
         "used_human": _human_bytes(used),
         "quota_human": _human_bytes(quota),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Детализация хранилища: какой файл, где используется, как туда перейти
+# ─────────────────────────────────────────────────────────────────────────────
+# Человеческие названия типов файлов. Клиент не должен видеть слово kind —
+# ему нужно понимать, что это за файл и откуда он взялся.
+_KIND_LABEL = {
+    "event_poster": "Афиша события",
+    "event_video": "Видео события",
+    "referral_material": "Материал для друзей",
+    "referral_video": "Видео для друзей",
+    "certificate": "Сертификат",
+    "speaker_photo": "Фото спикера",
+    "speaker_poster": "Афиша спикера",
+    "speaker_video": "Видео спикера",
+    "landing_media": "Картинка лендинга",
+    "landing_bg": "Фон лендинга",
+    "product_media": "Картинка продукта",
+    "material_media": "Материал урока",
+    "lead_magnet": "Файл подарка",
+    "funnel_media": "Медиа воронки",
+    "survey_media": "Картинка анкеты",
+    "brand_photo": "Фото бренда",
+    "brand_logo": "Логотип бренда",
+    "owner_photo": "Фото основателя",
+    "broadcast_photo": "Фото рассылки",
+    "broadcast_video": "Видео рассылки",
+    "dialog_media": "Медиа переписки",
+    "webinar_recording": "Запись эфира",
+    "untracked": "Загружен вручную",
+}
+
+# Куда ведёт кнопка «Перейти» — вкладка, на которой этот файл живёт.
+# ⚠️ Адреса завязаны на реальные маршруты дашборда: событие и конференция —
+# разные разделы, поэтому путь выбирается по module_slug события.
+_KIND_TAB = {
+    "event_poster": "posters",
+    "event_video": "posters",
+    "referral_material": "referral",
+    "referral_video": "referral",
+    "certificate": "referral",
+    "landing_media": "landing",
+    "landing_bg": "landing",
+    "speaker_photo": "speakers",
+    "speaker_poster": "speakers",
+    "speaker_video": "speakers",
+}
+
+
+@router.get("/storage/files", summary="Детализация файлового хранилища")
+async def storage_files(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Список файлов клиента: что это, сколько весит и где используется.
+
+    Группируется по «месту»: событие, продукт, профиль, рассылки и т.д. —
+    так клиент видит, что именно занимает место, а не просто список имён.
+    """
+    client_id = int(client["sub"])
+
+    rows = await db.fetch(
+        """
+        SELECT f.id, f.kind, f.url, f.size_bytes, f.created_at,
+               f.event_id, f.collaborator_id,
+               e.title       AS event_title,
+               e.module_slug AS event_module,
+               c.name        AS collaborator_name,
+               -- Продукт определяется по пути в ключе: продуктовые файлы
+               -- лежат вне событий и своего event_id не имеют.
+               (SELECT p.id FROM products p
+                 WHERE p.client_id = f.client_id
+                   AND (f.url LIKE '%/products/' || p.id || '/%')
+                 LIMIT 1) AS product_id
+          FROM client_files f
+          LEFT JOIN events e        ON e.id = f.event_id
+          LEFT JOIN collaborators c ON c.id = f.collaborator_id
+         WHERE f.client_id = $1
+         ORDER BY f.size_bytes DESC
+        """,
+        client_id,
+    )
+
+    # Запись эфира привязана к событию не через client_files, а через комнату.
+    rec_map = {
+        r["url"]: (r["event_id"], r["event_title"], r["day_number"])
+        for r in await db.fetch(
+            """
+            SELECT rec.url, wr.event_id, e.title AS event_title, wr.day_number
+              FROM webinar_recordings rec
+              JOIN webinar_rooms wr ON wr.id = rec.room_id
+              JOIN events e         ON e.id = wr.event_id
+             WHERE rec.url IS NOT NULL
+            """
+        )
+    }
+
+    files = []
+    for r in rows:
+        kind = r["kind"]
+        size = int(r["size_bytes"])
+        event_id, event_title = r["event_id"], r["event_title"]
+        module = r["event_module"]
+        link = None
+
+        # Запись эфира: событие берём из комнаты вебинара.
+        if r["url"] in rec_map:
+            event_id, event_title, _day = rec_map[r["url"]]
+            module = module or "conference"
+            kind = "webinar_recording"
+
+        if event_id:
+            base = "/dashboard/conferences" if module in ("conference", "turnir") else "/dashboard/events"
+            tab = _KIND_TAB.get(kind)
+            link = f"{base}/{event_id}" + (f"?tab={tab}" if tab else "")
+            place = event_title or f"Событие #{event_id}"
+        elif r["product_id"]:
+            link = f"/dashboard/products/{r['product_id']}"
+            place = "Продукт"
+        elif kind in ("brand_photo", "brand_logo", "owner_photo"):
+            link = "/dashboard/mini-app"
+            place = "Профиль и бренд"
+        elif kind in ("broadcast_photo", "broadcast_video"):
+            link = "/dashboard/broadcasts"
+            place = "Рассылки"
+        elif kind in ("lead_magnet", "funnel_media"):
+            link = "/dashboard/lead-magnets"
+            place = "Подарки и воронки"
+        elif kind == "survey_media":
+            link = "/dashboard/surveys"
+            place = "Анкеты"
+        elif kind == "dialog_media":
+            link = "/dashboard/clients"
+            place = "Переписки"
+        elif r["collaborator_id"]:
+            link = f"/dashboard/collaborations/{r['collaborator_id']}"
+            place = r["collaborator_name"] or "Спикер"
+        else:
+            place = "Без привязки"
+
+        files.append({
+            "id": r["id"],
+            "kind": kind,
+            "kind_label": _KIND_LABEL.get(kind, kind),
+            "url": r["url"],
+            "size_bytes": size,
+            "size_human": _human_bytes(size),
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "place": place,
+            "event_id": event_id,
+            "event_title": event_title,
+            "link": link,
+            "is_temp": kind in ("broadcast_photo", "broadcast_video"),
+        })
+
+    # Сводка по местам — что именно съедает объём.
+    groups: dict = {}
+    for f in files:
+        g = groups.setdefault(f["place"], {"place": f["place"], "link": f["link"],
+                                           "count": 0, "size_bytes": 0})
+        g["count"] += 1
+        g["size_bytes"] += f["size_bytes"]
+    for g in groups.values():
+        g["size_human"] = _human_bytes(g["size_bytes"])
+
+    by_kind: dict = {}
+    for f in files:
+        k = by_kind.setdefault(f["kind_label"], {"label": f["kind_label"], "count": 0, "size_bytes": 0})
+        k["count"] += 1
+        k["size_bytes"] += f["size_bytes"]
+    for k in by_kind.values():
+        k["size_human"] = _human_bytes(k["size_bytes"])
+
+    return {
+        "files": files,
+        "groups": sorted(groups.values(), key=lambda x: -x["size_bytes"]),
+        "by_kind": sorted(by_kind.values(), key=lambda x: -x["size_bytes"]),
+        "total_files": len(files),
+        "total_bytes": sum(f["size_bytes"] for f in files),
     }
