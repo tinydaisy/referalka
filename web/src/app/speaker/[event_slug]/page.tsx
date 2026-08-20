@@ -169,6 +169,26 @@ const MEDIA_PLATFORMS: { slug: string; label: string }[] = [
 
 const TOKEN_KEY = (slug: string) => `speaker_cabinet_token_${slug}`
 
+/** Безопасный разбор ответа сервера.
+ *
+ * ⚠️ Ответ — не всегда JSON: при 500 приходит обычный текст «Internal Server
+ * Error», и `r.json()` падал SyntaxError. Спикер видел «Unexpected token 'I',
+ * "Internal S"... is not valid JSON» — по такой надписи невозможно понять ни
+ * что случилось, ни к кому идти, и выглядит она как поломка его браузера.
+ */
+async function readJson(r: Response): Promise<any> {
+  const text = await r.text()
+  try {
+    return text ? JSON.parse(text) : {}
+  } catch {
+    return {
+      detail: r.ok
+        ? 'Сервер вернул неожиданный ответ. Обновите страницу и попробуйте снова.'
+        : 'Не удалось сохранить — сбой на сервере. Попробуйте ещё раз, а если повторится, напишите организатору события.',
+    }
+  }
+}
+
 type SpeakerMaterials = {
   event_id: number
   event_slug: string
@@ -345,7 +365,7 @@ export default function SpeakerCabinetPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ speaker_event_id: chosenId, access_code: code.trim() }),
       })
-      const d = await r.json()
+      const d = await readJson(r)
       if (!r.ok) { setError(d.detail || 'Ошибка'); return }
       localStorage.setItem(TOKEN_KEY(slug), d.token)
       setToken(d.token)
@@ -381,9 +401,11 @@ export default function SpeakerCabinetPage() {
         .map(line => line.replace(/^\s*[•●∙·*\-—–▶►▸✓✔]+\s*/, '').trim())
         .filter(Boolean)
       const payload: any = {
-        // Имя и фамилия вместе: превью показывает карточку так, как её
-        // увидит аудитория, а там выводится полное имя.
-        name: [me.name, me.last_name].filter(Boolean).join(' '), title: me.title, achievements,
+        // ⚠️ Имя и фамилия — РАЗДЕЛЬНО (миграция 302). Раньше здесь шла склейка
+        // в одно поле `name`: фамилия уезжала в имя, колонка last_name не
+        // обновлялась вовсе, и правка поля «Фамилия» просто не сохранялась.
+        // Склейка нужна только там, где карточку ПОКАЗЫВАЕМ, а не сохраняем.
+        name: me.name, last_name: me.last_name, title: me.title, achievements,
         photo_url: me.photo_url,
         photo_folder_url: me.photo_folder_url, video_folder_url: me.video_folder_url,
         tg_channel_url: me.tg_channel_url, tg_channel_id: me.tg_channel_id,
@@ -436,7 +458,7 @@ export default function SpeakerCabinetPage() {
         },
         body: JSON.stringify(payload),
       })
-      const d = await r.json()
+      const d = await readJson(r)
       if (!r.ok) { setError(d.detail || 'Ошибка'); return }
       setMe(d)
       setAchText((d.achievements || []).join('\n'))
@@ -456,7 +478,7 @@ export default function SpeakerCabinetPage() {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
-      const d = await r.json()
+      const d = await readJson(r)
       if (r.ok && d.ok) {
         setVerifyResult({ ok: true, text: 'Бот видит вас в канале. Проверка подписки на ваш канал будет работать.', bot_handle: d.bot_handle })
         update({ bot_in_channel: true })
@@ -485,7 +507,7 @@ export default function SpeakerCabinetPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ photo_url: null }),
       })
-      const d = await r.json()
+      const d = await readJson(r)
       if (!r.ok) { setError(d.detail || 'Не удалось удалить'); return }
       update({ photo_url: null })
     } catch (e: any) {
@@ -505,7 +527,7 @@ export default function SpeakerCabinetPage() {
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       })
-      const d = await r.json()
+      const d = await readJson(r)
       if (!r.ok) { setError(d.detail || 'Ошибка загрузки'); return }
       update({ photo_url: d.url })
     } catch (e: any) {
@@ -1684,7 +1706,7 @@ function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/my-broadcasts`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      const d = await r.json()
+      const d = await readJson(r)
       const list: any[] = d.broadcasts || []
       // Нужен именно шаблон знакомства; если его нет — честно говорим об этом,
       // а не показываем пустое окно.
@@ -2335,7 +2357,7 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
         `${API}/api/v1/public/speaker-cabinet/me/my-broadcasts/${b.id}/test-targets`,
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      const d = await r.json()
+      const d = await readJson(r)
       setTestTargets(d.targets || [])
     } catch {
       setTestTargets([])
@@ -2350,7 +2372,7 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
         `${API}/api/v1/public/speaker-cabinet/me/my-broadcasts/${testConfirm.id}/test`,
         { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
       )
-      const d = await r.json()
+      const d = await readJson(r)
       if (r.ok && d.ok) {
         setTestResult(`Отправили вам в ${d.sent} ${d.sent === 1 ? 'аккаунт' : 'аккаунта(ов)'}. Проверьте свои боты.`)
       } else {

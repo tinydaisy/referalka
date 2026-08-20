@@ -396,6 +396,11 @@ async def get_me(
 class CabinetUpdate(BaseModel):
     # Профиль (collaborators)
     name: Optional[str] = None
+    # ⚠️ Фамилия — ОТДЕЛЬНОЕ поле (миграция 302), а не хвост в `name`.
+    # Её не было в модели, хотя `profile_fields` ниже её уже перечисляет —
+    # из-за этого КАЖДОЕ сохранение профиля падало 500 (AttributeError), и
+    # спикер не мог поправить ни регалии, ни что-либо ещё.
+    last_name: Optional[str] = None
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
@@ -482,7 +487,10 @@ async def patch_me(
                       "photo_folder_url", "video_folder_url",
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
-    upd = {f: getattr(data, f) for f in profile_fields if getattr(data, f) is not None}
+    # getattr с дефолтом: если список выше разъедется с моделью, поле просто
+    # не запишется — вместо 500 у спикера на ровном месте.
+    upd = {f: getattr(data, f, None) for f in profile_fields
+           if getattr(data, f, None) is not None}
     # photo_url можно ОБНУЛИТЬ (спикер нажал «Удалить»): если поле явно
     # передано как null — пишем NULL, иначе фильтр выше его пропускает.
     if "photo_url" in data.model_fields_set and data.photo_url is None:
