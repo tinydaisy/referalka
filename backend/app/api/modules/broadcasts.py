@@ -2614,7 +2614,7 @@ async def bulk_add_schedules(
     for p in parsed:
         if p.get("photo_url"):
             try:
-                p["photo_url"] = await import_remote_image_to_r2(client_id, p["photo_url"])
+                p["photo_url"] = await import_remote_image_to_r2(client_id, p["photo_url"], db=db)
             except Exception as e:
                 warnings.append({"index": p["index"], "message": f"фото не загрузилось — {e}. Рассылка создана без фото."})
                 p["photo_url"] = None

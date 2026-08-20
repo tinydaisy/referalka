@@ -75,6 +75,7 @@ async def import_remote_image_to_r2(
     url: str,
     *,
     kind: str = "broadcast_photo",
+    db=None,
 ) -> str:
     """Скачивает изображение по внешней ссылке и кладёт в R2. Возвращает наш URL.
 
@@ -118,4 +119,15 @@ async def import_remote_image_to_r2(
             raise ValueError("файл по ссылке не похож на картинку (jpg/png/webp)")
 
     key = build_key(client_id, kind, ext)
-    return await upload_bytes(key, data, content_type or "image/jpeg")
+    public_url = await upload_bytes(key, data, content_type or "image/jpeg")
+
+    # ⚠️ Учёт в квоте. Без него скачанные по ссылке картинки копились в бакете
+    # незаметно для счётчика. db необязателен только ради старых вызовов —
+    # в новых передавать обязательно, иначе файл снова пройдёт мимо учёта.
+    if db is not None:
+        from app.services.r2_storage import register_file
+        await register_file(
+            db, client_id, kind, key, public_url, len(data),
+            content_type or "image/jpeg",
+        )
+    return public_url

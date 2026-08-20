@@ -709,12 +709,22 @@ async def delete_recording(event_id: int, day_number: int, rec_id: int,
     rec = await db.fetchrow("SELECT r2_key FROM webinar_recordings WHERE id=$1 AND room_id=$2", rec_id, rid)
     if not rec:
         raise HTTPException(404, "Запись не найдена")
+    # ⚠️ Сначала удаляем ФАЙЛ, и только потом строку. Раньше ошибка удаления
+    # глушилась `except: pass`, а строка сносилась всё равно — файл оставался в
+    # R2 навсегда и его нельзя было найти: в базе о нём уже ничего не было.
+    # Так осиротела запись на 6,2 ГБ (rec_3.mp4), которую клиент считал удалённой.
     if rec["r2_key"]:
+        from app.services import r2_storage
         try:
-            from app.services import r2_storage
             await r2_storage.delete_object(rec["r2_key"])
-        except Exception:
-            pass
+        except Exception as e:
+            raise HTTPException(
+                502,
+                detail="Не удалось удалить файл записи из хранилища — запись оставлена. "
+                       "Попробуйте ещё раз через минуту.",
+            ) from e
+        # Снимаем с учёта квоты (файл больше не занимает место).
+        await r2_storage.unregister_file(db, rec["r2_key"])
     await db.execute("DELETE FROM webinar_recordings WHERE id=$1", rec_id)
     return {"ok": True}
 

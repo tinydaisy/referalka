@@ -213,3 +213,89 @@ def key_from_url(url: str) -> Optional[str]:
     if url.startswith(prefix):
         return url[len(prefix):]
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Учёт файлов в квоте клиента
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ ЕДИНАЯ ТОЧКА УЧЁТА. Любая заливка в R2, которая принадлежит клиенту,
+# обязана пройти через register_file — иначе файл лежит в бакете, а в квоте
+# его нет, и `clients.storage_used_bytes` расходится с реальностью.
+# Так уже случилось: записи вебинаров (гигабайты) и картинки, скачанные по
+# внешней ссылке, годами не попадали в счётчик — по учёту 233 МБ, в бакете 9,5 ГБ.
+#
+# Исключение ровно одно — служебные файлы САМОЙ платформы (бэкапы БД в
+# deploy/r2_backup_upload.py): у них нет клиента-владельца, в его квоту они
+# попадать не должны.
+
+async def register_file(
+    db,
+    client_id: int,
+    kind: str,
+    key: str,
+    url: str,
+    size_bytes: int,
+    content_type: Optional[str] = None,
+    *,
+    event_id: Optional[int] = None,
+    collaborator_id: Optional[int] = None,
+    lead_magnet_id: Optional[int] = None,
+) -> Optional[int]:
+    """Регистрирует уже залитый в R2 файл в client_files и увеличивает квоту.
+
+    Идемпотентна: r2_key UNIQUE, повторная регистрация того же ключа ничего не
+    задваивает (ON CONFLICT DO NOTHING) и квоту второй раз не двигает.
+
+    ⚠️ Квоту НЕ проверяет — вызывается ПОСЛЕ успешной заливки. Проверять «влезет
+    ли» нужно до неё (см. uploads.py). Для записи эфира отказ по квоте вообще
+    неуместен: файл уже склеен, а сегменты вот-вот удалятся.
+
+    Ошибку учёта не поднимаем наружу: сбой счётчика не должен рушить операцию,
+    ради которой файл заливали (например, обработку записи вебинара).
+    """
+    try:
+        async with db.transaction():
+            file_id = await db.fetchval(
+                """
+                INSERT INTO client_files
+                    (client_id, kind, r2_key, url, size_bytes, content_type,
+                     event_id, collaborator_id, lead_magnet_id)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                ON CONFLICT (r2_key) DO NOTHING
+                RETURNING id
+                """,
+                client_id, kind, key, url, int(size_bytes), content_type,
+                event_id, collaborator_id, lead_magnet_id,
+            )
+            if file_id is not None:
+                await db.execute(
+                    "UPDATE clients SET storage_used_bytes = storage_used_bytes + $1 WHERE id = $2",
+                    int(size_bytes), client_id,
+                )
+        return file_id
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "register_file: не удалось учесть файл %s клиента %s", key, client_id
+        )
+        return None
+
+
+async def unregister_file(db, key: str) -> None:
+    """Снимает файл с учёта (при удалении из R2) и уменьшает квоту владельца."""
+    try:
+        async with db.transaction():
+            row = await db.fetchrow(
+                "SELECT id, client_id, size_bytes FROM client_files WHERE r2_key = $1",
+                key,
+            )
+            if not row:
+                return
+            await db.execute("DELETE FROM client_files WHERE id = $1", row["id"])
+            await db.execute(
+                "UPDATE clients SET storage_used_bytes = GREATEST(0, storage_used_bytes - $1) WHERE id = $2",
+                int(row["size_bytes"]), row["client_id"],
+            )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("unregister_file: %s", key)
