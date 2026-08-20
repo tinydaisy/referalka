@@ -10,11 +10,12 @@ import LegalTab from '@/components/settings/LegalTab'
 import LandingThemeTab from '@/components/settings/LandingThemeTab'
 import AssistantTab from '@/components/settings/AssistantTab'
 import ChatGatesTab from '@/components/settings/ChatGatesTab'
+import StorageTab from '@/components/settings/StorageTab'
 import PaymentSettingsTab from '@/components/settings/PaymentSettingsTab'
 import DomainsTab from '@/components/settings/DomainsTab'
 import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
-type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'payments' | 'domains'
+type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'payments' | 'domains' | 'storage'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -200,6 +201,7 @@ export default function SettingsPage() {
     // Без фичи внутри показывается замок с объяснением и ссылкой на тариф.
     { id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard },
     ...(hasCustomDomain ? [{ id: 'domains' as Tab, label: 'Свой домен', icon: Globe }] : []),
+    { id: 'storage' as Tab, label: 'Файловое хранилище', icon: HardDrive },
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     // Управлять ассистентом может только владелец — даже полный ассистент не может
     // сменить себе пароль или отключить себя.
@@ -264,6 +266,7 @@ export default function SettingsPage() {
       {effectiveTab === 'mini-app' && <MiniAppSettingsPage />}
 
       {/* Гейт по подписке в TG-чатах — миграция 115 */}
+      {effectiveTab === 'storage' && <StorageTab />}
       {effectiveTab === 'chat-gates' && <ChatGatesTab />}
       {effectiveTab === 'payments' && <PaymentSettingsTab />}
 
@@ -790,46 +793,26 @@ export default function SettingsPage() {
           </select>
         </div>
 
-        {/* Storage usage */}
+        {/* Хранилище переехало в свою вкладку «Файловое хранилище» —
+            там же детализация по файлам и подключение своего хранилища.
+            Здесь оставлена короткая строка со ссылкой, чтобы клиент,
+            привыкший видеть объём в «Техническом», не решил, что раздел пропал. */}
         {storage && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-                <HardDrive size={18} className="text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-800">Файловое хранилище</h3>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  Афиши, лид-магниты, сертификаты и фото — всё хранится в общем месте клиента.
-                </p>
+          <a href="/dashboard/settings?tab=storage"
+            className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 hover:border-gray-200 text-left">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <HardDrive size={18} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-gray-800 text-sm">Файловое хранилище</div>
+              <div className="text-xs text-gray-500">
+                Занято {storage.used_human} из {storage.quota_human} — открыть раздел
               </div>
             </div>
-            <div className="flex items-baseline justify-between mb-2">
-              <div className="text-sm text-gray-700">
-                <span className="font-semibold">{storage.used_human}</span>
-                <span className="text-gray-400"> из {storage.quota_human}</span>
-              </div>
-              <div className={`text-sm font-medium ${
-                storage.used_percent >= 90 ? 'text-red-600' :
-                storage.used_percent >= 70 ? 'text-amber-600' : 'text-gray-500'
-              }`}>
-                {storage.used_percent}%
-              </div>
-            </div>
-            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${
-                storage.used_percent >= 90 ? 'bg-red-500' :
-                storage.used_percent >= 70 ? 'bg-amber-500' : 'gradient-bg'
-              }`}
-                style={{ width: `${Math.min(100, storage.used_percent)}%` }} />
-            </div>
-            {storage.used_percent >= 90 && (
-              <p className="text-xs text-red-600 mt-2">
-                Хранилище почти заполнено. Удалите ненужные файлы или увеличьте квоту в тарифе.
-              </p>
-            )}
-          </div>
+            <ChevronDown size={16} className="-rotate-90 text-gray-400 shrink-0" />
+          </a>
         )}
+
         </>
         )}
 

@@ -17,6 +17,23 @@ import { useMe } from '@/hooks/useMe'
 
 type Kind = 'photo' | 'video'
 
+/**
+ * Обложка внешнего видео по ссылке.
+ *
+ * YouTube отдаёт превью по id ролика: img.youtube.com/vi/{id}/hqdefault.jpg.
+ * ⚠️ Берём hqdefault, а не maxresdefault: последнего у Shorts и старых роликов
+ * часто нет, и вместо картинки приходит заглушка-«битое превью».
+ *
+ * VK и Rutube публичного адреса обложки по ссылке не дают — для них null,
+ * показывается иконка (это честнее, чем битая картинка).
+ */
+function videoThumb(url: string | null): string | null {
+  if (!url) return null
+  const m =
+    url.match(/(?:youtu\.be\/|youtube\.com\/(?:shorts\/|live\/|embed\/|watch\?v=))([\w-]{6,})/i)
+  return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null
+}
+
 export default function TestimonialsPage() {
   const { me } = useMe()
   const [items, setItems] = useState<any[]>([])
@@ -244,6 +261,21 @@ export default function TestimonialsPage() {
                   <video src={it.url} controls preload="metadata"
                          poster={it.preview_url || undefined}
                          className="aspect-[4/3] w-full bg-black object-contain" />
+                ) : videoThumb(it.url) ? (
+                  // Внешнее видео (YouTube) — <video src> его проиграть не может,
+                  // это страница, а не файл. Показываем обложку ролика, иначе
+                  // клиент видит серую плашку и не понимает, что за отзыв.
+                  <a href={it.url} target="_blank" rel="noreferrer"
+                     className="relative block aspect-[4/3] w-full bg-black">
+                    <img src={videoThumb(it.url)!} alt=""
+                         className="h-full w-full object-cover"
+                         onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60">
+                        <Video className="h-5 w-5 text-white" />
+                      </span>
+                    </span>
+                  </a>
                 ) : (
                   <div className="flex aspect-[4/3] w-full items-center justify-center bg-gray-100">
                     <Video className="h-8 w-8 text-gray-400" />

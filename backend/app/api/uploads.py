@@ -13,7 +13,9 @@ GET    /api/v1/storage/files     — детализация: какой файл
     lead_magnet
     speaker_photo     (требует collaborator_id)
     brand_photo       (профиль клиента: фото бренда)
-    brand_logo        (профиль клиента: логотип в углу страниц Mini App)
+    brand_logo        (профиль клиента: логотип в углу страниц Mini App.
+                       ⚠️ Одним kind грузятся ОБА логотипа — для тёмного фона
+                       (clients.brand_logo_url) и для светлого (brand_logo_light_url).)
     owner_photo       (профиль клиента: фото основателя)
     funnel_media      (фото/видео для текстов воронки лид-магнитов)
     broadcast_photo   (фото для произвольной рассылки; авто-удаляется через 24 часа
@@ -318,7 +320,7 @@ _KIND_LABEL = {
     "funnel_media": "Медиа воронки",
     "survey_media": "Картинка анкеты",
     "brand_photo": "Фото бренда",
-    "brand_logo": "Логотип бренда",
+    "brand_logo": "Логотип бренда",  # оба варианта: для тёмного и светлого фона
     "owner_photo": "Фото основателя",
     "broadcast_photo": "Фото рассылки",
     "broadcast_video": "Видео рассылки",
@@ -533,4 +535,19 @@ async def storage_files(
         "by_kind": sorted(by_kind.values(), key=lambda x: -x["size_bytes"]),
         "total_files": len(files),
         "total_bytes": sum(f["size_bytes"] for f in files),
+    }
+
+
+# Публичный (без авторизации) — блок «Подключите своё хранилище» в настройках.
+# Ссылка живёт в переменной окружения STORAGE_PROMO_URL: партнёрская ссылка
+# меняется, и менять её деплоем фронта неправильно. Пусто → фронт блок не рисует.
+public_router = APIRouter(prefix="/public", tags=["Загрузка файлов"])
+
+
+@public_router.get("/storage-promo", summary="Промо своего файлового хранилища")
+async def storage_promo():
+    from app.config import settings as _s
+    return {
+        "ref_url": _s.storage_promo_url or "",
+        "free_gb": int(_s.storage_promo_free_gb or 0),
     }
