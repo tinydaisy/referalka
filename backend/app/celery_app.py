@@ -89,6 +89,14 @@ celery.conf.update(
             "task": "app.tasks.dialog_retention.archive_old_dialogs",
             "schedule": crontab(hour=4, minute=10),
         },
+        # ⚠️ Раз в сутки в 06:30 МСК — объём файлового хранилища платформы.
+        # Бесплатный уровень Cloud.ru — 15 ГБ; когда он кончится, файлы просто
+        # перестанут загружаться, а узнать об этом постфактум = потерять эфир.
+        # Не чаще: опись бакета на 750+ файлов небыстрая, а объём растёт медленно.
+        "check-platform-storage": {
+            "task": "app.tasks.storage_alerts.check_platform_storage",
+            "schedule": crontab(hour=6, minute=30),
+        },
         # Раз в сутки в 05:20 МСК — сроки сертификатов своих доменов клиентов
         # и предупреждения за 14/7/3/1 день (миграция 270).
         "check-client-domains": {
