@@ -435,18 +435,28 @@ function OwnStorageBlock() {
         <div className="space-y-3">
           {!created ? (
             <>
-              <p className="text-[13px] text-gray-600">
-                Скопируйте три строки из Cloud.ru — хранилище создадим и настроим сами.
-              </p>
-              <Field label="ID тенанта" value={quick.tenant_id}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-[13px] text-gray-700">
+                <p className="font-medium mb-1">Понадобятся три строки из Cloud.ru.</p>
+                <p className="text-gray-500">
+                  Если ещё не создали хранилище и ключ —{' '}
+                  <Link href="/dashboard/help/cloud-storage" className="text-brand hover:underline">
+                    откройте инструкцию
+                  </Link>: там каждый шаг со скриншотом.
+                </p>
+              </div>
+
+              {/* ⚠️ У полей — путь ГДЕ ВЗЯТЬ, а не название из документации.
+                  «ID тенанта» и «Key Secret» человеку ничего не говорят: он
+                  открывает форму и не понимает, что копировать. */}
+              <Field label="Строка 1 — «ID тенанта»" value={quick.tenant_id}
                 onChange={v => setQuick({ ...quick, tenant_id: v })}
-                hint="Object Storage → строка «ID тенанта» вверху страницы." />
-              <Field label="Ключ доступа (Key ID)" value={quick.access_key}
+                hint="В Cloud.ru: Object Storage → откройте своё хранилище → пункт «Object Storage API» в меню слева → строка «ID тенанта». Длинная строка с дефисами." />
+              <Field label="Строка 2 — «Key ID» (ключ доступа)" value={quick.access_key}
                 onChange={v => setQuick({ ...quick, access_key: v })}
-                hint="Аватар → шестерёнка → «Ключи доступа» → создать. Время жизни — «Бессрочно»." />
-              <Field label="Секретный ключ (Key Secret)" value={quick.secret_key}
+                hint="В Cloud.ru: аватар в правом верхнем углу → шестерёнка → вкладка «Ключи доступа» → «Создать ключ доступа». Время жизни — обязательно «Бессрочно»." />
+              <Field label="Строка 3 — «Key Secret» (секретный ключ)" value={quick.secret_key}
                 onChange={v => setQuick({ ...quick, secret_key: v })} type="password"
-                hint="Показывается один раз при создании ключа." />
+                hint="Показывается там же сразу после создания ключа — и только один раз. Если окно уже закрыли, создайте ключ заново." />
               <div className="flex flex-wrap gap-2 pt-1">
                 <button onClick={runQuick} disabled={busy}
                   className="btn-gold px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60">
@@ -517,11 +527,11 @@ function OwnStorageBlock() {
         <div className="space-y-3">
           <Field label="Адрес хранилища (Endpoint)" value={form.endpoint}
             onChange={v => setForm({ ...form, endpoint: v })}
-            hint="В Cloud.ru: бакет → «Object Storage API» → строка Endpoint. Имя бакета в конце можно не убирать."
+            hint="Object Storage → ваше хранилище → «Object Storage API» → строка «Endpoint». Копируйте как есть, лишнее отрежем сами."
             placeholder="https://s3.cloud.ru" />
           <Field label="Регион" value={form.region}
             onChange={v => setForm({ ...form, region: v })}
-            hint="Там же, строка «Регион»." placeholder="ru-central-1" />
+            hint="Там же, строка «Регион». Обычно ru-central-1 — оставьте как есть." placeholder="ru-central-1" />
           <Field label="Название хранилища (бакета)" value={form.bucket}
             onChange={v => setForm({ ...form, bucket: v })}
             hint="Имя, которое вы задали при создании." placeholder="pluson" />
@@ -531,11 +541,11 @@ function OwnStorageBlock() {
             placeholder={`https://global.s3.cloud.ru/${suggested}`} />
           <Field label="ID тенанта" value={form.tenant_id}
             onChange={v => setForm({ ...form, tenant_id: v })}
-            hint="Бакет → «Object Storage API» → строка «ID тенанта». У Cloud.ru ключ работает только вместе с ним — мы соединим их сами."
+            hint="Object Storage → ваше хранилище → «Object Storage API» в меню слева → строка «ID тенанта»."
             placeholder="" />
           <Field label="Ключ доступа (Key ID)" value={form.access_key}
             onChange={v => setForm({ ...form, access_key: v })}
-            hint="Аватар → шестерёнка → «Ключи доступа». Время жизни ключа — обязательно «Бессрочно»." placeholder="" />
+            hint="Аватар в правом верхнем углу → шестерёнка → вкладка «Ключи доступа». Время жизни — обязательно «Бессрочно»." placeholder="" />
           <Field label="Секретный ключ (Key Secret)" value={form.secret_key}
             onChange={v => setForm({ ...form, secret_key: v })}
             type="password"
@@ -585,9 +595,14 @@ function Field({ label, value, onChange, hint, placeholder, type = 'text' }: {
   return (
     <div>
       <label className="block text-[13px] font-medium text-gray-700 mb-1">{label}</label>
+      {/* ⚠️ Chrome игнорирует autoComplete="off" и подставляет в такие поля почту
+          и пароли: видит поле без имени и считает его формой входа. Работает
+          связка «нестандартное значение autoComplete + name без login/email». */}
       <input
         type={type} value={value} onChange={e => onChange(e.target.value)}
-        placeholder={placeholder} autoComplete="off" spellCheck={false}
+        placeholder={placeholder} spellCheck={false}
+        autoComplete="new-password" name={`s3-${label.replace(/\W+/g, '')}`}
+        data-lpignore="true" data-form-type="other"
         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono"
       />
       {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
