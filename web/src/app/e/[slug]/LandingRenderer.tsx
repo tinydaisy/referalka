@@ -2359,7 +2359,7 @@ function PartnerCard({
         </div>
         {!!visible.length && (
           <div className="space-y-1.5 text-[.85em] leading-relaxed opacity-85">
-            {visible.map((t, i) => <p key={i}>{t}</p>)}
+            {visible.map((t, i) => <SafeHtml key={i} html={t} />)}
           </div>
         )}
         {lines.length > 2 && (
@@ -2427,7 +2427,7 @@ function SpeakerCard({
           {s.name}
         </div>
         {s.title && (
-          <div className="text-[.9em] font-semibold leading-snug opacity-90">{s.title}</div>
+          <SafeHtml html={s.title} className="text-[.9em] font-semibold leading-snug opacity-90" />
         )}
 
         {!!visible.length && (
@@ -2436,7 +2436,10 @@ function SpeakerCard({
               <li key={i} className="flex gap-2">
                 <span className="mt-[.55em] h-1 w-1 shrink-0 rounded-full"
                       style={{ background: iconColor }} />
-                <span>{a}</span>
+                {/* ⚠️ Через SafeHtml: регалии клиент пишет с разметкой (<b>),
+                    как и био основателя выше. Голым текстом теги уезжали
+                    читателю видимыми. */}
+                <SafeHtml html={a} className="flex-1" />
               </li>
             ))}
           </ul>

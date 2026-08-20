@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import SafeHtml from '@/components/SafeHtml'
 import { ArrowLeft, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
@@ -207,7 +208,8 @@ export default function EventOrganizerPage() {
             {item.achievements.map((a: string, i: number) => (
               <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#25455D] shrink-0 mt-2" />
-                {a}
+                {/* ⚠️ Через SafeHtml: регалии клиент пишет с разметкой (<b>). */}
+                <SafeHtml html={a} className="flex-1" />
               </li>
             ))}
           </ul>

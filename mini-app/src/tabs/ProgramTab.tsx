@@ -945,14 +945,12 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                     {c.name}
                   </div>
                   {c.title && (
-                    <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }}>
-                      {c.title}
-                    </div>
+                    <EventDescription text={c.title}
+                      style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }} />
                   )}
                   {c.achievements && c.achievements.length > 0 && (
-                    <div style={{ fontSize: 11, color: '#8a99a8', marginTop: 4, lineHeight: 1.3 }}>
-                      {c.achievements.slice(0, 2).join(' · ')}
-                    </div>
+                    <EventDescription text={c.achievements.slice(0, 2).join(' · ')}
+                      style={{ fontSize: 11, color: '#8a99a8', marginTop: 4, lineHeight: 1.3 }} />
                   )}
                 </div>
               </div>
@@ -1056,9 +1054,8 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                         {sp.name}
                       </div>
                       {sp.title && (
-                        <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }}>
-                          {sp.title}
-                        </div>
+                        <EventDescription text={sp.title}
+                          style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }} />
                       )}
                     </div>
                   </div>
@@ -1073,7 +1070,7 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                       {topicsList.map((t, ti) => (
                         <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600,
                                                 lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
-                          {t}
+                          <EventDescription text={t} />
                         </div>
                       ))}
                     </div>
@@ -1087,7 +1084,9 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                                               paddingLeft: 14, position: 'relative', marginBottom: 3 }}>
                           <span style={{ position: 'absolute', left: 0, top: -1, color: DARK,
                                           fontWeight: 700, fontSize: 14 }}>•</span>
-                          {a}
+                          {/* ⚠️ Через EventDescription: регалии клиент пишет с
+                              разметкой (<b>), голым текстом теги были видны. */}
+                          <EventDescription text={a} />
                         </li>
                       ))}
                     </ul>

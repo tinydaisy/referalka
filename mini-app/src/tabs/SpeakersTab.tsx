@@ -1,3 +1,4 @@
+import EventDescription from '../components/EventDescription'
 import { useState, useEffect, useRef } from 'react'
 import { getSpeakers, getProgramPublic } from '../api'
 
@@ -318,7 +319,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                   )}
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', lineHeight: 1.2 }}>{sp.name}</div>
                   {sp.title && (
-                    <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }}>{sp.title}</div>
+                    <EventDescription text={sp.title} style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }} />
                   )}
                 </div>
               </div>
@@ -338,7 +339,9 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                       {shown.map((a, i) => (
                         <li key={i} style={{ fontSize: 12, color: '#3a4a5a', lineHeight: 1.4, paddingLeft: 14, position: 'relative', marginBottom: 3 }}>
                           <span style={{ position: 'absolute', left: 0, top: -1, color: DARK, fontWeight: 700, fontSize: 14 }}>•</span>
-                          {a}
+                          {/* ⚠️ Через EventDescription: регалии клиент пишет с разметкой
+                              (<b>), и голым текстом теги уезжали читателю видимыми. */}
+                          <EventDescription text={a} />
                         </li>
                       ))}
                     </ul>
