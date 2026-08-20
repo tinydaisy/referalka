@@ -91,9 +91,9 @@ function ConnectForm() {
 
       {done ? (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[13px] text-amber-900">
-          <p className="mb-2 font-medium">Остался один шаг в Cloud.ru</p>
-          <p>Впишите это в поле «Глобальное название» вашего хранилища:</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <p className="mb-2 font-medium">Хранилище создано. Остался один шаг в Cloud.ru</p>
+          <p className="mb-2">Скопируйте это имя — его нужно вписать в Cloud.ru:</p>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <code className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 font-mono text-sm">
               {done.global_name}
             </code>
@@ -102,9 +102,17 @@ function ConnectForm() {
               Скопировать
             </button>
           </div>
+          <ol className="space-y-1">
+            <li>1. Откройте вкладку с Cloud.ru и <b>обновите страницу</b> — появится новое хранилище.</li>
+            <li>2. Справа от него нажмите <b>три точки</b> → <b>«Редактировать»</b>.</li>
+            <li>3. Вставьте имя в поле <b>«Глобальное название»</b> и сохраните.</li>
+          </ol>
+          <p className="mt-2 text-[12px] text-amber-700">
+            Подробнее с картинками — в шаге 3 ниже на этой странице.
+          </p>
           <Link href="/dashboard/settings?tab=storage"
                 className="btn-gold mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold">
-            Проверить подключение <ArrowRight size={14} />
+            Я вписал — проверить <ArrowRight size={14} />
           </Link>
         </div>
       ) : (
@@ -243,11 +251,49 @@ export default function CloudStorageConnectPage() {
 
       </Step>
 
-      <Accent title="Всё — дальше ПЛЮСОН сам">
-        Заполните три поля наверху страницы и нажмите «Подключить хранилище».
-        Мы создадим бакет, откроем доступ и проверим связь — вам останется только
-        вписать в Cloud.ru одну строку, которую покажем.
-      </Accent>
+      <h2 className="mt-8 mb-3 text-lg font-bold" style={{ color: '#25455D' }}>
+        Последний шаг — вписать имя в Cloud.ru
+      </h2>
+
+      <Step step="3" title="Впишите глобальное название">
+        <p>
+          После нажатия <b>«Подключить хранилище»</b> мы создадим бакет и покажем
+          готовое имя. Его нужно вписать в Cloud.ru — иначе ваши картинки не
+          откроются у посетителей.
+        </p>
+
+        <Note title="Почему это нельзя сделать за вас">
+          Глобальное название задаётся только вручную в кабинете Cloud.ru —
+          через их программный интерфейс оно не меняется. Всё остальное
+          (создание хранилища, публичный доступ) ПЛЮСОН делает сам.
+        </Note>
+
+        <p className="mt-3">В Cloud.ru:</p>
+        <ol className="mt-2 space-y-1.5 text-[15px] text-gray-700">
+          <li>1. <b>Обновите страницу</b> — появится новое хранилище с именем вида
+            <code className="mx-1 rounded bg-gray-100 px-1">pluson-12</code>.</li>
+          <li>2. Справа от строки хранилища нажмите <b>три точки</b> и выберите
+            <b> «Редактировать»</b>.</li>
+        </ol>
+
+        <Screenshot src={`${S}/12-edit-bucket.jpg`}
+          alt="Список хранилищ, меню трёх точек с пунктом «Редактировать»"
+          caption="Три точки справа от хранилища → «Редактировать»" />
+
+        <ol className="mt-3 space-y-1.5 text-[15px] text-gray-700" start={3}>
+          <li>3. Вставьте скопированное имя в поле <b>«Глобальное название»</b>.</li>
+          <li>4. Сохраните.</li>
+        </ol>
+
+        <Screenshot src={`${S}/07-bucket-form.jpg`}
+          alt="Форма хранилища с полями «Название» и «Глобальное название»"
+          caption="Поле «Глобальное название» — второе сверху" />
+
+        <p className="mt-3">
+          Готово. Вернитесь в ПЛЮСОН и нажмите <b>«Я вписал — проверить»</b>:
+          мы загрузим проверочную картинку и покажем её — если видно, всё работает.
+        </p>
+      </Step>
     </div>
   )
 }
