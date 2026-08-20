@@ -85,3 +85,6 @@ plan*.py
 *.xls
 !db/**/*.csv
 !backend/**/*.csv
+
+# Кеш сборки TypeScript — в git не нужен
+*.tsbuildinfo
