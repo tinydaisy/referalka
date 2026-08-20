@@ -389,35 +389,40 @@ function OwnStorageBlock() {
 
       {!connected && !open && (
         <>
+          {/* ⚠️ Главная кнопка ведёт в ИНСТРУКЦИЮ, а не сразу на регистрацию.
+              Регистрация в Cloud.ru — не одна кнопка: там анкета, выбор личного
+              облака, экран про карту, создание бакета, публичный доступ и ключи.
+              Человек, брошенный на голый console.cloud.ru, застревает на первом
+              же шаге и не понимает, что делать. */}
           <div className="flex items-start gap-2 text-[13px] text-gray-600 bg-gray-50 rounded-xl px-3.5 py-3 mb-4">
             <Info size={14} className="mt-0.5 shrink-0 text-gray-400" />
             <div className="space-y-1">
-              <p><b>Как подключить:</b></p>
-              <p>
-                1. По нашей ссылке вы получите <b>{promo?.free_gb || 15} ГБ бесплатно</b> —
-                нажмите кнопку «Зарегистрироваться бесплатно» ниже, чтобы эти гигабайты
-                достались вам.
-              </p>
-              <p>2. Создайте хранилище и включите публичный доступ.</p>
-              <p>3. Скопируйте ключи доступа и вставьте их здесь.</p>
-              <p className="pt-1">
-                <Link href="/dashboard/help/cloud-storage" className="text-brand hover:underline">
-                  Подробная инструкция со скриншотами →
-                </Link>
+              <p><b>Что нужно сделать — 4 шага, минут 10:</b></p>
+              <p>1. Зарегистрироваться в Cloud.ru — там дают {promo?.free_gb || 15} ГБ бесплатно навсегда.</p>
+              <p>2. Создать хранилище (бакет) и включить к нему публичный доступ.</p>
+              <p>3. Создать ключ доступа.</p>
+              <p>4. Вставить три строки сюда — остальное сделаем сами.</p>
+              <p className="pt-1 text-gray-500">
+                Каждый шаг разобран по скриншотам — начните с инструкции, чтобы не
+                запутаться в настройках Cloud.ru.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {promo?.ref_url && (
-              <a href={promo.ref_url} target="_blank" rel="noreferrer"
-                className="btn-gold inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold">
-                Зарегистрироваться бесплатно <ExternalLink size={14} />
-              </a>
-            )}
+            <Link href="/dashboard/help/cloud-storage"
+              className="btn-gold inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold">
+              Открыть инструкцию <ArrowRight size={14} />
+            </Link>
             <button onClick={() => { setMode('quick'); setOpen(true) }}
               className="btn-primary px-4 py-2.5 rounded-xl text-sm font-medium">
-              Я зарегистрировался — подключить
+              Я всё сделал — подключить
             </button>
+            {promo?.ref_url && (
+              <a href={promo.ref_url} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Открыть Cloud.ru <ExternalLink size={13} />
+              </a>
+            )}
           </div>
         </>
       )}
