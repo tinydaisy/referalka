@@ -40,7 +40,11 @@ export default function SettingsPage() {
     if (typeof window === 'undefined') return 'profile'
     // (тип Tab расширен — добавлен legal)
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
-    return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates' || t === 'landing-theme' || t === 'payments' || t === 'domains') ? t : 'profile'
+    // ⚠️ Новую вкладку добавлять СЮДА ТОЖЕ, иначе ссылка ?tab=... молча
+    // откроет профиль — так и вышло со 'storage': кнопки вели в никуда.
+    const ALLOWED: Tab[] = ['tech', 'integration', 'mini-app', 'subscription', 'legal',
+      'assistant', 'chat-gates', 'landing-theme', 'payments', 'domains', 'storage']
+    return t && ALLOWED.includes(t) ? t : 'profile'
   })
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])

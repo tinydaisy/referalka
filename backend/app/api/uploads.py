@@ -288,19 +288,29 @@ async def storage_usage(
 ):
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT storage_used_bytes, storage_quota_bytes FROM clients WHERE id = $1",
+        """SELECT storage_used_bytes, storage_quota_bytes,
+                  storage_provider, storage_bucket
+             FROM clients WHERE id = $1""",
         client_id,
     )
     if not row:
         raise HTTPException(404, detail="Клиент не найден")
     used = int(row["storage_used_bytes"])
     quota = int(row["storage_quota_bytes"])
+
+    # ⚠️ Клиент должен видеть, ГДЕ лежат его файлы — в нашем хранилище или в его
+    # собственном. Без этого после подключения ничего не меняется на экране, и
+    # непонятно, сработало ли вообще.
+    own = bool(row["storage_provider"])
     return {
         "used_bytes": used,
         "quota_bytes": quota,
         "used_percent": round((used / quota) * 100, 1) if quota else 0,
         "used_human": _human_bytes(used),
         "quota_human": _human_bytes(quota),
+        "own_storage": own,
+        "storage_name": "Ваше хранилище Cloud.ru" if own else "Хранилище ПЛЮСОНа",
+        "bucket": row["storage_bucket"] if own else None,
     }
 
 
@@ -374,8 +384,21 @@ async def storage_files(
                e.title       AS event_title,
                e.module_slug AS event_module,
                c.name        AS collaborator_name,
+               c.last_name   AS collaborator_last_name,
+               -- Ориентация афиши: клиент грузит три штуки на событие и должен
+               -- понимать, какая именно занимает место.
+               (SELECT ep.orientation FROM event_posters ep WHERE ep.url = f.url LIMIT 1) AS poster_orientation,
+               -- Шаг воронки: «медиа воронки» само по себе ничего не говорит.
+               (SELECT CASE WHEN ft.text_1_media_url = f.url THEN 'Текст 1'
+                            WHEN ft.text_2_media_url = f.url THEN 'Текст 2' END
+                  FROM funnel_templates ft WHERE ft.client_id = f.client_id LIMIT 1) AS funnel_step,
                -- Продукт определяется по пути в ключе: продуктовые файлы
                -- лежат вне событий и своего event_id не имеют.
+               (SELECT p.title FROM products p
+                 WHERE p.client_id = f.client_id
+                   AND (f.url LIKE '%/products/' || p.id || '/%'
+                        OR f.r2_key LIKE '%/products/' || p.id || '/%')
+                 LIMIT 1) AS product_title,
                (SELECT p.id FROM products p
                  WHERE p.client_id = f.client_id
                    AND (f.url LIKE '%/products/' || p.id || '/%'
@@ -400,6 +423,46 @@ async def storage_files(
             client_id,
         )
     }
+
+    # ⚠️ Картинки лендинга связаны с блоками, а не с событием напрямую: у файла
+    # в client_files нет event_id, и раньше он попадал в «Без привязки». А связь
+    # есть — через event_landing_blocks. Одна картинка может стоять в нескольких
+    # лендингах сразу, поэтому берём все места использования.
+    BLOCK_LABEL = {
+        'hero': 'шапка', 'audience': 'для кого', 'benefits': 'что получите',
+        'numbers': 'цифры', 'values': 'ценности', 'mission': 'миссия',
+        'difference': 'чем отличаемся', 'process': 'этапы', 'gallery': 'галерея',
+        'text': 'текстовый блок', 'speakers': 'спикеры', 'program': 'программа',
+        'tariffs': 'тарифы', 'organizer': 'организатор', 'gifts': 'подарки',
+        'seats': 'места', 'support': 'поддержка', 'footer': 'подвал',
+        'product_content': 'состав продукта',
+    }
+    landing_use: dict = {}
+    for r in await db.fetch(
+        """
+        SELECT b.kind AS block_kind, p.owner_type, p.owner_id,
+               COALESCE(e.title, pr.title) AS owner_title,
+               e.module_slug,
+               COALESCE(b.image_url, '') AS image_url,
+               COALESCE(b.bg_image_url, '') AS bg_image_url,
+               COALESCE(b.items::text, '') AS items_text
+          FROM event_landing_blocks b
+          JOIN event_landing_pages p ON p.id = b.page_id
+          LEFT JOIN events e   ON p.owner_type = 'event'   AND e.id = p.owner_id
+          LEFT JOIN products pr ON p.owner_type = 'product' AND pr.id = p.owner_id
+         WHERE p.client_id = $1
+        """, client_id):
+        label = BLOCK_LABEL.get(r["block_kind"], r["block_kind"])
+        where = {"owner_type": r["owner_type"], "owner_id": r["owner_id"],
+                 "title": r["owner_title"], "block": label, "module": r["module_slug"]}
+        for u in (r["image_url"], r["bg_image_url"]):
+            if u:
+                landing_use.setdefault(u, []).append(where)
+        # items — JSON со списком карточек, ищем url внутри строкой
+        if r["items_text"]:
+            for f in rows:
+                if f["url"] and f["url"] in r["items_text"]:
+                    landing_use.setdefault(f["url"], []).append(where)
 
     # Запись эфира привязана к событию не через client_files, а через комнату.
     # ⚠️ Берём и ДАТУ эфира: записей у события бывает несколько, и без даты
@@ -481,14 +544,27 @@ async def storage_files(
             module = module or "conference"
             kind = "webinar_recording"
 
+        # Картинка лендинга: подставляем место использования из карты.
+        uses = landing_use.get(r["url"]) or []
+        if uses and not event_id and not r["product_id"]:
+            u0 = uses[0]
+            if u0["owner_type"] == "event":
+                event_id = u0["owner_id"]
+                event_title = u0["title"]
+                module = u0["module"]
+            place_extra = f' · блок «{u0["block"]}»'
+        else:
+            place_extra = f' · блок «{uses[0]["block"]}»' if uses else ""
+
         if event_id:
             base = "/dashboard/conferences" if module in ("conference", "turnir") else "/dashboard/events"
             tab = _KIND_TAB.get(kind)
             link = f"{base}/{event_id}" + (f"?tab={tab}" if tab else "")
-            place = event_title or f"Событие #{event_id}"
-        elif r["product_id"]:
-            link = f"/dashboard/products/{r['product_id']}"
-            place = "Продукт"
+            place = (event_title or f"Событие #{event_id}") + place_extra
+        elif r["product_id"] or (uses and uses[0]["owner_type"] == "product"):
+            pid = r["product_id"] or uses[0]["owner_id"]
+            link = f"/dashboard/products/{pid}"
+            place = (uses[0]["title"] if uses else "Продукт") + place_extra
         elif kind in ("brand_photo", "brand_logo", "owner_photo"):
             link = "/dashboard/mini-app"
             place = "Профиль и бренд"
@@ -497,7 +573,7 @@ async def storage_files(
             place = "Рассылки"
         elif kind in ("lead_magnet", "funnel_media"):
             link = "/dashboard/lead-magnets"
-            place = "Подарки и воронки"
+            place = ("Воронка подарков · " + r["funnel_step"]) if r["funnel_step"] else "Подарки и воронки"
         elif kind == "survey_media":
             link = "/dashboard/surveys"
             place = "Анкеты"
@@ -507,11 +583,23 @@ async def storage_files(
         elif collaborator_id:
             link = f"/dashboard/collaborations/{collaborator_id}"
             # Без слова «Спикер» строка выглядит как случайное имя в списке файлов.
-            place = f"Спикер: {r['collaborator_name']}" if r["collaborator_name"] else "Спикер"
+            # Показываем «Имя Фамилия» — правило проекта для показа (не для поиска).
+            full = " ".join(x for x in (r["collaborator_name"], r["collaborator_last_name"]) if x)
+            place = f"Спикер: {full}" if full else "Спикер"
         else:
             place = "Без привязки"
 
         label = _KIND_LABEL.get(kind, kind)
+        # ⚠️ Подпись должна называть КОНКРЕТНЫЙ файл, а не тип: «Афиша события»
+        # ничего не даёт, когда их три штуки разной ориентации.
+        _ORIENT = {"square": "квадратная", "horizontal": "горизонтальная",
+                   "vertical": "вертикальная"}
+        if kind == "event_poster" and r["poster_orientation"]:
+            label = f"Афиша события — {_ORIENT.get(r['poster_orientation'], r['poster_orientation'])}"
+        elif kind == "funnel_media" and r["funnel_step"]:
+            label = f"Медиа воронки подарков — {r['funnel_step']}"
+        elif kind in ("product_media", "material_media") and r["product_title"]:
+            label = f"{'Картинка продукта' if kind == 'product_media' else 'Материал урока'} «{r['product_title']}»"
         if kind == "webinar_recording" and rec_started:
             # Дата в МСК — как везде в проекте.
             from zoneinfo import ZoneInfo as _ZI
@@ -534,6 +622,8 @@ async def storage_files(
             "event_title": event_title,
             "link": link,
             "is_temp": kind in ("broadcast_photo", "broadcast_video"),
+            # Одна картинка часто стоит в нескольких лендингах — показываем это.
+            "used_in": len(uses),
         })
 
     # Сводка по местам — что именно съедает объём.

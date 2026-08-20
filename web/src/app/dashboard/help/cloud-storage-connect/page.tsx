@@ -31,6 +31,7 @@ function ConnectForm() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [done, setDone] = useState<{ global_name: string } | null>(null)
+  const [verified, setVerified] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -63,6 +64,23 @@ function ConnectForm() {
       try { localStorage.removeItem(KEY) } catch {}
     } catch (e: any) {
       setMsg({ ok: false, text: e.message })
+    } finally { setBusy(false) }
+  }
+
+  // ⚠️ Проверяем ПУБЛИЧНОЙ ссылкой и показываем картинку глазами: проверка
+  // по ключам прошла бы и при незаполненном глобальном имени, а у посетителей
+  // вместо афиш были бы пустые места.
+  const verify = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const h = { Authorization: `Bearer ${localStorage.getItem('plusson_token')}` }
+      await fetch(`${API}/api/v1/clients/me/storage/test-image`, { method: 'POST', headers: h })
+      const r = await fetch(`${API}/api/v1/clients/me/storage/verify-public`, { method: 'POST', headers: h })
+      const d = await r.json()
+      if (d.ok) { setVerified(d.url); setMsg({ ok: true, text: d.message }) }
+      else { setVerified(null); setMsg({ ok: false, text: d.message }) }
+    } catch (e: any) {
+      setMsg({ ok: false, text: 'Не удалось проверить — попробуйте ещё раз.' })
     } finally { setBusy(false) }
   }
 
@@ -110,10 +128,31 @@ function ConnectForm() {
           <p className="mt-2 text-[12px] text-amber-700">
             Подробнее с картинками — в шаге 3 ниже на этой странице.
           </p>
-          <Link href="/dashboard/settings?tab=storage"
-                className="btn-gold mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold">
-            Я вписал — проверить <ArrowRight size={14} />
-          </Link>
+          {/* ⚠️ Проверяем ПРЯМО ЗДЕСЬ, а не отправляем на другую страницу:
+              человек только что вписал имя и хочет увидеть результат, а не
+              искать кнопку в настройках. */}
+          <button onClick={verify} disabled={busy}
+            className="btn-gold mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-60">
+            {busy ? <><Loader2 size={14} className="animate-spin" /> Проверяем…</>
+                  : <>Я вписал — проверить <ArrowRight size={14} /></>}
+          </button>
+
+          {verified && (
+            <div className="mt-3 rounded-xl border border-green-300 bg-white p-3">
+              <p className="mb-2 text-[13px] font-medium text-green-800">
+                Видите картинку? Значит всё работает — файлы открываются у посетителей.
+              </p>
+              <img src={verified} alt="Проверочная картинка"
+                   className="w-full max-w-sm rounded-lg border border-green-200" />
+              <p className="mt-2 text-[12px] text-gray-500">
+                Загляните в{' '}
+                <Link href="/dashboard/settings?tab=storage" className="text-brand underline">
+                  Настройки → Файловое хранилище
+                </Link>{' '}
+                — там теперь показано ваше хранилище Cloud.ru и его объём.
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         <button onClick={connect} disabled={busy || !filled}
