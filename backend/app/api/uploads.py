@@ -358,7 +358,7 @@ async def storage_files(
 
     rows = await db.fetch(
         """
-        SELECT f.id, f.kind, f.url, f.size_bytes, f.created_at,
+        SELECT f.id, f.kind, f.r2_key, f.url, f.size_bytes, f.created_at,
                f.event_id, f.collaborator_id,
                e.title       AS event_title,
                e.module_slug AS event_module,
@@ -367,7 +367,8 @@ async def storage_files(
                -- лежат вне событий и своего event_id не имеют.
                (SELECT p.id FROM products p
                  WHERE p.client_id = f.client_id
-                   AND (f.url LIKE '%/products/' || p.id || '/%')
+                   AND (f.url LIKE '%/products/' || p.id || '/%'
+                        OR f.r2_key LIKE '%/products/' || p.id || '/%')
                  LIMIT 1) AS product_id
           FROM client_files f
           LEFT JOIN events e        ON e.id = f.event_id
@@ -377,6 +378,17 @@ async def storage_files(
         """,
         client_id,
     )
+
+    # Справочник событий — чтобы подставить название событию, найденному по пути.
+    event_by_id = {
+        e["id"]: {"title": e["title"], "module_slug": e["module_slug"]}
+        for e in await db.fetch(
+            """SELECT e.id, e.title, e.module_slug FROM events e
+                JOIN event_owners eo ON eo.event_id = e.id
+               WHERE eo.client_id = $1 AND eo.status = 'accepted'""",
+            client_id,
+        )
+    }
 
     # Запись эфира привязана к событию не через client_files, а через комнату.
     rec_map = {
@@ -392,13 +404,60 @@ async def storage_files(
         )
     }
 
+    # У файлов, залитых вручную мимо кабинета (kind='untracked'), связей в БД нет —
+    # но путь в бакете почти всегда говорит, что это. Разбираем его, иначе клиент
+    # видит сотни строк «Загружен вручную» без единой подсказки, что это за файлы.
+    import re as _re
+
+    def _guess_from_key(key: str):
+        """(kind, event_id, collaborator_id) по пути в бакете. None — не угадали."""
+        if not key:
+            return None, None, None
+        m = _re.search(r"/events/(\d+)/posters/", key)
+        if m:
+            return "event_poster", int(m.group(1)), None
+        m = _re.search(r"/events/(\d+)/videos/", key)
+        if m:
+            return "event_video", int(m.group(1)), None
+        m = _re.search(r"/events/(\d+)/landing/", key)
+        if m:
+            return "landing_media", int(m.group(1)), None
+        m = _re.search(r"/events/(\d+)/", key)
+        if m:
+            return None, int(m.group(1)), None
+        m = _re.search(r"/(?:speakers|collaborators)/(\d+)/", key)
+        if m:
+            return "speaker_photo", None, int(m.group(1))
+        if "/webinar/" in key:
+            return "webinar_recording", None, None
+        if "/cases/" in key:
+            return "landing_media", None, None
+        if "/products/" in key:
+            return "product_media", None, None
+        if key.startswith("lessons/"):
+            return "material_media", None, None
+        return None, None, None
+
     files = []
     for r in rows:
         kind = r["kind"]
         size = int(r["size_bytes"])
         event_id, event_title = r["event_id"], r["event_title"]
         module = r["event_module"]
+        collaborator_id = r["collaborator_id"]
         link = None
+
+        if kind == "untracked":
+            g_kind, g_event, g_collab = _guess_from_key(r["r2_key"] or "")
+            if g_kind:
+                kind = g_kind
+            if g_event and not event_id:
+                event_id = g_event
+                ev = event_by_id.get(g_event)
+                if ev:
+                    event_title, module = ev["title"], ev["module_slug"]
+            if g_collab and not collaborator_id:
+                collaborator_id = g_collab
 
         # Запись эфира: событие берём из комнаты вебинара.
         if r["url"] in rec_map:
@@ -429,8 +488,8 @@ async def storage_files(
         elif kind == "dialog_media":
             link = "/dashboard/clients"
             place = "Переписки"
-        elif r["collaborator_id"]:
-            link = f"/dashboard/collaborations/{r['collaborator_id']}"
+        elif collaborator_id:
+            link = f"/dashboard/collaborations/{collaborator_id}"
             place = r["collaborator_name"] or "Спикер"
         else:
             place = "Без привязки"
