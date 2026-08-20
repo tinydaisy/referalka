@@ -37,3 +37,24 @@ export function videoHost(url: string): string | null {
   if (/vk\.com|vkvideo\.ru/.test(url)) return 'VK Видео'
   return null
 }
+
+/**
+ * Обложка ролика по ссылке — для «фасада»: пока человек не нажал ▶,
+ * показываем картинку, а плеер не грузим вовсе.
+ *
+ * ⚠️ Зачем фасад. `<iframe loading="lazy">` для YouTube экономит мало:
+ * браузер всё равно тянет плеер, как только блок подходит к экрану, —
+ * это ~0,5 МБ и несколько запросов НА КАЖДОЕ видео. На лендинге с галереей
+ * отзывов это мегабайты трафика ещё до того, как посетитель что-то нажал.
+ * Тот же приём уже применён на лендинге чемпионата спикеров iViSiON.
+ *
+ * hqdefault, а не maxresdefault: у Shorts и старых роликов maxres часто нет,
+ * и вместо картинки приходит серая заглушка YouTube.
+ */
+export function videoThumbUrl(url: string): string | null {
+  const yt = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{6,})/.exec(url || '')
+  if (yt) return `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`
+  // VK и Rutube публичного адреса обложки по ссылке не дают — там честно
+  // показываем тёмную плашку с кнопкой, а не битую картинку.
+  return null
+}

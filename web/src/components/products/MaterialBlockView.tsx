@@ -13,7 +13,7 @@
  */
 import { FileText, ExternalLink } from 'lucide-react'
 import SafeHtml from '@/components/SafeHtml'
-import { embedUrl, isFileVideo } from '@/lib/videoEmbed'
+import LazyVideo from '@/components/LazyVideo'
 
 export default function MaterialBlockView({ block }: { block: any }) {
   const { kind, title, body, url } = block
@@ -29,10 +29,10 @@ export default function MaterialBlockView({ block }: { block: any }) {
     return (
       <div>
         {title && <div className="mb-1 text-sm font-medium text-gray-700">{title}</div>}
+        {/* ⚠️ Плеер грузится по клику: в уроке видео бывает несколько, и все
+            они тянули бы плеер сразу при открытии страницы. */}
         <div className="overflow-hidden rounded-xl bg-black">
-          {isFileVideo(url)
-            ? <video src={url} controls className="w-full" />
-            : <iframe src={embedUrl(url)} allowFullScreen className="aspect-video w-full" />}
+          <LazyVideo url={url} title={title || undefined} className="aspect-video w-full" />
         </div>
       </div>
     )

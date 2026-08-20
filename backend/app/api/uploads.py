@@ -37,6 +37,25 @@ from app.services import r2_storage
 from app.services.image_processor import process_image, is_image
 
 
+# ⚠️ ЕДИНЫЙ список разрешённых kind. Держится константой, а не литералом внутри
+# проверки, чтобы его можно было сверить с настройками сжатия
+# (image_processor.uncompressed_image_kinds): забытый в сжатии kind не даёт
+# ошибки — файл просто уходит в хранилище несжатым.
+IMAGE_UPLOAD_KINDS = {
+    "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
+    "speaker_poster",
+    "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
+    "broadcast_video",
+    "event_video", "speaker_video", "referral_video",
+    "landing_bg", "landing_media",
+    # Картинки лендинга ПРОДУКТА (миграция 293) и материалов продукта.
+    # ⚠️ event_id НЕ требуют — продукт живёт вне событий.
+    "product_media", "material_media",
+    # Картинки анкет (миграция 281): обложка анкеты и картинка вопроса.
+    # ⚠️ event_id НЕ требуют — анкеты общие, к событиям не привязаны.
+    "survey_media",
+}
+
 router = APIRouter(tags=["Загрузка файлов"])
 
 
@@ -88,20 +107,7 @@ async def upload_file(
     client_id = int(client["sub"])
 
     # 1. Валидация kind и обязательных параметров
-    if kind not in {
-        "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
-        "speaker_poster",
-        "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
-        "broadcast_video",
-        "event_video", "speaker_video", "referral_video",
-        "landing_bg", "landing_media",
-        # Картинки лендинга ПРОДУКТА (миграция 293) и материалов продукта.
-        # ⚠️ event_id НЕ требуют — продукт живёт вне событий.
-        "product_media", "material_media",
-        # Картинки анкет (миграция 281): обложка анкеты и картинка вопроса.
-        # ⚠️ event_id НЕ требуют — анкеты общие, к событиям не привязаны.
-        "survey_media",
-    }:
+    if kind not in IMAGE_UPLOAD_KINDS:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
     if kind in ("event_poster", "certificate", "referral_material", "event_video",

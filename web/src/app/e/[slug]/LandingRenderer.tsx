@@ -12,7 +12,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CardIcon } from '@/components/landing/icons'
-import { embedUrl } from '@/lib/videoEmbed'
+// Видео целиком рендерит LazyVideo — embedUrl/isFileVideo нужны только внутри него.
+import LazyVideo from '@/components/LazyVideo'
 import SafeHtml from '@/components/SafeHtml'
 
 interface Props {
@@ -2096,38 +2097,18 @@ function GalleryBlock({
       style={{ ...cardStyle, ...(carousel ? { width: `min(${cardW}px, 82vw)` } : {}) }}
     >
       {(isVideo ?? x.kind === 'video') ? (
-        // ⚠️ Видео бывает двух видов: наш файл в хранилище (mp4/webm) и
-        // ссылка на YouTube/VK/Rutube. Файл нужно проигрывать тегом <video>
-        // — в <iframe> он не открывается, получался пустой чёрный кадр.
-        isFileVideo(x.url) ? (
-          <video
-            src={x.url}
-            poster={x.preview_url || undefined}
-            controls
-            playsInline
-            preload="metadata"
-            className="w-full"
-            style={{
-              borderRadius: radius,
-              background: '#000',
-              aspectRatio: ratio,
-              objectFit: photoFit === 'crop' ? 'cover' : 'contain',
-            }}
-          />
-        ) : (
-          <div
-            className="w-full overflow-hidden"
-            style={{ borderRadius: radius, aspectRatio: ratio }}
-          >
-            <iframe
-              src={embedUrl(x.url)}
-              className="h-full w-full"
-              allowFullScreen
-              loading="lazy"
-              title={x.caption || `Видео ${i + 1}`}
-            />
-          </div>
-        )
+        // ⚠️ Видео грузится ТОЛЬКО по клику (LazyVideo): и наш файл, и ссылка
+        // на площадку. Раньше iframe с loading="lazy" всё равно тянул плеер
+        // YouTube (~0,5 МБ на ролик) при подходе блока к экрану — на галерее
+        // отзывов это мегабайты трафика до единого нажатия.
+        <LazyVideo
+          url={x.url}
+          poster={x.preview_url}
+          title={x.caption || `Видео ${i + 1}`}
+          className="w-full"
+          objectFit={photoFit === 'crop' ? 'cover' : 'contain'}
+          style={{ borderRadius: radius, aspectRatio: ratio }}
+        />
       ) : (
         <img
           src={x.url}
@@ -2625,13 +2606,9 @@ function GiftIcon({ color, id }: { color: string; id: string }) {
   )
 }
 
-/**
- * Наш ли это видеофайл (лежит в хранилище), а не ссылка на видеохостинг.
- * Файл проигрывается тегом <video>, ссылка — встраивается iframe-ом.
- */
-function isFileVideo(url: string): boolean {
-  return /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url || '')
-}
+/* ⚠️ isFileVideo раньше был локальной копией — как и embedUrl до него.
+   Копии разъезжаются: общая уже знала про youtube.com/shorts, локальная нет.
+   Берём обе из lib/videoEmbed. */
 
 /* ⚠️ Своей копии embedUrl здесь БЫЛО: она отставала от общей (не знала
    youtube.com/shorts), и вертикальные ролики не открывались, хотя в общей

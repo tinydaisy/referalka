@@ -41,7 +41,17 @@ MAX_DIM_BY_KIND = {
     # Анкеты (миграция 281): обложка и картинки вопросов показываются в
     # колонке шириной ~600px — 1200 хватает с запасом под ретину.
     "survey_media":      1200,
+    # ⚠️ Продукты и уроки (миграции 290-294) СЖИМАТЬ ОБЯЗАТЕЛЬНО. Их забыли
+    # добавить при появлении раздела, и картинки уходили в хранилище как есть:
+    # kind не в этом словаре → process_image молча возвращает файл без обработки.
+    # Ширина как у landing_media — показываются такой же карточкой/колонкой.
+    "product_media":     1200,
+    "material_media":    1200,
 }
+
+# ⚠️ ПРАВИЛО: новый kind картинки — сразу СЮДА. Отсутствие в словаре не даёт
+# ошибки, файл просто не сжимается, и заметить это можно только по счёту
+# за хранилище. Проверка «все ли kind покрыты» — тест ниже по файлу.
 
 JPEG_QUALITY = 85
 IMAGE_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"}
@@ -80,3 +90,17 @@ def process_image(data: bytes, kind: str, content_type: str) -> Tuple[bytes, str
         img = img.convert("RGB")
         img.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
         return out.getvalue(), "image/jpeg", "jpg"
+
+
+def uncompressed_image_kinds() -> set:
+    """Типы картинок, для которых сжатие НЕ настроено.
+
+    Нужна, потому что забытый kind не даёт ошибки: process_image просто вернёт
+    файл как есть, и узнать об этом можно только по размеру хранилища. Так и
+    вышло с product_media / material_media — они грузились несжатыми.
+
+    Зовётся из теста и из проверки при старте (см. main.py) — если кто-то
+    добавит новый kind картинки и забудет прописать лимит, это будет видно сразу.
+    """
+    from app.api.uploads import VIDEO_KINDS, IMAGE_UPLOAD_KINDS
+    return set(IMAGE_UPLOAD_KINDS) - set(VIDEO_KINDS) - set(MAX_DIM_BY_KIND) - {"lead_magnet"}
