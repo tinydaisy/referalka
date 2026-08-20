@@ -389,43 +389,31 @@ function OwnStorageBlock() {
 
       {!connected && !open && (
         <>
-          {/* ⚠️ Главная кнопка ведёт в ИНСТРУКЦИЮ, а не сразу на регистрацию.
-              Регистрация в Cloud.ru — не одна кнопка: там анкета, выбор личного
-              облака, экран про карту, создание бакета, публичный доступ и ключи.
-              Человек, брошенный на голый console.cloud.ru, застревает на первом
-              же шаге и не понимает, что делать. */}
-          <div className="flex items-start gap-2 text-[13px] text-gray-600 bg-gray-50 rounded-xl px-3.5 py-3 mb-4">
-            <Info size={14} className="mt-0.5 shrink-0 text-gray-400" />
-            <div className="space-y-1">
-              <p><b>Что нужно сделать — 4 шага, минут 10:</b></p>
-              <p>1. Зарегистрироваться в Cloud.ru — там дают {promo?.free_gb || 15} ГБ бесплатно навсегда.</p>
-              <p>2. Создать хранилище (бакет) и включить к нему публичный доступ.</p>
-              <p>3. Создать ключ доступа.</p>
-              <p>4. Вставить три строки сюда — остальное сделаем сами.</p>
-              <p className="pt-1 text-gray-500">
-                Каждый шаг разобран по скриншотам — начните с инструкции, чтобы не
-                запутаться в настройках Cloud.ru.
-              </p>
-            </div>
+          {/* ⚠️ Два ШАГА кнопками, а не сплошной текст: подключение хранилища —
+              это два похода в Cloud.ru с большим перерывом (регистрация, потом
+              создание бакета и ключей). Человек должен видеть, где он сейчас. */}
+          <div className="space-y-3">
+            <StepCard
+              n="1"
+              title="Зарегистрироваться в Cloud.ru"
+              text={`Бесплатно и навсегда: ${promo?.free_gb || 15} ГБ хранилища и 10 ТБ трафика в месяц. Займёт минут 5.`}
+              href="/dashboard/help/cloud-storage"
+              cta="Шаг 1 — Зарегистрироваться"
+              primary
+            />
+            <StepCard
+              n="2"
+              title="Связать хранилище с ПЛЮСОНом"
+              text="Получите три значения в Cloud.ru и вставьте их сюда — дальше всё сделаем сами."
+              href="/dashboard/help/cloud-storage-connect"
+              cta="Шаг 2 — Связать с ПЛЮСОН"
+            />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard/help/cloud-storage"
-              className="btn-gold inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold">
-              Открыть инструкцию <ArrowRight size={14} />
-            </Link>
-            <button onClick={() => { setMode('quick'); setOpen(true) }}
-              className="btn-primary px-4 py-2.5 rounded-xl text-sm font-medium">
-              Я всё сделал — подключить
-            </button>
-            {promo?.ref_url && (
-              <a href={promo.ref_url} target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
-                Открыть Cloud.ru <ExternalLink size={13} />
-              </a>
-            )}
-          </div>
-        </>
-      )}
+
+          <button onClick={() => { setMode('quick'); setOpen(true) }}
+            className="mt-3 text-[13px] text-gray-500 hover:text-gray-800 underline">
+            У меня уже есть три значения — ввести сразу
+          </button>
 
       {/* Быстрое подключение: клиент даёт три строки, бакет создаём сами.
           ⚠️ Глобальное имя через API Cloud.ru задать НЕЛЬЗЯ (только руками
@@ -606,6 +594,38 @@ function Field({ label, value, onChange, hint, placeholder, type = 'text' }: {
         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono"
       />
       {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
+    </div>
+  )
+}
+
+
+/**
+ * Карточка шага на странице хранилища.
+ *
+ * ⚠️ Ведёт в ИНСТРУКЦИЮ, а не сразу в Cloud.ru: там регистрация не в одну
+ * кнопку — анкета, выбор личного облака, экран про карту. Человек, брошенный
+ * на голый console.cloud.ru, застревает на первом же экране.
+ */
+function StepCard({ n, title, text, href, cta, primary }: {
+  n: string; title: string; text: string; href: string; cta: string; primary?: boolean
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 p-4">
+      <div className="flex items-start gap-3">
+        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+          primary ? 'text-[#25455D]' : 'text-gray-500 bg-gray-100'}`}
+          style={primary ? { background: '#FFCFA4' } : undefined}>
+          {n}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-gray-800">{title}</div>
+          <p className="mt-0.5 text-[13px] text-gray-500">{text}</p>
+          <Link href={href}
+            className={`${primary ? 'btn-gold' : 'btn-primary'} mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold`}>
+            {cta} <ArrowRight size={14} />
+          </Link>
+        </div>
+      </div>
     </div>
   )
 }
