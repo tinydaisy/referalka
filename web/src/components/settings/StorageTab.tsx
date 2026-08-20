@@ -403,7 +403,93 @@ function OwnStorageBlock() {
         </>
       )}
 
-      {(open || connected) && (
+      {/* Быстрое подключение: клиент даёт три строки, бакет создаём сами.
+          ⚠️ Глобальное имя через API Cloud.ru задать НЕЛЬЗЯ (только руками
+          в их кабинете), поэтому после создания показываем готовую строку
+          с кнопкой копирования — это единственный ручной шаг. */}
+      {open && !connected && mode === 'quick' && (
+        <div className="space-y-3">
+          {!created ? (
+            <>
+              <p className="text-[13px] text-gray-600">
+                Скопируйте три строки из Cloud.ru — хранилище создадим и настроим сами.
+              </p>
+              <Field label="ID тенанта" value={quick.tenant_id}
+                onChange={v => setQuick({ ...quick, tenant_id: v })}
+                hint="Object Storage → строка «ID тенанта» вверху страницы." />
+              <Field label="Ключ доступа (Key ID)" value={quick.access_key}
+                onChange={v => setQuick({ ...quick, access_key: v })}
+                hint="Аватар → шестерёнка → «Ключи доступа» → создать. Время жизни — «Бессрочно»." />
+              <Field label="Секретный ключ (Key Secret)" value={quick.secret_key}
+                onChange={v => setQuick({ ...quick, secret_key: v })} type="password"
+                hint="Показывается один раз при создании ключа." />
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button onClick={runQuick} disabled={busy}
+                  className="btn-gold px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60">
+                  {busy ? 'Создаём хранилище…' : 'Создать и подключить'}
+                </button>
+                <button onClick={() => setMode('manual')}
+                  className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                  У меня уже есть хранилище
+                </button>
+                <button onClick={() => setOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                  Отмена
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400">
+                <Link href="/dashboard/help/cloud-storage" className="text-brand hover:underline">
+                  Где взять эти три строки — инструкция со скриншотами
+                </Link>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <p className="text-[13px] text-amber-900 font-medium mb-2">
+                  Остался один шаг — его можно сделать только в Cloud.ru
+                </p>
+                <p className="text-[13px] text-amber-800">
+                  Хранилище <b>{created.bucket}</b> создано, доступ открыт. Теперь откройте
+                  в Cloud.ru: <b>Object Storage → ваш бакет → три точки → «Редактировать»</b> и
+                  впишите в поле <b>«Глобальное название»</b> вот это:
+                </p>
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <code className="rounded-lg bg-white border border-amber-200 px-3 py-1.5 text-sm font-mono">
+                    {created.global_name}
+                  </code>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(created.global_name); setMsg({ ok: true, text: 'Скопировано' }) }}
+                    className="px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-xs text-amber-900 hover:bg-amber-100">
+                    Скопировать
+                  </button>
+                </div>
+                <p className="text-[12px] text-amber-700 mt-2">
+                  Без этого имени файлы не открываются у посетителей — Cloud.ru отдаёт их
+                  только по глобальному названию.
+                </p>
+              </div>
+
+              <button onClick={verifyPublic} disabled={busy}
+                className="btn-gold px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60">
+                {busy ? 'Проверяем…' : 'Я вписал — проверить'}
+              </button>
+
+              {testUrl && (
+                <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+                  <p className="text-[13px] text-green-900 mb-2">
+                    Видите картинку? Значит файлы открываются у посетителей — всё готово.
+                  </p>
+                  <img src={testUrl} alt="Проверочная картинка"
+                    className="w-full max-w-sm rounded-lg border border-green-200" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {((open && mode === 'manual') || connected) && (
         <div className="space-y-3">
           <Field label="Адрес хранилища (Endpoint)" value={form.endpoint}
             onChange={v => setForm({ ...form, endpoint: v })}
