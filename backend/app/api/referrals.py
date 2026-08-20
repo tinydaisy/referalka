@@ -2,7 +2,7 @@
 
 Эндпойнты:
 - `GET /api/v1/referrals/me` — баланс + ссылки + история транзакций + рефералы.
-- `POST /api/v1/referrals/withdraw` — заявка на вывод (≥4000₽, активная платная подписка).
+- `POST /api/v1/referrals/withdraw` — заявка на вывод (≥4000₽ + принятая партнёрская оферта со статусом).
 - `POST /api/v1/subscriptions/pay-with-bonus` — оплата подписки бонусами (тут же).
 - Admin: `GET /api/v1/admin/withdrawals`, `POST /admin/withdrawals/{id}/complete|cancel`.
 """
@@ -108,22 +108,23 @@ async def get_my_referral_dashboard(
 
     balance = await get_balance(db, client_id)
 
-    # Условия вывода: баланс ≥ минимума, активная платная подписка (не trial)
-    # и принятая партнёрская оферта с подтверждённым налоговым статусом.
+    # Условия вывода: баланс ≥ минимума и принятая партнёрская оферта с
+    # подтверждённым налоговым статусом.
     #
     # ⚠️ Статус обязателен (миграция 319): выплачивая вознаграждение обычному
     # физлицу, Оферент становится налоговым агентом (ст. 226 НК) и обязан
     # удержать НДФЛ и заплатить взносы. ИП на НПД налоговым агентом быть не
     # может — значит такая выплата для нас невозможна в принципе.
+    #
+    # ⚠️ Своя платная подписка НЕ требуется (решение владельца, 2026-08-20):
+    # партнёром может быть кто угодно, а не только действующий пользователь
+    # Платформы. Привёл клиента — заработал, пользуешься ты сам или нет.
     can_withdraw_threshold = balance >= WITHDRAWAL_MIN_KOPECKS
-    sub_is_paid = client["sub_source"] == "paid" and bool(client["sub_active"])
     partner_ok = bool(client["partner_offer_accepted_at"]) and bool(client["partner_tax_status"])
-    can_withdraw = can_withdraw_threshold and sub_is_paid and partner_ok
+    can_withdraw = can_withdraw_threshold and partner_ok
     block_reason = None
     if not can_withdraw_threshold:
         block_reason = f"До вывода нужно ещё {(WITHDRAWAL_MIN_KOPECKS - balance) / 100:.0f}₽"
-    elif not sub_is_paid:
-        block_reason = "Для вывода нужна активная платная подписка (не trial)"
     elif not partner_ok:
         block_reason = ("Примите условия партнёрской программы и укажите свой статус "
                         "(ИП, юрлицо или самозанятый) — выплаты возможны только им")
@@ -242,16 +243,26 @@ async def create_withdrawal_request(
 
     client_id = int(user["sub"])
 
-    # Проверка: активная платная подписка
-    sub_check = await db.fetchrow(
-        """SELECT cs.source, cs.status, (cs.expires_at > NOW()) AS sub_active
-             FROM clients c
-             LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
-            WHERE c.id = $1""",
+    # ⚠️ Своя платная подписка для вывода НЕ требуется (решение владельца,
+    # 2026-08-20): партнёром может быть кто угодно, а не только действующий
+    # пользователь Платформы. Привёл клиента — заработал.
+    #
+    # ⚠️ А вот принятая партнёрская оферта и налоговый статус обязательны —
+    # и проверять их надо ЗДЕСЬ, а не только при отрисовке кнопки: без этой
+    # проверки заявку можно подать прямым запросом мимо интерфейса, и деньги
+    # уйдут обычному физлицу, из-за чего Оферент станет налоговым агентом.
+    partner_check = await db.fetchrow(
+        "SELECT partner_offer_accepted_at, partner_tax_status FROM clients WHERE id = $1",
         client_id,
     )
-    if not sub_check or sub_check["source"] != "paid" or not sub_check["sub_active"]:
-        raise HTTPException(status_code=400, detail="Для вывода нужна активная платная подписка (не trial)")
+    if not partner_check or not partner_check["partner_offer_accepted_at"] \
+            or not partner_check["partner_tax_status"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Примите условия партнёрской программы и укажите свой статус "
+                   "(ИП, юридическое лицо или самозанятый)",
+        )
+
 
     # Проверка минимума и реквизитов
     if data.amount_kopecks < WITHDRAWAL_MIN_KOPECKS:
