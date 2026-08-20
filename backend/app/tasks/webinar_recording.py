@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 import glob
 import asyncio
+import logging
+import shutil
 import subprocess
 import tempfile
 from datetime import datetime
@@ -21,6 +23,8 @@ import asyncpg
 from app.celery_app import celery
 from app.config import settings
 from app.services import r2_storage
+
+_log = logging.getLogger(__name__)
 
 RECORDINGS_DIR = os.environ.get("WEBINAR_RECORDINGS_DIR", "/var/www/plusson/media-server/recordings")
 
@@ -113,6 +117,13 @@ async def _run(session_id: int):
                 "video/mp4",
             )
 
+            # ⚠️ Сжатие ставим в очередь ОТДЕЛЬНОЙ задачей, а не делаем здесь.
+            # Причины две: на 2 ядрах пережатие двухчасового эфира идёт 30-60
+            # минут и займёт воркера целиком; и главное — запись уже залита и
+            # доступна, а значит сбой сжатия ничем не грозит. Делать наоборот
+            # (сжать, потом залить) — риск потерять эфир, который не переснять.
+            compress_recording.delay(rec_id)
+
             # Сегменты нужны только до успешной заливки — дальше это копия того,
             # что уже лежит в R2, и она съедает диск. Удаляем ТОЛЬКО те файлы,
             # которые реально вошли в склейку, и только после статуса 'ready'.
@@ -156,3 +167,111 @@ def _cleanup_segments(segs: list[str]) -> None:
 
 async def _mark_failed(conn, rec_id, msg):
     await conn.execute("UPDATE webinar_recordings SET status='failed' WHERE id=$1", rec_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Сжатие записи эфира
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ Зачем. MediaMTX пишет поток КАК ПРИШЁЛ от вещателя: OBS и Zoom отдают
+# высокий битрейт, и двухчасовой эфир весит 2-3 ГБ. При просмотре записи такое
+# качество не нужно — там слайды и говорящий человек. Пережатие в 1,5 Мбит/с
+# уменьшает файл в 4-6 раз: 2,5 ГБ → 400-600 МБ.
+#
+# ⚠️ Сжимаем ПОСЛЕ заливки, отдельной задачей. Сжать до заливки нельзя: на
+# 2 ядрах это 30-60 минут, и любой сбой в это время — потерянный эфир, который
+# не переснять. Залитая запись уже в безопасности, сжатие лишь уменьшает её.
+
+# Настройки пережатия. ⚠️ Ниже 1 Мбит/с текст на слайдах становится нечитаемым —
+# это главный критерий, а не «поменьше файл».
+_TARGET_BITRATE = "1500k"
+_AUDIO_BITRATE = "128k"
+_MAX_HEIGHT = 720          # выше для вебинара не нужно, а вес растёт вдвое
+_MIN_GAIN = 1.3            # меньше — не стоит перезаливки
+
+
+@celery.task(name="app.tasks.webinar_recording.compress_recording")
+def compress_recording(rec_id: int):
+    _run_async(_compress(rec_id))
+
+
+async def _compress(rec_id: int):
+    # ⚠️ Одиночное соединение, не пул — по той же причине, что в _run() выше.
+    conn = await asyncpg.connect(settings.database_url)
+    tmp_in = tmp_out = None
+    try:
+        rec = await conn.fetchrow(
+            """SELECT rec.id, rec.url, rec.r2_key, rec.size_bytes, rec.status,
+                      wr.event_id, s.client_id
+                 FROM webinar_recordings rec
+                 JOIN webinar_rooms wr ON wr.id = rec.room_id
+                 LEFT JOIN webinar_sessions s ON s.id = rec.session_id
+                WHERE rec.id = $1""", rec_id)
+        if not rec or rec["status"] != "ready" or not rec["r2_key"]:
+            return
+        if not shutil.which("ffmpeg"):
+            _log.warning("compress_recording: ffmpeg не найден, пропускаю %s", rec_id)
+            return
+
+        tmp_in = tempfile.mktemp(suffix=".mp4")
+        tmp_out = tempfile.mktemp(suffix="_c.mp4")
+
+        # Скачиваем потоком: запись весит гигабайты, в память её брать нельзя.
+        client = r2_storage.get_r2_client()
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.download_file(
+                settings.cf_r2_bucket_name, rec["r2_key"], tmp_in))
+
+        before = os.path.getsize(tmp_in)
+
+        # ⚠️ -preset veryfast: на 2 ядрах medium даёт выигрыш в размере ~10%,
+        # но идёт втрое дольше. Скорость тут важнее лишних процентов.
+        cmd = [
+            "ffmpeg", "-y", "-i", tmp_in,
+            "-c:v", "libx264", "-preset", "veryfast",
+            "-b:v", _TARGET_BITRATE, "-maxrate", _TARGET_BITRATE, "-bufsize", "3000k",
+            "-vf", f"scale=-2:'min({_MAX_HEIGHT},ih)'",
+            "-c:a", "aac", "-b:a", _AUDIO_BITRATE,
+            "-movflags", "+faststart",   # чтобы плеер начинал играть, не скачав файл целиком
+            tmp_out,
+        ]
+        r = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: subprocess.run(cmd, capture_output=True, timeout=7200))
+        if r.returncode != 0 or not os.path.exists(tmp_out):
+            _log.warning("compress_recording %s: ffmpeg вернул %s", rec_id, r.returncode)
+            return
+
+        after = os.path.getsize(tmp_out)
+        # ⚠️ Если выигрыш мал — оставляем исходник. Перезаливка ради 10% не
+        # стоит риска: во время замены запись недоступна.
+        if after >= before / _MIN_GAIN:
+            _log.info("compress_recording %s: выигрыш мал (%.0f→%.0f МБ), оставляю как есть",
+                        rec_id, before / 1024**2, after / 1024**2)
+            return
+
+        # Заливаем ПОД ТЕМ ЖЕ ключом — ссылки в базе и у клиентов не меняются.
+        await r2_storage.upload_file(tmp_out, rec["r2_key"], "video/mp4")
+        await conn.execute(
+            "UPDATE webinar_recordings SET size_bytes=$2 WHERE id=$1", rec_id, after)
+        await conn.execute(
+            """UPDATE client_files SET size_bytes=$2 WHERE r2_key=$1""", rec["r2_key"], after)
+        if rec["client_id"]:
+            await conn.execute(
+                """UPDATE clients c SET storage_used_bytes = COALESCE(
+                     (SELECT SUM(size_bytes) FROM client_files f WHERE f.client_id = c.id), 0)
+                   WHERE c.id = $1""", rec["client_id"])
+
+        _log.info("compress_recording %s: %.0f МБ → %.0f МБ (в %.1f раза)",
+                    rec_id, before / 1024**2, after / 1024**2, before / after)
+    except Exception:
+        _log.exception("compress_recording %s", rec_id)
+    finally:
+        for f in (tmp_in, tmp_out):
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except Exception:
+                    pass
+        try:
+            await conn.close()
+        except Exception:
+            pass
