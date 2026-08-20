@@ -127,10 +127,36 @@ export default function PartnerProgramPage() {
                   <Wallet size={14} /> Потратить на подписку
                   <ArrowRight size={14} />
                 </a>
+                {/* Вывод деньгами. Открывается, когда выполнены ВСЕ условия:
+                    принята партнёрская оферта со статусом, набран минимум и
+                    есть активная платная подписка. Причина недоступности
+                    приходит с бэкенда — показываем её, а не прячем кнопку:
+                    иначе непонятно, чего не хватает. */}
+                {data.partner?.accepted_at && (
+                  data.can_withdraw ? (
+                    <button
+                      onClick={() => setShowWithdrawModal(true)}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2"
+                    >
+                      <Wallet size={14} /> Вывести деньгами
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      title={data.withdrawal_block_reason || ''}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 text-gray-400 cursor-not-allowed flex items-center gap-2"
+                    >
+                      <Wallet size={14} /> Вывести деньгами
+                    </button>
+                  )
+                )}
               </div>
             </div>
             <div className="mt-3 text-xs text-gray-500 italic">
               Бонусы можно потратить на свою подписку.
+              {data.partner?.accepted_at && !data.can_withdraw && data.withdrawal_block_reason && (
+                <span className="not-italic text-gray-500"> · {data.withdrawal_block_reason}</span>
+              )}
             </div>
 
             {/* Акцепт партнёрской оферты (миграция 319).
@@ -165,7 +191,19 @@ export default function PartnerProgramPage() {
             </div>
           </div>
 
-          {/* Реф-ссылки */}
+          {/* Реф-ссылки.
+              ⚠️ Показываются ТОЛЬКО после принятия партнёрской оферты: ссылка —
+              это уже участие в программе, и выдавать её до согласия с условиями
+              неправильно. До акцепта на месте блока стоит объяснение и кнопка. */}
+          {!data.partner?.accepted_at ? (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <h3 className="font-semibold text-gray-800 mb-1">Ваши реф-ссылки</h3>
+              <p className="text-sm text-gray-500">
+                Ссылки появятся здесь, как только вы примете условия партнёрской
+                программы в блоке выше.
+              </p>
+            </div>
+          ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h3 className="font-semibold text-gray-800 mb-1">Ваши реф-ссылки</h3>
             <p className="text-xs text-gray-400 mb-4">
@@ -191,6 +229,7 @@ export default function PartnerProgramPage() {
               ))}
             </div>
           </div>
+          )}
         </>
       )}
 
@@ -455,11 +494,12 @@ function PartnerAcceptBlock({ onAccepted }: { onAccepted: () => void }) {
 
   return (
     <div>
-      <div className="text-sm font-medium text-gray-800 mb-1">Вывод бонусов деньгами</div>
+      <div className="text-sm font-medium text-gray-800 mb-1">Участие в партнёрской программе</div>
       <p className="text-xs text-gray-500 mb-3 leading-snug">
-        Чтобы выводить вознаграждение на счёт, примите условия партнёрской программы
-        и укажите свой статус. Выплаты возможны индивидуальным предпринимателям,
-        юридическим лицам и самозанятым — они платят налоги самостоятельно.
+        Примите условия и укажите свой статус — после этого появятся ваши
+        реферальные ссылки, а вознаграждение можно будет выводить на счёт.
+        Выплаты возможны индивидуальным предпринимателям, юридическим лицам и
+        самозанятым: они платят налоги самостоятельно.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-3">
@@ -500,7 +540,7 @@ function PartnerAcceptBlock({ onAccepted }: { onAccepted: () => void }) {
         disabled={!status || !agree || saving}
         className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
       >
-        {saving ? 'Сохраняем…' : 'Стать партнёром'}
+        {saving ? 'Сохраняем…' : 'Стать партнёром и получить реф-ссылки'}
       </button>
     </div>
   )
