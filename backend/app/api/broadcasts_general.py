@@ -279,7 +279,11 @@ async def list_schedules(
                  WHERE bl.schedule_id = broadcast_schedules.id) AS email_clicks_total
         FROM broadcast_schedules
         WHERE client_id=$1 AND event_id IS NULL
-        ORDER BY fire_at NULLS LAST
+        -- ⚠️ NULLS FIRST, а не LAST: копия рассылки создаётся БЕЗ даты
+        -- (fire_at=NULL), и при NULLS LAST она уезжала в самый конец списка —
+        -- человек нажимал «Копировать» и не понимал, куда делась копия.
+        -- Рассылки без даты требуют действия, поэтому им место сверху.
+        ORDER BY fire_at NULLS FIRST
         """,
         client_id
     )

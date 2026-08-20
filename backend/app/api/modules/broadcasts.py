@@ -1198,7 +1198,9 @@ async def list_schedules(
             CASE WHEN $3 THEN bs.client_id = $2
                  ELSE (bs.client_id IS NULL OR bs.client_id = $2) END
           )
-        ORDER BY bs.fire_at NULLS LAST
+        -- ⚠️ NULLS FIRST — см. тот же комментарий в broadcasts_general.py:
+        -- копия без даты должна быть сверху, а не теряться в конце очереди.
+        ORDER BY bs.fire_at NULLS FIRST
         """,
         event_id, client_id, is_collab
     )

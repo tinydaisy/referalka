@@ -299,13 +299,15 @@ export default function QueuePage() {
     ])
     setIsCollab(!!ev?.event?.is_collab)
     setTemplates(tmpl.templates || [])
-    // Сортировка по убыванию даты (новые сверху). Без даты (draft) — в конец.
+    // Сортировка по убыванию даты (новые сверху).
+    // ⚠️ Рассылки БЕЗ даты — В НАЧАЛО (см. тот же комментарий в общих рассылках):
+    // копия создаётся без даты и раньше терялась в конце очереди.
     const sortedSched = [...(sched.schedules || [])].sort((a: any, b: any) => {
       const av = a.fire_at_iso || a.fire_at || ''
       const bv = b.fire_at_iso || b.fire_at || ''
       if (!av && !bv) return 0
-      if (!av) return 1
-      if (!bv) return -1
+      if (!av) return -1
+      if (!bv) return 1
       return av < bv ? 1 : av > bv ? -1 : 0
     })
     setSchedules(sortedSched)

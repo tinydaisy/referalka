@@ -119,13 +119,16 @@ export default function GeneralBroadcastsPage() {
   const load = useCallback(async () => {
     try {
       const res = await api.broadcasts.list()
-      // Сортировка по убыванию даты (новые сверху). Без даты — в конец.
+      // Сортировка по убыванию даты (новые сверху).
+      // ⚠️ Рассылки БЕЗ даты — В НАЧАЛО. Копия создаётся без даты, и раньше она
+      // уезжала в самый конец списка: человек нажимал «Копировать» и не понимал,
+      // куда делась копия. Без даты = требует действия, поэтому сверху.
       const sorted = [...(res.schedules || [])].sort((a: any, b: any) => {
         const av = a.fire_at_iso || a.fire_at || ''
         const bv = b.fire_at_iso || b.fire_at || ''
         if (!av && !bv) return 0
-        if (!av) return 1
-        if (!bv) return -1
+        if (!av) return -1
+        if (!bv) return 1
         return av < bv ? 1 : av > bv ? -1 : 0
       })
       setSchedules(sorted)
