@@ -36,6 +36,9 @@ export default function AdminStoragePage() {
 
   useEffect(() => {
     const token = localStorage.getItem('plusson_admin_token') || localStorage.getItem('plusson_token')
+    // ⚠️ Без токена сразу показываем причину: иначе запрос уйдёт без заголовка,
+    // вернётся 401, и человек будет смотреть на «Читаем хранилище…» без объяснения.
+    if (!token) { setError('Не удалось определить вход — войдите в админку заново.'); return }
     fetch(`${API}/api/v1/admin/storage`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async r => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Ошибка загрузки')

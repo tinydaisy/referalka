@@ -41,9 +41,13 @@ export default function StorageTab() {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
 
+  const [loadError, setLoadError] = useState('')
+
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) return
+    const token = localStorage.getItem('plusson_token')
+    // ⚠️ Без токена ОБЯЗАТЕЛЬНО снять loading: раньше здесь стоял голый return,
+    // и страница навсегда оставалась в «Загружаем…» — молча, без объяснения.
+    if (!token) { setLoading(false); setLoadError('Не удалось определить вход — обновите страницу.'); return }
     const h = { Authorization: `Bearer ${token}` }
     Promise.all([
       fetch(`${API}/api/v1/storage/usage`, { headers: h }).then(r => r.ok ? r.json() : null),
@@ -51,13 +55,22 @@ export default function StorageTab() {
     ]).then(([u, f]) => {
       if (u) setUsage(u)
       if (f) { setFiles(f.files || []); setGroups(f.groups || []); setByKind(f.by_kind || []) }
-    }).finally(() => setLoading(false))
+      if (!u && !f) setLoadError('Не удалось загрузить данные хранилища.')
+    }).catch(() => setLoadError('Не удалось связаться с сервером.'))
+      .finally(() => setLoading(false))
   }, [])
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-gray-400">
         <Loader2 size={20} className="animate-spin mr-2" /> Загружаем…
+      </div>
+    )
+  }
+  if (loadError && !usage) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {loadError}
       </div>
     )
   }
@@ -243,7 +256,7 @@ function OwnStorageBlock() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const auth = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+  const auth = () => ({ Authorization: `Bearer ${localStorage.getItem('plusson_token')}` })
 
   const loadCfg = () =>
     fetch(`${API}/api/v1/clients/me/storage`, { headers: auth() })
