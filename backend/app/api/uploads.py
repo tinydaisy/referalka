@@ -566,6 +566,10 @@ async def storage_files(
             return "brand_photo", None, None
         if "/broadcast_photos/" in key or "/broadcast_videos/" in key:
             return "broadcast_photo", None, None
+        if "/surveys/" in key:
+            return "survey_media", None, None
+        if "/materials/" in key:
+            return "material_media", None, None
         if "/dialogs/" in key:
             return "dialog_media", None, None
         if "/certificates/" in key:
