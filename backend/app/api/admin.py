@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from app.auth import get_current_admin, hash_password
 from app.database import get_db
+from app.config import settings
 import asyncpg
 import json
 
@@ -1190,3 +1191,112 @@ async def delete_default_template(
     # Копии в событиях клиентов не трогаем — удаляем только запись библиотеки.
     await db.execute("DELETE FROM default_broadcast_templates WHERE id = $1", tid)
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Файловое хранилище платформы (админ)
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ Читаем БАКЕТ НАПРЯМУЮ, а не таблицу client_files: админу нужно видеть в том
+# числе то, чего в учёте нет — служебные файлы платформы (бэкапы БД), ручные
+# заливки мимо кабинета и осиротевшие файлы. Если смотреть только по учёту,
+# именно эти категории и останутся невидимыми — а ради них раздел и нужен.
+@router.get("/storage", summary="Файловое хранилище платформы")
+async def admin_storage(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    import re as _re
+    from app.services import r2_storage
+
+    def _human(n: float) -> str:
+        for unit in ("Б", "КБ", "МБ", "ГБ"):
+            if abs(n) < 1024:
+                return f"{n:.1f} {unit}"
+            n /= 1024
+        return f"{n:.1f} ТБ"
+
+    # Опись бакета. Синхронный boto3 — уводим в поток, чтобы не блокировать loop.
+    import asyncio as _asyncio
+
+    def _list_bucket():
+        client = r2_storage.get_r2_client()
+        out = []
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=settings.cf_r2_bucket_name):
+            for o in page.get("Contents", []):
+                out.append((o["Key"], int(o["Size"])))
+        return out
+
+    try:
+        objects = await _asyncio.get_event_loop().run_in_executor(None, _list_bucket)
+    except Exception as e:
+        raise HTTPException(502, detail=f"Не удалось прочитать хранилище: {e}")
+
+    tracked = {
+        r["r2_key"]: (int(r["client_id"]), int(r["size_bytes"]))
+        for r in await db.fetch("SELECT r2_key, client_id, size_bytes FROM client_files")
+    }
+    names = {
+        r["id"]: (r["name"] or f"Клиент #{r['id']}")
+        for r in await db.fetch("SELECT id, name FROM clients")
+    }
+
+    CLIENT_RE = _re.compile(r"^clients/(\d+)/")
+    per_client: dict = {}
+    service: list = []
+    total = 0
+
+    for key, size in objects:
+        total += size
+        m = CLIENT_RE.match(key)
+        if m and int(m.group(1)) in names:
+            cid = int(m.group(1))
+            row = per_client.setdefault(cid, {"client_id": cid, "name": names[cid],
+                                              "files": 0, "bytes": 0, "untracked_bytes": 0})
+            row["files"] += 1
+            row["bytes"] += size
+            if key not in tracked:
+                row["untracked_bytes"] += size
+        else:
+            # Всё вне clients/{id}/ — служебное платформы либо ручная заливка.
+            service.append({"key": key, "size_bytes": size, "size_human": _human(size),
+                            "group": key.split("/")[0] or "—"})
+
+    # Осиротевшие: в учёте есть, файла в бакете нет.
+    bucket_keys = {k for k, _ in objects}
+    orphans = [
+        {"key": k, "client_id": v[0], "name": names.get(v[0], f"Клиент #{v[0]}"),
+         "size_bytes": v[1], "size_human": _human(v[1])}
+        for k, v in tracked.items() if k not in bucket_keys
+    ]
+
+    svc_groups: dict = {}
+    for s in service:
+        g = svc_groups.setdefault(s["group"], {"group": s["group"], "files": 0, "bytes": 0})
+        g["files"] += 1
+        g["bytes"] += s["size_bytes"]
+    for g in svc_groups.values():
+        g["size_human"] = _human(g["bytes"])
+
+    clients_out = sorted(per_client.values(), key=lambda x: -x["bytes"])
+    for c in clients_out:
+        c["size_human"] = _human(c["bytes"])
+        c["untracked_human"] = _human(c["untracked_bytes"]) if c["untracked_bytes"] else None
+
+    service_bytes = sum(s["size_bytes"] for s in service)
+    clients_bytes = sum(c["bytes"] for c in clients_out)
+
+    return {
+        "total_files": len(objects),
+        "total_bytes": total,
+        "total_human": _human(total),
+        "clients_bytes": clients_bytes,
+        "clients_human": _human(clients_bytes),
+        "service_bytes": service_bytes,
+        "service_human": _human(service_bytes),
+        "clients": clients_out,
+        "service_groups": sorted(svc_groups.values(), key=lambda x: -x["bytes"]),
+        "service_files": sorted(service, key=lambda x: -x["size_bytes"])[:200],
+        "orphans": sorted(orphans, key=lambda x: -x["size_bytes"])[:100],
+        "orphans_bytes": sum(o["size_bytes"] for o in orphans),
+    }

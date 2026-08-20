@@ -15,12 +15,14 @@
      ⚠️ именно пересчёт, а не «плюс разница»: счётчик мог разъехаться в обе
      стороны, и сумма — единственный источник истины.
 
-⚠️ Служебным считается ТОЛЬКО то, что перечислено в SERVICE_PREFIXES (бэкапы БД).
-Всё остальное — файлы клиента, даже если лежит вне clients/{id}/: часть контента
-(уроки, видео для лендинга) заливалась вручную до появления учёта и попала в
-корень бакета. Считать её «служебной» по расположению — ошибка: это оплаченный
-клиентом контент, он обязан быть в квоте. Такие файлы приписываются владельцу
-из FALLBACK_OWNER.
+⚠️⚠️ ГРАНИЦА ПРОЕКТА — ПРЕФИКС `clients/{id}/`. Всё, что платформа заливает
+сама, лежит только там. Файлы ВНЕ этого префикса (lessons/, ivision_chastushki/,
+img/, posters/, getcourse_landing/ …) — ручные заливки владельца бакета мимо
+платформы, к кабинетам клиентов отношения не имеют и в квоту НЕ идут.
+
+Не «угадывать владельца по содержимому»: раз файл вне папки проекта — он не наш,
+и приписывать его чьей-то квоте нельзя. Иначе клиент видит в своём хранилище
+чужие мегабайты, которых он не загружал и не может удалить из кабинета.
 """
 import asyncio
 import os
@@ -52,13 +54,8 @@ for _p in ("/var/www/plusson/backend/.env", "/var/www/plusson/web/.env.local",
 APPLY = "--apply" in sys.argv
 CLIENT_KEY = re.compile(r"^clients/(\d+)/")
 
-# Служебные файлы САМОЙ платформы — единственное, что не идёт в квоту клиентов.
-SERVICE_PREFIXES = ("db-backups/",)
-
-# Владелец файлов, залитых вручную мимо кабинета (корень бакета: lessons/,
-# ivision_chastushki/, img/, posters/ и т.п.). Это контент клиента 1 — он
-# заливался до появления учёта, когда папок по клиентам ещё не было.
-FALLBACK_OWNER = 1
+# Всё вне `clients/{id}/` в квоту не идёт: это либо служебные файлы платформы
+# (db-backups), либо ручные заливки владельца бакета мимо кабинета.
 
 
 def human(n):
@@ -97,15 +94,9 @@ async def main():
     for key, size in bucket_objs.items():
         if key in tracked:
             continue
-        if key.startswith(SERVICE_PREFIXES):
-            service.append((key, size))
-            continue
         m = CLIENT_KEY.match(key)
         if m and int(m.group(1)) in known_clients:
             untracked.append((key, size, int(m.group(1))))
-        elif FALLBACK_OWNER in known_clients:
-            # Вне clients/{id}/ — ручная заливка, владелец по умолчанию.
-            untracked.append((key, size, FALLBACK_OWNER))
         else:
             service.append((key, size))
     for key, (fid, cid, size) in tracked.items():
@@ -115,7 +106,7 @@ async def main():
     print(f"В бакете:            {len(bucket_objs):5d} файлов, {human(sum(bucket_objs.values()))}")
     print(f"Учтено в квоте:      {len(tracked):5d} файлов, {human(sum(v[2] for v in tracked.values()))}")
     print(f"НЕ учтено (клиенты): {len(untracked):5d} файлов, {human(sum(s for _, s, _ in untracked))}")
-    print(f"Служебные платформы: {len(service):5d} файлов, {human(sum(s for _, s in service))}  (бэкапы БД, в квоту не идут)")
+    print(f"Вне папки проекта:   {len(service):5d} файлов, {human(sum(s for _, s in service))}  (не clients/, в квоту не идут)")
     print(f"Учтено, но нет файла:{len(orphans):5d} файлов, {human(sum(s for _, s, _, _ in orphans))}")
 
     if untracked:
@@ -127,7 +118,7 @@ async def main():
         for key, size, cid, _ in sorted(orphans, key=lambda x: -x[1])[:15]:
             print(f"  клиент {cid:3d}  {human(size):>10}  {key}")
     if service:
-        print("\n--- служебные файлы платформы (топ-10) ---")
+        print("\n--- вне папки проекта: в квоту не идут (топ-10) ---")
         for key, size in sorted(service, key=lambda x: -x[1])[:10]:
             print(f"  {human(size):>10}  {key}")
 
@@ -145,6 +136,11 @@ async def main():
             )
         for _, _, _, fid in orphans:
             await conn.execute("DELETE FROM client_files WHERE id=$1", fid)
+        # Снимаем с учёта то, что лежит вне папки проекта: раньше такие файлы
+        # ошибочно приписывались клиенту 1 и раздували его квоту.
+        await conn.execute(
+            "DELETE FROM client_files WHERE kind='untracked' AND r2_key !~ '^clients/[0-9]+/'"
+        )
         # Пересчёт от суммы — счётчик мог разъехаться в обе стороны.
         await conn.execute("""
             UPDATE clients c SET storage_used_bytes = COALESCE(
