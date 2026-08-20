@@ -43,11 +43,13 @@ export default function CloudStorageInstructionPage() {
 
       <Step step="1" id="reg" title="Зарегистрируйтесь и выберите «Личное облако»">
         <p>
-          Откройте <b>console.cloud.ru</b> по кнопке из раздела
-          {' '}<Link href="/dashboard/settings?tab=storage" className="text-brand hover:underline">
+          Откройте{' '}
+          <Link href="/dashboard/settings?tab=storage" className="text-brand hover:underline">
             Настройки → Файловое хранилище
           </Link>{' '}
-          и зарегистрируйтесь — обычно через телефон или почту.
+          и нажмите <b>«Зарегистрироваться бесплатно»</b>. Регистрируйтесь именно этой
+          кнопкой — по нашей ссылке вам достаются <b>15 ГБ бесплатно</b>. Регистрация
+          обычная: телефон или почта.
         </p>
         <p className="mt-2">
           На первом шаге вас спросят тип аккаунта. Выберите <b>«Личное облако»</b> —

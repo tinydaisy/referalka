@@ -339,6 +339,9 @@ _KIND_LABEL = {
 # ⚠️ Адреса завязаны на реальные маршруты дашборда: событие и конференция —
 # разные разделы, поэтому путь выбирается по module_slug события.
 _KIND_TAB = {
+    # ⚠️ Запись эфира живёт во вкладке «Вебинары», а не в участниках: без этой
+    # строки ссылка вела на ?tab=participants — то есть не туда, где файл.
+    "webinar_recording": "webinar",
     "event_poster": "posters",
     "event_video": "posters",
     "referral_material": "referral",
@@ -399,14 +402,18 @@ async def storage_files(
     }
 
     # Запись эфира привязана к событию не через client_files, а через комнату.
+    # ⚠️ Берём и ДАТУ эфира: записей у события бывает несколько, и без даты
+    # в списке файлов они неотличимы друг от друга.
     rec_map = {
-        r["url"]: (r["event_id"], r["event_title"], r["day_number"])
+        r["url"]: (r["event_id"], r["event_title"], r["day_number"], r["started_at"])
         for r in await db.fetch(
             """
-            SELECT rec.url, wr.event_id, e.title AS event_title, wr.day_number
+            SELECT rec.url, wr.event_id, e.title AS event_title, wr.day_number,
+                   COALESCE(s.started_at, rec.created_at) AS started_at
               FROM webinar_recordings rec
               JOIN webinar_rooms wr ON wr.id = rec.room_id
               JOIN events e         ON e.id = wr.event_id
+              LEFT JOIN webinar_sessions s ON s.id = rec.session_id
              WHERE rec.url IS NOT NULL
             """
         )
@@ -468,8 +475,9 @@ async def storage_files(
                 collaborator_id = g_collab
 
         # Запись эфира: событие берём из комнаты вебинара.
+        rec_started = None
         if r["url"] in rec_map:
-            event_id, event_title, _day = rec_map[r["url"]]
+            event_id, event_title, _day, rec_started = rec_map[r["url"]]
             module = module or "conference"
             kind = "webinar_recording"
 
@@ -498,14 +506,25 @@ async def storage_files(
             place = "Переписки"
         elif collaborator_id:
             link = f"/dashboard/collaborations/{collaborator_id}"
-            place = r["collaborator_name"] or "Спикер"
+            # Без слова «Спикер» строка выглядит как случайное имя в списке файлов.
+            place = f"Спикер: {r['collaborator_name']}" if r["collaborator_name"] else "Спикер"
         else:
             place = "Без привязки"
+
+        label = _KIND_LABEL.get(kind, kind)
+        if kind == "webinar_recording" and rec_started:
+            # Дата в МСК — как везде в проекте.
+            from zoneinfo import ZoneInfo as _ZI
+            try:
+                msk = rec_started.astimezone(_ZI("Europe/Moscow"))
+                label = f"Запись эфира от {msk.strftime('%d.%m.%Y')}"
+            except Exception:
+                pass
 
         files.append({
             "id": r["id"],
             "kind": kind,
-            "kind_label": _KIND_LABEL.get(kind, kind),
+            "kind_label": label,
             "url": r["url"],
             "size_bytes": size,
             "size_human": _human_bytes(size),
