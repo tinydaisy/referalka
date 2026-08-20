@@ -179,22 +179,7 @@ export default function PartnerProgramPage() {
                 Оферента налоговым агентом (ст. 226 НК), а ИП на НПД им быть
                 не может. */}
             {data.partner?.accepted_at && (
-              <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-2 text-sm">
-                <span className="inline-flex items-center gap-1.5 text-emerald-700">
-                  <Check size={15} /> Вы участвуете в партнёрской программе
-                </span>
-                <span className="text-gray-400">·</span>
-                <span className="text-gray-600">
-                  статус: <b>{TAX_STATUS_LABEL[data.partner.tax_status || ''] || '—'}</b>
-                </span>
-                <span className="text-gray-400">·</span>
-                <span className="text-gray-500 text-xs">
-                  принято {new Date(data.partner.accepted_at).toLocaleDateString('ru-RU')}
-                  {data.partner.accepted_version ? `, редакция ${data.partner.accepted_version}` : ''}
-                </span>
-                <a href="/partner-offer" target="_blank" rel="noopener"
-                   className="text-xs text-[#25455D] underline">оферта</a>
-              </div>
+              <PartnerStatusRow partner={data.partner} onChanged={load} />
             )}
           </div>
 
@@ -580,6 +565,107 @@ function PartnerJoinBlock({ onAccepted }: { onAccepted: () => void }) {
       {!ready && !saving && (
         <div className="mt-2.5 text-xs text-white/60">
           {!status ? 'Выберите статус выше' : 'Отметьте согласие с условиями'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+/**
+ * Строка участия в программе со сменой налогового статуса.
+ *
+ * ⚠️ Статус меняется, а дата и редакция принятой оферты — НЕТ: на бэкенде они
+ * сохраняются через COALESCE. Акцепт — исторический факт, его нельзя
+ * переписать сменой статуса; иначе непонятно, с какой редакцией человек
+ * согласился на самом деле.
+ *
+ * ⚠️ Менять нужно по-настоящему: партнёр может открыть ИП, перестать быть
+ * самозанятым или наоборот. Без этого пришлось бы писать в поддержку.
+ */
+function PartnerStatusRow({ partner, onChanged }: {
+  partner: { accepted_at: string | null; accepted_version: string | null; tax_status: string | null }
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [status, setStatus] = useState(partner.tax_status || '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function save() {
+    if (!status || status === partner.tax_status) { setEditing(false); return }
+    setSaving(true); setErr('')
+    try {
+      await api.referrals.acceptPartnerOffer({ tax_status: status })
+      setEditing(false)
+      onChanged()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-100">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="inline-flex items-center gap-1.5 text-emerald-700">
+          <Check size={15} /> Вы участвуете в партнёрской программе
+        </span>
+        <span className="text-gray-400">·</span>
+        <span className="text-gray-600">
+          статус: <b>{TAX_STATUS_LABEL[partner.tax_status || ''] || '—'}</b>
+        </span>
+        {!editing && (
+          <button
+            onClick={() => { setStatus(partner.tax_status || ''); setEditing(true) }}
+            className="text-xs text-[#25455D] underline"
+          >
+            сменить
+          </button>
+        )}
+        <span className="text-gray-400">·</span>
+        <span className="text-gray-500 text-xs">
+          принято {new Date(partner.accepted_at as string).toLocaleDateString('ru-RU')}
+          {partner.accepted_version ? `, редакция ${partner.accepted_version}` : ''}
+        </span>
+        <a href="/partner-offer" target="_blank" rel="noopener"
+           className="text-xs text-[#25455D] underline">оферта</a>
+      </div>
+
+      {editing && (
+        <div className="mt-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+          <div className="text-xs text-gray-500 mb-2">
+            Выберите новый статус. Дата принятия оферты не меняется.
+          </div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {Object.entries(TAX_STATUS_LABEL).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setStatus(key)}
+                className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+                  status === key
+                    ? 'border-[#25455D] bg-[#25455D] text-white'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {err && <div className="text-xs text-red-600 mb-2">{err}</div>}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving || !status}
+              className="btn-gold px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+            >
+              {saving ? 'Сохраняем…' : 'Сохранить'}
+            </button>
+            <button onClick={() => setEditing(false)} className="text-sm text-gray-500 underline">
+              Отмена
+            </button>
+          </div>
         </div>
       )}
     </div>
