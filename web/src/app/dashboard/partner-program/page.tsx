@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, ArrowRight, Users, Wallet, X, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
+import MaterialsTab from './MaterialsTab'
 
 interface RefData {
   referral_code: string
@@ -38,7 +39,7 @@ const WD_STATUS: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Отклонено',    color: 'text-red-700 bg-red-50' },
 }
 
-type Tab = 'main' | 'referrals' | 'payouts'
+type Tab = 'main' | 'materials' | 'referrals' | 'payouts'
 type RefFilter = 'all' | 'active' | 'inactive'
 
 export default function PartnerProgramPage() {
@@ -75,6 +76,7 @@ export default function PartnerProgramPage() {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'main', label: 'Основное' },
+    { key: 'materials', label: 'Материалы' },
     { key: 'referrals', label: 'Приведённые клиенты' },
     { key: 'payouts', label: 'История выплат' },
   ]
@@ -230,6 +232,11 @@ export default function PartnerProgramPage() {
           )}
         </>
       )}
+
+      {/* ── МАТЕРИАЛЫ ──
+          Готовые тексты и афиши под разные ситуации. Реф-ссылка подставляется
+          в тексты автоматически: партнёру не надо искать её и вставлять руками. */}
+      {tab === 'materials' && <MaterialsTab link={data.links.web} />}
 
       {/* ── ПРИВЕДЁННЫЕ КЛИЕНТЫ ── */}
       {tab === 'referrals' && (
