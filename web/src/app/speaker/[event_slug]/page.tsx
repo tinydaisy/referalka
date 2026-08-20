@@ -381,9 +381,11 @@ export default function SpeakerCabinetPage() {
         .map(line => line.replace(/^\s*[•●∙·*\-—–▶►▸✓✔]+\s*/, '').trim())
         .filter(Boolean)
       const payload: any = {
-        // Имя и фамилия вместе: превью показывает карточку так, как её
-        // увидит аудитория, а там выводится полное имя.
-        name: [me.name, me.last_name].filter(Boolean).join(' '), title: me.title, achievements,
+        // ⚠️ Имя и фамилия — РАЗДЕЛЬНО (миграция 302). Раньше здесь шла склейка
+        // в одно поле `name`: фамилия уезжала в имя, колонка last_name не
+        // обновлялась вовсе, и правка поля «Фамилия» просто не сохранялась.
+        // Склейка нужна только там, где карточку ПОКАЗЫВАЕМ, а не сохраняем.
+        name: me.name, last_name: me.last_name, title: me.title, achievements,
         photo_url: me.photo_url,
         photo_folder_url: me.photo_folder_url, video_folder_url: me.video_folder_url,
         tg_channel_url: me.tg_channel_url, tg_channel_id: me.tg_channel_id,
