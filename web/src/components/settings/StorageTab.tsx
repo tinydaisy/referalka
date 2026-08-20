@@ -234,8 +234,12 @@ function OwnStorageBlock() {
   const [promo, setPromo] = useState<{ ref_url: string; free_gb: number } | null>(null)
   const [cfg, setCfg] = useState<any>(null)
   const [form, setForm] = useState({ endpoint: '', region: 'ru-central-1', bucket: '',
-                                     access_key: '', secret_key: '', public_url: '' })
+                                     tenant_id: '', access_key: '', secret_key: '', public_url: '' })
   const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<'quick' | 'manual'>('quick')
+  const [quick, setQuick] = useState({ tenant_id: '', access_key: '', secret_key: '' })
+  const [created, setCreated] = useState<{ global_name: string; bucket: string } | null>(null)
+  const [testUrl, setTestUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -249,8 +253,8 @@ function OwnStorageBlock() {
         setCfg(d)
         if (d.connected) {
           setForm(f => ({ ...f, endpoint: d.endpoint || '', region: d.region || 'ru-central-1',
-                          bucket: d.bucket || '', access_key: d.access_key || '',
-                          public_url: d.public_url || '' }))
+                          bucket: d.bucket || '', tenant_id: d.tenant_id || '',
+                          access_key: d.access_key || '', public_url: d.public_url || '' }))
         }
       })
 
@@ -275,6 +279,37 @@ function OwnStorageBlock() {
       await loadCfg()
     } catch (e: any) {
       setMsg({ ok: false, text: e.message })
+    } finally { setBusy(false) }
+  }
+
+  const runQuick = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/api/v1/clients/me/storage/quick-connect`, {
+        method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(quick),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Не удалось подключить')
+      setCreated({ global_name: d.global_name, bucket: d.bucket })
+      setMsg({ ok: true, text: d.message })
+      await loadCfg()
+    } catch (e: any) { setMsg({ ok: false, text: e.message }) }
+    finally { setBusy(false) }
+  }
+
+  // ⚠️ Проверяем ПУБЛИЧНОЙ ссылкой, а не через ключи: только так видно то же,
+  // что увидит посетитель лендинга. Проверка с ключами прошла бы и при
+  // ненастроенном публичном доступе.
+  const verifyPublic = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      await fetch(`${API}/api/v1/clients/me/storage/test-image`, { method: 'POST', headers: auth() })
+      const r = await fetch(`${API}/api/v1/clients/me/storage/verify-public`, { method: 'POST', headers: auth() })
+      const d = await r.json()
+      setMsg({ ok: !!d.ok, text: d.message })
+      setTestUrl(d.ok ? d.url : null)
+      if (d.ok) await loadCfg()
     } finally { setBusy(false) }
   }
 
@@ -360,9 +395,9 @@ function OwnStorageBlock() {
                 Зарегистрироваться бесплатно <ExternalLink size={14} />
               </a>
             )}
-            <button onClick={() => setOpen(true)}
+            <button onClick={() => { setMode('quick'); setOpen(true) }}
               className="btn-primary px-4 py-2.5 rounded-xl text-sm font-medium">
-              У меня уже есть хранилище
+              Я зарегистрировался — подключить
             </button>
           </div>
         </>
@@ -384,10 +419,14 @@ function OwnStorageBlock() {
             onChange={v => setForm({ ...form, public_url: v })}
             hint={`Собирается из ГЛОБАЛЬНОГО имени бакета: https://global.s3.cloud.ru/<глобальное-имя>. Например https://global.s3.cloud.ru/${suggested}`}
             placeholder={`https://global.s3.cloud.ru/${suggested}`} />
-          <Field label="Ключ доступа (Access Key ID)" value={form.access_key}
+          <Field label="ID тенанта" value={form.tenant_id}
+            onChange={v => setForm({ ...form, tenant_id: v })}
+            hint="Бакет → «Object Storage API» → строка «ID тенанта». У Cloud.ru ключ работает только вместе с ним — мы соединим их сами."
+            placeholder="" />
+          <Field label="Ключ доступа (Key ID)" value={form.access_key}
             onChange={v => setForm({ ...form, access_key: v })}
-            hint="Создаётся в разделе ключей доступа Cloud.ru." placeholder="" />
-          <Field label="Секретный ключ (Secret Access Key)" value={form.secret_key}
+            hint="Аватар → шестерёнка → «Ключи доступа». Время жизни ключа — обязательно «Бессрочно»." placeholder="" />
+          <Field label="Секретный ключ (Key Secret)" value={form.secret_key}
             onChange={v => setForm({ ...form, secret_key: v })}
             type="password"
             hint={cfg?.has_secret

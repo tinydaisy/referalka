@@ -110,8 +110,19 @@ export default function PartnerProgramPage() {
       {/* ── ОСНОВНОЕ ── */}
       {tab === 'main' && (
         <>
-          {/* Баланс + действия */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          {/* Вступление в программу.
+              ⚠️ Отдельным КРУПНЫМ блоком наверху, а не строчкой внутри баланса:
+              раньше галочка и кнопка терялись среди прочего, и человек не
+              понимал, что от него требуется действие. Пока не вступил — всё
+              остальное на странице приглушено и не работает. */}
+          {!data.partner?.accepted_at && <PartnerJoinBlock onAccepted={load} />}
+
+          {/* Баланс + действия.
+              До вступления показываем в приглушённом виде: цифры видны, но
+              действия недоступны — иначе непонятно, ради чего вступать. */}
+          <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-6 ${
+            !data.partner?.accepted_at ? 'opacity-50 pointer-events-none select-none' : ''
+          }`}>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
                 <div className="text-sm text-gray-500 mb-1">Бонусный баланс</div>
@@ -167,28 +178,24 @@ export default function PartnerProgramPage() {
                 ⚠️ Статус обязателен: выплата обычному физлицу сделала бы
                 Оферента налоговым агентом (ст. 226 НК), а ИП на НПД им быть
                 не может. */}
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              {data.partner?.accepted_at ? (
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="inline-flex items-center gap-1.5 text-emerald-700">
-                    <Check size={15} /> Вы участвуете в партнёрской программе
-                  </span>
-                  <span className="text-gray-400">·</span>
-                  <span className="text-gray-600">
-                    статус: <b>{TAX_STATUS_LABEL[data.partner.tax_status || ''] || '—'}</b>
-                  </span>
-                  <span className="text-gray-400">·</span>
-                  <span className="text-gray-500 text-xs">
-                    принято {new Date(data.partner.accepted_at).toLocaleDateString('ru-RU')}
-                    {data.partner.accepted_version ? `, редакция ${data.partner.accepted_version}` : ''}
-                  </span>
-                  <a href="/partner-offer" target="_blank" rel="noopener"
-                     className="text-xs text-[#25455D] underline">оферта</a>
-                </div>
-              ) : (
-                <PartnerAcceptBlock onAccepted={load} />
-              )}
-            </div>
+            {data.partner?.accepted_at && (
+              <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-2 text-sm">
+                <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                  <Check size={15} /> Вы участвуете в партнёрской программе
+                </span>
+                <span className="text-gray-400">·</span>
+                <span className="text-gray-600">
+                  статус: <b>{TAX_STATUS_LABEL[data.partner.tax_status || ''] || '—'}</b>
+                </span>
+                <span className="text-gray-400">·</span>
+                <span className="text-gray-500 text-xs">
+                  принято {new Date(data.partner.accepted_at).toLocaleDateString('ru-RU')}
+                  {data.partner.accepted_version ? `, редакция ${data.partner.accepted_version}` : ''}
+                </span>
+                <a href="/partner-offer" target="_blank" rel="noopener"
+                   className="text-xs text-[#25455D] underline">оферта</a>
+              </div>
+            )}
           </div>
 
           {/* Реф-ссылки.
@@ -196,12 +203,18 @@ export default function PartnerProgramPage() {
               это уже участие в программе, и выдавать её до согласия с условиями
               неправильно. До акцепта на месте блока стоит объяснение и кнопка. */}
           {!data.partner?.accepted_at ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h3 className="font-semibold text-gray-800 mb-1">Ваши реф-ссылки</h3>
-              <p className="text-sm text-gray-500">
-                Ссылки появятся здесь, как только вы примете условия партнёрской
-                программы в блоке выше.
-              </p>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 opacity-50 select-none">
+              <h3 className="font-semibold text-gray-800 mb-3">Ваши реф-ссылки</h3>
+              {/* Показываем «скелет» ссылок вместо пустоты: видно, что именно
+                  откроется после вступления. */}
+              <div className="space-y-2">
+                {['Сайт', 'Telegram', 'MAX'].map(label => (
+                  <div key={label} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                    <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
+                    <div className="flex-1 h-3 rounded bg-gray-200" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -469,16 +482,23 @@ const TAX_STATUS_LABEL: Record<string, string> = {
 /**
  * Блок вступления в партнёрскую программу.
  *
- * ⚠️ Статус налогоплательщика обязателен: партнёрское вознаграждение
- * выплачивается только ИП, юрлицам и самозанятым. Обычному физлицу платить
- * нельзя — Оферент стал бы налоговым агентом (НДФЛ + взносы), а ИП на НПД
- * налоговым агентом быть не может.
+ * ⚠️ Намеренно КРУПНЫЙ и первый на странице. Раньше галочка с кнопкой стояли
+ * строчкой внутри карточки баланса — их не замечали, и было непонятно, что от
+ * человека требуется действие. Пока он не вступил, весь остальной экран
+ * (баланс, вывод, ссылки) показан приглушённым и не работает: видно, ЧТО
+ * откроется, но пользоваться нельзя.
+ *
+ * ⚠️ Статус налогоплательщика обязателен: вознаграждение выплачивается только
+ * ИП, юрлицам и самозанятым. Обычному физлицу платить нельзя — Оферент стал бы
+ * налоговым агентом (НДФЛ + взносы), а ИП на НПД им быть не может.
  */
-function PartnerAcceptBlock({ onAccepted }: { onAccepted: () => void }) {
+function PartnerJoinBlock({ onAccepted }: { onAccepted: () => void }) {
   const [status, setStatus] = useState('')
   const [agree, setAgree] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+
+  const ready = !!status && agree
 
   async function accept() {
     setSaving(true); setErr('')
@@ -493,55 +513,75 @@ function PartnerAcceptBlock({ onAccepted }: { onAccepted: () => void }) {
   }
 
   return (
-    <div>
-      <div className="text-sm font-medium text-gray-800 mb-1">Участие в партнёрской программе</div>
-      <p className="text-xs text-gray-500 mb-3 leading-snug">
-        Примите условия и укажите свой статус — после этого появятся ваши
-        реферальные ссылки, а вознаграждение можно будет выводить на счёт.
-        Выплаты возможны индивидуальным предпринимателям, юридическим лицам и
-        самозанятым: они платят налоги самостоятельно.
+    <div
+      className="rounded-2xl p-6 sm:p-8 text-white shadow-sm"
+      style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+    >
+      <h2 className="text-2xl font-bold mb-2">Станьте партнёром ПЛЮСОНа</h2>
+      <p className="text-sm text-white/80 mb-1 max-w-2xl leading-relaxed">
+        Приводите клиентов по своей ссылке и получайте вознаграждение с каждой
+        их оплаты. После вступления откроются реферальные ссылки, статистика
+        приведённых клиентов и вывод вознаграждения на счёт.
+      </p>
+      <p className="text-sm text-white/60 mb-5 max-w-2xl leading-relaxed">
+        Укажите свой статус — выплаты возможны индивидуальным предпринимателям,
+        юридическим лицам и самозанятым: они платят налоги самостоятельно.
       </p>
 
-      <div className="flex flex-wrap gap-2 mb-3">
-        {Object.entries(TAX_STATUS_LABEL).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setStatus(key)}
-            className={`px-3.5 py-2 rounded-xl text-sm border transition ${
-              status === key
-                ? 'border-[#25455D] bg-[#25455D] text-white'
-                : 'border-gray-200 text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-4">
+        <div className="text-sm font-medium text-white/90 mb-2">Ваш статус</div>
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(TAX_STATUS_LABEL).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setStatus(key)}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium transition border ${
+                status === key
+                  ? 'bg-[#FFCFA4] text-[#25455D] border-[#FFCFA4]'
+                  : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <label className="flex items-start gap-2.5 cursor-pointer mb-3">
+      <label className="flex items-start gap-3 cursor-pointer mb-5 max-w-2xl">
         <input
           type="checkbox" checked={agree}
           onChange={e => setAgree(e.target.checked)}
-          className="mt-0.5 w-4 h-4 shrink-0 accent-[#25455D] cursor-pointer"
+          className="mt-0.5 w-5 h-5 shrink-0 accent-[#FFCFA4] cursor-pointer"
         />
-        <span className="text-xs text-gray-600 leading-snug">
+        <span className="text-sm text-white/85 leading-snug">
           Я принимаю условия{' '}
-          <a href="/partner-offer" target="_blank" rel="noopener" className="text-[#25455D] underline">
+          <a href="/partner-offer" target="_blank" rel="noopener"
+             className="text-[#FFCFA4] underline">
             Оферты об участии в партнёрской программе
           </a>{' '}
           и подтверждаю указанный статус
         </span>
       </label>
 
-      {err && <div className="text-xs text-red-600 mb-2">{err}</div>}
+      {err && <div className="text-sm text-red-200 mb-3">{err}</div>}
 
       <button
         onClick={accept}
-        disabled={!status || !agree || saving}
-        className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+        disabled={!ready || saving}
+        className={`px-7 py-3.5 rounded-xl text-base font-bold transition ${
+          ready
+            ? 'bg-[#FFCFA4] text-[#25455D] hover:brightness-105'
+            : 'bg-white/15 text-white/50 cursor-not-allowed'
+        }`}
       >
-        {saving ? 'Сохраняем…' : 'Стать партнёром и получить реф-ссылки'}
+        {saving ? 'Сохраняем…' : 'Стать партнёром'}
       </button>
+
+      {!ready && !saving && (
+        <div className="mt-2.5 text-xs text-white/60">
+          {!status ? 'Выберите статус выше' : 'Отметьте согласие с условиями'}
+        </div>
+      )}
     </div>
   )
 }
