@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.assistant_access import assistant_is_restricted
+from app.services.features import client_has_feature
 
 router = APIRouter(prefix="/clients/me/storage", tags=["Файловое хранилище"])
 
@@ -59,6 +60,19 @@ def _strip_bucket_from_endpoint(endpoint: str, bucket: Optional[str]) -> str:
     return endpoint
 
 
+
+
+async def _assert_feature(db, client_id: int):
+    """Гейт по фиче own_storage.
+
+    ⚠️ Гейтим только ЗАПИСЬ — правило проекта «смотреть можно, менять нельзя».
+    Чтение настроек оставляем всем: если фичу когда-то выключат, клиент должен
+    видеть, куда подключено его хранилище, а не пустой экран.
+    """
+    if not await client_has_feature(db, client_id, "own_storage"):
+        raise HTTPException(403, detail="Подключение своего хранилища пока недоступно на вашем тарифе.")
+
+
 @router.get("", summary="Настройки своего хранилища")
 async def get_storage(client=Depends(get_current_client),
                       db: asyncpg.Connection = Depends(get_db)):
@@ -81,6 +95,7 @@ async def get_storage(client=Depends(get_current_client),
     tail = hashlib.sha256(f"pluson-storage-{cid}".encode()).hexdigest()[:4]
 
     return {
+        "feature": await client_has_feature(db, cid, "own_storage"),
         "client_id": cid,
         "suggested_global_name": f"pluson-media-{cid}-{tail}",
         "connected": bool(row["storage_provider"]),
@@ -107,6 +122,9 @@ async def save_storage(data: StorageSettings,
     # Ошибка тут кладёт загрузку файлов всему кабинету — ассистенту не даём.
     if await assistant_is_restricted(client):
         raise HTTPException(403, detail="Настройка хранилища доступна только владельцу кабинета.")
+    await _assert_feature(db, int(client["sub"]))
+    await _assert_feature(db, int(client["sub"]))
+    await _assert_feature(db, int(client["sub"]))
 
     client_id = int(client["sub"])
     bucket = (data.bucket or "").strip() or None

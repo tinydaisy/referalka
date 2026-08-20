@@ -340,6 +340,8 @@ function OwnStorageBlock() {
     || `pluson-media-${cfg?.client_id || ''}`.replace(/-$/, '')
 
   const connected = cfg?.connected
+  // ⚠️ Гейт по фиче own_storage (пока только admin) — см. коммент выше.
+  if (cfg && cfg.feature === false) return null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
