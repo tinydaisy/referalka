@@ -414,6 +414,8 @@ function OwnStorageBlock() {
             className="mt-3 text-[13px] text-gray-500 hover:text-gray-800 underline">
             У меня уже есть три значения — ввести сразу
           </button>
+        </>
+      )}
 
       {/* Быстрое подключение: клиент даёт три строки, бакет создаём сами.
           ⚠️ Глобальное имя через API Cloud.ru задать НЕЛЬЗЯ (только руками
