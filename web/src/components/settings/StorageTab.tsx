@@ -26,6 +26,9 @@ type FileRow = {
   size_bytes: number; size_human: string; created_at: string | null
   place: string; event_id: number | null; event_title: string | null
   link: string | null; is_temp: boolean
+  is_image?: boolean; is_video?: boolean; preview_url?: string | null
+  unused?: boolean; used_in?: number
+  places?: { title: string; block: string; link: string }[]
 }
 type Group = { place: string; link: string | null; count: number; size_bytes: number; size_human: string }
 type KindStat = { label: string; count: number; size_bytes: number; size_human: string }
@@ -116,18 +119,46 @@ export default function StorageTab() {
                 {shown.map(f => (
                   <tr key={f.id} className="border-t border-gray-50 hover:bg-gray-50/60">
                     <td className="px-4 py-2.5">
-                      <a href={f.url} target="_blank" rel="noreferrer"
-                        className="text-gray-800 hover:text-brand">{f.kind_label}</a>
-                      {f.is_temp && (
-                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
-                          удалится через 24 ч
-                        </span>
-                      )}
+                      <div className="flex items-start gap-2.5">
+                        <Thumb f={f} />
+                        <div className="min-w-0">
+                          <a href={f.url} target="_blank" rel="noreferrer"
+                            className="text-gray-800 hover:text-brand">{f.kind_label}</a>
+                          {f.is_temp && (
+                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                              удалится через 24 ч
+                            </span>
+                          )}
+                          {f.unused && (
+                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                              не используется
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-4 py-2.5 text-gray-600">{f.place}</td>
+                    <td className="px-4 py-2.5 text-gray-600">
+                      {/* ⚠️ Файл в списке один, но мест использования может быть
+                          несколько — показываем все, иначе непонятно, почему
+                          удаление ломает картинку в другом событии. */}
+                      {f.places && f.places.length > 1 ? (
+                        <div className="space-y-0.5">
+                          {f.places.map((pl, i) => (
+                            <div key={i}>
+                              <a href={pl.link} className="hover:text-brand">{pl.title}</a>
+                              <span className="text-gray-400"> · {pl.block}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : f.place}
+                    </td>
                     <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{f.size_human}</td>
                     <td className="px-4 py-2.5 text-right">
-                      {f.link && (
+                      {f.places && f.places.length > 1 ? (
+                        <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                          в {f.places.length} местах
+                        </span>
+                      ) : f.link && (
                         <a href={f.link}
                           className="inline-flex items-center gap-1 text-xs text-brand hover:underline whitespace-nowrap">
                           Перейти <ArrowRight size={12} />
@@ -628,6 +659,29 @@ function StepCard({ n, title, text, href, cta, primary }: {
           </Link>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+/**
+ * Превью файла в списке.
+ *
+ * ⚠️ Картинка грузится ПРЯМО ИЗ ХРАНИЛИЩА — наш сервер её не читает и не
+ * пережимает, нагрузки на него нет.
+ *
+ * ⚠️ У видео берём готовую обложку, если она есть. Если нет — <video> с
+ * preload="metadata": браузер качает только начало файла ради первого кадра,
+ * а не весь ролик на гигабайты.
+ */
+function Thumb({ f }: { f: FileRow }) {
+  const box = 'h-10 w-10 shrink-0 rounded-lg border border-gray-200 object-cover bg-gray-50'
+  if (f.preview_url) return <img src={f.preview_url} alt="" className={box} loading="lazy" />
+  if (f.is_image) return <img src={f.url} alt="" className={box} loading="lazy" />
+  if (f.is_video) return <video src={f.url} className={box} preload="metadata" muted />
+  return (
+    <div className={`${box} flex items-center justify-center`}>
+      <HardDrive size={14} className="text-gray-300" />
     </div>
   )
 }

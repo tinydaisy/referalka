@@ -432,6 +432,9 @@ async def storage_files(
                -- ⚠️ У события бывают афиши ОТДЕЛЬНЫХ ДНЕЙ программы. Без номера
                -- дня семь афиш выглядят одинаково — клиент решает, что их лишку.
                (SELECT ep.day FROM event_posters ep WHERE ep.url = f.url LIMIT 1) AS poster_day,
+               -- Обложка видео-отзыва, если её сняли при загрузке.
+               (SELECT ct.preview_url FROM client_testimonials ct
+                 WHERE ct.url = f.url AND ct.preview_url IS NOT NULL LIMIT 1) AS video_preview,
                -- Файл может числиться афишей, но быть заменён новым: место
                -- занимает, а нигде не показывается. Такие помечаем отдельно.
                EXISTS (SELECT 1 FROM event_posters ep WHERE ep.url = f.url) AS poster_in_use,
@@ -500,8 +503,15 @@ async def storage_files(
          WHERE p.client_id = $1
         """, client_id):
         label = BLOCK_LABEL.get(r["block_kind"], r["block_kind"])
+        if r["owner_type"] == "event":
+            base = ("/dashboard/conferences" if r["module_slug"] in ("conference", "turnir")
+                    else "/dashboard/events")
+            href = f'{base}/{r["owner_id"]}?tab=landing'
+        else:
+            href = f'/dashboard/products/{r["owner_id"]}'
         where = {"owner_type": r["owner_type"], "owner_id": r["owner_id"],
-                 "title": r["owner_title"], "block": label, "module": r["module_slug"]}
+                 "title": r["owner_title"], "block": label, "module": r["module_slug"],
+                 "link": href}
         for u in (r["image_url"], r["bg_image_url"]):
             if u:
                 landing_use.setdefault(u, []).append(where)
@@ -697,13 +707,28 @@ async def storage_files(
             "link": link,
             "is_temp": kind in ("broadcast_photo", "broadcast_video"),
             # Одна картинка часто стоит в нескольких лендингах — показываем это.
+            # ⚠️ Файл в списке ОДИН, но мест использования может быть несколько:
+            # копирование лендинга переиспользует те же файлы. Отдаём ВСЕ места,
+            # иначе клиент видит одно и не понимает, почему удаление ломает
+            # картинку в другом событии.
             "used_in": len(uses),
+            "places": [
+                {"title": u["title"] or ("Событие" if u["owner_type"] == "event" else "Продукт"),
+                 "block": u["block"], "link": u["link"]}
+                for u in {(u["owner_type"], u["owner_id"], u["block"]): u for u in uses}.values()
+            ],
             # Файл лежит в хранилище, но нигде не показывается — можно удалять.
             "unused": (kind == "event_poster" and not r["poster_in_use"]),
             # ⚠️ Превью рисуется ПРЯМО ИЗ ХРАНИЛИЩА (тег img со ссылкой) —
             # наш сервер файл не читает и не пережимает, нагрузки на него нет.
             # Ставим признак только картинкам: видео так показывать нельзя,
             # браузер начнёт качать гигабайты ради кадра.
+            # ⚠️ У видео превью тоже есть — обложка, снятая при загрузке.
+            # Где её нет, фронт показывает первый кадр средствами браузера
+            # (<video preload="metadata">) — файл при этом качается не целиком.
+            "preview_url": r["video_preview"],
+            "is_video": (r["content_type"] or "").startswith("video/")
+                        or (r["url"] or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v")),
             "is_image": (r["content_type"] or "").startswith("image/")
                         or kind in ("event_poster", "speaker_photo", "brand_logo",
                                     "owner_photo", "brand_photo", "landing_media",
