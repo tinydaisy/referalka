@@ -11,6 +11,7 @@
  * считаем в браузере: размер файла и его принадлежность знает только сервер.
  */
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   HardDrive, ChevronLeft, ExternalLink, Loader2, Search,
   Cloud, Info, ArrowRight,
@@ -223,20 +224,87 @@ export default function StorageTab() {
 /**
  * Подключение собственного хранилища Cloud.ru.
  *
+ * ⚠️ Ключи вводит САМ клиент, а не присылает в поддержку: секретный ключ даёт
+ * полный доступ к хранилищу, пересылать его перепиской нельзя.
+ *
  * ⚠️ Реферальная ссылка приходит с бэкенда (/public/storage-promo), а не зашита
- * в код: она меняется, и ради её правки не должно требоваться выкладывать фронт.
+ * в код: она меняется, и ради её правки не должен выкладываться фронт.
  */
 function OwnStorageBlock() {
   const [promo, setPromo] = useState<{ ref_url: string; free_gb: number } | null>(null)
+  const [cfg, setCfg] = useState<any>(null)
+  const [form, setForm] = useState({ endpoint: '', region: 'ru-central-1', bucket: '',
+                                     access_key: '', secret_key: '', public_url: '' })
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const auth = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+  const loadCfg = () =>
+    fetch(`${API}/api/v1/clients/me/storage`, { headers: auth() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        setCfg(d)
+        if (d.connected) {
+          setForm(f => ({ ...f, endpoint: d.endpoint || '', region: d.region || 'ru-central-1',
+                          bucket: d.bucket || '', access_key: d.access_key || '',
+                          public_url: d.public_url || '' }))
+        }
+      })
 
   useEffect(() => {
-    fetch(`${API}/api/v1/public/storage-promo`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setPromo(d))
-      .catch(() => {})
+    fetch(`${API}/api/v1/public/storage-promo`).then(r => r.ok ? r.json() : null)
+      .then(d => d && setPromo(d)).catch(() => {})
+    loadCfg()
   }, [])
 
-  if (!promo?.ref_url) return null
+  const save = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/api/v1/clients/me/storage`, {
+        method: 'PUT',
+        headers: { ...auth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Не удалось сохранить')
+      setMsg({ ok: true, text: d.message })
+      setOpen(false)
+      await loadCfg()
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message })
+    } finally { setBusy(false) }
+  }
+
+  const check = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/api/v1/clients/me/storage/check`, { method: 'POST', headers: auth() })
+      const d = await r.json()
+      setMsg({ ok: !!d.ok, text: d.message })
+    } finally { setBusy(false) }
+  }
+
+  const disconnect = async () => {
+    if (!confirm('Отключить своё хранилище? Уже загруженные файлы останутся на месте и продолжат открываться, новые пойдут в хранилище ПЛЮСОНа.')) return
+    setBusy(true)
+    try {
+      const r = await fetch(`${API}/api/v1/clients/me/storage`, { method: 'DELETE', headers: auth() })
+      const d = await r.json()
+      setMsg({ ok: true, text: d.message })
+      await loadCfg()
+    } finally { setBusy(false) }
+  }
+
+  // Подсказка имени: номер кабинета + случайный хвост. Глобальное имя уникально
+  // на всю платформу Cloud.ru, а там не только клиенты ПЛЮСОНа — короткое слово
+  // почти наверняка занято.
+  const suggested = cfg?.suggested_global_name
+    || `pluson-media-${cfg?.client_id || ''}`.replace(/-$/, '')
+
+  const connected = cfg?.connected
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -245,28 +313,135 @@ function OwnStorageBlock() {
           <Cloud size={18} className="text-[#25455D]" />
         </div>
         <div className="flex-1">
-          <h4 className="font-semibold text-gray-800">Своё хранилище — {promo.free_gb} ГБ бесплатно</h4>
+          <h4 className="font-semibold text-gray-800">
+            {connected ? 'Своё хранилище подключено' : `Своё хранилище — ${promo?.free_gb || 15} ГБ бесплатно`}
+          </h4>
           <p className="text-sm text-gray-500 mt-0.5">
-            Подключите бесплатное хранилище Cloud.ru — файлы будут храниться у вас,
-            а место в ПЛЮСОНе перестанет заканчиваться.
+            {connected
+              ? `Файлы сохраняются в ваше хранилище «${cfg.bucket}». Место в ПЛЮСОНе они не занимают.`
+              : 'Подключите бесплатное хранилище Cloud.ru — файлы будут храниться у вас, а место в ПЛЮСОНе перестанет заканчиваться.'}
           </p>
         </div>
       </div>
 
-      <div className="flex items-start gap-2 text-[13px] text-gray-600 bg-gray-50 rounded-xl px-3.5 py-3 mb-4">
-        <Info size={14} className="mt-0.5 shrink-0 text-gray-400" />
-        <div className="space-y-1">
-          <p><b>Как подключить:</b></p>
-          <p>1. Зарегистрируйтесь в Cloud.ru по кнопке ниже — {promo.free_gb} ГБ даются бесплатно.</p>
-          <p>2. Создайте хранилище (Object Storage) с публичным доступом на чтение.</p>
-          <p>3. Создайте ключ доступа и пришлите его нам — мы подключим.</p>
+      {connected && cfg?.error && (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">
+          Последняя проверка не прошла: {cfg.error}
         </div>
-      </div>
+      )}
 
-      <a href={promo.ref_url} target="_blank" rel="noreferrer"
-        className="btn-gold inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold">
-        Подключить бесплатно <ExternalLink size={14} />
-      </a>
+      {msg && (
+        <div className={`mb-3 rounded-xl px-3.5 py-2.5 text-[13px] border ${
+          msg.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {!connected && !open && (
+        <>
+          <div className="flex items-start gap-2 text-[13px] text-gray-600 bg-gray-50 rounded-xl px-3.5 py-3 mb-4">
+            <Info size={14} className="mt-0.5 shrink-0 text-gray-400" />
+            <div className="space-y-1">
+              <p><b>Как подключить:</b></p>
+              <p>1. Зарегистрируйтесь в Cloud.ru — {promo?.free_gb || 15} ГБ даются бесплатно.</p>
+              <p>2. Создайте хранилище и включите публичный доступ.</p>
+              <p>3. Скопируйте ключи доступа и вставьте их здесь.</p>
+              <p className="pt-1">
+                <Link href="/dashboard/help/cloud-storage" className="text-brand hover:underline">
+                  Подробная инструкция со скриншотами →
+                </Link>
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {promo?.ref_url && (
+              <a href={promo.ref_url} target="_blank" rel="noreferrer"
+                className="btn-gold inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold">
+                Зарегистрироваться бесплатно <ExternalLink size={14} />
+              </a>
+            )}
+            <button onClick={() => setOpen(true)}
+              className="btn-primary px-4 py-2.5 rounded-xl text-sm font-medium">
+              У меня уже есть хранилище
+            </button>
+          </div>
+        </>
+      )}
+
+      {(open || connected) && (
+        <div className="space-y-3">
+          <Field label="Адрес хранилища (Endpoint)" value={form.endpoint}
+            onChange={v => setForm({ ...form, endpoint: v })}
+            hint="В Cloud.ru: бакет → «Object Storage API» → строка Endpoint. Имя бакета в конце можно не убирать."
+            placeholder="https://s3.cloud.ru" />
+          <Field label="Регион" value={form.region}
+            onChange={v => setForm({ ...form, region: v })}
+            hint="Там же, строка «Регион»." placeholder="ru-central-1" />
+          <Field label="Название хранилища (бакета)" value={form.bucket}
+            onChange={v => setForm({ ...form, bucket: v })}
+            hint="Имя, которое вы задали при создании." placeholder="pluson" />
+          <Field label="Публичный адрес файлов" value={form.public_url}
+            onChange={v => setForm({ ...form, public_url: v })}
+            hint={`Собирается из ГЛОБАЛЬНОГО имени бакета: https://global.s3.cloud.ru/<глобальное-имя>. Например https://global.s3.cloud.ru/${suggested}`}
+            placeholder={`https://global.s3.cloud.ru/${suggested}`} />
+          <Field label="Ключ доступа (Access Key ID)" value={form.access_key}
+            onChange={v => setForm({ ...form, access_key: v })}
+            hint="Создаётся в разделе ключей доступа Cloud.ru." placeholder="" />
+          <Field label="Секретный ключ (Secret Access Key)" value={form.secret_key}
+            onChange={v => setForm({ ...form, secret_key: v })}
+            type="password"
+            hint={cfg?.has_secret
+              ? 'Ключ сохранён. Оставьте поле пустым, если менять его не нужно.'
+              : 'Показывается один раз при создании ключа — скопируйте сразу.'}
+            placeholder={cfg?.has_secret ? '••••••••' : ''} />
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button onClick={save} disabled={busy}
+              className="btn-gold px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60">
+              {busy ? 'Проверяем связь…' : connected ? 'Сохранить изменения' : 'Подключить хранилище'}
+            </button>
+            {connected && (
+              <>
+                <button onClick={check} disabled={busy}
+                  className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+                  Проверить связь
+                </button>
+                <button onClick={disconnect} disabled={busy}
+                  className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-60">
+                  Отключить
+                </button>
+              </>
+            )}
+            {!connected && (
+              <button onClick={() => setOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Отмена
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-400">
+            Перед сохранением мы проверяем связь: записываем в хранилище пробный файл и удаляем его.
+            Если что-то настроено неверно — скажем, что именно.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Field({ label, value, onChange, hint, placeholder, type = 'text' }: {
+  label: string; value: string; onChange: (v: string) => void
+  hint?: string; placeholder?: string; type?: string
+}) {
+  return (
+    <div>
+      <label className="block text-[13px] font-medium text-gray-700 mb-1">{label}</label>
+      <input
+        type={type} value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder} autoComplete="off" spellCheck={false}
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono"
+      />
+      {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
     </div>
   )
 }

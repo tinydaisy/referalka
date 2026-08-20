@@ -257,35 +257,78 @@ export default function CloudStorageInstructionPage() {
 
       <Step step="7" id="keys" title="Создайте ключ доступа">
         <p>
-          В том же кабинете найдите раздел с ключами доступа (может называться
-          «Ключи доступа», «Сервисные аккаунты» или «S3-ключи») и создайте новый.
-          Вам покажут две строки: <b>Access Key ID</b> и <b>Secret Access Key</b>.
+          Ключи создаются <b>не в бакете</b>, а в настройках аккаунта Cloud.ru. Найдите
+          раздел с ключами доступа (может называться «Ключи доступа» или «Сервисные
+          аккаунты») и создайте новый ключ. Вам покажут две строки:
+          <b> Access Key ID</b> и <b>Secret Access Key</b>.
         </p>
 
         <Warn title="Секретный ключ показывают один раз">
-          Скопируйте и сохраните его сразу — при закрытии окна посмотреть его снова
-          не получится, придётся создавать новый ключ.
+          Скопируйте и сохраните его сразу — после закрытия окна посмотреть его снова
+          нельзя, придётся создавать новый ключ.
         </Warn>
       </Step>
 
-      <Step step="8" id="connect" title="Передайте данные нам — и всё">
-        <p>Напишите в поддержку четыре значения:</p>
-        <ul className="mt-2 space-y-1.5 text-[15px] text-gray-700">
-          <li>• Access Key ID</li>
-          <li>• Secret Access Key</li>
-          <li>• имя бакета</li>
-          <li>• регион (или адрес endpoint из кабинета Cloud.ru)</li>
-        </ul>
-        <p className="mt-3">
-          Мы подключим хранилище к вашему кабинету. Файлы, загруженные раньше,
-          никуда не денутся и продолжат открываться — новые пойдут уже в ваше хранилище.
+      <Step step="8" id="connect" title="Вставьте данные в ПЛЮСОН">
+        <p>
+          Откройте{' '}
+          <Link href="/dashboard/settings?tab=storage" className="text-brand hover:underline">
+            Настройки → Файловое хранилище
+          </Link>{' '}
+          и нажмите <b>«У меня уже есть хранилище»</b>. Заполните пять полей — всё
+          копируется из кабинета Cloud.ru:
         </p>
 
-        <Note title="Сколько это стоит">
-          15 ГБ — бесплатно. Дальше оплата по факту использования, но чтобы
-          израсходовать 15 ГБ афишами и фото, нужны годы работы: обычный кабинет
-          занимает 20–50 МБ. Быстро расходуют место только видео и записи эфиров.
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Поле в ПЛЮСОНе</th>
+                <th className="px-3 py-2 text-left font-medium">Откуда взять в Cloud.ru</th>
+              </tr>
+            </thead>
+            <tbody className="text-gray-700">
+              <tr className="border-t border-gray-100">
+                <td className="px-3 py-2"><b>Адрес хранилища</b></td>
+                <td className="px-3 py-2">Бакет → «Object Storage API» → строка <b>Endpoint</b>.
+                  Копируется вместе с именем бакета — это нормально, мы отрежем сами.</td>
+              </tr>
+              <tr className="border-t border-gray-100">
+                <td className="px-3 py-2"><b>Регион</b></td>
+                <td className="px-3 py-2">Там же, строка <b>Регион</b> — обычно <code className="rounded bg-gray-100 px-1">ru-central-1</code>.</td>
+              </tr>
+              <tr className="border-t border-gray-100">
+                <td className="px-3 py-2"><b>Название хранилища</b></td>
+                <td className="px-3 py-2">Имя бакета, которое вы задали при создании.</td>
+              </tr>
+              <tr className="border-t border-gray-100">
+                <td className="px-3 py-2"><b>Публичный адрес файлов</b></td>
+                <td className="px-3 py-2">Соберите из <b>глобального</b> названия:
+                  <code className="rounded bg-gray-100 px-1">https://global.s3.cloud.ru/ваше-глобальное-имя</code>.
+                  Готовая строка подставлена в поле подсказкой.</td>
+              </tr>
+              <tr className="border-t border-gray-100">
+                <td className="px-3 py-2"><b>Ключ доступа</b> и <b>Секретный ключ</b></td>
+                <td className="px-3 py-2">Из созданного ключа доступа (шаг 7).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p className="mt-3">Нажмите <b>«Подключить хранилище»</b>.</p>
+
+        <Note title="Мы проверяем связь сразу">
+          При сохранении ПЛЮСОН записывает в ваше хранилище пробный файл, читает его
+          и удаляет. Если что-то настроено неверно — скажем, что именно: неверный ключ,
+          не найдено хранилище или нет прав на запись. Пока проверка не пройдёт,
+          настройки не сохранятся — так нельзя случайно сломать загрузку файлов.
         </Note>
+
+        <Accent title="Что дальше">
+          Новые файлы пойдут в ваше хранилище и перестанут занимать место в ПЛЮСОНе.
+          Уже загруженные останутся там, где лежат, и продолжат открываться —
+          переносить их не нужно.
+        </Accent>
       </Step>
 
       <Warn title="Проверьте, что занимает место">
