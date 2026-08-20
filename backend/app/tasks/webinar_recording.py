@@ -183,10 +183,20 @@ async def _mark_failed(conn, rec_id, msg):
 
 # Настройки пережатия. ⚠️ Ниже 1 Мбит/с текст на слайдах становится нечитаемым —
 # это главный критерий, а не «поменьше файл».
-_TARGET_BITRATE = "1500k"
+_TARGET_BITRATE = "1200k"
 _AUDIO_BITRATE = "128k"
 _MAX_HEIGHT = 720          # выше для вебинара не нужно, а вес растёт вдвое
+_MAX_FPS = 30              # см. комментарий ниже
 _MIN_GAIN = 1.3            # меньше — не стоит перезаливки
+
+# ⚠️ Ограничение кадров важнее битрейта. Проверено на реальной записи: Zoom
+# отдавал 1280x720 при 1,84 Мбит/с — то есть поток УЖЕ сжат, и пережатие само
+# по себе дало бы всего в 1,4 раза. А вот 60 кадров в секунду для вебинара со
+# слайдами избыточны вдвое: 30 достаточно, и это половина веса.
+#
+# ⚠️ Отсюда же вывод: «в 4-6 раз» бывает только у записей с высоким битрейтом
+# (5-10 Мбит/с, OBS с настройками по умолчанию). Если источник уже экономный,
+# выигрыш будет скромным — на этот случай есть проверка _MIN_GAIN.
 
 
 @celery.task(name="app.tasks.webinar_recording.compress_recording")
@@ -201,10 +211,16 @@ async def _compress(rec_id: int):
     try:
         rec = await conn.fetchrow(
             """SELECT rec.id, rec.url, rec.r2_key, rec.size_bytes, rec.status,
-                      wr.event_id, s.client_id
+                      wr.event_id,
+                      -- ⚠️ У webinar_sessions НЕТ client_id: владелец берётся
+                      -- через event_owners, как и при создании записи выше.
+                      -- Здесь «первый владелец» безопасен — нужен лишь тот, чью
+                      -- квоту пересчитать, а файл у коллабы всё равно один.
+                      (SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = wr.event_id AND eo.status = 'accepted'
+                        ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
                  FROM webinar_recordings rec
                  JOIN webinar_rooms wr ON wr.id = rec.room_id
-                 LEFT JOIN webinar_sessions s ON s.id = rec.session_id
                 WHERE rec.id = $1""", rec_id)
         if not rec or rec["status"] != "ready" or not rec["r2_key"]:
             return
@@ -215,11 +231,33 @@ async def _compress(rec_id: int):
         tmp_in = tempfile.mktemp(suffix=".mp4")
         tmp_out = tempfile.mktemp(suffix="_c.mp4")
 
+        # ⚠️ Файл может лежать в СОБСТВЕННОМ хранилище клиента, а не в нашем —
+        # тогда скачивание из служебного вернёт 404. Берём то хранилище, где
+        # файл реально находится.
+        own = await conn.fetchrow(
+            """SELECT storage_endpoint, storage_region, storage_bucket,
+                      storage_access_key, storage_secret_key
+                 FROM clients WHERE id = $1 AND storage_provider IS NOT NULL""",
+            rec["client_id"])
+
+        def _make_client():
+            if not own:
+                return r2_storage.get_r2_client(), settings.cf_r2_bucket_name
+            import boto3
+            from botocore.client import Config as _Cfg
+            cl = boto3.client(
+                "s3", endpoint_url=own["storage_endpoint"],
+                aws_access_key_id=own["storage_access_key"],
+                aws_secret_access_key=own["storage_secret_key"],
+                region_name=own["storage_region"] or "ru-central-1",
+                config=_Cfg(signature_version="s3v4"))
+            return cl, own["storage_bucket"]
+
+        client, bucket = _make_client()
+
         # Скачиваем потоком: запись весит гигабайты, в память её брать нельзя.
-        client = r2_storage.get_r2_client()
         await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.download_file(
-                settings.cf_r2_bucket_name, rec["r2_key"], tmp_in))
+            None, lambda: client.download_file(bucket, rec["r2_key"], tmp_in))
 
         before = os.path.getsize(tmp_in)
 
@@ -229,7 +267,7 @@ async def _compress(rec_id: int):
             "ffmpeg", "-y", "-i", tmp_in,
             "-c:v", "libx264", "-preset", "veryfast",
             "-b:v", _TARGET_BITRATE, "-maxrate", _TARGET_BITRATE, "-bufsize", "3000k",
-            "-vf", f"scale=-2:'min({_MAX_HEIGHT},ih)'",
+            "-vf", f"scale=-2:'min({_MAX_HEIGHT},ih)',fps='min({_MAX_FPS},source_fps)'",
             "-c:a", "aac", "-b:a", _AUDIO_BITRATE,
             "-movflags", "+faststart",   # чтобы плеер начинал играть, не скачав файл целиком
             tmp_out,
@@ -248,8 +286,11 @@ async def _compress(rec_id: int):
                         rec_id, before / 1024**2, after / 1024**2)
             return
 
-        # Заливаем ПОД ТЕМ ЖЕ ключом — ссылки в базе и у клиентов не меняются.
-        await r2_storage.upload_file(tmp_out, rec["r2_key"], "video/mp4")
+        # Заливаем ПОД ТЕМ ЖЕ ключом и в ТО ЖЕ хранилище, откуда взяли —
+        # ссылки в базе и у клиентов не меняются.
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: client.upload_file(
+                tmp_out, bucket, rec["r2_key"], ExtraArgs={"ContentType": "video/mp4"}))
         await conn.execute(
             "UPDATE webinar_recordings SET size_bytes=$2 WHERE id=$1", rec_id, after)
         await conn.execute(
