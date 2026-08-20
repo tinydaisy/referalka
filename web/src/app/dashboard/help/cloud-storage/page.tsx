@@ -9,10 +9,9 @@
  * на середине.
  */
 import Link from 'next/link'
-import { Crumbs, Hero, Step, Note, Warn, Accent, Screenshot } from '../_article'
+import { Crumbs, Hero, Step, Note, Warn, Accent } from '../_article'
 import { ExternalLink, ArrowRight } from 'lucide-react'
 
-const S = '/help/cloud-storage'
 const CLOUD = 'https://console.cloud.ru'
 
 export default function CloudStorageStep1Page() {
@@ -39,14 +38,19 @@ export default function CloudStorageStep1Page() {
         <p className="mt-2 text-xs text-gray-400">Откроется в новой вкладке — эта инструкция останется здесь.</p>
       </div>
 
-      <Step step="1" title="Нажмите «Войти» и зарегистрируйтесь">
+      <Step step="1" title="Зарегистрируйтесь">
         <p>
-          На главной странице Cloud.ru нажмите <b>«Войти»</b>. Регистрация обычная —
-          по номеру телефона или почте, придёт код подтверждения.
+          На странице Cloud.ru нажмите <b>«Войти»</b> и зарегистрируйтесь: укажите
+          почту или телефон, придумайте пароль. На почту придёт <b>код подтверждения</b> —
+          введите его.
         </p>
-        <Screenshot src={`${S}/r1-start.jpg`}
-          alt="Главная страница Cloud.ru с кнопкой входа"
-          caption="Нажимаем «Войти» и регистрируемся" />
+
+        <Note title="Попросят настроить двухфакторную аутентификацию">
+          Cloud.ru обязательно просит подключить второй способ подтверждения входа —
+          обычно приложение-аутентификатор или код на телефон. Это защита самого
+          аккаунта Cloud.ru, к ПЛЮСОНу отношения не имеет. Настройте так, как вам
+          удобнее, и запомните — код будет спрашиваться при каждом входе.
+        </Note>
       </Step>
 
       <Step step="2" title="Выберите «Личное облако»">
@@ -59,9 +63,6 @@ export default function CloudStorageStep1Page() {
           пока вы сами не привяжете карту.
         </Warn>
 
-        <Screenshot src={`${S}/r2-account-type.jpg`}
-          alt="Выбор типа аккаунта: личное или корпоративное облако"
-          caption="Выбираем «Личное облако» → «Продолжить»" />
       </Step>
 
       <Step step="3" title="Анкету пропустите">
@@ -73,12 +74,6 @@ export default function CloudStorageStep1Page() {
         <Note title="Самый быстрый путь">
           Нажмите <b>«Пропустить шаг»</b> — внизу, под кнопками «Продолжить» и «Назад».
         </Note>
-        <Screenshot src={`${S}/r3-anketa.jpg`}
-          alt="Анкета Cloud.ru с кнопкой «Пропустить шаг»"
-          caption="Жмём «Пропустить шаг»" />
-        <Screenshot src={`${S}/r4-services.jpg`}
-          alt="Второй экран анкеты — выбор сервисов"
-          caption="Тот же шаг ниже по странице — тоже пропускаем" />
       </Step>
 
       <Step step="4" title="Карту привязывать не нужно">
@@ -90,9 +85,6 @@ export default function CloudStorageStep1Page() {
           Бонусы нужны для платных сервисов Cloud.ru и сгорают через 60 дней.
           К бесплатным 15 ГБ они отношения не имеют — те даются и так.
         </Note>
-        <Screenshot src={`${S}/r5-card.jpg`}
-          alt="Экран «Получите 4 000 бонусов» с кнопкой «Сразу в кабинет»"
-          caption="Нажимаем «Сразу в кабинет», а не «Привязать карту»" />
       </Step>
 
       <Accent title="Готово — вы в кабинете Cloud.ru">
