@@ -9,9 +9,10 @@
  * на середине.
  */
 import Link from 'next/link'
-import { Crumbs, Hero, Step, Note, Warn, Accent } from '../_article'
+import { Crumbs, Hero, Step, Note, Warn, Accent, Screenshot } from '../_article'
 import { ExternalLink, ArrowRight } from 'lucide-react'
 
+const S = '/help/cloud-storage'
 const CLOUD = 'https://console.cloud.ru'
 
 export default function CloudStorageStep1Page() {
@@ -56,6 +57,10 @@ export default function CloudStorageStep1Page() {
       <Step step="2" title="Выберите «Личное облако»">
         <p>Вас спросят тип аккаунта. Выберите <b>«Личное облако»</b> — верхнюю карточку.</p>
 
+        <Screenshot src={`${S}/01-account-type.jpg`}
+          alt="Выбор типа аккаунта: «Личное облако» или «Корпоративное облако»"
+          caption="Нажимаем «Личное облако» → «Продолжить»" />
+
         <Warn title="Не выбирайте «Корпоративное облако»">
           Там обещают 20 000 бонусов вместо 4 000, но нужны реквизиты юрлица и
           постоплата — счета в конце месяца. Для хранения афиш и фото это лишнее:
@@ -74,6 +79,14 @@ export default function CloudStorageStep1Page() {
         <Note title="Самый быстрый путь">
           Нажмите <b>«Пропустить шаг»</b> — внизу, под кнопками «Продолжить» и «Назад».
         </Note>
+
+        <Screenshot src={`${S}/03-services.jpg`}
+          alt="Экран «Настроим главную под ваши задачи» со списком сервисов"
+          caption="Экран с сервисами — можно просто «Пропустить шаг»" />
+
+        <Screenshot src={`${S}/02-role.jpg`}
+          alt="Экран анкеты с выбором роли: руководитель, разработчик и другие"
+          caption="Тот же шаг ниже по странице — выбор роли" />
       </Step>
 
       <Step step="4" title="Карту привязывать не нужно">
@@ -85,6 +98,10 @@ export default function CloudStorageStep1Page() {
           Бонусы нужны для платных сервисов Cloud.ru и сгорают через 60 дней.
           К бесплатным 15 ГБ они отношения не имеют — те даются и так.
         </Note>
+
+        <Screenshot src={`${S}/04-card.jpg`}
+          alt="Экран «Получите 4 000 бонусов» с кнопками «Привязать карту» и «Сразу в кабинет»"
+          caption="Нажимаем «Сразу в кабинет», а не «Привязать карту»" />
       </Step>
 
       <Accent title="Готово — вы в кабинете Cloud.ru">
