@@ -72,10 +72,10 @@ async def main():
     public = (os.getenv("CF_R2_PUBLIC_URL") or "").rstrip("/")
     s3 = boto3.client(
         "s3",
-        endpoint_url=f"https://{acc}.r2.cloudflarestorage.com",
+        endpoint_url=os.getenv("CF_S3_ENDPOINT") or f"https://{acc}.r2.cloudflarestorage.com",
         aws_access_key_id=os.getenv("CF_R2_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("CF_R2_SECRET_ACCESS_KEY"),
-        region_name="auto",
+        region_name=os.getenv("CF_S3_REGION") or "auto",
         config=BotoConfig(signature_version="s3v4"),
     )
 

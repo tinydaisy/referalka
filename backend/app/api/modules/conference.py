@@ -4055,7 +4055,11 @@ async def send_schedule_to_telegram(
         "reply_markup": {"inline_keyboard": buttons},
     }
 
-    SCHEDULE_IMAGE_URL = "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/img/ivision_program.jpg"
+    # ⚠️ Адрес хранилища НИКОГДА не пишем в коде: при переезде (Cloudflare →
+    # Cloud.ru, 2026-08-21) такие строки молча продолжают указывать на старое
+    # место. Собираем через settings — единственную точку настройки.
+    from app.config import settings as _s
+    SCHEDULE_IMAGE_URL = f"{_s.cf_r2_public_url.rstrip('/')}/img/ivision_program.jpg"
 
     async with httpx.AsyncClient(timeout=15) as http:
         # Сначала отправляем изображение без текста

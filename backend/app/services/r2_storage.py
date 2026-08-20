@@ -27,12 +27,17 @@ def get_r2_client():
     if _client is None:
         if not settings.cf_account_id or not settings.cf_r2_access_key_id:
             raise RuntimeError("R2 not configured (CF_ACCOUNT_ID / CF_R2_ACCESS_KEY_ID)")
+        # ⚠️ Адрес хранилища берётся ТОЛЬКО из настроек. Раньше он собирался
+        # шаблоном `{account}.r2.cloudflarestorage.com` — то есть был вшит в код,
+        # и при переезде на Cloud.ru (2026-08-21) запросы продолжали уходить
+        # в Cloudflare, хотя все ключи были уже от другого хранилища.
         _client = boto3.client(
             "s3",
-            endpoint_url=f"https://{settings.cf_account_id}.r2.cloudflarestorage.com",
+            endpoint_url=settings.cf_s3_endpoint
+                         or f"https://{settings.cf_account_id}.r2.cloudflarestorage.com",
             aws_access_key_id=settings.cf_r2_access_key_id,
             aws_secret_access_key=settings.cf_r2_secret_access_key,
-            region_name="auto",
+            region_name=settings.cf_s3_region or "auto",
             config=BotoConfig(signature_version="s3v4"),
         )
     return _client

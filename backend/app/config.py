@@ -25,7 +25,14 @@ class Settings(BaseSettings):
     cf_r2_access_key_id: str = ""
     cf_r2_secret_access_key: str = ""
     cf_r2_bucket_name: str = "referalka"
-    cf_r2_public_url: str = "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev"
+    # ⚠️ Публичный адрес файлового хранилища. С 2026-08-21 — Cloud.ru; дефолт
+    # оставлен пустым намеренно: молчаливый фолбэк на чужое хранилище опаснее
+    # явной ошибки при старте.
+    cf_r2_public_url: str = ""
+    # Адрес S3-совместимого хранилища и регион. Пусто → собирается старый
+    # адрес Cloudflare (для совместимости со старыми окружениями).
+    cf_s3_endpoint: str = ""
+    cf_s3_region: str = ""
 
     vk_app_id: str = ""
     vk_app_secure_key: str = ""

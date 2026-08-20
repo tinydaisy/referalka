@@ -2,9 +2,11 @@
 import { useState } from 'react'
 import { Copy, Check, ChevronDown, Download, Image as ImageIcon } from 'lucide-react'
 
-// Афиши лежат в служебном хранилище (R2). Позже переедут в общее облако —
-// тогда меняется только этот адрес, разметка остаётся как есть.
-const POSTER_BASE = 'https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/partner-materials'
+// ⚠️ Адрес хранилища НИКОГДА не пишем в коде: при переезде (Cloudflare →
+// Cloud.ru, 2026-08-21) такие строки молча продолжают указывать на старое место.
+// Берём из переменной окружения — единственной точки настройки.
+const STORAGE_BASE = (process.env.NEXT_PUBLIC_STORAGE_URL || '').replace(/\/$/, '')
+const POSTER_BASE = `${STORAGE_BASE}/partner-materials`
 
 const POSTERS = [
   { id: 'collab-1', title: 'Круг экспертов', file: 'collab-poster-1.jpg' },

@@ -5,7 +5,9 @@ export async function POST(req: NextRequest) {
   const accessKeyId = process.env.CF_R2_ACCESS_KEY_ID
   const secretAccessKey = process.env.CF_R2_SECRET_ACCESS_KEY
   const bucketName = process.env.CF_R2_BUCKET_NAME || 'referalka'
-  const publicUrl = process.env.CF_R2_PUBLIC_URL || 'https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev'
+  // ⚠️ Без фолбэка на конкретный адрес: молчаливая ссылка на старое хранилище
+  // опаснее явной ошибки. Адрес живёт только в переменной окружения.
+  const publicUrl = (process.env.CF_R2_PUBLIC_URL || '').replace(/\/$/, '')
 
   if (!accessKeyId || !secretAccessKey || !accountId) {
     return NextResponse.json({ error: 'R2 not configured' }, { status: 500 })
@@ -28,7 +30,8 @@ export async function POST(req: NextRequest) {
 
   const s3 = new S3Client({
     region: 'auto',
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    // Адрес S3-совместимого хранилища — из окружения, не из кода.
+    endpoint: process.env.CF_S3_ENDPOINT || `https://${accountId}.r2.cloudflarestorage.com`,
     credentials: {
       accessKeyId,
       secretAccessKey,
