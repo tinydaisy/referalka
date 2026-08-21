@@ -235,6 +235,10 @@ async def get_me(
                     ORDER BY pe.id LIMIT 1) AS email,
                   ctc.phone, ctc.ref_code,
                   e.title AS event_title, e.slug AS event_slug,
+                  -- Логотип и бренд организатора: спикер открывает кабинет по
+                  -- ссылке из письма и должен сразу видеть, чьё это событие.
+                  own.brand_logo_url AS client_logo,
+                  COALESCE(NULLIF(own.brand_name,''), own.name) AS client_brand,
                   -- Для ссылок «посмотреть себя» в шапке профиля (см. ниже).
                   e.landing_url,
                   own.default_link_mode,

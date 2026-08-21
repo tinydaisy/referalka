@@ -91,6 +91,8 @@ type SpeakerMe = {
   event_id: number
   event_title: string
   event_slug: string
+  client_logo?: string | null
+  client_brand?: string | null
   role: string
   name: string | null
   title: string | null
@@ -903,7 +905,19 @@ export default function SpeakerCabinetPage() {
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
         <div style={{ background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-            <div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
+              {/* Логотип организатора: спикер приходит по ссылке из письма и
+                  должен сразу видеть, чьё это событие. Раньше в кабинете не
+                  было ни знака, ни бренда — только название события. */}
+              {me.client_logo && (
+                <img src={me.client_logo} alt={me.client_brand || ''}
+                  style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 8,
+                           background: 'rgba(255,255,255,0.12)', padding: 4, flexShrink: 0 }} />
+              )}
+            <div style={{ minWidth: 0 }}>
+              {me.client_brand && (
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 600 }}>{me.client_brand}</div>
+              )}
               <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>
                 {/* ⚠️ Имя И ФАМИЛИЯ: фамилия живёт отдельной колонкой
@@ -913,6 +927,7 @@ export default function SpeakerCabinetPage() {
                 {[me.name, me.last_name].filter(Boolean).join(' ') || 'Спикер'}
                 {me.role && <span style={{ fontWeight: 400, opacity: 0.85 }}> — {({ jury: 'жюри', organizer: 'организатор', headliner: 'хедлайнер', speaker: 'спикер', general_partner: 'генеральный партнёр', partner: 'партнёр' } as Record<string, string>)[me.role] || me.role}</span>}
               </div>
+            </div>
             </div>
             <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
           </div>
