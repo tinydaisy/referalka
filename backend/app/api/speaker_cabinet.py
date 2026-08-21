@@ -254,7 +254,10 @@ async def get_me(
              JOIN events e ON e.id = cse.event_id
              -- Владелец события: у events своего client_id нет (event_owners).
              LEFT JOIN LATERAL (
-               SELECT cl.id, cl.default_link_mode
+               -- ⚠️ Поля перечислены ЯВНО: снаружи own.* не работает, колонку
+               -- надо добавлять и сюда, иначе «column own.X does not exist».
+               SELECT cl.id, cl.default_link_mode,
+                      cl.brand_logo_url, cl.brand_name, cl.name
                  FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
                 WHERE eo.event_id = e.id AND eo.status = 'accepted'
                 ORDER BY eo.id LIMIT 1
