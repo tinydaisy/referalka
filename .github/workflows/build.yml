@@ -1,0 +1,82 @@
+name: Сборка
+
+# Собираем ФРОНТ у GitHub, а не на сервере. Раньше сборка шла прямо на проде
+# поверх работающей .next: Next.js читал папку, которую в этот момент
+# переписывали, — отсюда ошибки у клиентов и «сайт лёг на 5-10 минут».
+# Теперь прод во время сборки вообще не участвует.
+#
+# Сломанный код до прода не доедет: сборка упадёт здесь.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # можно запустить вручную кнопкой
+
+concurrency:
+  # Новый пуш отменяет предыдущую сборку той же ветки — незачем собирать
+  # то, что уже устарело, и жечь минуты.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── Веб-кабинет ────────────────────────────────────────────────────
+      - name: Ставим зависимости web
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Собираем web
+        working-directory: web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          # Памяти у раннера много (7 ГБ) — ограничение с прода тут не нужно.
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: npm run build
+
+      # ── Mini App: четыре площадки ──────────────────────────────────────
+      # ⚠️ Собирать ВСЕ четыре обязательно: исходник общий (mini-app/src),
+      # и если пересобрать не все, площадки разъедутся — так «Подробнее» у
+      # регалий уже появлялось в TG и вебе, но не в VK и MAX.
+      - name: Ставим зависимости mini-app
+        working-directory: mini-app
+        run: npm ci --no-audit --no-fund
+
+      - name: Собираем mini-app (tg, vk, max, web)
+        working-directory: mini-app
+        run: npm run build
+
+      # ── Пакуем то, что реально нужно серверу ───────────────────────────
+      # ⚠️ .next/cache НЕ берём: это кеш сборки (350+ МБ), для работы сайта
+      # не нужен. Итоговый архив — десятки мегабайт, а не гигабайты.
+      - name: Пакуем артефакт
+        run: |
+          set -e
+          mkdir -p out/web/.next out/mini-app
+          cp -r web/.next/server web/.next/static out/web/.next/
+          cp web/.next/BUILD_ID out/web/.next/
+          for f in web/.next/*.json web/.next/*.js; do
+            [ -f "$f" ] && cp "$f" out/web/.next/ || true
+          done
+          cp -r mini-app/dist mini-app/dist-vk mini-app/dist-max mini-app/dist-web out/mini-app/
+          echo "${{ github.sha }}" > out/COMMIT
+          tar -czf build.tar.gz -C out .
+          ls -lh build.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: build.tar.gz
+          # 7 дней, а не 90: хватает для отката на пару версий назад и
+          # не съедает бесплатные 500 МБ хранилища.
+          retention-days: 7

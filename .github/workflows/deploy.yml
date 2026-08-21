@@ -1,0 +1,98 @@
+name: Выкатить на прод
+
+# Кнопка деплоя. Собранное GitHub-ом едет на сервер и переключается там.
+# ⚠️ Запускается ТОЛЬКО вручную (workflow_dispatch) — автодеплой по пушу
+# намеренно выключен: подрядчик пушит код, а выкатывает владелец.
+#
+# Где нажать: вкладка Actions → «Выкатить на прод» → Run workflow.
+# Работает и с телефона — терминал не нужен.
+
+on:
+  workflow_dispatch:
+    inputs:
+      when:
+        description: 'Когда выкатить'
+        type: choice
+        default: 'сейчас'
+        options:
+          - 'сейчас'
+          - 'ночью в 04:00 МСК'
+
+concurrency:
+  # Два наката одновременно переключали бы папки друг у друга под ногами.
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Ставим зависимости web
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Собираем web
+        working-directory: web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: npm run build
+
+      - name: Ставим зависимости mini-app
+        working-directory: mini-app
+        run: npm ci --no-audit --no-fund
+
+      # ⚠️ Все четыре площадки: исходник общий, соберёшь не все — разъедутся.
+      - name: Собираем mini-app (tg, vk, max, web)
+        working-directory: mini-app
+        run: npm run build
+
+      - name: Пакуем артефакт
+        run: |
+          set -e
+          mkdir -p out/web/.next out/mini-app
+          cp -r web/.next/server web/.next/static out/web/.next/
+          cp web/.next/BUILD_ID out/web/.next/
+          for f in web/.next/*.json web/.next/*.js; do
+            [ -f "$f" ] && cp "$f" out/web/.next/ || true
+          done
+          cp -r mini-app/dist mini-app/dist-vk mini-app/dist-max mini-app/dist-web out/mini-app/
+          echo "${{ github.sha }}" > out/COMMIT
+          tar -czf build.tar.gz -C out .
+          ls -lh build.tar.gz
+
+      - name: Готовим доступ к серверу
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Отправляем сборку на сервер
+        run: |
+          scp -i ~/.ssh/id_ed25519 build.tar.gz \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/build.tar.gz"
+
+      # ── Немедленный накат ──────────────────────────────────────────────
+      - name: Выкатываем сейчас
+        if: inputs.when == 'сейчас'
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "bash /var/www/plusson/deploy/release.sh /tmp/build.tar.gz ${{ github.sha }}"
+
+      # ── Отложенный накат ───────────────────────────────────────────────
+      # GitHub не умеет ждать до ночи (машину на 12 часов не дадут), поэтому
+      # сборка кладётся на сервер и ждёт там, а переключит её системный таймер.
+      - name: Ставим накат на 04:00 МСК
+        if: inputs.when == 'ночью в 04:00 МСК'
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "bash /var/www/plusson/deploy/schedule_release.sh /tmp/build.tar.gz ${{ github.sha }}"
