@@ -12,6 +12,7 @@
 import { useState } from 'react'
 import { Download, Copy, Check, ExternalLink } from 'lucide-react'
 import QrCodeButton from '@/components/QrCodeButton'
+import SafeHtml from '@/components/SafeHtml'
 
 type Photo = { id: number; url: string; label: string | null; is_primary: boolean }
 type Achievement = { label?: string; value?: string }
@@ -123,11 +124,13 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
           </Section>
         )}
 
-        {/* Био */}
+        {/* Био. ⚠️ Хранится с разметкой (<b> и переносы) — выводим через SafeHtml,
+            иначе организатор увидит сырые теги. Копируется при этом чистый текст:
+            он вставляет его в свою афишу, теги там не нужны. */}
         {data.bio && (
-          <Section title="О спикере" action={<CopyBtn text={data.bio} label="Скопировать" />}>
+          <Section title="О спикере" action={<CopyBtn text={stripTags(data.bio)} label="Скопировать" />}>
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{data.bio}</p>
+              <SafeHtml html={data.bio} className="text-sm text-gray-700 leading-relaxed rich-text" />
             </div>
           </Section>
         )}
@@ -263,6 +266,18 @@ function CopyBtn({ text, label, iconOnly }: { text: string; label?: string; icon
       {done ? <><Check size={13} className="text-green-600" /> Скопировано</> : <><Copy size={13} /> {label}</>}
     </button>
   )
+}
+
+/** Убирает теги — организатор копирует чистый текст в свою афишу. */
+function stripTags(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 /** Собирает каналы из social_links: массивы каналов по площадкам + одиночные ссылки. */
