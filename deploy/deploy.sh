@@ -21,9 +21,11 @@ git fetch origin main
 git reset --hard origin/main
 
 # 2. Backend (Python) — обновляем зависимости
+# ⚠️ venv лежит в КОРНЕ проекта (/var/www/plusson/venv), а не в backend/ —
+# так же, как его зовёт plusson-api.service. Путь backend/venv ломал деплой с 14.08.
 log "Updating backend deps..."
 cd "$PROJECT_DIR/backend"
-source venv/bin/activate
+source "$PROJECT_DIR/venv/bin/activate"
 pip install -q -r requirements.txt
 
 # 3. Web (Next.js) — собираем (рестарт сервиса ниже)

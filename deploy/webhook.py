@@ -4,6 +4,8 @@ GitHub Webhook Receiver for ПЛЮСОН Deploy
 Слушает на порту 9999 и автоматически деплоит при push на main
 """
 
+import os
+import sys
 import hmac
 import hashlib
 import json
@@ -19,7 +21,10 @@ logging.basicConfig(
     format='[%(asctime)s] %(levelname)s: %(message)s'
 )
 
-WEBHOOK_SECRET = "plusson-webhook-secret"  # Измени на свой секрет
+# ⚠️ Секрет читается ТОЛЬКО из окружения (systemd Environment= или EnvironmentFile=).
+# В коде его держать нельзя: репозиторий видят подрядчики, а знание секрета =
+# возможность запустить деплой на проде поддельным запросом.
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 DEPLOY_SCRIPT = "/var/www/plusson/deploy/deploy.sh"
 
 class WebhookHandler(BaseHTTPRequestHandler):
@@ -89,6 +94,13 @@ class WebhookHandler(BaseHTTPRequestHandler):
         pass
 
 if __name__ == '__main__':
-    server = HTTPServer(('0.0.0.0', 9999), WebhookHandler)
-    logging.info("Webhook server started on port 9999")
+    # Без секрета не стартуем: пустой секрет означал бы, что подпись подделает кто угодно.
+    if not WEBHOOK_SECRET:
+        logging.error("WEBHOOK_SECRET не задан в окружении — запуск отменён")
+        print("WEBHOOK_SECRET не задан в окружении — запуск отменён", file=sys.stderr)
+        sys.exit(1)
+
+    # Слушаем только localhost: снаружи порт открывать не надо, GitHub приходит через nginx.
+    server = HTTPServer(('127.0.0.1', 9999), WebhookHandler)
+    logging.info("Webhook server started on 127.0.0.1:9999")
     server.serve_forever()
