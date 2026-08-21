@@ -967,6 +967,23 @@ export default function BlockCard({
                     </p>
                   </Field>
                 )}
+                {/* ⚠️ Нужна для обложек, где фигура занимает бОльшую часть
+                    кадра: при широкой колонке текст залезает на неё, а длинный
+                    заголовок рвётся посреди слова. */}
+                {block.kind === 'hero' && (block.hero_align === 'left' || block.hero_align === 'right') && (
+                  <Field label={`Ширина колонки: ${block.split_ratio || 56}%`}>
+                    <input
+                      type="range" min={20} max={80} step={1}
+                      value={block.split_ratio || 56}
+                      onChange={e => onPatch({ split_ratio: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Сколько места занимает текст. Уменьшите, если он наезжает
+                      на картинку фона. На телефоне колонка всегда во всю ширину.
+                    </p>
+                  </Field>
+                )}
               </div>
 
               {/* Размеры остального текста секции — отдельно от заголовка. */}
