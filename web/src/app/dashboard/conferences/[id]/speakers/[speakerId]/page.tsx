@@ -752,7 +752,7 @@ export default function ConferenceSpeakerPage() {
           <div className="text-xs text-gray-500 mb-4">
             Считается со дня выступления. То же самое спикер видит у себя в кабинете.
           </div>
-          <SpeakerGiftStats load={() => api.conference.speakers.giftStats(eventId, speakerEventId)} />
+          <SpeakerGiftStats load={() => api.conference.speakers.giftStats(confId, speakerEventId)} />
         </div>
       )}
 
