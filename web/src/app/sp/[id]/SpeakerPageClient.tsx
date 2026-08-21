@@ -41,9 +41,20 @@ const ACCENT = '#FFCFA4'
 
 export default function SpeakerPageClient({ data }: { data: Data }) {
   const displayName = data.name || data.brand_name || 'Спикер'
-  const photos = data.photos?.length
-    ? data.photos
-    : (data.owner_photo_url ? [{ id: 0, url: data.owner_photo_url, label: null, is_primary: true }] : [])
+  // ⚠️ Фото основателя показываем ВСЕГДА, а не только когда галерея пуста.
+  // Раньше загруженная галерея его вытесняла — организатор терял главный
+  // портрет, хотя именно он чаще всего и нужен для афиши.
+  // Дубль отсекаем по адресу: тот же снимок мог попасть и в галерею.
+  const gallery = data.photos || []
+  const hasOwnerInGallery = data.owner_photo_url
+    ? gallery.some(p => p.url === data.owner_photo_url)
+    : true
+  const photos = [
+    ...(data.owner_photo_url && !hasOwnerInGallery
+      ? [{ id: 0, url: data.owner_photo_url, label: 'Основное фото', is_primary: true }]
+      : []),
+    ...gallery,
+  ]
 
   const achievements = (data.owner_achievements || []).filter(a => a?.value || a?.label)
   const channels = collectChannels(data.social_links || {})
