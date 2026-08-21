@@ -918,10 +918,21 @@ function BlockBody(props: any) {
       // ложится прямо на него. Сдвиг решает это без правки картинки.
       const hAlign = block.hero_align === 'left' || block.hero_align === 'right'
         ? block.hero_align : 'center'
+      // ⚠️ ГДЕ СТОИТ КОЛОНКА и КАК ВЫРОВНЕНЫ СТРОКИ ВНУТРИ — разные вещи.
+      // Классическая обложка «фото слева, текст справа» ставит колонку у
+      // правого края, но строки в ней идут по ЛЕВОМУ краю — иначе у абзаца
+      // рвётся левая кромка и заголовок в несколько строк читается лесенкой.
+      // Раньше hero_align задавал оба сразу, и такую раскладку было не
+      // собрать. Теперь строки берутся из title_align (у шапки он свободен —
+      // её заголовок и подзаголовок рисуются здесь, а не обёрткой секции),
+      // а без него падают на hero_align, как было до правки.
+      const hText = block.title_align === 'left' || block.title_align === 'center'
+        || block.title_align === 'right' ? block.title_align : hAlign
       const heroAlignCls =
-        hAlign === 'left' ? 'text-left items-start'
-        : hAlign === 'right' ? 'text-right items-end'
-        : 'text-center items-center'
+        `${hText === 'left' ? 'text-left' : hText === 'right' ? 'text-right' : 'text-center'} ${
+          hAlign === 'left' ? 'items-start'
+          : hAlign === 'right' ? 'items-end'
+          : 'items-center'}`
       // При сдвиге в сторону колонка занимает половину ширины, иначе строки
       // растянулись бы на весь экран и «прижатость» была бы не видна.
       const heroWidthCls = hAlign === 'center' ? '' : 'md:max-w-[56%]'

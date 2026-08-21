@@ -935,6 +935,38 @@ export default function BlockCard({
                     </p>
                   )}
                 </Field>
+                {/* ⚠️ Где стоит колонка и как выровнены строки внутри — разные
+                    вещи. Обложка «фото слева, текст справа» ставит колонку у
+                    правого края, а строки в ней — по левому: иначе у абзаца
+                    рвётся левая кромка и заголовок читается лесенкой. */}
+                {block.kind === 'hero' && (
+                  <Field label="Строки внутри">
+                    <div className="flex gap-2">
+                      {([
+                        ['left', 'По левому'], ['center', 'По центру'], ['right', 'По правому'],
+                      ] as const).map(([val, label]) => {
+                        const cur = block.title_align || block.hero_align || 'center'
+                        return (
+                          <button
+                            key={val}
+                            onClick={() => onPatch({ title_align: val })}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                              cur === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Как выровнены сами строки. Не путать с «Где стоит текст» —
+                      там колонка целиком, здесь строки внутри неё.
+                    </p>
+                  </Field>
+                )}
               </div>
 
               {/* Размеры остального текста секции — отдельно от заголовка. */}
