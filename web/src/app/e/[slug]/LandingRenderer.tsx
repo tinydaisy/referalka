@@ -97,8 +97,36 @@ export default function LandingRenderer({
     contactId && `c=${encodeURIComponent(contactId)}`,
     utmSource && `utm_source=${encodeURIComponent(utmSource)}`,
   ].filter(Boolean).join('&')
-  const withTrack = (url: string) =>
+  const withTrackRaw = (url: string) =>
     track ? `${url}${url.includes('?') ? '&' : '?'}${track}` : url
+
+  /**
+   * Ссылка, пригодная для PDF.
+   *
+   * ⚠️ Кнопки «к тарифам» и пункты меню — это якоря (`#lp-tariffs`), а
+   * прокрутку по ним делает СКРИПТ (см. useEffect ниже). В PDF скриптов нет,
+   * и такие кнопки становятся мёртвыми: клиент спрашивал, не удалить ли их из
+   * файла. Удалять не нужно — в режиме печати подменяем якорь на абсолютный
+   * адрес страницы с тем же якорем: в PDF кнопка открывает сайт и сразу
+   * прокручивает к нужной секции.
+   *
+   * ⚠️ Абсолютный, а не относительный: файл живёт вне сайта, и `#lp-tariffs`
+   * или `/e/slug` из него никуда не ведут.
+   */
+  const pdfHref = (url: string) => {
+    if (!forPdf || !url) return url
+    if (url.startsWith('#')) return pageUrl ? `${pageUrl.split('#')[0]}${url}` : url
+    // Внутренний путь («/e/slug/order/3») тоже достраиваем до полного адреса.
+    if (url.startsWith('/') && pageUrl) {
+      try { return new URL(url, pageUrl).toString() } catch { return url }
+    }
+    return url
+  }
+
+  // ⚠️ Одна точка на ВСЕ ссылки страницы: сначала метки (реф-код, utm), потом
+  // приведение к рабочему виду для PDF. Иначе чинить пришлось бы каждую кнопку
+  // отдельно, а какую-нибудь наверняка забыли бы.
+  const withTrack = (url: string) => pdfHref(withTrackRaw(url))
   const { page, blocks, data: content } = data
   // ⚠️ У продукта поля `event` нет — берём продукт и подставляем те же ключи,
   // которых ждёт разметка (title/description/start_at). Даты у продукта нет:
@@ -474,6 +502,7 @@ export default function LandingRenderer({
           withTrack={withTrack}
           forPdf={forPdf}
           pageUrl={pageUrl}
+          pdfHref={pdfHref}
         />
       ))}
     </div>
@@ -624,7 +653,7 @@ function LandingNav({ page, blocks, content, btnStyle, slug, withTrack, ctaHref 
 function Section({
   ctaHref, orderHref,
   block, page, radius, headingStyle, btnStyle, cardStyle, iconColor, event, content, slug,
-  withTrack, forPdf, pageUrl,
+  withTrack, forPdf, pageUrl, pdfHref = (u: string) => u,
 }: any) {
   // В режиме «градиент по блокам» каждая секция получает полный градиент —
   // переход виден внутри каждой, а не размазан по всей странице.
@@ -693,7 +722,7 @@ function Section({
     cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
     glowCls={glowCls} glowVars={glowVars}
     event={event} content={content} slug={slug} withTrack={withTrack}
-    forPdf={forPdf} pageUrl={pageUrl}
+    forPdf={forPdf} pageUrl={pageUrl} pdfHref={pdfHref}
   />
 
   /* Картинка-контент секции (не фон): встаёт рядом с содержимым или над ним. */
@@ -727,7 +756,9 @@ function Section({
     <div className={`${block.kind === 'el_button' ? '' : 'mt-8'} ${
       align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : ''}`}>
       <a
-        href={block.button_url || withTrack(ctaHref)}
+        /* ⚠️ Свой адрес кнопки тоже через pdfHref: клиент мог вписать туда
+           якорь (#lp-tariffs), и в PDF он никуда бы не вёл. */
+        href={block.button_url ? pdfHref(block.button_url) : withTrack(ctaHref)}
         {...(block.button_url ? { target: '_blank', rel: 'noreferrer' } : {})}
         className="inline-block px-8 py-4 font-bold uppercase"
         style={btnStyle}
@@ -909,7 +940,7 @@ function BlockBody(props: any) {
     ctaHref, orderHref,
     block, page, radius, btnStyle, cardStyle, iconColor, headingStyle, event, content, slug,
     glowCls = '', glowVars = {}, withTrack = (u: string) => u,
-    forPdf = false, pageUrl = '',
+    forPdf = false, pageUrl = '', pdfHref = (u: string) => u,
   } = props
   const items = block.items
 
@@ -1075,7 +1106,9 @@ function BlockBody(props: any) {
                   // Куда ведёт — настраивается, как у любой другой кнопки:
                   // на регистрацию, к секции страницы (#lp-…) или на свой URL.
                   <a
-                    href={(block.button_url || '').trim() || withTrack(ctaHref)}
+                    href={(block.button_url || '').trim()
+                      ? pdfHref((block.button_url || '').trim())
+                      : withTrack(ctaHref)}
                     {...((block.button_url || '').trim().startsWith('http')
                       ? { target: '_blank', rel: 'noreferrer' } : {})}
                     className="inline-block px-8 py-4 text-[1em] font-bold uppercase tracking-wide transition-transform hover:scale-105"
