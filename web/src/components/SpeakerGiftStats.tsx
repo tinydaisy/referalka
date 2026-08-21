@@ -63,6 +63,14 @@ function Table({ p }: { p: Period }) {
             </tr>
           </thead>
           <tbody>
+            {/* «Всего» — ПЕРВОЙ строкой: сначала общая цифра, потом её разбор.
+                Внизу её приходилось искать под списком подарков. */}
+            <tr style={{ background: PEACH, fontWeight: 700, color: DARK }}>
+              <td style={{ padding: '11px 10px', fontSize: 14 }}>Всего</td>
+              <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 15 }}>{p.total.visits}</td>
+              <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 15 }}>{p.total.delivered}</td>
+              <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 15 }}>{p.total.fresh}</td>
+            </tr>
             {p.rows.map((r, i) => (
               <tr key={i} style={{ borderBottom: '1px solid #eef2f5' }}>
                 <td style={{ padding: '8px 10px', color: DARK }}>
@@ -76,12 +84,6 @@ function Table({ p }: { p: Period }) {
                 <td style={{ padding: '8px 10px', textAlign: 'right' }}>{r.fresh}</td>
               </tr>
             ))}
-            <tr style={{ background: '#fdf6ef', fontWeight: 700, color: DARK }}>
-              <td style={{ padding: '9px 10px' }}>Итого</td>
-              <td style={{ padding: '9px 10px', textAlign: 'right' }}>{p.total.visits}</td>
-              <td style={{ padding: '9px 10px', textAlign: 'right' }}>{p.total.delivered}</td>
-              <td style={{ padding: '9px 10px', textAlign: 'right' }}>{p.total.fresh}</td>
-            </tr>
           </tbody>
         </table>
       </div>
@@ -123,7 +125,7 @@ export default function SpeakerGiftStats({
   const hasRows = data.periods.some(p => p.rows.length > 0)
   if (!hasRows) {
     return (
-      <div style={{ fontSize: 13, color: '#5c7589', background: '#fdf6ef', border: `1px solid ${PEACH}`, padding: 12, borderRadius: 10 }}>
+      <div style={{ fontSize: 13, color: DARK, background: PEACH, padding: 12, borderRadius: 10 }}>
         {forSpeaker
           ? <>Переходы по вашим подаркам не считаются: вы дали свои ссылки, не из ПЛЮСОНа.
               Чтобы видеть статистику, попросите организатора включить подсчёт переходов.</>

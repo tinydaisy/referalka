@@ -287,28 +287,32 @@ def _build_contacts_filter(
               )
             """
 
+    # ⚠️ Даты передаём СТРОКОЙ в текстовом параметре и приводим типом в SQL.
+    # asyncpg отвергает str для ::timestamptz («expected a datetime.date
+    # instance, got str») — фильтр падал 500, а во фронте это выглядело как
+    # «фильтр не работает»: список оставался прежним.
     if date_from:
-        params.append(date_from)
+        params.append(str(date_from))
         idx = len(params)
-        where += f" AND c.last_contact_at >= ${idx}::timestamptz"
+        where += f" AND c.last_contact_at >= (${idx}::text)::timestamptz"
     if date_to:
-        params.append(date_to)
+        params.append(str(date_to))
         idx = len(params)
-        where += f" AND c.last_contact_at <= ${idx}::timestamptz"
+        where += f" AND c.last_contact_at <= (${idx}::text)::timestamptz"
 
     # ⚠️ Дата ПОПАДАНИЯ В БАЗУ — отдельный фильтр, не путать с «последним
     # контактом». «Последний контакт» отвечает на вопрос «когда человек в
     # последний раз о себе напомнил», а этот — «когда он у нас появился».
     # Второе нужно, чтобы отделить новых людей от тех, кто был в базе давно.
     if created_from:
-        params.append(created_from)
+        params.append(str(created_from))
         idx = len(params)
-        where += f" AND c.created_at >= ${idx}::timestamptz"
+        where += f" AND c.created_at >= (${idx}::text)::timestamptz"
     if created_to:
-        params.append(created_to)
+        params.append(str(created_to))
         idx = len(params)
         # Конец дня, а не полночь: иначе «по 05.08» теряет весь день 5 августа.
-        where += f" AND c.created_at < (${idx}::date + INTERVAL '1 day')"
+        where += f" AND c.created_at < ((${idx}::text)::date + INTERVAL '1 day')"
 
     # Чёрный список (миграция 228): 'yes' — только заблокированные,
     # 'no' — только не заблокированные, пусто — фильтр не применяется.
