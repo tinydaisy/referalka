@@ -706,7 +706,10 @@ async def delete_recording(event_id: int, day_number: int, rec_id: int,
                            client=Depends(get_current_client), db=Depends(get_db)):
     await ws.assert_event_owner(db, event_id, _cid(client))
     rid = await _room_id(db, event_id, day_number)
-    rec = await db.fetchrow("SELECT r2_key FROM webinar_recordings WHERE id=$1 AND room_id=$2", rec_id, rid)
+    rec = await db.fetchrow(
+        "SELECT r.r2_key, r.session_id, wr.stream_key "
+        "  FROM webinar_recordings r JOIN webinar_rooms wr ON wr.id = r.room_id "
+        " WHERE r.id=$1 AND r.room_id=$2", rec_id, rid)
     if not rec:
         raise HTTPException(404, "Запись не найдена")
     # ⚠️ Сначала удаляем ФАЙЛ, и только потом строку. Раньше ошибка удаления
@@ -725,6 +728,26 @@ async def delete_recording(event_id: int, day_number: int, rec_id: int,
             ) from e
         # Снимаем с учёта квоты (файл больше не занимает место).
         await r2_storage.unregister_file(db, rec["r2_key"])
+
+    # ⚠️ Убираем и КУСКИ этого эфира — те, что не успели войти в склейку.
+    # Раньше кнопка «Удалить» чистила только хранилище и базу, а сегменты
+    # оставались занимать место, и клиент не мог на это повлиять: он считал
+    # запись удалённой, а гигабайты продолжали лежать.
+    if rec["stream_key"]:
+        from app.services import r2_storage as _r2
+        left = await db.fetch(
+            "SELECT id, r2_key FROM webinar_recording_chunks "
+            " WHERE stream_key=$1 AND consumed_at IS NULL", rec["stream_key"])
+        for ch in left:
+            try:
+                await _r2.delete_object(ch["r2_key"])
+            except Exception:
+                # Не роняем удаление записи из-за куска: строку оставляем,
+                # мусор подберёт уборщик по сроку.
+                continue
+            await db.execute(
+                "DELETE FROM webinar_recording_chunks WHERE id=$1", ch["id"])
+
     await db.execute("DELETE FROM webinar_recordings WHERE id=$1", rec_id)
     return {"ok": True}
 

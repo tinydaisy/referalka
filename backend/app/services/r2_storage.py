@@ -203,6 +203,31 @@ async def upload_file(path: str, key: str, content_type: str) -> str:
     return f"{settings.cf_r2_public_url}/{key}"
 
 
+async def download_file(key: str, path: str) -> None:
+    """Скачивает объект из хранилища НА ДИСК потоком, не читая в память.
+
+    Нужна для склейки записи эфира: куски заливаются по ходу трансляции и сразу
+    стираются с диска, а в конце их надо собрать в один файл. Читать гигабайты
+    в память нельзя — воркер ляжет по OOM (та же причина, что у upload_file).
+    """
+    from boto3.s3.transfer import TransferConfig
+
+    client = get_r2_client()
+    cfg = TransferConfig(
+        multipart_threshold=64 * 1024 * 1024,
+        multipart_chunksize=64 * 1024 * 1024,
+        max_concurrency=2,
+        use_threads=True,
+    )
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: client.download_file(
+            settings.cf_r2_bucket_name, key, path, Config=cfg
+        ),
+    )
+
+
 async def delete_object(key: str) -> None:
     """Удаляет объект из R2."""
     client = get_r2_client()

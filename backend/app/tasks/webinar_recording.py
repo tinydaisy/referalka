@@ -76,6 +76,37 @@ async def _run(session_id: int):
             src_dir = os.path.join(RECORDINGS_DIR, "live", sess["stream_key"])
 
         segs = sorted(glob.glob(os.path.join(src_dir, "*.mp4")))
+
+        # ⚠️ Часть кусков (а при длинном эфире — все) уже уехала в хранилище:
+        # сторож webinar_chunks заливает их ПО ХОДУ трансляции и стирает с диска,
+        # иначе несколько параллельных эфиров забили бы диск целиком.
+        # Докачиваем недостающее во временную папку и склеиваем вместе с тем,
+        # что ещё лежит локально.
+        chunk_dir: str | None = None
+        chunk_rows = await conn.fetch(
+            """SELECT r2_key, file_name FROM webinar_recording_chunks
+                WHERE stream_key = $1
+                ORDER BY seg_started_at NULLS LAST, file_name""",
+            sess["stream_key"],
+        )
+        have = {os.path.basename(p) for p in segs}
+        missing = [r for r in chunk_rows if r["file_name"] not in have]
+        if missing:
+            chunk_dir = tempfile.mkdtemp(prefix="wbrec_")
+            for r in missing:
+                dst = os.path.join(chunk_dir, r["file_name"])
+                try:
+                    await r2_storage.download_file(r["r2_key"], dst)
+                    segs.append(dst)
+                except Exception as e:
+                    # Один недокачанный кусок — это дыра в записи, но лучше
+                    # отдать эфир с дырой, чем не отдать вовсе.
+                    _log.warning("chunk download failed %s: %s", r["r2_key"], e)
+
+        # Порядок строго по имени файла: в нём метка времени от MediaMTX.
+        # Время изменения файла не годится — оно сдвигается при дозаписи.
+        segs = sorted(set(segs), key=lambda p: os.path.basename(p))
+
         if not segs:
             await _mark_failed(conn, rec_id, "нет сегментов записи")
             return
@@ -128,11 +159,19 @@ async def _run(session_id: int):
             # что уже лежит в R2, и она съедает диск. Удаляем ТОЛЬКО те файлы,
             # которые реально вошли в склейку, и только после статуса 'ready'.
             _cleanup_segments(segs)
+
+            # ⚠️ Куски в хранилище чистим ПОСЛЕ того, как итоговая запись залита
+            # и помечена ready — не раньше. Иначе сбой склейки уничтожил бы
+            # единственную копию эфира.
+            await _cleanup_chunks(conn, sess["stream_key"], rec_id)
         except Exception as e:
             await _mark_failed(conn, rec_id, str(e)[:200])
         finally:
             if os.path.exists(tmp_out):
                 os.unlink(tmp_out)
+            # Временная папка с докачанными кусками — только после склейки.
+            if chunk_dir and os.path.isdir(chunk_dir):
+                shutil.rmtree(chunk_dir, ignore_errors=True)
     finally:
         try:
             await conn.close()
@@ -150,6 +189,36 @@ def _probe_duration(path: str) -> int | None:
         return int(float(r.stdout.decode().strip()))
     except Exception:
         return None
+
+
+async def _cleanup_chunks(conn, stream_key: str, rec_id: int) -> None:
+    """Удаляет из хранилища куски, вошедшие в готовую запись.
+
+    ⚠️ Зовётся ТОЛЬКО после того, как итоговый файл залит и помечен 'ready' —
+    иначе сбой склейки уничтожил бы единственную копию эфира.
+
+    Ошибка удаления не роняет задачу: запись уже сохранена, а «висящий» кусок
+    подберёт уборщик по сроку. Строку в базе снимаем, только если объект
+    действительно удалён, — иначе мусор в хранилище стал бы невидимым.
+    """
+    rows = await conn.fetch(
+        "SELECT id, r2_key FROM webinar_recording_chunks "
+        " WHERE stream_key = $1 AND consumed_at IS NULL",
+        stream_key,
+    )
+    for r in rows:
+        try:
+            await r2_storage.delete_object(r["r2_key"])
+        except Exception as e:
+            _log.warning("chunk delete failed %s: %s", r["r2_key"], e)
+            continue
+        await conn.execute(
+            "UPDATE webinar_recording_chunks "
+            "   SET consumed_at = now(), session_id = COALESCE(session_id, "
+            "       (SELECT session_id FROM webinar_recordings WHERE id = $2)) "
+            " WHERE id = $1",
+            r["id"], rec_id,
+        )
 
 
 def _cleanup_segments(segs: list[str]) -> None:

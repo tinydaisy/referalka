@@ -8,6 +8,7 @@ celery = Celery(
     backend=settings.redis_url,
     include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
+        "app.tasks.webinar_chunks",
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check"]
 )
 
@@ -27,6 +28,13 @@ celery.conf.update(
         },
         "check-broadcasts": {
             "task": "app.tasks.broadcast.check_and_send_broadcasts",
+            "schedule": 60.0,
+        },
+        # Раз в минуту — заливаем дописанные куски эфира в хранилище и стираем
+        # их с диска. Реже нельзя: диск копит гигабайты, а несколько
+        # параллельных эфиров забили бы его целиком и положили ВСЮ платформу.
+        "upload-webinar-chunks": {
+            "task": "app.tasks.webinar_chunks.upload_ready_chunks",
             "schedule": 60.0,
         },
         # Раз в час — помечаем истёкшие подписки + паузим их будущие рассылки
