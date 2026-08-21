@@ -2888,8 +2888,16 @@ async def test_broadcast(
     # Ищем tg_id клиента по username
     if client_row and client_row["telegram_username"]:
         username = client_row["telegram_username"].lstrip("@")
+        # Идентичности живут в platform_users; таблицы telegram_users давно нет.
+        # Берём только ЧИСЛОВОЙ id — по псевдо-записи «@ник» отправить нельзя.
         tg_user = await db.fetchrow(
-            "SELECT tg_id FROM telegram_users WHERE username=$1", username
+            """SELECT platform_user_id AS tg_id
+                 FROM platform_users
+                WHERE platform_slug = 'telegram'
+                  AND lower(username) = lower($1)
+                  AND platform_user_id ~ '^[0-9]+$'
+                ORDER BY id LIMIT 1""",
+            username,
         )
         if tg_user:
             async with httpx.AsyncClient() as http:

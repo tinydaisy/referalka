@@ -2422,7 +2422,7 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 **⚠️ ЖЁСТКИЕ ПРАВИЛА — не плодить дубли:**
 
 1. **НИКАКИХ** `personal_vk_id`, `personal_vk_username`, `personal_max_id`, `personal_max_username` в `collaborators`. Личные аккаунты спикера на платформах = **ТОЛЬКО через `platform_users`** (через `collaborators.contact_id → contacts.id → platform_users(contact_id, platform_slug, platform_user_id, username)`).
-2. Старые поля `collaborators.personal_tg_id`, `personal_tg_username`, `assistant_tg_username` — **рудимент**. Не использовать в новой логике, читать личный TG через `platform_users(platform_slug='telegram')`.
+2. ⚠️ **Колонок `collaborators.personal_tg_id` и `personal_tg_username` БОЛЬШЕ НЕТ** — дропнуты миграцией 107 (2026-05-24). Прежняя формулировка «рудимент, не использовать» устарела: их не просто не используют, их физически нет, и SQL с ними упадёт. Личный TG читается через `collaborators.contact_id → platform_users(platform_slug='telegram')`. Имена `personal_tg_id`/`personal_tg_username` остались только как **алиасы в JSON-ответах API** (`pu.platform_user_id AS personal_tg_id`) — это поле ответа, а не колонка. `collaborators.assistant_tg_username` — существует, это живая колонка.
 3. `collaborators.vk_url` / `max_url` — это **публичные каналы спикера** (его VK-сообщество, его MAX-канал). НЕ путать с личным VK/MAX.
 4. **Тоггла `show_gift_raffle_field` НЕТ.** Видимость поля «Подарок для розыгрыша» определяется глобально через `event_raffle_settings.is_enabled`.
 5. **Margo не может завести коллаба без личного никнейма** хотя бы на одной платформе — валидация на бэке.
@@ -3169,8 +3169,14 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Редактор шаблона `/dashboard/conferences/{id}/broadcasts/templates` (edit + create modals).
 
 ### ⚠️ Мультиплатформа — каналы доставки (миграции 033+034+036, 26.04.2026)
-- Таблица **`channels`** (id, client_id, `platform_slug` → platforms, display_name, handle, bot_token, is_active) — каналы доставки клиента (бот в TG / группа VK / канал MAX). У клиента может быть несколько каналов.
-- Таблица **`platform_user_channels`** (platform_user_id, channel_id, platform_slug, is_unsubscribed, subscribed_at, unsubscribed_at) — подписка идентичности на конкретный канал, отписка per-канал. Составные FK гарантируют совпадение платформ.
+
+⚠️⚠️ **Схема ниже УСТАРЕЛА с миграции 066** («Подписочная архитектура G», описана выше). Держим как историю; актуальные имена — там. Что изменилось:
+- **у `channels` НЕТ `client_id`** — привязка канала к клиенту живёт в отдельной таблице `client_channels`;
+- **у `platform_user_channels` НЕТ `channel_id` и `platform_slug`** — есть `client_channel_id → client_channels(id)`.
+
+Старый текст (для истории):
+- Таблица **`channels`** (id, ~~client_id~~, `platform_slug` → platforms, display_name, handle, bot_token, is_active) — каналы доставки клиента (бот в TG / группа VK / канал MAX). У клиента может быть несколько каналов.
+- Таблица **`platform_user_channels`** (platform_user_id, ~~channel_id, platform_slug~~, is_unsubscribed, subscribed_at, unsubscribed_at) — подписка идентичности на конкретный канал, отписка per-канал.
 - Поле `clients.bot_token` УДАЛЕНО (033) — живёт в `channels.bot_token`
 - Поле `platform_users.is_unsubscribed` УДАЛЕНО (034) — живёт в `platform_user_channels.is_unsubscribed` per-канал
 - Поле `platform_users.platform` ВОЗВРАЩЕНО как `platform_slug → platforms(slug)` (036) — без него нельзя интерпретировать `platform_user_id` (это tg_id или vk_id?)
@@ -3240,9 +3246,11 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Сейчас в MVP:** один общий бот `@pluson_bot` — в нём селектор. Бот клиента со своим Mini App — на VIP-тарифе. VIP-клиент сам через BotFather (`/newapp`) привязывает свой бот к URL `https://pluson.ru/c/{N}/tg/`.
 
-**VIP-онбординг (миграция 045 от 28.04.2026)** — фича-флаг `tariffs.allow_custom_bot BOOL`. Тариф `vip` = `true`, дефолтный `beta` = `false`.
+**VIP-онбординг (миграция 045 от 28.04.2026).**
 
-- `GET /api/v1/auth/me` отдаёт `tariff_name` и `allow_custom_bot`
+⚠️ **Колонки `tariffs.allow_custom_bot` в базе НЕТ** — механика переведена на фичи (миграции 067–072, см. раздел «Подписочная архитектура G» выше). Гейт своего бота = **`client_has_feature(client_id, 'channels')`**, а не флаг тарифа. Текст ниже описывает сам сценарий подключения — он актуален, устарело только имя проверки.
+
+- `GET /api/v1/auth/me` отдаёт `features[]` (в нём и `channels`) и блок `subscription`
 - `POST /api/v1/channels/connect-telegram-bot {bot_token}` — wizard за один вызов: проверка тарифа → `getMe` (валидация токена) → upsert в `channels` → `setChatMenuButton` с URL `/c/{N}/tg/`. Возвращает `{bot_username, mini_app_url}` для копи-пейста в @BotFather (`/newapp`).
 - `POST/PATCH /api/v1/channels` с `bot_token` для `telegram` — 403 если не VIP.
 - В `/dashboard/channels` для не-VIP — read-only с апсейл-блоком, для VIP — 3-шаговый wizard ([web/src/app/dashboard/channels/page.tsx](web/src/app/dashboard/channels/page.tsx)).
@@ -3264,7 +3272,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Правила формирования вкладки «События» в селекторе:**
 
-1. **VIP-клиенты исключаются.** События клиентов с `tariffs.allow_custom_bot = true` в общем боте **не показываются** — у них собственный бот со своим хабом. Подписчик идёт туда через лендинг события VIP-клиента.
+1. **VIP-клиенты исключаются.** События клиентов **с фичей `channels`** (свой бот) в общем боте **не показываются** — у них собственный бот со своим хабом. Подписчик идёт туда через лендинг события VIP-клиента. ⚠️ Проверять через `client_has_feature`, а не по `tariffs.allow_custom_bot` — такой колонки нет.
 2. **Группа = организатор** (один не-VIP клиент). Заголовок группы — `client.brand_name || client.name` + аватар (`profile_photo_url`) + позиционирование.
 3. **В группу попадают** те клиенты, у которых пользователь:
    - был участником ≥ 1 события (`event_participants.contact_id` через `platform_users.platform_user_id = tg_id`), ИЛИ

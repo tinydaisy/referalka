@@ -240,8 +240,14 @@ async def get_contact_landing_params(
         return out
     try:
         c = await db.fetchrow(
-            """SELECT name, email, phone
-                 FROM contacts WHERE id = $1""",
+            # Почта — идентичность в platform_users, колонки contacts.email нет
+            # (дропнута мигр. 282). Раньше запрос падал целиком, и на сторонний
+            # лендинг не уезжали ни имя, ни телефон — ошибку глушил except ниже.
+            """SELECT c.name, c.phone,
+                      (SELECT pe.platform_user_id FROM platform_users pe
+                        WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                        ORDER BY pe.id LIMIT 1) AS email
+                 FROM contacts c WHERE c.id = $1""",
             contact_id,
         )
         if c:

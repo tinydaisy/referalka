@@ -66,8 +66,12 @@ async def can_see_orders(db, client_id: int, tg_id: Optional[int],
               AND EXISTS (SELECT 1 FROM platform_users pu
                            WHERE pu.platform_slug = 'telegram'
                              AND lower(pu.username) = $2
-                             AND pu.contact_id IN (SELECT id FROM contacts
-                                                    WHERE lower(email) = lower(a.email)))""",
+                             AND pu.contact_id IN (
+                                   -- почта человека — идентичность, а не колонка
+                                   -- контакта (contacts.email дропнута мигр. 282)
+                                   SELECT pe.contact_id FROM platform_users pe
+                                    WHERE pe.platform_slug = 'email'
+                                      AND lower(pe.platform_user_id) = lower(a.email)))""",
         client_id, nick,
     ))
 
@@ -91,7 +95,10 @@ async def fetch_orders(db, event_id: int) -> list[dict]:
         """
         SELECT o.id, o.status, o.amount, o.ordered_at, o.paid_at, o.note,
                et.title AS tariff_title,
-               ct.id AS contact_id, ct.name, ct.phone, ct.email,
+               ct.id AS contact_id, ct.name, ct.phone,
+               (SELECT pe.platform_user_id FROM platform_users pe
+                 WHERE pe.contact_id = ct.id AND pe.platform_slug = 'email'
+                 ORDER BY pe.id LIMIT 1) AS email,
                (SELECT pu.username FROM platform_users pu
                  WHERE pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
                    AND pu.username IS NOT NULL LIMIT 1) AS tg_username,

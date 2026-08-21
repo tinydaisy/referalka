@@ -1173,8 +1173,17 @@ async def _update_external_ref(
         ph = _normalize_phone_for_update(data.phone) if data.phone else None
         tgu = (data.telegram_username or "").strip().lstrip("@").lower()
         if em:
+            # Почта — идентичность (contacts.email дропнута мигр. 282): ищем
+            # через platform_users, иначе ветка падала и поиск по почте не работал.
             row = await db.fetchrow(
-                "SELECT id, client_id, merged_into FROM contacts WHERE client_id=$1 AND lower(email)=$2 AND merged_into IS NULL ORDER BY id LIMIT 1",
+                """SELECT c.id, c.client_id, c.merged_into
+                     FROM contacts c
+                     JOIN platform_users pe ON pe.contact_id = c.id
+                                           AND pe.platform_slug = 'email'
+                    WHERE c.client_id = $1
+                      AND lower(pe.platform_user_id) = $2
+                      AND c.merged_into IS NULL
+                    ORDER BY c.id LIMIT 1""",
                 data.client_id, em)
         if row is None and ph:
             row = await db.fetchrow(
