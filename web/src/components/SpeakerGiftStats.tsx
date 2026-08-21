@@ -45,7 +45,11 @@ function Table({ p }: { p: Period }) {
       <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 6 }}>
         {p.label}
         <span style={{ fontWeight: 400, color: '#7a8c9c' }}>
-          {' '}· {p.days === 3 ? 'сразу после эфира' : 'с добором за неделю'}
+          {' '}· {p.days === 0
+            ? 'за само событие'
+            : p.days === 3
+              ? 'плюс 3 дня после'
+              : 'плюс неделя после'}
         </span>
       </div>
       <div style={{ overflowX: 'auto' }}>
