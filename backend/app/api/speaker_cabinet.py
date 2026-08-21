@@ -33,6 +33,14 @@ from app.services.person_name import (
     display_name, search_name, SEARCH_NAME_ORDER_SQL, SEARCH_NAME_SQL,
 )
 
+# Лимиты длины полей, которые заполняет сам спикер. Держать в синхроне с
+# фронтом ([event_slug]/page.tsx) — иначе счётчик покажет одно, а сохранение
+# откажет по другому правилу.
+TOPIC_LIMIT = 190
+TOPIC_DESC_LIMIT = 400
+GIFT_TITLE_LIMIT = 380
+GIFT_URL_LIMIT = 140
+
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
 _CAB_AUD = "speaker-cabinet"
@@ -466,6 +474,28 @@ async def patch_me(
         _upsert_personal_identities, _normalize_media_assets, _validate_social_links,
     )
     import json as _json
+
+    # ⚠️ Лимиты длины дублируются на бэкенде: фронтовую проверку обходит любой,
+    # кто шлёт запрос напрямую, а полотно на 400 символов ломает вёрстку
+    # программы, лендинга и рассылок — там место рассчитано на название.
+    # Цифры подобраны по реальным данным (замер 2026-08-21), см. фронт.
+    _too_long: list[str] = []
+    if data.topics is not None:
+        for t in data.topics:
+            if t and len(t) > TOPIC_LIMIT:
+                _too_long.append(f"тема (не больше {TOPIC_LIMIT} символов)")
+                break
+    if data.topic_descriptions is not None:
+        for d in data.topic_descriptions:
+            if d and len(d) > TOPIC_DESC_LIMIT:
+                _too_long.append(f"описание темы (не больше {TOPIC_DESC_LIMIT})")
+                break
+    if data.gift_after_speech_title and len(data.gift_after_speech_title) > GIFT_TITLE_LIMIT:
+        _too_long.append(f"название подарка (не больше {GIFT_TITLE_LIMIT})")
+    if data.gift_after_speech_url and len(data.gift_after_speech_url) > GIFT_URL_LIMIT:
+        _too_long.append(f"ссылка на подарок (не больше {GIFT_URL_LIMIT})")
+    if _too_long:
+        raise HTTPException(422, "Слишком длинно: " + ", ".join(_too_long))
 
     # Соцсети — только полной ссылкой (https://…), не ником (дубль фронт-проверки).
     _validate_social_links(data)

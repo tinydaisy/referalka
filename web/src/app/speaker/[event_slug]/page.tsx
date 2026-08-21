@@ -21,6 +21,37 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
+// ⚠️ Лимиты подобраны по реальным данным (замер 2026-08-21, 104 темы):
+// медиана темы 59 символов, 90% укладываются в 113, самая длинная была 194 —
+// целый анонс вместо названия. 190 отсекает такие полотна, обычные темы не
+// трогает. У описаний та же история: самое длинное (426) состояло из списка
+// плюс рекламный хвост про подарок — хвосту место в поле подарка, не здесь.
+const TOPIC_LIMIT = 190
+const TOPIC_DESC_LIMIT = 400
+// Ручной подарок спикера. 380 — потому что в поле «название» кладут СПИСОК из
+// нескольких подарков (у Вангуловой 373 символа на четыре подарка). Ссылка —
+// 140: туда часто пишут не адрес, а инструкцию с двумя ссылками сразу.
+const GIFT_TITLE_LIMIT = 380
+const GIFT_URL_LIMIT = 140
+
+/** Счётчик символов под полем: сколько осталось, а при переборе — сколько резать. */
+function CharCounter({ value, limit }: { value: string; limit: number }) {
+  const len = (value || '').length
+  const over = len - limit
+  if (len === 0) return null
+  return (
+    <div style={{
+      fontSize: 11, marginTop: 3, textAlign: 'right',
+      color: over > 0 ? '#d64545' : len > limit * 0.85 ? '#b8860b' : '#8ea3b5',
+      fontWeight: over > 0 ? 700 : 400,
+    }}>
+      {over > 0
+        ? `Слишком длинно — сократите на ${over}`
+        : `${len} / ${limit}`}
+    </div>
+  )
+}
+
 // «12.06 · 11:00–11:15 МСК» — подпись слота под привязанной темой.
 function fmtSlotLabel(s: {
   day_number: number | null; day_title: string | null; day_date: string | null
@@ -621,6 +652,19 @@ export default function SpeakerCabinetPage() {
   // Старый бэк поле не отдаёт (undefined) → считаем, что редактировать можно.
   const canEdit = me.can_edit !== false
 
+  // Что мешает сохранить: собираем словами, чтобы человек сразу видел причину,
+  // а не упирался в погасшую кнопку без объяснения.
+  const tooLong = (() => {
+    const bad: string[] = []
+    const nTopic = (me.topics || []).filter(t => (t || '').length > TOPIC_LIMIT).length
+    const nDesc  = (me.topic_descriptions || []).filter(d => (d || '').length > TOPIC_DESC_LIMIT).length
+    if (nTopic) bad.push(nTopic === 1 ? 'одна тема слишком длинная' : `${nTopic} тем слишком длинные`)
+    if (nDesc)  bad.push(nDesc === 1 ? 'одно описание слишком длинное' : `${nDesc} описаний слишком длинные`)
+    if ((me.gift_after_speech_title || '').length > GIFT_TITLE_LIMIT) bad.push('название подарка слишком длинное')
+    if ((me.gift_after_speech_url || '').length > GIFT_URL_LIMIT) bad.push('ссылка на подарок слишком длинная')
+    return bad.join(', ')
+  })()
+
   // ── Привязка ПЛЮСОН-аккаунта (миграция 167). Загрузка магнитов — в useEffect
   // выше early-return (см. комментарий там). Здесь только обработчики действий. ──
 
@@ -1145,6 +1189,8 @@ export default function SpeakerCabinetPage() {
             {(me.topics || []).map((t, i) => {
               const slots = (me.topic_slots || [])[i] || []
               const bound = slots.length > 0
+              const overTopic = (t || '').length > TOPIC_LIMIT
+              const overDesc  = ((me.topic_descriptions || [])[i] || '').length > TOPIC_DESC_LIMIT
               return (
                 <div key={i} style={{ marginBottom: 8 }}>
                   {slots.map((s, k) => (
@@ -1154,21 +1200,31 @@ export default function SpeakerCabinetPage() {
                   ))}
                   <div style={{ display: 'flex', gap: 6 }}>
                     <input
-                      style={bound
-                        ? { ...inputCss, border: '2px solid #2e9e63', background: '#f4fbf7' }
-                        : inputCss}
+                      style={overTopic
+                        ? { ...inputCss, border: '2px solid #d64545', background: '#fdf3f3' }
+                        : bound
+                          ? { ...inputCss, border: '2px solid #2e9e63', background: '#f4fbf7' }
+                          : inputCss}
                       value={t}
                       onChange={(e) => updTopics(i, e.target.value)}
                       placeholder={`Тема ${i + 1}`}
                     />
                     <button onClick={() => removeTopic(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
                   </div>
+                  {/* ⚠️ Печатать НЕ запрещаем — иначе буквы молча перестают
+                      появляться, а вставленный из заметок текст обрезается без
+                      предупреждения. Вместо этого показываем перебор и гасим
+                      «Сохранить»: человек видит, сколько именно резать. */}
+                  <CharCounter value={t} limit={TOPIC_LIMIT} />
                   <textarea
-                    style={{ ...inputCss, marginTop: 6, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
+                    style={overDesc
+                      ? { ...inputCss, marginTop: 6, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', border: '2px solid #d64545', background: '#fdf3f3' }
+                      : { ...inputCss, marginTop: 6, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
                     value={(me.topic_descriptions || [])[i] || ''}
                     onChange={(e) => updTopicDesc(i, e.target.value)}
                     placeholder="Описание: что будет на выступлении (можно списком)"
                   />
+                  <CharCounter value={(me.topic_descriptions || [])[i] || ''} limit={TOPIC_DESC_LIMIT} />
                   <div style={{ fontSize: 11, color: '#5c7589', marginTop: 3 }}>
                     В программе показывается только <b>название</b>. Описание уходит в текст рассылки о вас.
                   </div>
@@ -1351,9 +1407,11 @@ export default function SpeakerCabinetPage() {
             {giftSource === 'manual' && (
               <>
                 <label style={labelCss}>Название</label>
-                <input style={inputCss} value={me.gift_after_speech_title || ''} onChange={(e) => update({ gift_after_speech_title: e.target.value })} placeholder="Например: Чек-лист по нутрициологии" />
+                <input style={(me.gift_after_speech_title || '').length > GIFT_TITLE_LIMIT ? { ...inputCss, border: '2px solid #d64545', background: '#fdf3f3' } : inputCss} value={me.gift_after_speech_title || ''} onChange={(e) => update({ gift_after_speech_title: e.target.value })} placeholder="Например: Чек-лист по нутрициологии" />
+                <CharCounter value={me.gift_after_speech_title || ''} limit={GIFT_TITLE_LIMIT} />
                 <label style={labelCss}>Ссылка</label>
-                <input style={inputCss} value={me.gift_after_speech_url || ''} onChange={(e) => update({ gift_after_speech_url: e.target.value })} placeholder="https://…" />
+                <input style={(me.gift_after_speech_url || '').length > GIFT_URL_LIMIT ? { ...inputCss, border: '2px solid #d64545', background: '#fdf3f3' } : inputCss} value={me.gift_after_speech_url || ''} onChange={(e) => update({ gift_after_speech_url: e.target.value })} placeholder="https://…" />
+                <CharCounter value={me.gift_after_speech_url || ''} limit={GIFT_URL_LIMIT} />
                 <div style={{ fontSize: 11, color: '#94a3b0', marginTop: 4 }}>
                   Ручную ссылку используем для рассылок и карточки. Баллы за лид-магнит в турнире считаются только при выборе из ПЛЮСОН.
                 </div>
@@ -1468,17 +1526,23 @@ export default function SpeakerCabinetPage() {
 
         {error && <div style={{ background: '#ffe9e0', color: '#a83e1c', padding: 12, borderRadius: 10, marginBottom: 12, fontSize: 14 }}>{error}</div>}
 
+        {tooLong && (
+          <div style={{ background: '#fdecec', color: '#a12525', border: '1px solid #f0bcbc', padding: 12, borderRadius: 10, marginBottom: 12, fontSize: 13 }}>
+            Не получится сохранить: {tooLong}. Сократите — счётчик под полем показывает, на сколько.
+          </div>
+        )}
+
         <button
           onClick={onSave}
-          disabled={saving || !canEdit}
+          disabled={saving || !canEdit || !!tooLong}
           style={{
             width: '100%', padding: '16px',
             background: PEACH, color: DARK, fontWeight: 700, fontSize: 16,
             border: 'none', borderRadius: 12,
-            cursor: !canEdit ? 'not-allowed' : saving ? 'wait' : 'pointer', marginBottom: 24,
+            cursor: (!canEdit || tooLong) ? 'not-allowed' : saving ? 'wait' : 'pointer', marginBottom: 24,
             position: 'sticky', bottom: 12,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            opacity: !canEdit ? 0.5 : saving ? 0.85 : 1,
+            opacity: (!canEdit || tooLong) ? 0.5 : saving ? 0.85 : 1,
           }}
         >
           {saving && (

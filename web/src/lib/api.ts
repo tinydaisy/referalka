@@ -95,8 +95,12 @@ export interface ContactFilters {
   leadMagnetStage?: 'any' | 'delivered' | 'not_delivered'
   /** '' = все, 'yes' = только в чёрном списке, 'no' = только не в чёрном списке. */
   blacklisted?: string
+  /** Последний контакт: когда человек в последний раз о себе напомнил. */
   dateFrom?: string
   dateTo?: string
+  /** Попал в базу: когда контакт появился впервые (contacts.created_at). */
+  createdFrom?: string
+  createdTo?: string
 }
 
 function buildContactsParams(
@@ -128,6 +132,8 @@ function buildContactsParams(
   if (filters?.blacklisted) params.set('blacklisted', filters.blacklisted)
   if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters?.dateTo) params.set('date_to', filters.dateTo)
+  if (filters?.createdFrom) params.set('created_from', filters.createdFrom)
+  if (filters?.createdTo) params.set('created_to', filters.createdTo)
   return params
 }
 

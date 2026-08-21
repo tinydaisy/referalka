@@ -171,6 +171,8 @@ const EMPTY_FILTERS: ContactFilters = {
   blacklisted: '',
   dateFrom: '',
   dateTo: '',
+  createdFrom: '',
+  createdTo: '',
 }
 
 function countActiveFilters(f: ContactFilters): number {
@@ -186,6 +188,8 @@ function countActiveFilters(f: ContactFilters): number {
   if (f.blacklisted) n++
   if (f.dateFrom) n++
   if (f.dateTo) n++
+  if (f.createdFrom) n++
+  if (f.createdTo) n++
   return n
 }
 
@@ -211,6 +215,8 @@ function parseFiltersFromUrl(): { filters: ContactFilters; search: string; showU
   if (bl === 'yes' || bl === 'no') f.blacklisted = bl
   f.dateFrom = sp.get('date_from') || ''
   f.dateTo = sp.get('date_to') || ''
+  f.createdFrom = sp.get('created_from') || ''
+  f.createdTo = sp.get('created_to') || ''
   return {
     filters: f,
     search: sp.get('q') || '',
@@ -222,7 +228,7 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
   if (typeof window === 'undefined') return
   const sp = new URLSearchParams(window.location.search)
   ;['q','subscription','platforms','channel_ids','include_unattached','utm_sources','tags',
-    'event_ids','lead_magnet_ids','package_ids','lead_magnet_stage','blacklisted','date_from','date_to','show_unsubscribed']
+    'event_ids','lead_magnet_ids','package_ids','lead_magnet_stage','blacklisted','date_from','date_to','created_from','created_to','show_unsubscribed']
     .forEach(k => sp.delete(k))
   if (search) sp.set('q', search)
   if (showUnsubscribed) sp.set('show_unsubscribed', '1')
@@ -242,6 +248,8 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
   if (filters.blacklisted) sp.set('blacklisted', filters.blacklisted)
   if (filters.dateFrom) sp.set('date_from', filters.dateFrom)
   if (filters.dateTo) sp.set('date_to', filters.dateTo)
+  if (filters.createdFrom) sp.set('created_from', filters.createdFrom)
+  if (filters.createdTo) sp.set('created_to', filters.createdTo)
   const qs = sp.toString()
   const next = window.location.pathname + (qs ? `?${qs}` : '')
   window.history.replaceState(null, '', next)
@@ -426,8 +434,15 @@ export default function ContactsPage() {
           </div>
           <div className="mt-2 px-1 flex items-center justify-between">
             <div className="flex flex-col gap-0.5">
+              {/* ⚠️ При включённых фильтрах показываем НАЙДЕНО, а не общее число.
+                  Раньше здесь всегда висело total_all (вся база) — и когда фильтр
+                  отсекал всех, список пустел, а счётчик по-прежнему показывал
+                  7466: выглядело как «фильтр не работает», хотя он работал. */}
               <p className="text-xs text-gray-500 font-medium">
-                {totalAll.toLocaleString('ru')} контактов
+                {activeFilterCount > 0 || search.trim()
+                  ? <>Найдено: <span className="text-gray-800">{total.toLocaleString('ru')}</span>
+                      <span className="text-gray-400"> из {totalAll.toLocaleString('ru')}</span></>
+                  : <>{totalAll.toLocaleString('ru')} контактов</>}
               </p>
               <div className="flex gap-3 text-xs">
                 <span className="text-green-600">✓ {subscribed.toLocaleString('ru')}</span>
@@ -1445,9 +1460,38 @@ function FilterPanel({ initial, onApply, onClose }: {
                 </div>
               </div>
 
+              {/* Дата попадания в базу — отвечает на «кто новый».
+                  ⚠️ Держим ВЫШЕ «последнего контакта»: спрашивают чаще, а по
+                  названию эти два фильтра легко перепутать. */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Попал в базу</h3>
+                <p className="text-[10px] text-gray-400 mb-2 -mt-1">Когда контакт появился у вас впервые</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-gray-400 mb-1">от</label>
+                    <input
+                      type="date"
+                      value={draft.createdFrom || ''}
+                      onChange={e => setDraft(d => ({ ...d, createdFrom: e.target.value }))}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-400 mb-1">до</label>
+                    <input
+                      type="date"
+                      value={draft.createdTo || ''}
+                      onChange={e => setDraft(d => ({ ...d, createdTo: e.target.value }))}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Дата последнего контакта */}
               <div>
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Последний контакт</h3>
+                <p className="text-[10px] text-gray-400 mb-2 -mt-1">Когда человек в последний раз о себе напомнил</p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-[10px] text-gray-400 mb-1">от</label>

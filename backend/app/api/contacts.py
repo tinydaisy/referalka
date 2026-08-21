@@ -70,6 +70,8 @@ def _build_contacts_filter(
     lead_magnet_stage: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    created_from: str | None = None,
+    created_to: str | None = None,
     blacklisted: str | None = None,
     field_filter: str | None = None,
 ) -> tuple[str, list]:
@@ -294,6 +296,20 @@ def _build_contacts_filter(
         idx = len(params)
         where += f" AND c.last_contact_at <= ${idx}::timestamptz"
 
+    # ⚠️ Дата ПОПАДАНИЯ В БАЗУ — отдельный фильтр, не путать с «последним
+    # контактом». «Последний контакт» отвечает на вопрос «когда человек в
+    # последний раз о себе напомнил», а этот — «когда он у нас появился».
+    # Второе нужно, чтобы отделить новых людей от тех, кто был в базе давно.
+    if created_from:
+        params.append(created_from)
+        idx = len(params)
+        where += f" AND c.created_at >= ${idx}::timestamptz"
+    if created_to:
+        params.append(created_to)
+        idx = len(params)
+        # Конец дня, а не полночь: иначе «по 05.08» теряет весь день 5 августа.
+        where += f" AND c.created_at < (${idx}::date + INTERVAL '1 day')"
+
     # Чёрный список (миграция 228): 'yes' — только заблокированные,
     # 'no' — только не заблокированные, пусто — фильтр не применяется.
     bl_mode = (blacklisted or "").strip().lower()
@@ -337,6 +353,8 @@ async def get_contacts(
     lead_magnet_stage: str | None = Query(default=None, description="any | delivered (забрал) | not_delivered (не забрал). Работает вместе с lead_magnet_ids/package_ids"),
     date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
     date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
+    created_from: str | None = Query(default=None, description="ISO дата >= created_at (когда попал в базу)"),
+    created_to: str | None = Query(default=None, description="ISO дата <= created_at (когда попал в базу)"),
     blacklisted: str | None = Query(default=None, description="yes — только в чёрном списке, no — только не в нём, пусто — все"),
     field_filter: str | None = Query(default=None, description="Доп. поле контакта: 'field_id:значение'"),
     client=Depends(get_current_client),
@@ -363,7 +381,7 @@ async def get_contacts(
         lead_magnet_ids=lead_magnet_ids,
         package_ids=package_ids,
         lead_magnet_stage=lead_magnet_stage,
-        date_from=date_from,
+        date_from=date_from, created_from=created_from, created_to=created_to,
         date_to=date_to,
         blacklisted=blacklisted,
         field_filter=field_filter,
@@ -468,6 +486,8 @@ async def export_contacts_csv(
     lead_magnet_stage: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    created_from: str | None = Query(default=None),
+    created_to: str | None = Query(default=None),
     blacklisted: str | None = Query(default=None),
     field_filter: str | None = Query(default=None),
     client=Depends(get_current_client),
@@ -493,7 +513,7 @@ async def export_contacts_csv(
         lead_magnet_ids=lead_magnet_ids,
         package_ids=package_ids,
         lead_magnet_stage=lead_magnet_stage,
-        date_from=date_from,
+        date_from=date_from, created_from=created_from, created_to=created_to,
         date_to=date_to,
         blacklisted=blacklisted,
         field_filter=field_filter,
