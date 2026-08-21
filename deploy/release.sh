@@ -127,11 +127,21 @@ fi
 log "Рестарт:${RESTARTED:- ничего не потребовалось}"
 
 # ── 6. Проверяем, что живо ────────────────────────────────────────────────
-sleep 5
-HEALTH_OK=1
-curl -sf -o /dev/null --max-time 10 http://127.0.0.1:8000/health || HEALTH_OK=0
-WEB_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:3000/ || echo 000)"
-case "$WEB_CODE" in 2*|3*) ;; *) HEALTH_OK=0 ;; esac
+# ⚠️ С ПОВТОРАМИ, а не один раз через 5 секунд. Next.js после рестарта
+# поднимается дольше, и одиночная проверка объявляла откат на живом сайте:
+# первый же накат так и «упал», хотя сборка встала и сайт отвечал 200.
+check_once() {
+  curl -sf -o /dev/null --max-time 10 http://127.0.0.1:8000/health || return 1
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:3000/ || echo 000)"
+  case "$code" in 2*|3*) return 0 ;; *) return 1 ;; esac
+}
+
+HEALTH_OK=0
+for _ in $(seq 1 12); do          # до ~60 секунд
+  sleep 5
+  if check_once; then HEALTH_OK=1; break; fi
+done
 
 if [ "$HEALTH_OK" != "1" ]; then
   log "ПРОВЕРКА НЕ ПРОШЛА (api/health или web) — ОТКАТ на предыдущую сборку"
