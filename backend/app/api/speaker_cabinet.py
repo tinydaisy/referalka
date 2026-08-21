@@ -27,6 +27,7 @@ from app.services.support_message import support_block_for_event
 # ⚠️ На уровне модуля: хелпер _resolve_landing_link зовётся из нескольких
 # функций, локальный импорт внутри одной из них ему недоступен.
 from app.services.client_domains import public_url_for
+from app.services.speaker_lead_magnet_stats import speaker_lead_magnet_stats
 # Порядок слов в имени: список выбора себя и занятые слоты — «Фамилия Имя»
 # (там ИЩУТ), профиль спикера — «Имя Фамилия» (там ПОКАЗЫВАЮТ).
 from app.services.person_name import (
@@ -1223,7 +1224,12 @@ async def get_me_broadcasts(
                bt.name AS tmpl_name, bt.text AS tmpl_text, bt.photo_url AS tmpl_photo,
                bt.video_url AS tmpl_video, bt.media_type AS tmpl_media_type,
                bt.button_text AS tmpl_btn_text, bt.button_url AS tmpl_btn_url,
-               bt.speaker_photo_mode AS tmpl_speaker_photo_mode
+               bt.speaker_photo_mode AS tmpl_speaker_photo_mode,
+               -- Сколько людей реально получило. Спикер видел только «отправлено»
+               -- без цифры — по такой пометке непонятно, дошло до десяти человек
+               -- или до трёх тысяч.
+               (SELECT count(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id) AS sent_total,
+               (SELECT count(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id AND bl.status='sent') AS sent_ok
           FROM broadcast_schedules bs
           LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
          WHERE bs.event_id = $1
@@ -1275,6 +1281,9 @@ async def get_me_broadcasts(
             "name": r["tmpl_name"] or r["type"],
             "status": r["status"],  # 'pending' | 'done'
             "fire_at_msk": fire_msk,
+            # Доставка: сколько людей получило. У ещё не отправленных — нули.
+            "sent_ok": r["sent_ok"],
+            "sent_total": r["sent_total"],
             "text": content.get("text") or "",
             "photo": content.get("photo") if content.get("media_type") != "video" else None,
             "video": content.get("video") if content.get("media_type") == "video" else None,

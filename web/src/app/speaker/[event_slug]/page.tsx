@@ -2555,7 +2555,19 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
                   </div>
                 )}
               </div>
-              {statusChip(b.status)}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                {statusChip(b.status)}
+                {/* Сколько человек реально получило. Без цифры пометка
+                    «отправлено» ничего не говорит: десять человек или три тысячи. */}
+                {b.status === 'done' && b.sent_ok > 0 && (
+                  <div style={{ fontSize: 12, color: '#5c7589', whiteSpace: 'nowrap' }}>
+                    <b style={{ color: DARK }}>{b.sent_ok.toLocaleString('ru')}</b> получили
+                    {b.sent_total > b.sent_ok && (
+                      <span style={{ color: '#9aa9b5' }}> из {b.sent_total.toLocaleString('ru')}</span>
+                    )}
+                  </div>
+                )}
+              </div>
               {/* Тест-отправка реально шлёт сообщение — при выключенном модуле недоступна */}
               <button
                 type="button"
