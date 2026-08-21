@@ -133,12 +133,18 @@ log "Рестарт:${RESTARTED:- ничего не потребовалось}"
 check_once() {
   curl -sf -o /dev/null --max-time 10 http://127.0.0.1:8000/health || return 1
   local code
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://127.0.0.1:3000/ || echo 000)"
+  # ⚠️ 30 секунд на ответ, а не 15: первый запрос к только что поднятому Next.js
+  # идёт медленно — он собирает страницу «на лету», и короткий таймаут обрывал
+  # его раньше, чем сайт успевал ответить.
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 http://127.0.0.1:3000/ || echo 000)"
   case "$code" in 2*|3*) return 0 ;; *) return 1 ;; esac
 }
 
+# ⚠️ До ТРЁХ МИНУТ, а не одной: на 2 ядрах Next.js после рестарта поднимается
+# дольше минуты, и накат отмечался «упавшим» на живом сайте — сборка вставала,
+# сайт отвечал 200, а выкатка показывала красный крестик.
 HEALTH_OK=0
-for _ in $(seq 1 12); do          # до ~60 секунд
+for _ in $(seq 1 36); do
   sleep 5
   if check_once; then HEALTH_OK=1; break; fi
 done
