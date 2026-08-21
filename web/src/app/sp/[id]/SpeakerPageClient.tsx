@@ -15,6 +15,7 @@ import QrCodeButton from '@/components/QrCodeButton'
 import SafeHtml from '@/components/SafeHtml'
 
 type Photo = { id: number; url: string; label: string | null; is_primary: boolean }
+type Channel = { name: string; url: string; platform: string }
 type Achievement = { label?: string; value?: string }
 type MediaAsset = { platform?: string; subscribers?: number }
 
@@ -34,13 +35,9 @@ interface Data {
 }
 
 const DARK = 'linear-gradient(45deg, #25455D, #0a1520)'
-
-// Названия площадок для блока охватов. Внутренние ключи вида plusson_tg —
-// это наши каналы, они организатору ничего не говорят, поэтому пропускаем.
-const PLATFORM_LABEL: Record<string, string> = {
-  tg: 'Telegram', youtube: 'YouTube', vk: 'ВКонтакте',
-  tiktok: 'TikTok', instagram: 'Instagram', max: 'MAX', rutube: 'Rutube',
-}
+// Фирменный акцент платформы. Страницу отдают организаторам, и она должна
+// выглядеть как бренд клиента, а не как нейтральная админка.
+const ACCENT = '#FFCFA4'
 
 export default function SpeakerPageClient({ data }: { data: Data }) {
   const displayName = data.name || data.brand_name || 'Спикер'
@@ -49,9 +46,6 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
     : (data.owner_photo_url ? [{ id: 0, url: data.owner_photo_url, label: null, is_primary: true }] : [])
 
   const achievements = (data.owner_achievements || []).filter(a => a?.value || a?.label)
-  const assets = (data.media_assets || []).filter(
-    a => a?.platform && !a.platform.startsWith('plusson_') && Number(a.subscribers) > 0
-  )
   const channels = collectChannels(data.social_links || {})
 
   return (
@@ -59,14 +53,26 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
       {/* Шапка */}
       <header className="text-white" style={{ background: DARK }}>
         <div className="max-w-4xl mx-auto px-5 sm:px-8 py-10 sm:py-14">
-          <h1 className="text-3xl sm:text-4xl font-bold">{displayName}</h1>
-          {data.brand_name && data.brand_name !== data.name && (
-            <p className="mt-1 text-white/60">{data.brand_name}</p>
-          )}
+          <div className="flex items-center gap-4">
+            {/* Знак у имени — ОСНОВНОЙ (светлый): шапка тёмная, тёмный знак на
+                ней не виден. */}
+            {data.brand_logo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={data.brand_logo_url} alt={displayName}
+                   className="h-12 sm:h-14 w-auto shrink-0 object-contain" />
+            )}
+            <div className="min-w-0">
+              <h1 className="text-3xl sm:text-4xl font-bold">{displayName}</h1>
+              {data.brand_name && data.brand_name !== data.name && (
+                <p className="mt-1 text-white/60">{data.brand_name}</p>
+              )}
+            </div>
+          </div>
           {data.owner_positioning && (
-            <p className="mt-3 text-base sm:text-lg text-white/80 max-w-2xl">{data.owner_positioning}</p>
+            <p className="mt-4 text-base sm:text-lg text-white/80 max-w-2xl">{data.owner_positioning}</p>
           )}
-          <p className="mt-5 text-xs text-white/50">
+          {/* Персиковым — это главная подсказка, ради чего страницу открыли. */}
+          <p className="mt-5 text-sm font-medium" style={{ color: ACCENT }}>
             Материалы для организаторов — скачивайте и копируйте, что нужно
           </p>
         </div>
@@ -95,13 +101,19 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
         {/* Логотипы — каждый на своём фоне */}
         {(data.brand_logo_url || data.brand_logo_light_url) && (
           <Section title="Логотипы">
+            {/* ⚠️ НЕ перепутать, они были наоборот и организатор скачивал не тот
+                знак: `brand_logo_url` — ОСНОВНОЙ (светлый) знак, он и рисуется
+                на тёмном фоне; `brand_logo_light_url` — ТЁМНАЯ версия «для
+                светлого фона» (так поле и подписано в кабинете). Имя колонки
+                вводит в заблуждение — смотреть надо на подпись, а не на слово
+                light в названии. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {data.brand_logo_light_url && (
-                <LogoCard url={data.brand_logo_light_url} name={displayName}
-                          caption="Для тёмного фона" background={DARK} />
-              )}
               {data.brand_logo_url && (
                 <LogoCard url={data.brand_logo_url} name={displayName}
+                          caption="Для тёмного фона" background={DARK} />
+              )}
+              {data.brand_logo_light_url && (
+                <LogoCard url={data.brand_logo_light_url} name={displayName}
                           caption="Для светлого фона" background="#ffffff" bordered />
               )}
             </div>
@@ -141,6 +153,7 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
             <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
               {channels.map((c, i) => (
                 <div key={i} className="flex items-center gap-2 px-4 py-3">
+                  <ChannelBadge platform={c.platform} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
                     <p className="text-xs text-gray-400 truncate">{c.url}</p>
@@ -158,21 +171,9 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
           </Section>
         )}
 
-        {/* Охваты */}
-        {assets.length > 0 && (
-          <Section title="Охваты">
-            <div className="flex flex-wrap gap-2">
-              {assets.map((a, i) => (
-                <span key={i} className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-sm">
-                  <b style={{ color: '#25455D' }}>{Number(a.subscribers).toLocaleString('ru-RU')}</b>
-                  <span className="text-gray-500 ml-1.5">
-                    {PLATFORM_LABEL[a.platform!] || a.platform}
-                  </span>
-                </span>
-              ))}
-            </div>
-          </Section>
-        )}
+        {/* ⚠️ Блок «Охваты» убран по решению владельца: цифры подписчиков из
+            media_assets вводили в заблуждение — они вносятся вручную, устаревают
+            и выглядели как заявленный охват. Организатору для афиши они не нужны. */}
       </main>
 
       <footer className="py-8 text-center text-xs text-gray-400">
@@ -189,7 +190,11 @@ function Section({ title, action, children }: {
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">{title}</h2>
+        {/* Персиковый акцент, а не серый: страница должна читаться как бренд
+            клиента. ⚠️ На БЕЛОМ фоне персиковый почти не виден — поэтому здесь
+            он идёт по тёмной подложке-плашке, а не голым текстом. */}
+        <h2 className="text-sm font-semibold uppercase tracking-wide px-3 py-1 rounded-lg"
+            style={{ background: DARK, color: ACCENT }}>{title}</h2>
         {action}
       </div>
       {children}
@@ -268,7 +273,13 @@ function CopyBtn({ text, label, iconOnly }: { text: string; label?: string; icon
   )
 }
 
-/** Убирает теги — организатор копирует чистый текст в свою афишу. */
+/** Убирает теги и хештеги — организатор копирует чистый текст в свою афишу.
+ *
+ * ⚠️ Хештеги ПОКАЗЫВАЕМ (они часть авторского текста), но в буфер не кладём:
+ * организатор вставляет био в афишу или программу, где чужие #метки не нужны
+ * и выглядят мусором. Разметка при этом рендерится через SafeHtml — на экране
+ * человек видит оформленный текст, а копирует голый.
+ */
 function stripTags(s: string): string {
   return s
     .replace(/<br\s*\/?>/gi, '\n')
@@ -276,30 +287,39 @@ function stripTags(s: string): string {
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
+    // Хештег = # + буквы/цифры/подчёркивание, кириллица тоже. Решётку внутри
+    // слова (цвет #FFCFA4, «дом №5») не трогаем — только отдельные метки.
+    .replace(/(^|\s)#[\wа-яёА-ЯЁ][\wа-яёА-ЯЁ-]*/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
-/** Собирает каналы из social_links: массивы каналов по площадкам + одиночные ссылки. */
-function collectChannels(social: Record<string, any>): { name: string; url: string }[] {
-  const out: { name: string; url: string }[] = []
+/** Собирает каналы из social_links: массивы каналов по площадкам + одиночные ссылки.
+ *
+ * Вместе с названием отдаём КОД ПЛОЩАДКИ — по нему рисуется её значок. Названия
+ * каналов клиент пишет свои («ПЛЮСОН СЕРВИС»), и по одному тексту непонятно,
+ * куда ведёт ссылка; значок читается мгновенно.
+ */
+function collectChannels(social: Record<string, any>): Channel[] {
+  const out: Channel[] = []
   const seen = new Set<string>()
 
-  const push = (name: string, url: any) => {
+  const push = (name: string, url: any, platform: string) => {
     const u = String(url || '').trim()
     if (!u || !u.startsWith('http') || seen.has(u)) return
     seen.add(u)
-    out.push({ name, url: u })
+    out.push({ name, url: u, platform })
   }
 
-  for (const [key, fallbackName] of [
-    ['telegram_channels', 'Telegram'],
-    ['vk_channels', 'ВКонтакте'],
-    ['max_channels', 'MAX'],
+  for (const [key, fallbackName, platform] of [
+    ['telegram_channels', 'Telegram', 'telegram'],
+    ['vk_channels', 'ВКонтакте', 'vk'],
+    ['max_channels', 'MAX', 'max'],
   ] as const) {
     const list = social[key]
     if (Array.isArray(list)) {
-      for (const ch of list) push(ch?.name || fallbackName, ch?.url)
+      for (const ch of list) push(ch?.name || fallbackName, ch?.url, platform)
     }
   }
 
@@ -308,8 +328,36 @@ function collectChannels(social: Record<string, any>): { name: string; url: stri
     ['telegram', 'Telegram'], ['vk', 'ВКонтакте'], ['max', 'MAX'],
     ['instagram', 'Instagram'], ['youtube', 'YouTube'], ['website', 'Сайт'],
   ] as const) {
-    if (typeof social[key] === 'string') push(name, social[key])
+    if (typeof social[key] === 'string') push(name, social[key], key)
   }
 
   return out
+}
+
+/** Значок площадки: цветной кружок с буквой.
+ *
+ * ⚠️ Своих SVG-иконок соцсетей в проекте нет, а тянуть картинки с чужих сайтов
+ * нельзя — они отвалятся вместе с чужим хостингом. Кружок в фирменном цвете
+ * площадки решает задачу «сразу видно, куда ведёт ссылка».
+ */
+const PLATFORM_BADGE: Record<string, { letter: string; bg: string }> = {
+  telegram:  { letter: 'T', bg: '#2AABEE' },
+  vk:        { letter: 'B', bg: '#0077FF' },
+  max:       { letter: 'M', bg: '#7B61FF' },
+  instagram: { letter: 'I', bg: '#C13584' },
+  youtube:   { letter: 'Y', bg: '#FF0000' },
+  website:   { letter: '@', bg: '#25455D' },
+}
+
+function ChannelBadge({ platform }: { platform: string }) {
+  const b = PLATFORM_BADGE[platform] || PLATFORM_BADGE.website
+  return (
+    <span
+      className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
+      style={{ background: b.bg }}
+      aria-hidden
+    >
+      {b.letter}
+    </span>
+  )
 }

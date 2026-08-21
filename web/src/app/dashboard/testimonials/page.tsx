@@ -73,9 +73,12 @@ export default function TestimonialsPage() {
         const fd = new FormData()
         fd.append('file', f)
         fd.append('kind', 'landing_media')
-        const res = await fetch('/api/v1/uploads', {
+        // ⚠️ Две правки разом. Ключ токена — 'plusson_token' (две «с»), как во
+        // всём проекте: под 'token' лежит пустота, и сервер отвечал 401. И адрес
+        // АБСОЛЮТНЫЙ: относительный '/api/v1/...' уходит в Next.js, а не в API.
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/uploads`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem('plusson_token') || ''}` },
           body: fd,
         })
         if (!res.ok) throw new Error('Не удалось загрузить файл')

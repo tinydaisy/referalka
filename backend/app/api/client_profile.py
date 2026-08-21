@@ -171,8 +171,8 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     return d
 
 
-@public.get("/clients/{client_id}/speaker-page", summary="Публичная страница спикера")
-async def public_speaker_page(client_id: int, db: asyncpg.Connection = Depends(get_db)):
+@public.get("/clients/{client_ref}/speaker-page", summary="Публичная страница спикера")
+async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(get_db)):
     """Всё, что организатор скачивает и копирует про спикера, одной ссылкой.
 
     Зачем. У спикера постоянно просят фото, логотипы, регалии и темы. Каждый раз
@@ -182,19 +182,27 @@ async def public_speaker_page(client_id: int, db: asyncpg.Connection = Depends(g
     ⚠️ Отдаём ТОЛЬКО то, что человек и так показывает публично (визитка, каналы,
     регалии). Почта, телефон и служебные поля сюда не попадают: страницу видит
     любой, у кого есть ссылка.
+
+    ⚠️ `client_ref` — СЛУЧАЙНЫЙ КОД (`clients.speaker_page_slug`, мигр. 324), а
+    не номер клиента. По номеру страница подбиралась перебором: набрал соседнее
+    число — смотришь материалы чужого клиента. Номер принимается только как
+    запасной путь: ссылки вида /sp/1 могли уже кому-то отдать.
     """
+    by_id = client_ref.isdigit()
     row = await db.fetchrow(
-        """SELECT id, name, brand_name,
+        f"""SELECT id, name, brand_name,
                   brand_logo_url, brand_logo_light_url,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links, media_assets
              FROM clients
-            WHERE id = $1 AND is_active = TRUE""",
-        client_id
+            WHERE {'id = $1::int' if by_id else 'speaker_page_slug = $1'}
+              AND is_active = TRUE""",
+        int(client_ref) if by_id else client_ref
     )
     if not row:
         raise HTTPException(status_code=404, detail="Страница не найдена")
 
+    client_id = row["id"]
     photos = await db.fetch(
         """SELECT id, url, label, is_primary
              FROM client_speaker_photos
@@ -1144,6 +1152,7 @@ async def get_my_profile(
                   start_mode, start_event_id,
                   start_lead_magnet_id, start_package_id,
                   events_tab_visibility,
+                  speaker_page_slug,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem
              FROM clients WHERE id = $1""",
         int(client["sub"])

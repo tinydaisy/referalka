@@ -56,6 +56,7 @@ interface Profile {
   brand_name?: string | null
   brand_logo_url?: string | null
   brand_logo_light_url?: string | null
+  speaker_page_slug?: string | null         // код адреса /sp/{код} (мигр. 324)
   profile_photo_url?: string | null         // фото бренда
   positioning?: string | null               // позиционирование бренда
   achievements: Achievement[]               // факты в цифрах бренда
@@ -593,7 +594,7 @@ export default function MiniAppSettingsPage() {
                   публичную страницу, которую спикер отдаёт вместо пересылки файлов. */}
               <div className="pt-4 border-t border-gray-100">
                 <SpeakerPhotosField />
-                {profile.id && <SpeakerPageLink clientId={profile.id} />}
+                {profile.id && <SpeakerPageLink clientId={profile.id} slug={profile.speaker_page_slug} />}
               </div>
             </div>
           </Section>
@@ -1207,10 +1208,13 @@ function Section({
  * ⚠️ Адрес строится от домена КЛИЕНТА (publicBase), а не от window.location:
  * кабинет открыт на pluson.ru, и origin дал бы наш домен вместо клиентского.
  */
-function SpeakerPageLink({ clientId }: { clientId: number }) {
+function SpeakerPageLink({ clientId, slug }: { clientId: number; slug?: string | null }) {
   const { publicBase } = useMe()
   const [copied, setCopied] = useState(false)
-  const url = `${publicBase}/sp/${clientId}`
+  // ⚠️ Адрес по СЛУЧАЙНОМУ коду (мигр. 324), а не по номеру клиента: /sp/1
+  // подбирался перебором — набрал соседнее число и смотришь чужие материалы.
+  // Номер оставлен запасным вариантом для старых кабинетов без кода.
+  const url = `${publicBase}/sp/${slug || clientId}`
 
   return (
     <div className="mt-4 rounded-xl bg-[#FFF6EE] border border-[#FFCFA4] p-3">

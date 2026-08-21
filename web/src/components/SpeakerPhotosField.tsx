@@ -44,9 +44,14 @@ export default function SpeakerPhotosField() {
         const fd = new FormData()
         fd.append('file', file)
         fd.append('kind', 'speaker_gallery')
+        // ⚠️ Ключ токена — 'plusson_token' (две «с»), как во всём проекте.
+        // Здесь стояло 'token': в заголовок уходило пустое значение, сервер
+        // отвечал 401 «Неверный или просроченный токен», и загрузить фото было
+        // нельзя вообще — при этом перелогин не помогал, потому что дело не в
+        // сроке токена, а в том, что его не находили.
         const resp = await fetch(`${API_URL}/api/v1/uploads`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem('plusson_token') || ''}` },
           body: fd,
         })
         if (!resp.ok) {
