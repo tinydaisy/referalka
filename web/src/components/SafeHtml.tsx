@@ -95,8 +95,29 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/** Очистка БЕЗ браузера — для страниц, которые рисует сервер.
+ *
+ * ⚠️ Нужна потому, что основной sanitize работает через DOMParser, а на сервере
+ * его нет: он возвращал пустоту, и разметка вываливалась на экран сырыми тегами
+ * («<b>Основатель…» на публичной странице спикера).
+ *
+ * Правило простое: оставляем только теги из ALLOWED_TAGS и БЕЗ атрибутов, всё
+ * прочее срезаем. Атрибуты не разбираем намеренно — на сервере проверить схему
+ * ссылки нечем, а пропустить `javascript:` или `onclick` нельзя. Ссылки в такой
+ * записи станут обычным текстом; в браузере тот же текст пройдёт полный
+ * sanitize и снова станет кликабельным.
+ */
+function sanitizeServer(html: string): string {
+  return fixReversedClosingTags(html)
+    .replace(/<\s*(script|style)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(\/?)\s*([a-z0-9]+)\b[^>]*>/gi, (_m, slash: string, tag: string) =>
+      ALLOWED_TAGS.has(tag.toLowerCase()) && tag.toLowerCase() !== 'a'
+        ? `<${slash}${tag.toLowerCase()}>`
+        : '')
+}
+
 function sanitize(html: string): string {
-  if (typeof window === 'undefined') return ''
+  if (typeof window === 'undefined') return sanitizeServer(html)
   const doc = new DOMParser().parseFromString(`<div>${fixReversedClosingTags(html)}</div>`, 'text/html')
   const root = doc.body.firstElementChild
   if (!root) return ''
@@ -164,9 +185,18 @@ export default function SafeHtml({
   if (!value) return null
 
   // Старая запись без разметки и без ссылок — показываем текстом, сохраняя переносы.
+  //
+  // ⚠️ Если разметка ЕСТЬ, а очистить её не удалось, показывать `value` как
+  // текст нельзя: теги вывалятся на экран. Так и было на серверных страницах
+  // (`/sp/{код}`) — sanitize работает только в браузере (ему нужен DOMParser) и
+  // на сервере возвращает пустоту, поэтому организатор видел «<b>Основатель…».
+  // Здесь безопаснее убрать теги, чем показать их человеку.
   if (!clean) {
+    const text = looksLikeHtml(value)
+      ? value.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
+      : value
     return (
-      <div className={`whitespace-pre-wrap ${className}`} style={style}>{value}</div>
+      <div className={`whitespace-pre-wrap ${className}`} style={style}>{text}</div>
     )
   }
 
