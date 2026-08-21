@@ -679,9 +679,11 @@ export default function SpeakerCabinetPage() {
       bg: `linear-gradient(${me.lp_bg_angle ?? 45}deg, ${c1}, ${c2})`,
       accent,
       isDark,
-      // ⚠️ Нет светлого варианта — берём обычный, а не пустоту: иначе у клиента
-      // без светлого логотипа знак пропал бы с шапки совсем.
-      logo: (isDark ? (me.client_logo_light || me.client_logo) : (me.client_logo || me.client_logo_light)) || null,
+      // ⚠️⚠️ Имена колонок ОБМАНЧИВЫ: `brand_logo_light_url` — это логотип
+      // ДЛЯ СВЕТЛОГО ФОНА (тёмная графика), а `brand_logo_url` — основной, с
+      // белой графикой под тёмный фон. Прочитав «light» как «светлый логотип»,
+      // легко поставить на тёмную шапку тёмный знак — он там пропадает.
+      logo: (isDark ? (me.client_logo || me.client_logo_light) : (me.client_logo_light || me.client_logo)) || null,
     }
   })()
 
