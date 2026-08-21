@@ -104,6 +104,12 @@ def build_key(
     if kind in ("brand_photo", "brand_logo", "owner_photo"):
         return f"{base}/profile/{kind}/{fname}"
 
+    # Библиотека фото спикера (миграция 323) — несколько снимков, из которых
+    # организатор выбирает нужный на публичной странице. Отдельно от
+    # speaker_photo: тот привязан к коллаборатору, а этот — к самому клиенту.
+    if kind == "speaker_gallery":
+        return f"{base}/profile/speaker_gallery/{fname}"
+
     if kind == "funnel_media":
         return f"{base}/funnel_media/{fname}"
 

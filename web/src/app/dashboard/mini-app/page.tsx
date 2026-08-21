@@ -18,6 +18,7 @@ import HtmlTextArea from '@/components/HtmlTextArea'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
+import SpeakerPhotosField from '@/components/SpeakerPhotosField'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 
@@ -587,6 +588,13 @@ export default function MiniAppSettingsPage() {
                   {(profile.owner_positioning || '').length} из 140
                 </p>
               </Field>
+
+              {/* Библиотека фото для организаторов (миграция 323) + ссылка на
+                  публичную страницу, которую спикер отдаёт вместо пересылки файлов. */}
+              <div className="pt-4 border-t border-gray-100">
+                <SpeakerPhotosField />
+                {profile.id && <SpeakerPageLink clientId={profile.id} />}
+              </div>
             </div>
           </Section>
 
@@ -1188,6 +1196,44 @@ function Section({
         {action}
       </div>
       <div className="pt-2">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * Ссылка на публичную страницу спикера. Её отдают организатору вместо того,
+ * чтобы каждый раз пересылать фото, логотипы и регалии файлами.
+ *
+ * ⚠️ Адрес строится от домена КЛИЕНТА (publicBase), а не от window.location:
+ * кабинет открыт на pluson.ru, и origin дал бы наш домен вместо клиентского.
+ */
+function SpeakerPageLink({ clientId }: { clientId: number }) {
+  const { publicBase } = useMe()
+  const [copied, setCopied] = useState(false)
+  const url = `${publicBase}/sp/${clientId}`
+
+  return (
+    <div className="mt-4 rounded-xl bg-[#FFF6EE] border border-[#FFCFA4] p-3">
+      <p className="text-xs font-medium text-[#25455D]">Ссылка для организаторов</p>
+      <p className="text-xs text-gray-500 mt-0.5">
+        Отдайте её вместо пересылки файлов — организатор скачает фото, логотипы
+        и скопирует регалии сам.
+      </p>
+      <div className="mt-2 flex items-center gap-1.5">
+        <code className="flex-1 min-w-0 truncate text-xs bg-white rounded-lg px-2.5 py-2 border border-[#FFCFA4]/60">
+          {url}
+        </code>
+        <button type="button"
+          onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+          className="shrink-0 px-3 py-2 rounded-lg text-xs font-semibold text-white"
+          style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+          {copied ? 'Скопировано' : 'Копировать'}
+        </button>
+        <a href={url} target="_blank" rel="noopener noreferrer" title="Открыть"
+           className="shrink-0 p-2 rounded-lg hover:bg-white/60 text-gray-400 hover:text-gray-600">
+          <ExternalLink size={15} />
+        </a>
+      </div>
     </div>
   )
 }

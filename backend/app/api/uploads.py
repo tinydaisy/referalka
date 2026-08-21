@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 IMAGE_UPLOAD_KINDS = {
     "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
     "speaker_poster",
-    "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
+    "brand_photo", "brand_logo", "owner_photo", "speaker_gallery", "funnel_media", "broadcast_photo",
     "broadcast_video",
     "event_video", "speaker_video", "referral_video",
     "landing_bg", "landing_media",
@@ -382,6 +382,7 @@ _KIND_LABEL = {
     "brand_photo": "Фото бренда",
     "brand_logo": "Логотип бренда",  # оба варианта: для тёмного и светлого фона
     "owner_photo": "Фото основателя",
+    "speaker_gallery": "Фото спикера",
     "broadcast_photo": "Фото рассылки",
     "broadcast_video": "Видео рассылки",
     "dialog_media": "Медиа переписки",
@@ -645,7 +646,7 @@ async def storage_files(
             pid = r["product_id"] or uses[0]["owner_id"]
             link = f"/dashboard/products/{pid}"
             place = (uses[0]["title"] if uses else "Продукт") + place_extra
-        elif kind in ("brand_photo", "brand_logo", "owner_photo"):
+        elif kind in ("brand_photo", "brand_logo", "owner_photo", "speaker_gallery"):
             link = "/dashboard/mini-app"
             place = "Профиль и бренд"
         elif kind in ("broadcast_photo", "broadcast_video"):
@@ -735,7 +736,7 @@ async def storage_files(
                         or (r["url"] or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v")),
             "is_image": (r["content_type"] or "").startswith("image/")
                         or kind in ("event_poster", "speaker_photo", "brand_logo",
-                                    "owner_photo", "brand_photo", "landing_media",
+                                    "owner_photo", "brand_photo", "speaker_gallery", "landing_media",
                                     "landing_bg", "product_media", "survey_media")
                         and not (r["url"] or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v")),
         })

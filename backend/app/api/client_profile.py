@@ -171,6 +171,46 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     return d
 
 
+@public.get("/clients/{client_id}/speaker-page", summary="Публичная страница спикера")
+async def public_speaker_page(client_id: int, db: asyncpg.Connection = Depends(get_db)):
+    """Всё, что организатор скачивает и копирует про спикера, одной ссылкой.
+
+    Зачем. У спикера постоянно просят фото, логотипы, регалии и темы. Каждый раз
+    искать по папкам и пересылать файлами — та ещё работа. Здесь он даёт один
+    адрес, а организатор берёт нужное сам.
+
+    ⚠️ Отдаём ТОЛЬКО то, что человек и так показывает публично (визитка, каналы,
+    регалии). Почта, телефон и служебные поля сюда не попадают: страницу видит
+    любой, у кого есть ссылка.
+    """
+    row = await db.fetchrow(
+        """SELECT id, name, brand_name,
+                  brand_logo_url, brand_logo_light_url,
+                  owner_photo_url, owner_positioning, owner_achievements,
+                  bio, social_links, media_assets
+             FROM clients
+            WHERE id = $1 AND is_active = TRUE""",
+        client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Страница не найдена")
+
+    photos = await db.fetch(
+        """SELECT id, url, label, is_primary
+             FROM client_speaker_photos
+            WHERE client_id = $1
+            ORDER BY sort_order, id""",
+        client_id
+    )
+
+    d = dict(row)
+    d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
+    d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
+    d["media_assets"]       = _parse_jsonb(d.get("media_assets"), [])
+    d["photos"]             = [dict(p) for p in photos]
+    return d
+
+
 @public.get("/clients/{client_id}/offerings", summary="Продукты клиента (для Mini App)")
 async def public_client_offerings(client_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(

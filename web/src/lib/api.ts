@@ -1285,6 +1285,19 @@ export const api = {
         request(`/api/v1/clients/me/domains/${id}`, { method: 'DELETE' }),
     },
   },
+  // Библиотека фото спикера (миграция 323): несколько снимков, из которых
+  // организатор выбирает нужный на публичной странице /sp/{client_id}.
+  speakerPhotos: {
+    list: () => request('/api/v1/clients/me/speaker-photos'),
+    create: (data: { url: string; label?: string }) =>
+      request('/api/v1/clients/me/speaker-photos', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: { label?: string; sort_order?: number; is_primary?: boolean }) =>
+      request(`/api/v1/clients/me/speaker-photos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    reorder: (ids: number[]) =>
+      request('/api/v1/clients/me/speaker-photos/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
+    delete: (id: number) =>
+      request(`/api/v1/clients/me/speaker-photos/${id}`, { method: 'DELETE' }),
+  },
   referralProgram: {
     posters: {
       // Без опций — все афиши (у каждой поле day: null у общей, номер дня у дневной).
