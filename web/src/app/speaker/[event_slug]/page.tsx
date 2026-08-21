@@ -92,7 +92,14 @@ type SpeakerMe = {
   event_title: string
   event_slug: string
   client_logo?: string | null
+  client_logo_light?: string | null
   client_brand?: string | null
+  // Тема клиента («Стили лендингов») — кабинет красится в его цвета.
+  lp_bg_color?: string | null
+  lp_bg_color_2?: string | null
+  lp_bg_angle?: number | null
+  lp_color_heading?: string | null
+  lp_color_body?: string | null
   role: string
   name: string | null
   title: string | null
@@ -655,6 +662,29 @@ export default function SpeakerCabinetPage() {
   // Старый бэк поле не отдаёт (undefined) → считаем, что редактировать можно.
   const canEdit = me.can_edit !== false
 
+  // Тема кабинета из настроек клиента («Стили лендингов»). Раньше цвета были
+  // захардкожены — кабинет у всех клиентов выглядел в фирменных цветах
+  // ПЛЮСОНа, а не в их собственных.
+  const theme = (() => {
+    const c1 = me.lp_bg_color || DARK
+    const c2 = me.lp_bg_color_2 || '#0a1520'
+    const accent = me.lp_color_heading || PEACH
+    // Тёмный ли фон — по яркости первого цвета: на тёмном нужен светлый логотип.
+    const hex = c1.replace('#', '')
+    const n = parseInt(hex.length === 3 ? hex.split('').map(x => x + x).join('') : hex, 16)
+    const lum = Number.isNaN(n) ? 0
+      : (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+    const isDark = lum < 0.6
+    return {
+      bg: `linear-gradient(${me.lp_bg_angle ?? 45}deg, ${c1}, ${c2})`,
+      accent,
+      isDark,
+      // ⚠️ Нет светлого варианта — берём обычный, а не пустоту: иначе у клиента
+      // без светлого логотипа знак пропал бы с шапки совсем.
+      logo: (isDark ? (me.client_logo_light || me.client_logo) : (me.client_logo || me.client_logo_light)) || null,
+    }
+  })()
+
   // Что мешает сохранить: собираем словами, чтобы человек сразу видел причину,
   // а не упирался в погасшую кнопку без объяснения.
   const tooLong = (() => {
@@ -903,20 +933,23 @@ export default function SpeakerCabinetPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa', padding: 16, fontFamily: 'Roboto, sans-serif' }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        <div style={{ background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 14 }}>
+        <div style={{ background: theme.bg, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
               {/* Логотип организатора: спикер приходит по ссылке из письма и
                   должен сразу видеть, чьё это событие. Раньше в кабинете не
                   было ни знака, ни бренда — только название события. */}
-              {me.client_logo && (
-                <img src={me.client_logo} alt={me.client_brand || ''}
-                  style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 8,
-                           background: 'rgba(255,255,255,0.12)', padding: 4, flexShrink: 0 }} />
+              {/* ⚠️ БЕЗ подложки — знак кладётся прямо на фон шапки.
+                  На тёмной теме берём светлый вариант логотипа, но если его
+                  не загрузили — обычный, иначе логотип пропал бы совсем. */}
+              {theme.logo && (
+                <img src={theme.logo} alt={me.client_brand || ''}
+                  style={{ height: 44, width: 'auto', maxWidth: 130,
+                           objectFit: 'contain', flexShrink: 0 }} />
               )}
             <div style={{ minWidth: 0 }}>
               {me.client_brand && (
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 600 }}>{me.client_brand}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: theme.accent }}>{me.client_brand}</div>
               )}
               <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>
@@ -994,7 +1027,7 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
         {activeTab === 'invited' && token && <InvitedTab token={token} />}
         {activeTab === 'slot' && token && <SlotTab token={token} myName={[me.name, me.last_name].filter(Boolean).join(' ')} canEdit={canEdit} />}
-        {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} canEdit={canEdit} />}
+        {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} canEdit={canEdit} accent={theme.accent} />}
 
         {activeTab === 'profile' && <>
         {/* ⚠️ Шапка профиля: «посмотреть, как я выгляжу» + чего не хватает.
@@ -2402,7 +2435,7 @@ const statusChip = (s: string) => {
   )
 }
 
-function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: boolean }) {
+function MyBroadcastsTab({ token, canEdit = true, accent = PEACH }: { token: string; canEdit?: boolean; accent?: string }) {
   // Подвкладки: цифры и материалы для продвижения.
   const [subTab, setSubTab] = useState<'gifts' | 'promo'>('gifts')
   const [loading, setLoading] = useState(true)
@@ -2513,6 +2546,7 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
       {subTab === 'gifts' && (
         <SpeakerGiftStats
           forSpeaker
+          accent={accent}
           load={async () => {
             const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/gift-stats`, {
               headers: { Authorization: `Bearer ${token}` },

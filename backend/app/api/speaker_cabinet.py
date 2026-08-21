@@ -238,7 +238,10 @@ async def get_me(
                   -- Логотип и бренд организатора: спикер открывает кабинет по
                   -- ссылке из письма и должен сразу видеть, чьё это событие.
                   own.brand_logo_url AS client_logo,
+                  own.brand_logo_light_url AS client_logo_light,
                   COALESCE(NULLIF(own.brand_name,''), own.name) AS client_brand,
+                  own.lp_bg_color, own.lp_bg_color_2, own.lp_bg_angle,
+                  own.lp_color_heading, own.lp_color_body,
                   -- Для ссылок «посмотреть себя» в шапке профиля (см. ниже).
                   e.landing_url,
                   own.default_link_mode,
@@ -257,7 +260,13 @@ async def get_me(
                -- ⚠️ Поля перечислены ЯВНО: снаружи own.* не работает, колонку
                -- надо добавлять и сюда, иначе «column own.X does not exist».
                SELECT cl.id, cl.default_link_mode,
-                      cl.brand_logo_url, cl.brand_name, cl.name
+                      cl.brand_logo_url, cl.brand_logo_light_url,
+                      cl.brand_name, cl.name,
+                      -- Тема кабинета: те же цвета, что клиент задал в
+                      -- «Стилях лендингов». Без них кабинет у всех выглядел
+                      -- одинаково — в фирменных цветах ПЛЮСОНа, а не клиента.
+                      cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle,
+                      cl.lp_color_heading, cl.lp_color_body
                  FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
                 WHERE eo.event_id = e.id AND eo.status = 'accepted'
                 ORDER BY eo.id LIMIT 1

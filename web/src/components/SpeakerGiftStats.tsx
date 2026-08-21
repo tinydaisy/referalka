@@ -38,14 +38,20 @@ export type GiftStats = {
   periods: Period[]
 }
 
-function Table({ p }: { p: Period }) {
+function Table({ p, accent, headText }: { p: Period; accent: string; headText: string }) {
   if (p.rows.length === 0) return null
   return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 6 }}>
-        {p.label}
-        <span style={{ fontWeight: 400, color: '#7a8c9c' }}>
-          {' '}· {p.days === 0
+    // ⚠️ Каждый период — ОТДЕЛЬНАЯ карточка. Раньше три таблицы шли подряд
+    // и сливались: было не понять, где кончается один период и начинается
+    // следующий, а даты терялись мелким шрифтом.
+    <div style={{
+      background: '#fff', border: '1px solid #dbe4ec', borderRadius: 14,
+      padding: '16px 18px', marginBottom: 14,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <span style={{ fontSize: 19, fontWeight: 700, color: DARK }}>{p.label}</span>
+        <span style={{ fontSize: 13, color: '#7a8c9c' }}>
+          · {p.days === 0
             ? 'за само событие'
             : p.days === 3
               ? 'плюс 3 дня после'
@@ -65,7 +71,7 @@ function Table({ p }: { p: Period }) {
           <tbody>
             {/* «Всего» — ПЕРВОЙ строкой: сначала общая цифра, потом её разбор.
                 Внизу её приходилось искать под списком подарков. */}
-            <tr style={{ background: PEACH, fontWeight: 700, color: DARK }}>
+            <tr style={{ background: accent, fontWeight: 700, color: headText }}>
               <td style={{ padding: '11px 10px', fontSize: 14 }}>Всего</td>
               <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 15 }}>{p.total.visits}</td>
               <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 15 }}>{p.total.delivered}</td>
@@ -94,12 +100,23 @@ function Table({ p }: { p: Period }) {
 export default function SpeakerGiftStats({
   load,
   forSpeaker = false,
+  accent = PEACH,
 }: {
   /** Загрузчик — у дашборда и кабинета разные эндпоинты, данные одинаковые. */
   load: () => Promise<GiftStats>
   /** true — экран спикера: обращение на «вы», совет писать организатору. */
   forSpeaker?: boolean
+  /** Акцентный цвет из темы клиента. В дашборде — фирменный персиковый. */
+  accent?: string
 }) {
+  // Текст на акцентной плашке: на тёмном фоне белый, на светлом — тёмный.
+  const headText = (() => {
+    const hex = (accent || '').replace('#', '')
+    const n = parseInt(hex.length === 3 ? hex.split('').map(x => x + x).join('') : hex, 16)
+    if (Number.isNaN(n)) return DARK
+    const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+    return lum < 0.6 ? '#fff' : DARK
+  })()
   const [data, setData] = useState<GiftStats | null>(null)
   const [err, setErr] = useState('')
 
@@ -125,7 +142,7 @@ export default function SpeakerGiftStats({
   const hasRows = data.periods.some(p => p.rows.length > 0)
   if (!hasRows) {
     return (
-      <div style={{ fontSize: 13, color: DARK, background: PEACH, padding: 12, borderRadius: 10 }}>
+      <div style={{ fontSize: 13, color: headText, background: accent, padding: 12, borderRadius: 10 }}>
         {forSpeaker
           ? <>Переходы по вашим подаркам не считаются: вы дали свои ссылки, не из ПЛЮСОНа.
               Чтобы видеть статистику, попросите организатора включить подсчёт переходов.</>
@@ -141,7 +158,7 @@ export default function SpeakerGiftStats({
         <b>Перешли</b> — открыли подарок. <b>Забрали</b> — дошли до получения файла.{' '}
         <b>Новых</b> — попали в базу впервые, их привёл{forSpeaker ? 'о ваше выступление' : ' этот спикер'}.
       </div>
-      {data.periods.map(p => <Table key={p.days} p={p} />)}
+      {data.periods.map(p => <Table key={p.days} p={p} accent={accent} headText={headText} />)}
     </div>
   )
 }
