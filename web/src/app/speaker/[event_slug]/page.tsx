@@ -2562,9 +2562,6 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
                 {b.status === 'done' && b.sent_ok > 0 && (
                   <div style={{ fontSize: 12, color: '#5c7589', whiteSpace: 'nowrap' }}>
                     <b style={{ color: DARK }}>{b.sent_ok.toLocaleString('ru')}</b> получили
-                    {b.sent_total > b.sent_ok && (
-                      <span style={{ color: '#9aa9b5' }}> из {b.sent_total.toLocaleString('ru')}</span>
-                    )}
                   </div>
                 )}
               </div>
