@@ -338,6 +338,9 @@ export const api = {
       request(`/api/v1/events/${eventId}/conference/`, { method: 'PATCH', body: JSON.stringify(data) }),
     speakers: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/speakers`),
+      /** Переходы по подаркам спикера — то же, что видит он сам у себя. */
+      giftStats: (eventId: number, speakerEventId: number) =>
+        request(`/api/v1/events/${eventId}/conference/speakers/${speakerEventId}/gift-stats`),
       create: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/conference/speakers`, { method: 'POST', body: JSON.stringify(data) }),
       addFromBase: (eventId: number, data: any) =>

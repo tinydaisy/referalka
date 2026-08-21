@@ -15,6 +15,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import QrLinkButton from '@/components/QrLinkButton'
 import CopyAllLinksButton from '@/components/CopyAllLinksButton'
+import SpeakerGiftStats from '@/components/SpeakerGiftStats'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
@@ -930,7 +931,7 @@ export default function SpeakerCabinetPage() {
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
-            { key: 'broadcasts' as CabinetTab, label: 'Рекламные интеграции' },
+            { key: 'broadcasts' as CabinetTab, label: 'Статистика' },
             // «Мой слот» — всем, кто выступает: спикерам, хедлайнерам,
             // ОРГАНИЗАТОРАМ и ПАРТНЁРАМ (организатор тоже выходит в эфир —
             // раньше вкладка была ему скрыта). Прячем только у жюри: они
@@ -2387,6 +2388,8 @@ const statusChip = (s: string) => {
 }
 
 function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: boolean }) {
+  // Подвкладки: цифры и материалы для продвижения.
+  const [subTab, setSubTab] = useState<'gifts' | 'promo'>('gifts')
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<any[]>([])
   const [cardLink, setCardLink] = useState<string | null>(null)
@@ -2467,12 +2470,49 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '4px 0 6px' }}>
-        Рекламные интеграции
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '4px 0 10px' }}>
+        Статистика
       </h2>
+
+      {/* Две подвкладки: цифры и материалы для продвижения. Раньше это была
+          одна вкладка «Рекламные интеграции» — цифрам в ней места не было. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {([
+          { key: 'gifts' as const, label: 'По лид-магнитам' },
+          { key: 'promo' as const, label: 'Рекламные интеграции' },
+        ]).map(t => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setSubTab(t.key)}
+            style={{
+              padding: '8px 14px', borderRadius: 999, fontSize: 13, cursor: 'pointer',
+              border: subTab === t.key ? `2px solid ${PEACH}` : '1px solid #d4dee5',
+              background: subTab === t.key ? '#fdf6ef' : '#fff',
+              color: DARK, fontWeight: subTab === t.key ? 700 : 500,
+            }}
+          >{t.label}</button>
+        ))}
+      </div>
+
+      {subTab === 'gifts' && (
+        <SpeakerGiftStats
+          forSpeaker
+          load={async () => {
+            const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/gift-stats`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!r.ok) throw new Error('fail')
+            return r.json()
+          }}
+        />
+      )}
+
+      {subTab === 'promo' && <>
       <p style={{ fontSize: 13, color: '#7a8c9c', margin: '0 0 14px' }}>
         Всё для продвижения события с вами: ваша карточка в кабинете участника, лендинг события и рассылки, в которых вы фигурируете.
       </p>
+
 
       {cardLink && (
         <LinkBlock
@@ -2550,6 +2590,7 @@ function MyBroadcastsTab({ token, canEdit = true }: { token: string; canEdit?: b
           ))}
         </div>
       )}
+      </>}
 
       {testConfirm && (
         <div style={{

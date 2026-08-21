@@ -10,6 +10,7 @@ from app.services.client_domains import client_public_link
 # Голый col.name отдаёт одно имя — фамилия пропадает (миграция 302 вынесла её
 # в отдельную колонку last_name).
 from app.services.person_name import DISPLAY_NAME_SQL
+from app.services.speaker_lead_magnet_stats import speaker_lead_magnet_stats
 import asyncpg
 import re
 import json
@@ -1254,6 +1255,30 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
         d["topics"] = topics_map.get(d["id"], [])
         result.append(d)
     return {"speakers": result}
+
+
+@router.get("/speakers/{speaker_event_id}/gift-stats", summary="Статистика переходов по подаркам спикера")
+async def get_speaker_gift_stats(
+    event_id: int,
+    speaker_event_id: int,
+    client: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """То же, что видит спикер у себя, — но глазами организатора.
+
+    ⚠️ Считается ОДНИМ сервисом с кабинетом спикера: разъедутся запросы —
+    разъедутся цифры, а спикер их с организатором сверяет.
+    """
+    await check_conference_access(event_id, int(client["sub"]), db)
+    # Спикер обязан принадлежать ЭТОМУ событию — иначе по чужому id можно
+    # посмотреть отдачу спикера в чужом событии.
+    ok = await db.fetchval(
+        "SELECT 1 FROM event_collaborators WHERE id=$1 AND event_id=$2",
+        speaker_event_id, event_id,
+    )
+    if not ok:
+        raise HTTPException(404, "Спикер не найден в этом событии")
+    return await speaker_lead_magnet_stats(db, speaker_event_id)
 
 
 @router.get("/speakers/{speaker_event_id}/public", summary="Полный профиль спикера для публичной страницы проверки")

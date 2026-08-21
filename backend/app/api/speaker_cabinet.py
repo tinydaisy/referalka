@@ -1158,6 +1158,19 @@ async def _resolve_landing_link(db, event_id: int, event_slug: str,
     return public_url_for(base_url, f"event/{event_slug}")
 
 
+@router.get("/me/gift-stats", summary="Статистика переходов по подаркам спикера")
+async def get_me_gift_stats(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Сколько людей перешло по подаркам спикера и сколько из них новых.
+
+    Считается за два периода — «+3 дня» и «+7 дней» после окончания программы,
+    оба от дня первого выступления. Логика и оговорки — в сервисе.
+    """
+    return await speaker_lead_magnet_stats(db, int(session["se_id"]))
+
+
 @router.get("/me/my-broadcasts", summary="Рассылки, где фигурирует этот спикер (в этом событии)")
 async def get_me_broadcasts(
     session: dict = Depends(_auth_session),

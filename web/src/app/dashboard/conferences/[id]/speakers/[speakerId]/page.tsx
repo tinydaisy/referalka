@@ -12,6 +12,7 @@ import FileUploader from '@/components/FileUploader'
 import RefLinkInline from '@/components/RefLinkInline'
 import CopyAllLinksButton, { countLinks, type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
+import SpeakerGiftStats from '@/components/SpeakerGiftStats'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 // Поля профиля, которые обязательно нужны
@@ -308,7 +309,7 @@ export default function ConferenceSpeakerPage() {
   const [channelVerifyMsg, setChannelVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [error, setError] = useState('')
   const [showWarning, setShowWarning] = useState(false)
-  const [subTab, setSubTab] = useState<'talk' | 'profile' | 'links'>('talk')
+  const [subTab, setSubTab] = useState<'talk' | 'profile' | 'links' | 'stats'>('talk')
 
   useEffect(() => {
     api.auth.me().then((c: any) => {
@@ -730,9 +731,9 @@ export default function ConferenceSpeakerPage() {
         </div>
       )}
 
-      {/* Подвкладки: Выступление / Профиль / Ссылки */}
+      {/* Подвкладки: Выступление / Профиль / Ссылки / Статистика */}
       <div className="border-b border-gray-200 mb-6 flex gap-1">
-        {([['talk', 'Выступление'], ['profile', 'Профиль'], ['links', 'Ссылки']] as const).map(([k, label]) => (
+        {([['talk', 'Выступление'], ['profile', 'Профиль'], ['links', 'Ссылки'], ['stats', 'Статистика']] as const).map(([k, label]) => (
           <button key={k} type="button" onClick={() => setSubTab(k)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               subTab === k
@@ -743,6 +744,17 @@ export default function ConferenceSpeakerPage() {
           </button>
         ))}
       </div>
+
+      {/* ── ВКЛАДКА «СТАТИСТИКА» ── */}
+      {subTab === 'stats' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8">
+          <div className="font-semibold text-gray-900 mb-1">Переходы по подаркам спикера</div>
+          <div className="text-xs text-gray-500 mb-4">
+            Считается со дня выступления. То же самое спикер видит у себя в кабинете.
+          </div>
+          <SpeakerGiftStats load={() => api.conference.speakers.giftStats(eventId, speakerEventId)} />
+        </div>
+      )}
 
       {/* ── ВКЛАДКА «ССЫЛКИ» ── */}
       {subTab === 'links' && (
