@@ -156,6 +156,12 @@ export default function ChannelsPage() {
   // Для системного сервисного аккаунта системные каналы считаются «своими».
   const hasOwnBot = channels.some(c => !c.is_system) || (isSystemService && channels.some(c => c.is_system))
 
+  // ⚠️ Боты есть, а главного нет — воронка не работает, и заметить это нечем:
+  // рассылки уходят, бот в списке, а /start, регистрации и приветствия молчат.
+  // Такое стало возможно с тех пор, как бот можно подключить «только для
+  // рассылок» и снять роль главного у единственного.
+  const hasPrimaryBot = channels.some(c => c.is_active && (!c.is_system || isSystemService))
+
   return (
     <div className="p-6 max-w-5xl">
       <div className="mb-6">
@@ -174,6 +180,22 @@ export default function ChannelsPage() {
             Подключите своего бота Telegram, сообщество ВКонтакте или бота MAX —
             чтобы сервис работал и вы могли пользоваться полным функционалом
             (воронки, события, рассылки, чаты).
+          </div>
+        </div>
+      )}
+
+      {hasOwnBot && !hasPrimaryBot && (
+        <div className="mb-6 rounded-xl bg-red-600 text-white px-5 py-4 shadow-lg">
+          <div className="text-lg font-bold">Ни один бот не отвечает за воронки</div>
+          <div className="text-sm text-white/90 mt-1">
+            Боты подключены — рассылки идут. Но пока ни один не отмечен главным,
+            воронка не работает: на <b>/start</b> никто не отвечает, регистрации,
+            приветствия и подарки не уходят.
+          </div>
+          <div className="text-sm text-white/90 mt-2">
+            Выберите бот, который будет за это отвечать: нажмите на нём карандаш
+            <Edit2 size={13} className="inline mx-1 align-[-1px]" />
+            и отметьте <b>«Сделать главным»</b>.
           </div>
         </div>
       )}
