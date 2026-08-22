@@ -1182,6 +1182,8 @@ async def update_my_profile(
         _v = getattr(data, _fld, None)
         if _v and len(_v) > 140:
             _bad.append(f"{_label} (не больше 140 символов)")
+    if getattr(data, "bio", None) and len(data.bio) > 1500:
+        _bad.append("регалии (не больше 1500 символов)")
     for _fld, _label in (("owner_achievements", "регалии основателя"),
                          ("achievements", "регалии бренда")):
         _items = getattr(data, _fld, None)

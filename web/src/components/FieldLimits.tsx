@@ -28,6 +28,14 @@ export const ACHIEVEMENTS_LIMIT = 1100
 export const ACH_VALUE_LIMIT = 30
 export const ACH_LABEL_LIMIT = 120
 
+/**
+ * «Регалии» в профиле ОСНОВАТЕЛЯ (clients.bio) — ещё одно поле, отдельное от
+ * регалий коллаба. Оно показывается на странице «Об основателе», где места
+ * больше, и допускает теги <b>. Поэтому 1500, а не 1100 (решение владельца):
+ * медиана 503, 90% укладываются в 1554, максимум был 4563.
+ */
+export const BIO_LIMIT = 1500
+
 /** Счётчик под полем: сколько осталось, при переборе — на сколько сократить. */
 export function CharCount({ value, limit }: { value: string; limit: number }) {
   const len = (value || '').length

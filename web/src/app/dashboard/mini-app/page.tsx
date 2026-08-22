@@ -12,7 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { CharCount, overClass, POSITIONING_LIMIT, ACH_LABEL_LIMIT, ACH_VALUE_LIMIT } from '@/components/FieldLimits'
+import { CharCount, overClass, POSITIONING_LIMIT, BIO_LIMIT, ACH_LABEL_LIMIT, ACH_VALUE_LIMIT } from '@/components/FieldLimits'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import HtmlTextArea from '@/components/HtmlTextArea'
@@ -315,6 +315,26 @@ export default function MiniAppSettingsPage() {
             + 'Укажите полный адрес, например https://telegram.me/ваш_ник')
       return
     }
+    // Лимиты длины: не даём сохранить полотно — карточка каталога и страница
+    // «Об основателе» рассчитаны на текст, а не на целый лендинг.
+    const tooLong: string[] = []
+    if ((profile.owner_positioning || '').length > POSITIONING_LIMIT)
+      tooLong.push(`позиционирование основателя — на ${(profile.owner_positioning || '').length - POSITIONING_LIMIT} символов длиннее`)
+    if ((profile.positioning || '').length > POSITIONING_LIMIT)
+      tooLong.push(`позиционирование бренда — на ${(profile.positioning || '').length - POSITIONING_LIMIT} символов длиннее`)
+    if ((profile.bio || '').length > BIO_LIMIT)
+      tooLong.push(`регалии — на ${(profile.bio || '').length - BIO_LIMIT} символов длиннее`)
+    for (const [fld, label] of [['owner_achievements', 'фактах основателя'], ['achievements', 'фактах бренда']] as const) {
+      const items = (profile as any)[fld] as Achievement[] | undefined
+      if (items?.some(x => (x.label || '').length > ACH_LABEL_LIMIT)) {
+        tooLong.push(`подпись в ${label} длиннее ${ACH_LABEL_LIMIT} символов`)
+      }
+    }
+    if (tooLong.length) {
+      alert('Не получится сохранить:\n\n• ' + tooLong.join('\n• ') + '\n\nСократите — счётчик под полем показывает, на сколько.')
+      return
+    }
+
     setSaving(true)
     try {
       const cleanAch = (a: Achievement[]) => a.filter(x => x.label.trim() && x.value.trim())
@@ -639,6 +659,7 @@ export default function MiniAppSettingsPage() {
                 placeholder="Ваши регалии: достижения, титулы, опыт, проекты…"
                 rows={10}
               />
+              <CharCount value={profile.bio || ''} limit={BIO_LIMIT} />
             </div>
           </Section>
 
