@@ -29,9 +29,14 @@ async function loadDoc(slug: string) {
 export default async function LegalDocPage({ slug }: { slug: string }) {
   const doc = await loadDoc(slug)
 
+  // ⚠️ Без min-h-screen: страница внутри общего каркаса, и растяжка на весь
+  // экран оттолкнула бы футер за пределы вида.
+  //
+  // ⚠️ Комментарий именно ЗДЕСЬ, а не после `return (`: JSX-комментарий
+  // {/* */} допустим только ВНУТРИ тега. Стоял до открывающего <main> — и
+  // сборка падала «Expected ',', got 'className'», а весь код не доезжал до
+  // прода: накат не запускается, пока сборка красная.
   return (
-    {/* ⚠️ Без min-h-screen: страница внутри общего каркаса, и растяжка
-        на весь экран оттолкнула бы футер за пределы вида. */}
     <main className="bg-white rounded-2xl">
       <div className="mx-auto max-w-3xl px-5 py-10">
         <Link href="/" className="text-sm text-[#25455D] underline">

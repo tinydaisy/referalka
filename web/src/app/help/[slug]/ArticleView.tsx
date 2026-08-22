@@ -96,7 +96,7 @@ export default function ArticleView() {
 
   if (!Article) {
     return (
-      <div className="max-w-3xl">
+      <div className="max-w-6xl">
         <div className="bg-white rounded-2xl border border-gray-100 p-6">
           <div className="text-base font-bold mb-1" style={{ color: '#25455D' }}>
             Такой статьи нет
