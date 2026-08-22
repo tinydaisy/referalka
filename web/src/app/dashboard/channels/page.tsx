@@ -2072,6 +2072,11 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Прогресс импорта: процент, секунды и число строк — чтобы человек видел
+  // объём работы и что она идёт, а не гадал, живой ли процесс.
+  const [progress, setProgress] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+  const [rowCount, setRowCount] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [result, setResult] = useState<ImportResult | null>(null)
 
@@ -2101,16 +2106,61 @@ function ImportCsvModal({ channel, onClose, onDone }: {
     URL.revokeObjectURL(url)
   }
 
+  // Грузим файл ЧАСТЯМИ, а не целиком.
+  //
+  // ⚠️ Целиком большой файл не проходит: nginx обрывает запрос через 3 минуты
+  // («Gateway Time-out»), а импорт идёт построчно — на каждую строку свои
+  // запросы в базу. Человек при этом видел вечное «Загружаем…» и не понимал,
+  // работает оно или умерло. По частям каждый запрос укладывается в лимит,
+  // а прогресс виден в процентах.
+  //
+  // ⚠️ Повторный импорт того же файла безопасен: контакт ищется по
+  // telegram_id / email / телефону и не дублируется. Поэтому при обрыве можно
+  // просто запустить заново.
+  const CHUNK_ROWS = 1000
+
   async function submit() {
     if (!file) return
     setError('')
     setSubmitting(true)
+    setProgress(0)
+    setElapsed(0)
+    const timer = setInterval(() => setElapsed(s => s + 1), 1000)
     try {
-      const r = await api.channels.importCsv(channel.id, file)
-      setResult(r)
+      const text = await file.text()
+      const lines = text.split(/\r?\n/)
+      const header = lines[0]
+      const rows = lines.slice(1).filter(l => l.trim() !== '')
+      const total = rows.length
+      setRowCount(total)
+
+      // Складываем итоги частей в один отчёт.
+      const sum: any = {}
+      const addUp = (r: any) => {
+        for (const [k, v] of Object.entries(r || {})) {
+          if (typeof v === 'number') sum[k] = (sum[k] || 0) + v
+          else if (typeof v === 'string' && v) sum[k] = (sum[k] ? sum[k] + '\n' : '') + v
+          else if (sum[k] === undefined) sum[k] = v
+        }
+      }
+
+      for (let i = 0; i < total; i += CHUNK_ROWS) {
+        const part = [header, ...rows.slice(i, i + CHUNK_ROWS)].join('\n')
+        const blob = new File([part], file.name, { type: 'text/csv' })
+        addUp(await api.channels.importCsv(channel.id, blob))
+        setProgress(Math.min(100, Math.round(((i + CHUNK_ROWS) / total) * 100)))
+      }
+      setProgress(100)
+      setResult(sum)
     } catch (e: any) {
-      setError(e?.message || 'Не удалось импортировать файл')
+      const msg = String(e?.message || '')
+      const looksLikeTimeout = !msg || /недоступен|Failed to fetch|network|timeout|gateway/i.test(msg)
+      setError(looksLikeTimeout
+        ? 'Связь с сервером прервалась. Загруженные до этого момента контакты сохранены — '
+          + 'запустите импорт того же файла ещё раз, дублей не будет.'
+        : msg)
     } finally {
+      clearInterval(timer)
       setSubmitting(false)
     }
   }
@@ -2157,8 +2207,10 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                   на этот канал. То же если в базе уже есть контакт с таким email или телефоном.
                 </p>
                 <p className="leading-snug">
-                  <b>Что НЕ перетираем:</b> если в базе уже есть имя/email/телефон, и в CSV пришли другие — оставим
-                  как в базе. Все нестыковки попадут в отчёт об ошибках.
+                  <b>Если данные разошлись:</b> человек нашёлся, но в файле у него другое имя,
+                  почта или телефон — оставим то, что в базе, а расхождение запишем в отчёт.
+                  База — это то, что человек указал сам, файл может быть старой выгрузкой.
+                  Совпадающие данные ничего не меняют и в отчёт не попадают.
                 </p>
               </div>
 
@@ -2228,7 +2280,10 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                   className="px-5 py-2 text-sm rounded-lg text-white font-semibold disabled:opacity-50"
                   style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
                 >
-                  {submitting ? 'Загружаем…' : 'Импортировать'}
+                  {submitting
+                    ? `Загружаем… ${progress}%`
+                      + (rowCount ? ` · ${rowCount} строк · ${elapsed} с` : '')
+                    : 'Импортировать'}
                 </button>
               </div>
             </>
