@@ -106,7 +106,7 @@ export default function MiniAppDeeplinksPage() {
           <p className="text-sm text-gray-400 italic">Загружаем ваши события…</p>
         ) : events.length === 0 ? (
           <p className="text-sm text-gray-600">
-            У вас пока нет опубликованных событий. Создайте событие в разделе{' '}
+            Здесь появятся ваши события — войдите в кабинет и создайте событие в разделе{' '}
             <Link href="/dashboard/events" className="text-blue-600 hover:underline">Мероприятия</Link> или{' '}
             <Link href="/dashboard/conferences" className="text-blue-600 hover:underline">Конференции</Link>.
           </p>

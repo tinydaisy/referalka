@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ChevronRight, Copy, Check, ExternalLink, Search, X } from 'lucide-react'
-import { SECTIONS, type Article } from './sections'
+import { SECTIONS, type Article, type Section } from './sections'
 
 const BRAND = '#25455D'
 
@@ -18,19 +18,25 @@ const BRAND = '#25455D'
  * (`order-2 lg:order-none` на стороне вызова), иначе на телефоне пришлось бы
  * пролистывать его целиком, чтобы добраться до статей.
  */
-export function SectionsNav({ activeId }: { activeId?: string }) {
+export function SectionsNav({ activeId, sections, base = '/dashboard/help' }: {
+  activeId?: string
+  sections?: Section[]
+  /** Публичная база знаний передаёт '/help'. */
+  base?: string
+}) {
+  const list = sections || SECTIONS
   return (
     <nav className="lg:sticky lg:top-4">
       <div className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-3">
         Содержание
       </div>
       <ul className="space-y-0.5">
-        {SECTIONS.map(s => {
+        {list.map(s => {
           const active = s.id === activeId
           return (
             <li key={s.id}>
               <Link
-                href={`/dashboard/help/s/${s.id}`}
+                href={`${base}/s/${s.id}`}
                 className="flex items-baseline gap-2 py-1.5 pl-3 border-l-2 transition-colors hover:border-gray-300"
                 style={{
                   borderColor: active ? BRAND : '#e5e7eb',
@@ -104,12 +110,23 @@ function matches(word: string, words: string[]): boolean {
   return words.some(t => t.startsWith(stem) || (t.length > 3 && w.startsWith(t)))
 }
 
-export function HelpSearch() {
+/**
+ * Поиск по инструкциям.
+ *
+ * ⚠️ Список разделов и способ построения адреса приходят параметрами — тот же
+ * компонент работает и в кабинете, и в публичной базе знаний на `/help`, где
+ * разделы другие (без технических) и адреса без `/dashboard`.
+ */
+export function HelpSearch({ sections, hrefOf }: {
+  sections?: Section[]
+  hrefOf?: (href: string) => string
+} = {}) {
   const [q, setQ] = useState('')
+  const list = sections || SECTIONS
 
   const all = useMemo(
-    () => SECTIONS.flatMap(s => s.articles.map(a => ({ article: a, section: s }))),
-    [],
+    () => list.flatMap(s => s.articles.map(a => ({ article: a, section: s }))),
+    [list],
   )
 
   const results = useMemo(() => {
@@ -168,7 +185,7 @@ export function HelpSearch() {
                     <div className="text-xs text-gray-400 mb-1 px-1">
                       {section.emoji} {section.title}
                     </div>
-                    <ArticleCard article={article} />
+                    <ArticleCard article={article} hrefOf={hrefOf} />
                   </div>
                 ))}
               </div>
@@ -181,13 +198,18 @@ export function HelpSearch() {
 }
 
 /** Карточка статьи. Одна на обе страницы — вёрстка не должна разъезжаться. */
-export function ArticleCard({ article }: { article: Article }) {
+export function ArticleCard({ article, hrefOf }: {
+  article: Article
+  /** Публичная база знаний передаёт сюда преобразование адреса без /dashboard. */
+  hrefOf?: (href: string) => string
+}) {
+  const href = hrefOf ? hrefOf(article.href) : article.href
   const [origin, setOrigin] = useState('https://pluson.ru')
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin)
   }, [])
-  const publicUrl = `${origin}${article.href}`
+  const publicUrl = `${origin}${href}`
   function copyPublic(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
@@ -197,7 +219,7 @@ export function ArticleCard({ article }: { article: Article }) {
   }
   return (
     <Link
-      href={article.href}
+      href={href}
       className="block bg-white rounded-xl border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all p-3.5"
     >
       <div className="flex items-start gap-3">
@@ -240,7 +262,10 @@ export function ArticleCard({ article }: { article: Article }) {
 }
 
 /** Список статей раздела с подзаголовками групп. */
-export function ArticleList({ articles }: { articles: Article[] }) {
+export function ArticleList({ articles, hrefOf }: {
+  articles: Article[]
+  hrefOf?: (href: string) => string
+}) {
   return (
     <div className="space-y-2">
       {articles.map((a, idx) => {
@@ -252,7 +277,7 @@ export function ArticleList({ articles }: { articles: Article[] }) {
                 {a.group}
               </div>
             )}
-            <ArticleCard article={a} />
+            <ArticleCard article={a} hrefOf={hrefOf} />
           </div>
         )
       })}

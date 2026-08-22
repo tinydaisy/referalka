@@ -17,7 +17,10 @@ export default function ConnectBotInstructionPage() {
     api.auth.me().then((me: any) => setClientId(me?.id ?? null)).catch(() => {})
   }, [])
 
-  const miniAppUrl = clientId ? `${origin}/c/${clientId}/tg/` : ''
+  // ⚠️ Статья открыта и в публичной базе знаний (/help), где человек не
+  // авторизован и номера клиента нет. Пустая строка оставляла поле пустым
+  // и надпись «Загружаем…» навсегда — вместо неё показываем понятный образец.
+  const miniAppUrl = clientId ? `${origin}/c/${clientId}/tg/` : `${origin}/c/{ВАШ_НОМЕР}/tg/`
   const isDev = origin.includes('dev.')
 
   return (
@@ -67,7 +70,7 @@ export default function ConnectBotInstructionPage() {
         <CopyBlock value={miniAppUrl} />
         <p className="text-xs text-gray-400 mt-2">
           ⚠️ Слэш в конце обязателен — без него Telegram не загрузит ассеты.
-          {!clientId && ' Загружаем ваш номер клиента…'}
+          {!clientId && ' Ваш номер подставится сюда автоматически, когда вы войдёте в кабинет.'}
         </p>
       </Section>
 

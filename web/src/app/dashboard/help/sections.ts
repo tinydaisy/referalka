@@ -27,6 +27,14 @@ export interface Section {
   emoji: string
   hint?: string
   articles: Article[]
+  /**
+   * Не показывать раздел в публичной базе знаний на `/help`.
+   *
+   * Технические разделы (интеграции, webhook, API) снаружи читаются как
+   * «тут всё сложно» — против позиционирования «настраивается без технаря».
+   * В кабинете они остаются: тому, кто уже внутри, они нужны.
+   */
+  internalOnly?: boolean
 }
 
 export const SECTIONS: Section[] = [
@@ -461,6 +469,7 @@ export const SECTIONS: Section[] = [
     title: 'API-функции для интеграции со сторонними сервисами',
     emoji: '🔌',
     hint: 'Получение и передача данных события во внешние системы, GetCourse',
+    internalOnly: true,
     articles: [
       {
         group: 'Выгрузка и API',
@@ -519,4 +528,21 @@ export const SECTIONS: Section[] = [
 
 export function getSection(id: string): Section | undefined {
   return SECTIONS.find(s => s.id === id)
+}
+
+/**
+ * Разделы для публичной базы знаний на `/help` — без технических.
+ *
+ * ⚠️ Список тот же, что в кабинете: копии быть не должно, иначе добавленная
+ * статья появится в одном месте и пропадёт в другом.
+ */
+export const PUBLIC_SECTIONS: Section[] = SECTIONS.filter(s => !s.internalOnly)
+
+export function getPublicSection(id: string): Section | undefined {
+  return PUBLIC_SECTIONS.find(s => s.id === id)
+}
+
+/** Адрес статьи в кабинете → адрес той же статьи снаружи. */
+export function toPublicHref(href: string): string {
+  return href.replace(/^\/dashboard\/help/, '/help')
 }

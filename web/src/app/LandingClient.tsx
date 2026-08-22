@@ -118,6 +118,9 @@ export default function LandingClient() {
             <span className="text-xl sm:text-2xl font-bold" style={{ color: '#25455D' }}>iViSiON: ПЛЮСОН</span>
           </div>
           <nav className="flex items-center gap-2 sm:gap-4">
+            <Link href="/help" className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2 hidden sm:inline">
+              База знаний
+            </Link>
             <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2">Войти</Link>
             <Link href={registerHref} className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold">Начать</Link>
           </nav>

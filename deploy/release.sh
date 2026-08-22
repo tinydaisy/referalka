@@ -90,9 +90,14 @@ need() { [ "$CHANGED" = "ALL" ] && return 0; echo "$CHANGED" | grep -qE "$1"; }
 
 RESTARTED=""
 
-if need '^web/' || [ "$CHANGED" = "ALL" ]; then
-  systemctl restart plusson-web && RESTARTED="$RESTARTED plusson-web"
-fi
+# ⚠️ Веб рестартуем ВСЕГДА, а не по списку изменённых файлов. Мы только что
+# подменили ему папку .next — процесс держит в памяти СТАРУЮ сборку и просит
+# файлы, которых на диске уже нет: человек видит «Application error» и страницу
+# без стилей. Так и случилось при повторной выкатке того же коммита: скрипт
+# сравнил его сам с собой, решил «ничего не менялось» и не рестартовал, хотя
+# файлы переключил. Рестарт веба стоит секунды и ничего не рвёт — в отличие от
+# ботов и Celery, которые тут действительно надо трогать по делу.
+systemctl restart plusson-web && RESTARTED="$RESTARTED plusson-web"
 
 if need '^backend/app/(api|services|main\.py|config\.py|database\.py)'; then
   systemctl restart plusson-api && RESTARTED="$RESTARTED plusson-api"
