@@ -1161,7 +1161,17 @@ function VipVkWizard({ clientId, hasPrimary, onClose, onDone }: {
               </div>
 
               {error && (
-                <div className="bg-red-50 border border-red-100 text-red-700 text-sm rounded-xl p-3">
+                /* ⚠️ Красный — только для настоящих ошибок. Повтор части во
+                   время загрузки идёт синим (это ход работы), а приостановка —
+                   янтарным: данные целы, нужно лишь нажать ещё раз. Красная
+                   плашка на каждый разрыв читается как «платформа не работает». */
+                <div className={`border text-sm rounded-xl p-3 ${
+                  submitting
+                    ? 'bg-blue-50 border-blue-100 text-blue-800'
+                    : error.startsWith('Загрузка приостановлена')
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-red-50 border-red-100 text-red-700'
+                }`}>
                   {error}
                 </div>
               )}
@@ -2252,7 +2262,26 @@ function ImportCsvModal({ channel, onClose, onDone }: {
         if (cancelRef.current) break
         const part = [header, ...rows.slice(i, i + CHUNK_ROWS)].join('\n')
         const blob = new File([part], file.name, { type: 'text/csv' })
-        addUp(await api.channels.importCsv(channel.id, blob))
+
+        // ⚠️ Часть повторяется до трёх раз. Выкатка на прод рестартует веб и
+        // API — на это уходят секунды, но идущий импорт при этом обрывался, и
+        // человек видел «связь прервалась» посреди работы. Повтор той же части
+        // безопасен: контакт ищется по идентификатору и не дублируется.
+        let res: any = null
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            res = await api.channels.importCsv(channel.id, blob)
+            break
+          } catch (err: any) {
+            const m = String(err?.message || '')
+            const temporary = !m || /недоступен|Failed to fetch|network|timeout|gateway|502|503|504/i.test(m)
+            if (!temporary || attempt === 3) throw err
+            setError(`Обновляем соединение и продолжаем — попытка ${attempt} из 3…`)
+            await new Promise(r => setTimeout(r, attempt * 4000))
+          }
+        }
+        setError('')
+        addUp(res)
         // Показываем СДЕЛАННОЕ, а не размер файла: «19% · 2 000 из 10 469».
         // Раньше в кнопке стояло общее число строк — по нему нельзя было
         // понять, сколько уже прошло.
@@ -2268,9 +2297,13 @@ function ImportCsvModal({ channel, onClose, onDone }: {
     } catch (e: any) {
       const msg = String(e?.message || '')
       const looksLikeTimeout = !msg || /недоступен|Failed to fetch|network|timeout|gateway/i.test(msg)
+      // ⚠️ Формулировка спокойная и с готовым следующим шагом. Прежняя
+      // («связь с сервером прервалась») читалась как «платформа не работает»,
+      // хотя загруженное сохранено и всё чинится одним нажатием.
       setError(looksLikeTimeout
-        ? 'Связь с сервером прервалась. Загруженные до этого момента контакты сохранены — '
-          + 'запустите импорт того же файла ещё раз, дублей не будет.'
+        ? `Загрузка приостановлена${doneRows ? `: перенесено ${doneRows.toLocaleString('ru-RU')} из ${rowCount?.toLocaleString('ru-RU')}` : ''}. `
+          + 'Это бывает, когда соединение ненадолго прерывается. Нажмите «Импортировать» ещё раз — '
+          + 'загрузка продолжится, а уже перенесённые контакты не задвоятся.'
         : msg)
     } finally {
       clearInterval(timer)
