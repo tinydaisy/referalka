@@ -2336,8 +2336,12 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                 <ul className="space-y-1 pl-4 list-disc text-[13px] leading-snug">
                   <li><b className="font-mono">{idCol}</b> — обязательно (можно назвать просто <b className="font-mono">id</b>). Без него строка пропускается.</li>
                   <li><b className="font-mono">name</b> — имя контакта</li>
+                  {/* ⚠️ У MAX ников нет вовсе — строку не показываем. */}
                   {channel.platform_slug === 'telegram' && (
-                    <li><b className="font-mono">telegram_username</b> — никнейм без @</li>
+                    <li><b className="font-mono">telegram_username</b> — никнейм без @ (подтянем сами, если не указан)</li>
+                  )}
+                  {channel.platform_slug === 'vk' && (
+                    <li><b className="font-mono">screen_name</b> — короткий адрес страницы (подтянем сами, если не указан)</li>
                   )}
                   <li><b className="font-mono">email</b>, <b className="font-mono">phone</b> — для мерджа с существующими контактами</li>
                   <li><b className="font-mono">subscribed</b> — <code className="bg-blue-100 px-1 rounded">1</code>/<code className="bg-blue-100 px-1 rounded">да</code> (по умолчанию) или <code className="bg-blue-100 px-1 rounded">0</code>/<code className="bg-blue-100 px-1 rounded">нет</code></li>
@@ -2418,11 +2422,13 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                   ⚠️ ТОЛЬКО для Telegram: у ВКонтакте и MAX спросить ник по id
                   нечем, и плашка обещала бы несуществующее. */}
               {file && needsUsernameLookup && !submitting
-                && channel.platform_slug === 'telegram' && (
+                && (channel.platform_slug === 'telegram' || channel.platform_slug === 'vk') && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-xl p-3 leading-snug">
                   <b>В файле нет колонки с никнеймами.</b> Загрузка займёт больше обычного:
-                  мы попутно соберём никнеймы у Telegram по id пользователей.
-                  {rowCount ? ` Для ${rowCount.toLocaleString('ru-RU')} контактов это примерно ${Math.max(1, Math.ceil(rowCount / 1200))}–${Math.max(2, Math.ceil(rowCount / 600))} мин.` : ''}
+                  мы попутно соберём их у {channel.platform_slug === 'vk' ? 'ВКонтакте' : 'Telegram'} по id пользователей.
+                  {rowCount ? (channel.platform_slug === 'vk'
+                    ? ` Для ${rowCount.toLocaleString('ru-RU')} контактов это меньше минуты — ВКонтакте отдаёт их пачками.`
+                    : ` Для ${rowCount.toLocaleString('ru-RU')} контактов это примерно ${Math.max(1, Math.ceil(rowCount / 1200))}–${Math.max(2, Math.ceil(rowCount / 600))} мин.`) : ''}
                 </div>
               )}
 

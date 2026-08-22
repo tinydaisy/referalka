@@ -155,6 +155,34 @@ async def get_user_info(vk_id: int, fields: Iterable[str] = ("first_name", "last
     return None
 
 
+async def get_users_bulk(vk_ids: list[str], *, token: str | None = None) -> dict[str, str]:
+    """Короткие адреса (ники) пачкой: {vk_id: screen_name}.
+
+    ⚠️ ВКонтакте отдаёт до 1000 человек ОДНИМ запросом — в отличие от Telegram,
+    где ник спрашивается по одному на каждого. На базе в десять тысяч это
+    десяток запросов вместо десяти тысяч.
+
+    Ника может не быть вовсе: у кого не задан короткий адрес, VK возвращает
+    `idNNN` — такое не берём, это не ник, а тот же id другими буквами.
+    """
+    out: dict[str, str] = {}
+    for i in range(0, len(vk_ids), 1000):
+        chunk = [str(x) for x in vk_ids[i:i + 1000]]
+        try:
+            resp = await vk_call("users.get",
+                                 {"user_ids": ",".join(chunk), "fields": "screen_name"},
+                                 token=token)
+        except Exception as e:
+            logger.warning("VK users.get bulk failed (%s шт): %s", len(chunk), e)
+            continue
+        for u in (resp or []):
+            uid = str(u.get("id") or "")
+            nick = (u.get("screen_name") or "").strip()
+            if uid and nick and not nick.lower().startswith("id"):
+                out[uid] = nick
+    return out
+
+
 async def upload_photo_to_messages(
     image_url: str, *, peer_id: int | None = None, token: str
 ) -> str | None:

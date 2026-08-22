@@ -58,7 +58,8 @@ PLATFORMS = {
         'title':    'ВКонтакте',
         'id_col':   'vk_id',
         'id_label': 'vk_id',
-        'resolve_usernames': False,
+        # ВК отдаёт короткие адреса пачкой (users.get, до 1000 за запрос).
+        'resolve_usernames': True,
     },
     'max': {
         'title':    'MAX',
@@ -73,7 +74,10 @@ _HEADER_ALIASES = {
     'vk_id':             {'vk_id', 'vkid', 'vk', 'id_vk', 'user_id_vk'},
     'max_id':            {'max_id', 'maxid', 'max', 'id_max'},
     'name':              {'name', 'имя', 'fio', 'fullname', 'full_name', 'фио', 'имя_фамилия'},
-    'telegram_username': {'telegram_username', 'username', 'tg_username', 'tg_login', 'login', 'никнейм'},
+    # Ник человека на площадке. У ВК он называется «короткий адрес»
+    # (screen_name) — принимаем оба написания, колонка одна.
+    'telegram_username': {'telegram_username', 'username', 'tg_username', 'tg_login', 'login', 'никнейм',
+                          'screen_name', 'screenname', 'vk_username', 'короткий_адрес'},
     'email':             {'email', 'e-mail', 'mail', 'почта', 'емейл', 'емаил'},
     'phone':             {'phone', 'tel', 'phone_number', 'телефон', 'тел'},
     'subscribed':        {'subscribed', 'is_subscribed', 'подписан', 'подписка', 'is_unsubscribed_inverted'},
@@ -464,9 +468,21 @@ async def import_csv_to_channel(
     resolved_usernames: dict[str, str] = {}
     bot_token = channel['bot_token'] or ''
 
-    # ⚠️ Ник по числовому id можно спросить только у Telegram (getChat).
-    # У ВКонтакте и MAX такого способа нет — там ник берётся из файла.
-    if need_lookup and bot_token and conf['resolve_usernames']:
+    # ⚠️ ВКонтакте отдаёт ники ПАЧКОЙ — до 1000 человек одним запросом
+    # (users.get), в отличие от Telegram, где спрашиваем по одному на каждого.
+    # На базе в десять тысяч это десяток запросов вместо десяти тысяч.
+    if need_lookup and platform == 'vk':
+        from app.services.vk_api import get_users_bulk
+        try:
+            resolved_usernames = await get_users_bulk(need_lookup, token=bot_token or None)
+            stats['usernames_resolved'] = len(resolved_usernames)
+        except Exception as e:
+            log.warning("VK: ники не подтянулись: %s", e)
+            report_lines.append("⚠ Ники ВКонтакте не подтянулись — импорт продолжен без них.")
+            report_lines.append('')
+
+    # ⚠️ У Telegram ник спрашивается по одному (getChat) — массового метода нет.
+    elif need_lookup and bot_token and conf['resolve_usernames']:
         sem = asyncio.Semaphore(_USERNAME_LOOKUP_CONCURRENCY)
 
         async def _one(tg: str):
