@@ -58,6 +58,14 @@ export default function PublicHelpFrame({ children }: { children: React.ReactNod
         .public-help div:has(> a[href="/dashboard"]) {
           display: none;
         }
+        /* ⚠️ Статьи задают себе max-w-3xl — это ширина для КАБИНЕТА, где слева
+           меню. Снаружи меню нет, и текст оказывался вдвое уже шапки, прижатым
+           к левому краю. Расширяем до ширины шапки (max-w-6xl = 72rem) здесь,
+           а не правкой 60 статей: статья должна оставаться одна на кабинет и
+           на публичную версию. */
+        .public-help > div[class*="max-w-3xl"] {
+          max-width: 72rem;
+        }
       `}</style>
       {children}
     </div>
