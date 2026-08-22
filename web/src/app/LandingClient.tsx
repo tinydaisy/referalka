@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle, ArrowRight, Users, Megaphone, Gift } from 'lucide-react'
 import { api } from '@/lib/api'
+import PublicShell from '@/components/public/PublicShell'
 
 interface Tariff {
   id: number
@@ -110,22 +111,8 @@ export default function LandingClient() {
   const registerHref = pid ? `/register?pid=${encodeURIComponent(pid)}` : '/register'
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Шапка */}
-      <header className="border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xl sm:text-2xl font-bold" style={{ color: '#25455D' }}>iViSiON: ПЛЮСОН</span>
-          </div>
-          <nav className="flex items-center gap-2 sm:gap-4">
-            <Link href="/help" className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2 hidden sm:inline">
-              База знаний
-            </Link>
-            <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2">Войти</Link>
-            <Link href={registerHref} className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold">Начать</Link>
-          </nav>
-        </div>
-      </header>
+    <PublicShell wide registerHref={registerHref}>
+      <div className="bg-white">
 
       {/* Hero */}
       <section className="relative overflow-hidden">
@@ -264,10 +251,8 @@ export default function LandingClient() {
         </div>
       </section>
 
-      <footer className="py-8 text-center text-xs text-gray-400">
-        © iViSiON: ПЛЮСОН, {new Date().getFullYear()}
-      </footer>
-    </div>
+      </div>
+    </PublicShell>
   )
 }
 

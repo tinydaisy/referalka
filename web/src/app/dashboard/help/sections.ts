@@ -439,6 +439,20 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'promo',
+    title: 'Продвижение',
+    emoji: '🔍',
+    hint: 'Как ваши страницы находят в поиске и как выглядит ссылка при пересылке',
+    articles: [
+      {
+        href: '/dashboard/help/seo-basics',
+        title: 'Как ваши страницы попадают в поиск',
+        description: 'Что видит Яндекс и Google в выдаче, откуда берётся заголовок и описание, как назвать событие чтобы его находили, как выглядит ссылка при пересылке в мессенджер и почему поле «ключевые слова» больше не работает. Поиск, выдача, продвижение, индексация, сео, seo, трафик',
+        emoji: '🔍',
+      },
+    ],
+  },
+  {
     id: 'links',
     title: 'Дополнительные ссылки',
     emoji: '🔗',
@@ -545,4 +559,18 @@ export function getPublicSection(id: string): Section | undefined {
 /** Адрес статьи в кабинете → адрес той же статьи снаружи. */
 export function toPublicHref(href: string): string {
   return href.replace(/^\/dashboard\/help/, '/help')
+}
+
+/**
+ * По слагу статьи — сама статья и её раздел. Нужно для хлебных крошек
+ * публичной страницы: человек должен видеть, откуда статья, и уметь
+ * вернуться в раздел.
+ */
+export function findPublicArticle(slug: string): { article: Article; section: Section } | undefined {
+  const href = `/dashboard/help/${slug}`
+  for (const section of PUBLIC_SECTIONS) {
+    const article = section.articles.find(a => a.href === href)
+    if (article) return { article, section }
+  }
+  return undefined
 }

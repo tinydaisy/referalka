@@ -55,7 +55,7 @@ export default function PublicHelpFrame({ children }: { children: React.ReactNod
           на кабинет и на публичную версию.
           Свои крошки («База знаний / Статья») рисует страница выше. */}
       <style jsx global>{`
-        .public-help > div:first-child:has(> a[href="/dashboard"]) {
+        .public-help div:has(> a[href="/dashboard"]) {
           display: none;
         }
       `}</style>
