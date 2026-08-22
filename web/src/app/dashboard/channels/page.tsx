@@ -2165,11 +2165,28 @@ function ImportCsvModal({ channel, onClose, onDone }: {
     }
   }
 
+  // Считаем контакты СРАЗУ при выборе файла — до нажатия кнопки. Иначе человек
+  // не знает, сколько там строк, и не понимает, чего ждать: 200 контактов
+  // загрузятся мгновенно, 5000 — за несколько минут.
+  async function pickFile(f: File | null) {
+    setFile(f)
+    setRowCount(null)
+    setResult(null)
+    setError('')
+    if (!f) return
+    try {
+      const text = await f.text()
+      setRowCount(text.split(/\r?\n/).slice(1).filter(l => l.trim() !== '').length)
+    } catch {
+      // Не смогли прочитать — не беда: посчитаем при самой загрузке.
+    }
+  }
+
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
     const f = e.dataTransfer.files?.[0]
-    if (f) setFile(f)
+    if (f) pickFile(f)
   }
 
   return (
@@ -2237,17 +2254,20 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                   type="file"
                   accept=".csv,text/csv"
                   className="hidden"
-                  onChange={e => setFile(e.target.files?.[0] || null)}
+                  onChange={e => pickFile(e.target.files?.[0] || null)}
                 />
                 {file ? (
                   <div className="flex items-center justify-center gap-3">
                     <FileText size={28} style={{ color: '#25455D' }} />
                     <div className="text-left">
                       <div className="font-semibold text-gray-900 text-sm">{file.name}</div>
-                      <div className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} КБ</div>
+                      <div className="text-xs text-gray-500">
+                        {(file.size / 1024).toFixed(1)} КБ
+                        {rowCount !== null && ` · ${rowCount.toLocaleString('ru-RU')} контактов`}
+                      </div>
                     </div>
                     <button
-                      onClick={e => { e.stopPropagation(); setFile(null) }}
+                      onClick={e => { e.stopPropagation(); pickFile(null) }}
                       className="text-xs text-red-500 hover:text-red-700 font-medium ml-2"
                     >Убрать</button>
                   </div>
