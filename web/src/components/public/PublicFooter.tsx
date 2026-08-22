@@ -59,7 +59,7 @@ export default function PublicFooter() {
             <div className="flex items-center gap-2.5">
               {/* ⚠️ Белый вариант: фон тёмный, синий логотип на нём не виден. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/logo_no_ivision_wwhite.png" alt="" className="h-8 w-auto" />
+              <img src="/images/logo_no_ivision_wwhite.png" alt="" className="h-8 w-auto" />
               <span className="font-bold text-lg">iViSiON: ПЛЮСОН</span>
             </div>
             <p className="mt-2 text-sm text-white/60 leading-relaxed">

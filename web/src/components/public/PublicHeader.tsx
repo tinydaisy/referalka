@@ -59,7 +59,7 @@ export default function PublicHeader({ registerHref = '/register' }: {
 
         <Link href="/" className="flex items-center gap-2.5 shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logo_no_ivision_wwhite.png" alt="" className="h-7 w-auto" />
+          <img src="/images/logo_no_ivision_wwhite.png" alt="" className="h-7 w-auto" />
           <span className="font-bold text-[15px] tracking-tight whitespace-nowrap">
             iViSiON: ПЛЮСОН
           </span>
