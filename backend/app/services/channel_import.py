@@ -18,10 +18,12 @@
 import asyncio
 import csv
 import io
+import json
 import logging
 import re
 import secrets
 import string
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -42,6 +44,10 @@ _HEADER_ALIASES = {
     'phone':             {'phone', 'tel', 'phone_number', 'телефон', 'тел'},
     'subscribed':        {'subscribed', 'is_subscribed', 'подписан', 'подписка', 'is_unsubscribed_inverted'},
     'utm_source':        {'utm_source', 'utm', 'source', 'источник', 'utmsource'},
+    'subscribed_at':     {'subscribed_at', 'first_contact_at', 'created_at', 'signup_at',
+                          'подписался', 'дата_подписки', 'дата_регистрации'},
+    'last_contact_at':   {'last_contact_at', 'last_seen_at', 'последний_контакт'},
+    'tags':              {'tags', 'user_tags', 'теги', 'метки', 'tag'},
 }
 
 _TRUE_VALUES = {'1', 'true', 'yes', 'y', 'да', 'д', 'подписан', 'subscribed', 'on', '+', 'true.', 'истина'}
@@ -115,6 +121,105 @@ def _parse_tg_id(value: Optional[str]) -> Optional[str]:
     if not v.lstrip('-').isdigit():
         return None
     return v
+
+
+def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+    """Дата из CSV → datetime с таймзоной (UTC).
+
+    Выгрузки ботов отдают unix-таймштамп (BotHelp: `1774621792`), выгрузки из
+    таблиц — строку `2026-08-20 14:30:00` или `20.08.2026`. Принимаем всё.
+    Не разобрали — None: дата не настолько важна, чтобы ронять из-за неё строку.
+    """
+    if not value:
+        return None
+    v = value.strip()
+    if not v:
+        return None
+
+    # unix-таймштамп (10 цифр — секунды, 13 — миллисекунды)
+    if v.isdigit():
+        ts = int(v)
+        if len(v) == 13:
+            ts //= 1000
+        # Отсекаем мусор: до 2001 года и слишком далёкое будущее.
+        if not (1_000_000_000 < ts < 4_000_000_000):
+            return None
+        try:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            return None
+
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d',
+                '%d.%m.%Y %H:%M:%S', '%d.%m.%Y %H:%M', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(v[:len(fmt) + 4], fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+
+    # ISO с зоной («2026-08-20T14:30:00+03:00») — питон разберёт сам
+    try:
+        dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _parse_tags(value: Optional[str]) -> list:
+    """Теги из CSV → список строк.
+
+    Разделители — `;` (BotHelp), `,` или `|`. Дубли убираем, порядок держим.
+    ⚠️ Регистр НЕ трогаем: в contacts.tags теги лежат как их завёл клиент,
+    и «Оплатил» с «оплатил» для него могут быть разными метками.
+    """
+    if not value:
+        return []
+    parts = re.split(r'[;,|]', value)
+    out = []
+    for p in parts:
+        t = p.strip()
+        if t and t not in out:
+            out.append(t)
+    return out[:50]  # разумный потолок, чтобы битая колонка не залила базу
+
+
+async def _merge_tags(db, contact_id: int, new_tags: list) -> bool:
+    """Добавляет теги к контакту, не затирая уже существующие.
+
+    ⚠️ Именно ДОБАВЛЯЕТ: теги — это сегментация базы, накопленная клиентом.
+    Импорт из одного бота не должен стирать метки, проставленные из другого
+    источника (Salebot, вручную, нашими воронками).
+
+    Регистр не нормализуем — в базе живут и «GetCourse», и «ivision»,
+    для клиента это разные метки. Дубль считаем только при точном совпадении.
+
+    Возвращает True, если реально что-то добавили.
+    """
+    if not new_tags:
+        return False
+    row = await db.fetchrow("SELECT tags FROM contacts WHERE id = $1", contact_id)
+    current = row['tags'] if row else None
+    if isinstance(current, str):          # asyncpg отдаёт JSONB строкой
+        try:
+            current = json.loads(current)
+        except (ValueError, TypeError):
+            current = []
+    if not isinstance(current, list):
+        current = []
+
+    merged = list(current)
+    added = False
+    for t in new_tags:
+        if t not in merged:
+            merged.append(t)
+            added = True
+    if not added:
+        return False
+
+    await db.execute(
+        "UPDATE contacts SET tags = $2::JSONB, updated_at = NOW() WHERE id = $1",
+        contact_id, json.dumps(merged, ensure_ascii=False)
+    )
+    return True
 
 
 async def _fetch_username_by_tg_id(token: str, tg_id: str) -> Optional[str]:
@@ -243,6 +348,8 @@ async def import_csv_to_channel(
         'mismatches': 0,
         'tg_clash_skipped': 0,       # contact найден по email/phone, но у него уже другая TG-identity
         'usernames_resolved': 0,     # ников достали у Telegram (в файле их не было)
+        'dates_kept': 0,             # строк, где перенесли настоящую дату подписки
+        'tags_added': 0,             # контактов, которым добавили теги
     }
     report_lines: list[str] = []
     merge_log: list[dict] = []       # детальный лог объединений (новый tg_id + найден contact по email/phone)
@@ -352,7 +459,12 @@ async def import_csv_to_channel(
             csv_phone    = col('phone')
             csv_email_n  = _normalize_email(csv_email)
             csv_phone_n  = _normalize_phone(csv_phone)
+            csv_tags     = _parse_tags(col('tags'))
+            csv_sub_at   = _parse_dt(col('subscribed_at'))
+            csv_last_at  = _parse_dt(col('last_contact_at')) or csv_sub_at
             is_subscribed = _parse_subscribed(col('subscribed'), default=True)
+            if csv_sub_at:
+                stats['dates_kept'] += 1
 
             # 1. Ищем platform_users
             pu = await db.fetchrow(
@@ -395,17 +507,25 @@ async def import_csv_to_channel(
                     stats=stats,
                 )
                 # Дозаполняем ТОЛЬКО пустые поля — существующие не трогаем.
+                # ⚠️ created_at двигаем лишь НАЗАД (LEAST): человек мог прийти
+                # к клиенту раньше, чем в этого бота — раннюю дату не затираем.
+                # last_contact_at, наоборот, вперёд (GREATEST) — это «последний».
                 await db.execute(
                     """UPDATE contacts
                           SET name             = COALESCE(name, $2),
                               phone            = COALESCE(phone, $3),
                               phone_normalized = COALESCE(phone_normalized, $4),
                               utm_source       = COALESCE(utm_source, $5),
-                              last_contact_at  = NOW(),
+                              created_at       = LEAST(created_at, COALESCE($6, created_at)),
+                              last_contact_at  = GREATEST(COALESCE(last_contact_at, $7),
+                                                          COALESCE($7, last_contact_at), NOW()),
                               updated_at       = NOW()
                         WHERE id = $1""",
-                    contact_id, csv_name, csv_phone, csv_phone_n, csv_utm
+                    contact_id, csv_name, csv_phone, csv_phone_n, csv_utm,
+                    csv_sub_at, csv_last_at
                 )
+                if await _merge_tags(db, contact_id, csv_tags):
+                    stats['tags_added'] += 1
                 # Ник мог появиться только сейчас (в базе его не было).
                 if csv_username and not pu['username']:
                     await db.execute(
@@ -469,23 +589,35 @@ async def import_csv_to_channel(
                                   phone            = COALESCE(phone, $3),
                                   phone_normalized = COALESCE(phone_normalized, $4),
                                   utm_source       = COALESCE(utm_source, $5),
-                                  last_contact_at  = NOW(),
+                                  created_at       = LEAST(created_at, COALESCE($6, created_at)),
+                                  last_contact_at  = GREATEST(COALESCE(last_contact_at, $7),
+                                                              COALESCE($7, last_contact_at), NOW()),
                                   updated_at       = NOW()
                             WHERE id = $1""",
-                        contact_id, csv_name, csv_phone, csv_phone_n, csv_utm
+                        contact_id, csv_name, csv_phone, csv_phone_n, csv_utm,
+                        csv_sub_at, csv_last_at
                     )
+                    if await _merge_tags(db, contact_id, csv_tags):
+                        stats['tags_added'] += 1
                 else:
                     # 3. Создаём новый contact
                     ref_code = await _generate_unique_ref_code(db)
                     contact_id = await db.fetchval(
                         """INSERT INTO contacts (client_id, name,
                                                   phone, phone_normalized, ref_code,
-                                                  utm_source, last_contact_at)
-                           VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                                                  utm_source, tags,
+                                                  created_at, last_contact_at)
+                           VALUES ($1, $2, $3, $4, $5, $6,
+                                   COALESCE($7::JSONB, '[]'::JSONB),
+                                   COALESCE($8, NOW()), COALESCE($9, NOW()))
                            RETURNING id""",
-                        client_id, csv_name, csv_phone, csv_phone_n, ref_code, csv_utm
+                        client_id, csv_name, csv_phone, csv_phone_n, ref_code, csv_utm,
+                        json.dumps(csv_tags, ensure_ascii=False) if csv_tags else None,
+                        csv_sub_at, csv_last_at
                     )
                     stats['created_contacts'] += 1
+                    if csv_tags:
+                        stats['tags_added'] += 1
 
                 # Перед INSERT проверяем: нет ли у contact уже другой TG-identity.
                 # UNIQUE (contact_id, platform_slug) запретит INSERT, и это аборнёт всю транзакцию.
@@ -532,24 +664,37 @@ async def import_csv_to_channel(
             )
             target_unsubscribed = not is_subscribed
 
+            # ⚠️ subscribed_at берём из файла ($4), иначе вся перенесённая база
+            # выглядит подписавшейся в день импорта — «давно с нами» и сортировка
+            # по стажу ломаются. Даты в файле нет → NOW(), как было.
             if existing_sub:
                 if existing_sub['is_unsubscribed'] != target_unsubscribed:
                     await db.execute(
                         """UPDATE platform_user_channels
                               SET is_unsubscribed = $1,
                                   unsubscribed_at = CASE WHEN $1 THEN NOW() ELSE unsubscribed_at END,
-                                  subscribed_at   = CASE WHEN $1 THEN subscribed_at ELSE NOW() END
+                                  subscribed_at   = CASE WHEN $1 THEN subscribed_at
+                                                         ELSE COALESCE($4, NOW()) END
                             WHERE platform_user_id = $2 AND client_channel_id = $3""",
-                        target_unsubscribed, platform_user_id, client_channel_id
+                        target_unsubscribed, platform_user_id, client_channel_id, csv_sub_at
+                    )
+                elif csv_sub_at and not target_unsubscribed:
+                    # Подписка уже была и статус тот же — но дату могли не знать
+                    # или знать позднюю. Двигаем только НАЗАД.
+                    await db.execute(
+                        """UPDATE platform_user_channels
+                              SET subscribed_at = LEAST(COALESCE(subscribed_at, $3), $3)
+                            WHERE platform_user_id = $1 AND client_channel_id = $2""",
+                        platform_user_id, client_channel_id, csv_sub_at
                     )
             else:
                 await db.execute(
                     """INSERT INTO platform_user_channels (platform_user_id, client_channel_id,
                                                             is_unsubscribed, subscribed_at, unsubscribed_at)
                        VALUES ($1, $2, $3,
-                               CASE WHEN $3 THEN NULL ELSE NOW() END,
+                               CASE WHEN $3 THEN NULL ELSE COALESCE($4, NOW()) END,
                                CASE WHEN $3 THEN NOW() ELSE NULL END)""",
-                    platform_user_id, client_channel_id, target_unsubscribed
+                    platform_user_id, client_channel_id, target_unsubscribed, csv_sub_at
                 )
 
             if is_subscribed:
@@ -565,6 +710,8 @@ async def import_csv_to_channel(
         f"Уже были у клиента (склейка по tg_id, другой бот того же клиента): {stats['matched_by_tg_id']}",
         f"Объединили со старым контактом по email/phone: {stats['merged_by_email_phone']}",
         f"Ников подтянуто у Telegram (в файле их не было): {stats['usernames_resolved']}",
+        f"Перенесена настоящая дата подписки: {stats['dates_kept']}",
+        f"Контактов, которым добавили теги: {stats['tags_added']}",
         f"Подписано на канал: {stats['subscribed']}",
         f"Отписано от канала: {stats['unsubscribed']}",
         f"Пропущено без telegram_id: {stats['skipped_no_tgid']}",
