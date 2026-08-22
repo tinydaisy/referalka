@@ -1929,47 +1929,6 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
                 </p>
               )}
             </div>
-          ) : isActive ? (
-            // Был неактивен, в этой сессии нажали «Сделать главным» — ждёт сохранения
-            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50">
-              <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                <Crown size={14} style={{ color: '#FFCFA4' }} />
-                Будет сделан главным после «Сохранить»
-              </div>
-              <p className="text-xs text-amber-800 mt-1 leading-snug mb-2">
-                Текущий главный станет дополнительным (только база для рассылок). Действие применится после клика «Сохранить» внизу.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsActive(false)}
-                className="text-xs font-medium text-amber-900 underline"
-              >
-                Отменить — оставить дополнительным
-              </button>
-            </div>
-          ) : (
-            // Неактивен — кнопка с подтверждением
-            <div className="p-3 rounded-xl border border-gray-200">
-              <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                <Megaphone size={14} className="text-gray-400" />
-                Дополнительный канал — только база для рассылок
-              </div>
-              <p className="text-xs text-gray-500 mt-1 leading-snug mb-3">
-                Рассылки через него идут, но воронка событий и Mini App работают через главный канал.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm(`Сделать «${displayName}» главным каналом?\n\nТекущий главный станет дополнительным (только база для рассылок). /start, регистрации и приветствия пойдут через этот бот.\n\nДействие применится после клика «Сохранить».`)) {
-                    setIsActive(true)
-                  }
-                }}
-                className="text-xs font-semibold px-3 py-2 rounded-lg"
-                style={{ background: '#FFCFA4', color: '#25455D' }}
-              >
-                Сделать главным
-              </button>
-            </div>
           )}
         </div>
 
