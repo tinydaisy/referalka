@@ -197,8 +197,9 @@ export default function LandingClient() {
         </div>
       </section>
 
-      {/* Тарифы */}
-      <section className="py-14 sm:py-20">
+      {/* Тарифы. Якорь — на него ведут шапка и футер: отдельной страницы
+          /pricing пока нет. */}
+      <section id="tariffs" className="py-14 sm:py-20 scroll-mt-20">
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <h2 className="text-2xl sm:text-3xl font-bold text-center mb-3" style={{ color: '#25455D' }}>Тарифы</h2>
           <p className="text-sm sm:text-base text-gray-500 text-center max-w-2xl mx-auto mb-10 sm:mb-14">

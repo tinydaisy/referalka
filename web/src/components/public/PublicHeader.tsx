@@ -13,19 +13,23 @@ import { useState } from 'react'
 import { ChevronDown, Menu, X } from 'lucide-react'
 
 const DARK = 'linear-gradient(45deg, #25455D, #0a1520)'
+const TARIFFS_HREF = '/#tariffs'
 const PEACH = '#FFCFA4'
 
 /**
- * «Наши решения». Страниц под модули пока нет — временно ведут на тарифы.
+ * «Наши решения». Страниц под модули пока нет — ведут на блок тарифов.
+ *
+ * ⚠️ Отдельной страницы /pricing НЕТ — только якорь на главной. Появится —
+ * правим TARIFFS_HREF здесь и в футере.
  *
  * ⚠️ Приставка «Модуль» у Конференций и Премий/Турниров: это части платформы.
  * Коллабораторная без приставки — отдельный продукт со своим каталогом,
  * лендингом и механикой.
  */
 const SOLUTIONS = [
-  { label: 'Модуль «Конференции»', href: '/pricing' },
-  { label: 'Модуль «Премии/Турниры»', href: '/pricing' },
-  { label: 'Коллабораторная', href: '/pricing' },
+  { label: 'Модуль «Конференции»', href: TARIFFS_HREF },
+  { label: 'Модуль «Премии/Турниры»', href: TARIFFS_HREF },
+  { label: 'Коллабораторная', href: TARIFFS_HREF },
   { label: 'ПЛЮСОН', href: '/' },
 ]
 
@@ -35,8 +39,8 @@ const SOLUTIONS = [
  * Полное имя стоит в футере, там место есть.
  */
 const NAV = [
-  { label: 'Тарифы', href: '/pricing' },
-  { label: 'Коллабораторная', href: '/pricing' },
+  { label: 'Тарифы', href: TARIFFS_HREF },
+  { label: 'Коллабораторная', href: TARIFFS_HREF },
 ]
 
 export default function PublicHeader({ registerHref = '/register' }: {

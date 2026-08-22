@@ -85,21 +85,26 @@ export default function RegisterPage() {
       {/* Left — gradient */}
       <div className="hidden lg:flex lg:w-1/2 gradient-bg flex-col justify-center px-16 py-12">
         <div className="mb-8">
+          <div className="text-white/60 text-sm mb-3">iViSiON: ПЛЮСОН</div>
           <img src="/images/logo_no_ivision_wwhite.png" alt="iViSiON: ПЛЮСОН"
             className="auth-logo mb-2"
             width={147} height={120}
             onError={e => { (e.target as any).style.display='none' }} />
           <h1 className="text-white text-3xl font-bold mt-6 leading-tight">
-            Запустите реферальную<br />программу за 15 минут
+            Всё, что вы попросили бы<br />для привлечения клиентов<br />у технаря. Только без технаря.
           </h1>
-          <p className="text-white/70 mt-3 text-lg">Платформа управляемого вирального роста</p>
+          <p className="text-white/70 mt-3 text-lg">
+            Платформа для экспертов, спикеров и организаторов
+          </p>
         </div>
 
+        {/* Три пункта — по задачам со второго экрана лендинга: упаковаться,
+            привлечь, продать. Держать в одной логике с главной. */}
         <div className="space-y-5">
           {[
-            'Участники приглашают друзей автоматически',
-            'Вы видите каждый шаг в аналитике',
-            'Подарки начисляются без вашего участия',
+            'Упаковаться: лендинг, страница продукта, афиши — без вёрстки',
+            'Привлечь: лид-магниты, готовые воронки, боты, коллаборации',
+            'Продать: тарифы, платёжные системы, рассылки, база клиентов',
           ].map(item => (
             <div key={item} className="flex items-center gap-3">
               <CheckCircle className="text-gold shrink-0" size={20} style={{ color: '#FFCFA4' }} />

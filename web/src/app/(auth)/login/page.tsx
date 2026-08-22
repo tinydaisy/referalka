@@ -76,21 +76,17 @@ export default function LoginPage() {
     <div className="min-h-screen flex">
       {/* Left */}
       <div className="hidden lg:flex lg:w-1/2 gradient-bg flex-col justify-center px-16 py-12">
+        <div className="text-white/60 text-sm mb-3">iViSiON: ПЛЮСОН</div>
         <img src="/images/logo_no_ivision_wwhite.png" alt="iViSiON: ПЛЮСОН"
           className="auth-logo mb-8"
           width={147} height={120}
           onError={e => { (e.target as any).style.display = 'none' }} />
         <h1 className="text-white text-3xl font-bold leading-tight">
-          Добро пожаловать<br />в iViSiON: ПЛЮСОН
+          С возвращением
         </h1>
         <p className="text-white/70 mt-4 text-lg">
-          Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте
+          Платформа для экспертов, спикеров и организаторов
         </p>
-        <div className="mt-10 p-5 rounded-2xl bg-white/10 border border-white/20">
-          <p className="text-white/80 text-sm italic">
-            «Участники приглашают друзей, вы видите каждый шаг, подарки начисляются автоматически.»
-          </p>
-        </div>
       </div>
 
       {/* Right */}

@@ -30,7 +30,9 @@ export default async function LegalDocPage({ slug }: { slug: string }) {
   const doc = await loadDoc(slug)
 
   return (
-    <main className="min-h-screen bg-white">
+    {/* ⚠️ Без min-h-screen: страница внутри общего каркаса, и растяжка
+        на весь экран оттолкнула бы футер за пределы вида. */}
+    <main className="bg-white rounded-2xl">
       <div className="mx-auto max-w-3xl px-5 py-10">
         <Link href="/" className="text-sm text-[#25455D] underline">
           ← iViSiON: ПЛЮСОН
