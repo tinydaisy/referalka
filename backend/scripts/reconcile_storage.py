@@ -84,7 +84,12 @@ async def main():
         for o in page.get("Contents", []):
             bucket_objs[o["Key"]] = o["Size"]
 
-    dsn = os.getenv("DATABASE_URL") or "postgresql://plusson:PlussonDB2026!@localhost:5432/plusson"
+    # ⚠️ Пароль базы БЕЗ запасного значения в коде: он лежал здесь открытым
+    # текстом, а репозиторий видят подрядчики. Нет DATABASE_URL — честно падаем.
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        raise SystemExit("Нет DATABASE_URL. Запускать так:\n"
+                         "  export $(grep ^DATABASE_URL /var/www/plusson/backend/.env) && python3 ...")
     conn = await asyncpg.connect(dsn)
     tracked = {r["r2_key"]: (r["id"], r["client_id"], int(r["size_bytes"]))
                for r in await conn.fetch("SELECT id, r2_key, client_id, size_bytes FROM client_files")}

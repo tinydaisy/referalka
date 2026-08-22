@@ -14,11 +14,21 @@ LOG="/var/log/plusson-db-backup.log"
 ENV_FILE="/var/www/plusson/web/.env.local"
 UPLOADER="/var/www/plusson/deploy/r2_backup_upload.py"
 
-# Пароль/имя БД — из backend/.env (те же, что использует приложение)
-PGUSER="plusson"
-PGPASSWORD="PlussonDB2026!"
-PGDATABASE="plusson"
-PGHOST="localhost"
+# ⚠️ Доступ к базе берём ИЗ backend/.env, а не строкой в коде. Пароль лежал
+# здесь открытым текстом — в репозитории, который видят подрядчики. Сейчас
+# Postgres слушает только 127.0.0.1, поэтому снаружи он бесполезен, но откроют
+# порт для стороннего сервиса — и он станет боевым.
+ENV_FILE="/var/www/plusson/backend/.env"
+DSN="$(grep -m1 '^DATABASE_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'')"
+if [ -z "$DSN" ]; then
+  echo "ОШИБКА: не нашёл DATABASE_URL в $ENV_FILE — бэкап отменён" >&2
+  exit 1
+fi
+# postgresql://ПОЛЬЗОВАТЕЛЬ:ПАРОЛЬ@ХОСТ:ПОРТ/БАЗА
+PGUSER="$(echo "$DSN"      | sed -E 's|.*://([^:]+):.*|\1|')"
+PGPASSWORD="$(echo "$DSN"  | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')"
+PGHOST="$(echo "$DSN"      | sed -E 's|.*@([^:/]+).*|\1|')"
+PGDATABASE="$(echo "$DSN"  | sed -E 's|.*/([^/?]+)(\?.*)?$|\1|')"
 
 LOCAL_KEEP_DAYS=7
 R2_KEEP_DAYS=30

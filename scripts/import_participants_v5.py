@@ -19,7 +19,11 @@ import secrets
 import string
 import os
 
-DB_URL = "postgresql://plusson:PlussonDB2026!@localhost:5432/plusson"
+# ⚠️ Пароль базы НЕ хранится в коде: репозиторий видят подрядчики. Запускать с
+#   export $(grep ^DATABASE_URL /var/www/plusson/backend/.env) && python3 ...
+DB_URL = os.environ.get("DATABASE_URL")
+if not DB_URL:
+    raise SystemExit("Нет DATABASE_URL — см. комментарий выше.")
 CSV_FILE = os.environ.get("CSV_FILE", "/var/www/plusson/report_part1_6.csv")
 EVENT_ID = 4
 CLIENT_ID = 1

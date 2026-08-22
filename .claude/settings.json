@@ -68,7 +68,6 @@
       "Bash(rsync -az \"/Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/events/[id]/conference/page.tsx\" \"root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/events/[id]/conference/page.tsx\")",
       "Bash(rsync -av --exclude=.git --exclude=node_modules --exclude=.next /Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/conferences/ root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/conferences/ -e 'ssh -i ~/.ssh/id_ed25519')",
       "Read(//opt/homebrew/**)",
-      "Bash(sshpass -p 'jK8TJpknm*%s' ssh -o StrictHostKeyChecking=no root@62.113.98.30 \"echo 'Подключился!' && uname -a && free -h && df -h /\")",
       "Bash(scp -o StrictHostKeyChecking=no /Users/macbookair/Documents/projects/referalka/backend/app/api/participants.py root@194.156.119.17:/opt/plusson/backend/app/api/participants.py)",
       "Bash(scp -o StrictHostKeyChecking=no /Users/macbookair/Documents/projects/referalka/backend/app/api/participants.py root@194.156.119.17:/var/www/plusson/backend/app/api/participants.py)",
       "Bash(scp -o StrictHostKeyChecking=no /Users/macbookair/Documents/projects/referalka/backend/app/api/integrations.py root@194.156.119.17:/var/www/plusson/backend/app/api/integrations.py)",
