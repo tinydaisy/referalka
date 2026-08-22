@@ -224,6 +224,7 @@ export default function ChannelsPage() {
       {vipWizardOpen && (
         <VipBotWizard
           clientId={me!.id}
+          hasOwnBot={channels.some(c => c.platform_slug === 'telegram' && !c.is_system)}
           onClose={() => setVipWizardOpen(false)}
           onDone={() => { setVipWizardOpen(false); load() }}
         />
@@ -1300,8 +1301,9 @@ function VipMaxWizard({ clientId, onClose, onDone }: {
 }
 
 /* ─────── VIP-wizard: подключение своего бота ─────── */
-function VipBotWizard({ clientId, onClose, onDone }: {
+function VipBotWizard({ clientId, hasOwnBot, onClose, onDone }: {
   clientId: number
+  hasOwnBot?: boolean
   onClose: () => void
   onDone: () => void
 }) {
@@ -1311,12 +1313,16 @@ function VipBotWizard({ clientId, onClose, onDone }: {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ bot_username: string; mini_app_url: string } | null>(null)
+  // ⚠️ Второй и последующий бот по умолчанию НЕ главный. Раньше каждый новый
+  // безусловно забирал эту роль: клиент подключал бота ради рассылок, а у него
+  // молча переезжали воронки и регистрации на свежий бот, где ничего не настроено.
+  const [makePrimary, setMakePrimary] = useState(!hasOwnBot)
 
   async function submitToken() {
     setError('')
     setSubmitting(true)
     try {
-      const r = await api.channels.connectTelegramBot(token.trim())
+      const r = await api.channels.connectTelegramBot(token.trim(), makePrimary)
       setResult({ bot_username: r.bot_username, mini_app_url: r.mini_app_url })
       setStep(3)
     } catch (e: any) {
@@ -1365,6 +1371,39 @@ function VipBotWizard({ clientId, onClose, onDone }: {
         <div className="p-5">
           {step === 1 && (
             <div className="space-y-4">
+              {/* ⚠️ Роль выбирается ДО подключения. Раньше бот безусловно
+                  становился главным, и клиент, добавлявший его ради рассылок,
+                  молча терял работающую воронку на прежнем боте. */}
+              <div className="rounded-xl border p-3" style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.10)' }}>
+                <p className="text-sm font-semibold" style={{ color: '#25455D' }}>
+                  Зачем вам этот бот?
+                </p>
+                <div className="mt-2 space-y-2">
+                  <label className="flex gap-2.5 cursor-pointer">
+                    <input type="radio" checked={makePrimary} onChange={() => setMakePrimary(true)} className="mt-0.5" />
+                    <span className="text-sm text-gray-800">
+                      <b>Основной</b> — отвечает за воронку: /start, регистрации,
+                      приветствия, подарки, Mini App.
+                    </span>
+                  </label>
+                  <label className="flex gap-2.5 cursor-pointer">
+                    <input type="radio" checked={!makePrimary} onChange={() => setMakePrimary(false)} className="mt-0.5" />
+                    <span className="text-sm text-gray-800">
+                      <b>Только для рассылок</b> — импорт базы и отправка сообщений.
+                      Воронка остаётся на прежнем боте.
+                    </span>
+                  </label>
+                </div>
+                {makePrimary && (
+                  <p className="text-xs text-gray-700 mt-2.5 leading-snug">
+                    ⚠️ Для основного бота возьмите новый — или отвяжите старый от
+                    других сервисов (BotHelp, Salebot и подобных). Telegram отдаёт
+                    сообщения только одному получателю: пока бот подключён где-то ещё,
+                    тот сервис перехватывает управление, и наши воронки работать не будут.
+                  </p>
+                )}
+              </div>
+
               <h3 className="font-semibold text-gray-900">Шаг 1. Создайте бот в @BotFather</h3>
               <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
                 <li>Откройте <a href="https://telegram.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a> в Telegram</li>
@@ -1718,6 +1757,30 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
                 </p>
               </div>
             </label>
+          ) : channel.is_active && !isActive ? (
+            // Главный в базе, но в этой сессии сняли роль — ждёт сохранения.
+            // ⚠️ Пока главного нет ни у одного канала, воронка на площадке не
+            // работает: /start, регистрации и приветствия отвечать некому.
+            // Говорим об этом прямо, чтобы клиент не искал потом причину молча
+            // переставшего работать бота.
+            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50">
+              <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                <Megaphone size={14} className="text-gray-500" />
+                Станет дополнительным после «Сохранить»
+              </div>
+              <p className="text-xs text-amber-800 mt-1 leading-snug mb-2">
+                Рассылки и импорт базы продолжат работать. Но если это ваш
+                единственный бот на площадке — воронка событий отвечать перестанет:
+                /start, регистрации и приветствия идут только через главный канал.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsActive(true)}
+                className="text-xs font-medium text-amber-900 underline"
+              >
+                Отменить — оставить главным
+              </button>
+            </div>
           ) : channel.is_active ? (
             // Уже главный в БД — просто плашка, переключают через другой канал
             <div className="p-3 rounded-xl border" style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.12)' }}>
@@ -1726,8 +1789,19 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
                 ✓ Это главный канал
               </div>
               <p className="text-xs text-gray-600 mt-1 leading-snug">
-                Через него идёт воронка событий: /start, регистрации, приветствия. Чтобы переключить — откройте редактирование другого канала и нажмите «Сделать главным».
+                Через него идёт воронка событий: /start, регистрации, приветствия.
+                Чтобы передать эту роль другому — откройте его и нажмите «Сделать главным».
               </p>
+              {/* ⚠️ Снять роль можно и здесь. Раньше кнопки не было вовсе, и бот
+                  навсегда оставался главным: клиент хотел использовать его только
+                  для рассылок и импорта базы, а деться от воронки было некуда. */}
+              <button
+                type="button"
+                onClick={() => setIsActive(false)}
+                className="mt-2 text-xs underline text-gray-600 hover:text-gray-900"
+              >
+                Сделать дополнительным (только рассылки)
+              </button>
             </div>
           ) : isActive ? (
             // Был неактивен, в этой сессии нажали «Сделать главным» — ждёт сохранения

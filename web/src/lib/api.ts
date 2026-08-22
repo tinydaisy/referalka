@@ -813,10 +813,12 @@ export const api = {
     // Забрать бота у стороннего сервиса: deleteWebhook + перезапуск polling
     restartPolling: (id: number) =>
       request(`/api/v1/channels/${id}/restart-polling`, { method: 'POST' }),
-    connectTelegramBot: (bot_token: string) =>
+    // make_primary: делать ли бот главным (по нему идёт воронка). Не передан —
+    // бэкенд решает сам: главным станет только первый свой бот на площадке.
+    connectTelegramBot: (bot_token: string, make_primary?: boolean) =>
       request('/api/v1/channels/connect-telegram-bot', {
         method: 'POST',
-        body: JSON.stringify({ bot_token }),
+        body: JSON.stringify({ bot_token, make_primary }),
       }),
     connectVkCommunity: (data: { access_token: string; app_id: number; secure_key: string; group_id: number }) =>
       request('/api/v1/channels/connect-vk-community', {

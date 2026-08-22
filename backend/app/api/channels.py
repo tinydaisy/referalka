@@ -402,10 +402,42 @@ async def update_channel(
     return {"ok": True}
 
 
+async def _resolve_make_primary(db, client_id: int, platform: str,
+                                explicit: Optional[bool]) -> bool:
+    """Делать ли подключаемый канал ГЛАВНЫМ на этой площадке.
+
+    Главный канал — это тот, через который идут воронки, регистрации, приветствия
+    и Mini App. Он один на площадку.
+
+    ⚠️ Раньше каждый новый бот безусловно забирал эту роль у прежнего. Клиент
+    подключал второго бота ради рассылок — и у него молча переезжали воронки на
+    свежий бот, где ничего не настроено. Теперь правило такое:
+      • клиент сказал явно (true/false) — слушаем его;
+      • не сказал — главным делаем ТОЛЬКО первый свой бот на площадке.
+    """
+    if explicit is not None:
+        return explicit
+    has_own = await db.fetchval(
+        """SELECT 1 FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND ch.platform_slug = $2
+              AND ch.is_system = FALSE
+            LIMIT 1""",
+        client_id, platform,
+    )
+    return not has_own
+
+
 # ─── POST /connect-telegram-bot ──────────────────────────────────────
 
 class ConnectTelegramBotRequest(BaseModel):
     bot_token: str
+    # ⚠️ Главным (по нему идут воронки, регистрации, Mini App) новый бот
+    # становится ТОЛЬКО если на площадке своего бота ещё нет. Раньше каждый
+    # подключённый бот безусловно забирал эту роль у прежнего: клиент добавлял
+    # второго бота ради рассылок — и у него молча переезжали воронки.
+    # true/false — явный выбор клиента, None — решаем по наличию бота.
+    make_primary: Optional[bool] = None
 
 
 @router.post("/connect-telegram-bot", summary="VIP-онбординг: подключить свой Telegram-бот")
@@ -477,19 +509,22 @@ async def connect_telegram_bot(
                    VALUES ('telegram', $1, $2, $3, FALSE, FALSE) RETURNING id""",
                 f"Бот {bot_name}", f"@{bot_username}", token,
             )
-            # Снять флаг главного у других telegram-каналов клиента (системный @pluson_bot и т.п.)
+            make_primary = await _resolve_make_primary(
+                db, client_id, 'telegram', data.make_primary)
+            if make_primary:
+                # Главный на площадке один — снимаем флаг у прежнего.
+                await db.execute(
+                    """UPDATE client_channels cc
+                          SET is_active = FALSE
+                         FROM channels ch
+                        WHERE cc.channel_id = ch.id
+                          AND cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                          AND cc.is_active = TRUE""",
+                    client_id
+                )
             await db.execute(
-                """UPDATE client_channels cc
-                      SET is_active = FALSE
-                     FROM channels ch
-                    WHERE cc.channel_id = ch.id
-                      AND cc.client_id = $1 AND ch.platform_slug = 'telegram'
-                      AND cc.is_active = TRUE""",
-                client_id
-            )
-            await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
-                client_id, channel_id,
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, $3)",
+                client_id, channel_id, make_primary,
             )
 
     await _ensure_polling_ready(token)
@@ -566,6 +601,9 @@ async def restart_bot_polling(
 
 class ConnectVkCommunityRequest(BaseModel):
     access_token: str   # VK Community access token (с правами messages + manage)
+    # Главным на площадке новый канал становится, только если своего там ещё
+    # нет (см. _resolve_make_primary). Клиент может решить иначе явно.
+    make_primary: Optional[bool] = None
     app_id: int         # ID VK Mini App, прикреплённого к сообществу
     secure_key: str     # Secure key Mini App — для валидации HMAC подписи launch params
     group_id: int       # ID сообщества (положительное целое)
@@ -736,18 +774,21 @@ async def connect_vk_community(
                    VALUES ('vk', $1, $2, $3, FALSE, FALSE, $4::jsonb) RETURNING id""",
                 group_name, screen_name or f"club{data.group_id}", token, _json.dumps(meta),
             )
+            make_primary = await _resolve_make_primary(
+                db, client_id, 'vk', getattr(data, 'make_primary', None))
+            if make_primary:
+                await db.execute(
+                    """UPDATE client_channels cc
+                          SET is_active = FALSE
+                         FROM channels ch
+                        WHERE cc.channel_id = ch.id
+                          AND cc.client_id = $1 AND ch.platform_slug = 'vk'
+                          AND cc.is_active = TRUE""",
+                    client_id,
+                )
             await db.execute(
-                """UPDATE client_channels cc
-                      SET is_active = FALSE
-                     FROM channels ch
-                    WHERE cc.channel_id = ch.id
-                      AND cc.client_id = $1 AND ch.platform_slug = 'vk'
-                      AND cc.is_active = TRUE""",
-                client_id,
-            )
-            await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
-                client_id, channel_id,
+                "INSERT INTO client_channels (client_id, channel_id, make_primary, is_active) VALUES ($1, $2, $3)",
+                client_id, channel_id, make_primary,
             )
 
     base = settings.frontend_url.rstrip("/")
@@ -771,6 +812,9 @@ async def connect_vk_community(
 
 class ConnectMaxBotRequest(BaseModel):
     bot_token: str   # токен MAX-бота из @MasterBot (dev.max.ru)
+    # Главным на площадке новый канал становится, только если своего там ещё
+    # нет (см. _resolve_make_primary). Клиент может решить иначе явно.
+    make_primary: Optional[bool] = None
 
 
 @router.post("/connect-max-bot", summary="VIP-онбординг: подключить свой MAX-бот")
@@ -855,18 +899,21 @@ async def connect_max_bot(
                    VALUES ('max', $1, $2, $3, FALSE, FALSE) RETURNING id""",
                 f"MAX {bot_name}", f"@{bot_username}", token,
             )
+            make_primary = await _resolve_make_primary(
+                db, client_id, 'max', getattr(data, 'make_primary', None))
+            if make_primary:
+                await db.execute(
+                    """UPDATE client_channels cc
+                          SET is_active = FALSE
+                         FROM channels ch
+                        WHERE cc.channel_id = ch.id
+                          AND cc.client_id = $1 AND ch.platform_slug = 'max'
+                          AND cc.is_active = TRUE""",
+                    client_id,
+                )
             await db.execute(
-                """UPDATE client_channels cc
-                      SET is_active = FALSE
-                     FROM channels ch
-                    WHERE cc.channel_id = ch.id
-                      AND cc.client_id = $1 AND ch.platform_slug = 'max'
-                      AND cc.is_active = TRUE""",
-                client_id,
-            )
-            await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
-                client_id, channel_id,
+                "INSERT INTO client_channels (client_id, channel_id, make_primary, is_active) VALUES ($1, $2, $3)",
+                client_id, channel_id, make_primary,
             )
 
     return {
@@ -1320,16 +1367,19 @@ async def connect_whatsapp(client=Depends(get_current_client), db=Depends(get_db
                 """INSERT INTO channels (platform_slug, display_name, handle, is_system, is_test)
                    VALUES ('whatsapp', 'WhatsApp', NULL, FALSE, FALSE) RETURNING id""",
             )
+            make_primary = await _resolve_make_primary(
+                db, client_id, 'whatsapp', getattr(data, 'make_primary', None))
+            if make_primary:
+                await db.execute(
+                    """UPDATE client_channels cc SET is_active = FALSE
+                         FROM channels ch
+                        WHERE cc.channel_id = ch.id AND cc.client_id = $1
+                          AND ch.platform_slug = 'whatsapp' AND cc.is_active = TRUE""",
+                    client_id,
+                )
             await db.execute(
-                """UPDATE client_channels cc SET is_active = FALSE
-                     FROM channels ch
-                    WHERE cc.channel_id = ch.id AND cc.client_id = $1
-                      AND ch.platform_slug = 'whatsapp' AND cc.is_active = TRUE""",
-                client_id,
-            )
-            await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
-                client_id, channel_id,
+                "INSERT INTO client_channels (client_id, channel_id, make_primary, is_active) VALUES ($1, $2, $3)",
+                client_id, channel_id, make_primary,
             )
     else:
         channel_id = existing["id"]
