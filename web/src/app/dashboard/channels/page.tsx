@@ -2138,6 +2138,15 @@ const ID_COLUMN: Record<string, string> = {
   telegram: 'telegram_id', vk: 'vk_id', max: 'max_id',
 }
 
+// Как называть площадку и ник в текстах ДЛЯ КЛИЕНТА. «telegram_id» и
+// «никнейм» он видит в шапке файла, а на экране должен читать человеческие
+// слова — и уж точно не слово «Telegram», когда грузит базу ВКонтакте.
+const PLATFORM_WORDS: Record<string, { title: string; nick: string }> = {
+  telegram: { title: 'Telegram',   nick: 'ников' },
+  vk:       { title: 'ВКонтакте',  nick: 'коротких адресов' },
+  max:      { title: 'MAX',        nick: 'ников' },
+}
+
 function csvTemplate(idCol: string) {
   // Колонка ника есть только у Telegram: у ВКонтакте и MAX мы его не спрашиваем.
   const nick = idCol === 'telegram_id' ? 'telegram_username,' : ''
@@ -2495,6 +2504,7 @@ function ImportCsvModal({ channel, onClose, onDone }: {
           ) : (
             <ImportResultView
               result={result}
+              platformSlug={channel.platform_slug}
               onDownloadReport={downloadReport}
               onClose={onDone}
             />
@@ -2505,12 +2515,14 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   )
 }
 
-function ImportResultView({ result, onDownloadReport, onClose }: {
+function ImportResultView({ result, platformSlug, onDownloadReport, onClose }: {
   result: ImportResult
+  platformSlug: string
   onDownloadReport: () => void
   onClose: () => void
 }) {
   const s = result.stats
+  const words = PLATFORM_WORDS[platformSlug] || { title: 'площадки', nick: 'ников' }
   const hasIssues = s.skipped_no_tgid + s.skipped_invalid_tgid + s.duplicates_in_file + s.mismatches + (s.tg_clash_skipped || 0) > 0
 
   return (
@@ -2539,31 +2551,51 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Создано контактов" value={s.created_contacts} color="#25455D" />
-        <StatCard label="Уже были (по tg_id)" value={s.matched_by_tg_id} color="#25455D" />
-        <StatCard label="Объединили по email/телефону" value={s.merged_by_email_phone} color="#7c3aed" />
+        <StatCard label="Новых людей добавлено" value={s.created_contacts} color="#25455D" />
+        <StatCard label="Уже были в вашей базе" value={s.matched_by_tg_id} color="#25455D" />
+        <StatCard label="Узнали по почте или телефону" value={s.merged_by_email_phone} color="#7c3aed" />
         <StatCard label="Подписано на канал" value={s.subscribed} color="#16a34a" />
         <StatCard label="Отписано от канала" value={s.unsubscribed} color="#9ca3af" />
         {((s as any).usernames_resolved > 0 || (s as any).usernames_already_known > 0) && (
-          <StatCard label="Никнеймов подтянуто у Telegram" value={(s as any).usernames_resolved || 0} color="#25455D" />
+          <StatCard label={`Узнали ${words.nick} у ${words.title}`} value={(s as any).usernames_resolved || 0} color="#25455D" />
         )}
         {s.tg_clash_skipped > 0 && (
-          <StatCard label="Конфликт TG-identity" value={s.tg_clash_skipped} color="#dc2626" />
+          <StatCard label="Пропустили — аккаунт занят" value={s.tg_clash_skipped} color="#dc2626" />
         )}
       </div>
 
       {hasIssues && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <div className="font-semibold text-amber-900 text-sm mb-2 flex items-center gap-2">
-            <AlertTriangle size={16} /> Есть нестыковки и пропуски
+            <AlertTriangle size={16} /> На что стоит посмотреть
           </div>
-          <ul className="text-sm text-amber-900 space-y-1">
-            {s.skipped_no_tgid > 0 && <li>• Пропущено без идентификатора: <b>{s.skipped_no_tgid}</b></li>}
-            {s.skipped_invalid_tgid > 0 && <li>• Пропущено с неверным идентификатором: <b>{s.skipped_invalid_tgid}</b></li>}
-            {s.duplicates_in_file > 0 && <li>• Дубликатов внутри файла: <b>{s.duplicates_in_file}</b></li>}
-            {s.mismatches > 0 && <li>• Нестыковок (CSV ≠ БД, оставлено как в БД): <b>{s.mismatches}</b></li>}
-            {s.tg_clash_skipped > 0 && <li>• Конфликт TG-identity (не привязали): <b>{s.tg_clash_skipped}</b></li>}
+          <ul className="text-sm text-amber-900 space-y-1.5">
+            {s.skipped_no_tgid > 0 && (
+              <li>• <b>{s.skipped_no_tgid}</b> — пропустили, в строке не указан {ID_COLUMN[platformSlug] || 'id'}</li>
+            )}
+            {s.skipped_invalid_tgid > 0 && (
+              <li>• <b>{s.skipped_invalid_tgid}</b> — пропустили, {ID_COLUMN[platformSlug] || 'id'} не похож на настоящий</li>
+            )}
+            {s.duplicates_in_file > 0 && (
+              <li>• <b>{s.duplicates_in_file}</b> — эти люди встретились в файле дважды. Второй раз не заводили</li>
+            )}
+            {s.mismatches > 0 && (
+              <li>
+                • <b>{s.mismatches}</b> — в файле про них написано одно, а в вашей базе уже
+                записано другое (например, другое имя). Оставили как в базе — то, что вы
+                правили руками, файл не перетирает
+              </li>
+            )}
+            {s.tg_clash_skipped > 0 && (
+              <li>
+                • <b>{s.tg_clash_skipped}</b> — пропустили: почта или телефон совпали с человеком,
+                у которого в {words.title} уже указан другой аккаунт
+              </li>
+            )}
           </ul>
+          <p className="text-xs text-amber-800 mt-2.5">
+            Кто именно — в отчёте ниже, там перечислены строки поимённо.
+          </p>
         </div>
       )}
 

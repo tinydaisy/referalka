@@ -51,6 +51,12 @@ PLATFORMS = {
         'title':    'Telegram',
         'id_col':   'telegram_id',
         'id_label': 'telegram_id',
+        # Как называть идентификатор в текстах для КЛИЕНТА: «telegram_id» он
+        # видит в шапке своего файла, а в отчёте и ошибках должен читать
+        # человеческие слова, а не имя колонки.
+        'human_id':      'номер в Telegram',
+        'human_nick':    'ник',
+        'human_nick_pl': 'ники',
         # Только у Telegram по числовому id можно спросить ник у самой площадки.
         'resolve_usernames': True,
     },
@@ -58,6 +64,9 @@ PLATFORMS = {
         'title':    'ВКонтакте',
         'id_col':   'vk_id',
         'id_label': 'vk_id',
+        'human_id':      'номер ВКонтакте',
+        'human_nick':    'короткий адрес',
+        'human_nick_pl': 'короткие адреса',
         # ВК отдаёт короткие адреса пачкой (users.get, до 1000 за запрос).
         'resolve_usernames': True,
     },
@@ -65,6 +74,9 @@ PLATFORMS = {
         'title':    'MAX',
         'id_col':   'max_id',
         'id_label': 'max_id',
+        'human_id':      'номер в MAX',
+        'human_nick':    'ник',
+        'human_nick_pl': 'ники',
         'resolve_usernames': False,
     },
 }
@@ -342,6 +354,10 @@ async def import_csv_to_channel(
             f"Доступны: {', '.join(p['title'] for p in PLATFORMS.values())}."
         )
     id_col: str = conf['id_col']
+    plat_title: str = conf['title']
+    human_id: str = conf['human_id']
+    human_nick: str = conf['human_nick']
+    human_nick_pl: str = conf['human_nick_pl']
     if channel['is_system']:
         raise ValueError("Импорт CSV в системный канал запрещён — подписчики приходят сами через /start или Mini App.")
     client_channel_id: int = channel['cc_id']
@@ -495,8 +511,8 @@ async def import_csv_to_channel(
         stats['usernames_resolved'] = len(resolved_usernames)
     elif need_lookup and not bot_token:
         report_lines.append(
-            "⚠ Ники не подтянуты: у канала не задан токен бота. "
-            "Подключите бота в разделе «Каналы» — тогда ники подтянутся при импорте."
+            f"  {human_nick_pl.capitalize()} не подтянули: у канала не задан токен бота. "
+            f"Подключите бота в разделе «Каналы» — тогда при следующей загрузке подтянутся."
         )
         report_lines.append('')
 
@@ -517,11 +533,14 @@ async def import_csv_to_channel(
 
             if not raw_tg:
                 stats['skipped_no_tgid'] += 1
-                report_lines.append(f"Строка {row_num}: пропущена — нет telegram_id")
+                report_lines.append(f"  Строка {row_num}: пропущена — не указан {human_id}")
                 continue
             if not tg_id:
                 stats['skipped_invalid_tgid'] += 1
-                report_lines.append(f"Строка {row_num}: пропущена — telegram_id «{raw_tg}» не число")
+                report_lines.append(
+                    f"  Строка {row_num}: пропущена — «{raw_tg}» не похоже на {human_id} "
+                    f"(там должны быть только цифры)"
+                )
                 continue
 
             # Дубль внутри файла
@@ -529,8 +548,8 @@ async def import_csv_to_channel(
                 stats['duplicates_in_file'] += 1
                 first_row = seen_tg_ids_in_file[tg_id]
                 report_lines.append(
-                    f"Строка {row_num}: дубль telegram_id={tg_id} (впервые встретился в строке {first_row}). "
-                    f"Обработана как обновление, не как новый контакт."
+                    f"  Строка {row_num}: этот человек уже был в строке {first_row}. "
+                    f"Второй раз заводить не стали — дополнили первую запись."
                 )
                 # Не continue — обрабатываем (CSV-семантика: первая выигрывает по полям, но подписка перетирается)
             else:
@@ -717,9 +736,10 @@ async def import_csv_to_channel(
                 if clash_tg:
                     stats['tg_clash_skipped'] += 1
                     report_lines.append(
-                        f"Строка {row_num}: telegram_id={tg_id} не привязан — у контакта "
-                        f"(совпал по email/phone) уже есть другой TG: {clash_tg}. "
-                        f"Подписка на канал не создана."
+                        f"  Строка {row_num}: пропущена. Почта или телефон совпали с человеком, "
+                        f"у которого в {plat_title} уже указан другой аккаунт. Мы не знаем, "
+                        f"один это человек или разные, поэтому ничего не меняли — "
+                        f"посмотрите его карточку в Контактах."
                     )
                     continue
 
@@ -793,68 +813,75 @@ async def import_csv_to_channel(
             else:
                 stats['unsubscribed'] += 1
 
-    # Финальный заголовок отчёта
+    # Финальный заголовок отчёта.
+    # ⚠️ Пишем ПО-ЧЕЛОВЕЧЕСКИ и БЕЗ названий колонок базы: этот файл скачивает
+    # клиент, а не программист. И без слова «telegram» — площадка любая
+    # (подставляется id_label и title из PLATFORMS).
     header = [
-        f"Отчёт об импорте в канал «{channel['display_name']}»",
-        f"Всего строк (без заголовка): {stats['total_rows']}",
-        f"Создано новых контактов: {stats['created_contacts']}",
-        f"Уже были у клиента (склейка по tg_id, другой бот того же клиента): {stats['matched_by_tg_id']}",
-        f"Объединили со старым контактом по email/phone: {stats['merged_by_email_phone']}",
-        f"Ников подтянуто у Telegram (в файле их не было): {stats['usernames_resolved']}",
-        f"Ников не запрашивали — уже были в базе: {stats['usernames_already_known']}",
-        f"Перенесена настоящая дата подписки: {stats['dates_kept']}",
-        f"Контактов, которым добавили теги: {stats['tags_added']}",
+        f"Отчёт о загрузке в «{channel['display_name']}»",
+        f"Строк в файле: {stats['total_rows']}",
+        f"Новых людей добавлено: {stats['created_contacts']}",
+        f"Уже были в вашей базе: {stats['matched_by_tg_id']}",
+        f"Узнали по почте или телефону и объединили с прежней записью: {stats['merged_by_email_phone']}",
+        f"Узнали {human_nick_pl} у {plat_title} (в файле их не было): {stats['usernames_resolved']}",
+        f"Уже знали {human_nick_pl}, не запрашивали: {stats['usernames_already_known']}",
+        f"Перенесли настоящую дату подписки: {stats['dates_kept']}",
+        f"Людей, которым добавили метки: {stats['tags_added']}",
         f"Подписано на канал: {stats['subscribed']}",
         f"Отписано от канала: {stats['unsubscribed']}",
-        f"Пропущено без telegram_id: {stats['skipped_no_tgid']}",
-        f"Пропущено с невалидным telegram_id: {stats['skipped_invalid_tgid']}",
-        f"Дубликатов внутри файла: {stats['duplicates_in_file']}",
-        f"Нестыковок (CSV ≠ БД, оставлено как в БД): {stats['mismatches']}",
-        f"Пропущено из-за конфликта TG-identity: {stats['tg_clash_skipped']}",
+        f"Пропущено — не указан {human_id}: {stats['skipped_no_tgid']}",
+        f"Пропущено — {human_id} не похож на настоящий: {stats['skipped_invalid_tgid']}",
+        f"Повторов внутри самого файла: {stats['duplicates_in_file']}",
+        f"В файле данные отличались от того, что уже было в базе — оставили как в базе: {stats['mismatches']}",
+        f"Пропущено — этот аккаунт уже занят другим человеком: {stats['tg_clash_skipped']}",
         '',
         '─' * 60,
     ]
 
-    # Раздел: объединения по email/phone (новый tg_id привязан к существующему контакту)
+    # Раздел: узнали человека по почте/телефону и присоединили к прежней записи
     merge_section: list[str] = []
     if merge_log:
         merge_section.append('')
-        merge_section.append(f"ОБЪЕДИНЕНИЯ ПО EMAIL/ТЕЛЕФОНУ — {len(merge_log)}")
-        merge_section.append('Новый telegram_id привязан к уже существующему контакту в БД клиента.')
+        merge_section.append(f"УЗНАЛИ ПО ПОЧТЕ ИЛИ ТЕЛЕФОНУ — {len(merge_log)}")
+        merge_section.append(
+            'Эти люди уже были в вашей базе. Новый аккаунт присоединили к прежней '
+            'записи, чтобы человек не задвоился.'
+        )
         merge_section.append('')
         for m in merge_log:
+            by = {'email': 'почте', 'phone': 'телефону'}.get(m['matched_by'], m['matched_by'])
             line = (
-                f"  Строка {m['row']}: tg_id={m['tg_id']} → contact #{m['contact_id']} "
-                f"«{m['contact_name']}» (совпало по {m['matched_by']})"
+                f"  Строка {m['row']}: «{m['contact_name']}» — узнали по {by}"
             )
             if m.get('csv_name') and m['csv_name'].strip().lower() != m['contact_name'].strip().lower():
-                line += f" [в CSV имя: «{m['csv_name']}»]"
+                line += f" (в файле он записан как «{m['csv_name']}»)"
             merge_section.append(line)
         merge_section.append('')
         merge_section.append('─' * 60)
 
-    # Раздел: склейки по tg_id (этот человек уже был в другом боте этого же клиента)
+    # Раздел: этот человек уже был у клиента (в другом боте той же площадки)
     tg_match_section: list[str] = []
     if tg_match_log:
         tg_match_section.append('')
-        tg_match_section.append(f"СКЛЕЙКА ПО TG_ID — {len(tg_match_log)}")
-        tg_match_section.append('Этот telegram_id уже был у клиента (в другом боте). Просто добавили подписку на текущий канал.')
+        tg_match_section.append(f"УЖЕ БЫЛИ В ВАШЕЙ БАЗЕ — {len(tg_match_log)}")
+        tg_match_section.append(
+            'Эти люди у вас уже есть — пришли раньше, через другой канал. '
+            'Заново не заводили, просто добавили им подписку на этот канал.'
+        )
         tg_match_section.append('')
         for m in tg_match_log:
-            tg_match_section.append(
-                f"  Строка {m['row']}: tg_id={m['tg_id']} → contact #{m['contact_id']} «{m['contact_name']}»"
-            )
+            tg_match_section.append(f"  Строка {m['row']}: «{m['contact_name']}»")
         tg_match_section.append('')
         tg_match_section.append('─' * 60)
 
-    # Раздел: проблемы и нестыковки
+    # Раздел: на что стоит посмотреть
     issues_section: list[str] = ['']
     if report_lines:
-        issues_section.append('ЗАМЕЧАНИЯ И ОШИБКИ')
+        issues_section.append('НА ЧТО СТОИТ ПОСМОТРЕТЬ')
         issues_section.append('')
         issues_section.extend(report_lines)
     else:
-        issues_section.append('Замечаний и ошибок нет — все строки обработаны чисто.')
+        issues_section.append('Всё прошло чисто — ни одной строки не пропустили.')
 
     full_text = '\n'.join(header + merge_section + tg_match_section + issues_section)
 
@@ -882,17 +909,18 @@ def _check_mismatches(
     Не считается отличием: одно из них пусто (тогда мы дозаполняем, не перетираем)."""
     issues = []
     if db_name and csv_name and db_name.strip().lower() != csv_name.strip().lower():
-        issues.append(f"имя в базе «{db_name}», в CSV «{csv_name}»")
+        issues.append(f"имя: в базе «{db_name}», в файле «{csv_name}»")
     if db_email_n and csv_email_n and db_email_n != csv_email_n:
-        issues.append(f"email в базе «{db_email}», в CSV «{csv_email}»")
+        issues.append(f"почта: в базе «{db_email}», в файле «{csv_email}»")
     if db_phone_n and csv_phone_n and db_phone_n != csv_phone_n:
-        issues.append(f"телефон в базе «{db_phone}», в CSV «{csv_phone}»")
+        issues.append(f"телефон: в базе «{db_phone}», в файле «{csv_phone}»")
     if db_username and csv_username and db_username.strip().lower() != csv_username.strip().lower():
-        issues.append(f"username в базе «@{db_username}», в CSV «@{csv_username}»")
+        issues.append(f"ник: в базе «@{db_username}», в файле «@{csv_username}»")
 
     if issues:
         stats['mismatches'] += 1
+        who = db_name or csv_name or f"строка {row_num}"
         report_lines.append(
-            f"Строка {row_num} (telegram_id={tg_id}): нестыковка — " + '; '.join(issues) +
-            ". Оставлено как в базе."
+            f"  Строка {row_num}, «{who}»: " + '; '.join(issues) +
+            ". Оставили как в базе — то, что вы уже правили руками, файл не перетирает."
         )
