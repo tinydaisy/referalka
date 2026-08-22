@@ -2077,8 +2077,26 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [rowCount, setRowCount] = useState<number | null>(null)
+  // Сколько строк УЖЕ обработано — это и показываем в кнопке.
+  const [doneRows, setDoneRows] = useState(0)
+  // В файле нет колонки с ником → импорт будет спрашивать ники у Telegram
+  // по каждому id, и это ощутимо дольше. Предупреждаем заранее.
+  const [needsUsernameLookup, setNeedsUsernameLookup] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<ImportResult | null>(null)
+  // Остановка между частями: рвать импорт закрытием вкладки — плохой способ,
+  // а другого до этого не было (кнопка «Отмена» блокировалась на время работы).
+  const cancelRef = useRef(false)
+
+  // Пока идёт загрузка — браузер переспросит при попытке закрыть вкладку.
+  // Цикл по частям крутится здесь, в браузере: закрыли страницу — оставшиеся
+  // части не уйдут, и человек об этом не узнает.
+  useEffect(() => {
+    if (!submitting) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [submitting])
 
   function downloadTemplate() {
     const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' })
@@ -2125,6 +2143,8 @@ function ImportCsvModal({ channel, onClose, onDone }: {
     setSubmitting(true)
     setProgress(0)
     setElapsed(0)
+    setDoneRows(0)
+    cancelRef.current = false
     const timer = setInterval(() => setElapsed(s => s + 1), 1000)
     try {
       const text = await file.text()
@@ -2135,22 +2155,38 @@ function ImportCsvModal({ channel, onClose, onDone }: {
       setRowCount(total)
 
       // Складываем итоги частей в один отчёт.
-      const sum: any = {}
+      //
+      // ⚠️ Счётчики лежат ВНУТРИ `stats`, а не на верхнем уровне ответа.
+      // Плоское сложение их не видело: `stats` — объект, а не число, и он
+      // записывался один раз от первой части. Человек грузил 10 000 контактов,
+      // а в отчёте видел 1 000 (итог первой порции) и думал, что загрузилось
+      // не всё. Поэтому `stats` складываем отдельно, поключно.
+      const sum: any = { stats: {}, report_text: '', channel_name: channel.display_name }
       const addUp = (r: any) => {
-        for (const [k, v] of Object.entries(r || {})) {
-          if (typeof v === 'number') sum[k] = (sum[k] || 0) + v
-          else if (typeof v === 'string' && v) sum[k] = (sum[k] ? sum[k] + '\n' : '') + v
-          else if (sum[k] === undefined) sum[k] = v
+        for (const [k, v] of Object.entries(r?.stats || {})) {
+          if (typeof v === 'number') sum.stats[k] = (sum.stats[k] || 0) + v
+        }
+        if (r?.report_text) {
+          sum.report_text = (sum.report_text ? sum.report_text + '\n' : '') + r.report_text
         }
       }
 
       for (let i = 0; i < total; i += CHUNK_ROWS) {
+        if (cancelRef.current) break
         const part = [header, ...rows.slice(i, i + CHUNK_ROWS)].join('\n')
         const blob = new File([part], file.name, { type: 'text/csv' })
         addUp(await api.channels.importCsv(channel.id, blob))
-        setProgress(Math.min(100, Math.round(((i + CHUNK_ROWS) / total) * 100)))
+        // Показываем СДЕЛАННОЕ, а не размер файла: «19% · 2 000 из 10 469».
+        // Раньше в кнопке стояло общее число строк — по нему нельзя было
+        // понять, сколько уже прошло.
+        const done = Math.min(i + CHUNK_ROWS, total)
+        setDoneRows(done)
+        setProgress(Math.round((done / total) * 100))
       }
-      setProgress(100)
+      if (!cancelRef.current) setProgress(100)
+      // Остановили на середине — говорим это прямо. Иначе экран «Импорт
+      // завершён» соврёт: часть файла осталась незагруженной.
+      sum.stopped = cancelRef.current
       setResult(sum)
     } catch (e: any) {
       const msg = String(e?.message || '')
@@ -2171,12 +2207,21 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   async function pickFile(f: File | null) {
     setFile(f)
     setRowCount(null)
+    setNeedsUsernameLookup(false)
     setResult(null)
     setError('')
     if (!f) return
     try {
       const text = await f.text()
-      setRowCount(text.split(/\r?\n/).slice(1).filter(l => l.trim() !== '').length)
+      const lines = text.split(/\r?\n/)
+      setRowCount(lines.slice(1).filter(l => l.trim() !== '').length)
+      // Есть ли в заголовке колонка с ником? Список синонимов — тот же, что
+      // на бэкенде (_HEADER_ALIASES['telegram_username']).
+      const aliases = ['telegram_username', 'username', 'tg_username', 'tg_login', 'login', 'никнейм']
+      const headers = (lines[0] || '')
+        .split(/[;,\t]/)
+        .map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, '').replace(/[- ]/g, '_'))
+      setNeedsUsernameLookup(!headers.some(h => aliases.includes(h)))
     } catch {
       // Не смогли прочитать — не беда: посчитаем при самой загрузке.
     }
@@ -2288,12 +2333,31 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                 </div>
               )}
 
+              {/* Ников в файле нет — импорт будет спрашивать их у Telegram
+                  по каждому id. На десяти тысячах это лишние минуты, и без
+                  объяснения человек думает, что всё зависло. */}
+              {file && needsUsernameLookup && !submitting && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-xl p-3 leading-snug">
+                  <b>В файле нет колонки с никнеймами.</b> Загрузка займёт больше обычного:
+                  мы попутно соберём никнеймы у Telegram по id пользователей.
+                  {rowCount ? ` Для ${rowCount.toLocaleString('ru-RU')} контактов это примерно ${Math.max(1, Math.ceil(rowCount / 1200))}–${Math.max(2, Math.ceil(rowCount / 600))} мин.` : ''}
+                </div>
+              )}
+
+              {submitting && (
+                <div className="bg-blue-50 border border-blue-100 text-blue-900 text-sm rounded-xl p-3 leading-snug">
+                  <b>Не закрывайте это окно и вкладку, пока идёт загрузка.</b> Файл грузится
+                  частями прямо отсюда — если закрыть страницу, оставшиеся контакты не дойдут.
+                  Прервать можно кнопкой «Остановить»: уже загруженные контакты сохранятся,
+                  а повторный запуск того же файла дублей не создаст.
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={onClose}
+                  onClick={() => { if (submitting) cancelRef.current = true; else onClose() }}
                   className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
-                  disabled={submitting}
-                >Отмена</button>
+                >{submitting ? 'Остановить' : 'Отмена'}</button>
                 <button
                   onClick={submit}
                   disabled={!file || submitting}
@@ -2302,7 +2366,7 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                 >
                   {submitting
                     ? `Загружаем… ${progress}%`
-                      + (rowCount ? ` · ${rowCount} строк · ${elapsed} с` : '')
+                      + (rowCount ? ` · ${doneRows.toLocaleString('ru-RU')} из ${rowCount.toLocaleString('ru-RU')} · ${elapsed} с` : ` · ${elapsed} с`)
                     : 'Импортировать'}
                 </button>
               </div>
@@ -2330,15 +2394,28 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
-        <CheckCircle2 size={20} className="text-green-600 mt-0.5 shrink-0" />
-        <div>
-          <p className="font-semibold text-green-900">Импорт завершён</p>
-          <p className="text-sm text-green-800 mt-0.5">
-            Обработано {s.total_rows.toLocaleString('ru')} строк
-          </p>
+      {(result as any).stopped ? (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <AlertTriangle size={20} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold text-amber-900">Импорт остановлен</p>
+            <p className="text-sm text-amber-800 mt-0.5">
+              Успели обработать {s.total_rows.toLocaleString('ru')} строк — они сохранены.
+              Остальные не загружены: запустите тот же файл ещё раз, дублей не будет.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
+          <CheckCircle2 size={20} className="text-green-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold text-green-900">Импорт завершён</p>
+            <p className="text-sm text-green-800 mt-0.5">
+              Обработано {s.total_rows.toLocaleString('ru')} строк
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Создано контактов" value={s.created_contacts} color="#25455D" />
@@ -2346,6 +2423,9 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
         <StatCard label="Объединили по email/телефону" value={s.merged_by_email_phone} color="#7c3aed" />
         <StatCard label="Подписано на канал" value={s.subscribed} color="#16a34a" />
         <StatCard label="Отписано от канала" value={s.unsubscribed} color="#9ca3af" />
+        {((s as any).usernames_resolved > 0 || (s as any).usernames_already_known > 0) && (
+          <StatCard label="Никнеймов подтянуто у Telegram" value={(s as any).usernames_resolved || 0} color="#25455D" />
+        )}
         {s.tg_clash_skipped > 0 && (
           <StatCard label="Конфликт TG-identity" value={s.tg_clash_skipped} color="#dc2626" />
         )}

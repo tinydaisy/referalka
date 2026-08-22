@@ -347,7 +347,8 @@ async def import_csv_to_channel(
         'duplicates_in_file': 0,
         'mismatches': 0,
         'tg_clash_skipped': 0,       # contact найден по email/phone, но у него уже другая TG-identity
-        'usernames_resolved': 0,     # ников достали у Telegram (в файле их не было)
+        'usernames_resolved': 0,       # ников достали у Telegram (в файле их не было)
+        'usernames_already_known': 0,  # ников не спрашивали — они уже были в базе
         'dates_kept': 0,             # строк, где перенесли настоящую дату подписки
         'tags_added': 0,             # контактов, которым добавили теги
     }
@@ -391,6 +392,23 @@ async def import_csv_to_channel(
         if tg and not _normalize_username(_cell(row, uname_col)):
             need_lookup.append(tg)
     need_lookup = list(dict.fromkeys(need_lookup))  # порядок сохраняем, дубли убираем
+
+    # ⚠️ У кого ник уже есть в базе — у Telegram не спрашиваем.
+    # Без этого повторный импорт того же файла заново гонял тысячи getChat
+    # ради данных, которые давно лежат в БД: на базе в 10 000 человек это
+    # лишние минуты ожидания при каждом запуске.
+    if need_lookup:
+        known = await db.fetch(
+            """SELECT platform_user_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'telegram'
+                  AND username IS NOT NULL
+                  AND platform_user_id = ANY($2::TEXT[])""",
+            client_id, need_lookup
+        )
+        known_ids = {r['platform_user_id'] for r in known}
+        if known_ids:
+            need_lookup = [tg for tg in need_lookup if tg not in known_ids]
+            stats['usernames_already_known'] = len(known_ids)
 
     resolved_usernames: dict[str, str] = {}
     bot_token = channel['bot_token'] or ''
@@ -710,6 +728,7 @@ async def import_csv_to_channel(
         f"Уже были у клиента (склейка по tg_id, другой бот того же клиента): {stats['matched_by_tg_id']}",
         f"Объединили со старым контактом по email/phone: {stats['merged_by_email_phone']}",
         f"Ников подтянуто у Telegram (в файле их не было): {stats['usernames_resolved']}",
+        f"Ников не запрашивали — уже были в базе: {stats['usernames_already_known']}",
         f"Перенесена настоящая дата подписки: {stats['dates_kept']}",
         f"Контактов, которым добавили теги: {stats['tags_added']}",
         f"Подписано на канал: {stats['subscribed']}",
