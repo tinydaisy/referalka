@@ -684,7 +684,10 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
                 title="Бот не отвечает? Перезапустить и забрать управление в ПЛЮСОН"
               >{restarting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}</button>
             )}
-            {isTelegram && (
+            {/* ⚠️ Импорт открыт для ВСЕХ площадок, а не только Telegram:
+                механизм общий, отличается лишь имя колонки с идентификатором
+                (telegram_id / vk_id / max_id — или просто «id»). */}
+            {(
               <button
                 onClick={onImport}
                 className="p-2 hover:bg-amber-50 rounded-lg text-gray-500 hover:text-[#c98852]"
@@ -2122,11 +2125,20 @@ interface ImportResult {
   channel_name: string
 }
 
-const CSV_TEMPLATE = `telegram_id,name,telegram_username,email,phone,subscribed
+// ⚠️ Колонка идентификатора зависит от площадки канала: механизм импорта
+// общий, а имя колонки своё. Понимается и просто «id» — человек выгружает
+// базу из чужого сервиса и не должен переименовывать заголовок под нас.
+const ID_COLUMN: Record<string, string> = {
+  telegram: 'telegram_id', vk: 'vk_id', max: 'max_id',
+}
+
+function csvTemplate(idCol: string) {
+  return `${idCol},name,telegram_username,email,phone,subscribed
 123456789,Иван Петров,ivan_p,ivan@mail.ru,+79991234567,1
 987654321,Мария Сидорова,,maria@mail.ru,89998887766,1
 555444333,Пётр,petr_x,,,0
 `
+}
 
 function ImportCsvModal({ channel, onClose, onDone }: {
   channel: Channel
@@ -2141,6 +2153,8 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [rowCount, setRowCount] = useState<number | null>(null)
+  // Имя колонки с идентификатором — по площадке канала.
+  const idCol = ID_COLUMN[channel.platform_slug] || 'id'
   // Сколько строк УЖЕ обработано — это и показываем в кнопке.
   const [doneRows, setDoneRows] = useState(0)
   // В файле нет колонки с ником → импорт будет спрашивать ники у Telegram
@@ -2163,7 +2177,7 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   }, [submitting])
 
   function downloadTemplate() {
-    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' })
+    const blob = new Blob([csvTemplate(idCol)], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -2321,14 +2335,14 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                   Файл с заголовком в первой строке. Колонки:
                 </p>
                 <ul className="space-y-1 pl-4 list-disc text-[13px] leading-snug">
-                  <li><b className="font-mono">telegram_id</b> — обязательно. Без него строка пропускается.</li>
+                  <li><b className="font-mono">{idCol}</b> — обязательно (можно назвать просто <b className="font-mono">id</b>). Без него строка пропускается.</li>
                   <li><b className="font-mono">name</b> — имя контакта</li>
                   <li><b className="font-mono">telegram_username</b> — никнейм без @</li>
                   <li><b className="font-mono">email</b>, <b className="font-mono">phone</b> — для мерджа с существующими контактами</li>
                   <li><b className="font-mono">subscribed</b> — <code className="bg-blue-100 px-1 rounded">1</code>/<code className="bg-blue-100 px-1 rounded">да</code> (по умолчанию) или <code className="bg-blue-100 px-1 rounded">0</code>/<code className="bg-blue-100 px-1 rounded">нет</code></li>
                 </ul>
                 <p className="leading-snug pt-1">
-                  <b>Что делает мердж:</b> если человек с таким <code className="bg-blue-100 px-1 rounded">telegram_id</code> уже
+                  <b>Что делает мердж:</b> если человек с таким <code className="bg-blue-100 px-1 rounded">{idCol}</code> уже
                   есть (например, подписан на другой ваш канал) — он не дублируется, ему просто добавляется подписка
                   на этот канал. То же если в базе уже есть контакт с таким email или телефоном.
                 </p>
@@ -2501,7 +2515,7 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
             <AlertTriangle size={16} /> Есть нестыковки и пропуски
           </div>
           <ul className="text-sm text-amber-900 space-y-1">
-            {s.skipped_no_tgid > 0 && <li>• Пропущено без telegram_id: <b>{s.skipped_no_tgid}</b></li>}
+            {s.skipped_no_tgid > 0 && <li>• Пропущено без {idCol}: <b>{s.skipped_no_tgid}</b></li>}
             {s.skipped_invalid_tgid > 0 && <li>• Пропущено с невалидным telegram_id: <b>{s.skipped_invalid_tgid}</b></li>}
             {s.duplicates_in_file > 0 && <li>• Дубликатов внутри файла: <b>{s.duplicates_in_file}</b></li>}
             {s.mismatches > 0 && <li>• Нестыковок (CSV ≠ БД, оставлено как в БД): <b>{s.mismatches}</b></li>}

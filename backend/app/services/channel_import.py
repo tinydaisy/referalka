@@ -36,8 +36,42 @@ _REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 # держимся ниже, чтобы не поймать 429 на базе в десять тысяч человек.
 _USERNAME_LOOKUP_CONCURRENCY = 20
 
+# ── Площадки ──────────────────────────────────────────────────────────────
+#
+# Импорт для всех площадок ОДИН. Отличается только то, как называется колонка
+# с идентификатором человека и куда пишется идентичность. Раньше «телеграм» был
+# зашит в код в шести десятках мест, и импорт для ВКонтакте и MAX просто
+# отказывал: «работает только для Telegram-каналов».
+#
+# ⚠️ Колонка `id` понимается на ЛЮБОЙ площадке — человек выгружает базу из
+# чужого сервиса и не должен переименовывать заголовок под нас. Своё имя
+# (`vk_id`, `telegram_id`) тоже работает.
+PLATFORMS = {
+    'telegram': {
+        'title':    'Telegram',
+        'id_col':   'telegram_id',
+        'id_label': 'telegram_id',
+        # Только у Telegram по числовому id можно спросить ник у самой площадки.
+        'resolve_usernames': True,
+    },
+    'vk': {
+        'title':    'ВКонтакте',
+        'id_col':   'vk_id',
+        'id_label': 'vk_id',
+        'resolve_usernames': False,
+    },
+    'max': {
+        'title':    'MAX',
+        'id_col':   'max_id',
+        'id_label': 'max_id',
+        'resolve_usernames': False,
+    },
+}
+
 _HEADER_ALIASES = {
     'telegram_id':       {'telegram_id', 'tg_id', 'tgid', 'telegramid', 'telegram', 'id_telegram', 'tg', 'chat_id'},
+    'vk_id':             {'vk_id', 'vkid', 'vk', 'id_vk', 'user_id_vk'},
+    'max_id':            {'max_id', 'maxid', 'max', 'id_max'},
     'name':              {'name', 'имя', 'fio', 'fullname', 'full_name', 'фио', 'имя_фамилия'},
     'telegram_username': {'telegram_username', 'username', 'tg_username', 'tg_login', 'login', 'никнейм'},
     'email':             {'email', 'e-mail', 'mail', 'почта', 'емейл', 'емаил'},
@@ -54,11 +88,18 @@ _TRUE_VALUES = {'1', 'true', 'yes', 'y', 'да', 'д', 'подписан', 'subs
 _FALSE_VALUES = {'0', 'false', 'no', 'n', 'нет', 'н', 'отписан', 'unsubscribed', 'off', '-', 'false.', 'ложь'}
 
 
-def _normalize_header(h: str) -> Optional[str]:
-    """Приводит заголовок к одному из канонических: telegram_id/name/.../subscribed."""
+def _normalize_header(h: str, id_col: str = 'telegram_id') -> Optional[str]:
+    """Приводит заголовок к каноническому имени.
+
+    ⚠️ Голый `id` считается идентификатором ТЕКУЩЕЙ площадки: человек выгружает
+    базу из чужого сервиса, где колонка называется просто «id», и не должен
+    переименовывать заголовок под нас.
+    """
     if not h:
         return None
     h_clean = h.strip().lower().replace('-', '_').replace(' ', '_')
+    if h_clean in ('id', 'user_id', 'ид'):
+        return id_col
     for canonical, aliases in _HEADER_ALIASES.items():
         if h_clean in aliases:
             return canonical
@@ -286,8 +327,17 @@ async def import_csv_to_channel(
     )
     if not channel:
         raise ValueError("Канал не найден")
-    if channel['platform_slug'] != 'telegram':
-        raise ValueError(f"Импорт пока работает только для Telegram-каналов. Канал «{channel['display_name']}» — на платформе {channel['platform_slug']}.")
+    # ⚠️ Площадка берётся из КАНАЛА, а не зашита в код. Раньше здесь стоял
+    # отказ «работает только для Telegram», и импортировать базу подписчиков
+    # ВКонтакте или MAX было нельзя вообще.
+    platform = channel['platform_slug']
+    conf = PLATFORMS.get(platform)
+    if not conf:
+        raise ValueError(
+            f"Импорт для платформы «{platform}» пока не поддержан. "
+            f"Доступны: {', '.join(p['title'] for p in PLATFORMS.values())}."
+        )
+    id_col: str = conf['id_col']
     if channel['is_system']:
         raise ValueError("Импорт CSV в системный канал запрещён — подписчики приходят сами через /start или Mini App.")
     client_channel_id: int = channel['cc_id']
@@ -321,17 +371,18 @@ async def import_csv_to_channel(
     header_map = {}  # canonical → column index
     unknown_headers = []
     for idx, h in enumerate(raw_headers):
-        canonical = _normalize_header(h)
+        canonical = _normalize_header(h, id_col)
         if canonical:
             header_map[canonical] = idx
         elif h.strip():
             unknown_headers.append(h.strip())
 
-    if 'telegram_id' not in header_map:
+    if id_col not in header_map:
         raise ValueError(
-            "В файле нет колонки telegram_id. "
-            "Проверьте заголовки — нужно: telegram_id, name, telegram_username, "
-            "email, phone, subscribed, utm_source"
+            f"В файле нет колонки {id_col} — без неё непонятно, кому писать. "
+            f"Назовите колонку с идентификатором «{id_col}» или просто «id». "
+            f"Остальные колонки (все необязательные): name, email, phone, "
+            f"subscribed, utm_source, tags."
         )
 
     stats = {
@@ -376,7 +427,7 @@ async def import_csv_to_channel(
     # база при этом не занята.
     data_rows = list(reader)
 
-    tg_col = header_map['telegram_id']
+    tg_col = header_map[id_col]
     uname_col = header_map.get('telegram_username')
 
     def _cell(row: list, idx: Optional[int]) -> Optional[str]:
@@ -400,10 +451,10 @@ async def import_csv_to_channel(
     if need_lookup:
         known = await db.fetch(
             """SELECT platform_user_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'telegram'
+                WHERE client_id = $1 AND platform_slug = $3
                   AND username IS NOT NULL
                   AND platform_user_id = ANY($2::TEXT[])""",
-            client_id, need_lookup
+            client_id, need_lookup, platform
         )
         known_ids = {r['platform_user_id'] for r in known}
         if known_ids:
@@ -413,7 +464,9 @@ async def import_csv_to_channel(
     resolved_usernames: dict[str, str] = {}
     bot_token = channel['bot_token'] or ''
 
-    if need_lookup and bot_token:
+    # ⚠️ Ник по числовому id можно спросить только у Telegram (getChat).
+    # У ВКонтакте и MAX такого способа нет — там ник берётся из файла.
+    if need_lookup and bot_token and conf['resolve_usernames']:
         sem = asyncio.Semaphore(_USERNAME_LOOKUP_CONCURRENCY)
 
         async def _one(tg: str):
@@ -443,7 +496,7 @@ async def import_csv_to_channel(
                 v = row[idx]
                 return v.strip() if v else None
 
-            raw_tg = col('telegram_id')
+            raw_tg = col(id_col)
             tg_id = _parse_tg_id(raw_tg)
 
             if not raw_tg:
@@ -497,9 +550,9 @@ async def import_csv_to_channel(
                           c.phone AS c_phone, c.phone_normalized
                      FROM platform_users pu
                      JOIN contacts c ON c.id = pu.contact_id
-                    WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram'
+                    WHERE pu.client_id = $1 AND pu.platform_slug = $3
                       AND pu.platform_user_id = $2""",
-                client_id, tg_id
+                client_id, tg_id, platform
             )
 
             contact_id: Optional[int] = None
@@ -642,8 +695,8 @@ async def import_csv_to_channel(
                 # Поэтому проверяем заранее SELECT'ом.
                 clash_tg = await db.fetchval(
                     """SELECT platform_user_id FROM platform_users
-                        WHERE contact_id = $1 AND platform_slug = 'telegram'""",
-                    contact_id
+                        WHERE contact_id = $1 AND platform_slug = $2""",
+                    contact_id, platform
                 )
                 if clash_tg:
                     stats['tg_clash_skipped'] += 1
