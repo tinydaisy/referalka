@@ -723,12 +723,16 @@ async def import_csv_to_channel(
                     )
                     continue
 
+                # ⚠️ Площадка из КАНАЛА, а не 'telegram' строкой. Здесь оставалась
+                # зашитая площадка: импорт во ВКонтакте создавал контакту
+                # ТЕЛЕГРАМНУЮ идентичность с его vk_id — и падал на втором
+                # человеке, чей vk_id уже был занят чужим telegram-id.
                 platform_user_id = await db.fetchval(
                     """INSERT INTO platform_users (contact_id, client_id, platform_slug,
                                                     platform_user_id, username)
-                       VALUES ($1, $2, 'telegram', $3, $4)
+                       VALUES ($1, $2, $5, $3, $4)
                        RETURNING id""",
-                    contact_id, client_id, tg_id, csv_username
+                    contact_id, client_id, tg_id, csv_username, platform
                 )
 
             # Если в CSV был email — синхронизируем email-идентичность
