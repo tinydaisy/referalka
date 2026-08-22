@@ -90,7 +90,7 @@ _SOCIAL_LINK_FIELDS = {
 # Лимиты длины (те же, что во фронте — web/src/components/FieldLimits.tsx).
 # ⚠️ Держать в синхроне: разъедутся — счётчик покажет одно, сохранение
 # откажет по другому правилу. Числа подобраны по реальным данным 22.08.2026.
-POSITIONING_LIMIT = 110
+POSITIONING_LIMIT = 140
 ACHIEVEMENTS_LIMIT = 1100
 
 

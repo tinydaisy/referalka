@@ -1173,6 +1173,26 @@ async def update_my_profile(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    # ⚠️ Лимиты длины — те же, что во фронте (web/src/components/FieldLimits.tsx).
+    # Проверка нужна и здесь: фронт обходится прямым запросом, а полотно в этих
+    # полях ломает карточку каталога и «Факты в цифрах».
+    _bad: list[str] = []
+    for _fld, _label in (("owner_positioning", "позиционирование основателя"),
+                         ("positioning", "позиционирование бренда")):
+        _v = getattr(data, _fld, None)
+        if _v and len(_v) > 140:
+            _bad.append(f"{_label} (не больше 140 символов)")
+    for _fld, _label in (("owner_achievements", "регалии основателя"),
+                         ("achievements", "регалии бренда")):
+        _items = getattr(data, _fld, None)
+        if isinstance(_items, list):
+            for _it in _items:
+                if isinstance(_it, dict) and len(str(_it.get("label") or "")) > 120:
+                    _bad.append(f"{_label}: подпись не больше 120 символов")
+                    break
+    if _bad:
+        raise HTTPException(422, "Слишком длинно: " + ", ".join(_bad))
+
     sets: list[str] = []
     args: list[Any] = []
 

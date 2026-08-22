@@ -44,7 +44,7 @@ GIFT_URL_LIMIT = 140
 # Позиционирование и регалии — по реальным данным (замер 22.08.2026):
 # медиана позиционирования 50 символов, регалий 465. В поля писали офферы и
 # целые лендинги (у одного клиента 5922 символа с кейсами и призывами).
-POSITIONING_LIMIT = 110
+POSITIONING_LIMIT = 140
 ACHIEVEMENTS_LIMIT = 1100
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])

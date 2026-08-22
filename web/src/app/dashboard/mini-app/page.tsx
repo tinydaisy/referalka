@@ -12,6 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
+import { CharCount, overClass, POSITIONING_LIMIT, ACH_LABEL_LIMIT, ACH_VALUE_LIMIT } from '@/components/FieldLimits'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import HtmlTextArea from '@/components/HtmlTextArea'
@@ -582,12 +583,13 @@ export default function MiniAppSettingsPage() {
                   должен понимать, что в карточку попадёт только начало. */}
               <Field label="Позиционирование основателя"
                      hint="Одна строка о роли. В карточке каталога показываются первые 2 строки.">
+                {/* ⚠️ Без maxLength: он обрезал вставленный текст МОЛЧА —
+                    у двоих клиентов позиционирование обрывалось на запятой,
+                    и они об этом не знали. Теперь предупреждаем. */}
                 <input type="text" value={profile.owner_positioning || ''}
                        onChange={e => update('owner_positioning', e.target.value)}
-                       className="input" maxLength={140} />
-                <p className="mt-1 text-xs text-gray-400">
-                  {(profile.owner_positioning || '').length} из 140
-                </p>
+                       className={`input ${overClass(profile.owner_positioning || '', POSITIONING_LIMIT)}`} />
+                <CharCount value={profile.owner_positioning || ''} limit={POSITIONING_LIMIT} />
               </Field>
 
               {/* Библиотека фото для организаторов (миграция 323) + ссылка на
@@ -1156,12 +1158,18 @@ function AchievementsEditor({
             <input type="text" value={a.value}
                    onChange={e => onChange(i, 'value', e.target.value)}
                    placeholder="1500+" className="input" />
+            <CharCount value={a.value} limit={ACH_VALUE_LIMIT} />
           </div>
           <div className="col-span-7">
+            {/* ⚠️ Подпись — короткая расшифровка цифры, а не абзац: у одного
+                клиента сюда уехало 229 символов связного текста, и карточка
+                «Факты в цифрах» перестала читаться как цифры. */}
             <label className="text-xs text-gray-500 mb-1 block">Подпись</label>
             <input type="text" value={a.label}
                    onChange={e => onChange(i, 'label', e.target.value)}
-                   placeholder="учеников" className="input" />
+                   placeholder="учеников"
+                   className={`input ${overClass(a.label, ACH_LABEL_LIMIT)}`} />
+            <CharCount value={a.label} limit={ACH_LABEL_LIMIT} />
           </div>
           <div className="col-span-1 pt-6">
             <button onClick={() => onRemove(i)}
