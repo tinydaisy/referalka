@@ -6,21 +6,33 @@
 - Существующие поля контакта (name/email/phone/username) НЕ перетираем.
   Если CSV даёт значение, отличное от того что в БД — пишем в отчёт о нестыковках.
 - Подписка на канал — перетираем по CSV (это целевое действие импорта).
+- Ник: нет в файле — спрашиваем у Telegram (getChat токеном канала импорта).
+  Выгрузки ботов ник не отдают, а Telegram его знает — человек писал этому боту.
+- utm_source: пишется в contacts.utm_source, если у контакта он ещё пуст.
 - Мердж: ищем `platform_users` по (client_id, telegram, tg_id). Не нашли —
   ищем `contacts` по email_normalized или phone_normalized у того же клиента.
   Не нашли — создаём contact + platform_users.
 
 Возвращает stats + текстовый отчёт об ошибках/нестыковках для скачивания пользователем.
 """
+import asyncio
 import csv
 import io
+import logging
 import re
 import secrets
 import string
 from typing import Optional
 
+import httpx
+
+log = logging.getLogger(__name__)
 
 _REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+# Сколько getChat делаем параллельно. Лимит Telegram ~30 запросов/сек;
+# держимся ниже, чтобы не поймать 429 на базе в десять тысяч человек.
+_USERNAME_LOOKUP_CONCURRENCY = 20
 
 _HEADER_ALIASES = {
     'telegram_id':       {'telegram_id', 'tg_id', 'tgid', 'telegramid', 'telegram', 'id_telegram', 'tg', 'chat_id'},
@@ -29,6 +41,7 @@ _HEADER_ALIASES = {
     'email':             {'email', 'e-mail', 'mail', 'почта', 'емейл', 'емаил'},
     'phone':             {'phone', 'tel', 'phone_number', 'телефон', 'тел'},
     'subscribed':        {'subscribed', 'is_subscribed', 'подписан', 'подписка', 'is_unsubscribed_inverted'},
+    'utm_source':        {'utm_source', 'utm', 'source', 'источник', 'utmsource'},
 }
 
 _TRUE_VALUES = {'1', 'true', 'yes', 'y', 'да', 'д', 'подписан', 'subscribed', 'on', '+', 'true.', 'истина'}
@@ -104,6 +117,34 @@ def _parse_tg_id(value: Optional[str]) -> Optional[str]:
     return v
 
 
+async def _fetch_username_by_tg_id(token: str, tg_id: str) -> Optional[str]:
+    """Ник по ЧИСЛОВОМУ telegram_id через getChat токеном канала импорта.
+
+    ⚠️ Токен берём именно того канала, в который идёт импорт, а не главного
+    канала клиента: getChat отдаёт данные, только если человек писал ИМЕННО
+    этому боту. Выгрузка BotHelp — это база конкретного бота, значит его
+    токеном ники достаются, а токеном соседнего бота пришло бы chat not found.
+
+    Ошибку не поднимаем: не достали ник — контакт всё равно создаём, ник
+    допишется сам, когда человек напишет боту (upsert_contact_with_identity).
+    """
+    if not token or not tg_id:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(
+                f"https://api.telegram.org/bot{token}/getChat",
+                params={"chat_id": str(tg_id)},
+            )
+        data = r.json()
+        if not data.get("ok"):
+            return None
+        return (data.get("result") or {}).get("username") or None
+    except Exception as e:  # noqa: BLE001 — сеть не должна ронять импорт
+        log.info("getChat(%s) не удался: %s", tg_id, e)
+        return None
+
+
 async def _generate_unique_ref_code(db, max_tries: int = 10) -> str:
     for _ in range(max_tries):
         code = ''.join(secrets.choice(_REF_ALPHABET) for _ in range(8))
@@ -131,7 +172,8 @@ async def import_csv_to_channel(
     """
     # Проверяем что канал доступен клиенту через client_channels (архитектура G)
     channel = await db.fetchrow(
-        """SELECT ch.id, ch.platform_slug, ch.display_name, ch.is_system, cc.id AS cc_id
+        """SELECT ch.id, ch.platform_slug, ch.display_name, ch.is_system,
+                  ch.bot_token, cc.id AS cc_id
              FROM channels ch
              JOIN client_channels cc ON cc.channel_id = ch.id
             WHERE ch.id = $1 AND cc.client_id = $2""",
@@ -183,7 +225,8 @@ async def import_csv_to_channel(
     if 'telegram_id' not in header_map:
         raise ValueError(
             "В файле нет колонки telegram_id. "
-            "Проверьте заголовки — нужно: telegram_id, name, telegram_username, email, phone, subscribed"
+            "Проверьте заголовки — нужно: telegram_id, name, telegram_username, "
+            "email, phone, subscribed, utm_source"
         )
 
     stats = {
@@ -199,6 +242,7 @@ async def import_csv_to_channel(
         'duplicates_in_file': 0,
         'mismatches': 0,
         'tg_clash_skipped': 0,       # contact найден по email/phone, но у него уже другая TG-identity
+        'usernames_resolved': 0,     # ников достали у Telegram (в файле их не было)
     }
     report_lines: list[str] = []
     merge_log: list[dict] = []       # детальный лог объединений (новый tg_id + найден contact по email/phone)
@@ -211,8 +255,59 @@ async def import_csv_to_channel(
     seen_tg_ids_in_file: dict[str, int] = {}  # tg_id → row_num первой встречи
     row_num = 1  # 1 = заголовок, данные начинаются со 2
 
+    # ─── Ники: достаём у Telegram ДО транзакции ────────────────────────────
+    #
+    # Выгрузки ботов (BotHelp и подобные) ник не отдают — там только числовой
+    # id. Но сам Telegram ник знает: человек писал ЭТОМУ боту, значит getChat
+    # по его id отвечает. Токен берём канала импорта — соседний бот на тот же
+    # id ответил бы «chat not found».
+    #
+    # ⚠️ Проход именно ДО транзакции и пачками: 10 000 запросов по одному
+    # заняли бы больше получаса, и всё это время висела бы открытая
+    # транзакция БД. Пачками по 20 — те же 10 000 проходят за ~10 минут,
+    # база при этом не занята.
+    data_rows = list(reader)
+
+    tg_col = header_map['telegram_id']
+    uname_col = header_map.get('telegram_username')
+
+    def _cell(row: list, idx: Optional[int]) -> Optional[str]:
+        if idx is None or idx >= len(row):
+            return None
+        v = row[idx]
+        return v.strip() if v else None
+
+    # Кого спрашивать: валидный id и при этом ника в файле нет.
+    need_lookup: list[str] = []
+    for row in data_rows:
+        tg = _parse_tg_id(_cell(row, tg_col))
+        if tg and not _normalize_username(_cell(row, uname_col)):
+            need_lookup.append(tg)
+    need_lookup = list(dict.fromkeys(need_lookup))  # порядок сохраняем, дубли убираем
+
+    resolved_usernames: dict[str, str] = {}
+    bot_token = channel['bot_token'] or ''
+
+    if need_lookup and bot_token:
+        sem = asyncio.Semaphore(_USERNAME_LOOKUP_CONCURRENCY)
+
+        async def _one(tg: str):
+            async with sem:
+                uname = await _fetch_username_by_tg_id(bot_token, tg)
+                if uname:
+                    resolved_usernames[tg] = uname
+
+        await asyncio.gather(*(_one(tg) for tg in need_lookup))
+        stats['usernames_resolved'] = len(resolved_usernames)
+    elif need_lookup and not bot_token:
+        report_lines.append(
+            "⚠ Ники не подтянуты: у канала не задан токен бота. "
+            "Подключите бота в разделе «Каналы» — тогда ники подтянутся при импорте."
+        )
+        report_lines.append('')
+
     async with db.transaction():
-        for row in reader:
+        for row in data_rows:
             row_num += 1
             stats['total_rows'] += 1
 
@@ -249,6 +344,10 @@ async def import_csv_to_channel(
 
             csv_name     = col('name')
             csv_username = _normalize_username(col('telegram_username'))
+            # Ника в файле не было — берём тот, что достали у Telegram выше.
+            if not csv_username:
+                csv_username = resolved_usernames.get(tg_id)
+            csv_utm      = col('utm_source')
             csv_email    = col('email')
             csv_phone    = col('phone')
             csv_email_n  = _normalize_email(csv_email)
@@ -295,6 +394,24 @@ async def import_csv_to_channel(
                     db_username=pu['username'], csv_username=csv_username,
                     stats=stats,
                 )
+                # Дозаполняем ТОЛЬКО пустые поля — существующие не трогаем.
+                await db.execute(
+                    """UPDATE contacts
+                          SET name             = COALESCE(name, $2),
+                              phone            = COALESCE(phone, $3),
+                              phone_normalized = COALESCE(phone_normalized, $4),
+                              utm_source       = COALESCE(utm_source, $5),
+                              last_contact_at  = NOW(),
+                              updated_at       = NOW()
+                        WHERE id = $1""",
+                    contact_id, csv_name, csv_phone, csv_phone_n, csv_utm
+                )
+                # Ник мог появиться только сейчас (в базе его не было).
+                if csv_username and not pu['username']:
+                    await db.execute(
+                        "UPDATE platform_users SET username = $2 WHERE id = $1",
+                        platform_user_id, csv_username
+                    )
             else:
                 # 2. Ищем contact по email/phone (мердж кросс-канал / новая identity у того же человека)
                 contact_row = None
@@ -351,20 +468,22 @@ async def import_csv_to_channel(
                               SET name             = COALESCE(name, $2),
                                   phone            = COALESCE(phone, $3),
                                   phone_normalized = COALESCE(phone_normalized, $4),
+                                  utm_source       = COALESCE(utm_source, $5),
                                   last_contact_at  = NOW(),
                                   updated_at       = NOW()
                             WHERE id = $1""",
-                        contact_id, csv_name, csv_phone, csv_phone_n
+                        contact_id, csv_name, csv_phone, csv_phone_n, csv_utm
                     )
                 else:
                     # 3. Создаём новый contact
                     ref_code = await _generate_unique_ref_code(db)
                     contact_id = await db.fetchval(
                         """INSERT INTO contacts (client_id, name,
-                                                  phone, phone_normalized, ref_code, last_contact_at)
-                           VALUES ($1, $2, $3, $4, $5, NOW())
+                                                  phone, phone_normalized, ref_code,
+                                                  utm_source, last_contact_at)
+                           VALUES ($1, $2, $3, $4, $5, $6, NOW())
                            RETURNING id""",
-                        client_id, csv_name, csv_phone, csv_phone_n, ref_code
+                        client_id, csv_name, csv_phone, csv_phone_n, ref_code, csv_utm
                     )
                     stats['created_contacts'] += 1
 
@@ -445,6 +564,7 @@ async def import_csv_to_channel(
         f"Создано новых контактов: {stats['created_contacts']}",
         f"Уже были у клиента (склейка по tg_id, другой бот того же клиента): {stats['matched_by_tg_id']}",
         f"Объединили со старым контактом по email/phone: {stats['merged_by_email_phone']}",
+        f"Ников подтянуто у Telegram (в файле их не было): {stats['usernames_resolved']}",
         f"Подписано на канал: {stats['subscribed']}",
         f"Отписано от канала: {stats['unsubscribed']}",
         f"Пропущено без telegram_id: {stats['skipped_no_tgid']}",
