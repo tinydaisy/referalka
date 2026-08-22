@@ -255,6 +255,7 @@ export default function ChannelsPage() {
       {vkWizardOpen && (
         <VipVkWizard
           clientId={me!.id}
+          hasPrimary={channels.some(c => c.platform_slug === 'vk' && !c.is_system && c.is_active)}
           onClose={() => setVkWizardOpen(false)}
           onDone={() => { setVkWizardOpen(false); load() }}
         />
@@ -263,6 +264,7 @@ export default function ChannelsPage() {
       {maxWizardOpen && (
         <VipMaxWizard
           clientId={me!.id}
+          hasPrimary={channels.some(c => c.platform_slug === 'max' && !c.is_system && c.is_active)}
           onClose={() => setMaxWizardOpen(false)}
           onDone={() => { setMaxWizardOpen(false); load() }}
         />
@@ -964,14 +966,16 @@ function PrimaryRoleStep({ value, onChange, what, warnOtherServices }: {
   )
 }
 
-function VipVkWizard({ clientId, onClose, onDone }: {
+function VipVkWizard({ clientId, hasPrimary, onClose, onDone }: {
   clientId: number
+  hasPrimary?: boolean
   onClose: () => void
   onDone: () => void
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
-  // Роль канала: главный (воронки+рассылки) или только рассылки.
-  const [makePrimary, setMakePrimary] = useState(true)
+  // ⚠️ Если главный на площадке УЖЕ ЕСТЬ — по умолчанию «только рассылки»:
+  // иначе новый канал молча забрал бы воронку у работающего.
+  const [makePrimary, setMakePrimary] = useState(!hasPrimary)
   const [form, setForm] = useState({
     access_token: '',
     app_id: '',
@@ -1245,14 +1249,16 @@ function VipVkWizard({ clientId, onClose, onDone }: {
 }
 
 /* ─────── VIP-wizard MAX: подключение своего MAX-бота ─────── */
-function VipMaxWizard({ clientId, onClose, onDone }: {
+function VipMaxWizard({ clientId, hasPrimary, onClose, onDone }: {
   clientId: number
+  hasPrimary?: boolean
   onClose: () => void
   onDone: () => void
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
-  // Роль канала: главный (воронки+рассылки) или только рассылки.
-  const [makePrimary, setMakePrimary] = useState(true)
+  // ⚠️ Если главный на площадке УЖЕ ЕСТЬ — по умолчанию «только рассылки»:
+  // иначе новый канал молча забрал бы воронку у работающего.
+  const [makePrimary, setMakePrimary] = useState(!hasPrimary)
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -1870,27 +1876,58 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
                 Отменить — оставить главным
               </button>
             </div>
-          ) : channel.is_active ? (
-            // Уже главный в БД — просто плашка, переключают через другой канал
-            <div className="p-3 rounded-xl border" style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.12)' }}>
-              <div className="text-sm font-semibold flex items-center gap-1.5" style={{ color: '#25455D' }}>
-                <Crown size={14} style={{ color: '#FFCFA4' }} />
-                ✓ Это главный канал
-              </div>
-              <p className="text-xs text-gray-600 mt-1 leading-snug">
-                Через него идёт воронка событий: /start, регистрации, приветствия.
-                Чтобы передать эту роль другому — откройте его и нажмите «Сделать главным».
-              </p>
-              {/* ⚠️ Снять роль можно и здесь. Раньше кнопки не было вовсе, и бот
-                  навсегда оставался главным: клиент хотел использовать его только
-                  для рассылок и импорта базы, а деться от воронки было некуда. */}
-              <button
-                type="button"
-                onClick={() => setIsActive(false)}
-                className="mt-2 text-xs underline text-gray-600 hover:text-gray-900"
-              >
-                Сделать дополнительным (только рассылки)
-              </button>
+          ) : (
+            /* ⚠️ Тот же выбор, что при подключении: две радиокнопки, а не
+               мелкая ссылка внизу плашки. Раньше «сделать дополнительным» была
+               подчёркнутой строчкой, которую надо было разглядывать под лупой —
+               клиент её просто не видел и считал, что переключить нельзя.
+               ⚠️ Двух главных не бывает: выбрал этот — прежний автоматически
+               становится дополнительным (это делает бэкенд одной транзакцией). */
+            <div className="space-y-2">
+              <label className="block rounded-xl border-2 p-3 cursor-pointer transition"
+                     style={isActive
+                       ? { borderColor: '#25455D', background: 'rgba(37,69,93,0.04)' }
+                       : { borderColor: '#e5e7eb' }}>
+                <div className="flex gap-2.5">
+                  <input type="radio" checked={isActive} onChange={() => setIsActive(true)} className="mt-1" />
+                  <div>
+                    <div className="text-sm font-bold flex items-center gap-1.5" style={{ color: '#25455D' }}>
+                      <Crown size={14} style={{ color: '#FFCFA4' }} />
+                      Главный — воронки и рассылки
+                    </div>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-snug">
+                      /start, регистрации, приветствия, подарки, Mini App — и рассылки тоже.
+                      Такой канал на площадке один: прежний главный станет дополнительным.
+                    </p>
+                  </div>
+                </div>
+              </label>
+
+              <label className="block rounded-xl border-2 p-3 cursor-pointer transition"
+                     style={!isActive
+                       ? { borderColor: '#25455D', background: 'rgba(37,69,93,0.04)' }
+                       : { borderColor: '#e5e7eb' }}>
+                <div className="flex gap-2.5">
+                  <input type="radio" checked={!isActive} onChange={() => setIsActive(false)} className="mt-1" />
+                  <div>
+                    <div className="text-sm font-bold flex items-center gap-1.5" style={{ color: '#25455D' }}>
+                      <Megaphone size={14} className="text-gray-400" />
+                      Только рассылки
+                    </div>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-snug">
+                      Импорт базы и отправка сообщений. Воронка останется на том канале,
+                      который главный.
+                    </p>
+                  </div>
+                </div>
+              </label>
+
+              {channel.is_active && !isActive && (
+                <p className="text-sm text-amber-800 leading-snug px-1">
+                  ⚠️ Если это ваш единственный канал на площадке — воронка отвечать
+                  перестанет: на /start, регистрации и приветствия будет некому ответить.
+                </p>
+              )}
             </div>
           ) : isActive ? (
             // Был неактивен, в этой сессии нажали «Сделать главным» — ждёт сохранения

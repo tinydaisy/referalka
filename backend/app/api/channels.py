@@ -470,7 +470,11 @@ async def connect_telegram_bot(
         }
     })
 
-    # Upsert: если у клиента уже есть НЕ-системный telegram-канал — обновить, иначе создать
+    # ⚠️ Ищем ЭТОГО ЖЕ бота (по @нику), а не любой канал площадки. Раньше стояло
+    # «есть telegram-канал → перезаписать»: клиент подключал ВТОРОГО бота, и тот
+    # ЗАТИРАЛ первого — имя, ник и токен заменялись, подписчики переходили к
+    # новому. Человек видел это как «первый бот исчез». С тех пор как бота можно
+    # подключить «только для рассылок», их и должно быть несколько.
     existing = await db.fetchrow(
         """SELECT ch.id, cc.id AS cc_id
              FROM channels ch
@@ -478,8 +482,9 @@ async def connect_telegram_bot(
             WHERE cc.client_id = $1
               AND ch.platform_slug = 'telegram'
               AND ch.is_system = FALSE
-            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
-        client_id,
+              AND ch.handle = $2
+            ORDER BY ch.id ASC LIMIT 1""",
+        client_id, f"@{bot_username}",
     )
     async with db.transaction():
         if existing:
@@ -734,6 +739,12 @@ async def connect_vk_community(
         "vk_group_id":   int(data.group_id),
     }
 
+    # ⚠️ Ищем ЭТОТ ЖЕ канал (по адресу), а не любой на площадке. Раньше стояло
+    # «есть канал этой площадки → перезаписать»: клиент подключал ВТОРОЕ
+    # сообщество, и оно ЗАТИРАЛО первое — название, адрес и токен заменялись,
+    # подписчики переходили к новому. Человек видел это как «первое сообщество
+    # исчезло». С тех пор как канал можно подключить «только для рассылок»,
+    # их и должно быть несколько.
     existing = await db.fetchrow(
         """SELECT ch.id, cc.id AS cc_id
              FROM channels ch
@@ -741,8 +752,9 @@ async def connect_vk_community(
             WHERE cc.client_id = $1
               AND ch.platform_slug = 'vk'
               AND ch.is_system = FALSE
-            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
-        client_id,
+              AND ch.handle = $2
+            ORDER BY ch.id ASC LIMIT 1""",
+        client_id, screen_name,
     )
     async with db.transaction():
         if existing:
@@ -862,6 +874,12 @@ async def connect_max_bot(
         raise HTTPException(status_code=400, detail=f"Не удалось зарегистрировать webhook у MAX: {e}")
 
     # Upsert: если у клиента уже есть не-системный MAX-канал — обновить, иначе создать
+    # ⚠️ Ищем ЭТОТ ЖЕ канал (по адресу), а не любой на площадке. Раньше стояло
+    # «есть канал этой площадки → перезаписать»: клиент подключал ВТОРОЕ
+    # сообщество, и оно ЗАТИРАЛО первое — название, адрес и токен заменялись,
+    # подписчики переходили к новому. Человек видел это как «первое сообщество
+    # исчезло». С тех пор как канал можно подключить «только для рассылок»,
+    # их и должно быть несколько.
     existing = await db.fetchrow(
         """SELECT ch.id, cc.id AS cc_id
              FROM channels ch
@@ -869,8 +887,9 @@ async def connect_max_bot(
             WHERE cc.client_id = $1
               AND ch.platform_slug = 'max'
               AND ch.is_system = FALSE
-            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
-        client_id,
+              AND ch.handle = $2
+            ORDER BY ch.id ASC LIMIT 1""",
+        client_id, f"@{bot_username}",
     )
     async with db.transaction():
         if existing:
