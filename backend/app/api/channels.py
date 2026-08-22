@@ -787,7 +787,7 @@ async def connect_vk_community(
                     client_id,
                 )
             await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, make_primary, is_active) VALUES ($1, $2, $3)",
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, $3)",
                 client_id, channel_id, make_primary,
             )
 
@@ -912,7 +912,7 @@ async def connect_max_bot(
                     client_id,
                 )
             await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, make_primary, is_active) VALUES ($1, $2, $3)",
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, $3)",
                 client_id, channel_id, make_primary,
             )
 
@@ -1378,7 +1378,7 @@ async def connect_whatsapp(client=Depends(get_current_client), db=Depends(get_db
                     client_id,
                 )
             await db.execute(
-                "INSERT INTO client_channels (client_id, channel_id, make_primary, is_active) VALUES ($1, $2, $3)",
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, $3)",
                 client_id, channel_id, make_primary,
             )
     else:

@@ -1,6 +1,7 @@
 import logging as _logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
@@ -45,6 +46,27 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+# ⚠️ Любая неперехваченная ошибка приходила клиенту как «Internal Server Error».
+# Человек видел эту надпись на экране подключения бота или платёжки и не мог
+# понять ничего: ни что случилось, ни что делать дальше, ни к кому идти. Хуже
+# того — по такому тексту нельзя даже пожаловаться толком.
+#
+# Теперь клиент получает понятную фразу с номером ошибки, а подробности (файл,
+# строка, трассировка) уходят в лог сервера — по номеру их легко найти.
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    import logging, uuid
+    code = uuid.uuid4().hex[:8]
+    logging.getLogger("app.unhandled").exception(
+        "НЕОБРАБОТАННАЯ ОШИБКА [%s] %s %s", code, request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Что-то пошло не так на нашей стороне — мы уже видим эту "
+                           f"ошибку в логах. Попробуйте ещё раз через минуту; если "
+                           f"повторится, напишите в поддержку и назовите код {code}."},
+    )
 
 app.add_middleware(
     CORSMiddleware,
