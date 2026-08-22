@@ -884,12 +884,91 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
 
 
 /* ─────── VIP-wizard VK: подключение своего сообщества ─────── */
+/** Выбор роли подключаемого канала — ОДИН на все площадки (TG, VK, MAX).
+ *
+ * ⚠️ Роль выбирается ДО подключения. Раньше канал безусловно становился
+ * главным, и клиент, добавлявший его ради рассылок, молча терял работающую
+ * воронку на прежнем.
+ *
+ * ⚠️ Слово «главный» — то же, что в форме канала и в плашках. «Основной» было
+ * расхождением с интерфейсом.
+ *
+ * ⚠️ Сам выбор — нейтральными карточками, это ШАГ, а не предупреждение.
+ * Красным — только предупреждение про чужие сервисы: в мягких тонах его не
+ * читают, а не прочитать значит получить канал с неработающими воронками.
+ */
+function PrimaryRoleStep({ value, onChange, what, warnOtherServices }: {
+  value: boolean
+  onChange: (v: boolean) => void
+  what: string                 // «этот бот» / «это сообщество»
+  warnOtherServices?: string   // чем грозит чужой сервис; нет — блок не рисуем
+}) {
+  return (
+    <>
+      <h3 className="font-semibold text-gray-900">Шаг 1. Кем будет {what}</h3>
+
+      <label className="block rounded-xl border-2 p-3 cursor-pointer transition"
+             style={value
+               ? { borderColor: '#25455D', background: 'rgba(37,69,93,0.04)' }
+               : { borderColor: '#e5e7eb' }}>
+        <div className="flex gap-2.5">
+          <input type="radio" checked={value} onChange={() => onChange(true)} className="mt-1" />
+          <div>
+            <div className="text-sm font-bold" style={{ color: '#25455D' }}>
+              Главный — воронки и рассылки
+            </div>
+            {/* ⚠️ Прямо сказано, что рассылки ТОЖЕ его: иначе читается как
+                выбор «или воронки, или рассылки», и человек не понимает, что
+                выбрать, если нужно и то и другое. */}
+            <p className="text-sm text-gray-600 mt-0.5 leading-snug">
+              Делает всё: /start, регистрации, приветствия, подарки, Mini App —
+              и рассылки тоже. Такой канал на площадке один.
+            </p>
+          </div>
+        </div>
+      </label>
+
+      <label className="block rounded-xl border-2 p-3 cursor-pointer transition"
+             style={!value
+               ? { borderColor: '#25455D', background: 'rgba(37,69,93,0.04)' }
+               : { borderColor: '#e5e7eb' }}>
+        <div className="flex gap-2.5">
+          <input type="radio" checked={!value} onChange={() => onChange(false)} className="mt-1" />
+          <div>
+            <div className="text-sm font-bold" style={{ color: '#25455D' }}>
+              Только рассылки
+            </div>
+            <p className="text-sm text-gray-600 mt-0.5 leading-snug">
+              Импорт базы и отправка сообщений. Воронка останется на том канале,
+              который уже главный.
+            </p>
+          </div>
+        </div>
+      </label>
+
+      {value && warnOtherServices && (
+        <div className="rounded-xl border-2 border-red-300 bg-red-50 p-3">
+          <div className="text-sm font-bold text-red-800">
+            Главный канал не должен быть подключён к другим сервисам
+          </div>
+          <p className="text-sm text-red-900 mt-1 leading-snug">{warnOtherServices}</p>
+          <p className="text-sm text-red-900 mt-1.5 leading-snug">
+            Возьмите <b>новый</b> — или отвяжите старый от других сервисов.
+          </p>
+        </div>
+      )}
+    </>
+  )
+}
+
 function VipVkWizard({ clientId, onClose, onDone }: {
   clientId: number
   onClose: () => void
   onDone: () => void
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
+  // Роль канала: главный (воронки+рассылки) или только рассылки.
+  const [makePrimary, setMakePrimary] = useState(true)
   const [form, setForm] = useState({
     access_token: '',
     app_id: '',
@@ -916,6 +995,7 @@ function VipVkWizard({ clientId, onClose, onDone }: {
       const r = await api.channels.connectVkCommunity({
         access_token: form.access_token.trim(),
         app_id, secure_key: form.secure_key.trim(), group_id,
+              make_primary: makePrimary,
       })
       setResult({ group_name: r.group_name, screen_name: r.screen_name, mini_app_url: r.mini_app_url })
       setStep(3)
@@ -965,7 +1045,12 @@ function VipVkWizard({ clientId, onClose, onDone }: {
         <div className="p-5">
           {step === 1 && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900">Шаг 1. Создайте сообщество и Mini App</h3>
+              <PrimaryRoleStep
+                value={makePrimary} onChange={setMakePrimary} what="это сообщество"
+                warnOtherServices="ВКонтакте отдаёт сообщения только одному получателю. Если сообщество уже подключено к другому сервису — тот перехватит управление, и наши воронки работать не будут."
+              />
+
+              <h3 className="font-semibold text-gray-900 pt-1">Шаг 2. Создайте сообщество и Mini App</h3>
               <p className="text-sm text-gray-600">
                 Пошаговая инструкция со скриншотами — в разделе{' '}
                 <a href="/dashboard/help/vk-setup" target="_blank" rel="noopener"
@@ -992,7 +1077,7 @@ function VipVkWizard({ clientId, onClose, onDone }: {
 
           {step === 2 && (
             <div className="space-y-3">
-              <h3 className="font-semibold text-gray-900">Шаг 2. Вставьте параметры</h3>
+              <h3 className="font-semibold text-gray-900">Шаг 3. Вставьте параметры</h3>
               <p className="text-sm text-gray-600">
                 Мы проверим токен через VK API, получим название сообщества и включим Long Poll
                 автоматически.
@@ -1163,6 +1248,8 @@ function VipMaxWizard({ clientId, onClose, onDone }: {
   onDone: () => void
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
+  // Роль канала: главный (воронки+рассылки) или только рассылки.
+  const [makePrimary, setMakePrimary] = useState(true)
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -1173,7 +1260,7 @@ function VipMaxWizard({ clientId, onClose, onDone }: {
     setError('')
     setSubmitting(true)
     try {
-      const r = await api.channels.connectMaxBot(token.trim())
+      const r = await api.channels.connectMaxBot(token.trim(), makePrimary)
       setResult({ bot_username: r.bot_username, bot_name: r.bot_name, bot_handle: r.bot_handle })
       setStep(3)
     } catch (e: any) {
@@ -1215,7 +1302,12 @@ function VipMaxWizard({ clientId, onClose, onDone }: {
         <div className="p-5">
           {step === 1 && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900">Шаг 1. Создайте бота в @MasterBot</h3>
+              <PrimaryRoleStep
+                value={makePrimary} onChange={setMakePrimary} what="этот бот"
+                warnOtherServices="MAX отдаёт сообщения только одному получателю. Если бот уже подключён к другому сервису — тот перехватит управление, и наши воронки работать не будут."
+              />
+
+              <h3 className="font-semibold text-gray-900 pt-1">Шаг 2. Создайте бота в @MasterBot</h3>
               <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
                 <li>Откройте в MAX бота <b>@MasterBot</b> (официальный бот для создания ботов)</li>
                 <li>Отправьте команду <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/newbot</code></li>
@@ -1237,7 +1329,7 @@ function VipMaxWizard({ clientId, onClose, onDone }: {
 
           {step === 2 && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900">Шаг 2. Вставьте токен</h3>
+              <h3 className="font-semibold text-gray-900">Шаг 3. Вставьте токен</h3>
               <p className="text-sm text-gray-600">
                 Мы проверим токен через MAX, сохраним его и зарегистрируем webhook —
                 после этого бот начнёт принимать сообщения и слать ваши рассылки.
@@ -1393,40 +1485,12 @@ function VipBotWizard({ clientId, hasOwnBot, onClose, onDone }: {
         <div className="p-5">
           {step === 1 && (
             <div className="space-y-4">
-              {/* ⚠️ Роль выбирается ДО подключения. Раньше бот безусловно
-                  становился главным, и клиент, добавлявший его ради рассылок,
-                  молча терял работающую воронку на прежнем боте. */}
-              <div className="rounded-xl border p-3" style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.10)' }}>
-                <p className="text-sm font-semibold" style={{ color: '#25455D' }}>
-                  Зачем вам этот бот?
-                </p>
-                <div className="mt-2 space-y-2">
-                  <label className="flex gap-2.5 cursor-pointer">
-                    <input type="radio" checked={makePrimary} onChange={() => setMakePrimary(true)} className="mt-0.5" />
-                    <span className="text-sm text-gray-800">
-                      <b>Основной</b> — отвечает за воронку: /start, регистрации,
-                      приветствия, подарки, Mini App.
-                    </span>
-                  </label>
-                  <label className="flex gap-2.5 cursor-pointer">
-                    <input type="radio" checked={!makePrimary} onChange={() => setMakePrimary(false)} className="mt-0.5" />
-                    <span className="text-sm text-gray-800">
-                      <b>Только для рассылок</b> — импорт базы и отправка сообщений.
-                      Воронка остаётся на прежнем боте.
-                    </span>
-                  </label>
-                </div>
-                {makePrimary && (
-                  <p className="text-xs text-gray-700 mt-2.5 leading-snug">
-                    ⚠️ Для основного бота возьмите новый — или отвяжите старый от
-                    других сервисов (BotHelp, Salebot и подобных). Telegram отдаёт
-                    сообщения только одному получателю: пока бот подключён где-то ещё,
-                    тот сервис перехватывает управление, и наши воронки работать не будут.
-                  </p>
-                )}
-              </div>
+              <PrimaryRoleStep
+                value={makePrimary} onChange={setMakePrimary} what="этот бот"
+                warnOtherServices="Telegram отдаёт сообщения только одному получателю. Если бот уже работает в BotHelp, Salebot или похожем сервисе — тот перехватит управление, и наши воронки работать не будут."
+              />
 
-              <h3 className="font-semibold text-gray-900">Шаг 1. Создайте бот в @BotFather</h3>
+              <h3 className="font-semibold text-gray-900 pt-1">Шаг 2. Создайте бота в @BotFather</h3>
               <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
                 <li>Откройте <a href="https://telegram.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a> в Telegram</li>
                 <li>Отправьте команду <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/newbot</code></li>
@@ -1448,7 +1512,7 @@ function VipBotWizard({ clientId, hasOwnBot, onClose, onDone }: {
 
           {step === 2 && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900">Шаг 2. Вставьте токен</h3>
+              <h3 className="font-semibold text-gray-900">Шаг 3. Вставьте токен</h3>
               <p className="text-sm text-gray-600">
                 Мы проверим токен через Telegram, сохраним его и автоматически настроим Mini App
                 в вашем боте.
@@ -1514,7 +1578,7 @@ function VipBotWizard({ clientId, hasOwnBot, onClose, onDone }: {
                 </div>
               </div>
 
-              <h3 className="font-semibold text-gray-900">Шаг 3. Настройте Main Mini App в @BotFather</h3>
+              <h3 className="font-semibold text-gray-900">Шаг 4. Настройте Main Mini App в @BotFather</h3>
               <p className="text-sm text-gray-600">
                 Это <b>главное приложение бота</b> — открывается одной кнопкой в чате,
                 ссылки получаются короткие <code className="bg-gray-100 px-1 rounded text-xs">t.me/{result.bot_username}?startapp=…</code>.

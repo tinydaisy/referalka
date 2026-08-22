@@ -820,15 +820,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ bot_token, make_primary }),
       }),
-    connectVkCommunity: (data: { access_token: string; app_id: number; secure_key: string; group_id: number }) =>
+    // make_primary: главный канал (воронки + рассылки) или только рассылки.
+    connectVkCommunity: (data: { access_token: string; app_id: number; secure_key: string; group_id: number; make_primary?: boolean }) =>
       request('/api/v1/channels/connect-vk-community', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    connectMaxBot: (bot_token: string) =>
+    connectMaxBot: (bot_token: string, make_primary?: boolean) =>
       request('/api/v1/channels/connect-max-bot', {
         method: 'POST',
-        body: JSON.stringify({ bot_token }),
+        body: JSON.stringify({ bot_token, make_primary }),
       }),
     // WhatsApp через мост (привязка по QR)
     connectWhatsapp: () =>
