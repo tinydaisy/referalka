@@ -2129,10 +2129,13 @@ const ID_COLUMN: Record<string, string> = {
 }
 
 function csvTemplate(idCol: string) {
-  return `${idCol},name,telegram_username,email,phone,subscribed
-123456789,Иван Петров,ivan_p,ivan@mail.ru,+79991234567,1
-987654321,Мария Сидорова,,maria@mail.ru,89998887766,1
-555444333,Пётр,petr_x,,,0
+  // Колонка ника есть только у Telegram: у ВКонтакте и MAX мы его не спрашиваем.
+  const nick = idCol === 'telegram_id' ? 'telegram_username,' : ''
+  const ex = (n: string) => nick ? `${n},` : ''
+  return `${idCol},name,${nick}email,phone,subscribed
+123456789,Иван Петров,${ex('ivan_p')}ivan@mail.ru,+79991234567,1
+987654321,Мария Сидорова,${ex('')}maria@mail.ru,89998887766,1
+555444333,Пётр,${ex('petr_x')},,0
 `
 }
 
@@ -2333,7 +2336,9 @@ function ImportCsvModal({ channel, onClose, onDone }: {
                 <ul className="space-y-1 pl-4 list-disc text-[13px] leading-snug">
                   <li><b className="font-mono">{idCol}</b> — обязательно (можно назвать просто <b className="font-mono">id</b>). Без него строка пропускается.</li>
                   <li><b className="font-mono">name</b> — имя контакта</li>
-                  <li><b className="font-mono">telegram_username</b> — никнейм без @</li>
+                  {channel.platform_slug === 'telegram' && (
+                    <li><b className="font-mono">telegram_username</b> — никнейм без @</li>
+                  )}
                   <li><b className="font-mono">email</b>, <b className="font-mono">phone</b> — для мерджа с существующими контактами</li>
                   <li><b className="font-mono">subscribed</b> — <code className="bg-blue-100 px-1 rounded">1</code>/<code className="bg-blue-100 px-1 rounded">да</code> (по умолчанию) или <code className="bg-blue-100 px-1 rounded">0</code>/<code className="bg-blue-100 px-1 rounded">нет</code></li>
                 </ul>
@@ -2409,8 +2414,11 @@ function ImportCsvModal({ channel, onClose, onDone }: {
 
               {/* Ников в файле нет — импорт будет спрашивать их у Telegram
                   по каждому id. На десяти тысячах это лишние минуты, и без
-                  объяснения человек думает, что всё зависло. */}
-              {file && needsUsernameLookup && !submitting && (
+                  объяснения человек думает, что всё зависло.
+                  ⚠️ ТОЛЬКО для Telegram: у ВКонтакте и MAX спросить ник по id
+                  нечем, и плашка обещала бы несуществующее. */}
+              {file && needsUsernameLookup && !submitting
+                && channel.platform_slug === 'telegram' && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-xl p-3 leading-snug">
                   <b>В файле нет колонки с никнеймами.</b> Загрузка займёт больше обычного:
                   мы попутно соберём никнеймы у Telegram по id пользователей.
