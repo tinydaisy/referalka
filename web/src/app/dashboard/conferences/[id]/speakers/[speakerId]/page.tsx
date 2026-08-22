@@ -13,6 +13,7 @@ import RefLinkInline from '@/components/RefLinkInline'
 import CopyAllLinksButton, { countLinks, type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 import SpeakerGiftStats from '@/components/SpeakerGiftStats'
+import { CharCount, overClass, POSITIONING_LIMIT, ACHIEVEMENTS_LIMIT } from '@/components/FieldLimits'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 // Поля профиля, которые обязательно нужны
@@ -440,6 +441,16 @@ export default function ConferenceSpeakerPage() {
     if (socialErr) { setError(socialErr); return }
     setSavingProfile(true); setError(''); setProfileSaved(false)
     try {
+      // Лимиты: не даём сохранить полотно — на лендинге и в карточке спикера
+      // место рассчитано на название, а не на абзац.
+      if ((profile.title || '').length > POSITIONING_LIMIT) {
+        alert(`Позиционирование слишком длинное — сократите на ${(profile.title || '').length - POSITIONING_LIMIT} символов`)
+        return
+      }
+      if (achievementsText.length > ACHIEVEMENTS_LIMIT) {
+        alert(`Регалии слишком длинные — сократите на ${achievementsText.length - ACHIEVEMENTS_LIMIT} символов`)
+        return
+      }
       const achievements = achievementsText.split('\n').map(s => s.trim()).filter(Boolean)
       await api.collaborators.update(profile.id, {
         name: profile.name,
@@ -1170,13 +1181,15 @@ export default function ConferenceSpeakerPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.position}</label>
             <input type="text" value={profile.title || ''} onChange={setP('title')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-brand ${overClass(profile.title || '', POSITIONING_LIMIT) || 'border-gray-200'}`} />
+            <CharCount value={profile.title || ''} limit={POSITIONING_LIMIT} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.achievements}</label>
             <textarea value={achievementsText} onChange={e => setAchievementsText(e.target.value)} rows={5}
               placeholder={'Регалия 1\nРегалия 2\nРегалия 3'}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-y" />
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:border-brand resize-y ${overClass(achievementsText, ACHIEVEMENTS_LIMIT) || 'border-gray-200'}`} />
+            <CharCount value={achievementsText} limit={ACHIEVEMENTS_LIMIT} />
           </div>
         </div>
 

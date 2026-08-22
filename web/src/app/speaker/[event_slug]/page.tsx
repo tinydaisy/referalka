@@ -34,6 +34,16 @@ const TOPIC_DESC_LIMIT = 400
 // 140: туда часто пишут не адрес, а инструкцию с двумя ссылками сразу.
 const GIFT_TITLE_LIMIT = 380
 const GIFT_URL_LIMIT = 140
+// Регалии — ОДНО текстовое поле, строки режутся по переносам при сохранении.
+// 1100 (решение владельца): 90% нынешних укладываются, а полотна отсекаются —
+// у Нурии Карычевой в это поле был вставлен весь лендинг на 5922 символа.
+const ACHIEVEMENTS_LIMIT = 1100
+// Позиционирование: 110 (решение владельца). Поле отвечает на вопрос «КТО ВЫ»,
+// а не «что вы даёте» — туда писали офферы («увеличиваю доход…»), и на 140
+// символах фраза всё равно обрывалась на полуслове у двоих клиентов.
+// «Основатель конференции ВИДЕНИЕ/iViSiON и платформы ПЛЮСОН» — 59 символов,
+// то есть нормальная формулировка укладывается вдвое.
+const POSITIONING_LIMIT = 110
 
 /** Счётчик символов под полем: сколько осталось, а при переборе — сколько резать. */
 function CharCounter({ value, limit }: { value: string; limit: number }) {
@@ -697,6 +707,8 @@ export default function SpeakerCabinetPage() {
     if (nDesc)  bad.push(nDesc === 1 ? 'одно описание слишком длинное' : `${nDesc} описаний слишком длинные`)
     if ((me.gift_after_speech_title || '').length > GIFT_TITLE_LIMIT) bad.push('название подарка слишком длинное')
     if ((me.gift_after_speech_url || '').length > GIFT_URL_LIMIT) bad.push('ссылка на подарок слишком длинная')
+    if ((me.title || '').length > POSITIONING_LIMIT) bad.push('позиционирование слишком длинное')
+    if (achText.length > ACHIEVEMENTS_LIMIT) bad.push('регалии слишком длинные')
     return bad.join(', ')
   })()
 
@@ -1060,7 +1072,8 @@ export default function SpeakerCabinetPage() {
           </div>
 
           <label style={labelCss}>Кто вы? Ваше позиционирование (кратко как роль/должность)</label>
-          <input style={inputCss} value={me.title || ''} onChange={(e) => update({ title: e.target.value })} placeholder="Кто вы и чем занимаетесь" />
+          <input style={(me.title || '').length > POSITIONING_LIMIT ? { ...inputCss, border: '2px solid #d64545', background: '#fdf3f3' } : inputCss} value={me.title || ''} onChange={(e) => update({ title: e.target.value })} placeholder="Кто вы и чем занимаетесь" />
+          <CharCounter value={me.title || ''} limit={POSITIONING_LIMIT} />
 
           <label style={labelCss}>Email</label>
           <input style={inputCss} type="email" value={me.email || ''} onChange={(e) => update({ email: e.target.value })} />
@@ -1088,6 +1101,7 @@ export default function SpeakerCabinetPage() {
             onChange={(e) => setAchText(e.target.value)}
             placeholder={'Спикер ТЕД\nЧемпион мира по дебатам\nАвтор 3 книг…'}
           />
+          <CharCounter value={achText} limit={ACHIEVEMENTS_LIMIT} />
           <div style={{ fontSize: 11, color: '#9ab', marginTop: 4 }}>
             Маркеры (•, *, —) можно не ставить — мы их сами уберём при сохранении.
           </div>

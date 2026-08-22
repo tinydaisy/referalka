@@ -41,6 +41,11 @@ TOPIC_LIMIT = 190
 TOPIC_DESC_LIMIT = 400
 GIFT_TITLE_LIMIT = 380
 GIFT_URL_LIMIT = 140
+# Позиционирование и регалии — по реальным данным (замер 22.08.2026):
+# медиана позиционирования 50 символов, регалий 465. В поля писали офферы и
+# целые лендинги (у одного клиента 5922 символа с кейсами и призывами).
+POSITIONING_LIMIT = 110
+ACHIEVEMENTS_LIMIT = 1100
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
@@ -511,6 +516,12 @@ async def patch_me(
         _too_long.append(f"название подарка (не больше {GIFT_TITLE_LIMIT})")
     if data.gift_after_speech_url and len(data.gift_after_speech_url) > GIFT_URL_LIMIT:
         _too_long.append(f"ссылка на подарок (не больше {GIFT_URL_LIMIT})")
+    if data.title and len(data.title) > POSITIONING_LIMIT:
+        _too_long.append(f"позиционирование (не больше {POSITIONING_LIMIT})")
+    if data.achievements is not None:
+        _ach_len = len("\n".join(a for a in data.achievements if a))
+        if _ach_len > ACHIEVEMENTS_LIMIT:
+            _too_long.append(f"регалии (не больше {ACHIEVEMENTS_LIMIT} символов)")
     if _too_long:
         raise HTTPException(422, "Слишком длинно: " + ", ".join(_too_long))
 

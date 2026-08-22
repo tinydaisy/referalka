@@ -87,6 +87,31 @@ _SOCIAL_LINK_FIELDS = {
 }
 
 
+# Лимиты длины (те же, что во фронте — web/src/components/FieldLimits.tsx).
+# ⚠️ Держать в синхроне: разъедутся — счётчик покажет одно, сохранение
+# откажет по другому правилу. Числа подобраны по реальным данным 22.08.2026.
+POSITIONING_LIMIT = 110
+ACHIEVEMENTS_LIMIT = 1100
+
+
+def _validate_field_limits(data) -> None:
+    """Позиционирование и регалии: не пускаем полотна.
+
+    В эти поля писали офферы и целые лендинги — на карточке спикера и на
+    лендинге место рассчитано на название, а не на абзац.
+    """
+    bad: list[str] = []
+    title = getattr(data, "title", None)
+    if title and len(title) > POSITIONING_LIMIT:
+        bad.append(f"позиционирование (не больше {POSITIONING_LIMIT} символов)")
+    ach = getattr(data, "achievements", None)
+    if ach is not None:
+        if len("\n".join(a for a in ach if a)) > ACHIEVEMENTS_LIMIT:
+            bad.append(f"регалии (не больше {ACHIEVEMENTS_LIMIT} символов)")
+    if bad:
+        raise HTTPException(422, "Слишком длинно: " + ", ".join(bad))
+
+
 def _validate_social_links(data) -> None:
     """Бросает 400, если в любом соц-поле передан ник вместо полной ссылки.
     Проверяет ТОЛЬКО поля, которые реально пришли (у Pydantic-моделей update —
@@ -682,6 +707,7 @@ async def update_collaborator(
 ):
     client_id = int(client["sub"])
     _validate_social_links(data)
+    _validate_field_limits(data)
     updates_full = {k: v for k, v in data.model_dump().items() if v is not None}
     # ⚠️ last_name должна уметь ОЧИЩАТЬСЯ: у компаний и партнёров-организаций
     # фамилии нет. Фильтр `v is not None` выше пустое значение выбрасывает,
