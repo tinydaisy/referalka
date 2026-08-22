@@ -16,3 +16,28 @@ export const SUPPORT_LABEL = 'написать в тех.поддержку'
 
 /** Пункт сайдбара (с заглавной). */
 export const SUPPORT_NAV_LABEL = 'Написать в тех.поддержку'
+
+
+/**
+ * Мессенджеры, где работает поддержка.
+ *
+ * ⚠️ Список общий для кабинета (`/dashboard/help/contact`) и публичной
+ * страницы (`/support`). Двух копий быть не должно: добавится третий
+ * мессенджер — появится в одном месте и пропадёт в другом.
+ */
+export const SUPPORT_CHANNELS = [
+  {
+    key: 'telegram',
+    label: 'Telegram',
+    hint: '@pluson_bot',
+    url: 'https://telegram.me/pluson_bot?start=question',
+    color: '#229ED9',
+  },
+  {
+    key: 'max',
+    label: 'MAX',
+    hint: 'ПЛЮСОН-СЕРВИС',
+    url: 'https://max.ru/id890306512862_1_bot?start=question',
+    color: '#6D4AFF',
+  },
+]

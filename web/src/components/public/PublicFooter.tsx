@@ -39,7 +39,12 @@ export default function PublicFooter() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
 
           <div className="lg:col-span-1">
-            <div className="font-bold text-lg">iViSiON: ПЛЮСОН</div>
+            <div className="flex items-center gap-2.5">
+              {/* ⚠️ Белый вариант: фон тёмный, синий логотип на нём не виден. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/logo_no_ivision_wwhite.png" alt="" className="h-8 w-auto" />
+              <span className="font-bold text-lg">iViSiON: ПЛЮСОН</span>
+            </div>
             <p className="mt-2 text-sm text-white/60 leading-relaxed">
               Платформа для экспертов, спикеров и организаторов
             </p>
@@ -63,11 +68,11 @@ export default function PublicFooter() {
                 </Link>
               </li>
               <li>
-                <a href="https://telegram.me/pluson_bot?start=question"
-                   target="_blank" rel="noopener noreferrer"
-                   className="text-sm text-white/70 hover:text-white">
+                {/* ⚠️ Ведём на страницу ВЫБОРА, а не на конкретного бота:
+                    поддержка работает в двух мессенджерах — Telegram и MAX. */}
+                <Link href="/support" className="text-sm text-white/70 hover:text-white">
                   Написать в поддержку
-                </a>
+                </Link>
               </li>
               <li>
                 <Link href="/sp/1" className="text-sm text-white/70 hover:text-white">

@@ -2,27 +2,14 @@
 
 import Link from 'next/link'
 import { LifeBuoy, ExternalLink } from 'lucide-react'
+import { SUPPORT_CHANNELS } from '@/lib/support'
 
 const BRAND = '#25455D'
 
 /** Боты техподдержки ПЛЮСОНа (сервисный клиент id 3).
  *  Сообщение из любого падает в Диалоги + уведомление #user_message. */
-const CHANNELS = [
-  {
-    key: 'telegram',
-    label: 'Telegram',
-    hint: '@pluson_bot',
-    url: 'https://telegram.me/pluson_bot?start=question',
-    color: '#229ED9',
-  },
-  {
-    key: 'max',
-    label: 'MAX',
-    hint: 'ПЛЮСОН-СЕРВИС',
-    url: 'https://max.ru/id890306512862_1_bot?start=question',
-    color: '#6D4AFF',
-  },
-]
+// Список общий с публичной страницей /support — см. lib/support.ts
+const CHANNELS = SUPPORT_CHANNELS
 
 export default function SupportContactPage() {
   return (
