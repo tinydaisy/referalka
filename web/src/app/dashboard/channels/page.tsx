@@ -2515,8 +2515,8 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
             <AlertTriangle size={16} /> Есть нестыковки и пропуски
           </div>
           <ul className="text-sm text-amber-900 space-y-1">
-            {s.skipped_no_tgid > 0 && <li>• Пропущено без {idCol}: <b>{s.skipped_no_tgid}</b></li>}
-            {s.skipped_invalid_tgid > 0 && <li>• Пропущено с невалидным telegram_id: <b>{s.skipped_invalid_tgid}</b></li>}
+            {s.skipped_no_tgid > 0 && <li>• Пропущено без идентификатора: <b>{s.skipped_no_tgid}</b></li>}
+            {s.skipped_invalid_tgid > 0 && <li>• Пропущено с неверным идентификатором: <b>{s.skipped_invalid_tgid}</b></li>}
             {s.duplicates_in_file > 0 && <li>• Дубликатов внутри файла: <b>{s.duplicates_in_file}</b></li>}
             {s.mismatches > 0 && <li>• Нестыковок (CSV ≠ БД, оставлено как в БД): <b>{s.mismatches}</b></li>}
             {s.tg_clash_skipped > 0 && <li>• Конфликт TG-identity (не привязали): <b>{s.tg_clash_skipped}</b></li>}
