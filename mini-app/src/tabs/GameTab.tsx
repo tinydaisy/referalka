@@ -714,12 +714,24 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         <div style={{ marginBottom: 12 }}>
           {sortedGifts.slice(0, 2).map(g => {
             const unlocked = giftCountValue >= g.points_cost
+            // ⚠️ Карточка в КРАТКОМ списке тоже должна открывать подарок.
+            // Раньше нажималась только карточка в полном списке, а человек
+            // жмёт на ту, что видит первой — и подарок казался сломанным.
+            const href = unlocked ? giftOpenHref(g) : null
+            const canOpen = unlocked && (href || hasAnyGiftLink(g))
             return (
-              <div key={g.id} style={{
-                background: 'white', borderRadius: 12, padding: '10px 12px', marginBottom: 8,
-                display: 'flex', gap: 10, alignItems: 'center', opacity: unlocked ? 1 : 0.75,
-                boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-              }}>
+              <div key={g.id}
+                onClick={() => {
+                  if (!unlocked) return
+                  if (href) openGift(href)
+                  else if (hasAnyGiftLink(g)) setGiftPick(g)
+                }}
+                style={{
+                  background: 'white', borderRadius: 12, padding: '10px 12px', marginBottom: 8,
+                  display: 'flex', gap: 10, alignItems: 'center', opacity: unlocked ? 1 : 0.75,
+                  boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                  cursor: canOpen ? 'pointer' : 'default',
+                }}>
                 <div style={{ fontSize: 20, flexShrink: 0 }}>{unlocked ? '🎁' : '🔒'}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a',

@@ -1683,8 +1683,21 @@ async def _send_max_event_menu(
     # ⚠️ КОЛЛАБА: кабинет и программу человек ОТКРЫВАЕТ — вести они должны на
     # домен ТОГО организатора, в чьей базе его контакт, а не первого владельца.
     from app.services.event_client import resolve_event_client
+    # ⚠️⚠️ ВЛАДЕЛЕЦ БОТА, ЧЕРЕЗ КОТОРОГО ЧЕЛОВЕК СЕЙЧАС СИДИТ.
+    # Без него резолвер брал «первого владельца события» — и в боте Нурии
+    # кнопка «Кабинет» уводила к Лилии: чужой бренд, чужой домен, чужая база.
+    # У коллабы владельцев несколько и они равноправны; решает тот, в чьём
+    # приложении человек находится.
+    bot_client_id = await conn.fetchval(
+        """SELECT cc.client_id FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.bot_token = $1 AND ch.platform_slug = 'max'
+            ORDER BY cc.id LIMIT 1""",
+        bot_token,
+    )
     link_client_id = await resolve_event_client(
-        conn, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+        conn, event_id=ev["id"], client_id=ev["client_id"],
+        source_client_id=bot_client_id, contact_id=contact_id)
 
     text = (
         "Вы зарегистрированы на событие:\n"
