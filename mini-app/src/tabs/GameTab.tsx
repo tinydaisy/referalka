@@ -301,7 +301,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         <button onClick={() => setView('game')} style={{
           background: 'none', border: 'none', color: 'var(--muted)',
           fontSize: 13, padding: '4px 0', cursor: 'pointer', marginBottom: 8,
-        }}>← Назад в Игру</button>
+        }}>← Назад в кабинет</button>
 
         {/* Жёлтое предупреждение */}
         <div style={{
@@ -488,7 +488,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         <button onClick={() => setView('game')} style={{
           background: 'none', border: 'none', color: 'var(--muted)',
           fontSize: 13, padding: '4px 0', cursor: 'pointer', marginBottom: 8,
-        }}>← Назад в Игру</button>
+        }}>← Назад в кабинет</button>
 
         {/* Партнёрские ссылки — дубль с главного экрана, чтобы можно было
             скопировать прямо здесь, не возвращаясь назад. */}
