@@ -172,10 +172,9 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
                     # Дополняем ПУСТЫЕ поля: телефон в контакте, почту —
                     # отдельной идентичностью (колонки contacts.email нет).
                     if phone:
-                        await db.execute(
-                            "UPDATE contacts SET phone = COALESCE(NULLIF(phone,''), $2) WHERE id = $1",
-                            found, phone,
-                        )
+                        # ⚠️ Только через set_contact_phone — см. contact_merge.
+                        from app.services.contact_merge import set_contact_phone
+                        await set_contact_phone(db, found, phone)
                     if email:
                         await db.execute(
                             """INSERT INTO platform_users (contact_id, platform_slug, platform_user_id)

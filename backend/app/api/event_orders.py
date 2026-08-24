@@ -176,15 +176,12 @@ async def create_order(
         # остаётся с одним ником, а письмо о заказе слать некуда.
         if contact_id:
             from app.services.contact_merge import (
-                normalize_phone, sync_email_identity_and_subscription,
+                set_contact_phone, sync_email_identity_and_subscription,
             )
             if phone:
-                await db.execute(
-                    "UPDATE contacts SET phone = COALESCE(NULLIF(phone, ''), $2), "
-                    "phone_normalized = COALESCE(NULLIF(phone_normalized, ''), $3) "
-                    "WHERE id = $1",
-                    contact_id, phone, normalize_phone(phone),
-                )
+                # ⚠️ Только через set_contact_phone — рядом обязан писаться
+                # phone_normalized, по нему ищутся дубли (см. contact_merge).
+                await set_contact_phone(db, contact_id, phone)
             if name:
                 await db.execute(
                     "UPDATE contacts SET name = COALESCE(NULLIF(name, ''), $2) WHERE id = $1",

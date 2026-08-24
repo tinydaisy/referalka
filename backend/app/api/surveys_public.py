@@ -289,9 +289,10 @@ async def submit_survey(
     else:
         # Человек мог дописать то, чего мы про него не знали.
         if (data.phone or "").strip():
-            await db.execute(
-                "UPDATE contacts SET phone = COALESCE(phone, $2), updated_at = NOW() "
-                "WHERE id = $1", contact_id, data.phone.strip())
+            # ⚠️ Только через set_contact_phone — рядом обязан писаться
+            # phone_normalized, по нему ищутся дубли (см. contact_merge).
+            from app.services.contact_merge import set_contact_phone
+            await set_contact_phone(db, contact_id, data.phone)
         if (data.email or "").strip():
             try:
                 from app.services.contact_merge import (

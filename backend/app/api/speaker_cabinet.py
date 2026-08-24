@@ -595,14 +595,13 @@ async def patch_me(
     #    (platform_users), синхронизируется ниже, в contacts.email НЕ пишем.
     if contact_id:
         if data.phone is not None:
-            phone_raw = (data.phone or "").strip()
-            phone_norm = "".join(ch for ch in phone_raw if ch.isdigit()) or None
-            if phone_norm and phone_norm.startswith("8") and len(phone_norm) == 11:
-                phone_norm = "+7" + phone_norm[1:]
-            await db.execute(
-                "UPDATE contacts SET phone = $2, phone_normalized = $3, updated_at = NOW() WHERE id = $1",
-                contact_id, phone_raw or None, phone_norm,
-            )
+            # ⚠️ Своя копия нормализации была проще общей (не понимала «7…»
+            # без плюса и ведущие нули) — телефоны расходились по формату и
+            # дубли не склеивались. Только через set_contact_phone.
+            from app.services.contact_merge import set_contact_phone
+            # only_if_empty=False: человек правит СВОЙ телефон в кабинете —
+            # его ввод главнее того, что было записано раньше.
+            await set_contact_phone(db, contact_id, data.phone, only_if_empty=False)
         if data.email is not None:
             from app.services.contact_merge import (
                 sync_email_identity_and_subscription, normalize_email as _ne,

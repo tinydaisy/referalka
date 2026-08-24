@@ -200,10 +200,9 @@ async def create_order(
                 email=data.email, first_name=data.name,
             )
         if data.phone:
-            await db.execute(
-                "UPDATE contacts SET phone = COALESCE(phone, $2) WHERE id = $1",
-                contact_id, data.phone,
-            )
+            # ⚠️ Только через set_contact_phone — см. contact_merge.
+            from app.services.contact_merge import set_contact_phone
+            await set_contact_phone(db, contact_id, data.phone)
 
     if not contact_id and data.force_new:
         contact_id = await create_new_contact(

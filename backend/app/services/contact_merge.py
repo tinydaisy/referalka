@@ -26,7 +26,16 @@ def normalize_email(email: Optional[str]) -> Optional[str]:
 
 
 def normalize_phone(phone: Optional[str]) -> Optional[str]:
-    """Только цифры + 8→+7. Пустую строку → None."""
+    """Телефон в каноничном виде — по нему ищутся дубли контактов.
+
+    Российский 11-значный (8… / 7…) → `+7XXXXXXXXXX`.
+    Остальные → только цифры, без плюсов, пробелов и ведущих нулей.
+
+    ⚠️ Раньше «остальные» возвращались КАК ЕСТЬ, вместе с плюсом и нулями:
+    `+0079611043165` так и лежал в поле поиска, `+4917670252729` — с плюсом.
+    Один и тот же номер, записанный по-разному, давал разные значения, и
+    дубли по телефону не склеивались (на проде таких 44).
+    """
     if not phone:
         return None
     digits = re.sub(r'[^0-9]', '', phone)
@@ -36,7 +45,50 @@ def normalize_phone(phone: Optional[str]) -> Optional[str]:
         return '+7' + digits[1:]
     if len(digits) == 11 and digits.startswith('7'):
         return '+' + digits
+    # Ведущие нули — мусор набора («+007…», «+0037…»), к номеру не относятся.
+    digits = digits.lstrip('0') or digits
+    if len(digits) == 11 and digits.startswith('7'):
+        return '+' + digits
+    if len(digits) == 10 and digits.startswith('9'):
+        # Российский без кода страны — «9161234567».
+        return '+7' + digits
     return digits
+
+
+async def set_contact_phone(
+    db, contact_id: int, phone: Optional[str], *, only_if_empty: bool = True,
+) -> None:
+    """ЕДИНАЯ точка записи телефона контакта.
+
+    ⚠️ Писать `contacts.phone` напрямую нельзя — только через эту функцию.
+    Рядом с телефоном обязан обновляться `phone_normalized`: именно по нему
+    ищутся дубли. Четыре места писали телефон и забывали нормализованный
+    (анкеты, заказы события и продукта, раздача контактов в коллабе) — у людей
+    оставалось пустое поле поиска, и один человек заводился дважды.
+
+    only_if_empty=True (по умолчанию) — дозаполняем, не затирая уже введённое
+    клиентом. False — перезаписываем (ручная правка карточки, кабинет спикера).
+    """
+    ph = (phone or "").strip()
+    if not ph:
+        return
+    norm = normalize_phone(ph)
+    if only_if_empty:
+        await db.execute(
+            """UPDATE contacts
+                  SET phone = COALESCE(NULLIF(phone, ''), $2),
+                      phone_normalized = COALESCE(NULLIF(phone_normalized, ''), $3),
+                      updated_at = NOW()
+                WHERE id = $1""",
+            contact_id, ph, norm,
+        )
+    else:
+        await db.execute(
+            """UPDATE contacts
+                  SET phone = $2, phone_normalized = $3, updated_at = NOW()
+                WHERE id = $1""",
+            contact_id, ph, norm,
+        )
 
 
 def generate_ref_code(length: int = 8) -> str:

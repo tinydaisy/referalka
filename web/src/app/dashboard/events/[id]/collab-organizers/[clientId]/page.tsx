@@ -225,10 +225,15 @@ export default function CollabOrganizerCardPage() {
       {/* ── ВЫСТУПЛЕНИЕ ── */}
       {tab === 'talk' && (
         <div className="space-y-5">
-          {/* Согласие на рассылки по моей базе — только в СВОЕЙ карточке.
-              Событие общее, анонсируют все организаторы. Поставил галочку → любая
-              рассылка в этом событии уходит и по моей базе СРАЗУ, без запроса. */}
-          {canEdit && (
+          {/* Согласие «разрешаю рассылки по моей базе в этом событии»
+              (event_owners.allow_collab_broadcasts).
+
+              ⚠️ СКРЫТО ИЗ ИНТЕРФЕЙСА по решению владельца (2026-08-24).
+              Сам флаг и логика на бэкенде живы: он решает, уходит ли анонс по
+              базе партнёра сразу или ждёт подтверждения
+              (services/collab_broadcast.py). Убрана только галочка — включать
+              согласие через кабинет больше нельзя. Вернуть = снять `false &&`. */}
+          {false && canEdit && (
             <div className="rounded-2xl border p-5" style={{ borderColor: PEACH, background: '#FFF8F1' }}>
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
