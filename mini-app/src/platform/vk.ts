@@ -7,6 +7,35 @@ import { webFallback } from './index'
  * (`?vk_user_id=…&vk_app_id=…&sign=…`). Глубокая ссылка — через hash `#…`.
  */
 
+/**
+ * Спросить ВКонтакте, но не ждать вечно.
+ *
+ * ⚠️⚠️ ПОЧЕМУ ЭТО ОБЯЗАТЕЛЬНО. Приложение рисует экран только ПОСЛЕ ответа
+ * ВКонтакте. А `VKWebAppGetUserInfo` показывает человеку окно «разрешить
+ * доступ к профилю» — и пока он не нажал, обещание не выполняется НИКОГДА:
+ * ни ответа, ни ошибки. Окно могло не появиться вовсе (медленная сеть,
+ * встроенный браузер, блокировщик) — и человек видел ЗАСТЫВШИЙ ЛОГОТИП,
+ * а `catch` не срабатывал, потому что ошибки нет, есть молчание.
+ *
+ * Так ВКонтакте не открывался у всех две-три недели (найдено 24.08.2026).
+ *
+ * ⚠️ Не ответил за отведённое время — работаем без этих данных. Кто человек,
+ * мы и так знаем: его номер приходит в адресе (`vk_user_id`), заверенный
+ * подписью ВКонтакте.
+ */
+function askVk<T = any>(method: string, params?: any, ms = 3000): Promise<T | null> {
+  return Promise.race([
+    (bridge.send as any)(method, params).catch((e: any) => {
+      console.warn(`${method} отклонён`, e)
+      return null
+    }),
+    new Promise<null>(resolve => setTimeout(() => {
+      console.warn(`${method}: ВКонтакте не ответил за ${ms} мс — идём дальше`)
+      resolve(null)
+    }, ms)),
+  ]) as Promise<T | null>
+}
+
 export async function initPlatform(): Promise<PlatformAdapter> {
   const sp = new URLSearchParams(window.location.search)
   const launchParams: Record<string, string> = {}
@@ -14,7 +43,14 @@ export async function initPlatform(): Promise<PlatformAdapter> {
   const isVk = !!(launchParams.vk_user_id && launchParams.sign)
   if (!isVk) return webFallback()
 
-  try { await bridge.send('VKWebAppInit') } catch (e) { console.warn('VKWebAppInit failed', e) }
+  // ⚠️⚠️ VKWebAppInit ОБРЫВАТЬ ПО ВРЕМЕНИ НЕЛЬЗЯ. Это рукопожатие: пока оно не
+  // прошло, ВКонтакте считает приложение незапущенным и сам показывает
+  // «приложение не инициализировано». Ограничение в 2 секунды рвало именно
+  // его — экран не открывался вовсе (поймано на проде 24.08).
+  //
+  // Ждём столько, сколько нужно, но ошибку глушим: если ВКонтакте ответил
+  // отказом, пробовать дальше всё равно надо.
+  try { await bridge.send('VKWebAppInit') } catch (e) { console.warn('VKWebAppInit отклонён', e) }
 
   // Глубокая ссылка `vk.com/app{id}#m_...` приходит в hash. НО VK далеко не
   // всегда пробрасывает hash в iframe приложения — особенно при «холодном»
@@ -31,8 +67,8 @@ export async function initPlatform(): Promise<PlatformAdapter> {
     return h.startsWith('#') ? h.slice(1) : h
   }
   let bridgeRef = ''
-  try {
-    const lp2: any = await bridge.send('VKWebAppGetLaunchParams')
+  {
+    const lp2: any = await askVk('VKWebAppGetLaunchParams', undefined, 2000)
     if (lp2 && typeof lp2 === 'object') {
       // vk_ref = наш payload (m_slug / p_slug / evl_… / spkinv_… / prtc_…).
       bridgeRef = String(lp2.vk_ref || lp2.hash || lp2.startapp || '')
@@ -41,7 +77,7 @@ export async function initPlatform(): Promise<PlatformAdapter> {
         if (launchParams[k] === undefined && v != null) launchParams[k] = String(v)
       }
     }
-  } catch (e) { console.warn('VKWebAppGetLaunchParams failed', e) }
+  }
 
   // Ретрай чтения hash: до 5 попыток по 100мс (VK может проставить его позже).
   let hash = readHash()
@@ -85,20 +121,19 @@ export async function initPlatform(): Promise<PlatformAdapter> {
     }).catch(() => {})
   } catch (_) { /* диагностика не должна ронять старт */ }
 
-  let user: PlatformUser | null = null
-  try {
-    const info: any = await bridge.send('VKWebAppGetUserInfo')
+  // ⚠️ Имя и фото — приятное дополнение, а не условие запуска. Номер человека
+  // мы и так знаем из адреса, он заверен подписью ВКонтакте.
+  let user: PlatformUser | null = launchParams.vk_user_id
+    ? { id: Number(launchParams.vk_user_id) }
+    : null
+  const info: any = await askVk('VKWebAppGetUserInfo', undefined, 3000)
+  if (info && info.id) {
     user = {
       id: info.id,
       first_name: info.first_name,
       last_name: info.last_name,
       username: info.screen_name,
       photo_url: info.photo_200,
-    }
-  } catch (e) {
-    console.warn('VKWebAppGetUserInfo failed', e)
-    if (launchParams.vk_user_id) {
-      user = { id: Number(launchParams.vk_user_id) }
     }
   }
 
