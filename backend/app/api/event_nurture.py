@@ -109,8 +109,21 @@ async def _assert_event_belongs_to_client(db, event_id: int, client_id: int):
 
 
 async def _seed_default_steps_if_empty(db, event_id: int):
-    """Если у события нет ни одного шага — добавляем 3 дефолтных шаблона.
-    Идемпотентно: повторный вызов с уже существующими шагами — no-op."""
+    """Один раз на событие добавляем 3 дефолтных шага.
+
+    ⚠️ Условие — «дефолты ещё НЕ выдавали» (events.nurture_defaults_seeded),
+    а НЕ «список пуст». Раньше было по пустоте, и удаление последнего шага
+    выглядело сломанным: DELETE отрабатывал, список перечитывался — и шаги
+    воскресали. Клиент видел «кнопка удаления не работает».
+    """
+    seeded = await db.fetchval(
+        "SELECT nurture_defaults_seeded FROM events WHERE id = $1", event_id
+    )
+    if seeded:
+        return
+    await db.execute(
+        "UPDATE events SET nurture_defaults_seeded = TRUE WHERE id = $1", event_id
+    )
     cnt = await db.fetchval(
         "SELECT COUNT(*) FROM event_nurture_steps WHERE event_id = $1",
         event_id,
@@ -217,6 +230,39 @@ async def create_nurture_step(
         event_id, next_sort, data.offset_seconds, data.text, data.button_label, bk, data.is_active,
     )
     return {"id": new_id}
+
+
+@router.post("/{event_id}/nurture/restore-defaults", tags=["Воронка догрева"])
+async def restore_default_nurture_steps(
+    event_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Вернуть шаги по умолчанию — ДОБАВИТЬ их к тому, что уже есть.
+
+    ⚠️ Существующие шаги НЕ трогаем и не заменяем: клиент мог переписать
+    тексты под себя, потерять их при нажатии кнопки — хуже, чем не иметь
+    кнопки вовсе. Кнопка нужна, потому что удаление теперь окончательное
+    (дефолты сами не воскресают) — и удалённое надо чем-то возвращать.
+    """
+    await _assert_event_belongs_to_client(db, event_id, int(client["sub"]))
+    next_sort = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM event_nurture_steps WHERE event_id = $1",
+        event_id,
+    )
+    added = 0
+    for i, step in enumerate(DEFAULT_STEPS):
+        await db.execute(
+            """INSERT INTO event_nurture_steps
+                  (event_id, sort_order, offset_seconds, text, button_label, button_kind, is_active)
+               VALUES ($1, $2, $3, $4, $5, $6, FALSE)""",
+            event_id, next_sort + i, step["offset_seconds"], step["text"],
+            step["button_label"], step.get("button_kind", "event"),
+        )
+        added += 1
+    # Добавляем ВЫКЛЮЧЕННЫМИ: иначе восстановленные шаги немедленно начнут
+    # уходить людям, хотя клиент только хотел посмотреть исходные тексты.
+    return {"ok": True, "added": added}
 
 
 @router.patch("/nurture/steps/{step_id}", tags=["Воронка догрева"])

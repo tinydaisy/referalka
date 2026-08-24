@@ -88,8 +88,20 @@ async def _assert_event_belongs_to_client(db, event_id: int, client_id: int):
 
 
 async def _seed_default_steps_if_empty(db, event_id: int):
-    """Если у события нет ни одного reg-шага — добавляем дефолтные шаблоны.
-    Идемпотентно."""
+    """Один раз на событие добавляем дефолтные reg-шаги.
+
+    ⚠️ Условие — «дефолты ещё НЕ выдавали», а не «список пуст»: иначе
+    удаление последнего шага воскрешало их при следующем чтении списка
+    (см. пояснение в event_nurture.py).
+    """
+    seeded = await db.fetchval(
+        "SELECT nurture_reg_defaults_seeded FROM events WHERE id = $1", event_id
+    )
+    if seeded:
+        return
+    await db.execute(
+        "UPDATE events SET nurture_reg_defaults_seeded = TRUE WHERE id = $1", event_id
+    )
     cnt = await db.fetchval(
         "SELECT COUNT(*) FROM event_nurture_reg_steps WHERE event_id = $1",
         event_id,
@@ -186,6 +198,32 @@ async def create_nurture_reg_step(
         event_id, next_sort, data.offset_seconds, data.text, data.button_label, bk, data.is_active,
     )
     return {"id": new_id}
+
+
+@router.post("/{event_id}/nurture-reg/restore-defaults", tags=["Воронка догрева (зарег.)"])
+async def restore_default_nurture_reg_steps(
+    event_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Вернуть шаги по умолчанию — ДОБАВИТЬ к существующим, выключенными
+    (см. пояснение в event_nurture.py)."""
+    await _assert_event_belongs_to_client(db, event_id, int(client["sub"]))
+    next_sort = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM event_nurture_reg_steps WHERE event_id = $1",
+        event_id,
+    )
+    added = 0
+    for i, step in enumerate(DEFAULT_STEPS):
+        await db.execute(
+            """INSERT INTO event_nurture_reg_steps
+                  (event_id, sort_order, offset_seconds, text, button_label, button_kind, is_active)
+               VALUES ($1, $2, $3, $4, $5, $6, FALSE)""",
+            event_id, next_sort + i, step["offset_seconds"], step["text"],
+            step["button_label"], step.get("button_kind", "event"),
+        )
+        added += 1
+    return {"ok": True, "added": added}
 
 
 @router.patch("/nurture-reg/steps/{step_id}", tags=["Воронка догрева (зарег.)"])

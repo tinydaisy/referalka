@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Trash2, Clock, Save, ExternalLink } from 'lucide-react'
+import { Plus, Trash2, Clock, Save, ExternalLink, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Step {
@@ -193,6 +193,12 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
   async function deleteStep(s: Step) {
     if (!confirm(`Удалить этот шаг воронки догрева?`)) return
     await client.remove(s.id)
+    load()
+  }
+
+  async function restoreDefaults() {
+    if (!confirm('Добавить шаги по умолчанию?\n\nОни появятся выключенными в конце списка. То, что уже написано, останется на месте.')) return
+    await client.restoreDefaults(eventId)
     load()
   }
 
@@ -507,12 +513,21 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
         })
       )}
 
-      <button
-        onClick={addStep}
-        className="w-full py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm font-medium text-gray-600 hover:border-gray-300 hover:bg-gray-50 inline-flex items-center justify-center gap-2"
-      >
-        <Plus size={16} /> Добавить ещё шаг
-      </button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <button
+          onClick={addStep}
+          className="flex-1 py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm font-medium text-gray-600 hover:border-gray-300 hover:bg-gray-50 inline-flex items-center justify-center gap-2"
+        >
+          <Plus size={16} /> Добавить ещё шаг
+        </button>
+        <button
+          onClick={restoreDefaults}
+          title="Добавит стандартные шаги выключенными — то, что уже написано, не тронет"
+          className="flex-1 py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm font-medium text-gray-600 hover:border-gray-300 hover:bg-gray-50 inline-flex items-center justify-center gap-2"
+        >
+          <RotateCcw size={16} /> Вернуть шаги по умолчанию
+        </button>
+      </div>
     </div>
   )
 }

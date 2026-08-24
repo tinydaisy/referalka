@@ -597,6 +597,10 @@ export const api = {
       }),
     remove: (stepId: number) =>
       request(`/api/v1/events/nurture/steps/${stepId}`, { method: 'DELETE' }),
+    // Вернуть шаги по умолчанию — ДОБАВЛЯЕТ их выключенными, существующие
+    // не трогает (удаление теперь окончательное, дефолты сами не воскресают).
+    restoreDefaults: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/nurture/restore-defaults`, { method: 'POST' }),
   },
   // Воронка догрева для ЗАРЕГИСТРИРОВАННЫХ участников (миграция 129)
   eventNurtureReg: {
@@ -613,6 +617,8 @@ export const api = {
       }),
     remove: (stepId: number) =>
       request(`/api/v1/events/nurture-reg/steps/${stepId}`, { method: 'DELETE' }),
+    restoreDefaults: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/nurture-reg/restore-defaults`, { method: 'POST' }),
   },
   // Тарифы мероприятия (миграция 157) — только для тарифа клиента vip
   // Фирменная тема лендингов клиента (миграция 241) — подставляется в новые
