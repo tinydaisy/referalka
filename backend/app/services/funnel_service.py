@@ -982,11 +982,11 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
             )
         await db.execute(
             """INSERT INTO platform_users
-                  (client_id, contact_id, platform_slug, platform_user_id,
+                  (contact_id, platform_slug, platform_user_id,
                    username, first_name, last_name)
-               VALUES ($1, $2, 'telegram', $3, $4, $5, $6)
-               ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
-            client_id, contact_id, str(tg_id),
+               VALUES ($1, 'telegram', $2, $3, $4, $5)
+               ON CONFLICT (contact_id, platform_slug) DO NOTHING""",
+            contact_id, str(tg_id),
             username, first_name, last_name
         )
 
@@ -1203,11 +1203,11 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
             )
         await db.execute(
             """INSERT INTO platform_users
-                  (client_id, contact_id, platform_slug, platform_user_id,
+                  (contact_id, platform_slug, platform_user_id,
                    username, first_name, last_name)
-               VALUES ($1, $2, 'vk', $3, $4, $5, $6)
-               ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
-            client_id, contact_id, str(vk_id),
+               VALUES ($1, 'vk', $2, $3, $4, $5)
+               ON CONFLICT (contact_id, platform_slug) DO NOTHING""",
+            contact_id, str(vk_id),
             username, first_name, last_name
         )
 
@@ -1495,11 +1495,11 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
             )
         await db.execute(
             """INSERT INTO platform_users
-                  (client_id, contact_id, platform_slug, platform_user_id,
+                  (contact_id, platform_slug, platform_user_id,
                    username, first_name, last_name)
-               VALUES ($1, $2, 'max', $3, $4, $5, $6)
-               ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
-            client_id, contact_id, str(max_user_id),
+               VALUES ($1, 'max', $2, $3, $4, $5)
+               ON CONFLICT (contact_id, platform_slug) DO NOTHING""",
+            contact_id, str(max_user_id),
             username, first_name, last_name
         )
 

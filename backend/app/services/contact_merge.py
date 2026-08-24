@@ -287,10 +287,10 @@ async def sync_email_identity_and_subscription(
         try:
             pu_id = await db.fetchval(
                 """INSERT INTO platform_users
-                       (contact_id, client_id, platform_slug, platform_user_id, first_name)
-                    VALUES ($1, $2, 'email', $3, $4)
+                       (contact_id, platform_slug, platform_user_id, first_name)
+                    VALUES ($1, 'email', $2, $3)
                  RETURNING id""",
-                contact_id, client_id, email_norm, first_name,
+                contact_id, email_norm, first_name,
             )
         except Exception:
             # Конфликт UNIQUE (client_id, platform_slug, platform_user_id) —
@@ -380,11 +380,11 @@ async def upsert_platform_user(
         return existing['id']
 
     pu_id = await db.fetchval(
-        """INSERT INTO platform_users (contact_id, client_id, platform_slug, platform_user_id,
+        """INSERT INTO platform_users (contact_id, platform_slug, platform_user_id,
                                         username, first_name, last_name, platform_meta)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id""",
-        contact_id, client_id, platform_slug, str(platform_user_id),
+        contact_id, platform_slug, str(platform_user_id),
         username, first_name, last_name, platform_meta
     )
     return pu_id

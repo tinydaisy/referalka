@@ -249,9 +249,9 @@ async def register_telegram_subscription(
             )
             pu_id = await db.fetchval(
                 """INSERT INTO platform_users
-                   (client_id, contact_id, platform_slug, platform_user_id, username, first_name, last_name)
-                   VALUES ($1, $2, 'telegram', $3, $4, $5, $6) RETURNING id""",
-                client_id, contact_id, tg_id, username or "", first_name or "", last_name or ""
+                   (contact_id, platform_slug, platform_user_id, username, first_name, last_name)
+                   VALUES ($1, 'telegram', $2, $3, $4, $5) RETURNING id""",
+                contact_id, tg_id, username or "", first_name or "", last_name or ""
             )
 
         # 3. platform_user_channels — UPSERT

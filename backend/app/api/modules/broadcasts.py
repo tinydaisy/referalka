@@ -3266,8 +3266,10 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 _tt, _tb = tg_text, tg_burl
                 if db and client_id and ("?c=__CT__" in (tg_text or "") or "?c=__CT__" in (tg_burl or "")):
                     _ct = await db.fetchval(
-                        "SELECT contact_id FROM platform_users WHERE client_id=$1 "
-                        "AND platform_slug='telegram' AND platform_user_id=$2 AND contact_id IS NOT NULL LIMIT 1",
+                        "SELECT pu.contact_id FROM platform_users pu "
+                        "JOIN contacts c_own ON c_own.id = pu.contact_id "
+                        "WHERE c_own.client_id=$1 "
+                        "AND pu.platform_slug='telegram' AND pu.platform_user_id=$2 LIMIT 1",
                         client_id, chat_id)
                     _rep = f"?c={_ct}" if _ct else ""
                     _tt = (tg_text or "").replace("?c=__CT__", _rep)

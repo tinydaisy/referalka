@@ -512,10 +512,10 @@ async def _upsert_personal_identity(
             return {"status": "foreign_owner", "other_contact_id": existing_other}
         await db.execute(
             """INSERT INTO platform_users
-                 (client_id, contact_id, platform_slug, platform_user_id, username, created_at)
-               VALUES ($1, $2, $3, $4, $5, NOW())
-               ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
-            client_id, contact_id, platform_slug, uid_clean, uname_clean
+                 (contact_id, platform_slug, platform_user_id, username, created_at)
+               VALUES ($1, $2, $3, $4, NOW())
+               ON CONFLICT (contact_id, platform_slug) DO NOTHING""",
+            contact_id, platform_slug, uid_clean, uname_clean
         )
         return {"status": "ok"}
 
@@ -538,10 +538,10 @@ async def _upsert_personal_identity(
         return {"status": "foreign_owner", "other_contact_id": existing_other}
     await db.execute(
         """INSERT INTO platform_users
-             (client_id, contact_id, platform_slug, platform_user_id, username, created_at)
-           VALUES ($1, $2, $3, $4, $5, NOW())
-           ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
-        client_id, contact_id, platform_slug, final_id, uname_clean
+             (contact_id, platform_slug, platform_user_id, username, created_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (contact_id, platform_slug) DO NOTHING""",
+        contact_id, platform_slug, final_id, uname_clean
     )
     # Подписка на главный канал клиента: если резолв удался и юзер подписан →
     # is_unsubscribed=FALSE. Если резолв не удался ИЛИ юзер не подписан →

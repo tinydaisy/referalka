@@ -748,11 +748,11 @@ async def import_csv_to_channel(
                 # ТЕЛЕГРАМНУЮ идентичность с его vk_id — и падал на втором
                 # человеке, чей vk_id уже был занят чужим telegram-id.
                 platform_user_id = await db.fetchval(
-                    """INSERT INTO platform_users (contact_id, client_id, platform_slug,
+                    """INSERT INTO platform_users (contact_id, platform_slug,
                                                     platform_user_id, username)
-                       VALUES ($1, $2, $5, $3, $4)
+                       VALUES ($1, $4, $2, $3)
                        RETURNING id""",
-                    contact_id, client_id, tg_id, csv_username, platform
+                    contact_id, tg_id, csv_username, platform
                 )
 
             # Если в CSV был email — синхронизируем email-идентичность

@@ -178,9 +178,9 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
                         )
                     if email:
                         await db.execute(
-                            """INSERT INTO platform_users (client_id, contact_id, platform_slug, platform_user_id)
-                               VALUES ($1, $2, 'email', $3) ON CONFLICT DO NOTHING""",
-                            cid, found, email,
+                            """INSERT INTO platform_users (contact_id, platform_slug, platform_user_id)
+                               VALUES ($1, 'email', $2) ON CONFLICT DO NOTHING""",
+                            found, email,
                         )
                     continue
 

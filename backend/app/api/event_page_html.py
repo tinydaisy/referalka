@@ -3030,11 +3030,11 @@ async def event_register_submit(slug: str, request: Request,
             if not exists:
                 await db.execute(
                     """INSERT INTO platform_users
-                           (client_id, contact_id, platform_slug,
+                           (contact_id, platform_slug,
                             platform_user_id, username)
-                         VALUES ($1, $2, 'telegram', $3, $4)
+                         VALUES ($1, 'telegram', $2, $3)
                          ON CONFLICT DO NOTHING""",
-                    client_id, target_cid, "@" + uname, uname,
+                    target_cid, "@" + uname, uname,
                 )
         except Exception:
             pass
