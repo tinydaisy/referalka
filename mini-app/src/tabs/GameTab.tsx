@@ -146,17 +146,34 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
   const openGift = (url: string) => {
     const twa = (window as any).Telegram?.WebApp
     const isTg = /(?:t|telegram)\.me\//i.test(url)
-    // ⚠️⚠️ `openTelegramLink` ПОНИМАЕТ ТОЛЬКО ДОМЕН `t.me`. Ссылки у нас
-    // выдаются на `telegram.me` — его Telegram не распознаёт и НИЧЕГО НЕ
-    // ДЕЛАЕТ: кнопка выглядит живой, нажатие впустую. Именно так «не
-    // нажимался» подарок (прод, 25.08). Приводим домен перед открытием.
+    // ⚠️ Домен приводим к `t.me`: `openTelegramLink` понимает только его.
     const tgUrl = url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')
-    if (twa?.openTelegramLink && isTg) { twa.openTelegramLink(tgUrl); return }
-    if (twa?.openLink) { twa.openLink(url); return }
-    // ВКонтакте и MAX: у их адаптеров свой способ открыть внешнюю ссылку.
+
+    // ⚠️⚠️ ПРОБУЕМ ВСЕ СПОСОБЫ ПО ОЧЕРЕДИ, А НЕ ОДИН.
+    // Раньше на ссылку в бота звали ТОЛЬКО `openTelegramLink` и на этом
+    // останавливались (`return`). Если он молчал — а он молчит в части
+    // сборок Telegram, ничего не сообщая и не бросая ошибку, — нажатие
+    // уходило впустую: карточка выглядела живой, подарок не открывался
+    // (прод, 25.08, жалоба «не нажимается ни карточка, ни кнопка»).
+    //
+    // Теперь каждый способ проверяется на деле: не сработал — идём к
+    // следующему. Последний — обычный переход, он работает всегда.
+    const tries: Array<() => void> = []
+    if (isTg && typeof twa?.openTelegramLink === 'function') {
+      tries.push(() => twa.openTelegramLink(tgUrl))
+    }
+    if (typeof twa?.openLink === 'function') {
+      tries.push(() => twa.openLink(tgUrl))
+    }
     const p: any = getPlatform()
-    if (p?.openExternal) { p.openExternal(url); return }
-    window.open(url, '_blank')
+    if (typeof p?.openExternal === 'function') {
+      tries.push(() => p.openExternal(tgUrl))
+    }
+    tries.push(() => { window.location.href = tgUrl })
+
+    for (const run of tries) {
+      try { run(); return } catch (_) { /* следующий способ */ }
+    }
   }
   const refLink =
     shareLinks.telegram
@@ -243,7 +260,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
     const twa = (window as any).Telegram?.WebApp
     const text = `Присоединяйтесь к ${event?.title || 'событию'}: ${refLink}`
     if (twa?.openTelegramLink) {
-      twa.openTelegramLink(`https://telegram.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`)
+      twa.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`)
     } else {
       copy(refLink)
     }

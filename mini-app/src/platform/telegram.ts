@@ -28,18 +28,24 @@ export async function initPlatform(): Promise<PlatformAdapter> {
       }
     },
     openExternal: (url: string) => {
-      // ⚠️⚠️ Ссылки платформа выдаёт на домене `telegram.me`, а
-      // `openTelegramLink` понимает ТОЛЬКО `t.me` — на другом домене он молча
-      // ничего не делает либо ссылка уходит во внешний браузер вместо чата с
-      // ботом. Поэтому сверяем ОБА домена и приводим к `t.me`.
-      if (typeof twa.openTelegramLink === 'function' && /^https?:\/\/(?:t|telegram)\.me\//i.test(url)) {
-        const tgUrl = url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')
-        try { twa.openTelegramLink(tgUrl); return } catch {}
+      // ⚠️⚠️ Ссылку на бота приводим к домену `t.me`: `openTelegramLink`
+      // понимает только его, а платформа исторически выдавала `telegram.me`.
+      //
+      // ⚠️ Способы перебираем ПО ОЧЕРЕДИ. `openTelegramLink` в части сборок
+      // Telegram молчит: ничего не открывает и ошибки не бросает — нажатие
+      // уходит впустую. Последний способ — обычный переход, он работает
+      // всегда, поэтому «ничего не произошло» быть не может.
+      const isTg = /^https?:\/\/(?:t|telegram)\.me\//i.test(url)
+      const tgUrl = url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')
+      const tries: Array<() => void> = []
+      if (isTg && typeof twa.openTelegramLink === 'function') {
+        tries.push(() => twa.openTelegramLink(tgUrl))
       }
-      if (typeof twa.openLink === 'function') {
-        try { twa.openLink(url); return } catch {}
+      if (typeof twa.openLink === 'function') tries.push(() => twa.openLink(tgUrl))
+      tries.push(() => { window.location.href = tgUrl })
+      for (const run of tries) {
+        try { run(); return } catch {}
       }
-      window.open(url, '_blank', 'noopener,noreferrer')
     },
     redirectTo: (url: string) => {
       // В TG webview window.location.replace работает корректно — webview сам

@@ -28,13 +28,18 @@ const DARK = '#25455D'
 
 function openExternal(url: string) {
   const tg = (window as any).Telegram?.WebApp
-  // ⚠️ `openTelegramLink` понимает только домен `t.me`; наши ссылки —
-  // на `telegram.me`. Без приведения человек уезжал во внешний браузер.
-  if (tg?.openTelegramLink && /^https?:\/\/(?:t|telegram)\.me\//i.test(url)) {
-    tg.openTelegramLink(url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')); return
+  // ⚠️ Домен приводим к `t.me` (его понимает openTelegramLink) и перебираем
+  // способы по очереди: openTelegramLink в части сборок Telegram молчит, и
+  // нажатие уходит впустую. Последний способ — обычный переход, работает всегда.
+  const isTg = /^https?:\/\/(?:t|telegram)\.me\//i.test(url)
+  const tgUrl = url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')
+  const tries: Array<() => void> = []
+  if (isTg && tg?.openTelegramLink) tries.push(() => tg.openTelegramLink(tgUrl))
+  if (tg?.openLink) tries.push(() => tg.openLink(tgUrl))
+  tries.push(() => { window.location.href = tgUrl })
+  for (const run of tries) {
+    try { run(); return } catch {}
   }
-  if (tg?.openLink) { tg.openLink(url); return }
-  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 export default function ContactCardModal({ eventSlug, participantId, viewerTgId, onClose }: Props) {
