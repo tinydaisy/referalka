@@ -35,6 +35,8 @@ interface Tariff {
   bonus_tariff_slug?: string | null
   bonus_line_auto?: boolean | null
   bonus_feature_name?: string | null
+  // Сколько номинаций премии открывает тариф (миграция 328).
+  nominations_grant?: number | null
   buyers_count: number
   unpaid_count: number
 }
@@ -68,6 +70,8 @@ const emptyForm = {
   bonus_line_auto: true,
   // Скидка: пустой размер = скидки нет.
   discount_kind: 'percent' as 'percent' | 'amount', discount_value: '',
+  // Сколько номинаций премии открывает тариф (миграция 328). Пусто = нисколько.
+  nominations_grant: '',
 }
 
 /** Цена до скидки — только для подсказки в форме. Боевое значение считает
@@ -199,6 +203,7 @@ export default function TariffsTab({
       bonus_line_auto: t.bonus_line_auto !== false,
       discount_kind: (t.discount_kind || 'percent') as 'percent' | 'amount',
       discount_value: t.discount_value != null ? String(t.discount_value) : '',
+      nominations_grant: t.nominations_grant != null ? String(t.nominations_grant) : '',
     })
     setShowForm(true)
   }
@@ -231,6 +236,10 @@ export default function TariffsTab({
       bonus_trial: form.bonus_trial,
       bonus_tariff_slug: form.bonus_tariff_slug || 'trial',
       bonus_line_auto: form.bonus_line_auto,
+      // Номинации премии (миграция 328). Пусто = тариф их не даёт; шлём
+      // null, а не '', чтобы поле реально очищалось.
+      nominations_grant: form.nominations_grant.trim()
+        ? parseInt(form.nominations_grant.trim(), 10) : null,
     }
     setSaving(true)
     try {
@@ -563,6 +572,19 @@ export default function TariffsTab({
                      hint="Оплаты придётся отмечать вручную. Подключите платёжную систему в Настройках, чтобы это происходило само">
                 <input value={form.pay_url} onChange={e => setForm({ ...form, pay_url: e.target.value })}
                        className="input-tar" placeholder="https://..." />
+              </Field>
+            )}
+            {/* Номинации премии (миграция 328). Только у турнира/премии — у
+                конференции и мероприятия номинаций нет вовсе.
+                ⚠️ Премия и чемпионат — один module_slug='turnir', различает их
+                только слово события; поэтому поле показываем обоим: не
+                заполнил — ничего не происходит. */}
+            {event?.module_slug === 'turnir' && (
+              <Field label="Открывает номинаций"
+                     hint="Столько номинаций покупатель сможет отметить себе сам в кабинете. Пусто — тариф номинаций не даёт">
+                <input value={form.nominations_grant}
+                       onChange={e => setForm({ ...form, nominations_grant: e.target.value.replace(/[^0-9]/g, '') })}
+                       className="input-tar" placeholder="например 3" inputMode="numeric" />
               </Field>
             )}
             {/* ⚠️ Блок виден ВСЕМ: дарить доступ в ПЛЮСОН может любой клиент —

@@ -331,6 +331,13 @@ class ConferenceUpdate(BaseModel):
     chat_greeting_exact: Optional[bool] = None    # точное / любое вхождение
     # Этапы по умолчанию для новых спикеров турнира (миграция 184)
     default_speaker_stage_ids: Optional[List[int]] = None
+    # Самовыбор номинаций в кабинете + потолок на человека (миграция 328).
+    # Две отдельные галочки: номинант покупает участие, жюри приглашают —
+    # правила у них разные. Потолок NULL = без ограничений.
+    self_pick_stages_speakers: Optional[bool] = None
+    self_pick_stages_jury: Optional[bool] = None
+    max_nominations_speakers: Optional[int] = None
+    max_nominations_jury: Optional[int] = None
 
 
 @router.get("/", summary="Данные конференции")
@@ -526,6 +533,18 @@ async def update_conference(
         if "end_gift_package_id" in event_updates and not event_updates["end_gift_package_id"]:
             event_updates["end_gift_package_id"] = None
 
+    # Потолок номинаций на человека (миграция 328). Пусто/0/мусор = без
+    # ограничений: клиент стирает поле именно чтобы снять лимит, и падать
+    # на этом нельзя. Верхний край («не больше, чем есть номинаций»)
+    # проверяется при выборе, а не здесь: номинации добавляют и после.
+    for f in ("max_nominations_speakers", "max_nominations_jury"):
+        if f in raw:
+            try:
+                v = int(raw[f]) if raw[f] not in (None, "") else None
+            except (TypeError, ValueError):
+                v = None
+            raw[f] = v if (v is not None and v > 0) else None
+
     if raw:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(raw.keys())]
         await db.execute(
@@ -707,6 +726,12 @@ class SpeakerEventUpdate(BaseModel):
     # При снятии этапа с уже проставленными оценками нужно подтверждение —
     # force=True разрешает удалить оценки+назначения снятых этапов.
     force_remove_stage_data: Optional[bool] = None
+    # Сколько номинаций доступно человеку в ЭТОМ событии (миграция 328).
+    # Заполняется при оплате тарифа и подтягивается за отметками организатора;
+    # правится и руками — например, по бартеру. NULL = без ограничений.
+    # ⚠️ Присылать вместе со stage_ids нельзя: синхронизация с отметками
+    # затрёт ручное число. Фронт шлёт что-то одно.
+    nominations_limit: Optional[int] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     # Подарок-лид-магнит из ПЛЮСОН (для подсчёта баллов в турнире). Взаимоисключимы
@@ -989,13 +1014,32 @@ async def _save_single_gift_to_list(db, ec_id: int, title, url) -> None:
 
 
 async def apply_default_speaker_stages(ec_id: int, event_id: int, db) -> None:
-    """Привязывает нового спикера к этапам «по умолчанию» (conf_conferences.
-    default_speaker_stage_ids). Используется при саморегистрации и добавлении из
-    дашборда. Только этапы этого события. Безопасно при пустом списке."""
+    """Стартовые настройки нового спикера: этапы «по умолчанию» + купленные
+    номинации.
+
+    Этапы берутся из conf_conferences.default_speaker_stage_ids, только этого
+    события; при пустом списке шаг пропускается.
+
+    Заодно дочитывается лимит номинаций из уже оплаченных тарифов (миграция
+    328) — оплата и карточка появляются в любом порядке.
+
+    Зовётся из всех трёх точек создания карточки: саморегистрация по ссылке,
+    «Новый спикер» и добавление из базы."""
     stage_ids = await db.fetchval(
         "SELECT default_speaker_stage_ids FROM conf_conferences WHERE event_id = $1",
         event_id,
     )
+    # Номинации из уже оплаченного тарифа (миграция 328). Здесь, а не только
+    # в вебхуке оплаты: человек чаще платит РАНЬШЕ, чем заводит карточку, и
+    # без этого купленные номинации молча пропадали бы.
+    # ⚠️ Зовём до раннего выхода по пустому списку этапов — эти две вещи
+    # независимы: этапы по умолчанию могут быть не настроены, а оплата есть.
+    try:
+        from app.services.nominations_grant import pull_paid_nominations
+        await pull_paid_nominations(db, ec_id, event_id)
+    except Exception:
+        pass
+
     if not stage_ids:
         return
     await db.execute(
@@ -1097,6 +1141,7 @@ async def list_event_speakers(
                   cse.announcement_poster_ids,
                   (SELECT COALESCE(array_agg(ecs.stage_id), ARRAY[]::int[])
                      FROM event_collaborator_stages ecs WHERE ecs.ec_id = cse.id) AS stage_ids,
+                  cse.nominations_limit,
                   CASE WHEN cse.use_photo_instead_of_poster THEN NULL
                        ELSE cp_cse.url END AS cse_poster_url,
                   cse.use_photo_instead_of_poster,
@@ -1645,13 +1690,26 @@ async def update_speaker_event(
                 " WHERE ec_id=$1 AND manual_title IS NOT NULL", speaker_event_id)
     raw.pop("gift_after_speech_title", None)
     raw.pop("gift_after_speech_url", None)
+    # ⚠️ Лимит номинаций тоже различает «не прислали» и «прислали null»:
+    # пустое поле = «без ограничений», и снять уже стоящее число иначе нельзя.
+    NULLABLE = GIFT_NULLABLE | {"nominations_limit"}
     updates = {}
     for k, v in raw.items():
-        if k in GIFT_NULLABLE:
+        if k in NULLABLE:
             if k in fs:
                 updates[k] = v  # применяем даже None (очистка)
         elif v is not None:
             updates[k] = v
+
+    # Лимит: 0 и мусор = без ограничений. Верхнюю границу («не больше, чем
+    # есть номинаций») тут не режем — номинации добавляют и после, и
+    # обрезанное задним числом число выглядело бы как потеря настройки.
+    if "nominations_limit" in updates and updates["nominations_limit"] is not None:
+        try:
+            _lim = int(updates["nominations_limit"])
+        except (TypeError, ValueError):
+            _lim = 0
+        updates["nominations_limit"] = _lim if _lim > 0 else None
 
     # Выбрали ПЛЮСОН-магнит/пакет → снимаем ручной подарок; 0 = снять ПЛЮСОН-привязки.
     # ⚠️ Колонок gift_after_speech_* больше НЕТ — в UPDATE их не кладём.
@@ -1742,6 +1800,16 @@ async def update_speaker_event(
                    ON CONFLICT DO NOTHING""",
                 speaker_event_id, [int(x) for x in stage_ids], event_id,
             )
+        # Лимит номинаций следует за отметками организатора (миграция 328):
+        # отметил пятерым — значит доступно пять, вписывать число отдельно
+        # не надо; снял одну — стало четыре. Только ручная правка карточки:
+        # самовыбор в кабинете лимит не двигает, иначе человек поднимал бы
+        # себе потолок сам, просто отмечая номинации.
+        # ⚠️ Явно присланное число главнее: иначе организатор, вписавший «3»
+        # в том же сохранении, получил бы вместо него количество отметок.
+        if "nominations_limit" not in fs:
+            from app.services.nominations_limit import sync_limit_with_marked
+            await sync_limit_with_marked(db, speaker_event_id)
     row = await db.fetchrow(
         """SELECT cse.*, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
                   sp.photo_url,

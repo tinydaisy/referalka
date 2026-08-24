@@ -85,6 +85,10 @@ class TariffIn(BaseModel):
     bonus_tariff_slug: Optional[str] = None
     # Показывать строку «Бонус:» на лендинге автоматически (мигр. 311).
     bonus_line_auto: Optional[bool] = None
+    # Сколько номинаций премии даёт тариф (миграция 328). При оплате число
+    # уходит в карточку номинанта, и он отмечает номинации сам в кабинете.
+    # NULL = тариф номинаций не открывает.
+    nominations_grant: Optional[int] = None
 
 
 class TariffPatch(BaseModel):
@@ -110,11 +114,28 @@ class TariffPatch(BaseModel):
     bonus_tariff_slug: Optional[str] = None
     # Показывать строку «Бонус:» на лендинге автоматически (мигр. 311).
     bonus_line_auto: Optional[bool] = None
+    # Сколько номинаций премии даёт тариф (миграция 328).
+    nominations_grant: Optional[int] = None
 
 
 class TariffsReorder(BaseModel):
     """Порядок тарифов — как клиент расставил в кабинете, так и на лендинге."""
     ids: List[int]
+
+
+def _norm_nominations_grant(value) -> Optional[int]:
+    """Сколько номинаций даёт тариф. Пусто, 0 и мусор = не даёт (миграция 328).
+
+    Верхнюю границу («не больше, чем номинаций у события») здесь не проверяем:
+    номинации заводят и после тарифов, а обрезанное задним числом число
+    выглядело бы как потеря настройки. Она действует при выборе — там
+    итоговый лимит и так упирается в количество номинаций.
+    """
+    try:
+        v = int(value) if value not in (None, "") else 0
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
 
 
 def _norm_discount(kind: Optional[str], value: Optional[int]) -> tuple:
@@ -243,6 +264,7 @@ async def list_tariffs(
                   t.pay_url, t.pay_product_id, t.order_hint,
                   t.sort_order, t.is_active, t.is_featured,
                   t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, t.bonus_trial, t.bonus_tariff_slug, t.bonus_line_auto,
+                  t.nominations_grant,
                   (SELECT name FROM features f WHERE f.id = t.bonus_feature_id) AS bonus_feature_name,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
@@ -348,19 +370,21 @@ async def create_tariff(
                                      pay_url, pay_product_id, order_hint,
                                      sort_order, is_active, is_featured,
                                      bonus_feature_id, bonus_days,
-                                     bonus_trial, bonus_tariff_slug, bonus_line_auto)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                                     bonus_trial, bonus_tariff_slug, bonus_line_auto,
+                                     nominations_grant)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
            RETURNING id, code, title, description, excluded_description, price,
                      discount_kind, discount_value, pay_url,
                      pay_product_id, order_hint, sort_order, is_active, is_featured,
                      bonus_feature_id, bonus_days, bonus_trial, bonus_tariff_slug,
-                     bonus_line_auto""",
+                     bonus_line_auto, nominations_grant""",
         event_id, code, data.title.strip(), data.description, data.excluded_description,
         data.price, d_kind, d_value,
         data.pay_url, data.pay_product_id, data.order_hint, sort_order,
         data.is_active, data.is_featured, b_feature, b_days,
         b_trial, b_tariff,
         True if data.bonus_line_auto is None else bool(data.bonus_line_auto),
+        _norm_nominations_grant(data.nominations_grant),
     )
     return with_discount(row)
 
@@ -459,6 +483,11 @@ async def update_tariff(
         fields["bonus_trial"], fields["bonus_tariff_slug"] = await _norm_bonus_trial(
             db, client_id, tr, sl, ft)
 
+    # Номинации от тарифа (миграция 328). Пусто = тариф их не даёт: клиент
+    # стирает поле именно чтобы отключить, и падать на этом нельзя.
+    if "nominations_grant" in fields:
+        fields["nominations_grant"] = _norm_nominations_grant(fields["nominations_grant"])
+
     if not fields:
         return {"ok": True}
 
@@ -469,7 +498,7 @@ async def update_tariff(
          RETURNING id, code, title, description, excluded_description, price,
                    discount_kind, discount_value, pay_url,
                    pay_product_id, order_hint, sort_order, is_active, is_featured,
-                   bonus_feature_id, bonus_days""",
+                   bonus_feature_id, bonus_days, nominations_grant""",
         tariff_id, event_id, *fields.values(),
     )
     return with_discount(row)

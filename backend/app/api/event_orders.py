@@ -770,6 +770,18 @@ async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) 
     except Exception as e:
         logger.warning("Бонус ПЛЮСОНа по заказу %s не выдан: %s", order_id, e)
 
+    # Номинации по тарифу (миграция 328): тариф премии может открывать
+    # покупателю N номинаций, которые он потом отмечает сам в кабинете.
+    # ⚠️ Карточки номинанта может ещё не быть — это норма, человек чаще
+    # платит раньше, чем регистрируется. Тогда число не теряется: оно
+    # дочитается из оплаты при создании карточки (pull_paid_nominations).
+    # Своих исключений не бросаем по той же причине, что и у бонуса выше.
+    try:
+        from app.services.nominations_grant import apply_paid_nominations
+        await apply_paid_nominations(db, order_id)
+    except Exception as e:
+        logger.warning("Номинации по заказу %s не выданы: %s", order_id, e)
+
     logger.info("Заказ %s оплачен (%s)", order_id, provider)
     return {"ok": True, "paid": True}
 

@@ -300,6 +300,9 @@ export default function ConferenceSpeakerPage() {
   // Этапы турнира + в каких участвует этот спикер/жюри (event_collaborator_stages)
   const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
   const [stageIds, setStageIds] = useState<number[]>([])
+  // Лимит номинаций правили руками? Только тогда шлём его на сервер — иначе
+  // затрём автоподстановку по отметкам этапов (миграция 328).
+  const [nominationsLimitTouched, setNominationsLimitTouched] = useState(false)
 
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -393,6 +396,9 @@ export default function ConferenceSpeakerPage() {
           show_knowledge_base_field: !!sp.show_knowledge_base_field,
           show_notes_field: !!sp.show_notes_field,
           show_partner_registration_link: sp.show_partner_registration_link !== false,
+          // Сколько номинаций доступно человеку (миграция 328). null = без
+          // ограничений, поэтому ?? , а не ||: ноль и пустое тут разные вещи.
+          nominations_limit: sp.nominations_limit ?? null,
           notes: sp.notes || '',
           is_commercial: sp.is_commercial || false,
           bot_in_channel: sp.bot_in_channel || false,
@@ -644,6 +650,13 @@ export default function ConferenceSpeakerPage() {
         is_visible: eventForm.is_visible,
         poster_id: eventForm.poster_id,
         announcement_poster_ids: eventForm.announcement_poster_ids,
+        // ⚠️ nominations_limit шлём ТОЛЬКО когда его правили руками. Иначе
+        // он затрёт автоподстановку: сервер сам подтягивает лимит к числу
+        // отметок выше, а присланное число главнее — и «сохранить карточку»
+        // каждый раз фиксировало бы старое значение.
+        ...(nominationsLimitTouched
+          ? { nominations_limit: (eventForm as any).nominations_limit ?? null }
+          : {}),
         // use_photo_instead_of_poster НЕ шлём тут: тумблер живёт в форме
         // профиля и сохраняется сразу по клику (см. блок «Индивидуальные афиши»).
       }
@@ -898,6 +911,32 @@ export default function ConferenceSpeakerPage() {
                   </label>
                 )
               })}
+            </div>
+
+            {/* Сколько номинаций доступно человеку в ЭТОМ событии (мигр. 328).
+                Заполняется при оплате тарифа и подтягивается за отметками
+                выше; правится и руками — например, по бартеру. */}
+            <div className="pt-3 border-t border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-700">Доступно номинаций:</span>
+                {/* ⚠️ minWidth: 0 — иначе поле во flex-строке схлопывается. */}
+                <input type="number" min={1} inputMode="numeric"
+                  value={(eventForm as any).nominations_limit ?? ''}
+                  onChange={e => {
+                    setNominationsLimitTouched(true)
+                    setEventForm(f => ({
+                      ...f, nominations_limit: e.target.value === '' ? null : Number(e.target.value),
+                    } as any))
+                  }}
+                  placeholder="без ограничений"
+                  style={{ flex: '0 0 10rem', minWidth: 0 }}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Сколько номинаций человек может отметить себе сам в кабинете.
+                Заполняется автоматически при оплате тарифа и по отметкам выше.
+                Пусто — без ограничений.
+              </p>
             </div>
           </div>
         )}

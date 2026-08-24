@@ -405,6 +405,27 @@ async def get_me(
     from app.services.module_access import module_write_allowed_by_event
     d["can_edit"] = await module_write_allowed_by_event(db, event_id=int(session["e_id"]))
 
+    # Номинации, которые человек выбирает себе сам (миграция 328). Отдаём
+    # всегда, когда организатор это разрешил для его роли: список номинаций
+    # события, уже отмеченные и сколько всего можно.
+    # ⚠️ Лимит считает СЕРВЕР (nominations_limit.effective_limit) — правило
+    # «минимум из личного числа, потолка роли и общего числа номинаций»
+    # повторять на фронте нельзя, разъедется.
+    from app.services.nominations_limit import effective_limit, self_pick_allowed
+    _ev_id = int(session["e_id"])
+    d["self_pick_stages"] = await self_pick_allowed(db, _ev_id, row["role"])
+    if d["self_pick_stages"]:
+        d["stages"] = [dict(s) for s in await db.fetch(
+            """SELECT s.id, s.title, s.subtitle,
+                      (SELECT c.title FROM conf_stage_categories c
+                        WHERE c.id = s.category_id) AS category_title
+                 FROM conf_stages s WHERE s.event_id = $1
+                ORDER BY s.sort_order, s.id""", _ev_id)]
+        d["my_stage_ids"] = [r2["stage_id"] for r2 in await db.fetch(
+            "SELECT stage_id FROM event_collaborator_stages WHERE ec_id = $1", se_id)]
+        d["stages_limit"] = await effective_limit(
+            db, event_id=_ev_id, ec_id=se_id, role=row["role"])
+
     # ⚠️ Ссылки «посмотреть, как я выгляжу» — прямо в шапке профиля, а не
     # только во вкладке «Материалы»: спикер заполняет карточку вслепую и не
     # понимает, что из неё увидит зритель. Считаем ТЕ ЖЕ функции, что в
@@ -1984,3 +2005,93 @@ async def release_slot(
     except Exception:
         pass
     return {"ok": True}
+
+
+class MyStagesIn(BaseModel):
+    stage_ids: List[int] = []
+
+
+@router.post("/me/stages", summary="Сохранить свои номинации (самовыбор в кабинете)")
+async def save_my_stages(
+    data: MyStagesIn,
+    session: dict = Depends(_auth_session_write),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Человек сам отмечает номинации, в которых участвует (миграция 328).
+
+    ⚠️ Всё проверяет СЕРВЕР: разрешение по роли, лимит и принадлежность
+    номинаций этому событию. Фронтовой проверки недостаточно — ограничение
+    обходится обычным запросом мимо интерфейса.
+
+    ⚠️ Отметки СВЕРХ лимита, проставленные организатором, не режем: он
+    отмечал осознанно, и отбирать его настройку задним числом нельзя.
+    Поэтому лимит сверяется с тем, сколько человек ДОБАВЛЯЕТ сам.
+    """
+    from app.services.nominations_limit import effective_limit, self_pick_allowed
+
+    se_id = int(session["se_id"])
+    e_id = int(session["e_id"])
+
+    role = await db.fetchval("SELECT role FROM event_collaborators WHERE id = $1", se_id)
+    if not await self_pick_allowed(db, e_id, role):
+        raise HTTPException(
+            status_code=403,
+            detail="Организатор не открыл самостоятельный выбор номинаций",
+        )
+
+    async with db.transaction():
+        # Только номинации ЭТОГО события: по чужому id иначе можно было бы
+        # записаться в номинацию посторонней премии.
+        wanted = [int(x) for x in (data.stage_ids or [])]
+        valid = {r["id"] for r in await db.fetch(
+            "SELECT id FROM conf_stages WHERE event_id = $1 AND id = ANY($2::int[])",
+            e_id, wanted)} if wanted else set()
+
+        old = {r["stage_id"] for r in await db.fetch(
+            "SELECT stage_id FROM event_collaborator_stages WHERE ec_id = $1", se_id)}
+
+        limit = await effective_limit(db, event_id=e_id, ec_id=se_id, role=role)
+        if limit is not None and len(valid) > limit and len(valid) > len(old):
+            raise HTTPException(status_code=400, detail={
+                "code": "nominations_limit",
+                "message": f"Вам доступно номинаций: {limit}. Снимите лишние и попробуйте снова.",
+                "limit": limit,
+            })
+
+        # ⚠️ Снятые номинации с уже выставленными оценками не трогаем: они
+        # принадлежат турнирной таблице, и человек не должен стирать чужую
+        # работу жюри, просто сняв галочку.
+        removed = old - valid
+        locked: set[int] = set()
+        if removed:
+            locked = {r["stage_id"] for r in await db.fetch(
+                """SELECT DISTINCT COALESCE(tp.stage_id, -1) AS stage_id
+                     FROM tournament_scores ts
+                     JOIN tournament_criteria tc ON tc.id = ts.criterion_id
+                     JOIN tournament_packages tp ON tp.id = tc.package_id
+                    WHERE ts.event_id = $1
+                      AND COALESCE(tp.stage_id, -1) = ANY($2::int[])
+                      AND ((ts.subject_kind = 'ec' AND ts.subject_id = $3)
+                           OR ts.juror_ec_id = $3)""",
+                e_id, list(removed), se_id)}
+
+        # Итог = что человек выбрал + заблокированные оценками (они уже были
+        # у него, поэтому это не обход лимита, а запрет на потерю данных).
+        final = valid | locked
+        await db.execute(
+            "DELETE FROM event_collaborator_stages WHERE ec_id = $1 AND NOT (stage_id = ANY($2::int[]))",
+            se_id, list(final) or [-1])
+        if final:
+            await db.execute(
+                """INSERT INTO event_collaborator_stages (ec_id, stage_id)
+                   SELECT $1, s.id FROM conf_stages s
+                    WHERE s.id = ANY($2::int[]) AND s.event_id = $3
+                   ON CONFLICT DO NOTHING""",
+                se_id, list(final), e_id)
+
+    return {
+        "ok": True,
+        "stage_ids": sorted(final),
+        "kept_locked": sorted(locked),
+        "limit": limit,
+    }

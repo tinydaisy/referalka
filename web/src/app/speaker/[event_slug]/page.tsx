@@ -94,6 +94,12 @@ type SpeakerMe = {
   last_name?: string | null
   // Как называть участника — словарь события (миграция 304).
   person_wording?: string | null
+  // Самовыбор номинаций (миграция 328). Приходит, только когда организатор
+  // открыл его для этой роли. stages_limit = null → без ограничений.
+  self_pick_stages?: boolean
+  stages?: Array<{ id: number; title: string; subtitle?: string | null; category_title?: string | null }>
+  my_stage_ids?: number[]
+  stages_limit?: number | null
   speaker_event_id: number
   collaborator_id: number
   event_id: number
@@ -1047,6 +1053,13 @@ export default function SpeakerCabinetPage() {
             своей карточки в каталоге, ни сообщения, которое уйдёт аудитории,
             и не понимает, что незаполненное поле просто исчезнет из них. */}
         {token && <ProfilePreviewBar me={me} token={token} />}
+        {/* Номинации — выше профиля: человек заходит в кабинет прежде всего
+            затем, чтобы отметить, где участвует. Блок появляется, только
+            когда организатор открыл самовыбор для его роли (миграция 328). */}
+        {token && me.self_pick_stages && (
+          <MyNominations me={me} token={token}
+            onSaved={(ids) => setMe(prev => prev ? { ...prev, my_stage_ids: ids } : prev)} />
+        )}
         <Section title="Профиль">
           {/* Имя и фамилия — РАЗНЫЕ поля (миграция 302): по фамилии идёт
               сортировка списков, из одной строки её не вытащить. */}
@@ -1794,6 +1807,136 @@ function SpeakerPicker({ list, chosenId, setChosenId, onUsernameAutofill }: {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * «Мои номинации» — человек сам отмечает, где участвует (миграция 328).
+ *
+ * ⚠️ Зачем. У премии номинаций бывает полсотни, а участие покупают штучно:
+ * кто-то берёт одну, кто-то три. Отмечать это за каждого руками — работа на
+ * день, которая всё равно отстаёт от оплат.
+ *
+ * ⚠️ Лимит СЧИТАЕТ СЕРВЕР и присылает готовым (stages_limit). Повторять здесь
+ * правило «минимум из личного числа, потолка роли и количества номинаций»
+ * нельзя — разъедется, и человек увидит одно, а сохранит другое.
+ *
+ * ⚠️ Строка «Вам доступно N» показывается ТОЛЬКО при заполненном лимите:
+ * пусто = без ограничений, и писать про них нечего.
+ */
+function MyNominations({ me, token, onSaved }: { me: any; token: string; onSaved: (ids: number[]) => void }) {
+  const all: any[] = me.stages || []
+  const limit: number | null = me.stages_limit ?? null
+  const [picked, setPicked] = useState<number[]>(me.my_stage_ids || [])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  if (!all.length) return null
+
+  const initial = me.my_stage_ids || []
+  // Отметки сверх лимита мог проставить организатор — их не отбираем, поэтому
+  // «добавить ещё» запрещаем только когда человек сам поднимается выше.
+  const cap = limit == null ? Infinity : Math.max(limit, initial.length)
+  const full = picked.length >= cap
+  const dirty = picked.length !== initial.length || picked.some(id => !initial.includes(id))
+
+  async function save() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/stages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ stage_ids: picked }),
+      })
+      const d = await readJson(r)
+      if (!r.ok) throw new Error(d?.detail?.message || d?.detail || 'Не удалось сохранить')
+      const saved: number[] = d.stage_ids || []
+      setPicked(saved)
+      onSaved(saved)
+      // Номинацию с уже выставленными оценками снять нельзя — она принадлежит
+      // работе жюри. Молчать об этом нельзя: галочка «не снялась» без
+      // объяснения выглядит как поломка.
+      const kept: number[] = d.kept_locked || []
+      setMsg({
+        ok: true,
+        text: kept.length
+          ? `Сохранено. Номинации с уже выставленными оценками остались — их снимает организатор.`
+          : 'Сохранено',
+      })
+      setTimeout(() => setMsg(null), 4000)
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.message || 'Не удалось сохранить' })
+    } finally { setBusy(false) }
+  }
+
+  // Группируем по категориям — у премии их заводят как раз чтобы полсотни
+  // номинаций читались, а не были сплошным списком.
+  const groups: Array<{ title: string | null; items: any[] }> = []
+  for (const s of all) {
+    const t = s.category_title || null
+    const g = groups.find(x => x.title === t)
+    if (g) g.items.push(s); else groups.push({ title: t, items: [s] })
+  }
+
+  return (
+    <Section title="Мои номинации">
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10, lineHeight: 1.5 }}>
+        Отметьте номинации, в которых участвуете.
+        {limit != null && (
+          <> Вам доступно: <b style={{ color: DARK }}>{limit}</b>.</>
+        )}
+      </div>
+
+      {limit != null && (
+        <div style={{ fontSize: 13, color: full ? '#b45309' : DARK, marginBottom: 8, fontWeight: 600 }}>
+          Выбрано {picked.length} из {limit}
+          {full && <span style={{ fontWeight: 400 }}> — чтобы отметить другую, снимите одну из выбранных</span>}
+        </div>
+      )}
+
+      {groups.map((g, gi) => (
+        <div key={gi} style={{ marginBottom: 12 }}>
+          {g.title && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 }}>
+              {g.title}
+            </div>
+          )}
+          {g.items.map(s => {
+            const on = picked.includes(s.id)
+            const blocked = !on && full
+            return (
+              <label key={s.id} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 0',
+                cursor: blocked ? 'not-allowed' : 'pointer', opacity: blocked ? 0.45 : 1,
+              }}>
+                <input type="checkbox" checked={on} disabled={blocked}
+                  onChange={e => setPicked(p => e.target.checked ? [...p, s.id] : p.filter(x => x !== s.id))}
+                  style={{ width: 17, height: 17, marginTop: 2, flexShrink: 0 }} />
+                <span style={{ fontSize: 14, color: DARK, lineHeight: 1.4 }}>
+                  {s.title}
+                  {s.subtitle && <span style={{ display: 'block', fontSize: 12, color: '#9ab' }}>{s.subtitle}</span>}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      ))}
+
+      {/* Кабинет спикера красится темой клиента inline-стилями — классов
+          .btn-gold из кабинета тут нет, кнопка собирается как соседние. */}
+      <button onClick={save} disabled={busy || !dirty}
+        style={{
+          marginTop: 6, padding: '10px 18px', borderRadius: 10, border: 'none',
+          background: (busy || !dirty) ? '#cfd9e0' : PEACH, color: DARK,
+          fontWeight: 700, fontSize: 14,
+          cursor: (busy || !dirty) ? 'default' : 'pointer',
+        }}>
+        {busy ? 'Сохраняю…' : 'Сохранить номинации'}
+      </button>
+      {msg && (
+        <div style={{ marginTop: 8, fontSize: 13, color: msg.ok ? '#15803d' : '#b91c1c' }}>{msg.text}</div>
+      )}
+    </Section>
   )
 }
 

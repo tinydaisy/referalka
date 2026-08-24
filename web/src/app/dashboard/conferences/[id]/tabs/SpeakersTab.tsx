@@ -164,6 +164,13 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   const [defaultStageIds, setDefaultStageIds] = useState<number[]>([])
   const [savingDefaultStages, setSavingDefaultStages] = useState(false)
   const [defaultStagesSaved, setDefaultStagesSaved] = useState(false)
+  // Самовыбор номинаций в кабинете + потолок на человека (миграция 328).
+  // Две отдельные настройки: номинант покупает участие, жюри приглашают.
+  const [selfPick, setSelfPick] = useState({
+    speakers: false, jury: false, maxSpeakers: '', maxJury: '',
+  })
+  const [savingSelfPick, setSavingSelfPick] = useState(false)
+  const [selfPickSaved, setSelfPickSaved] = useState(false)
 
   function load() {
     setLoading(true)
@@ -199,9 +206,37 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
       .then((r: any) => setStages((r.stages || []).map((s: any) => ({ id: s.id, title: s.title }))))
       .catch(() => setStages([]))
     api.conference.get(eventId)
-      .then((r: any) => setDefaultStageIds(r?.conference?.default_speaker_stage_ids || []))
+      .then((r: any) => {
+        const c = r?.conference || {}
+        setDefaultStageIds(c.default_speaker_stage_ids || [])
+        setSelfPick({
+          speakers: !!c.self_pick_stages_speakers,
+          jury: !!c.self_pick_stages_jury,
+          // Пусто = без ограничений, поэтому null показываем пустой строкой,
+          // а не нулём: «0» читалось бы как «нельзя ни одной».
+          maxSpeakers: c.max_nominations_speakers ? String(c.max_nominations_speakers) : '',
+          maxJury: c.max_nominations_jury ? String(c.max_nominations_jury) : '',
+        })
+      })
       .catch(() => setDefaultStageIds([]))
   }, [eventId])
+
+  async function saveSelfPick() {
+    setSavingSelfPick(true); setSelfPickSaved(false)
+    try {
+      // ⚠️ Пустое поле шлём как null — именно так снимается ограничение.
+      // Отправить '' нельзя: до базы доедет не «без ограничений», а мусор.
+      await api.conference.update(eventId, {
+        self_pick_stages_speakers: selfPick.speakers,
+        self_pick_stages_jury: selfPick.jury,
+        max_nominations_speakers: selfPick.maxSpeakers.trim() ? Number(selfPick.maxSpeakers) : null,
+        max_nominations_jury: selfPick.maxJury.trim() ? Number(selfPick.maxJury) : null,
+      })
+      setSelfPickSaved(true); setTimeout(() => setSelfPickSaved(false), 2000)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить')
+    } finally { setSavingSelfPick(false) }
+  }
 
   async function saveDefaultStages() {
     setSavingDefaultStages(true); setDefaultStagesSaved(false)
@@ -489,6 +524,53 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                   <button onClick={saveDefaultStages} disabled={savingDefaultStages}
                     className="mt-3 px-4 py-1.5 rounded-lg text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90 disabled:opacity-60">
                     {savingDefaultStages ? 'Сохраняю…' : defaultStagesSaved ? '✓ Сохранено' : 'Сохранить этапы'}
+                  </button>
+                </div>
+              )}
+
+              {/* Самовыбор номинаций (миграция 328). Нужен премиям: участие
+                  покупают штучно, и отмечать за полсотни человек вручную —
+                  работа на день, которая всё равно отстаёт от оплат. */}
+              {stages.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-sm font-medium text-gray-800 mb-1">Человек сам выбирает номинации в кабинете</div>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Включите — и человек сам отметит, в каких номинациях участвует.
+                    Сколько ему доступно, берётся из его тарифа; можно поставить
+                    и общий потолок. Пустое поле — без ограничений.
+                  </p>
+                  <div className="space-y-3">
+                    {([
+                      { key: 'speakers', max: 'maxSpeakers', who: 'спикеры/номинанты', hint: 'Кто выступает или номинируется' },
+                      { key: 'jury',     max: 'maxJury',     who: 'жюри',              hint: 'Кто оценивает' },
+                    ] as const).map(row => (
+                      <div key={row.key} className="rounded-xl border border-gray-200 bg-white p-3">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                          <input type="checkbox"
+                            checked={selfPick[row.key]}
+                            onChange={e => setSelfPick(p => ({ ...p, [row.key]: e.target.checked }))}
+                            className="w-4 h-4 rounded border-gray-300" />
+                          <span>Выбирают <b>{row.who}</b></span>
+                          <span className="text-xs text-gray-400">— {row.hint}</span>
+                        </label>
+                        <div className="mt-2 flex items-center gap-2 pl-6">
+                          <span className="text-xs text-gray-600">Не больше</span>
+                          {/* ⚠️ minWidth: 0 обязателен — иначе поле во flex-строке
+                              схлопывается до содержимого и в него не попасть. */}
+                          <input type="number" min={1} inputMode="numeric"
+                            value={selfPick[row.max]}
+                            onChange={e => setSelfPick(p => ({ ...p, [row.max]: e.target.value }))}
+                            placeholder="без ограничений"
+                            style={{ flex: '0 0 9rem', minWidth: 0 }}
+                            className="px-2 py-1 text-sm rounded-lg border border-gray-300" />
+                          <span className="text-xs text-gray-600">номинаций</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={saveSelfPick} disabled={savingSelfPick}
+                    className="mt-3 px-4 py-1.5 rounded-lg text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90 disabled:opacity-60">
+                    {savingSelfPick ? 'Сохраняю…' : selfPickSaved ? '✓ Сохранено' : 'Сохранить'}
                   </button>
                 </div>
               )}
