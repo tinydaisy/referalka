@@ -62,9 +62,13 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Шапка только на Календаре. На Экосистеме — её собственная шапка-визитка. */}
+      {/* Шапка только на Календаре. На Экосистеме — её собственная шапка-визитка.
+          ⚠️ paddingTop НЕ задаём инлайном — он придёт из .grad-header вместе
+          с запасом под кнопки мессенджера (--msgr-btns-top, см. global.css).
+          Инлайновое число перебило бы общее правило, и шапка снова оказалась
+          бы под крестиком. */}
       {tab === 'calendar' && (
-        <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18, position: 'relative' }}>
+        <div className="grad-header" style={{ paddingBottom: 18, position: 'relative' }}>
           {/* ⚠️ «К списку лидеров» — только если человек ДЕЙСТВИТЕЛЬНО пришёл
               из списка (общий @pluson_bot, экран выбора). В боте КЛИЕНТА
               никакого «списка лидеров» нет: кнопка уводила в чужой кабинет —
@@ -101,7 +105,10 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
               их собственными кнопками, поэтому ничего своего туда не кладём.
               В шапке события логотипы устроены так же — flex-строкой рядом с
               заголовком; держать одинаково. */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, paddingTop: 28 }}>
+          {/* ⚠️ Своего paddingTop тут нет: запас под кнопки мессенджера уже
+              в самой шапке (.grad-header). Раньше стояло 28 — вместе с общим
+              отступом содержимое ушло бы вниз дважды. */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700 }}>
                 {brand}

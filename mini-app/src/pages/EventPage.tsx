@@ -615,7 +615,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <div className="grad-header" style={{ padding: '14px 18px' }}>
+      {/* ⚠️ Запас сверху — переменная --msgr-btns-top (см. global.css): правый
+          край строки с логотипами попадал под крестик и «…» мессенджера.
+          Число сюда не вписывать — отступ общий на все шапки. */}
+      <div className="grad-header"
+           style={{ padding: 'calc(14px + var(--msgr-btns-top)) 18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
           {/* ⚠️ Стрелка «назад» — только если есть КУДА возвращаться.
               В вебе клиент известен либо из адреса, либо из контакта в ссылке;
