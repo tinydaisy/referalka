@@ -2716,7 +2716,7 @@ id | platform_user_id (FK platform_users) | client_channel_id (FK) | is_unsubscr
 - Раньше ссылалось на `channel_id` напрямую — теперь через `client_channel_id`. Это даёт **явное разделение** подписчиков по клиентам без риска утечки между ними.
 - ON DELETE CASCADE от `client_channels` — если клиента отвязывают от канала, его подписки автоматически уходят.
 
-**Системный клиент в `clients`** (`name='ПЛЮСОН Сервис'`, `email='system@pluson.ru'`, `tariff_slug='beta'`) — для контактов которые пришли через `@pluson_bot` без контекста (`/start` без аргументов, реклама самого ПЛЮСОНа). Их `platform_users.client_id` указывает на этого системного клиента.
+**Системный клиент в `clients`** (`name='ПЛЮСОН Сервис'`, `email='system@pluson.ru'`, `tariff_slug='beta'`) — для контактов которые пришли через `@pluson_bot` без контекста (`/start` без аргументов, реклама самого ПЛЮСОНа). Их контакт (`contacts.client_id`) указывает на этого системного клиента.
 
 **Регистрация нового клиента** ([backend/app/api/auth.py](backend/app/api/auth.py)) — auto-INSERT в `client_channels` для всех боевых системных каналов:
 ```sql
@@ -2745,9 +2745,11 @@ SELECT $new_client_id, ch.id, TRUE
 - `mark_unsubscribed_globally` / `resubscribe_globally` в [backend/app/services/channels.py](backend/app/services/channels.py).
 
 **Один tg_id в нескольких контекстах** — норма. Один человек может попасть в БД как:
-- `platform_users(client_id=Маргарита, tg=X)` — пришёл по реф-ссылке Маргариты
-- `platform_users(client_id=Роман, tg=X)` — пришёл по реф-ссылке Романа
-- `platform_users(client_id=системный, tg=X)` — пришёл через `/start` без контекста
+- контакт в базе Маргариты + его `platform_users(tg=X)` — пришёл по её реф-ссылке
+- контакт в базе Романа + его `platform_users(tg=X)` — пришёл по его реф-ссылке
+- контакт у системного клиента + `platform_users(tg=X)` — пришёл через `/start` без контекста
+
+(клиент определяется контактом: `platform_users.contact_id → contacts.client_id`)
 
 И иметь по одной подписке в каждом контексте через `platform_user_channels(client_channel_id)` указывающие на разные `client_channels` записи.
 
@@ -3021,7 +3023,7 @@ API: `/api/v1/events/{event_id}/raffle/{settings|prizes|keywords}` (GET/POST/PAT
 ⚠️ **Факт подписки так НЕ проверяется.** `getChat` не показывает, заблокировал ли человек бота — Telegram отдаёт это только при попытке отправки (`403 bot was blocked`). Поэтому `subscribed` берётся из файла как есть; заблокировавшие пометятся сами на первой рассылке.
 
 **Логика обработки строки** (см. [`backend/app/services/channel_import.py`](backend/app/services/channel_import.py)):
-1. Ищем `platform_users (client_id, platform=telegram, tg_id)`. Нашли → дозаполняем **пустые** поля контакта (имя, телефон, `utm_source`) и ник в `platform_users`; заполненные не трогаем. ⚠️ До 2026-08-22 эта ветка не обновляла контакт вообще — человек, уже известный по другому боту клиента, оставался без имени и метки.
+1. Ищем `platform_users` по (клиент контакта, platform=telegram, tg_id). Нашли → дозаполняем **пустые** поля контакта (имя, телефон, `utm_source`) и ник в `platform_users`; заполненные не трогаем. ⚠️ До 2026-08-22 эта ветка не обновляла контакт вообще — человек, уже известный по другому боту клиента, оставался без имени и метки.
 2. Не нашли → ищем `contacts` по `email_normalized` или `phone_normalized` у того же клиента (мердж кросс-канал). Нашли → дозаполняем пустые поля COALESCE-ом, не перетираем непустые. Перед INSERT в `platform_users` проверяем коллизию `UNIQUE (contact_id, platform_slug)` — если у contact уже есть другой TG, пишем в отчёт и пропускаем.
 3. Не нашли → создаём `contact` + `platform_users`.
 4. `platform_user_channels` — UPDATE/INSERT с `is_unsubscribed = !subscribed` (целевое действие импорта, перетираем).
@@ -3078,7 +3080,15 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - **`platforms`** — справочник платформ (telegram/vk/max + метаданные: иконка, цвет, лимит сообщения, поддержка кнопок). Везде FK вместо TEXT-значений — нельзя записать опечатку.
 - **`contacts`** — Контакт (ЧЕЛОВЕК). Один на клиента. Хранит: `name`, `phone` + `phone_normalized`, `ref_code` UNIQUE, `first_referrer_contact_id`, `tags`, `salebot_id`, `utm_source`, `last_contact_at`, `merged_into`, `merged_ref_codes`, `external_ref_param`, `linked_client_id`, `plusson_referrer_code`, `was_in_webinar`. Один человек = одна запись.
   ⚠️ **Колонок `email` и `email_normalized` в `contacts` НЕТ** (удалены миграцией 282). Почта — это идентичность в `platform_users(platform_slug='email')`, где адрес лежит в `platform_user_id`. Искать человека по почте только там (см. раздел «Почта человека — ТОЛЬКО идентичность»).
-- **`platform_users`** — Идентичность контакта на платформе. `contact_id → contacts`, `platform_slug → platforms`. Один человек может иметь несколько идентичностей: TG-аккаунт + VK-аккаунт = две записи под одним contact_id. UNIQUE(contact_id, platform_slug) и UNIQUE(client_id, platform_slug, platform_user_id).
+- **`platform_users`** — Идентичность контакта на платформе. `contact_id → contacts`, `platform_slug → platforms`. Один человек может иметь несколько идентичностей: TG-аккаунт + VK-аккаунт = две записи под одним contact_id. UNIQUE(contact_id, platform_slug).
+
+⚠️⚠️ **Колонки `platform_users.client_id` НЕТ — дропнута миграцией 327 (2026-08-24).** Клиент берётся ТОЛЬКО из контакта: `JOIN contacts c_own ON c_own.id = pu.contact_id WHERE c_own.client_id = $1`. `WHERE pu.client_id=$1`, `client_id` в INSERT и `ON CONFLICT (client_id, platform_slug, platform_user_id)` падают с `column "client_id" does not exist`; вместо последнего — `ON CONFLICT (contact_id, platform_slug)`.
+
+**Почему убрали.** Колонка дублировала то, что известно через контакт, и два источника правды разъехались: на проде нашлись записи, где контакт принадлежит одному клиенту, а его платформенная запись числится в базе другого — внешний ключ смотрит только на `contacts.id` и клиента не сверяет. Человек попадал в чужую базу и получал рассылку дважды. Подробности — [[project_platform_users_client_id_dropped]].
+
+⚠️ **Прежнее `UNIQUE (client_id, platform_slug, platform_user_id)` от дублей ЛЮДЕЙ не защищало** — оно ловит только буквальный повтор пары. Один человек, записанный числом `6125115628` и ником `@Nurikary`, дал два контакта: пары разные, конфликта нет. Настоящая причина дублей — псевдо-запись по нику, не доросшая до числового id (число уже занято другим контактом). **Не починено, отдельная задача.**
+
+⚠️ **Правишь схему — не ищи по одному написанию.** Поиск `pu.client_id` пропустил 41 место из ~106: запросы бывают без алиаса и под `pe.`/`p.`. Надёжно — прогнать все SQL кода через `PREPARE` на базе без колонки.
 - **`channels`** — Каналы доставки клиента (его боты, группы VK, MAX-каналы). `platform_slug → platforms`.
 - **`platform_user_channels`** — Подписка идентичности на канал. `platform_slug` дублируется + составные FK: TG-аккаунт нельзя подписать на VK-группу. `is_unsubscribed` per-канал.
 
@@ -3252,7 +3262,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Поле `clients.bot_token` УДАЛЕНО (033) — живёт в `channels.bot_token`
 - Поле `platform_users.is_unsubscribed` УДАЛЕНО (034) — живёт в `platform_user_channels.is_unsubscribed` per-канал
 - Поле `platform_users.platform` ВОЗВРАЩЕНО как `platform_slug → platforms(slug)` (036) — без него нельзя интерпретировать `platform_user_id` (это tg_id или vk_id?)
-- UNIQUE `platform_users` после 036: `(contact_id, platform_slug)` + `(client_id, platform_slug, platform_user_id)`
+- UNIQUE `platform_users`: `(contact_id, platform_slug)`. Вторая пара с `client_id` ушла вместе с колонкой (миграция 327).
 - Helper `app/services/channels.py`: `get_client_telegram_token(client_id, db)`, `mark_unsubscribed_by_tg_id(client_id, tg_id, db)`, `upsert_client_telegram_token(client_id, token, db)`
 
 ### Архитектура дашборда (зафиксировано 2026-04-25)
