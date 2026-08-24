@@ -234,6 +234,33 @@ async def download_file(key: str, path: str) -> None:
     )
 
 
+async def object_exists(url: str) -> bool:
+    """Жив ли файл по этому адресу.
+
+    ⚠️ Зачем. Фото рассылок удаляются уборщиком через сутки после отправки.
+    Копируя старую рассылку, легко утащить ссылку на уже удалённый файл —
+    и человек получит рассылку без картинки, не понимая почему. Проверяем
+    заранее и честно предупреждаем.
+
+    Не наш адрес или сбой связи → True: лучше оставить ссылку, чем стереть
+    рабочую картинку из-за минутной неполадки.
+    """
+    key = key_from_url(url or "")
+    if not key:
+        return True
+    client = get_r2_client()
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: client.head_object(Bucket=settings.cf_r2_bucket_name, Key=key),
+        )
+        return True
+    except Exception as e:
+        # Файла нет — так и говорим. Любая другая беда → считаем живым.
+        return "404" not in str(e) and "NoSuchKey" not in str(e) and "Not Found" not in str(e)
+
+
 async def delete_object(key: str) -> None:
     """Удаляет объект из R2."""
     client = get_r2_client()
@@ -245,10 +272,27 @@ async def delete_object(key: str) -> None:
 
 
 def key_from_url(url: str) -> Optional[str]:
-    """Извлекает R2-ключ из публичного URL."""
+    """Извлекает ключ файла из публичного адреса.
+
+    ⚠️ Имя хранилища в адресе может НЕ совпадать с нынешним: у части файлов в
+    базе записан прежний адрес (`…/pluson-media-1-bf17/…`), а в настройках уже
+    новый. Точное сравнение таких файлов не узнавало — они считались чужими, и
+    проверка «жив ли файл» отвечала «жив» про давно удалённый.
+
+    Поэтому: сперва пробуем нынешний адрес, а если не совпал — отрезаем имя
+    хранилища и берём остаток. Ключ у всех наших файлов начинается с
+    `clients/…`, так что спутать не с чем.
+    """
+    if not url:
+        return None
     prefix = settings.cf_r2_public_url.rstrip("/") + "/"
     if url.startswith(prefix):
         return url[len(prefix):]
+    # Тот же сервер хранилища, но другое имя бакета — берём путь после него.
+    marker = "/clients/"
+    i = url.find(marker)
+    if i != -1 and url.startswith("http"):
+        return url[i + 1:]
     return None
 
 

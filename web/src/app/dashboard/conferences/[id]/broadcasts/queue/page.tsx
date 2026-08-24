@@ -1148,7 +1148,10 @@ export default function QueuePage() {
                     {/* Копировать */}
                     <button onClick={async () => {
                       try {
-                        await api.conference.schedules.copy(eventId, s.id)
+                        // ⚠️ Картинку могли уже стереть (медиа рассылок живёт
+                        // сутки после отправки) — предупреждаем, а не молчим.
+                        const cr: any = await api.conference.schedules.copy(eventId, s.id)
+                        if (cr?.warning) alert(cr.warning)
                         await load()
                       } catch (e: any) { alert(e.message) }
                     }}

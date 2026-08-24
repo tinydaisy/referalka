@@ -181,10 +181,33 @@ async def _fetch_gifts_for_event(
         event_id,
     )
     if via_funnel:
+        from app.services.share_links import build_funnel_landing_links
         for g in gifts:
-            if g.get("lm_slug"):
-                g["link_url"] = await client_public_link(
-                    db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
+            if not g.get("lm_slug"):
+                continue
+            web_url = await client_public_link(
+                db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
+
+            # ⚠️⚠️ ССЫЛКА ВЕДЁТ В БОТА, А НЕ НА ВЕБ-СТРАНИЦУ.
+            # Человек открыл подарок в Telegram — он должен попасть в
+            # Telegram-бота владельца подарка и получить файл там же. Раньше
+            # отдавался веб-адрес pluson.ru/m/… : открывалось окно «Открыть
+            # ссылку?», человек попадал на страницу, а лид-магнит не приходил.
+            #
+            # Отдаём ссылки ПО ПЛОЩАДКАМ. Есть ссылка на площадке, откуда
+            # пришёл человек → фронт открывает её. Нет → показывает выбор из
+            # тех площадок, что у организатора есть.
+            links = {}
+            try:
+                links = await build_funnel_landing_links(
+                    db, client_id=g.get("lm_client_id"), slug=g["lm_slug"], kind="m")
+            except Exception:
+                links = {}
+
+            g["platform_links"] = {k: v for k, v in (links or {}).items() if v}
+            # Веб-адрес остаётся запасным: у владельца может не быть ни одного бота.
+            g["web_url"] = web_url
+            g["link_url"] = web_url
 
     # Подставляем плейсхолдеры только если они реально встречаются — иначе не
     # трогаем БД лишним запросом рефовода. (При via_funnel прямые url заменены на

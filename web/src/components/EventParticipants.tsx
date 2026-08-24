@@ -445,7 +445,9 @@ function ContactCard({
             реферала мог позвать обычный участник, но организатор — тот, в чью базу
             попал контакт (contacts.client_id). */}
         {isCollab && (
-          <div className="hidden sm:flex w-40 shrink-0 min-w-0 items-center">
+          // ⚠️ pl-3 — отступ слева: без него длинные ники из колонки «Имя»
+          // наезжали на эту колонку и текст сливался.
+          <div className="hidden sm:flex w-40 shrink-0 min-w-0 items-center pl-3">
             <span className="text-xs text-gray-700 truncate" title={p.organizer_name || ''}>
               {p.organizer_name || <span className="text-gray-300">—</span>}
             </span>
@@ -665,8 +667,9 @@ function ListHeader({ isCollab }: { isCollab?: boolean }) {
   return (
     <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
       <div className="flex-1 min-w-0">Имя</div>
-      {/* Организатор — только в коллабе: у каждого своя база, надо видеть чей участник. */}
-      {isCollab && <div className="w-40 shrink-0">Организатор</div>}
+      {/* ⚠️ «В ЧЬЕЙ БАЗЕ», а не «Организатор»: слово «организатор» читалось как
+          «кто провёл событие», хотя речь о том, в чью базу попал контакт. */}
+      {isCollab && <div className="w-40 shrink-0 pl-3">В чьей базе</div>}
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Оплатил</div>

@@ -2650,6 +2650,19 @@ async def _cleanup_broadcast_photos():
                  SELECT 1 FROM broadcast_templates bt
                   WHERE bt.video_url = cf.url OR bt.photo_url = cf.url
                )
+               -- ⚠️⚠️ И НЕ УДАЛЯЕМ, ПОКА НА ФАЙЛ ССЫЛАЕТСЯ ХОТЬ ОДНА
+               -- НЕОТПРАВЛЕННАЯ РАССЫЛКА.
+               --
+               -- Копия рассылки берёт ТОТ ЖЕ адрес фото — файл один на обе.
+               -- Раньше уборщик смотрел только на ту рассылку, что уже ушла:
+               -- исходная отправилась, через сутки файл удалён, а копия в
+               -- очереди осталась с мёртвой ссылкой. Человек получал рассылку
+               -- без картинки и не понимал, куда она делась.
+               AND NOT EXISTS (
+                 SELECT 1 FROM broadcast_schedules bs2
+                  WHERE (bs2.snapshot_photo = cf.url OR bs2.snapshot_video = cf.url)
+                    AND bs2.status NOT IN ('done', 'cancelled', 'paused_subscription_expired')
+               )
             """
         )
 

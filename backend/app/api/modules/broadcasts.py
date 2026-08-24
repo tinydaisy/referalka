@@ -2885,6 +2885,18 @@ async def copy_schedule(
     if not row:
         raise HTTPException(status_code=404, detail="Задача не найдена")
 
+    # ⚠️ Мёртвую ссылку на фото НЕ копируем. Фото рассылок уборщик удаляет
+    # через сутки после отправки: копируя старую рассылку, легко утащить ссылку
+    # на уже удалённый файл — человек получил бы рассылку без картинки и не
+    # понял почему. Проверяем и честно предупреждаем.
+    from app.services import r2_storage as _r2
+    snap_photo = row["snapshot_photo"]
+    photo_warning = None
+    if snap_photo and not await _r2.object_exists(snap_photo):
+        snap_photo = None
+        photo_warning = ("Картинка исходной рассылки уже удалена — она стирается "
+                         "через сутки после отправки. Добавьте изображение заново.")
+
     # ⚠️ Копия создаётся БЕЗ даты (fire_at=NULL), чтобы старая дата не утащила
     # рассылку в мгновенную отправку. Клиент указывает новую дату при запуске.
     # client_id копии = client_id оригинала: у коллаб-события очередь у каждого
@@ -2900,10 +2912,10 @@ async def copy_schedule(
         row["event_id"], row["template_id"], row["session_id"], row["type"],
         row["audience_include"], row["audience_exclude"], row["audience_type"],
         row["is_test"],
-        row["snapshot_text"], row["snapshot_photo"], row["snapshot_btn_text"], row["snapshot_btn_url"],
+        row["snapshot_text"], snap_photo, row["snapshot_btn_text"], row["snapshot_btn_url"],
         row["client_id"]
     )
-    return {"ok": True, "id": new_id}
+    return {"ok": True, "id": new_id, "warning": photo_warning}
 
 
 @router.get("/schedules/{schedule_id}/log", summary="Лог получателей рассылки")
@@ -3351,7 +3363,19 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
     if test_max_ids and max_token:
         from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
         max_burl = await _burl("max")
-        max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": max_burl}]]) if (btn_text and max_burl) else None
+        # ⚠️ ВСЕ кнопки, а не одна. Раньше тест брал только button_text/button_url
+        # и молча терял остальные: в шаблоне их две («Через Телеграм», «Через
+        # MAX»), а в MAX приходила одна.
+        max_rows: list[list[dict]] = []
+        if buttons:
+            for b in buttons:
+                lbl = b.get("text") or b.get("label") or "Открыть"
+                url = await _burl_raw(b.get("url") or "", "max")
+                if url:
+                    max_rows.append([{"text": lbl, "url": url}])
+        elif btn_text and max_burl:
+            max_rows.append([{"text": btn_text, "url": max_burl}])
+        max_buttons = tg_inline_to_max_keyboard(max_rows) if max_rows else None
         _mt = await _txt("max")
         max_text = f"{photo}\n\n{_mt}".strip() if photo else _mt
         if m_type == "video" and video:

@@ -18,6 +18,9 @@ interface Gift {
   description?: string
   points_cost: number
   link_url?: string
+  // Ссылки на воронку подарка ПО ПЛОЩАДКАМ: {telegram, vk, max}.
+  platform_links?: Record<string, string>
+  web_url?: string
 }
 
 interface RefPerson {
@@ -109,6 +112,22 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
   // открыт Mini App), который пришёл с бэка. Пока shareLinks грузятся —
   // временный фолбэк на pluson.ru/l/{slug}, чтобы UI не моргал.
   const currentPlatform = getPlatformName()
+
+  // ── Подарок: куда вести человека ────────────────────────────────────
+  // ⚠️ В БОТА ВЛАДЕЛЬЦА ПОДАРКА, а не на веб-страницу. Открыл в Telegram —
+  // получай файл в Telegram-боте. Веб-адрес оставляем только на крайний
+  // случай: у владельца может не быть ни одного бота.
+  const [giftPick, setGiftPick] = useState<Gift | null>(null)
+
+  const giftOpenHref = (g: Gift): string | null => {
+    const links = g.platform_links || {}
+    // Своя площадка — открываем сразу, без лишнего выбора.
+    if (currentPlatform !== 'web' && links[currentPlatform]) return links[currentPlatform]
+    // Ботов нет вовсе — остаётся веб-страница.
+    if (!Object.keys(links).length) return g.web_url || g.link_url || null
+    return null   // есть боты, но не на его площадке → покажем выбор
+  }
+  const hasAnyGiftLink = (g: Gift) => Object.keys(g.platform_links || {}).length > 0
   const refLink =
     shareLinks.telegram
     || shareLinks[currentPlatform as 'telegram' | 'vk' | 'max']
@@ -258,13 +277,26 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#2e7d32',
                               background: '#e8f5e9', padding: '3px 7px', borderRadius: 5 }}>за {g.points_cost} чел</div>
-                {g.link_url && (
-                  <a href={g.link_url} target="_blank" rel="noreferrer" style={{
+                {/* ⚠️ Открываем ссылку ТОЙ ПЛОЩАДКИ, откуда пришёл человек:
+                    он в Telegram — значит и подарок должен прийти в
+                    Telegram-бота владельца. Раньше отдавался веб-адрес
+                    pluson.ru/m/… — открывалось окно «Открыть ссылку?»,
+                    человек попадал на страницу, а файл не приходил.
+                    Нет ссылки на его площадке (или он в вебе) — показываем
+                    выбор из тех площадок, что у организатора есть. */}
+                {giftOpenHref(g) ? (
+                  <a href={giftOpenHref(g)!} target="_blank" rel="noreferrer" style={{
                     background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
                     padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     textDecoration: 'none',
                   }}>Открыть</a>
-                )}
+                ) : hasAnyGiftLink(g) ? (
+                  <button onClick={() => setGiftPick(g)} style={{
+                    background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
+                    padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    border: 'none', cursor: 'pointer',
+                  }}>Открыть</button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -517,6 +549,43 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
 
   return (
     <div className="fade-in">
+      {/* Выбор площадки для подарка: показываем, когда у владельца есть боты,
+          но НЕ на той площадке, где человек сейчас (или он открыл в вебе).
+          ⚠️ Окно НЕ закрывается по клику на фон — только «Отмена». */}
+      {giftPick && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 100,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 18, width: '100%', maxWidth: 340 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>
+              Где забрать подарок?
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7c8e', marginBottom: 14 }}>
+              Выберите приложение — подарок придёт в бот организатора.
+            </div>
+            {Object.entries(giftPick.platform_links || {}).map(([plat, url]) => {
+              const meta = PLATFORM_META[plat]
+              return (
+                <a key={plat} href={url} target="_blank" rel="noreferrer"
+                   onClick={() => setGiftPick(null)}
+                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                            borderRadius: 10, marginBottom: 8, textDecoration: 'none',
+                            background: meta?.bg || '#f0f3f7', color: meta?.fg || DARK,
+                            fontWeight: 700, fontSize: 13 }}>
+                  <span>{meta?.icon || '•'}</span>
+                  <span>{meta?.label || plat}</span>
+                </a>
+              )
+            })}
+            <button onClick={() => setGiftPick(null)}
+                    style={{ width: '100%', marginTop: 6, padding: '10px 12px', borderRadius: 10,
+                             background: '#f0f3f7', color: DARK, border: 'none',
+                             fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Имя того, чей это кабинет */}
       {cabName && (
         <div style={{ fontSize: 18, fontWeight: 900, color: DARK, marginBottom: 10 }}>{cabName}</div>

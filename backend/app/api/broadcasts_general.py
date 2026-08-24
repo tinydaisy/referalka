@@ -684,6 +684,24 @@ async def copy(
     client_id = int(client["sub"])
     src = await _check_owner(db, schedule_id, client_id)
     full = await db.fetchrow("SELECT * FROM broadcast_schedules WHERE id=$1", schedule_id)
+
+    # ⚠️ Мёртвые ссылки на фото и видео НЕ копируем. Медиа рассылок уборщик
+    # удаляет через сутки после отправки: копируя старую рассылку, легко
+    # утащить ссылку на уже удалённый файл — человек получил бы рассылку без
+    # картинки и не понял почему. Проверяем и честно предупреждаем.
+    from app.services import r2_storage as _r2
+    snap_photo = full["snapshot_photo"]
+    snap_video = full["snapshot_video"]
+    gone = []
+    if snap_photo and not await _r2.object_exists(snap_photo):
+        snap_photo = None; gone.append("изображение")
+    if snap_video and not await _r2.object_exists(snap_video):
+        snap_video = None; gone.append("видео")
+    photo_warning = (
+        f"{' и '.join(gone).capitalize()} исходной рассылки уже удалено — медиа "
+        f"стирается через сутки после отправки. Добавьте заново."
+    ) if gone else None
+
     # ⚠️ Копия создаётся БЕЗ даты (fire_at=NULL) — чтобы старая дата не утащила
     # рассылку в мгновенную отправку. Клиент обязан указать новую дату при сохранении.
     new = await db.fetchrow(
@@ -698,13 +716,13 @@ async def copy(
         RETURNING id
         """,
         client_id, full["is_test"],
-        full["snapshot_text"], full["snapshot_subject"], full["snapshot_photo"],
+        full["snapshot_text"], full["snapshot_subject"], snap_photo,
         full["snapshot_buttons"] if isinstance(full["snapshot_buttons"], str) else _json.dumps(full["snapshot_buttons"] or []),
         full["target_channel_ids"],
-        full["snapshot_video"], full["snapshot_media_type"],
+        snap_video, (full["snapshot_media_type"] if (snap_photo or snap_video) else None),
         full["send_to_client_chats"], full["send_to_private_chats"],
     )
-    return {"ok": True, "id": new["id"]}
+    return {"ok": True, "id": new["id"], "warning": photo_warning}
 
 
 @router.post("/schedules/{schedule_id}/publish", summary="Поставить черновик в очередь")

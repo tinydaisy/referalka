@@ -236,7 +236,11 @@ export default function GeneralBroadcastsPage() {
   }
   async function copyOne(s: any) {
     try {
-      await api.broadcasts.copy(s.id)
+      // ⚠️ Бэк мог не перенести картинку: медиа рассылок стирается через сутки
+      // после отправки. Молча отдать копию без фото нельзя — человек отправит
+      // её и удивится, куда делось изображение.
+      const r: any = await api.broadcasts.copy(s.id)
+      if (r?.warning) alert(r.warning)
       await load()
       showMsg('Создана копия')
     } catch (e: any) { showMsg(e.message, 'err') }
