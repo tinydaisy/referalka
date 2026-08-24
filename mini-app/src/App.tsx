@@ -4,6 +4,7 @@ import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
+import VkPermissionsIntro, { vkIntroWasShown } from './components/VkPermissionsIntro'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
 
 /*
@@ -495,12 +496,44 @@ export default function App() {
   const [funnelEventTitle, setFunnelEventTitle] = useState<string>('')
   const [funnelPosterUrl, setFunnelPosterUrl] = useState<string>('')
   const [funnelGroupScreen, setFunnelGroupScreen] = useState<string>('')
+  // VK-only: экран-объяснение ПЕРЕД окнами разрешений ВКонтакте (см.
+  // VkPermissionsIntro — там же, почему он обязателен для модерации).
+  const [vkIntro, setVkIntro] = useState<boolean>(false)
+  // Счётчик-триггер: нажали «Продолжить» → меняется → эффект ниже проходит
+  // заново, уже без шлюза (отметка о показе к этому моменту записана).
+  const [vkIntroPassed, setVkIntroPassed] = useState<number>(0)
 
   useEffect(() => {
     (async () => {
       const adapter = getPlatform()
       adapter.setHeaderColor?.('#0a1520')
       adapter.setBackgroundColor?.('#f7f8fa')
+
+      // ⚠️⚠️ ШЛЮЗ ПЕРЕД РАЗРЕШЕНИЯМИ ВКОНТАКТЕ. Правила Mini Apps п.1.1.2:
+      // объяснить ДО окна «Разрешить?», зачем право. Ниже по коду разрешения
+      // запрашиваются в ШЕСТИ местах (по одному на тип ссылки: m_/p_/evl_/
+      // spkinv_/prt_/обычный вход) — ставить экран перед каждым значило бы
+      // шесть одинаковых правок и почти гарантированный пропуск одной.
+      // Поэтому шлюз один и стоит ДО всей маршрутизации: пока человек не
+      // нажал «Продолжить», ни один запрос прав не уходит.
+      if (adapter.name === 'vk') {
+        const vkId = adapter.launchParams?.vk_user_id || ''
+        if (vkId && !vkIntroWasShown(vkId)) {
+          // ⚠️ Клиента достаём ДО выхода: иначе на экране не будет ни
+          // логотипа, ни названия бренда — разбор startapp идёт ниже, а мы
+          // до него не доходим. Человек должен видеть, к кому он пришёл.
+          if (!detectClientIdFromPath()) {
+            const sp0 = adapter.startParam
+            if (sp0 && (sp0.startsWith('ref') || sp0.startsWith('hub'))) {
+              const cid0 = parseStartParam(sp0).clientId
+              if (cid0) setClientId(cid0)
+            }
+          }
+          setVkIntro(true)
+          setLoading(false)
+          return   // продолжим из onContinue — см. ниже
+        }
+      }
 
       const user = adapter.user
       if (user) setTgUser(user)
@@ -599,7 +632,8 @@ export default function App() {
       console.error('App init failed:', e)
       setLoading(false)
     })
-  }, [])
+    // ⚠️ vkIntroPassed — не «данные», а сигнал «шлюз пройден, повтори запуск».
+  }, [vkIntroPassed])
 
   // URL роутинг: popstate
   useEffect(() => {
@@ -691,6 +725,23 @@ export default function App() {
 
   const splash = typeof document !== 'undefined' ? document.getElementById('plusson-splash') : null
   if (splash) splash.remove()
+
+  // ⚠️ VK-only: объяснение ПЕРЕД окнами разрешений (правила Mini Apps п.1.1.2).
+  // Стоит ВЫШЕ всех остальных экранов: пока человек не нажал «Продолжить»,
+  // ни один запрос прав не ушёл (шлюз в useEffect выше прервал запуск).
+  if (vkIntro) {
+    return (
+      <VkPermissionsIntro
+        vkUserId={getPlatform().launchParams?.vk_user_id || ''}
+        clientId={effectiveClientId}
+        onContinue={() => {
+          setVkIntro(false)
+          setLoading(true)
+          setVkIntroPassed(n => n + 1)   // перезапуск init, теперь без шлюза
+        }}
+      />
+    )
+  }
 
   // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {

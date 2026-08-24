@@ -93,24 +93,35 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
             title="К списку лидеров"
           >← К списку лидеров</button>
           )}
-          {brandLogo && (
-            <img src={brandLogo} alt=""
-                 onClick={() => setTab('ecosystem')}
-                 style={{
-                   position: 'absolute', top: 14, right: 14,
-                   width: 36, height: 36, borderRadius: 8, objectFit: 'contain',
-                   background: 'transparent',
-                   cursor: 'pointer',
-                 }} />
-          )}
-          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, paddingRight: brandLogo ? 50 : 0, paddingTop: 28 }}>
-            {brand}
-          </h1>
-          {tagline && (
-            <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>
-              {tagline}
-            </p>
-          )}
+          {/* ⚠️ Логотип — В ОДНОЙ СТРОКЕ с названием бренда, а не отдельно
+              сверху справа. Раньше он висел `position:absolute; top:14`, то
+              есть ВЫШЕ заголовка — и во ВКонтакте попадал ровно под крестик и
+              «…»: от логотипа была видна одна нижняя полоска (скриншот
+              24.08.2026). Верхние правые углы во всех трёх мессенджерах заняты
+              их собственными кнопками, поэтому ничего своего туда не кладём.
+              В шапке события логотипы устроены так же — flex-строкой рядом с
+              заголовком; держать одинаково. */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, paddingTop: 28 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700 }}>
+                {brand}
+              </h1>
+              {tagline && (
+                <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>
+                  {tagline}
+                </p>
+              )}
+            </div>
+            {brandLogo && (
+              <img src={brandLogo} alt=""
+                   onClick={() => setTab('ecosystem')}
+                   style={{
+                     width: 36, height: 36, borderRadius: 8, objectFit: 'contain',
+                     background: 'transparent',
+                     cursor: 'pointer', flexShrink: 0,
+                   }} />
+            )}
+          </div>
         </div>
       )}
 
