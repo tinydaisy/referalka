@@ -55,6 +55,29 @@ case "$CMD" in
     fi
     ;;
 
+  # Что не пускаем в автоматический накат при деплое.
+  #
+  # ⚠️ Удаление колонки или таблицы снимком НЕ лечится: данные уже потеряны, а
+  # возврат снимка вернёт вчерашнее состояние — вместе с потерей всего, что
+  # клиенты наработали за день. Такие миграции накатывает человек, осознанно.
+  risky)
+    PENDING="$(comm -23 <(all_files) <(applied_list))"
+    [ -z "$PENDING" ] && exit 0
+    FOUND=""
+    while read -r f; do
+      [ -z "$f" ] && continue
+      # Ищем в тексте миграции опасные команды. Комментарии отбрасываем:
+      # «-- дропнута миграцией 240» это пояснение, а не команда.
+      if sed 's/--.*$//' "$MIG_DIR/$f" \
+         | grep -qiE 'DROP[[:space:]]+(TABLE|COLUMN|SCHEMA|DATABASE)|TRUNCATE[[:space:]]|DELETE[[:space:]]+FROM'; then
+        FOUND="$FOUND $f"
+      fi
+    done <<< "$PENDING"
+    [ -z "$FOUND" ] && exit 0
+    echo "$FOUND" | tr ' ' '\n' | grep -v '^$'
+    exit 2
+    ;;
+
   apply)
     PENDING="$(comm -23 <(all_files) <(applied_list))"
     [ -z "$PENDING" ] && { echo "✓ Нечего накатывать — база актуальна."; exit 0; }
