@@ -81,7 +81,10 @@ jobs:
         run: |
           set -e
           BAD=0
-          for d in web/.next mini-app/dist mini-app/dist-vk mini-app/dist-max mini-app/dist-web; do
+          # ⚠️ Только то, что скачивает БРАУЗЕР. В web/.next/server есть
+          # служебный файл, где localhost:8000 законен: сервер обращается к
+          # бэкенду на той же машине. Проверять его — ложная тревога.
+          for d in web/.next/static mini-app/dist mini-app/dist-vk mini-app/dist-max mini-app/dist-web; do
             [ -d "$d" ] || continue
             if grep -rqs 'localhost:8000' "$d" 2>/dev/null; then
               echo "✗ $d собран с localhost:8000 — адрес сервера не подставился"
