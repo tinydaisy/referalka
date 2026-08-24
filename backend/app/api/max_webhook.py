@@ -1516,7 +1516,13 @@ async def _process_start(
             # (общая resolve_landing_url, та же во всех ботах и в рассылках).
             # Раньше про наш лендинг-конструктор МАКС не знал и вёл на форму.
             from app.services.message_builder import resolve_landing_url
-            _reg_page = await resolve_landing_url(conn, event_id) if event_id else ""
+            # ⚠️⚠️ ССЫЛКА — НА ДОМЕНЕ ВЛАДЕЛЬЦА ЭТОГО БОТА. Без клиента функция
+            # берёт «первого владельца» коллабы: в боте Нурии кнопка
+            # «Зарегистрироваться» вела на peregovorka.online (домен Лилии).
+            _reg_page = await resolve_landing_url(
+                conn, event_id,
+                client_id=await _max_bot_client_id(conn, bot_token),
+            ) if event_id else ""
             if not _reg_page:
                 # Встроенная страница регистрации — публичная страница клиента,
                 # поэтому открываем её на его домене.

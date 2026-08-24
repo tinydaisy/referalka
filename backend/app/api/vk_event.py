@@ -1387,7 +1387,12 @@ async def send_vk_event_funnel(
     from app.services.message_builder import resolve_landing_url
     # Встроенная страница регистрации — публичная страница клиента → его домен
     # (свой лендинг клиента из resolve_landing_url, если задан, главнее).
-    _reg_page = await resolve_landing_url(conn, event_id) or await client_public_link(
+    # ⚠️⚠️ Ссылка — на домене ВЛАДЕЛЬЦА СООБЩЕСТВА, в которое человек зашёл
+    # (`client_id` сюда уже приходит от него). Без этого функция брала «первого
+    # владельца» коллабы и уводила на чужой домен.
+    _reg_page = await resolve_landing_url(
+        conn, event_id, client_id=client_id
+    ) or await client_public_link(
         conn, client_id, f"event/{slug}/register"
     )
     _sep = "&" if "?" in _reg_page else "?"

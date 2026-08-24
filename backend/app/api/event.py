@@ -127,10 +127,17 @@ async def share_to_bot(body: ShareToBotRequest):
         _src = body.client_id or 0
         _cid = await resolve_event_contact_id_any_owner(
             conn, event_id, "telegram", tg_id)
+        _was = client_id
         client_id = await resolve_event_client(
             conn, event_id=event_id, client_id=client_id,
             source_client_id=_src or None, contact_id=_cid,
             platform_slug="telegram", platform_user_id=str(tg_id))
+        # ⚠️ ДИАГНОСТИКА КОЛЛАБЫ: видно, прислало ли приложение владельца.
+        # Без неё «человек уехал к чужому организатору» приходится
+        # восстанавливать по базе задним числом.
+        logger.info(
+            "collab-resolve: event=%s tg=%s app_client=%s contact=%s: %s -> %s",
+            event_id, tg_id, _src or "НЕТ", _cid or "нет", _was, client_id)
 
     # Регистрируем пользователя как подписчика главного TG-канала клиента.
     # Mini App может быть открыт минуя /start (через Menu Button) — без этого
