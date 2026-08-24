@@ -285,11 +285,21 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         {got.length === 0
           ? <div style={{ color: 'var(--muted)', fontSize: 12, padding: 10, textAlign: 'center' }}>Пока ничего не доступно</div>
           : got.map(g => (
-            <div key={g.id} style={{
-              background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
-              display: 'flex', gap: 12, alignItems: 'center',
-              boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-            }}>
+            // ⚠️ Нажимается ВСЯ КАРТОЧКА, а не только кнопка сбоку. Человек
+            // тычет в подарок целиком — и справедливо: маленькая кнопка
+            // выглядит как украшение, а не как единственное рабочее место.
+            <div key={g.id}
+              onClick={() => {
+                const href = giftOpenHref(g)
+                if (href) openGift(href)
+                else if (hasAnyGiftLink(g)) setGiftPick(g)
+              }}
+              style={{
+                background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
+                display: 'flex', gap: 12, alignItems: 'center',
+                boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                cursor: (giftOpenHref(g) || hasAnyGiftLink(g)) ? 'pointer' : 'default',
+              }}>
               <div style={{
                 width: 48, height: 48, borderRadius: 12, flexShrink: 0,
                 background: 'linear-gradient(135deg, #fff4e0, #FFCFA4)',
@@ -300,7 +310,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                 {g.description && (
                   <div style={{ marginTop: 4 }}>
                     <button
-                      onClick={() => setDescOpen(o => ({ ...o, [g.id]: !o[g.id] }))}
+                      onClick={(e) => { e.stopPropagation(); setDescOpen(o => ({ ...o, [g.id]: !o[g.id] })) }}
                       style={{
                         background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                         fontSize: 11, color: '#6b7c8e', display: 'flex', alignItems: 'center', gap: 4,
@@ -330,13 +340,13 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     Нет ссылки на его площадке (или он в вебе) — показываем
                     выбор из тех площадок, что у организатора есть. */}
                 {giftOpenHref(g) ? (
-                  <button onClick={() => openGift(giftOpenHref(g)!)} style={{
+                  <button onClick={(e) => { e.stopPropagation(); openGift(giftOpenHref(g)!) }} style={{
                     background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
                     padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     border: 'none', cursor: 'pointer',
                   }}>Открыть</button>
                 ) : hasAnyGiftLink(g) ? (
-                  <button onClick={() => setGiftPick(g)} style={{
+                  <button onClick={(e) => { e.stopPropagation(); setGiftPick(g) }} style={{
                     background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
                     padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     border: 'none', cursor: 'pointer',
@@ -722,7 +732,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
                     WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{g.title}</div>
                   <div style={{ fontSize: 11, color: unlocked ? '#2e7d32' : '#b86b00', fontWeight: 700, marginTop: 2 }}>
-                    {unlocked ? '✓ доступен' : `за ${g.points_cost} чел`}
+                    {unlocked ? '✓ Доступен — нажмите' : `за ${g.points_cost} чел`}
                   </div>
                 </div>
               </div>
