@@ -585,7 +585,7 @@ async def import_csv_to_channel(
                           c.phone AS c_phone, c.phone_normalized
                      FROM platform_users pu
                      JOIN contacts c ON c.id = pu.contact_id
-                    WHERE pu.client_id = $1 AND pu.platform_slug = $3
+                    WHERE c.client_id = $1 AND pu.platform_slug = $3
                       AND pu.platform_user_id = $2""",
                 client_id, tg_id, platform
             )

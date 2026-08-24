@@ -163,7 +163,8 @@ async def _resolve_contact_id(db, client_id: int, platform: str, platform_user_i
         """
         SELECT pu.contact_id
           FROM platform_users pu
-         WHERE pu.client_id = $1
+          JOIN contacts c_own ON c_own.id = pu.contact_id
+         WHERE c_own.client_id = $1
            AND pu.platform_slug = $2
            AND pu.platform_user_id = $3
          LIMIT 1

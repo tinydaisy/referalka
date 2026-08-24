@@ -14,6 +14,18 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 
 
+def _strip_first_name(text: str) -> str:
+    """Убрать {first_name} из текста ТЕСТОВОЙ отправки.
+
+    ⚠️ Заглушки («друг» и любые другие) не подставляем — ни в тесте, ни в бою.
+    В тесте получателей несколько и у каждого своё имя, поэтому показываем
+    текст без обращения; в реальной рассылке имя подставит Celery по каждому
+    получателю (_apply_first_name в tasks/broadcast.py — та же логика).
+    """
+    from app.tasks.broadcast import _apply_first_name
+    return _apply_first_name(text, None)
+
+
 async def _support_link_preview(db, client_id: int) -> str:
     """Значение {support_link} для ПРЕВЬЮ и ТЕСТА.
 
@@ -3176,7 +3188,7 @@ async def _test_unsubscribe_token(db, client_id: int, addr: str, ch_dict: dict):
                  JOIN contacts c ON c.id = pu.contact_id AND c.is_active = TRUE
                  JOIN client_channels cc ON cc.client_id = c.client_id
                  JOIN channels ch ON ch.id = cc.channel_id AND ch.platform_slug = 'email'
-                WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
+                WHERE c.client_id = $1 AND pu.platform_slug = 'email'
                   AND pu.platform_user_id = $2
                 LIMIT 1""",
             client_id, email_norm)
@@ -3220,12 +3232,12 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
         t = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform=platform) if db else text
         t = (t or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform))
         # \u26a0\ufe0f {first_name} \u0432 \u0431\u043e\u0435\u0432\u043e\u0439 \u0440\u0430\u0441\u0441\u044b\u043b\u043a\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u0442 Celery \u043f\u043e \u043a\u0430\u0436\u0434\u043e\u043c\u0443
-        # \u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044e. \u0412 \u0422\u0415\u0421\u0422\u0415 \u0442\u0430\u043a\u043e\u0439 \u043f\u043e\u0434\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 \u043d\u0435 \u0431\u044b\u043b\u043e \u043d\u0438 \u043d\u0430 \u043e\u0434\u043d\u043e\u0439 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0435 \u2014
+        # \u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044e. \u0412 \u0422\u0415\u0421\u0422\u0415 \u043f\u043e\u0434\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 \u043d\u0435 \u0431\u044b\u043b\u043e \u043d\u0438 \u043d\u0430 \u043e\u0434\u043d\u043e\u0439 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0435 \u2014
         # \u043a\u043b\u0438\u0435\u043d\u0442 \u0432\u0438\u0434\u0435\u043b \u0441\u044b\u0440\u043e\u0439 \u00ab{first_name}\u00bb \u0438 \u0441\u0447\u0438\u0442\u0430\u043b \u043f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 \u0441\u043b\u043e\u043c\u0430\u043d\u043d\u044b\u043c.
-        # \u0417\u0434\u0435\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c \u2014 \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u0430\u043a\u043a\u0430\u0443\u043d\u0442 \u0441\u0430\u043c\u043e\u0433\u043e \u043a\u043b\u0438\u0435\u043d\u0442\u0430, \u043f\u043e\u044d\u0442\u043e\u043c\u0443 \u0438\u043c\u044f
-        # \u0431\u0435\u0440\u0451\u043c \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u044c\u043d\u043e\u0435: \u0442\u0435\u0441\u0442 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0432\u0451\u0440\u0441\u0442\u043a\u0443, \u0430 \u043d\u0435 \u043a\u043e\u043d\u043a\u0440\u0435\u0442\u043d\u043e\u0435 \u0438\u043c\u044f.
+        # \u0418\u043c\u044f \u0431\u0435\u0440\u0451\u043c \u041d\u0410\u0421\u0422\u041e\u042f\u0429\u0415\u0415 \u2014 \u0442\u0435\u0441\u0442\u043e\u0432\u043e\u0433\u043e \u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044f (\u0441\u043c. _first_name_for_test);
+        # \u0437\u0430\u0433\u043b\u0443\u0448\u0435\u043a \u0432\u0440\u043e\u0434\u0435 \u00ab\u0434\u0440\u0443\u0433\u00bb \u043d\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u043c \u043d\u0438\u0433\u0434\u0435.
         if "{first_name}" in t:
-            t = t.replace("{first_name}", "\u0434\u0440\u0443\u0433")
+            t = _strip_first_name(t)
         return t
 
     async def _burl(platform: str):
@@ -3599,8 +3611,8 @@ async def test_template(
                 return val
             v = (val or "").replace("\u27e6SIGNUP\u27e7", _sg.get(platform, ""))
             # {first_name} \u2014 \u0432 \u0431\u043e\u044e \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u0442 Celery per-\u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c; \u0432 \u0442\u0435\u0441\u0442\u0435
-            # \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u043c \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u044c\u043d\u043e\u0435 \u0438\u043c\u044f, \u0438\u043d\u0430\u0447\u0435 \u0443\u0445\u043e\u0434\u0438\u0442 \u0441\u044b\u0440\u043e\u0439 \u043f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440.
-            return v.replace("{first_name}", "\u0434\u0440\u0443\u0433") if "{first_name}" in v else v
+            # \u0443\u0431\u0438\u0440\u0430\u0435\u043c \u043f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 (\u0437\u0430\u0433\u043b\u0443\u0448\u0435\u043a \u043d\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u043c, \u0441\u043c. _strip_first_name).
+            return _strip_first_name(v) if "{first_name}" in v else v
 
         out: list[dict] = []
         text = content.get("text") or ""

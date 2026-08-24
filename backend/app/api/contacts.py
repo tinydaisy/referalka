@@ -655,7 +655,8 @@ async def get_filter_options(
          WHERE p.is_active = TRUE
            AND EXISTS (
               SELECT 1 FROM platform_users pu
-               WHERE pu.client_id = $1 AND pu.platform_slug = p.slug
+               JOIN contacts c_own ON c_own.id = pu.contact_id
+               WHERE c_own.client_id = $1 AND pu.platform_slug = p.slug
            )
          ORDER BY p.sort_order, p.slug
     """, client_id)

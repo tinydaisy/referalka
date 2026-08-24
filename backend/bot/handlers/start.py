@@ -2572,8 +2572,8 @@ async def handle_user_message(message: Message):
             contact_row = await db.fetchrow(
                 """SELECT pu.contact_id, c.name, c.utm_source
                      FROM platform_users pu
-                LEFT JOIN contacts c ON c.id = pu.contact_id
-                    WHERE pu.client_id = $1
+                     JOIN contacts c ON c.id = pu.contact_id
+                    WHERE c.client_id = $1
                       AND pu.platform_slug = 'telegram'
                       AND pu.platform_user_id = $2""",
                 client_id, str(user.id),

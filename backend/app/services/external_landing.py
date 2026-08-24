@@ -477,7 +477,7 @@ async def resolve_or_create_participant(
             """SELECT c.id, c.merged_into
                  FROM platform_users pu
                  JOIN contacts c ON c.id = pu.contact_id
-                WHERE pu.client_id = $1
+                WHERE c.client_id = $1
                   AND pu.platform_slug = $2
                   AND pu.platform_user_id = $3
                 LIMIT 1""",

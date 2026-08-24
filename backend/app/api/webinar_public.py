@@ -882,7 +882,8 @@ async def register_event(slug: str, day: int, body: RegEventIn):
         ident = await conn.fetchrow(
             """SELECT pu.platform_slug, pu.platform_user_id
                  FROM platform_users pu
-                WHERE pu.contact_id=$1 AND pu.client_id=$2
+                 JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE pu.contact_id=$1 AND c_own.client_id=$2
                   AND pu.platform_slug IN ('telegram','max','vk')
                   AND pu.platform_user_id ~ '^[0-9]+$'
                 ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'max' THEN 2 ELSE 3 END

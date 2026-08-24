@@ -53,7 +53,8 @@ async def is_identity_blacklisted(
         """SELECT 1
              FROM platform_users pu
              JOIN contact_blacklist bl ON bl.contact_id = pu.contact_id
-            WHERE pu.client_id = $1
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1
               AND pu.platform_slug = $2
               AND pu.platform_user_id = $3
               AND bl.client_id = $1

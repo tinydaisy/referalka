@@ -393,8 +393,9 @@ async def _forward_max_user_message_to_organizer(
                       pu.contact_id, ct.name AS contact_name, ct.utm_source
                  FROM clients c
             LEFT JOIN platform_users pu
-                   ON pu.client_id = c.id AND pu.platform_slug = 'max'
-                  AND pu.platform_user_id = $2
+                   ON pu.platform_slug = 'max' AND pu.platform_user_id = $2
+                  AND EXISTS (SELECT 1 FROM contacts c_own
+                               WHERE c_own.id = pu.contact_id AND c_own.client_id = c.id)
             LEFT JOIN contacts ct ON ct.id = pu.contact_id
                 WHERE c.id = $1""",
             client_id, str(user_id),
@@ -2192,7 +2193,7 @@ async def _handle_max_chat_join(
     )
     if not_subscribed_channels:
         lines = [
-            "Чтобы войти в чаты события, подпишитесь на каналы организатора:",
+            "Чтобы войти в чат события, подпишитесь на эти каналы в MAX:",
             "",
         ]
         for idx, ch in enumerate(not_subscribed_channels, start=1):

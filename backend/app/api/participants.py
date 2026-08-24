@@ -255,7 +255,7 @@ async def register_participant(
             """SELECT c.id, c.ref_code
                  FROM platform_users pu
                  JOIN contacts c ON c.id = pu.contact_id
-                WHERE pu.client_id = $1 AND pu.platform_slug = $3 AND pu.platform_user_id = $2""",
+                WHERE c.client_id = $1 AND pu.platform_slug = $3 AND pu.platform_user_id = $2""",
             event["client_id"], str(data.partner_tg_id), data.platform
         )
         if partner_row:
@@ -841,10 +841,10 @@ async def get_participant_in_event(
                          ORDER BY pe.id LIMIT 1) AS email,
                       c.phone, c.name
                  FROM events e
-                 JOIN platform_users pu ON pu.client_id IN (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted')
-                                        AND pu.platform_slug = $3
+                 JOIN platform_users pu ON pu.platform_slug = $3
                                         AND pu.platform_user_id = $2
                  JOIN contacts c ON c.id = pu.contact_id
+                                AND c.client_id IN (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted')
                 WHERE e.slug = $1
                 ORDER BY EXISTS (SELECT 1 FROM event_participants ep
                                   WHERE ep.event_id = e.id AND ep.contact_id = c.id) DESC,

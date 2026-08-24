@@ -483,7 +483,8 @@ async def send_partner_done_tg(client_id: int, tg_id: str, db,
     contact_id = await db.fetchval(
         """SELECT pu.contact_id
              FROM platform_users pu
-            WHERE pu.client_id = $1
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1
               AND pu.platform_slug = 'telegram'
               AND pu.platform_user_id = $2
             LIMIT 1""",
@@ -525,7 +526,8 @@ async def send_partner_done_vk(client_id: int, vk_id: str, db, token: str) -> No
     contact_id = await db.fetchval(
         """SELECT pu.contact_id
              FROM platform_users pu
-            WHERE pu.client_id = $1
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1
               AND pu.platform_slug = 'vk'
               AND pu.platform_user_id = $2
             LIMIT 1""",

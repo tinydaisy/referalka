@@ -191,7 +191,7 @@ async def prompt_add_channel(message: Message, event_id: int, db) -> None:
              JOIN contacts ct ON ct.id = pu.contact_id
              JOIN collaborators c ON c.contact_id = ct.id
              JOIN event_collaborators ec ON ec.speaker_id = c.id AND ec.event_id = $3
-            WHERE pu.client_id=$1 AND pu.platform_slug='telegram'
+            WHERE ct.client_id=$1 AND pu.platform_slug='telegram'
               AND pu.platform_user_id=$2::text LIMIT 1""",
         client_id, str(tg_id), event_id)
 
@@ -199,7 +199,7 @@ async def prompt_add_channel(message: Message, event_id: int, db) -> None:
         # Канал уже добавлен — ведём в кабинет (ссылка, материалы, статистика).
         contact_row = await db.fetchval(
             """SELECT ct.id FROM platform_users pu JOIN contacts ct ON ct.id=pu.contact_id
-                WHERE pu.client_id=$1 AND pu.platform_slug='telegram'
+                WHERE ct.client_id=$1 AND pu.platform_slug='telegram'
                   AND pu.platform_user_id=$2::text LIMIT 1""",
             client_id, str(tg_id))
         slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
@@ -314,7 +314,7 @@ async def on_enter(cb: CallbackQuery, bot: Bot):
             ev_id)
         contact_id = await db.fetchval(
             """SELECT ct.id FROM platform_users pu JOIN contacts ct ON ct.id=pu.contact_id
-                WHERE pu.client_id=$1 AND pu.platform_slug='telegram' AND pu.platform_user_id=$2::text
+                WHERE ct.client_id=$1 AND pu.platform_slug='telegram' AND pu.platform_user_id=$2::text
                 LIMIT 1""", client_id, str(tg_id))
         if contact_id:
             await db.execute(
@@ -446,7 +446,7 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
             ev_id)
         row = await db.fetchrow(
             """SELECT ct.id, ct.name FROM platform_users pu JOIN contacts ct ON ct.id=pu.contact_id
-                WHERE pu.client_id=$1 AND pu.platform_slug='telegram' AND pu.platform_user_id=$2::text
+                WHERE ct.client_id=$1 AND pu.platform_slug='telegram' AND pu.platform_user_id=$2::text
                 LIMIT 1""", client_id, str(tg_id))
         if not row:
             await message.answer("Сначала войдите в систему: /start")
@@ -465,9 +465,11 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
 
         # Автосвязка с ПЛЮСОН-аккаунтом по числовому tg_id (если он уже клиент).
         linked = await db.fetchval(
-            """SELECT pu.client_id FROM platform_users pu JOIN clients cl ON cl.id=pu.client_id
+            """SELECT ct.client_id FROM platform_users pu
+                JOIN contacts ct ON ct.id = pu.contact_id
+                JOIN clients cl ON cl.id = ct.client_id
                 WHERE pu.platform_slug='telegram' AND pu.platform_user_id=$1::text
-                  AND cl.is_system_service = FALSE ORDER BY pu.client_id LIMIT 1""",
+                  AND cl.is_system_service = FALSE ORDER BY ct.client_id LIMIT 1""",
             str(tg_id))
         if linked:
             await db.execute(

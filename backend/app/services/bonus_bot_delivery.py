@@ -36,8 +36,9 @@ async def _tg_id(db, contact_id: int, client_id: int) -> Optional[str]:
     return await db.fetchval(
         """SELECT pu.platform_user_id
              FROM platform_users pu
+             JOIN contacts c_own ON c_own.id = pu.contact_id
             WHERE pu.contact_id = $1 AND pu.platform_slug = 'telegram'
-              AND pu.client_id = $2
+              AND c_own.client_id = $2
               AND pu.platform_user_id ~ '^[0-9]+$'
             ORDER BY pu.id LIMIT 1""",
         contact_id, client_id,

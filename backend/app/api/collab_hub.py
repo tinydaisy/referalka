@@ -260,7 +260,8 @@ _CLIENT_COLS = """id, name, brand_name, owner_photo_url, profile_photo_url, bio,
     (SELECT jsonb_object_agg(t.slug, t.cnt) FROM (
         SELECT pu.platform_slug AS slug, count(DISTINCT pu.contact_id) AS cnt
           FROM platform_users pu
-         WHERE pu.client_id = cl.id
+          JOIN contacts c_own ON c_own.id = pu.contact_id
+         WHERE c_own.client_id = cl.id
            AND NOT EXISTS (SELECT 1 FROM platform_user_channels puc
                             WHERE puc.platform_user_id = pu.id AND puc.is_unsubscribed)
          GROUP BY pu.platform_slug

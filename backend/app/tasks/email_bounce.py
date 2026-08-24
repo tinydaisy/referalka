@@ -271,9 +271,10 @@ async def _process_bounces_async():
             # Найдём client_id и client_channel_id по email-получателю
             # (берём первую найденную identity)
             pu = await conn.fetchrow(
-                """SELECT pu.id AS pu_id, pu.client_id, pu.email_is_dead,
+                """SELECT pu.id AS pu_id, c_own.client_id, pu.email_is_dead,
                           cc.id AS client_channel_id
                      FROM platform_users pu
+                     JOIN contacts c_own ON c_own.id = pu.contact_id
                      LEFT JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                      LEFT JOIN client_channels cc ON cc.id = puc.client_channel_id
                      LEFT JOIN channels ch ON ch.id = cc.channel_id AND ch.platform_slug = 'email'

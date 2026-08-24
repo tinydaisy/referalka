@@ -405,7 +405,7 @@ async def _find_contact_by_personal_identity(
             """SELECT pu.contact_id
                  FROM platform_users pu
                  JOIN contacts ct ON ct.id = pu.contact_id
-                WHERE pu.client_id = $1
+                WHERE ct.client_id = $1
                   AND pu.platform_slug = $2
                   AND ct.merged_into IS NULL
                   AND (

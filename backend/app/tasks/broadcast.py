@@ -12,6 +12,7 @@ import asyncio
 import asyncpg
 import httpx
 import logging
+import re
 from zoneinfo import ZoneInfo
 from app.services.message_builder import build_message_content, send_telegram_message
 from app.celery_app import celery
@@ -40,6 +41,49 @@ def run_async(coro):
     finally:
         loop.close()
         asyncio.set_event_loop(None)
+
+
+def _apply_first_name(text: str, name: str | None) -> str:
+    """Подставить имя получателя вместо {first_name}.
+
+    ⚠️ НИКАКИХ подстановок-заглушек вроде «друг». Имени нет — плейсхолдер
+    убирается вместе с лишними пробелами и знаками препинания вокруг него,
+    как это делается с остальными пустыми плейсхолдерами. Заглушка уходила
+    реальным людям («Привет, друг!») в рассылке клиента — так с аудиторией
+    не разговаривают, и клиент увидел это у себя на созвоне.
+    """
+    if not text or "{first_name}" not in text:
+        return text
+    nm = (name or "").strip()
+    if nm:
+        return text.replace("{first_name}", nm)
+    # Убираем плейсхолдер вместе с прилипшей запятой. Разбор по случаям —
+    # иначе получается мусор вроде «Привет!!» или « добрый день» с пробелом:
+    #   «Привет, {first_name}!»              → «Привет!»
+    #   «{first_name}, добрый день»          → «Добрый день»
+    #   «Здравствуйте, {first_name}, рады»   → «Здравствуйте, рады»
+    #   «Добрый день! {first_name}!»         → «Добрый день!»
+    out = text
+    # 1) запятая с обеих сторон — оставляем одну: «А, {ph}, Б» → «А, Б»
+    out = re.sub(r",[ \t]*\{first_name\}[ \t]*,", ",", out)
+    # 2) знак препинания слева + плейсхолдер со своим знаком справа:
+    #    «Привет! {ph}!» → «Привет!»   «Привет, {ph}!» → «Привет!»
+    out = re.sub(r"([!?.…])[ \t]*\{first_name\}[ \t]*[!?.…]", r"\1", out)
+    out = re.sub(r",[ \t]*\{first_name\}[ \t]*([!?.…])", r"\1", out)
+    # 3) запятая слева: «Привет, {ph}» → «Привет»
+    out = re.sub(r"[ \t]*,[ \t]*\{first_name\}", "", out)
+    # 4) плейсхолдер в начале строки со своей запятой: «{ph}, текст» → «Текст»
+    out = re.sub(r"^[ \t]*\{first_name\}[ \t]*,[ \t]*(.)",
+                 lambda m: m.group(1).upper(), out, flags=re.MULTILINE)
+    # 5) плейсхолдер перед знаком препинания: «{ph}!» → «!», «Дорогой {ph},» → «Дорогой,»
+    out = re.sub(r"[ \t]*\{first_name\}[ \t]*(?=[!?.,;:…])", "", out)
+    # 6) всё остальное — вырезаем вместе с прилипшими пробелами
+    out = re.sub(r"[ \t]*\{first_name\}[ \t]*", " ", out)
+    # Хвосты: двойные пробелы, пробел перед знаком, знак в начале строки.
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"[ \t]+([!?.,;:…])", r"\1", out)
+    out = re.sub(r"^[ \t]*([,;:!?.…][ \t]*)+", "", out, flags=re.MULTILINE)
+    return "\n".join(ln.rstrip() for ln in out.split("\n"))
 
 
 # ─────────────────────────────────────────
@@ -407,7 +451,7 @@ async def _send_broadcast(schedule_id: int):
         if needs_first_name and final_ids:
             name_rows = await conn.fetch(
                 """
-                SELECT platform_user_id, COALESCE(NULLIF(first_name, ''), 'друг') AS first_name
+                SELECT platform_user_id, COALESCE(NULLIF(first_name, ''), '') AS first_name
                 FROM platform_users
                 WHERE client_id=$1 AND platform_slug='telegram' AND platform_user_id = ANY($2::text[])
                 """,
@@ -686,7 +730,7 @@ async def _send_broadcast(schedule_id: int):
                 msg_text = _with_gift_funnel(_with_support(text, "telegram"), "telegram")
                 msg_btn_url = _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True))
                 if needs_first_name:
-                    msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
+                    msg_text = _apply_first_name(msg_text, name_by_tg.get(tg_id))
                 if needs_game_link:
                     # Персональная ссылка с `_ct{contact_id}` если контакт известен,
                     # иначе общая game_link_url (обратная совместимость).
@@ -754,7 +798,8 @@ async def _send_broadcast(schedule_id: int):
                 INSERT INTO broadcast_log (schedule_id, platform_user_id, channel_id, status, error, external_message_id, sent_at)
                 SELECT $1, pu.id, $6, $2, $3, $7, NOW()
                 FROM platform_users pu
-                WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $4 AND pu.client_id = $5
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $4 AND c_own.client_id = $5
                 """,
                 schedule_id,
                 "sent" if success else "failed",
@@ -1360,19 +1405,21 @@ async def _send_broadcast_vk_part(
             """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
                       COALESCE(NULLIF(pu.first_name, ''),
                                (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
-                               'друг') AS first_name
+                               '') AS first_name
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
                  JOIN channels ch ON ch.id = cc.channel_id
-                WHERE pu.client_id = $1
+                 JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1
                   AND pu.platform_slug = 'vk'
                   AND ch.platform_slug = 'vk'
                   AND puc.is_unsubscribed = FALSE
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             client_id,
         )
@@ -1381,7 +1428,7 @@ async def _send_broadcast_vk_part(
             """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
                       COALESCE(NULLIF(pu.first_name, ''),
                                (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
-                               'друг') AS first_name
+                               '') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1392,7 +1439,8 @@ async def _send_broadcast_vk_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             event_id,
         )
@@ -1401,7 +1449,7 @@ async def _send_broadcast_vk_part(
             """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
                       COALESCE(NULLIF(pu.first_name, ''),
                                (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
-                               'друг') AS first_name
+                               '') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1412,7 +1460,8 @@ async def _send_broadcast_vk_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             event_id,
         )
@@ -1553,7 +1602,7 @@ async def _send_broadcast_vk_part(
         # В build_message_content он намеренно не трогается. В TG и email это
         # делалось, а в VK — нет: человеку уходил сырой «{first_name}».
         if "{first_name}" in message_text:
-            message_text = message_text.replace("{first_name}", r["first_name"] or "друг")
+            message_text = _apply_first_name(message_text, r["first_name"])
         # Сквозной contact_id в ссылке эфира — по VK-контакту этого получателя.
         if "?c=__CT__" in message_text:
             _ctv = r.get("contact_id")
@@ -1694,19 +1743,21 @@ async def _send_broadcast_max_part(
             """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
                       COALESCE(NULLIF(pu.first_name, ''),
                                (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
-                               'друг') AS first_name
+                               '') AS first_name
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
                  JOIN channels ch ON ch.id = cc.channel_id
-                WHERE pu.client_id = $1
+                 JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1
                   AND pu.platform_slug = 'max'
                   AND ch.platform_slug = 'max'
                   AND puc.is_unsubscribed = FALSE
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             client_id,
         )
@@ -1715,7 +1766,7 @@ async def _send_broadcast_max_part(
             """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
                       COALESCE(NULLIF(pu.first_name, ''),
                                (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
-                               'друг') AS first_name
+                               '') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1726,7 +1777,8 @@ async def _send_broadcast_max_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             event_id,
         )
@@ -1735,7 +1787,7 @@ async def _send_broadcast_max_part(
             """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
                       COALESCE(NULLIF(pu.first_name, ''),
                                (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
-                               'друг') AS first_name
+                               '') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1746,7 +1798,8 @@ async def _send_broadcast_max_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             event_id,
         )
@@ -1844,7 +1897,7 @@ async def _send_broadcast_max_part(
         # ⚠️ {first_name} — персонально каждому (см. пояснение в VK-ветке).
         # В MAX подстановки не было вовсе: уходил сырой «{first_name}».
         if "{first_name}" in message_text:
-            message_text = message_text.replace("{first_name}", r["first_name"] or "друг")
+            message_text = _apply_first_name(message_text, r["first_name"])
         # Сквозной contact_id в ссылке эфира — по MAX-контакту этого получателя.
         if "?c=__CT__" in message_text:
             _ctm = r.get("contact_id")
@@ -2000,11 +2053,11 @@ async def _send_broadcast_email_part(
     if aud_include == "all_client":
         rows = await conn.fetch(
             """SELECT pu.id AS pu_id, pu.contact_id, pu.platform_user_id AS email,
-                      COALESCE(NULLIF(pu.first_name, ''), c.name, 'друг') AS first_name
+                      COALESCE(NULLIF(pu.first_name, ''), c.name, '') AS first_name
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN contacts c ON c.id = pu.contact_id
-                WHERE pu.client_id = $1
+                WHERE c.client_id = $1
                   AND pu.platform_slug = 'email'
                   AND pu.email_is_dead = FALSE
                   AND puc.client_channel_id = $2
@@ -2012,14 +2065,15 @@ async def _send_broadcast_email_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             client_id, channel_dict["client_channel_id"],
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
             """SELECT pu.id AS pu_id, pu.contact_id, pu.platform_user_id AS email,
-                      COALESCE(NULLIF(pu.first_name, ''), c.name, 'друг') AS first_name
+                      COALESCE(NULLIF(pu.first_name, ''), c.name, '') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'email'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -2031,14 +2085,15 @@ async def _send_broadcast_email_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             event_id, channel_dict["client_channel_id"],
         )
     elif event_id:
         rows = await conn.fetch(
             """SELECT pu.id AS pu_id, pu.contact_id, pu.platform_user_id AS email,
-                      COALESCE(NULLIF(pu.first_name, ''), c.name, 'друг') AS first_name
+                      COALESCE(NULLIF(pu.first_name, ''), c.name, '') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'email'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -2050,7 +2105,8 @@ async def _send_broadcast_email_part(
                   -- ЧС (миграция 228)
                   AND NOT EXISTS (
                       SELECT 1 FROM contact_blacklist bl
-                      WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+                      WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
                   )""",
             event_id, channel_dict["client_channel_id"],
         )
@@ -2234,16 +2290,14 @@ async def _send_broadcast_email_part(
             client_channel_id=channel_dict["client_channel_id"],
         )
 
-        # Персонализация: {first_name}
-        first_name_val = r["first_name"] or "друг"
-        msg_text = body_text.replace("{first_name}", first_name_val) if "{first_name}" in body_text else body_text
+        # Персонализация: {first_name}. Нет имени — плейсхолдер убирается,
+        # заглушек вроде «друг» не подставляем (см. _apply_first_name).
+        first_name_val = r["first_name"]
+        msg_text = _apply_first_name(body_text, first_name_val)
         # Сквозной contact_id в ссылке эфира — по контакту email-получателя.
         if "?c=__CT__" in msg_text:
             msg_text = msg_text.replace("?c=__CT__", f"?c={r['contact_id']}" if r.get("contact_id") else "")
-        msg_html = (
-            html_body.replace("{first_name}", first_name_val) if (html_body and "{first_name}" in html_body)
-            else html_body
-        )
+        msg_html = _apply_first_name(html_body, first_name_val) if html_body else html_body
 
         # 1) Вставляем broadcast_log со статусом 'sending' — нужен для трек-токенов.
         #    Полноценный sent/failed/error/external_message_id допишем после отправки.
@@ -2341,7 +2395,7 @@ async def _build_audience(conn, schedule) -> set:
             JOIN client_channels cc ON cc.id = puc.client_channel_id
             JOIN channels ch ON ch.id = cc.channel_id
             WHERE puc.platform_user_id = pu.id
-              AND cc.client_id = pu.client_id
+              AND cc.client_id = (SELECT c3.client_id FROM contacts c3 WHERE c3.id = pu.contact_id)
               AND ch.platform_slug = 'telegram'
               AND puc.is_unsubscribed = FALSE
           )
@@ -2350,7 +2404,7 @@ async def _build_audience(conn, schedule) -> set:
             JOIN client_channels cc ON cc.id = puc.client_channel_id
             JOIN channels ch ON ch.id = cc.channel_id
             WHERE puc.platform_user_id = pu.id
-              AND cc.client_id = pu.client_id
+              AND cc.client_id = (SELECT c3.client_id FROM contacts c3 WHERE c3.id = pu.contact_id)
               AND ch.platform_slug = 'telegram'
           )
         )
@@ -2358,14 +2412,16 @@ async def _build_audience(conn, schedule) -> set:
         -- исключаются из аудитории. Подставляется во все ветки ниже.
         AND NOT EXISTS (
             SELECT 1 FROM contact_blacklist bl
-            WHERE bl.contact_id = pu.contact_id AND bl.client_id = pu.client_id
+            WHERE bl.contact_id = pu.contact_id
+                        AND bl.client_id = (SELECT c2.client_id FROM contacts c2 WHERE c2.id = pu.contact_id)
         )
     """
 
     if aud_include == "all_client":
         rows = await conn.fetch(
             f"SELECT pu.platform_user_id FROM platform_users pu "
-            f"WHERE pu.client_id=$1 AND pu.platform_slug='telegram' AND {SUBSCRIBED_CLAUSE}",
+            f"JOIN contacts c_own ON c_own.id = pu.contact_id "
+            f"WHERE c_own.client_id=$1 AND pu.platform_slug='telegram' AND {SUBSCRIBED_CLAUSE}",
             client_id
         )
     elif aud_include == "registered_event":
@@ -2411,7 +2467,7 @@ async def _build_audience(conn, schedule) -> set:
         rows_t = await conn.fetch(
             "SELECT pu.platform_user_id FROM platform_users pu "
             "JOIN contacts ct ON ct.id = pu.contact_id "
-            "WHERE pu.client_id=$1 AND pu.platform_slug='telegram' "
+            "WHERE ct.client_id=$1 AND pu.platform_slug='telegram' "
             "  AND jsonb_typeof(ct.tags)='array' AND ct.tags ?| $2::text[]",
             client_id, list(tags_inc)
         )
@@ -2420,7 +2476,7 @@ async def _build_audience(conn, schedule) -> set:
         rows_t = await conn.fetch(
             "SELECT pu.platform_user_id FROM platform_users pu "
             "JOIN contacts ct ON ct.id = pu.contact_id "
-            "WHERE pu.client_id=$1 AND pu.platform_slug='telegram' "
+            "WHERE ct.client_id=$1 AND pu.platform_slug='telegram' "
             "  AND jsonb_typeof(ct.tags)='array' AND ct.tags ?| $2::text[]",
             client_id, list(tags_exc)
         )

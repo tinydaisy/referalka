@@ -916,7 +916,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
     pu = await db.fetchrow(
         """SELECT pu.id, pu.contact_id
              FROM platform_users pu
-            WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2""",
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2""",
         client_id, str(tg_id)
     )
     contact_id: Optional[int] = None
@@ -1141,7 +1142,8 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
     pu = await db.fetchrow(
         """SELECT pu.id, pu.contact_id
              FROM platform_users pu
-            WHERE pu.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
         client_id, str(vk_id)
     )
     contact_id: Optional[int] = None
@@ -1432,7 +1434,8 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
     pu = await db.fetchrow(
         """SELECT pu.id, pu.contact_id
              FROM platform_users pu
-            WHERE pu.client_id = $1 AND pu.platform_slug = 'max' AND pu.platform_user_id = $2""",
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = 'max' AND pu.platform_user_id = $2""",
         client_id, str(max_user_id)
     )
     contact_id: Optional[int] = None

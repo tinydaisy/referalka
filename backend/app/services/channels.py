@@ -294,7 +294,8 @@ async def mark_unsubscribed_by_tg_id(client_id: int, tg_id: str, db, channel_id:
              (platform_user_id, client_channel_id, is_unsubscribed, unsubscribed_at)
            SELECT pu.id, $1, TRUE, NOW()
              FROM platform_users pu
-            WHERE pu.client_id = $2 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $3
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $2 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $3
            ON CONFLICT (platform_user_id, client_channel_id) DO UPDATE
              SET is_unsubscribed = TRUE,
                  unsubscribed_at = COALESCE(platform_user_channels.unsubscribed_at, NOW())""",
@@ -366,7 +367,8 @@ async def get_bot_handle_for_user(client_id: int, tg_id: str, db) -> Optional[st
              JOIN platform_users pu ON pu.id = puc.platform_user_id
              JOIN client_channels cc ON cc.id = puc.client_channel_id
              JOIN channels ch ON ch.id = cc.channel_id
-            WHERE pu.client_id = $1
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1
               AND pu.platform_slug = 'telegram'
               AND pu.platform_user_id = $2
               AND ch.platform_slug = 'telegram'
@@ -411,7 +413,8 @@ async def get_telegram_send_targets(client_id: int, tg_ids: list[str], db) -> di
           JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
           JOIN client_channels cc ON cc.id = puc.client_channel_id
           JOIN channels ch ON ch.id = cc.channel_id
-         WHERE pu.client_id = $1
+          JOIN contacts c_own ON c_own.id = pu.contact_id
+         WHERE c_own.client_id = $1
            AND pu.platform_slug = 'telegram'
            AND ch.platform_slug = 'telegram'
            AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''

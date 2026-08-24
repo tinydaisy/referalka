@@ -74,8 +74,9 @@ async def resolve_event_contact_id_any_owner(
     """
     return await db.fetchval(
         """SELECT pu.contact_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
             WHERE pu.platform_slug = $1 AND pu.platform_user_id = $2
-              AND pu.client_id IN (SELECT eo.client_id FROM event_owners eo
+              AND c_own.client_id IN (SELECT eo.client_id FROM event_owners eo
                                     WHERE eo.event_id = $3 AND eo.status = 'accepted')
             ORDER BY EXISTS (SELECT 1 FROM event_participants ep
                               WHERE ep.event_id = $3 AND ep.contact_id = pu.contact_id) DESC,
@@ -159,7 +160,8 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
                 for i in idents:
                     found = await db.fetchval(
                         """SELECT pu.contact_id FROM platform_users pu
-                            WHERE pu.client_id = $1 AND pu.platform_slug = $2
+                            JOIN contacts c_own ON c_own.id = pu.contact_id
+                            WHERE c_own.client_id = $1 AND pu.platform_slug = $2
                               AND pu.platform_user_id = $3 LIMIT 1""",
                         cid, i["platform_slug"], str(i["platform_user_id"]),
                     )

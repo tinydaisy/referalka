@@ -399,7 +399,7 @@ async def salebot_register(
                     """
                     SELECT c.ref_code FROM platform_users pu
                     JOIN contacts c ON c.id = pu.contact_id
-                    WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram'
+                    WHERE c.client_id = $1 AND pu.platform_slug = 'telegram'
                       AND pu.platform_user_id = $2
                     """,
                     data.client_id, str(data.partner_tg_id)
@@ -690,7 +690,7 @@ async def salebot_get_user(
         FROM platform_users pu
         JOIN contacts c ON c.id = pu.contact_id
         LEFT JOIN event_participants ep ON ep.contact_id = c.id
-        WHERE pu.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3
+        WHERE c.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3
         """,
         client_id, platform, platform_user_id
     )
@@ -786,7 +786,7 @@ async def _resolve_participant_row(
              JOIN contacts c ON c.id = pu.contact_id
              JOIN event_participants ep ON ep.contact_id = c.id
              JOIN events e ON e.id = ep.event_id AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
-            WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
+            WHERE c.client_id = $1 AND pu.platform_slug = 'email'
               AND LOWER(pu.platform_user_id) = $2
             ORDER BY ep.id DESC
             LIMIT 1""",

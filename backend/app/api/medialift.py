@@ -331,7 +331,7 @@ async def add_channel(
         """SELECT ct.id, ct.name
              FROM platform_users pu
              JOIN contacts ct ON ct.id = pu.contact_id
-            WHERE pu.client_id = $1 AND pu.platform_slug='telegram'
+            WHERE ct.client_id = $1 AND pu.platform_slug='telegram'
               AND pu.platform_user_id = $2::text
             LIMIT 1""",
         owner_client_id, str(data.tg_id))
@@ -362,13 +362,13 @@ async def add_channel(
     # Автосвязка с клиентским аккаунтом ПЛЮСОНа по числовому tg_id.
     # Если у человека уже есть свой client-аккаунт с этим же tg_id — привязываем молча.
     linked = await db.fetchval(
-        """SELECT pu.client_id
+        """SELECT ct.client_id
              FROM platform_users pu
-             JOIN clients cl ON cl.id = pu.client_id
+             JOIN contacts ct ON ct.id = pu.contact_id
+             JOIN clients cl ON cl.id = ct.client_id
             WHERE pu.platform_slug='telegram' AND pu.platform_user_id=$1::text
               AND cl.is_system_service = FALSE
-              AND cl.id = pu.client_id
-            ORDER BY pu.client_id LIMIT 1""",
+            ORDER BY ct.client_id LIMIT 1""",
         str(data.tg_id))
     if linked:
         await db.execute(

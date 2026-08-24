@@ -162,7 +162,8 @@ async def platforms_summary(client=Depends(get_current_client), db=Depends(get_d
                                         AND puc.is_unsubscribed)
                ) AS subscribed
           FROM platform_users pu
-         WHERE pu.client_id = $1
+          JOIN contacts c_own ON c_own.id = pu.contact_id
+         WHERE c_own.client_id = $1
          GROUP BY pu.platform_slug
          ORDER BY total DESC
         """,
@@ -171,7 +172,8 @@ async def platforms_summary(client=Depends(get_current_client), db=Depends(get_d
     titles = {"telegram": "Telegram-боты", "email": "Емейлы", "max": "МАКС-боты", "vk": "ВК-боты"}
     # Людей считаем БЕЗ повторов: один человек с почтой и телеграмом — один контакт.
     unique_total = await db.fetchval(
-        "SELECT count(DISTINCT contact_id) FROM platform_users WHERE client_id=$1", client_id) or 0
+        "SELECT count(DISTINCT pu.contact_id) FROM platform_users pu "
+        "JOIN contacts c_own ON c_own.id = pu.contact_id WHERE c_own.client_id=$1", client_id) or 0
     # ⚠️ Подписчики КАНАЛОВ считаются отдельной строкой рядом с ботами: у
     # канала подписчиков обычно больше, чем у бота, и без них картина неполная.
     # Цифру отдают сами площадки (бот в канале админ) — подделать нельзя.

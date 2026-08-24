@@ -891,7 +891,7 @@ async def find_contact_by_identity(db, *, client_id: int, platform_slug: str, pl
         """SELECT pu.contact_id, c.merged_into
              FROM platform_users pu
              JOIN contacts c ON c.id = pu.contact_id
-            WHERE pu.client_id = $1
+            WHERE c.client_id = $1
               AND pu.platform_slug = $2
               AND pu.platform_user_id = $3
             ORDER BY pu.id DESC LIMIT 1""",

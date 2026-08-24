@@ -991,7 +991,7 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             JOIN platform_users pu ON pu.contact_id = ep.contact_id
                                    AND pu.platform_slug = 'vk'
                                    AND pu.platform_user_id = $1
-                                   AND pu.client_id = $2
+            JOIN contacts c_own ON c_own.id = pu.contact_id AND c_own.client_id = $2
            WHERE ep.registered_at > NOW() - INTERVAL '60 seconds'
               OR pu.updated_at    > NOW() - INTERVAL '60 seconds'
            LIMIT 1""",
@@ -1983,7 +1983,9 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
                       pu.contact_id, ct.name AS contact_name, ct.utm_source
                  FROM clients c
             LEFT JOIN platform_users pu
-                   ON pu.client_id = c.id AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2
+                   ON pu.platform_slug = 'vk' AND pu.platform_user_id = $2
+                  AND EXISTS (SELECT 1 FROM contacts c_own
+                               WHERE c_own.id = pu.contact_id AND c_own.client_id = c.id)
             LEFT JOIN contacts ct ON ct.id = pu.contact_id
                 WHERE c.id = $1""",
             ctx.client_id, str(from_id),
