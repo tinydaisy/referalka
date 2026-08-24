@@ -6,6 +6,10 @@ import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 import { useMe } from '@/hooks/useMe'
 import DialogChat from '@/components/DialogChat'
+// ⚠️ Форма доп. поля — ОБЩАЯ с разделом «Анкеты»: поле заводится из двух мест,
+// а форма одна (иначе разъедется список типов и вариантов).
+import ContactFieldForm from '@/components/ContactFieldForm'
+import { MoreHorizontal, Plus as PlusIcon } from 'lucide-react'
 
 interface Identity {
   platform_slug: string
@@ -255,8 +259,75 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
   window.history.replaceState(null, '', next)
 }
 
+/* ─────────────────── Меню действий над базой контактов ──────────────────── */
+/**
+ * Одно место для действий со ВСЕЙ базой, а не россыпь кнопок над списком.
+ * Сейчас внутри: выгрузка CSV и создание дополнительного поля контакта.
+ * Сюда же лягут будущие массовые операции.
+ *
+ * ⚠️ «Добавить поле» открывает ТУ ЖЕ форму, что в разделе «Анкеты» — поле
+ * создаётся один раз на кабинет и сразу существует у всех контактов. Люди
+ * искали эту настройку в «Контактах» и не находили: она была только в
+ * «Анкетах», куда за полем контакта никто не идёт.
+ */
+function ContactsActionsMenu({
+  onExport, exporting, total, onAddField, canAddField,
+}: {
+  onExport: () => void
+  exporting: boolean
+  total: number
+  onAddField: () => void
+  canAddField: boolean
+}) {
+  const [open, setOpen] = useState(false)
+
+  // Клик мимо закрывает меню. Это НЕ форма — вводимых данных тут нет,
+  // поэтому закрытие по фону уместно (в отличие от модалок-форм).
+  useEffect(() => {
+    if (!open) return
+    const onDoc = () => setOpen(false)
+    document.addEventListener('click', onDoc)
+    return () => document.removeEventListener('click', onDoc)
+  }, [open])
+
+  return (
+    <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        title="Действия с базой"
+        className="px-2.5 py-[7px] rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600 hover:bg-gray-100"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+          <button
+            onClick={() => { setOpen(false); onExport() }}
+            disabled={exporting || total === 0}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          >
+            <Download size={14} />
+            {exporting ? 'Готовим файл…' : 'Скачать базу (CSV)'}
+          </button>
+          {canAddField && (
+            <button
+              onClick={() => { setOpen(false); onAddField() }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <PlusIcon size={14} />
+              Добавить поле контактам
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ContactsPage() {
-  const { isAssistant } = useMe()
+  const { me, isAssistant } = useMe()
+  // Создание доп. поля контакта прямо из «Контактов» (форма общая с «Анкетами»).
+  const [addingField, setAddingField] = useState(false)
   // Инициализируем из URL — для deep-link с лид-магнитов и для возврата к фильтру.
   const initial = typeof window !== 'undefined' ? parseFiltersFromUrl() : { filters: EMPTY_FILTERS, search: '', showUnsubscribed: false }
   const [search, setSearch] = useState(initial.search)
@@ -423,15 +494,29 @@ export default function ContactsPage() {
                 </span>
               )}
             </button>
-            <button
-              onClick={handleExport}
-              disabled={exporting || total === 0}
-              className="px-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 shrink-0"
-              title={total === 0 ? 'Нет контактов для экспорта' : 'Скачать CSV отображённых контактов'}
-            >
-              <Download size={14} />
-            </button>
+            {/* Меню действий над базой. Сюда же лягут будущие массовые
+                операции — чтобы они не расползались отдельными кнопками. */}
+            <ContactsActionsMenu
+              onExport={handleExport}
+              exporting={exporting}
+              total={total}
+              onAddField={() => setAddingField(true)}
+              canAddField={!isAssistant && (me?.features || []).includes('surveys')}
+            />
           </div>
+
+          {/* Создание доп. поля прямо отсюда — форма общая с «Анкетами».
+              Новое поле появляется у всех контактов сразу (пустым). */}
+          {addingField && (
+            <div className="mt-3">
+              {/* Список контактов не перечитываем: новое поле у всех пустое,
+                  на выдачу списка оно не влияет. */}
+              <ContactFieldForm
+                onClose={() => setAddingField(false)}
+                onSaved={() => setAddingField(false)}
+              />
+            </div>
+          )}
           <div className="mt-2 px-1 flex items-center justify-between">
             <div className="flex flex-col gap-0.5">
               {/* ⚠️ При включённых фильтрах показываем НАЙДЕНО, а не общее число.
