@@ -186,10 +186,27 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
         event_id,
     )
     if via_funnel:
+        # ⚠️ ССЫЛКА ВЕДЁТ В БОТА, А НЕ НА ВЕБ-СТРАНИЦУ (как в Mini App).
+        # Веб-адрес открывал страницу, та перекидывала в бота — и человек,
+        # уже запускавший этого бота раньше, не получал ничего: Telegram
+        # присылает метку только при ПЕРВОМ запуске.
+        #
+        # В вебе площадка человека неизвестна, поэтому отдаём ВСЕ ссылки
+        # владельца — страница показывает выбор.
+        from app.services.share_links import build_funnel_landing_links
         for g in gifts:
-            if g.get("lm_slug"):
-                g["link_url"] = await client_public_link(
-                    db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
+            if not g.get("lm_slug"):
+                continue
+            web_url = await client_public_link(
+                db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
+            try:
+                links = await build_funnel_landing_links(
+                    db, client_id=g.get("lm_client_id"), slug=g["lm_slug"], kind="m")
+            except Exception:
+                links = {}
+            g["platform_links"] = {k: v for k, v in (links or {}).items() if v}
+            g["web_url"] = web_url
+            g["link_url"] = web_url
 
     def _has_ph(s):
         return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")
@@ -1177,12 +1194,12 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 bar = (f'<div class="g-bar"><div class="g-bar-fill" '
                        f'style="width:{pct}%"></div></div>')
             else:
-                next_html = '<div class="g-next done">🎉 Все подарки получены!</div>'
+                next_html = '<div class="g-next done">🎉 Все подарки открыты!</div>'
                 bar = ""
             summary = (
                 '<div class="gift-box">'
                 f'<div class="gift-top"><div class="gift-num">{count_html}</div>'
-                f'<div class="gift-info"><div class="gift-cap">Получено подарков</div>'
+                f'<div class="gift-info"><div class="gift-cap">Доступно подарков</div>'
                 f'{last_html}</div></div>'
                 f'{next_html}{bar}</div>'
             )
@@ -1193,11 +1210,29 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 got = registered >= cost
                 gtitle = esc(g.get("title") or "")
                 gdesc = esc(g.get("description") or "")
-                desc_html = f'<div class="gi-desc">{gdesc}</div>' if gdesc else ""
+                # ⚠️ Описание — ПОД СТРЕЛКОЙ и с переносами строк. Раньше оно
+                # вываливалось целиком и слипалось в кашу: подарков за ним не
+                # было видно, а кнопка «Открыть» уезжала за край.
+                desc_html = (
+                    f'<details class="gi-desc-wrap"><summary class="gi-desc-more">Подробнее</summary>'
+                    f'<div class="gi-desc">{gdesc}</div></details>'
+                ) if gdesc else ""
                 if got:
-                    link = (g.get("link_url") or "").strip()
-                    btn = (f'<a class="gi-open" href="{esc(link)}" target="_blank" '
-                           f'rel="noopener">Открыть</a>') if link else ""
+                    # ⚠️ Ссылки ПО ПЛОЩАДКАМ: в вебе неизвестно, каким
+                    # мессенджером пользуется человек, поэтому показываем выбор.
+                    # Веб-адрес остаётся, только если у владельца нет ботов.
+                    plinks = g.get("platform_links") or {}
+                    _labels = {"telegram": "Телеграм", "vk": "ВКонтакте", "max": "MAX"}
+                    if plinks:
+                        btn = "".join(
+                            f'<a class="gi-open" href="{esc(u)}" target="_blank" rel="noopener">'
+                            f'{_labels.get(k, k)}</a>'
+                            for k, u in plinks.items() if u
+                        )
+                    else:
+                        link = (g.get("link_url") or "").strip()
+                        btn = (f'<a class="gi-open" href="{esc(link)}" target="_blank" '
+                               f'rel="noopener">Открыть</a>') if link else ""
                     return (
                         '<div class="gi gi-got">'
                         '<div class="gi-ico">🎁</div>'
@@ -1988,7 +2023,16 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .gi-ico.locked {{ background:#eef2f7; color:#b0bcc8; }}
   .gi-body {{ flex:1; min-width:0; }}
   .gi-title {{ font-size:13px; font-weight:700; color:#1a2a3a; margin-bottom:3px; }}
-  .gi-desc {{ font-size:11px; color:#6b7c8e; }}
+  /* ⚠️ pre-wrap: переносы строк из описания сохраняются, иначе весь текст
+     слипается в одну кашу. */
+  .gi-desc {{ font-size:11px; color:#6b7c8e; white-space:pre-wrap; line-height:1.45;
+              margin-top:6px; }}
+  .gi-desc-wrap {{ margin-top:4px; }}
+  .gi-desc-more {{ font-size:11px; color:#6b7c8e; cursor:pointer; list-style:none;
+                   display:inline-flex; align-items:center; gap:4px; }}
+  .gi-desc-more::after {{ content:"▼"; font-size:9px; }}
+  .gi-desc-wrap[open] .gi-desc-more::after {{ content:"▲"; }}
+  .gi-desc-more::-webkit-details-marker {{ display:none; }}
   .gi-need {{ font-size:11px; color:#b86b00; font-weight:700; }}
   .gi-side {{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0; }}
   .gi-badge {{ font-size:10px; font-weight:700; padding:3px 7px; border-radius:5px; white-space:nowrap; }}
@@ -3182,15 +3226,40 @@ async def public_tournament_index(slug: str, db: asyncpg.Connection = Depends(ge
         raise HTTPException(status_code=404, detail="Турнир не найден")
     event_id = event["id"]
 
-    stages = await db.fetch(
-        """SELECT s.id, s.title, s.subtitle, s.category_id,
-                  (SELECT count(*) FROM event_collaborator_stages ecs WHERE ecs.stage_id = s.id) AS people
+    stage_rows = await db.fetch(
+        """SELECT s.id, s.title, s.subtitle, s.category_id
              FROM conf_stages s
             WHERE s.event_id = $1
               AND (COALESCE(array_length(s.listen_audiences, 1), 0) > 0
                    OR EXISTS (SELECT 1 FROM event_collaborator_stages e2 WHERE e2.stage_id = s.id))
             ORDER BY s.sort_order, s.id""",
         event_id)
+
+    # ⚠️ Счётчик обязан показывать РОВНО столько людей, сколько будет строк в
+    # таблице этого этапа. Раньше он считал сырые привязки
+    # (`event_collaborator_stages`) — и врал: к этапу привязаны ещё жюри и
+    # организаторы (в таблице они колонками-оценщиками, а не строками), а из
+    # номинантов в строки идут только роли speaker/headliner, да и то с
+    # учётом настройки «Кого включать в этап». На проде это выглядело как
+    # «21 участн.» в списке против 8 строк в самой таблице.
+    #
+    # Поэтому считаем ТОЙ ЖЕ функцией, что строит таблицу: правило сложное
+    # (роли + аудитория этапа + дедуп «спикер, который ещё и участник»), и
+    # вторая его копия здесь неминуемо разошлась бы снова.
+    from app.api.tournament import _stage_audience_flags, _subjects
+    stages = []
+    for s in stage_rows:
+        d = dict(s)
+        try:
+            show_ep, show_ec, unreg = await _stage_audience_flags(event_id, s["id"], db)
+            subs = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                                   include_unregistered=unreg, stage_id=s["id"])
+            d["people"] = len(subs)
+        except Exception:
+            # Сводная страница не должна падать из-за одного сбойного этапа —
+            # лучше показать её без цифры, чем отдать 500 на всю премию.
+            d["people"] = 0
+        stages.append(d)
     cats = await db.fetch(
         "SELECT id, title FROM conf_stage_categories WHERE event_id=$1 ORDER BY sort_order, id",
         event_id)
@@ -3202,10 +3271,14 @@ async def public_tournament_index(slug: str, db: asyncpg.Connection = Depends(ge
     brand_logo = (cli["brand_logo_url"] if cli else None) or ""
 
     def _card(s) -> str:
+        # ⚠️ Одна номинация — ОДНА СТРОКА. Раньше карточки шли сеткой в
+        # несколько колонок: длинные названия ломались на две строки, а
+        # соседние карточки разной высоты выглядели рваным рядом. Название
+        # слева, счётчик и «Таблица →» прижаты вправо.
         sub = f"<div class='n-sub'>{esc(s['subtitle'])}</div>" if s["subtitle"] else ""
         ppl = f"<span class='n-cnt'>{s['people']} участн.</span>" if s["people"] else ""
         return (f"<a class='n-card' href='/t/{esc(slug)}/{s['id']}'>"
-                f"<div class='n-ttl'>{esc(s['title'])}</div>{sub}"
+                f"<div class='n-main'><div class='n-ttl'>{esc(s['title'])}</div>{sub}</div>"
                 f"<div class='n-row'>{ppl}<span class='n-go'>Таблица →</span></div></a>")
 
     by_cat: dict = {}
@@ -3240,17 +3313,36 @@ h1{{font-size:24px;margin:0;font-weight:800}}
 .n-brand{{color:#FFCFA4;font-size:13px;margin-bottom:24px}}
 .n-cat{{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#FFCFA4;
         margin:28px 0 10px;font-weight:700}}
-.n-grid{{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}}
-.n-card{{display:block;background:rgba(255,255,255,.06);border:1px solid rgba(255,207,164,.25);
-         border-radius:12px;padding:14px;text-decoration:none;color:#fff;transition:.15s}}
+/* Одна номинация — одна строка (список, а не плитка). */
+.n-grid{{display:flex;flex-direction:column;gap:8px}}
+.n-card{{display:flex;align-items:center;gap:16px;
+         background:rgba(255,255,255,.06);border:1px solid rgba(255,207,164,.25);
+         border-radius:12px;padding:14px 16px;text-decoration:none;color:#fff;transition:.15s}}
 .n-card:hover{{background:rgba(255,255,255,.12);border-color:#FFCFA4}}
-.n-ttl{{font-weight:700;font-size:15px;margin-bottom:4px}}
-.n-sub{{font-size:12px;color:rgba(255,255,255,.65);margin-bottom:6px}}
-.n-row{{display:flex;align-items:center;gap:8px;margin-top:8px}}
-.n-cnt{{font-size:12px;color:rgba(255,255,255,.6)}}
-.n-go{{margin-left:auto;font-size:12px;color:#FFCFA4;font-weight:700}}
+/* min-width:0 обязателен: без него flex-элемент не сжимается меньше текста,
+   и длинное название выдавливает счётчик со строки. */
+.n-main{{flex:1 1 auto;min-width:0}}
+/* На компьютере название держим в ОДНУ строку — перенос рвал карточки
+   по высоте и ряд выглядел рваным. Не влезло — многоточие. */
+.n-ttl{{font-weight:700;font-size:15px;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.n-sub{{font-size:12px;color:rgba(255,255,255,.65);margin-top:2px;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.n-row{{display:flex;align-items:center;gap:14px;flex:0 0 auto}}
+.n-cnt{{font-size:12px;color:rgba(255,255,255,.6);white-space:nowrap}}
+.n-go{{font-size:12px;color:#FFCFA4;font-weight:700;white-space:nowrap}}
 .n-empty{{padding:40px;text-align:center;color:rgba(255,255,255,.6)}}
-@media(max-width:480px){{h1{{font-size:20px}}}}
+/* На телефоне строка в одну линию не помещается — разворачиваем в две
+   и разрешаем переносить название: там обрезка многоточием хуже переноса. */
+@media(max-width:560px){{
+  h1{{font-size:20px}}
+  .n-card{{flex-direction:column;align-items:stretch;gap:8px}}
+  .n-ttl,.n-sub{{white-space:normal;overflow:visible;text-overflow:clip}}
+  /* ⚠️ flex:0 0 auto с прошлой строки надо СНЯТЬ: в колонке он не даёт
+     строке сжиматься по ширине, и «Таблица →» уезжала за край экрана. */
+  .n-row{{flex:1 1 auto;gap:8px}}
+  .n-go{{margin-left:auto}}
+}}
 </style></head><body><div class="n-wrap">
 <div class="n-head">{logo}<h1>{esc(event.get('title') or 'Турнир')}</h1></div>
 <div class="n-brand">{brand}</div>
