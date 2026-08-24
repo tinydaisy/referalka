@@ -72,6 +72,31 @@ jobs:
       # ── Пакуем то, что реально нужно серверу ───────────────────────────
       # ⚠️ .next/cache НЕ берём: это кеш сборки (350+ МБ), для работы сайта
       # не нужен. Итоговый архив — десятки мегабайт, а не гигабайты.
+
+      # ⚠️⚠️ ЗАСЛОН: не выпускаем сборку, в которой адрес сервера не подставился.
+      # 24.08 Mini App уехал на прод с запасным localhost:8000 — приложение
+      # стучалось само в себя, и ВСЕ ЧЕТЫРЕ площадки показывали пустые вкладки.
+      # Заметили только по жалобе клиентов. Теперь сборка падает здесь.
+      - name: Проверяем, что адрес сервера попал в сборку
+        run: |
+          set -e
+          BAD=0
+          for d in web/.next mini-app/dist mini-app/dist-vk mini-app/dist-max mini-app/dist-web; do
+            [ -d "$d" ] || continue
+            if grep -rqs 'localhost:8000' "$d" 2>/dev/null; then
+              echo "✗ $d собран с localhost:8000 — адрес сервера не подставился"
+              BAD=1
+            else
+              echo "✓ $d"
+            fi
+          done
+          if [ "$BAD" = "1" ]; then
+            echo ""
+            echo "Проверьте переменную NEXT_PUBLIC_API_URL в настройках репозитория"
+            echo "(Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+
       - name: Пакуем артефакт
         run: |
           set -e
