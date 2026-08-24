@@ -285,9 +285,10 @@ async def handle_vk_event_signup(event_id: int, vk_user_id: int, db, ctx) -> Non
     # contact_id — строго в базе клиента-владельца события (см. пояснение ниже,
     # в handle_vk_event_menu_back: у человека может быть несколько vk-идентичностей).
     contact_id = await db.fetchval(
-        """SELECT contact_id FROM platform_users
-            WHERE platform_slug = 'vk' AND platform_user_id = $1 AND client_id = $2
-            ORDER BY id DESC LIMIT 1""",
+        """SELECT pu.contact_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE pu.platform_slug = 'vk' AND pu.platform_user_id = $1 AND c_own.client_id = $2
+            ORDER BY pu.id DESC LIMIT 1""",
         str(vk_user_id), client_id,
     )
     if contact_id:
@@ -316,9 +317,10 @@ async def handle_vk_event_menu_back(event_id: int, vk_user_id: int, db, ctx) -> 
     # contact_id → is_registered=False → меню как для незарега = баг «ведёт на
     # регистрацию у зарегистрированного»).
     contact_id = await db.fetchval(
-        """SELECT contact_id FROM platform_users
-            WHERE platform_slug = 'vk' AND platform_user_id = $1 AND client_id = $2
-            ORDER BY id DESC LIMIT 1""",
+        """SELECT pu.contact_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE pu.platform_slug = 'vk' AND pu.platform_user_id = $1 AND c_own.client_id = $2
+            ORDER BY pu.id DESC LIMIT 1""",
         str(vk_user_id), ev["client_id"],
     )
     if not contact_id:

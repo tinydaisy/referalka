@@ -823,8 +823,9 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
     )
     if cc_id:
         pu_id = await db.fetchval(
-            """SELECT id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2""",
+            """SELECT pu.id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
             ctx.client_id, str(user_id),
         )
         if pu_id:
@@ -1888,9 +1889,10 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                                   AND ch.platform_slug = 'vk' AND ch.is_system = FALSE LIMIT 1) AS vk_app_id
                          FROM event_participants ep
                         WHERE ep.event_id = $1
-                          AND ep.contact_id = (SELECT contact_id FROM platform_users
-                                                WHERE platform_slug='vk' AND platform_user_id=$3
-                                                  AND client_id=$2 LIMIT 1)
+                          AND ep.contact_id = (SELECT pu.contact_id FROM platform_users pu
+                                                JOIN contacts c_own ON c_own.id = pu.contact_id
+                                                WHERE pu.platform_slug='vk' AND pu.platform_user_id=$3
+                                                  AND c_own.client_id=$2 LIMIT 1)
                         LIMIT 1""",
                     recent_ev, ctx.client_id, str(from_id),
                 )
@@ -2195,8 +2197,9 @@ async def handle_group_join(event: dict, db, ctx: GroupCtx) -> None:
     )
     if cc_id:
         pu_id = await db.fetchval(
-            """SELECT id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2""",
+            """SELECT pu.id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
             ctx.client_id, str(user_id),
         )
         if pu_id:

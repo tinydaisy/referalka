@@ -181,6 +181,29 @@ def _build_chat_links_message(
 
 
 @router.callback_query(F.data.startswith("evchat_"))
+def _channel_line(c) -> str:
+    """Одна строка канала: «Имя Фамилия (@ник)».
+
+    ⚠️ Подписываем ЧЕЛОВЕКОМ, а не названием канала: названия у карточки
+    коллаба нет — там только ссылка и номер. Механизм один на все случаи:
+    и для организаторов коллабы, и для спикеров события.
+
+    ⚠️ Ник — С СОБАКОЙ: «(karycheva_marketing)» без неё читается как непонятный
+    технический хвост. У закрытых каналов ссылка вида «+AbCdEf» ником не
+    является — там скобок нет вовсе.
+    """
+    import html as _h
+    name = _h.escape((c.get("name") or "Канал").strip())
+    url = (c.get("tg_channel_url") or "").strip()
+    nick = ""
+    if url:
+        seg = url.rstrip("/").split("/")[-1].lstrip("@")
+        if seg and not seg.startswith("+"):
+            nick = f" (@{_h.escape(seg)})"
+    body = f'<a href="{_h.escape(url)}">{name}</a>' if url else name
+    return f"{body}{nick}"
+
+
 async def handle_event_chat_join(callback: CallbackQuery):
     """«Вступить в Чат» — проверка подписки на каналы спикеров/организаторов
     события, затем выдача ссылок на чаты."""
@@ -319,7 +342,9 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
                 seg = u.split("/")[-1].lstrip("@")
                 return seg or "канал"
 
-            lines = ["Чтобы попасть в чат — подпишитесь на каналы:", ""]
+            # ⚠️ Площадку называем прямо: человек заходит из бота Telegram и
+            # должен понимать, ГДЕ подписываться. Раньше было просто «на каналы».
+            lines = ["Чтобы попасть в чат — подпишитесь на эти каналы в Telegram:", ""]
 
             # ── Неподписанные — сквозная нумерация по всем группам ──
             multi_group = sum(
@@ -335,12 +360,7 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
                     lines.append(f"<b>{header}:</b>")
                 for c in grp:
                     counter += 1
-                    name = _html.escape(c["name"] or "Канал")
-                    url = (c["tg_channel_url"] or "").strip()
-                    if url:
-                        lines.append(f'{counter}. <a href="{_html.escape(url)}">{name}</a>')
-                    else:
-                        lines.append(f"{counter}. {name}")
+                    lines.append(f"{counter}. {_channel_line(c)}")
                 if multi_group:
                     lines.append("")
 
@@ -350,13 +370,7 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
                 lines.append("\n\n")
                 lines.append("Вы уже подписаны:")
                 for c in done:
-                    name = _html.escape(c["name"] or "Канал")
-                    url = (c["tg_channel_url"] or "").strip()
-                    title = _html.escape(_channel_title(url))
-                    if url:
-                        lines.append(f'✅ <a href="{_html.escape(url)}">{name}</a> ({title})')
-                    else:
-                        lines.append(f"✅ {name} ({title})")
+                    lines.append(f"✅ {_channel_line(c)}")
 
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Готово / Проверить снова",
@@ -402,10 +416,11 @@ async def handle_event_signup(callback: CallbackQuery):
         # contact_id — строго в базе клиента-владельца события (у человека может
         # быть несколько tg-идентичностей на разных клиентов).
         contact_id = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE platform_slug = 'telegram' AND platform_user_id = $1
-                  AND client_id = $2
-                ORDER BY id DESC LIMIT 1""",
+            """SELECT pu.contact_id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $1
+                  AND c_own.client_id = $2
+                ORDER BY pu.id DESC LIMIT 1""",
             str(user_tg_id), client_id,
         )
         if not contact_id:

@@ -298,9 +298,10 @@ async def sync_email_identity_and_subscription(
             # Берём существующую запись и не падаем — подписку всё равно
             # привяжем на ту identity.
             other = await db.fetchrow(
-                """SELECT id FROM platform_users
-                    WHERE client_id = $1 AND platform_slug = 'email'
-                      AND platform_user_id = $2
+                """SELECT pu.id FROM platform_users pu
+                    JOIN contacts c_own ON c_own.id = pu.contact_id
+                    WHERE c_own.client_id = $1 AND pu.platform_slug = 'email'
+                      AND pu.platform_user_id = $2
                     LIMIT 1""",
                 client_id, email_norm,
             )
@@ -361,8 +362,9 @@ async def upsert_platform_user(
         username = username[1:]
 
     existing = await db.fetchrow(
-        """SELECT id FROM platform_users
-            WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3""",
+        """SELECT pu.id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3""",
         client_id, platform_slug, str(platform_user_id)
     )
 
@@ -399,10 +401,11 @@ async def find_contact_by_telegram_username(
     if not handle:
         return None
     return await db.fetchval(
-        """SELECT contact_id FROM platform_users
-            WHERE client_id = $1 AND platform_slug = 'telegram'
-              AND lower(username) = lower($2)
-            ORDER BY id LIMIT 1""",
+        """SELECT pu.contact_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = 'telegram'
+              AND lower(pu.username) = lower($2)
+            ORDER BY pu.id LIMIT 1""",
         client_id, handle,
     )
 
@@ -505,8 +508,9 @@ async def _upsert_contact_with_identity_locked(
     """Внутренняя реализация upsert — вызывается под advisory-lock (см. выше).
     Вся прежняя логика без изменений."""
     pu_existing = await db.fetchrow(
-        """SELECT id, contact_id FROM platform_users
-            WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3""",
+        """SELECT pu.id, pu.contact_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3""",
         client_id, platform_slug, str(platform_user_id)
     )
 
@@ -520,9 +524,10 @@ async def _upsert_contact_with_identity_locked(
         uname_clean = username.lstrip('@').strip()
         if uname_clean:
             pseudo = await db.fetchrow(
-                """SELECT id, contact_id FROM platform_users
-                    WHERE client_id = $1 AND platform_slug = $2
-                      AND platform_user_id = $3
+                """SELECT pu.id, pu.contact_id FROM platform_users pu
+                    JOIN contacts c_own ON c_own.id = pu.contact_id
+                    WHERE c_own.client_id = $1 AND pu.platform_slug = $2
+                      AND pu.platform_user_id = $3
                     LIMIT 1""",
                 client_id, platform_slug, f"@{uname_clean}",
             )
@@ -530,9 +535,10 @@ async def _upsert_contact_with_identity_locked(
                 # Защита: убедимся что реальный id ещё не занят другим контактом
                 # (если такое — оставляем псевдо как есть и не апгрейдим).
                 conflict = await db.fetchval(
-                    """SELECT contact_id FROM platform_users
-                        WHERE client_id = $1 AND platform_slug = $2
-                          AND platform_user_id = $3 AND id <> $4
+                    """SELECT pu.contact_id FROM platform_users pu
+                        JOIN contacts c_own ON c_own.id = pu.contact_id
+                        WHERE c_own.client_id = $1 AND pu.platform_slug = $2
+                          AND pu.platform_user_id = $3 AND pu.id <> $4
                         LIMIT 1""",
                     client_id, platform_slug, str(platform_user_id), pseudo["id"],
                 )
@@ -1017,8 +1023,9 @@ async def resolve_or_ask(db, client_id: int, email, phone, tg_username,
         if not u:
             continue
         cid = await db.fetchval(
-            "SELECT contact_id FROM platform_users "
-            " WHERE client_id=$1 AND platform_slug=$2 AND LOWER(username)=LOWER($3) "
+            "SELECT pu.contact_id FROM platform_users pu "
+            " JOIN contacts c_own ON c_own.id = pu.contact_id "
+            " WHERE c_own.client_id=$1 AND pu.platform_slug=$2 AND LOWER(pu.username)=LOWER($3) "
             " LIMIT 1",
             client_id, slug, u)
         if cid:

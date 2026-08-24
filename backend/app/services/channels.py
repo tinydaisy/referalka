@@ -220,9 +220,10 @@ async def register_telegram_subscription(
 
         # 2. platform_users — UPSERT по (client_id, platform_slug, platform_user_id)
         pu_row = await db.fetchrow(
-            """SELECT id, contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'telegram'
-                  AND platform_user_id = $2""",
+            """SELECT pu.id, pu.contact_id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2""",
             client_id, tg_id
         )
         if pu_row:

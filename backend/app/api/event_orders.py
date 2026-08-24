@@ -194,9 +194,10 @@ async def create_order(
                 # Email уникален: если он уже занят ДРУГИМ контактом, тихо
                 # пропускаем — иначе упрёмся в ограничение базы.
                 busy = await db.fetchval(
-                    """SELECT contact_id FROM platform_users
-                        WHERE client_id = $1 AND platform_slug = 'email'
-                          AND platform_user_id = $2 LIMIT 1""",
+                    """SELECT pu.contact_id FROM platform_users pu
+                        JOIN contacts c_own ON c_own.id = pu.contact_id
+                        WHERE c_own.client_id = $1 AND pu.platform_slug = 'email'
+                          AND pu.platform_user_id = $2 LIMIT 1""",
                     t["client_id"], email.strip().lower(),
                 )
                 if not busy:

@@ -1541,10 +1541,11 @@ async def export_contact_data(
         raise HTTPException(status_code=404, detail="Контакт не найден")
 
     identities = await db.fetch(
-        """SELECT platform_slug, platform_user_id, username, first_name, last_name, created_at
-             FROM platform_users
-            WHERE contact_id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')
-            ORDER BY platform_slug""",
+        """SELECT pu.platform_slug, pu.platform_user_id, pu.username, pu.first_name, pu.last_name, pu.created_at
+             FROM platform_users pu
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE pu.contact_id = $1 AND c_own.client_id = $2
+            ORDER BY pu.platform_slug""",
         contact_id, client_id,
     )
 

@@ -144,9 +144,10 @@ async def _upgrade_pseudo_identities(user) -> None:
                 async with db.transaction():
                     # Уже есть реальная TG-запись с этим tg_id у того же клиента?
                     real = await db.fetchrow(
-                        """SELECT id, contact_id FROM platform_users
-                            WHERE client_id = $1 AND platform_slug = 'telegram'
-                              AND platform_user_id = $2 AND id <> $3
+                        """SELECT pu.id, pu.contact_id FROM platform_users pu
+                            JOIN contacts c_own ON c_own.id = pu.contact_id
+                            WHERE c_own.client_id = $1 AND pu.platform_slug = 'telegram'
+                              AND pu.platform_user_id = $2 AND pu.id <> $3
                             LIMIT 1""",
                         ps["client_id"], real_id, ps["id"],
                     )

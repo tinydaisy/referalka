@@ -460,10 +460,11 @@ async def _upsert_personal_identity(
     # на этой платформе, но привязана к ДРУГОМУ контакту — не разрешаем.
     if uname_clean:
         username_collision = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = $2
-                  AND LOWER(username) = LOWER($3)
-                  AND contact_id <> $4
+            """SELECT pu.contact_id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = $2
+                  AND LOWER(pu.username) = LOWER($3)
+                  AND pu.contact_id <> $4
                 LIMIT 1""",
             client_id, platform_slug, uname_clean, contact_id,
         )
@@ -483,9 +484,10 @@ async def _upsert_personal_identity(
         # не переписываем (это перетёрло бы чужую запись и нарушило бы UNIQUE).
         if new_id and new_id != existing["platform_user_id"]:
             collision = await db.fetchval(
-                """SELECT contact_id FROM platform_users
-                    WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
-                      AND id <> $4
+                """SELECT pu.contact_id FROM platform_users pu
+                    JOIN contacts c_own ON c_own.id = pu.contact_id
+                    WHERE c_own.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3
+                      AND pu.id <> $4
                     LIMIT 1""",
                 client_id, platform_slug, new_id, existing["id"],
             )
@@ -503,8 +505,9 @@ async def _upsert_personal_identity(
     # Записи нет. Если передан числовой id — стандартный путь.
     if uid_clean:
         existing_other = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
+            """SELECT pu.contact_id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3
                 LIMIT 1""",
             client_id, platform_slug, uid_clean,
         )
@@ -529,8 +532,9 @@ async def _upsert_personal_identity(
     # Защита от коллизии: если такой platform_user_id уже привязан к другому
     # контакту у клиента — не пишем (UNIQUE-конфликт).
     existing_other = await db.fetchval(
-        """SELECT contact_id FROM platform_users
-            WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
+        """SELECT pu.contact_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE c_own.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3
             LIMIT 1""",
         client_id, platform_slug, final_id,
     )

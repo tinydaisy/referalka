@@ -451,9 +451,10 @@ async def _send_broadcast(schedule_id: int):
         if needs_first_name and final_ids:
             name_rows = await conn.fetch(
                 """
-                SELECT platform_user_id, COALESCE(NULLIF(first_name, ''), '') AS first_name
-                FROM platform_users
-                WHERE client_id=$1 AND platform_slug='telegram' AND platform_user_id = ANY($2::text[])
+                SELECT pu.platform_user_id, COALESCE(NULLIF(pu.first_name, ''), '') AS first_name
+                FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id=$1 AND pu.platform_slug='telegram' AND pu.platform_user_id = ANY($2::text[])
                 """,
                 schedule["client_id"], list(final_ids)
             )
@@ -655,11 +656,11 @@ async def _send_broadcast(schedule_id: int):
         contact_by_tg: dict[str, int] = {}
         if (needs_game_link or needs_stream_ct) and final_ids:
             ct_rows = await conn.fetch(
-                """SELECT platform_user_id, contact_id
-                     FROM platform_users
-                    WHERE client_id=$1 AND platform_slug='telegram'
-                      AND platform_user_id = ANY($2::text[])
-                      AND contact_id IS NOT NULL""",
+                """SELECT pu.platform_user_id, pu.contact_id
+                     FROM platform_users pu
+                     JOIN contacts c_own ON c_own.id = pu.contact_id
+                    WHERE c_own.client_id=$1 AND pu.platform_slug='telegram'
+                      AND pu.platform_user_id = ANY($2::text[])""",
                 schedule["client_id"], list(final_ids),
             )
             contact_by_tg = {r["platform_user_id"]: r["contact_id"] for r in ct_rows}
@@ -2126,9 +2127,10 @@ async def _send_broadcast_email_part(
         allowed_contact_ids: set[int] = set()
         if test_tg_set:
             tg_contact_rows = await conn.fetch(
-                """SELECT DISTINCT contact_id FROM platform_users
-                    WHERE client_id = $1 AND platform_slug = 'telegram'
-                      AND platform_user_id = ANY($2::text[])""",
+                """SELECT DISTINCT pu.contact_id FROM platform_users pu
+                     JOIN contacts c_own ON c_own.id = pu.contact_id
+                    WHERE c_own.client_id = $1 AND pu.platform_slug = 'telegram'
+                      AND pu.platform_user_id = ANY($2::text[])""",
                 client_id, list(test_tg_set),
             )
             allowed_contact_ids = {r["contact_id"] for r in tg_contact_rows}

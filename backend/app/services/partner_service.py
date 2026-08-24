@@ -403,8 +403,9 @@ async def run_started_partner_vk(run_id: int, vk_id: str, username: Optional[str
     )
     if cc_id:
         pu_id = await db.fetchval(
-            """SELECT id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2""",
+            """SELECT pu.id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
             client_id, str(vk_id),
         )
         if pu_id:

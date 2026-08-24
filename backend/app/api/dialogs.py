@@ -299,8 +299,9 @@ async def reply_to_contact(
 
     # platform_user_id собеседника по контакту на этой платформе
     pu = await db.fetchval(
-        """SELECT platform_user_id FROM platform_users
-            WHERE contact_id=$1 AND client_id=$2 AND platform_slug=$3 LIMIT 1""",
+        """SELECT pu.platform_user_id FROM platform_users pu
+            JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE pu.contact_id=$1 AND c_own.client_id=$2 AND pu.platform_slug=$3 LIMIT 1""",
         contact_id, client_id, platform,
     )
     if not pu:

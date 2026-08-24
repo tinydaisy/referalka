@@ -470,10 +470,11 @@ async def import_csv_to_channel(
     # лишние минуты ожидания при каждом запуске.
     if need_lookup:
         known = await db.fetch(
-            """SELECT platform_user_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = $3
-                  AND username IS NOT NULL
-                  AND platform_user_id = ANY($2::TEXT[])""",
+            """SELECT pu.platform_user_id FROM platform_users pu
+                JOIN contacts c_own ON c_own.id = pu.contact_id
+                WHERE c_own.client_id = $1 AND pu.platform_slug = $3
+                  AND pu.username IS NOT NULL
+                  AND pu.platform_user_id = ANY($2::TEXT[])""",
             client_id, need_lookup, platform
         )
         known_ids = {r['platform_user_id'] for r in known}
