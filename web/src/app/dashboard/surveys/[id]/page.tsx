@@ -12,7 +12,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
-import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 
 const KINDS = [
@@ -134,13 +134,25 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
           Отправьте любую — кнопкой в рассылке, сообщением в боте или ссылкой в сторис.
           Тем, кто перешёл из бота, имя и контакты подставятся сами.
         </p>
+        {/* Копирование И открытие: ссылку надо и дать людям, и самому
+            посмотреть, как анкета выглядит. Раньше была только копия —
+            чтобы просто открыть, её вставляли в адресную строку руками. */}
         <div className="flex flex-wrap gap-2">
           {links.map(([label, url]) => (
-            <button key={label} onClick={() => copy(url, label)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">
-              {copied === label ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-              {label}
-            </button>
+            <span key={label}
+                  className="inline-flex items-stretch overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+              <button onClick={() => copy(url, label)}
+                      title="Скопировать ссылку"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">
+                {copied === label ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                {label}
+              </button>
+              <a href={url} target="_blank" rel="noopener noreferrer"
+                 title="Открыть анкету"
+                 className="inline-flex items-center border-l border-gray-200 px-2.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+                <ExternalLink size={14} />
+              </a>
+            </span>
           ))}
         </div>
       </div>
@@ -181,8 +193,7 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
 
         {!survey.questions?.length && !adding && (
           <p className="text-sm text-gray-400">
-            Вопросов пока нет. Имя, почту и телефон добавлять не нужно — они
-            подставятся сами у тех, кто уже есть в базе.
+            Вопросов пока нет.
           </p>
         )}
 
@@ -796,6 +807,28 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [desc, setDesc] = useState(true)
+  const [removing, setRemoving] = useState<number | null>(null)
+
+  // Удаление заполнения: нужно, чтобы тестовые прогоны и явный мусор не
+  // искажали отчёт навсегда. ⚠️ Удаляется ТОЛЬКО заполнение — контакт
+  // человека, его участия и заполненные поля остаются.
+  const removeResponse = async (e: React.MouseEvent, r: any) => {
+    e.stopPropagation()   // иначе клик уйдёт в строку и откроет ответ
+    if (!confirm(
+      `Удалить это заполнение${r.name ? ` — ${r.name}` : ''}?\n\n` +
+      'Ответы пропадут из отчёта. Сам контакт человека и заполненные им ' +
+      'поля останутся.'
+    )) return
+    setRemoving(r.id)
+    try {
+      await api.surveys.deleteResponse(surveyId, r.id)
+      setRows(list => list.filter(x => x.id !== r.id))
+    } catch (err: any) {
+      alert(err?.message || 'Не удалось удалить')
+    } finally {
+      setRemoving(null)
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -863,6 +896,7 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
               <th className="px-3 py-2 font-medium">Telegram</th>
               <th className="px-3 py-2 font-medium">ВКонтакте</th>
               <th className="px-3 py-2 font-medium">MAX</th>
+              <th className="w-10 px-3 py-2" />
             </tr>
           </thead>
           <tbody>
@@ -883,6 +917,14 @@ function AnswersTab({ surveyId }: { surveyId: number }) {
                 <td className="px-3 py-2 text-gray-600">{r.telegram || '—'}</td>
                 <td className="px-3 py-2 text-gray-600">{r.vk || '—'}</td>
                 <td className="px-3 py-2 text-gray-600">{r.max_nick || '—'}</td>
+                <td className="px-3 py-2">
+                  <button onClick={e => removeResponse(e, r)}
+                          disabled={removing === r.id}
+                          title="Удалить это заполнение"
+                          className="rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500 disabled:opacity-40">
+                    <Trash2 size={14} />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

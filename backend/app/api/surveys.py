@@ -716,6 +716,40 @@ async def survey_analytics(
     return {"responses_total": total, "people_total": people, "questions": out}
 
 
+@router.delete("/surveys/{survey_id}/responses/{response_id}")
+async def delete_response(
+    survey_id: int, response_id: int,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Удалить одно заполнение анкеты.
+
+    Нужно, чтобы убрать из отчёта тестовые прогоны и явный мусор: иначе они
+    навсегда искажают проценты, а перезаполнить анкету «правильно» нельзя.
+
+    ⚠️ Удаляется только ЗАПОЛНЕНИЕ. Контакт человека, его участия в событиях
+    и значения полей контакта остаются: анкета их наполнила, и терять данные
+    из-за удаления одной строки отчёта неправильно. Сами ответы на вопросы
+    (`survey_answers`) уходят каскадом — они принадлежат заполнению.
+
+    ⚠️ Ассистенту с ограниченными правами — 403: это безвозвратное удаление
+    собранных данных.
+    """
+    from app.services.assistant_access import assistant_is_restricted
+    if await assistant_is_restricted(client):
+        raise HTTPException(403, "Ассистент не может удалять ответы анкет")
+
+    client_id = int(client["sub"])
+    await _assert_own_survey(db, survey_id, client_id)
+
+    deleted = await db.fetchval(
+        "DELETE FROM survey_responses WHERE id = $1 AND survey_id = $2 RETURNING id",
+        response_id, survey_id,
+    )
+    if not deleted:
+        raise HTTPException(404, "Ответ не найден")
+    return {"ok": True, "deleted": deleted}
+
+
 @router.get("/surveys/{survey_id}/responses/{response_id}")
 async def get_response(
     survey_id: int, response_id: int,

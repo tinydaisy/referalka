@@ -1006,6 +1006,10 @@ export const api = {
     responses: (id: number) => request(`/api/v1/surveys/${id}/responses`),
     response: (id: number, responseId: number) =>
       request(`/api/v1/surveys/${id}/responses/${responseId}`),
+    // Удалить одно заполнение — чтобы тестовые прогоны и мусор не искажали
+    // отчёт. Контакт человека при этом остаётся.
+    deleteResponse: (id: number, responseId: number) =>
+      request(`/api/v1/surveys/${id}/responses/${responseId}`, { method: 'DELETE' }),
   },
   // Продукты/услуги вне событий (миграция 290): лендинг, тарифы, материалы.
   products: {
