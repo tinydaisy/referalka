@@ -1925,18 +1925,22 @@ async def verify_event_collaborator_channel(
     if not channel_id:
         raise HTTPException(status_code=400, detail="Сначала укажите ID канала и сохраните профиль коллаборатора")
 
-    personal_tg_id = row["personal_tg_id"]
-    if not personal_tg_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Заполните «ID личного аккаунта» в профиле коллаборатора — без него не получится проверить канал автоматически"
-        )
+    # ⚠️ Спрашиваем про САМОГО БОТА, а не про владельца канала.
+    # Раньше требовался «ID личного аккаунта» коллаборатора: он на свой канал
+    # подписан наверняка, и ответ Telegram косвенно доказывал, что бот админ.
+    # Но к проверке подписки этот идентификатор отношения не имеет, у коллабы
+    # такого поля нет вовсе, и без него кнопка просто отказывалась работать.
+    # Бот знает свой номер из токена — этого достаточно и надёжнее.
+    try:
+        check_user_id = int(token.split(":", 1)[0])
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Не удалось разобрать токен бота — переподключите его в разделе «Каналы»")
 
     try:
         async with httpx.AsyncClient(timeout=8) as http:
             r = await http.get(
                 f"https://api.telegram.org/bot{token}/getChatMember",
-                params={"chat_id": channel_id, "user_id": personal_tg_id}
+                params={"chat_id": channel_id, "user_id": check_user_id}
             )
         data = r.json()
     except Exception as e:
@@ -1952,7 +1956,7 @@ async def verify_event_collaborator_channel(
             else:
                 detail = f"Канал не найден. Скорее всего {bot_ref} ещё не добавлен в канал. Откройте канал → Управление → Администраторы → добавьте {bot_ref}, и нажмите ещё раз."
         elif "user not found" in desc:
-            detail = "Личный аккаунт не найден в Telegram. Проверьте «ID личного аккаунта»."
+            detail = f"Telegram не нашёл {bot_ref} в этом канале. Добавьте его в администраторы и нажмите ещё раз."
         elif "bot was kicked" in desc or "kicked" in desc:
             detail = f"Бот удалён из канала. Добавьте {bot_ref} обратно в администраторы."
         elif "not enough rights" in desc or "no rights" in desc:
