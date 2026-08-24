@@ -180,7 +180,6 @@ def _build_chat_links_message(
     return text, rows
 
 
-@router.callback_query(F.data.startswith("evchat_"))
 def _channel_line(c) -> str:
     """Одна строка канала: «Имя Фамилия (@ник)».
 
@@ -213,6 +212,7 @@ def _channel_line(c) -> str:
     return f"{body}{nick}"
 
 
+@router.callback_query(F.data.startswith("evchat_"))
 async def handle_event_chat_join(callback: CallbackQuery):
     """«Вступить в Чат» — проверка подписки на каналы спикеров/организаторов
     события, затем выдача ссылок на чаты."""
@@ -221,7 +221,20 @@ async def handle_event_chat_join(callback: CallbackQuery):
     except ValueError:
         await callback.answer("Ошибка кнопки")
         return
-    await run_event_chat_gate(callback.message, event_id, callback.from_user.id)
+    # ⚠️ Любая ошибка внутри — В ЖУРНАЛ и понятный ответ человеку. Без этого
+    # обработчик падал молча: кнопка «отрабатывала» за 0 мс и не присылала
+    # ничего, а в журнале не оставалось ни строчки.
+    try:
+        await run_event_chat_gate(callback.message, event_id, callback.from_user.id)
+    except Exception as e:
+        log.exception("evchat: не смогли выдать чаты (event=%s, tg_id=%s)",
+                      event_id, callback.from_user.id)
+        try:
+            await callback.message.answer(
+                "Не получилось открыть чаты события. Мы уже знаем о проблеме — "
+                "попробуйте ещё раз через минуту или напишите в поддержку.")
+        except Exception:
+            pass
     await callback.answer()
 
 
@@ -285,7 +298,10 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         # не знали вовсе, и человек, нажавший «Вступить в Чат» в боте или с
         # веб-страницы, попадал в чат, подписавшись только на одного.
         collab_not_subscribed: list[dict] = []
-        if ev.get("is_collab") and ev.get("require_subscribe_all_owners"):
+        # ⚠️ ev — ЗАПИСЬ ИЗ БАЗЫ (asyncpg.Record), у неё нет .get. Обращение
+        # ev.get(...) роняло обработчик молча: кнопка «Вступить в Чат»
+        # отрабатывала за 0 мс и не присылала ничего.
+        if ev["is_collab"] and ev["require_subscribe_all_owners"]:
             try:
                 from app.api.subscription_check import _check_collab_owners
                 collab_not_subscribed, _ok = await _check_collab_owners(
