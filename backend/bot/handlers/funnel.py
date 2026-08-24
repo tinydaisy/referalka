@@ -193,8 +193,17 @@ def _channel_line(c) -> str:
     является — там скобок нет вовсе.
     """
     import html as _h
-    name = _h.escape((c.get("name") or "Канал").strip())
-    url = (c.get("tg_channel_url") or "").strip()
+    # ⚠️ Каналы приходят и словарями, и ЗАПИСЯМИ ИЗ БАЗЫ (asyncpg.Record).
+    # У Record нет .get — на нём бот падал с AttributeError, и кнопка
+    # «Вступить в Чат» переставала отвечать вовсе.
+    def _f(key: str):
+        try:
+            return c[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    name = _h.escape((_f("name") or "Канал").strip())
+    url = (_f("tg_channel_url") or "").strip()
     nick = ""
     if url:
         seg = url.rstrip("/").split("/")[-1].lstrip("@")
