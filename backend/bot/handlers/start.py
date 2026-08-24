@@ -1376,11 +1376,20 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     # Подпись Telegram ограничена 1024 символами — длинный текст без афиши.
     if poster_url and len(text) <= 1024:
         try:
+            # ⚠️ answer_photo шлёт ССЫЛКУ — хранилище может не пустить серверы
+            # Telegram, и афиша молча не дойдёт. Пробуем, а на отказе общий
+            # помощник отправит файлом (см. вызов в except ниже).
             await message.answer_photo(poster_url, caption=text, reply_markup=kb,
                                        parse_mode="HTML")
             return True
         except Exception as e:
-            log.warning("ref_pg poster send failed (%s), fallback to text: %s", poster_url, e)
+            log.warning("ref_pg poster send failed (%s): %s", poster_url, e)
+            # Хранилище не пустило серверы Telegram — отправляем файлом сами.
+            from app.services.tg_media import send_photo as _tg_photo
+            if message.bot and await _tg_photo(
+                message.bot.token, message.chat.id, poster_url,
+                caption=text, reply_markup=kb.model_dump(exclude_none=True)):
+                return True
     await message.answer(text, reply_markup=kb, parse_mode="HTML",
                          disable_web_page_preview=True)
     return True
@@ -1638,17 +1647,13 @@ async def send_event_menu(
         payload_kb = kb.model_dump(exclude_none=True)
         async with httpx.AsyncClient(timeout=20) as cl:
             if poster_url and len(text) <= 1024:
-                try:
-                    r = await cl.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                        json={"chat_id": str(tg_id), "photo": poster_url,
-                              "caption": text, "parse_mode": "HTML",
-                              "reply_markup": payload_kb},
-                    )
-                    if r.json().get("ok"):
-                        return
-                except Exception as e:
-                    log.warning("send_event_menu(direct) photo failed: %s", e)
+                # ⚠️ Через общий помощник: он умеет отправить файлом, если
+                # хранилище не пускает серверы Telegram (иначе афиша молча
+                # не доходила — так было после переезда хранилища).
+                from app.services.tg_media import send_photo as _tg_photo
+                if await _tg_photo(bot_token, tg_id, poster_url,
+                                   caption=text, reply_markup=payload_kb):
+                    return
             try:
                 await cl.post(
                     f"https://api.telegram.org/bot{bot_token}/sendMessage",
@@ -1662,6 +1667,9 @@ async def send_event_menu(
 
     if poster_url and len(text) <= 1024:
         try:
+            # ⚠️ answer_photo шлёт ССЫЛКУ — хранилище может не пустить серверы
+            # Telegram, и афиша молча не дойдёт. Пробуем, а на отказе общий
+            # помощник отправит файлом (см. вызов в except ниже).
             await message.answer_photo(poster_url, caption=text, reply_markup=kb,
                                        parse_mode="HTML")
             return

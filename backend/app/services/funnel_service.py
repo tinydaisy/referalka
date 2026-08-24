@@ -497,6 +497,46 @@ async def _send_media(token: str, chat_id, media_payload: str, media_type: str,
                 result = data["result"]
                 return result.get("message_id"), _extract_file_id(result, media_type)
             log.warning("%s failed: %s", method, data)
+
+            # ⚠️⚠️ TELEGRAM НЕ СМОГ СКАЧАТЬ ФАЙЛ ПО ССЫЛКЕ — ШЛЁМ ЕГО САМИ.
+            #
+            # Хранилище может не пускать чужие серверы: наш сервер файл видит,
+            # а Telegram получает отказ и отвечает «failed to get HTTP URL
+            # content». Для человека это выглядит так, будто воронка молчит —
+            # ни картинки, ни текста, ни кнопки.
+            #
+            # Так легло ВСЁ после переезда хранилища: старые файлы уходили по
+            # памяти Telegram (file_id), а любой новый — уже нет.
+            #
+            # Скачиваем сами и отдаём файлом. Работает независимо от того,
+            # пускает ли хранилище посторонних.
+            desc = (data.get("description") or "").lower()
+            if "failed to get http url content" in desc and str(media_payload).startswith("http"):
+                try:
+                    async with httpx.AsyncClient(timeout=180, follow_redirects=True) as dl:
+                        fr = await dl.get(media_payload)
+                    fr.raise_for_status()
+                    fname = (media_payload.rsplit("/", 1)[-1].split("?")[0]
+                             or ("video.mp4" if media_type == "video" else "photo.jpg"))
+                    form = {k: str(v) for k, v in payload.items()
+                            if k not in (field, "reply_markup")}
+                    if reply_markup is not None:
+                        form["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+                    async with httpx.AsyncClient(timeout=300) as http2:
+                        r2 = await http2.post(
+                            f"https://api.telegram.org/bot{token}/{method}",
+                            data=form,
+                            files={field: (fname, fr.content,
+                                           fr.headers.get("content-type") or "application/octet-stream")},
+                        )
+                        d2 = r2.json()
+                    if d2.get("ok"):
+                        res2 = d2["result"]
+                        log.info("%s: отправили файлом (ссылку Telegram не осилил)", method)
+                        return res2.get("message_id"), _extract_file_id(res2, media_type)
+                    log.warning("%s файлом тоже не прошёл: %s", method, d2)
+                except Exception as e:
+                    log.warning("%s: не смогли скачать и отправить файлом: %s", method, e)
     except Exception as e:
         log.warning("%s error: %s", method, e)
     return None, None
