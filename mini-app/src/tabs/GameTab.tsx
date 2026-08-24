@@ -146,7 +146,12 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
   const openGift = (url: string) => {
     const twa = (window as any).Telegram?.WebApp
     const isTg = /(?:t|telegram)\.me\//i.test(url)
-    if (twa?.openTelegramLink && isTg) { twa.openTelegramLink(url); return }
+    // ⚠️⚠️ `openTelegramLink` ПОНИМАЕТ ТОЛЬКО ДОМЕН `t.me`. Ссылки у нас
+    // выдаются на `telegram.me` — его Telegram не распознаёт и НИЧЕГО НЕ
+    // ДЕЛАЕТ: кнопка выглядит живой, нажатие впустую. Именно так «не
+    // нажимался» подарок (прод, 25.08). Приводим домен перед открытием.
+    const tgUrl = url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')
+    if (twa?.openTelegramLink && isTg) { twa.openTelegramLink(tgUrl); return }
     if (twa?.openLink) { twa.openLink(url); return }
     // ВКонтакте и MAX: у их адаптеров свой способ открыть внешнюю ссылку.
     const p: any = getPlatform()

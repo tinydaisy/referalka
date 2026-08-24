@@ -28,8 +28,10 @@ const DARK = '#25455D'
 
 function openExternal(url: string) {
   const tg = (window as any).Telegram?.WebApp
-  if (tg?.openTelegramLink && /^https?:\/\/t\.me\//i.test(url)) {
-    tg.openTelegramLink(url); return
+  // ⚠️ `openTelegramLink` понимает только домен `t.me`; наши ссылки —
+  // на `telegram.me`. Без приведения человек уезжал во внешний браузер.
+  if (tg?.openTelegramLink && /^https?:\/\/(?:t|telegram)\.me\//i.test(url)) {
+    tg.openTelegramLink(url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')); return
   }
   if (tg?.openLink) { tg.openLink(url); return }
   window.open(url, '_blank', 'noopener,noreferrer')

@@ -28,8 +28,13 @@ export async function initPlatform(): Promise<PlatformAdapter> {
       }
     },
     openExternal: (url: string) => {
-      if (typeof twa.openTelegramLink === 'function' && /^https?:\/\/t\.me\//i.test(url)) {
-        try { twa.openTelegramLink(url); return } catch {}
+      // ⚠️⚠️ Ссылки платформа выдаёт на домене `telegram.me`, а
+      // `openTelegramLink` понимает ТОЛЬКО `t.me` — на другом домене он молча
+      // ничего не делает либо ссылка уходит во внешний браузер вместо чата с
+      // ботом. Поэтому сверяем ОБА домена и приводим к `t.me`.
+      if (typeof twa.openTelegramLink === 'function' && /^https?:\/\/(?:t|telegram)\.me\//i.test(url)) {
+        const tgUrl = url.replace(/^https:\/\/telegram\.me\//i, 'https://t.me/')
+        try { twa.openTelegramLink(tgUrl); return } catch {}
       }
       if (typeof twa.openLink === 'function') {
         try { twa.openLink(url); return } catch {}
