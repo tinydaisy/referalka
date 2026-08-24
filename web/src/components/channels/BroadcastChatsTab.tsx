@@ -644,7 +644,7 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
           {/* Ссылка + Определить ID */}
           <div>
             <label className="block text-xs text-gray-500 mb-1">
-              Ссылка на группу / канал{platform !== 'whatsapp' && <span className="text-red-500"> *</span>}
+              Ссылка на группу / канал<span className="text-red-500"> *</span>
             </label>
             <div className="flex gap-2 items-stretch">
               <input
@@ -711,7 +711,7 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
             >Отмена</button>
             <button
               onClick={save}
-              disabled={saving || !chatId.trim() || (platform !== 'whatsapp' && !url.trim())}
+              disabled={saving || !chatId.trim() || !url.trim()}
               className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
               style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
             >
