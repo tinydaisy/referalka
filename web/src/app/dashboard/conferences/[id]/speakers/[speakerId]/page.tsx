@@ -239,6 +239,9 @@ export default function ConferenceSpeakerPage() {
     show_knowledge_base_field: false,
     show_notes_field: false,
     show_partner_registration_link: true,
+    // Сколько номинаций доступно человеку в этом событии (миграция 328).
+    // null = без ограничений.
+    nominations_limit: null as number | null,
     notes: '',
     is_commercial: false,
     bot_in_channel: false,
@@ -655,7 +658,7 @@ export default function ConferenceSpeakerPage() {
         // отметок выше, а присланное число главнее — и «сохранить карточку»
         // каждый раз фиксировало бы старое значение.
         ...(nominationsLimitTouched
-          ? { nominations_limit: (eventForm as any).nominations_limit ?? null }
+          ? { nominations_limit: eventForm.nominations_limit ?? null }
           : {}),
         // use_photo_instead_of_poster НЕ шлём тут: тумблер живёт в форме
         // профиля и сохраняется сразу по клику (см. блок «Индивидуальные афиши»).
@@ -921,12 +924,12 @@ export default function ConferenceSpeakerPage() {
                 <span className="text-sm text-gray-700">Доступно номинаций:</span>
                 {/* ⚠️ minWidth: 0 — иначе поле во flex-строке схлопывается. */}
                 <input type="number" min={1} inputMode="numeric"
-                  value={(eventForm as any).nominations_limit ?? ''}
+                  value={eventForm.nominations_limit ?? ''}
                   onChange={e => {
                     setNominationsLimitTouched(true)
                     setEventForm(f => ({
                       ...f, nominations_limit: e.target.value === '' ? null : Number(e.target.value),
-                    } as any))
+                    }))
                   }}
                   placeholder="без ограничений"
                   style={{ flex: '0 0 10rem', minWidth: 0 }}

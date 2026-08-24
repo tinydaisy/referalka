@@ -541,14 +541,24 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                   </p>
                   <div className="space-y-3">
                     {([
-                      { key: 'speakers', max: 'maxSpeakers', who: 'спикеры/номинанты', hint: 'Кто выступает или номинируется' },
-                      { key: 'jury',     max: 'maxJury',     who: 'жюри',              hint: 'Кто оценивает' },
-                    ] as const).map(row => (
-                      <div key={row.key} className="rounded-xl border border-gray-200 bg-white p-3">
+                      {
+                        who: 'спикеры/номинанты', hint: 'Кто выступает или номинируется',
+                        on: selfPick.speakers, max: selfPick.maxSpeakers,
+                        setOn: (v: boolean) => setSelfPick(p => ({ ...p, speakers: v })),
+                        setMax: (v: string) => setSelfPick(p => ({ ...p, maxSpeakers: v })),
+                      },
+                      {
+                        who: 'жюри', hint: 'Кто оценивает',
+                        on: selfPick.jury, max: selfPick.maxJury,
+                        setOn: (v: boolean) => setSelfPick(p => ({ ...p, jury: v })),
+                        setMax: (v: string) => setSelfPick(p => ({ ...p, maxJury: v })),
+                      },
+                    ]).map(row => (
+                      <div key={row.who} className="rounded-xl border border-gray-200 bg-white p-3">
                         <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-800">
                           <input type="checkbox"
-                            checked={selfPick[row.key]}
-                            onChange={e => setSelfPick(p => ({ ...p, [row.key]: e.target.checked }))}
+                            checked={row.on}
+                            onChange={e => row.setOn(e.target.checked)}
                             className="w-4 h-4 rounded border-gray-300" />
                           <span>Выбирают <b>{row.who}</b></span>
                           <span className="text-xs text-gray-400">— {row.hint}</span>
@@ -558,8 +568,8 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                           {/* ⚠️ minWidth: 0 обязателен — иначе поле во flex-строке
                               схлопывается до содержимого и в него не попасть. */}
                           <input type="number" min={1} inputMode="numeric"
-                            value={selfPick[row.max]}
-                            onChange={e => setSelfPick(p => ({ ...p, [row.max]: e.target.value }))}
+                            value={row.max}
+                            onChange={e => row.setMax(e.target.value)}
                             placeholder="без ограничений"
                             style={{ flex: '0 0 9rem', minWidth: 0 }}
                             className="px-2 py-1 text-sm rounded-lg border border-gray-300" />
