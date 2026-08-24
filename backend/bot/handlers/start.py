@@ -133,13 +133,19 @@ async def _upgrade_pseudo_identities(user) -> None:
             # ВСЕ псевдо-записи `@<username>` этого ника (по всем клиентам).
             # Контакт псевдо-записи — это, как правило, контакт коллаба, его
             # ОБЯЗАТЕЛЬНО сохраняем (на нём висит access_code кабинета).
+            # ⚠️ НЕЗАВИСИМО ОТ РЕГИСТРА и по обоим полям: ник в Telegram
+            # регистронезависим, заглушку могли записать как «@kirakadry», а
+            # апдейт приходит с «Kirakadry». Точное сравнение не совпадало —
+            # заглушка не доростала, человеку заводился второй контакт.
             pseudos = await db.fetch(
                 """SELECT p.id, c_own.client_id, p.contact_id
                      FROM platform_users p
                      JOIN contacts c_own ON c_own.id = p.contact_id
                     WHERE p.platform_slug = 'telegram'
-                      AND p.platform_user_id = $1""",
-                f"@{uname}",
+                      AND p.platform_user_id LIKE '@%'
+                      AND (LOWER(p.platform_user_id) = LOWER($1)
+                           OR LOWER(p.username) = LOWER($2))""",
+                f"@{uname}", uname,
             )
             for ps in pseudos:
                 async with db.transaction():

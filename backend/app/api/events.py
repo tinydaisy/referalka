@@ -1281,6 +1281,19 @@ async def event_participants(
                     WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_tariffs,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
                   ep.link_clicked_at, ep.chat_check_at,
+                  -- СВОЙ тестовый аккаунт (список того, кто смотрит)? Только такие
+                  -- разрешено удалять в коллабе — фронт по этому полю решает,
+                  -- показывать ли корзину (иначе кнопка вела бы в 403).
+                  -- ⚠️ Именно свой, а не любого организатора: чужие тестовые записи
+                  -- партнёра трогать нельзя, даже если они осели в моей базе.
+                  EXISTS (SELECT 1 FROM platform_users pu
+                            JOIN clients cl ON cl.id = $2
+                           WHERE pu.contact_id = c.id
+                             AND pu.platform_user_id = ANY (
+                                   COALESCE(cl.test_telegram_ids, '{{}}')
+                                || COALESCE(cl.test_vk_ids,       '{{}}')
+                                || COALESCE(cl.test_max_ids,      '{{}}')
+                                || COALESCE(cl.test_email_ids,    '{{}}'))) AS is_test_account,
                   c.name AS contact_name,
                   (SELECT pe.platform_user_id FROM platform_users pe
                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
@@ -1360,7 +1373,7 @@ async def event_participants(
            GROUP BY ep.id, c.id, ep.referrer_ref_code,
                     ep.is_registered, ep.is_in_chat
            ORDER BY ep.registered_at DESC""",
-        event_id
+        event_id, client_id
     )
 
     counts = await db.fetchrow(
@@ -1542,12 +1555,44 @@ async def delete_event_participant(
     if not row:
         raise HTTPException(status_code=404, detail="Участник не найден")
 
-    # В совместном (коллаб) событии состав участников фиксирован — удалять нельзя (защита рейтинга, миграция 134)
+    # ⚠️ КОЛЛАБА: состав участников защищён — на нём считается вклад каждого
+    # организатора и Win-Win. Исключение ОДНО: свои ТЕСТОВЫЕ аккаунты
+    # (Настройки → «Тестовые рассылки»). Организатор проверяет на них событие,
+    # и эти записи не должны навсегда оставаться в составе.
+    #
+    # Полный запрет был чрезмерным: нельзя было убрать даже собственную тестовую
+    # запись, а сообщение отправляло в поддержку, у которой такой возможности
+    # тоже нет.
+    # ⚠️ Только СВОИ тестовые аккаунты — из списка того клиента, кто удаляет.
+    # Чужие тестовые не трогаем: это записи партнёра, он сам решает их судьбу.
+    # При этом своя тестовая запись могла осесть и в базе партнёра (человек
+    # прошёл по его ссылке) — такую тоже удаляем: аккаунт свой, где бы он в
+    # событии ни числился.
     if await is_collab_event(db, event_id):
-        raise HTTPException(
-            status_code=403,
-            detail="Это совместное событие — удалять участников нельзя (защита подсчёта вклада). Обратитесь в поддержку."
+        is_test = await db.fetchval(
+            """SELECT EXISTS (
+                 SELECT 1
+                   FROM event_participants ep
+                   JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                   JOIN clients cl ON cl.id = $2
+                  WHERE ep.id = $1
+                    AND pu.platform_user_id = ANY (
+                          COALESCE(cl.test_telegram_ids, '{}')
+                        || COALESCE(cl.test_vk_ids,       '{}')
+                        || COALESCE(cl.test_max_ids,      '{}')
+                        || COALESCE(cl.test_email_ids,    '{}')
+                    ))""",
+            participant_id, client_id,
         )
+        if not is_test:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "В совместном событии состав участников менять нельзя — на нём "
+                    "считается вклад организаторов. Удалить можно только свои тестовые "
+                    "аккаунты (Настройки → «Тестовые рассылки»)."
+                ),
+            )
 
     async with db.transaction():
         await db.execute(

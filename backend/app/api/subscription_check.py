@@ -78,15 +78,26 @@ async def _check_one_channel(
 
     fake_pass — бот не видит канал, пропускаем участника без проверки.
     """
-    if not speaker_personal_tg_id:
-        # Без personal_tg_id не можем подтвердить, что бот реально админ →
-        # проверять участника бесполезно (любой ответ Telegram неоднозначен).
+    # ⚠️⚠️ «БОТ ВИДИТ ПОДПИСЧИКОВ?» — СПРАШИВАЕМ ПРО САМОГО БОТА.
+    #
+    # Раньше спрашивали про ВЛАДЕЛЬЦА канала: он на свой канал подписан
+    # наверняка, значит ответ Telegram косвенно доказывал, что бот админ.
+    # Но идентификатор владельца («ID личного аккаунта») к проверке подписки
+    # отношения не имеет и у многих просто не заполнен — и тогда проверка
+    # молча пропускала ВСЕХ. Так у коллаб-события человек видел «✅ вы
+    # подписаны» на канал, где его нет.
+    #
+    # Бот знает свой номер из токена — это надёжнее и не зависит от того,
+    # заполнил ли кто-то поле в карточке.
+    try:
+        bot_id = int(token.split(":", 1)[0])
+    except (ValueError, AttributeError):
         return "fake_pass"
 
-    viability_ok, speaker_status = await _get_chat_member(http, token, channel_id, int(speaker_personal_tg_id))
-    if not viability_ok or speaker_status not in _SUBSCRIBED_STATUSES:
-        # Бот не админ / удалён / канал недоступен / спикер сам отписался от канала.
-        # Пропускаем участника, не блокируем из-за чужой ошибки.
+    viability_ok, bot_status = await _get_chat_member(http, token, channel_id, bot_id)
+    if not viability_ok or bot_status not in ("administrator", "creator"):
+        # Бот не админ / удалён / канал недоступен → подписки не видит.
+        # Пропускаем участника, не блокируем из-за чужой ненастройки.
         return "fake_pass"
 
     user_ok, user_status = await _get_chat_member(http, token, channel_id, user_tg_id)

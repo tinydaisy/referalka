@@ -72,7 +72,12 @@ async def _gather_event_chat_channels(event_id: int, mode: str, db, client_id: i
     """
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
     rows = await db.fetch(
-        f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url,
+        # ⚠️ Имя С ФАМИЛИЕЙ: в одном списке рядом стоят каналы основателя и
+        # карточки спикеров — «Лилия Гришина» и «Нурия» выглядят как разные
+        # виды записей. Формат один: «Имя Фамилия (@ник)».
+        f"""SELECT sp.id AS speaker_id,
+                   TRIM(COALESCE(sp.name,'') || ' ' || COALESCE(sp.last_name,'')) AS name,
+                   sp.tg_channel_id, sp.tg_channel_url,
                    cse.role,
                    pu_tg.platform_user_id AS personal_tg_id
               FROM event_collaborators cse
@@ -110,6 +115,12 @@ async def _gather_founder_tg_channels(client_id: int | None, db):
         except Exception:
             social = {}
     channels = get_founder_tg_channels(social or {})
+    # ⚠️ Имя человека — из его карточки коллаба (то же, что у спикеров), чтобы
+    # подписи в одном списке были одного вида.
+    owner_label = await db.fetchval(
+        """SELECT TRIM(COALESCE(col.name,'') || ' ' || COALESCE(col.last_name,''))
+             FROM clients cl JOIN collaborators col ON col.id = cl.self_collaborator_id
+            WHERE cl.id = $1""", client_id) or ''
     out = []
     for idx, ch in enumerate(channels):
         cid = (ch.get("chat_id") or "").strip()
@@ -117,7 +128,11 @@ async def _gather_founder_tg_channels(client_id: int | None, db):
             continue  # без числового chat_id getChatMember не вызвать
         out.append({
             "speaker_id": -(idx + 1),
-            "name": ch.get("name") or "Канал основателя",
+            # ⚠️ Подписываем ЧЕЛОВЕКОМ, а не названием канала: в одном списке
+            # рядом стоят каналы из профиля («Переговоры для успеха…») и
+            # карточки коллабов («Нурия») — вперемешку это читается как разные
+            # сущности. Имя владельца приходит параметром owner_label.
+            "name": owner_label or ch.get("name") or "Канал основателя",
             "tg_channel_id": cid,
             "tg_channel_url": ch.get("url") or "",
             "role": "organizer",
@@ -298,13 +313,14 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         # не знали вовсе, и человек, нажавший «Вступить в Чат» в боте или с
         # веб-страницы, попадал в чат, подписавшись только на одного.
         collab_not_subscribed: list[dict] = []
+        collab_subscribed: list[dict] = []
         # ⚠️ ev — ЗАПИСЬ ИЗ БАЗЫ (asyncpg.Record), у неё нет .get. Обращение
         # ev.get(...) роняло обработчик молча: кнопка «Вступить в Чат»
         # отрабатывала за 0 мс и не присылала ничего.
         if ev["is_collab"] and ev["require_subscribe_all_owners"]:
             try:
                 from app.api.subscription_check import _check_collab_owners
-                collab_not_subscribed, _ok = await _check_collab_owners(
+                collab_not_subscribed, collab_subscribed = await _check_collab_owners(
                     event_id, user_tg_id, db)
             except Exception as e:
                 # Сбой проверки не запирает человека перед чатом.
@@ -345,14 +361,76 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         if collab_not_subscribed:
             not_all_subscribed = True
             for o in collab_not_subscribed:
+                sid = f"owner:{o.get('tg_channel_id')}"
                 channels.append({
-                    "speaker_id": f"owner:{o.get('tg_channel_id')}",
+                    "speaker_id": sid,
                     "role": "organizer",
                     "name": o.get("name") or "",
                     "tg_channel_id": o.get("tg_channel_id"),
                     "tg_channel_url": o.get("tg_channel_url"),
                     "personal_tg_id": None,
                 })
+                # ⚠️⚠️ ВЕРДИКТ ЗАПИСЫВАЕМ ЯВНО. Проверка организаторов коллабы
+                # ходит ботом КАЖДОГО организатора (он админ своего канала) и
+                # знает правду. Общая проверка выше идёт ОДНИМ ботом владельца
+                # события — в чужой канал он не добавлен и отвечает «проверить
+                # не смогли, пропускаем». Без этой строки правдивый вердикт
+                # терялся, и человек видел «✅ вы подписаны» на канал, где его
+                # нет.
+                verdicts[sid] = "not_subscribed"
+
+        # ⚠️⚠️ У КОЛЛАБЫ ВЕРДИКТ ПО КАЖДОМУ ОРГАНИЗАТОРУ — ЕГО СОБСТВЕННЫМ
+        # БОТОМ. Общая проверка выше ходит ОДНИМ ботом владельца события: в
+        # чужие каналы он не добавлен и отвечает «проверить не смогли,
+        # пропускаем» — человек попадал в «✅ вы подписаны» на канал, где его
+        # нет. Проверка организаторов знает правду про ОБА исхода, поэтому
+        # перекрываем её вердиктом и подписанных тоже.
+        for o in collab_subscribed:
+            key = (o.get("tg_channel_url") or "").strip().lower().rstrip("/")
+            key = (key.replace("https://", "").replace("http://", "")
+                      .replace("telegram.me/", "t.me/")) if key else f"id:{o.get('tg_channel_id')}"
+            for c in channels:
+                ck = (c.get("tg_channel_url") or "").strip().lower().rstrip("/")
+                ck = (ck.replace("https://", "").replace("http://", "")
+                        .replace("telegram.me/", "t.me/")) if ck else f"id:{c.get('tg_channel_id')}"
+                if ck == key:
+                    verdicts[c["speaker_id"]] = "subscribed"
+
+        # ⚠️⚠️ ОДИН КАНАЛ — ОДНА СТРОКА. Человек попадает в список ДВАЖДЫ:
+        # как спикер события и как организатор коллабы — это одна и та же
+        # карточка, пришедшая двумя путями. Хуже того, вердикты у копий
+        # расходятся, и человек видел «подпишитесь на Нурию» и тут же
+        # «✅ Нурия — вы подписаны» про ОДИН канал.
+        #
+        # Склеиваем по адресу канала (t.me и telegram.me — один и тот же),
+        # а без адреса — по номеру. Из двух копий оставляем ту, где вердикт
+        # ХУЖЕ: не подписан — значит не подписан, иначе гейт пропустит мимо.
+        def _chan_key(c):
+            u = (c.get("tg_channel_url") or "").strip().lower().rstrip("/")
+            if u:
+                return (u.replace("https://", "").replace("http://", "")
+                         .replace("telegram.me/", "t.me/"))
+            return f"id:{c.get('tg_channel_id') or ''}"
+
+        if channels:
+            uniq: dict = {}
+            for c in channels:
+                k = _chan_key(c)
+                if not k:
+                    continue
+                prev = uniq.get(k)
+                if prev is None:
+                    uniq[k] = c
+                    continue
+                # Оставляем копию с ХУДШИМ вердиктом: «не подписан» важнее.
+                # ⚠️ Сравниваем обе копии. Проверять только новую нельзя —
+                # тогда «подписан», пришедший вторым, затирал «не подписан»,
+                # и гейт пропускал человека мимо неподписанного канала.
+                def _bad(x):
+                    return verdicts.get(x["speaker_id"]) == "not_subscribed"
+                if _bad(c) and not _bad(prev):
+                    uniq[k] = c
+            channels = list(uniq.values())
 
         # ── НЕ подписан на все нужные каналы — показываем список каналов ──────
         if channels and not_all_subscribed:

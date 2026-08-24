@@ -523,13 +523,23 @@ async def _upsert_contact_with_identity_locked(
     if not pu_existing and username:
         uname_clean = username.lstrip('@').strip()
         if uname_clean:
+            # ⚠️ Сравнение НЕЗАВИСИМО ОТ РЕГИСТРА и по ОБОИМ полям.
+            # Ник в Telegram регистронезависим: организатор записал коллаба как
+            # «@kirakadry», а апдейт от Telegram пришёл с «Kirakadry» — точное
+            # сравнение не совпадало, заглушка не находилась, и человеку
+            # заводился ВТОРОЙ контакт. Именно так задвоилась Кира у клиента 1.
+            # Ищем и по platform_user_id ('@ник'), и по username: заглушку
+            # создают в разных местах, и ник не всегда попадает в оба поля.
             pseudo = await db.fetchrow(
                 """SELECT pu.id, pu.contact_id FROM platform_users pu
                     JOIN contacts c_own ON c_own.id = pu.contact_id
                     WHERE c_own.client_id = $1 AND pu.platform_slug = $2
-                      AND pu.platform_user_id = $3
+                      AND pu.platform_user_id LIKE '@%'
+                      AND (LOWER(pu.platform_user_id) = LOWER($3)
+                           OR LOWER(pu.username) = LOWER($4))
+                    ORDER BY pu.id
                     LIMIT 1""",
-                client_id, platform_slug, f"@{uname_clean}",
+                client_id, platform_slug, f"@{uname_clean}", uname_clean,
             )
             if pseudo:
                 # Защита: убедимся что реальный id ещё не занят другим контактом

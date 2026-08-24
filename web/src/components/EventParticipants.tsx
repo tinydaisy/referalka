@@ -17,6 +17,8 @@ interface Participant {
   // Оплаты по тарифам события (миграция 257): сумма и названия тарифов.
   paid_amount?: number | null
   paid_tariffs?: string | null
+  // Тестовый аккаунт кого-то из организаторов — только таких можно удалять в коллабе.
+  is_test_account?: boolean
   // ⚠️ КОЛЛАБ: организатор, в чьей базе лежит контакт (contacts.client_id).
   organizer_name?: string | null
   organizer_client_id?: number | null
@@ -562,9 +564,15 @@ function ContactCard({
           )}
         </div>
 
-        {/* Кнопка удаления */}
+        {/* Кнопка удаления.
+            ⚠️ В КОЛЛАБЕ состав участников защищён — на нём считается вклад
+            организаторов и Win-Win. Удалять можно ТОЛЬКО тестовые аккаунты
+            организаторов события (Настройки → «Тестовые рассылки»), поэтому у
+            остальных кнопку не рисуем: раньше она была видна у всех, человек
+            нажимал и получал 403 с советом «обратитесь в поддержку», у которой
+            такой возможности тоже нет. */}
         <div className="w-8 flex justify-center shrink-0">
-          {!isAssistant && (
+          {!isAssistant && (!isCollab || p.is_test_account) && (
             <button
               type="button"
               onClick={handleDelete}
