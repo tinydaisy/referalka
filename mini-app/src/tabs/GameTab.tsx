@@ -118,6 +118,10 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
   // получай файл в Telegram-боте. Веб-адрес оставляем только на крайний
   // случай: у владельца может не быть ни одного бота.
   const [giftPick, setGiftPick] = useState<Gift | null>(null)
+  // Какие описания подарков раскрыты. ⚠️ Свёрнуты по умолчанию: описание
+  // бывает на пол-экрана, и раскрытым оно превращает список в простыню, где
+  // не видно ни самих подарков, ни кнопки «Открыть».
+  const [descOpen, setDescOpen] = useState<Record<number, boolean>>({})
 
   const giftOpenHref = (g: Gift): string | null => {
     const links = g.platform_links || {}
@@ -276,10 +280,10 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
 
         <h3 style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
                      color: '#6b7c8e', margin: '4px 4px 10px' }}>
-          ✓ Получено · {got.length}
+          ✓ Доступно · {got.length}
         </h3>
         {got.length === 0
-          ? <div style={{ color: 'var(--muted)', fontSize: 12, padding: 10, textAlign: 'center' }}>Пока ничего не получено</div>
+          ? <div style={{ color: 'var(--muted)', fontSize: 12, padding: 10, textAlign: 'center' }}>Пока ничего не доступно</div>
           : got.map(g => (
             <div key={g.id} style={{
               background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
@@ -293,7 +297,27 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               }}>🎁</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a', marginBottom: 3 }}>{g.title}</div>
-                {g.description && <div style={{ fontSize: 11, color: '#6b7c8e' }}>{g.description}</div>}
+                {g.description && (
+                  <div style={{ marginTop: 4 }}>
+                    <button
+                      onClick={() => setDescOpen(o => ({ ...o, [g.id]: !o[g.id] }))}
+                      style={{
+                        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                        fontSize: 11, color: '#6b7c8e', display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                      <span>{descOpen[g.id] ? 'Свернуть' : 'Подробнее'}</span>
+                      <span style={{ fontSize: 9 }}>{descOpen[g.id] ? '▲' : '▼'}</span>
+                    </button>
+                    {descOpen[g.id] && (
+                      // ⚠️ whiteSpace: 'pre-wrap' — переносы строк из описания
+                      // сохраняются. Без него весь текст слипался в одну кашу.
+                      <div style={{
+                        fontSize: 11, color: '#6b7c8e', marginTop: 6,
+                        whiteSpace: 'pre-wrap', lineHeight: 1.45,
+                      }}>{g.description}</div>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#2e7d32',
@@ -646,7 +670,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
             )}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: '#6b7c8e' }}>Получено подарков</div>
+            <div style={{ fontSize: 12, color: '#6b7c8e' }}>Доступно подарков</div>
             {lastReceived && (
               <div style={{
                 fontSize: 13, fontWeight: 700, color: DARK, marginTop: 2,
@@ -667,7 +691,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         }}>
           {nextGift
             ? `🎁 Ещё ${toNext} ${toNext === 1 ? 'человек' : 'человека'} до подарка «${nextGift.title}»`
-            : '🎉 Все подарки получены!'}
+            : '🎉 Все подарки открыты!'}
         </div>
 
         {nextGift && (
@@ -698,7 +722,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
                     WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{g.title}</div>
                   <div style={{ fontSize: 11, color: unlocked ? '#2e7d32' : '#b86b00', fontWeight: 700, marginTop: 2 }}>
-                    {unlocked ? '✓ получен' : `за ${g.points_cost} чел`}
+                    {unlocked ? '✓ доступен' : `за ${g.points_cost} чел`}
                   </div>
                 </div>
               </div>
