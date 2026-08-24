@@ -9,7 +9,7 @@ import DialogChat from '@/components/DialogChat'
 // ⚠️ Форма доп. поля — ОБЩАЯ с разделом «Анкеты»: поле заводится из двух мест,
 // а форма одна (иначе разъедется список типов и вариантов).
 import ContactFieldForm from '@/components/ContactFieldForm'
-import { MoreHorizontal, Plus as PlusIcon } from 'lucide-react'
+import { MoreHorizontal, Plus as PlusIcon, Upload } from 'lucide-react'
 
 interface Identity {
   platform_slug: string
@@ -301,6 +301,14 @@ function ContactsActionsMenu({
       </button>
       {open && (
         <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+          <Link
+            href="/dashboard/clients/import"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <Upload size={14} />
+            Загрузить базу (CSV)
+          </Link>
           <button
             onClick={() => { setOpen(false); onExport() }}
             disabled={exporting || total === 0}
@@ -471,13 +479,6 @@ export default function ContactsPage() {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            <Link
-              href="/dashboard/clients/import"
-              className="px-2.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 text-sm flex items-center gap-1 shrink-0"
-              title="Импорт контактов из CSV"
-            >
-              📥
-            </Link>
             <button
               onClick={() => setFilterPanelOpen(true)}
               className={`relative px-2.5 rounded-lg border text-sm flex items-center gap-1 shrink-0 ${

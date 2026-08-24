@@ -118,6 +118,16 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
 
   return (
     <div className="space-y-6">
+      {/* ⚠️ Имя, почта и телефон в анкете УЖЕ ЕСТЬ — отдельными вопросами их
+          заводить не нужно. Клиенты создавали вопрос «Имя» руками и получали
+          в анкете два одинаковых поля. Плашка стоит ПЕРЕД ссылками: её читают
+          ровно тогда, когда собираются анкету отправлять. */}
+      <div className="rounded-xl border p-4 text-sm font-semibold"
+           style={{ borderColor: '#F3D9A4', background: 'rgba(255, 207, 164, 0.28)', color: '#25455D' }}>
+        Имя, почту и телефон добавлять не нужно — они подставятся сами у тех,
+        кто уже есть в базе.
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <h3 className="mb-2 font-semibold text-gray-800">Ссылки на анкету</h3>
         <p className="mb-3 text-sm text-gray-500">

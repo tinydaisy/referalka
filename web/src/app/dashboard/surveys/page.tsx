@@ -69,16 +69,6 @@ export default function SurveysPage() {
         ))}
       </div>
 
-      {/* ⚠️ Имя, почта и телефон в анкете УЖЕ ЕСТЬ — их не надо заводить полями.
-          Клиенты создавали поле «Имя» руками и получали в анкете два вопроса
-          про одно и то же. */}
-      <div className="mb-5 rounded-xl border p-4 text-sm"
-           style={{ borderColor: '#F0D9C0', background: '#FFF8F1', color: '#8A5A2B' }}>
-        <b>Имя, почта и телефон добавляются в анкету сами.</b> Отдельными полями
-        их создавать не нужно. Больше того — если человек уже есть в базе, они
-        подставятся заполненными, и переписывать их ему не придётся.
-      </div>
-
       {tab === 'surveys' ? <SurveysTab readOnly={isAssistant} />
                          : <FieldsTab readOnly={isAssistant} />}
     </div>
