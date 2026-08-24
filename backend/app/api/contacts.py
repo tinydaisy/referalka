@@ -1483,7 +1483,7 @@ async def import_contacts_csv(
             by_email = await db.fetchval(
                 """SELECT pe.contact_id FROM platform_users pe
                      JOIN contacts c ON c.id = pe.contact_id AND c.is_active = TRUE
-                    WHERE pe.client_id=$1 AND pe.platform_slug='email'
+                    WHERE c.client_id=$1 AND pe.platform_slug='email'
                       AND pe.platform_user_id=$2 LIMIT 1""",
                 client_id, email_n,
             )

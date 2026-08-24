@@ -81,7 +81,7 @@ async def persist_plusson_referrer_code(
                   SET plusson_referrer_code = $1
                  FROM platform_users p
                 WHERE p.contact_id = c.id
-                  AND p.client_id = $2
+                  AND c.client_id = $2
                   AND p.platform_slug = $3
                   AND p.platform_user_id = $4
                   AND (c.plusson_referrer_code IS NULL OR c.plusson_referrer_code = '')""",

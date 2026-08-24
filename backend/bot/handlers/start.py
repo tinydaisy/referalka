@@ -134,8 +134,9 @@ async def _upgrade_pseudo_identities(user) -> None:
             # Контакт псевдо-записи — это, как правило, контакт коллаба, его
             # ОБЯЗАТЕЛЬНО сохраняем (на нём висит access_code кабинета).
             pseudos = await db.fetch(
-                """SELECT p.id, p.client_id, p.contact_id
+                """SELECT p.id, c_own.client_id, p.contact_id
                      FROM platform_users p
+                     JOIN contacts c_own ON c_own.id = p.contact_id
                     WHERE p.platform_slug = 'telegram'
                       AND p.platform_user_id = $1""",
                 f"@{uname}",
