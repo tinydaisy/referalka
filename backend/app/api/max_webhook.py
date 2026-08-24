@@ -1688,13 +1688,7 @@ async def _send_max_event_menu(
     # кнопка «Кабинет» уводила к Лилии: чужой бренд, чужой домен, чужая база.
     # У коллабы владельцев несколько и они равноправны; решает тот, в чьём
     # приложении человек находится.
-    bot_client_id = await conn.fetchval(
-        """SELECT cc.client_id FROM channels ch
-             JOIN client_channels cc ON cc.channel_id = ch.id
-            WHERE ch.bot_token = $1 AND ch.platform_slug = 'max'
-            ORDER BY cc.id LIMIT 1""",
-        bot_token,
-    )
+    bot_client_id = await _max_bot_client_id(conn, bot_token)
     link_client_id = await resolve_event_client(
         conn, event_id=ev["id"], client_id=ev["client_id"],
         source_client_id=bot_client_id, contact_id=contact_id)
@@ -1781,6 +1775,20 @@ async def _send_max_event_menu(
     )
 
 
+async def _max_bot_client_id(conn, bot_token: str | None) -> int | None:
+    """Клиент — ВЛАДЕЛЕЦ ЭТОГО MAX-БОТА.
+
+    ⚠️⚠️ Человек зашёл в бота конкретного организатора — значит и меню, и
+    ссылки, и его контакт должны быть ЭТОГО организатора. У коллабы владельцев
+    несколько, и «первый из event_owners» (тот, кто раньше принял приглашение)
+    к делу отношения не имеет: по нему человек в боте Нурии получал кабинет,
+    домен и базу Лилии.
+    """
+    # ⚠️ Своей копии тут нет — общая функция на все площадки.
+    from app.services.event_client import bot_owner_client_id
+    return await bot_owner_client_id(conn, platform="max", bot_token=bot_token)
+
+
 async def _handle_max_live(
     chat_id: int,
     event_id: int,
@@ -1805,6 +1813,15 @@ async def _handle_max_live(
     )
     if not ev:
         return
+
+    # ⚠️ Домен и страница программы — того организатора, в чьём боте человек.
+    from app.services.event_client import resolve_event_client
+    ev = dict(ev)
+    ev["client_id"] = await resolve_event_client(
+        conn, event_id=ev["id"], client_id=ev["client_id"],
+        source_client_id=await _max_bot_client_id(conn, bot_token),
+        contact_id=contact_id)
+
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
     live_when = ""
     live_what = ""
@@ -2185,6 +2202,15 @@ async def _handle_max_chat_join(
     )
     if not ev:
         return
+
+    # ⚠️ Чьи каналы проверяем на подписку и чьи чаты выдаём — организатора, в
+    # чьём боте человек сидит, а не «первого владельца» коллабы.
+    from app.services.event_client import resolve_event_client
+    ev = dict(ev)
+    ev["client_id"] = await resolve_event_client(
+        conn, event_id=ev["id"], client_id=ev["client_id"],
+        source_client_id=await _max_bot_client_id(conn, bot_token),
+        contact_id=contact_id)
 
     # Режим проверки: конференция → conf_conferences.subscription_mode,
     # мероприятие → require_subscription (true=organizer, false=none).

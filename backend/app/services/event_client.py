@@ -202,6 +202,59 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
         logger.exception("share_contact_with_all_owners failed: event=%s", event_id)
 
 
+async def bot_owner_client_id(
+    db, *, platform: str,
+    bot_id: Optional[int] = None,
+    bot_token: Optional[str] = None,
+    handle: Optional[str] = None,
+) -> Optional[int]:
+    """ЧЕЙ ЭТО БОТ (сообщество) — клиент-владелец. ОДНА ФУНКЦИЯ НА ВСЕ ПЛОЩАДКИ.
+
+    ⚠️⚠️ Вопрос «в чьём боте сидит человек» одинаков в Telegram, MAX, ВКонтакте
+    и в любой площадке, которую подключат завтра, — значит и ответ должен быть
+    один. Раньше это были три копии кода в трёх файлах: правили одну, две
+    другие продолжали уводить человека к «первому владельцу» коллабы, и кабинет
+    Нурии раз за разом открывался у Лилии.
+
+    ⚠️ ВЕТОК «если telegram… если vk…» ЗДЕСЬ НЕТ, и заводить их нельзя. Иначе
+    каждая новая площадка требует правки этой функции — то есть ровно та
+    болезнь, от которой мы уходим. Опознаём канал по любому признаку, который
+    у нас есть, и все они хранятся одинаково для всех площадок:
+
+      • `bot_token` — точный ключ, есть у бота любой площадки;
+      • `bot_id`    — числовая часть токена (в Telegram приходит в апдейте);
+      • `handle`    — адрес бота/сообщества (в VK — номер сообщества).
+
+    Площадка нужна только чтобы не спутать одинаковые адреса у разных площадок.
+    Ошибки глушим: это уточнение контекста, а не обязательный шаг.
+    """
+    try:
+        conds, args = [], [platform]
+        if bot_token:
+            args.append(bot_token)
+            conds.append(f"ch.bot_token = ${len(args)}")
+        if bot_id:
+            args.append(str(bot_id))
+            conds.append(f"split_part(COALESCE(ch.bot_token, ''), ':', 1) = ${len(args)}")
+        if handle:
+            args.append(str(handle).lstrip("@"))
+            conds.append(f"LOWER(COALESCE(ch.handle, '')) = LOWER(${len(args)})")
+        if not conds:
+            return None
+
+        return await db.fetchval(
+            f"""SELECT cc.client_id FROM channels ch
+                  JOIN client_channels cc ON cc.channel_id = ch.id
+                 WHERE ch.platform_slug = $1 AND ({' OR '.join(conds)})
+                 ORDER BY cc.is_active DESC, cc.id LIMIT 1""",
+            *args,
+        )
+    except Exception:
+        logger.warning("bot_owner_client_id failed: platform=%s", platform)
+    return None
+
+
+
 async def resolve_event_client(
     db, *, event_id: int, client_id: int,
     partner_id: Optional[str] = None,

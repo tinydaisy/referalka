@@ -312,6 +312,20 @@ async def handle_vk_event_menu_back(event_id: int, vk_user_id: int, db, ctx) -> 
     if not ev:
         await vk_send_message(vk_user_id, "😕 Событие не найдено.", token=ctx.token)
         return
+
+    # ⚠️⚠️ ЧЕЛОВЕК ЗАШЁЛ В СООБЩЕСТВО — ВСЁ ОТ ЭТОГО СООБЩЕСТВА И ЕГО ВЛАДЕЛЬЦА.
+    # Здесь резолвера не было вовсе: `ev["client_id"]` — «первый владелец» из
+    # event_owners, то есть тот, кто раньше принял приглашение. В сообществе
+    # Нурии человек получал меню и ссылки Лилии, а его контакт искался в чужой
+    # базе — и зарегистрированный выглядел незарегистрированным.
+    from app.services.event_client import resolve_event_client
+    ev = dict(ev)
+    ev["client_id"] = await resolve_event_client(
+        db, event_id=event_id, client_id=ev["client_id"],
+        source_client_id=getattr(ctx, "client_id", None),
+        platform_slug="vk", platform_user_id=str(vk_user_id),
+    )
+
     # contact_id ищем В КОНТЕКСТЕ КЛИЕНТА события (у человека может быть несколько
     # vk-идентичностей на разных клиентов; без фильтра по client_id брался чужой
     # contact_id → is_registered=False → меню как для незарега = баг «ведёт на

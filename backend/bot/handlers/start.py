@@ -267,21 +267,10 @@ async def _client_id_by_bot(conn, bot_id: int | None) -> int | None:
     бота зашёл, а не «первого владельца события» (см. `_collab_base_client`).
     Ошибки глушим — это уточнение, а не обязательный шаг.
     """
-    if not bot_id:
-        return None
-    try:
-        from app.services.channels import find_channel_by_bot_id
-        ch = await find_channel_by_bot_id(bot_id, conn)
-        if not ch:
-            return None
-        return await conn.fetchval(
-            """SELECT client_id FROM client_channels
-                WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
-            ch["id"],
-        )
-    except Exception as e:
-        log.warning("_client_id_by_bot failed: %s", e)
-        return None
+    # ⚠️ Своей копии тут больше нет: вопрос «чей это бот» одинаков во всех
+    # площадках и живёт в ОДНОЙ функции (см. event_client.bot_owner_client_id).
+    from app.services.event_client import bot_owner_client_id
+    return await bot_owner_client_id(conn, platform="telegram", bot_id=bot_id)
 
 
 @router.message(CommandStart())
@@ -1259,6 +1248,19 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         # «первого владельца» из ev["client_id"] (см. _collab_base_client).
         # Клиент ЭТОГО бота — нужен и здесь, и ниже для ссылки регистрации.
         _bot_cid = await _client_id_by_bot(db, message.bot.id)
+
+        # ⚠️⚠️ КЛИЕНТА ОПРЕДЕЛЯЕМ ВСЕГДА, а не только когда контакт неизвестен.
+        # Раньше при известном контакте `ev["client_id"]` оставался «первым
+        # владельцем» события — и в боте Нурии кнопка «Зарегистрироваться»
+        # вела на домен Лилии (peregovorka.online), а меню показывало её
+        # кабинет. У коллабы владельцы равноправны: решает тот, в чьём боте
+        # человек сейчас находится.
+        from app.services.event_client import resolve_event_client as _rec
+        ev = dict(ev)
+        ev["client_id"] = await _rec(
+            db, event_id=ev["id"], client_id=ev["client_id"],
+            source_client_id=_bot_cid, contact_id=contact_id)
+
         if contact_id is None:
             _pid_part, contact_id = await resolve_or_create_participant(
                 db, client_id=ev["client_id"], event_id=ev["id"],
@@ -1540,8 +1542,36 @@ async def send_event_menu(
     # должны быть ТОГО организатора, в чьей базе его контакт. «Первый владелец»
     # из event_owners увёл бы его в чужой Mini App, где он не зарегистрирован.
     from app.services.event_client import resolve_event_client
+
+    # ⚠️⚠️ КЛИЕНТ БОТА — ОБЯЗАТЕЛЬНЫЙ ОРИЕНТИР. Без него резолвер, не найдя
+    # реф-кода у контакта, откатывался к «первому владельцу» события — и в боте
+    # Нурии кнопки меню и «Зарегистрироваться» уводили на домен Лилии
+    # (peregovorka.online). В коллабе владельцы равноправны: решает тот, в чьём
+    # боте человек сейчас находится.
+    _bot_cid = None
+    try:
+        if message is not None and message.bot is not None:
+            _bot_cid = await _client_id_by_bot(db, message.bot.id)
+        elif bot_token:
+            _bot_cid = await db.fetchval(
+                """SELECT cc.client_id FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE ch.bot_token = $1 AND ch.platform_slug = 'telegram'
+                    ORDER BY cc.id LIMIT 1""",
+                bot_token,
+            )
+    except Exception:
+        log.exception("Не смогли определить клиента бота для меню события")
+
     link_client_id = await resolve_event_client(
-        db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+        db, event_id=ev["id"], client_id=ev["client_id"],
+        source_client_id=_bot_cid, contact_id=contact_id)
+
+    # Дальше по функции «клиент события» — это тот же клиент, а не первый
+    # владелец: иначе текст и ссылки в одном меню разъезжались бы по разным
+    # организаторам.
+    ev = dict(ev)
+    ev["client_id"] = link_client_id
 
     # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
     # (clients.default_link_mode). miniapp → Mini App клиента; иначе → веб события.
