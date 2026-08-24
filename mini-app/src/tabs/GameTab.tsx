@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getGifts, getShareTexts, getShareMaterials, sendShareTextToBot, getEventShareLinks } from '../api'
 import ContactCardModal from '../components/ContactCardModal'
-import { getPlatformName } from '../platform'
+import { getPlatformName, getPlatform } from '../platform'
 import { buildAllLinksText, countLinks } from '../utils/allLinksText'
 
 // botClientId — клиент, ЧЕЙ БОТ открыл Mini App. В коллабе ≠ владельцу события:
@@ -128,6 +128,27 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
     return null   // есть боты, но не на его площадке → покажем выбор
   }
   const hasAnyGiftLink = (g: Gift) => Object.keys(g.platform_links || {}).length > 0
+
+  /** Открыть подарок.
+   *
+   * ⚠️⚠️ ОБЫЧНАЯ ССЫЛКА ЗДЕСЬ НЕ РАБОТАЕТ. Внутри Mini App браузерная
+   * `<a target="_blank">` часто не открывается вовсе — кнопка выглядит живой,
+   * но по нажатию не происходит НИЧЕГО. Площадка должна открыть ссылку сама.
+   *
+   * ⚠️ Ссылку на телеграм-бота открываем `openTelegramLink`, а не `openLink`:
+   * второй уводит во внешний браузер, и человек попадает на веб-страницу
+   * вместо чата с ботом.
+   */
+  const openGift = (url: string) => {
+    const twa = (window as any).Telegram?.WebApp
+    const isTg = /(?:t|telegram)\.me\//i.test(url)
+    if (twa?.openTelegramLink && isTg) { twa.openTelegramLink(url); return }
+    if (twa?.openLink) { twa.openLink(url); return }
+    // ВКонтакте и MAX: у их адаптеров свой способ открыть внешнюю ссылку.
+    const p: any = getPlatform()
+    if (p?.openExternal) { p.openExternal(url); return }
+    window.open(url, '_blank')
+  }
   const refLink =
     shareLinks.telegram
     || shareLinks[currentPlatform as 'telegram' | 'vk' | 'max']
@@ -285,11 +306,11 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     Нет ссылки на его площадке (или он в вебе) — показываем
                     выбор из тех площадок, что у организатора есть. */}
                 {giftOpenHref(g) ? (
-                  <a href={giftOpenHref(g)!} target="_blank" rel="noreferrer" style={{
+                  <button onClick={() => openGift(giftOpenHref(g)!)} style={{
                     background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
                     padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                    textDecoration: 'none',
-                  }}>Открыть</a>
+                    border: 'none', cursor: 'pointer',
+                  }}>Открыть</button>
                 ) : hasAnyGiftLink(g) ? (
                   <button onClick={() => setGiftPick(g)} style={{
                     background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
@@ -565,8 +586,8 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
             {Object.entries(giftPick.platform_links || {}).map(([plat, url]) => {
               const meta = PLATFORM_META[plat]
               return (
-                <a key={plat} href={url} target="_blank" rel="noreferrer"
-                   onClick={() => setGiftPick(null)}
+                <a key={plat} href={url}
+                   onClick={(e) => { e.preventDefault(); setGiftPick(null); openGift(url) }}
                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
                             borderRadius: 10, marginBottom: 8, textDecoration: 'none',
                             background: meta?.bg || '#f0f3f7', color: meta?.fg || DARK,
