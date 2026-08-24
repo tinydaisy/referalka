@@ -2385,6 +2385,16 @@ async def event_page(slug: str, c: str = "", email: str = "",
         raise HTTPException(status_code=404, detail="Событие не найдено")
     event_id = event["id"]
     ev = dict(event)
+
+    # ⚠️⚠️ У КОЛЛАБЫ ВЛАДЕЛЬЦЕВ НЕСКОЛЬКО — берём того, в чьей базе человек.
+    # `_resolve_event` отдаёт «первого владельца из списка»: человек из бота
+    # Нурии видел кабинет на домене Лилии, с её брендом и её ссылками.
+    _c = int(c) if c and c.isdigit() else None
+    if _c:
+        from app.services.event_client import resolve_event_client
+        ev["client_id"] = await resolve_event_client(
+            db, event_id=event_id, client_id=ev["client_id"], contact_id=_c)
+
     # Домен клиента — рендер страницы синхронный и в БД сходить не может,
     # поэтому кладём базу в ev один раз здесь. Все ссылки внутри вёрстки
     # клеятся от неё, чтобы у клиента со своим доменом не всплыл pluson.ru.
@@ -2883,6 +2893,15 @@ async def event_register_page(slug: str, c: str = "",
 
     contact_id = int(c) if c and c.isdigit() else None
 
+    # ⚠️⚠️ У КОЛЛАБЫ ВЛАДЕЛЬЦЕВ НЕСКОЛЬКО — берём того, в чьей базе человек.
+    # `_resolve_event` отдаёт «первого владельца из списка», и человек,
+    # пришедший из бота Нурии, регистрировался у Лилии: чужой домен, чужой
+    # бренд, контакт уезжал в чужую базу (прод, 2026-08-25).
+    if contact_id:
+        from app.services.event_client import resolve_event_client
+        ev["client_id"] = await resolve_event_client(
+            db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+
     prefill = None
     if contact_id:
         # ВЕТКА 1: уже зарегистрирован на это событие → сразу в кабинет.
@@ -3036,6 +3055,15 @@ async def event_register_submit(slug: str, request: Request,
         link_cid = int(link_cid) if link_cid is not None else None
     except (ValueError, TypeError):
         link_cid = None
+
+    # ⚠️⚠️ В ЧЬЮ БАЗУ ПОПАДЁТ ЧЕЛОВЕК. У коллабы владельцев несколько, и
+    # `_resolve_event` отдаёт «первого из списка» — человек из бота Нурии
+    # регистрировался у Лилии: контакт уезжал в чужую базу, привлечение не
+    # засчитывалось никому, а ответ приходил с чужого домена.
+    if link_cid:
+        from app.services.event_client import resolve_event_client
+        client_id = await resolve_event_client(
+            db, event_id=event_id, client_id=client_id, contact_id=link_cid)
 
     email_raw = (body.get("email") or "").strip()
     email_norm = normalize_email(email_raw)

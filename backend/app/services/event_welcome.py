@@ -674,11 +674,16 @@ async def send_event_open_message(
         # ⚠️ «Получить подарки» — только если реф-программа события ВКЛЮЧЕНА.
         # Иначе кнопка вела на пустую вкладку: человек нажимал и не понимал,
         # где обещанные подарки (прод, 2026-08-18).
-        _ref_on = await conn.fetchval(
-            """SELECT 1 FROM event_referral_settings
-                WHERE event_id = $1 AND is_enabled = TRUE LIMIT 1""",
-            ev["id"],
-        )
+        # ⚠️⚠️ БЕРЁМ СВОЁ СОЕДИНЕНИЕ. `conn` открывался выше и уже ВЕРНУЛСЯ В
+        # ПУЛ к этому месту — обращение к нему роняло весь запрос:
+        # «connection has been released back to the pool». Человек при
+        # регистрации в MAX видел ошибку вместо приветствия.
+        async with pool.acquire() as _c:
+            _ref_on = await _c.fetchval(
+                """SELECT 1 FROM event_referral_settings
+                    WHERE event_id = $1 AND is_enabled = TRUE LIMIT 1""",
+                ev["id"],
+            )
         pid_part = f"_pid{ref_code}" if ref_code else ""
         if _ref_on:
             btn_text = "Получить подарки"
