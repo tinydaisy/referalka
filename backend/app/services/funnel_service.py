@@ -522,12 +522,35 @@ async def _send_media(token: str, chat_id, media_payload: str, media_type: str,
                             if k not in (field, "reply_markup")}
                     if reply_markup is not None:
                         form["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+
+                    # ⚠️⚠️ У ВИДЕО ОБЯЗАТЕЛЬНО ПЕРЕДАТЬ РАЗМЕРЫ И ОБЛОЖКУ.
+                    # Раньше Telegram скачивал файл сам и размеры видел сам.
+                    # Теперь файл отправляем мы — и без width/height он рисует
+                    # видео КВАДРАТОМ, ломая пропорции, а без обложки показывает
+                    # серый прямоугольник.
+                    if media_type == "video":
+                        try:
+                            from app.services.video_meta import probe_dimensions, extract_thumbnail
+                            dims = await probe_dimensions(fr.content)
+                            if dims:
+                                w, h, dur = dims
+                                form["width"], form["height"] = str(w), str(h)
+                                if dur:
+                                    form["duration"] = str(dur)
+                            form["supports_streaming"] = "true"
+                            thumb = await extract_thumbnail(fr.content)
+                        except Exception as e:
+                            log.warning("видео: не смогли снять размеры/обложку: %s", e)
+                            thumb = None
                     async with httpx.AsyncClient(timeout=300) as http2:
+                        files = {field: (fname, fr.content,
+                                         fr.headers.get("content-type") or "application/octet-stream")}
+                        if media_type == "video" and locals().get("thumb"):
+                            files["thumbnail"] = ("thumb.jpg", thumb, "image/jpeg")
+                            form["thumbnail"] = "attach://thumbnail"
                         r2 = await http2.post(
                             f"https://api.telegram.org/bot{token}/{method}",
-                            data=form,
-                            files={field: (fname, fr.content,
-                                           fr.headers.get("content-type") or "application/octet-stream")},
+                            data=form, files=files,
                         )
                         d2 = r2.json()
                     if d2.get("ok"):
