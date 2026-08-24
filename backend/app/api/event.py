@@ -118,10 +118,19 @@ async def share_to_bot(body: ShareToBotRequest):
         from app.services.event_client import (
             resolve_event_client, resolve_event_contact_id_any_owner,
         )
+        # ⚠️⚠️ КЛИЕНТ ИЗ АДРЕСА ПРИЛОЖЕНИЯ — ГЛАВНЕЕ ВСЕГО. Mini App открыт по
+        # адресу `/c/{N}/tg/`, где N — владелец бота: человек зашёл к
+        # КОНКРЕТНОМУ организатору. Раньше это значение сюда не передавали
+        # вовсе, а контакт искали «у любого организатора» — и тот, кто есть в
+        # базах обоих, уезжал к «первому владельцу»: в боте Нурии открывался
+        # кабинет Лилии, писал её бот, ссылки вели на её домен.
+        _src = body.client_id or 0
         _cid = await resolve_event_contact_id_any_owner(
             conn, event_id, "telegram", tg_id)
         client_id = await resolve_event_client(
-            conn, event_id=event_id, client_id=client_id, contact_id=_cid)
+            conn, event_id=event_id, client_id=client_id,
+            source_client_id=_src or None, contact_id=_cid,
+            platform_slug="telegram", platform_user_id=str(tg_id))
 
     # Регистрируем пользователя как подписчика главного TG-канала клиента.
     # Mini App может быть открыт минуя /start (через Menu Button) — без этого
@@ -278,10 +287,15 @@ async def mark_link_click(body: LinkClickRequest):
         from app.services.event_client import (
             resolve_event_client, resolve_event_contact_id_any_owner,
         )
+        # ⚠️ Тот же порядок, что в event_start: сначала владелец приложения,
+        # в котором человек находится, и только потом — где лежит его контакт.
+        _src = getattr(body, "client_id", 0) or 0
         _cid = await resolve_event_contact_id_any_owner(
             conn, event_id, platform, body.tg_id)
         client_id = await resolve_event_client(
-            conn, event_id=event_id, client_id=client_id, contact_id=_cid)
+            conn, event_id=event_id, client_id=client_id,
+            source_client_id=_src or None, contact_id=_cid,
+            platform_slug=platform, platform_user_id=str(body.tg_id))
 
         uname = body.username.lstrip('@') if body.username else None
         fname = body.first_name or None
