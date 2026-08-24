@@ -3264,7 +3264,14 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
             max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
         for mid in [str(t) for t in test_max_ids]:
             try:
-                res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons)
+                # ⚠️ recipient_kind='user' ОБЯЗАТЕЛЕН: в настройках указан id
+                # ПРОФИЛЯ, а не беседы. По умолчанию функция шлёт через chat_id,
+                # и MAX на id профиля отвечает 200 + chat.not.found — сообщение
+                # молча не доходит. Боевая рассылка это делает верно
+                # (tasks/broadcast.py), а тест — нет, поэтому тест в MAX не
+                # доходил никогда.
+                res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons,
+                                     recipient_kind="user")
                 out.append({"platform": "max", "chat_id": mid, "ok": bool(res), "error": None if res else "MAX send returned None"})
             except Exception as e:
                 out.append({"platform": "max", "chat_id": mid, "ok": False, "error": str(e)})
@@ -3571,7 +3578,11 @@ async def test_template(
                 max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
             for mid in [str(t) for t in test_max_ids]:
                 try:
-                    res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons)
+                    # ⚠️ recipient_kind='user' — см. пояснение в _send_content_to_tests:
+                    # в настройках лежит id профиля, а не беседы; без этого MAX
+                    # отвечает chat.not.found и сообщение не доходит.
+                    res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons,
+                                         recipient_kind="user")
                     out.append({
                         "platform": "max", "chat_id": mid,
                         "ok": bool(res), "error": None if res else "MAX send returned None"
