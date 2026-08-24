@@ -1357,7 +1357,10 @@ async def _send_broadcast_vk_part(
     # Какие VK-подписчики клиента в зависимости от аудитории
     if aud_include == "all_client":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
+                      COALESCE(NULLIF(pu.first_name, ''),
+                               (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
+                               'друг') AS first_name
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
@@ -1375,7 +1378,10 @@ async def _send_broadcast_vk_part(
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
+                      COALESCE(NULLIF(pu.first_name, ''),
+                               (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
+                               'друг') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1392,7 +1398,10 @@ async def _send_broadcast_vk_part(
         )
     elif event_id:
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
+                      COALESCE(NULLIF(pu.first_name, ''),
+                               (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
+                               'друг') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1540,6 +1549,11 @@ async def _send_broadcast_vk_part(
         except (TypeError, ValueError):
             continue
         message_text = text or ""
+        # ⚠️ {first_name} персонализируется ЗДЕСЬ, у каждого получателя свой.
+        # В build_message_content он намеренно не трогается. В TG и email это
+        # делалось, а в VK — нет: человеку уходил сырой «{first_name}».
+        if "{first_name}" in message_text:
+            message_text = message_text.replace("{first_name}", r["first_name"] or "друг")
         # Сквозной contact_id в ссылке эфира — по VK-контакту этого получателя.
         if "?c=__CT__" in message_text:
             _ctv = r.get("contact_id")
@@ -1677,7 +1691,10 @@ async def _send_broadcast_max_part(
     # Аудитория — те же 3 варианта что у VK
     if aud_include == "all_client":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
+                      COALESCE(NULLIF(pu.first_name, ''),
+                               (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
+                               'друг') AS first_name
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
@@ -1695,7 +1712,10 @@ async def _send_broadcast_max_part(
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
+                      COALESCE(NULLIF(pu.first_name, ''),
+                               (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
+                               'друг') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1712,7 +1732,10 @@ async def _send_broadcast_max_part(
         )
     elif event_id:
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id,
+                      COALESCE(NULLIF(pu.first_name, ''),
+                               (SELECT c.name FROM contacts c WHERE c.id = pu.contact_id),
+                               'друг') AS first_name
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1818,6 +1841,10 @@ async def _send_broadcast_max_part(
         # и передаём parse_mode='html' ниже. MAX устойчив к незакрытым тегам и
         # HTML-сущностям (проверено), всё сообщение не отвергает.
         message_text = html_to_telegram(text or "")
+        # ⚠️ {first_name} — персонально каждому (см. пояснение в VK-ветке).
+        # В MAX подстановки не было вовсе: уходил сырой «{first_name}».
+        if "{first_name}" in message_text:
+            message_text = message_text.replace("{first_name}", r["first_name"] or "друг")
         # Сквозной contact_id в ссылке эфира — по MAX-контакту этого получателя.
         if "?c=__CT__" in message_text:
             _ctm = r.get("contact_id")

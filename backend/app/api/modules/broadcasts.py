@@ -4,8 +4,14 @@ from typing import Optional, List
 from datetime import datetime, time, timedelta
 import asyncpg
 import httpx
+import logging
 import re
 from zoneinfo import ZoneInfo
+
+# ⚠️ logger в модуле не был объявлен вовсе, хотя logger.warning уже вызывался
+# (тестовое письмо, строка ~3185): в момент реального сбоя вызов упал бы
+# NameError и утащил бы за собой всю тестовую отправку.
+logger = logging.getLogger(__name__)
 
 
 async def _support_link_preview(db, client_id: int) -> str:
@@ -3212,11 +3218,30 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
 
     async def _txt(platform: str) -> str:
         t = await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform=platform) if db else text
-        return (t or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform))
+        t = (t or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform))
+        # \u26a0\ufe0f {first_name} \u0432 \u0431\u043e\u0435\u0432\u043e\u0439 \u0440\u0430\u0441\u0441\u044b\u043b\u043a\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u0442 Celery \u043f\u043e \u043a\u0430\u0436\u0434\u043e\u043c\u0443
+        # \u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044e. \u0412 \u0422\u0415\u0421\u0422\u0415 \u0442\u0430\u043a\u043e\u0439 \u043f\u043e\u0434\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 \u043d\u0435 \u0431\u044b\u043b\u043e \u043d\u0438 \u043d\u0430 \u043e\u0434\u043d\u043e\u0439 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0435 \u2014
+        # \u043a\u043b\u0438\u0435\u043d\u0442 \u0432\u0438\u0434\u0435\u043b \u0441\u044b\u0440\u043e\u0439 \u00ab{first_name}\u00bb \u0438 \u0441\u0447\u0438\u0442\u0430\u043b \u043f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 \u0441\u043b\u043e\u043c\u0430\u043d\u043d\u044b\u043c.
+        # \u0417\u0434\u0435\u0441\u044c \u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c \u2014 \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u0430\u043a\u043a\u0430\u0443\u043d\u0442 \u0441\u0430\u043c\u043e\u0433\u043e \u043a\u043b\u0438\u0435\u043d\u0442\u0430, \u043f\u043e\u044d\u0442\u043e\u043c\u0443 \u0438\u043c\u044f
+        # \u0431\u0435\u0440\u0451\u043c \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u044c\u043d\u043e\u0435: \u0442\u0435\u0441\u0442 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0432\u0451\u0440\u0441\u0442\u043a\u0443, \u0430 \u043d\u0435 \u043a\u043e\u043d\u043a\u0440\u0435\u0442\u043d\u043e\u0435 \u0438\u043c\u044f.
+        if "{first_name}" in t:
+            t = t.replace("{first_name}", "\u0434\u0440\u0443\u0433")
+        return t
 
     async def _burl(platform: str):
         u = await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform=platform) if (db and btn_url) else btn_url
         return (u or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform)) if u else u
+
+    async def _burl_raw(raw_url: str, platform: str) -> str:
+        """\u0422\u043e \u0436\u0435, \u0447\u0442\u043e _burl, \u043d\u043e \u0434\u043b\u044f \u041f\u0420\u041e\u0418\u0417\u0412\u041e\u041b\u042c\u041d\u041e\u0419 \u0441\u0441\u044b\u043b\u043a\u0438 \u0438\u0437 \u0441\u043f\u0438\u0441\u043a\u0430 \u043a\u043d\u043e\u043f\u043e\u043a.
+
+        \u041d\u0443\u0436\u0435\u043d, \u043a\u043e\u0433\u0434\u0430 \u043a\u043d\u043e\u043f\u043e\u043a \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e: _burl \u0443\u043c\u0435\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0434\u043d\u0443 (button_url), \u0438
+        \u0443 \u043e\u0441\u0442\u0430\u043b\u044c\u043d\u044b\u0445 \u043a\u043d\u043e\u043f\u043e\u043a \u0442\u043e\u043a\u0435\u043d\u044b \u0432\u043e\u0440\u043e\u043d\u043a\u0438 \u0438 {signup_link} \u043e\u0441\u0442\u0430\u043b\u0438\u0441\u044c \u0431\u044b \u0441\u044b\u0440\u044b\u043c\u0438.
+        """
+        if not raw_url:
+            return ""
+        u = await resolve_gift_funnel_tokens(db, client_id=client_id, text=raw_url, platform=platform) if db else raw_url
+        return (u or "").replace("\u27e6SIGNUP\u27e7", await _signup(platform))
 
     out: list[dict] = []
     async with httpx.AsyncClient(timeout=20) as http:
@@ -3241,16 +3266,71 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                     video_url=video if m_type == "video" else None)
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
     if test_vk_ids:
-        from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
+        from app.services.vk_api import (
+            send_message as vk_send,
+            tg_inline_to_vk_keyboard,
+            upload_photo_to_messages as vk_upload_photo,
+        )
+        from app.services.channels import get_client_vk_token
+        from app.config import settings as _vk_settings
+        # Сообщество КЛИЕНТА; системное — только если своего нет (как в боевой).
+        vk_token = (await get_client_vk_token(client_id, db)) if (db and client_id) else None
+        vk_token = vk_token or _vk_settings.vk_system_group_token
         vk_burl = await _burl("vk")
-        vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_burl}]]) if (btn_text and vk_burl) else None
         _vt = await _txt("vk")
-        vk_text = f"{photo}\n\n{_vt}".strip() if photo else _vt
+        vk_text = _vt or ""
+
+        # ⚠️ Кнопки в VK — как в боевой рассылке (tasks/broadcast.py).
+        # VK молча срезает inline-кнопки open_link на внешние домены
+        # (pluson.ru / t.me): сообщество должно разрешить домен. Поэтому
+        # внешние ссылки пишем СТРОКОЙ В ТЕКСТ, кнопкой оставляем только
+        # внутренние vk-ссылки. Раньше тест брал ОДНУ кнопку и всегда клал её
+        # в клавиатуру — до человека доходила одна кнопка или ни одной.
+        def _is_vk_internal(u: str) -> bool:
+            u = (u or "").lower()
+            return ("vk.com" in u) or ("vk.me" in u) or ("vk.ru" in u)
+
+        vk_btn_pairs: list[tuple[str, str]] = []
+        if buttons:
+            for b in buttons:
+                lbl = b.get("text") or b.get("label") or "Открыть"
+                url = await _burl_raw(b.get("url") or "", "vk")
+                if url:
+                    vk_btn_pairs.append((lbl, url))
+        elif btn_text and vk_burl:
+            vk_btn_pairs.append((btn_text, vk_burl))
+
+        vk_kb_rows: list[list[dict]] = []
+        vk_link_lines: list[str] = []
+        for lbl, url in vk_btn_pairs:
+            if _is_vk_internal(url):
+                vk_kb_rows.append([{"text": lbl, "url": url}])
+            else:
+                vk_link_lines.append(f"{lbl}: {url}")
+        vk_keyboard = tg_inline_to_vk_keyboard(vk_kb_rows) if vk_kb_rows else None
+        if vk_link_lines:
+            _sfx = "\n\n" + "\n".join(vk_link_lines)
+            vk_text = f"{vk_text}{_sfx}" if vk_text else _sfx.strip()
+
+        # ⚠️ Фото ЗАГРУЖАЕМ в VK, а не приклеиваем ссылкой к тексту (так было
+        # раньше — человек видел голый адрес R2 вместо картинки). Грузим тем же
+        # токеном, которым шлём: иначе owner_id фото чужой и VK откажет.
+        vk_attachment: str | None = None
+        if m_type != "video" and photo and vk_token:
+            try:
+                vk_attachment = await vk_upload_photo(photo, token=vk_token)
+            except Exception as e:
+                logger.warning(f"VK test photo upload failed for {photo}: {e}")
         if m_type == "video" and video:
             vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
+
         for vid in [str(t) for t in test_vk_ids]:
             try:
-                res = await vk_send(int(vid), vk_text, keyboard=vk_keyboard)
+                # ⚠️ token обязателен: без него vk_call подставляет СИСТЕМНОЕ
+                # сообщество ПЛЮСОНа, и тест приходил от чужого имени (а тем,
+                # кто на него не подписан, — не приходил вовсе).
+                res = await vk_send(int(vid), vk_text, token=vk_token,
+                                    keyboard=vk_keyboard, attachment=vk_attachment)
                 out.append({"platform": "vk", "chat_id": vid, "ok": bool(res), "error": None if res else "VK send returned None"})
             except Exception as e:
                 out.append({"platform": "vk", "chat_id": vid, "ok": False, "error": str(e)})
@@ -3515,7 +3595,12 @@ async def test_template(
             _sg[_p] = await _signup_link_preview(db, client_id, event_id, _p)
 
         def _sub(val, platform):
-            return (val or "").replace("\u27e6SIGNUP\u27e7", _sg.get(platform, "")) if val else val
+            if not val:
+                return val
+            v = (val or "").replace("\u27e6SIGNUP\u27e7", _sg.get(platform, ""))
+            # {first_name} \u2014 \u0432 \u0431\u043e\u044e \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u0442 Celery per-\u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c; \u0432 \u0442\u0435\u0441\u0442\u0435
+            # \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u043c \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u044c\u043d\u043e\u0435 \u0438\u043c\u044f, \u0438\u043d\u0430\u0447\u0435 \u0443\u0445\u043e\u0434\u0438\u0442 \u0441\u044b\u0440\u043e\u0439 \u043f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440.
+            return v.replace("{first_name}", "\u0434\u0440\u0443\u0433") if "{first_name}" in v else v
 
         out: list[dict] = []
         text = content.get("text") or ""
@@ -3541,19 +3626,41 @@ async def test_template(
             from app.services.vk_api import (
                 send_message as vk_send,
                 tg_inline_to_vk_keyboard,
+                upload_photo_to_messages as vk_upload_photo,
             )
+            from app.services.channels import get_client_vk_token
+            from app.config import settings as _vk_settings
+            # Сообщество КЛИЕНТА; системное — только если своего нет.
+            vk_token = (await get_client_vk_token(client_id, db)) if client_id else None
+            vk_token = vk_token or _vk_settings.vk_system_group_token
             vk_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="vk"), "vk") if btn_url else btn_url
+            # Внешние URL-кнопки VK срезает — их пишем строкой в текст.
             vk_keyboard = None
+            vk_link_lines: list[str] = []
             if btn_text and vk_btn_url:
-                vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_btn_url}]])
+                _u = (vk_btn_url or "").lower()
+                if ("vk.com" in _u) or ("vk.me" in _u) or ("vk.ru" in _u):
+                    vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_btn_url}]])
+                else:
+                    vk_link_lines.append(f"{btn_text}: {vk_btn_url}")
             _vk_body = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="vk"), "vk")
-            # Фото в превью: VK сам развернёт по URL в начале сообщения.
-            vk_text = f"{photo}\n\n{_vk_body}".strip() if photo else _vk_body
+            vk_text = _vk_body or ""
+            if vk_link_lines:
+                _sfx = "\n\n" + "\n".join(vk_link_lines)
+                vk_text = f"{vk_text}{_sfx}" if vk_text else _sfx.strip()
+            # Фото ЗАГРУЖАЕМ вложением, а не ссылкой в тексте.
+            vk_attachment: str | None = None
+            if m_type != "video" and photo and vk_token:
+                try:
+                    vk_attachment = await vk_upload_photo(photo, token=vk_token)
+                except Exception as e:
+                    logger.warning(f"VK preview photo upload failed for {photo}: {e}")
             if m_type == "video" and video:
                 vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
             for vid in [str(t) for t in test_vk_ids]:
                 try:
-                    res = await vk_send(int(vid), vk_text, keyboard=vk_keyboard)
+                    res = await vk_send(int(vid), vk_text, token=vk_token,
+                                        keyboard=vk_keyboard, attachment=vk_attachment)
                     out.append({
                         "platform": "vk", "chat_id": vid,
                         "ok": bool(res), "error": None if res else "VK send returned None"

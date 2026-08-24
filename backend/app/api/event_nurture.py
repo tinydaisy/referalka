@@ -228,13 +228,21 @@ async def update_nurture_step(
 ):
     # Проверяем принадлежность через event_id шага
     row = await db.fetchrow(
-        """SELECT s.event_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
+        """SELECT s.event_id, EXISTS (
+                        SELECT 1 FROM event_owners eo
+                         WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                           AND eo.client_id = $2
+                    ) AS is_owner
              FROM event_nurture_steps s
              JOIN events e ON e.id = s.event_id
             WHERE s.id = $1""",
-        step_id,
+        step_id, int(client["sub"]),
     )
-    if not row or row["client_id"] != int(client["sub"]):
+    # ⚠️ В КОЛЛАБЕ ОРГАНИЗАТОРЫ РАВНОПРАВНЫ: править и удалять шаги может
+    # ЛЮБОЙ принявший приглашение, а не «первый из event_owners».
+    # Раньше стоял подзапрос «первый владелец» — и второй организатор
+    # получал 404: у него молча не снималась галочка и не удалялся шаг.
+    if not row or not row["is_owner"]:
         raise HTTPException(status_code=404, detail="Шаг не найден")
 
     updates = []
@@ -266,13 +274,21 @@ async def delete_nurture_step(
     db=Depends(get_db),
 ):
     row = await db.fetchrow(
-        """SELECT s.event_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
+        """SELECT s.event_id, EXISTS (
+                        SELECT 1 FROM event_owners eo
+                         WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                           AND eo.client_id = $2
+                    ) AS is_owner
              FROM event_nurture_steps s
              JOIN events e ON e.id = s.event_id
             WHERE s.id = $1""",
-        step_id,
+        step_id, int(client["sub"]),
     )
-    if not row or row["client_id"] != int(client["sub"]):
+    # ⚠️ В КОЛЛАБЕ ОРГАНИЗАТОРЫ РАВНОПРАВНЫ: править и удалять шаги может
+    # ЛЮБОЙ принявший приглашение, а не «первый из event_owners».
+    # Раньше стоял подзапрос «первый владелец» — и второй организатор
+    # получал 404: у него молча не снималась галочка и не удалялся шаг.
+    if not row or not row["is_owner"]:
         raise HTTPException(status_code=404, detail="Шаг не найден")
     await db.execute("DELETE FROM event_nurture_steps WHERE id = $1", step_id)
     return {"ok": True}
