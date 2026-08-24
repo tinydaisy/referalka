@@ -1182,7 +1182,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         parts = list(sa_parts)
         if _contact_id:
             parts.append(f"ct{_contact_id}")
-        return f"https://telegram.me/{bot_username}{app_part}?startapp={'_'.join(parts)}"
+        return f"https://t.me/{bot_username}{app_part}?startapp={'_'.join(parts)}"
 
     # Пока контакт не резолвлен (он определяется ниже) — ссылка без него.
     mini_app_link = _mini_app_link()
@@ -1724,7 +1724,15 @@ async def send_event_menu_after_signup(db, *, event_id: int, contact_id: int) ->
     писать ему должен ЕГО бот. Токен чужого бота отправит сообщение от имени
     постороннего организатора — человек не поймёт, кто ему пишет.
 
-    ⚠️ Только Telegram: MAX и VK своих меню событий не имеют.
+    ⚠️⚠️ МЕНЮ УХОДИТ НА ВСЕХ ТРЁХ ПЛОЩАДКАХ — Telegram, MAX и ВКонтакте.
+    Раньше только в Telegram («у MAX и VK своих меню нет» — неверно, они есть
+    и работают по команде `/menu{id}`, их просто не вызывали здесь). Человек,
+    зарегистрировавшийся в MAX, оставался с пустым ботом: ни чата, ни эфира,
+    ни кабинета — при том что догрев сразу писал ему «закрепите этот бот».
+
+    ⚠️ Шлём в ТУ площадку, где человек зарегистрировался, а не во все сразу:
+    иначе одно и то же меню придёт ему трижды.
+
     Все ошибки глушим — это дополнение к регистрации, а не её часть.
     """
     try:
@@ -1738,20 +1746,65 @@ async def send_event_menu_after_signup(db, *, event_id: int, contact_id: int) ->
         )
         if not row or not row["client_id"]:
             return
+        client_id = row["client_id"]
+
+        # --- Telegram ---
         tg_id = (row["tg_id"] or "").strip()
         # Псевдо-запись `@ник` (идентичность известна только по нику) для
         # отправки не годится — нужен числовой id.
-        if not tg_id.isdigit():
-            return
+        if tg_id.isdigit():
+            from app.services.channels import get_client_telegram_token
+            token = await get_client_telegram_token(client_id, db)
+            if token:
+                await send_event_menu(
+                    None, event_id, contact_id, db, tg_id=tg_id, bot_token=token,
+                )
+                return
 
-        from app.services.channels import get_client_telegram_token
-        token = await get_client_telegram_token(row["client_id"], db)
-        if not token:
-            return
-
-        await send_event_menu(
-            None, event_id, contact_id, db, tg_id=tg_id, bot_token=token,
+        # --- MAX ---
+        max_id = await db.fetchval(
+            """SELECT pu.platform_user_id FROM platform_users pu
+                WHERE pu.contact_id = $1 AND pu.platform_slug = 'max' LIMIT 1""",
+            contact_id,
         )
+        if max_id and str(max_id).isdigit():
+            from app.services.channels import get_client_max_token
+            mtoken = await get_client_max_token(client_id, db)
+            if mtoken:
+                from app.api.max_webhook import _send_max_event_menu
+                await _send_max_event_menu(
+                    int(max_id), event_id, contact_id, mtoken, db)
+                return
+
+        # --- ВКонтакте ---
+        vk_id = await db.fetchval(
+            """SELECT pu.platform_user_id FROM platform_users pu
+                WHERE pu.contact_id = $1 AND pu.platform_slug = 'vk' LIMIT 1""",
+            contact_id,
+        )
+        if vk_id and str(vk_id).isdigit():
+            from app.services.channels import get_client_vk_token
+            vtoken = await get_client_vk_token(client_id, db)
+            if vtoken:
+                from app.api.vk_event import send_vk_event_funnel, _EVENT_FUNNEL_FIELDS
+                ev = await db.fetchrow(
+                    f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e WHERE e.id = $1",
+                    event_id,
+                )
+                if ev:
+                    app_id = await db.fetchval(
+                        """SELECT (ch.platform_meta->>'vk_app_id')::int
+                             FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+                              AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                            LIMIT 1""",
+                        client_id,
+                    )
+                    await send_vk_event_funnel(
+                        db, vk_user_id=int(vk_id), token=vtoken,
+                        client_vk_app_id=app_id, event_row=ev,
+                        contact_id=contact_id, is_registered=True,
+                    )
     except Exception as e:
         log.warning("send_event_menu_after_signup failed (event=%s contact=%s): %s",
                     event_id, contact_id, e)
@@ -2258,9 +2311,9 @@ async def handle_app(message: Message):
     # VIP-бот: Main Mini App открывается по `?startapp=...` (без него t.me-ссылка
     # просто ведёт в чат с ботом и приложение не открывается).
     if bot_username == PLUSON_TG_HANDLE:
-        app_url = f"https://telegram.me/{bot_username}/{PLUSON_TG_APP}?startapp=hub"
+        app_url = f"https://t.me/{bot_username}/{PLUSON_TG_APP}?startapp=hub"
     else:
-        app_url = f"https://telegram.me/{bot_username}?startapp=hub"
+        app_url = f"https://t.me/{bot_username}?startapp=hub"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Открыть приложение", url=app_url)
     ]])
