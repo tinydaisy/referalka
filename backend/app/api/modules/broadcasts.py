@@ -13,6 +13,11 @@ from zoneinfo import ZoneInfo
 # NameError и утащил бы за собой всю тестовую отправку.
 logger = logging.getLogger(__name__)
 
+# ⚠️ ЕДИНЫЙ модуль подготовки и отправки на площадку — общий с боевой
+# рассылкой (tasks/broadcast.py). Своей сборки сообщения в тесте быть не
+# должно: именно от неё тест и бой разъезжались.
+from app.services import platform_delivery as delivery
+
 
 def _strip_first_name(text: str) -> str:
     """Убрать {first_name} из текста ТЕСТОВОЙ отправки.
@@ -3292,11 +3297,6 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                     video_url=video if m_type == "video" else None)
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
     if test_vk_ids:
-        from app.services.vk_api import (
-            send_message as vk_send,
-            tg_inline_to_vk_keyboard,
-            upload_photo_to_messages as vk_upload_photo,
-        )
         from app.services.channels import get_client_vk_token
         from app.config import settings as _vk_settings
         # Сообщество КЛИЕНТА; системное — только если своего нет (как в боевой).
@@ -3306,16 +3306,8 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
         _vt = await _txt("vk")
         vk_text = _vt or ""
 
-        # ⚠️ Кнопки в VK — как в боевой рассылке (tasks/broadcast.py).
-        # VK молча срезает inline-кнопки open_link на внешние домены
-        # (pluson.ru / t.me): сообщество должно разрешить домен. Поэтому
-        # внешние ссылки пишем СТРОКОЙ В ТЕКСТ, кнопкой оставляем только
-        # внутренние vk-ссылки. Раньше тест брал ОДНУ кнопку и всегда клал её
-        # в клавиатуру — до человека доходила одна кнопка или ни одной.
-        def _is_vk_internal(u: str) -> bool:
-            u = (u or "").lower()
-            return ("vk.com" in u) or ("vk.me" in u) or ("vk.ru" in u)
-
+        # Собираем ВСЕ кнопки шаблона, а не одну: раньше тест брал только
+        # button_text/button_url и терял остальные.
         vk_btn_pairs: list[tuple[str, str]] = []
         if buttons:
             for b in buttons:
@@ -3326,42 +3318,26 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
         elif btn_text and vk_burl:
             vk_btn_pairs.append((btn_text, vk_burl))
 
-        vk_kb_rows: list[list[dict]] = []
-        vk_link_lines: list[str] = []
-        for lbl, url in vk_btn_pairs:
-            if _is_vk_internal(url):
-                vk_kb_rows.append([{"text": lbl, "url": url}])
-            else:
-                vk_link_lines.append(f"{lbl}: {url}")
-        vk_keyboard = tg_inline_to_vk_keyboard(vk_kb_rows) if vk_kb_rows else None
-        if vk_link_lines:
-            _sfx = "\n\n" + "\n".join(vk_link_lines)
-            vk_text = f"{vk_text}{_sfx}" if vk_text else _sfx.strip()
-
-        # ⚠️ Фото ЗАГРУЖАЕМ в VK, а не приклеиваем ссылкой к тексту (так было
-        # раньше — человек видел голый адрес R2 вместо картинки). Грузим тем же
-        # токеном, которым шлём: иначе owner_id фото чужой и VK откажет.
-        vk_attachment: str | None = None
-        if m_type != "video" and photo and vk_token:
-            try:
-                vk_attachment = await vk_upload_photo(photo, token=vk_token)
-            except Exception as e:
-                logger.warning(f"VK test photo upload failed for {photo}: {e}")
-        if m_type == "video" and video:
-            vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
+        # ⚠️ Клавиатура, вложение и текст — ОБЩИЙ модуль platform_delivery,
+        # тот же, что у боевой рассылки. Своей сборки тут быть не должно:
+        # именно от неё тест и бой разъезжались (фото ссылкой, теги дословно,
+        # одна кнопка вместо всех).
+        vk_keyboard = delivery.vk_keyboard(vk_btn_pairs)
+        vk_attachment = await delivery.prepare_vk_photo(photo, token=vk_token, media_type=m_type)
+        vk_text = delivery.vk_text(vk_text, video_url=video, media_type=m_type,
+                                   link_fallback=True)
 
         for vid in [str(t) for t in test_vk_ids]:
             try:
                 # ⚠️ token обязателен: без него vk_call подставляет СИСТЕМНОЕ
                 # сообщество ПЛЮСОНа, и тест приходил от чужого имени (а тем,
                 # кто на него не подписан, — не приходил вовсе).
-                res = await vk_send(int(vid), vk_text, token=vk_token,
-                                    keyboard=vk_keyboard, attachment=vk_attachment)
+                res = await delivery.send_vk(int(vid), vk_text, token=vk_token,
+                                             keyboard=vk_keyboard, attachment=vk_attachment)
                 out.append({"platform": "vk", "chat_id": vid, "ok": bool(res), "error": None if res else "VK send returned None"})
             except Exception as e:
                 out.append({"platform": "vk", "chat_id": vid, "ok": False, "error": str(e)})
     if test_max_ids and max_token:
-        from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
         max_burl = await _burl("max")
         # ⚠️ ВСЕ кнопки, а не одна. Раньше тест брал только button_text/button_url
         # и молча терял остальные: в шаблоне их две («Через Телеграм», «Через
@@ -3375,11 +3351,12 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                     max_rows.append([{"text": lbl, "url": url}])
         elif btn_text and max_burl:
             max_rows.append([{"text": btn_text, "url": max_burl}])
-        max_buttons = tg_inline_to_max_keyboard(max_rows) if max_rows else None
-        _mt = await _txt("max")
-        max_text = f"{photo}\n\n{_mt}".strip() if photo else _mt
-        if m_type == "video" and video:
-            max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
+        # ⚠️ Клавиатура, текст и вложение — ОБЩИЙ модуль platform_delivery
+        # (тот же у боевой рассылки): HTML снимается, фото уходит вложением,
+        # а не голой ссылкой в тексте.
+        max_buttons = delivery.max_keyboard([(r[0]["text"], r[0]["url"]) for r in max_rows])
+        max_text = delivery.max_text(await _txt("max"), video_url=video, media_type=m_type)
+        max_attachment = await delivery.prepare_max_photo(photo, token=max_token, media_type=m_type)
         for mid in [str(t) for t in test_max_ids]:
             try:
                 # ⚠️ recipient_kind='user' ОБЯЗАТЕЛЕН: в настройках указан id
@@ -3388,8 +3365,8 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 # молча не доходит. Боевая рассылка это делает верно
                 # (tasks/broadcast.py), а тест — нет, поэтому тест в MAX не
                 # доходил никогда.
-                res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons,
-                                     recipient_kind="user")
+                res = await delivery.send_max(int(mid), max_text, token=max_token,
+                                              buttons=max_buttons, attachment=max_attachment)
                 out.append({"platform": "max", "chat_id": mid, "ok": bool(res), "error": None if res else "MAX send returned None"})
             except Exception as e:
                 out.append({"platform": "max", "chat_id": mid, "ok": False, "error": str(e)})
@@ -3661,44 +3638,24 @@ async def test_template(
 
         # === VK === (стрип HTML делает сам vk_api.send_message)
         if test_vk_ids:
-            from app.services.vk_api import (
-                send_message as vk_send,
-                tg_inline_to_vk_keyboard,
-                upload_photo_to_messages as vk_upload_photo,
-            )
             from app.services.channels import get_client_vk_token
             from app.config import settings as _vk_settings
             # Сообщество КЛИЕНТА; системное — только если своего нет.
             vk_token = (await get_client_vk_token(client_id, db)) if client_id else None
             vk_token = vk_token or _vk_settings.vk_system_group_token
             vk_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="vk"), "vk") if btn_url else btn_url
-            # Внешние URL-кнопки VK срезает — их пишем строкой в текст.
-            vk_keyboard = None
-            vk_link_lines: list[str] = []
-            if btn_text and vk_btn_url:
-                _u = (vk_btn_url or "").lower()
-                if ("vk.com" in _u) or ("vk.me" in _u) or ("vk.ru" in _u):
-                    vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": vk_btn_url}]])
-                else:
-                    vk_link_lines.append(f"{btn_text}: {vk_btn_url}")
+            # ⚠️ Клавиатура, вложение и текст — ОБЩИЙ platform_delivery, тот же
+            # у боевой рассылки. Своей сборки тут быть не должно.
+            vk_pairs = delivery.button_pairs(None, btn_text, vk_btn_url)
+            vk_keyboard = delivery.vk_keyboard(vk_pairs)
             _vk_body = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="vk"), "vk")
-            vk_text = _vk_body or ""
-            if vk_link_lines:
-                _sfx = "\n\n" + "\n".join(vk_link_lines)
-                vk_text = f"{vk_text}{_sfx}" if vk_text else _sfx.strip()
-            # Фото ЗАГРУЖАЕМ вложением, а не ссылкой в тексте.
-            vk_attachment: str | None = None
-            if m_type != "video" and photo and vk_token:
-                try:
-                    vk_attachment = await vk_upload_photo(photo, token=vk_token)
-                except Exception as e:
-                    logger.warning(f"VK preview photo upload failed for {photo}: {e}")
-            if m_type == "video" and video:
-                vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
+            vk_text = delivery.vk_text(_vk_body, video_url=video, media_type=m_type,
+                                       link_fallback=True)
+            vk_attachment = await delivery.prepare_vk_photo(photo, token=vk_token, media_type=m_type)
             for vid in [str(t) for t in test_vk_ids]:
                 try:
-                    res = await vk_send(int(vid), vk_text, token=vk_token,
-                                        keyboard=vk_keyboard, attachment=vk_attachment)
+                    res = await delivery.send_vk(int(vid), vk_text, token=vk_token,
+                                                 keyboard=vk_keyboard, attachment=vk_attachment)
                     out.append({
                         "platform": "vk", "chat_id": vid,
                         "ok": bool(res), "error": None if res else "VK send returned None"
@@ -3708,26 +3665,20 @@ async def test_template(
 
         # === MAX === (стрип HTML — пока не делаем, MAX поддерживает HTML аналогично TG)
         if test_max_ids and max_token:
-            from app.services.max_api import (
-                send_message as max_send,
-                tg_inline_to_max_keyboard,
-            )
             max_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="max"), "max") if btn_url else btn_url
-            max_buttons = None
-            if btn_text and max_btn_url:
-                max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": max_btn_url}]])
-            max_text = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="max"), "max")
-            if photo:
-                max_text = f"{photo}\n\n{max_text}".strip()
-            if m_type == "video" and video:
-                max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
+            # ⚠️ ОБЩИЙ platform_delivery: HTML снимается, фото уходит вложением,
+            # а не голой R2-ссылкой в начале текста (так было раньше).
+            max_buttons = delivery.max_keyboard(delivery.button_pairs(None, btn_text, max_btn_url))
+            _max_body = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="max"), "max")
+            max_text = delivery.max_text(_max_body, video_url=video, media_type=m_type)
+            max_attachment = await delivery.prepare_max_photo(photo, token=max_token, media_type=m_type)
             for mid in [str(t) for t in test_max_ids]:
                 try:
                     # ⚠️ recipient_kind='user' — см. пояснение в _send_content_to_tests:
                     # в настройках лежит id профиля, а не беседы; без этого MAX
                     # отвечает chat.not.found и сообщение не доходит.
-                    res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons,
-                                         recipient_kind="user")
+                    res = await delivery.send_max(int(mid), max_text, token=max_token,
+                                                  buttons=max_buttons, attachment=max_attachment)
                     out.append({
                         "platform": "max", "chat_id": mid,
                         "ok": bool(res), "error": None if res else "MAX send returned None"

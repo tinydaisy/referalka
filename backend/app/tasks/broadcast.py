@@ -20,6 +20,11 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# ⚠️ ЕДИНЫЙ модуль подготовки и отправки на площадку — общий с ТЕСТОВОЙ
+# отправкой (api/modules/broadcasts.py). Своей сборки сообщения быть не
+# должно: именно от неё тест и бой разъезжались (см. platform_delivery).
+from app.services import platform_delivery as delivery
+
 
 def get_db_url() -> str:
     return settings.database_url
@@ -1508,63 +1513,23 @@ async def _send_broadcast_vk_part(
             return 0
 
     # ── Кнопки в VK ──
-    # ⚠️ VK НЕ показывает inline-кнопки open_link с внешними ссылками
-    # (pluson.ru / t.me и любой не-vk домен): сообщество должно явно
-    # разрешить домен, иначе VK молча отбрасывает кнопку — сообщение
-    # уходит БЕЗ неё. Симптом «в TG/MAX кнопка есть, в VK нет».
-    # Поэтому внешние URL-кнопки в VK пишем СССЫЛКОЙ В ТЕКСТ (доходит
-    # всегда), а inline-клавиатуру с open_link не используем. Callback-кнопки
-    # (внутренние, без url) VK показывает нормально — их оставляем в клавиатуре.
-    def _is_vk_internal(u: str) -> bool:
-        u = (u or "").lower()
-        return ("vk.com" in u) or ("vk.me" in u) or ("vk.ru" in u)
-
-    keyboard = None
-    link_lines: list[str] = []  # «Текст кнопки: url» — допишем в конец сообщения
-    kb_rows: list[list[dict]] = []
-
-    # Собираем список (label, url) из всех источников кнопок
-    btn_pairs: list[tuple[str, str]] = []
-    if buttons:
-        for b in buttons:
-            lbl = b.get("text") or b.get("label") or "Открыть"
-            url = b.get("url", "")
-            if url:
-                btn_pairs.append((lbl, url))
-    elif button_text and button_url:
-        btn_pairs.append((button_text, button_url))
-
-    for lbl, url in btn_pairs:
-        if _is_vk_internal(url):
-            # внутренняя VK-ссылка — open_link работает, оставляем кнопкой
-            kb_rows.append([{"text": lbl, "url": url}])
-        else:
-            # внешняя ссылка — в текст (VK кнопку всё равно срежет)
-            link_lines.append(f"{lbl}: {url}")
-
-    if kb_rows:
-        keyboard = tg_inline_to_vk_keyboard(kb_rows)
+    # ⚠️ Через ОБЩИЙ platform_delivery — тот же код, что в тесте.
+    # Внешние ссылки (pluson.ru / t.me) идут НАСТОЯЩИМИ кнопками: раньше их
+    # писали строкой в текст, считая, что VK такие open_link отбрасывает.
+    # Проверено живой отправкой 2026-08-24 — принимает и показывает.
+    keyboard = delivery.vk_keyboard(
+        delivery.button_pairs(buttons, button_text, button_url))
 
     # Загружаем фото в VK один раз для всей рассылки — получаем attachment-строку
     # `photo{owner_id}_{id}`, которую можно слать многим получателям. Без этого
     # фото уходило как обычный URL в тексте (без превью, как голая ссылка).
     # Загружаем под тем же токеном, которым шлём — иначе owner_id фото будет
     # чужим и VK отклонит сообщение.
-    photo_attachment: str | None = None
-    if media_type != "video" and photo_url:
-        try:
-            photo_attachment = await vk_upload_photo(photo_url, token=vk_token)
-        except Exception as e:
-            logger.warning(f"VK photo upload failed for {photo_url}: {e}")
-        if not photo_attachment:
-            # Жёсткое правило: НЕ ВСТАВЛЯЕМ голую R2-ссылку в текст сообщения —
-            # это выглядит уродливо и сбивает читателя. Если VK upload-сервер
-            # упал (504/502 — встречается под нагрузкой), просто отправляем
-            # сообщение без фото. Клиент увидит текст и кнопку, фото пропустим.
-            logger.warning(
-                f"VK photo upload failed после всех retries — шлём БЕЗ фото, "
-                f"R2-ссылку в текст вшивать НЕ будем: {photo_url}"
-            )
+    # Фото — общий platform_delivery (тот же код, что в тесте).
+    # ⚠️ Не залилось → шлём БЕЗ фото. Голую R2-ссылку в текст не вставляем:
+    # выглядит уродливо и читается как спам.
+    photo_attachment = await delivery.prepare_vk_photo(
+        photo_url, token=vk_token, media_type=media_type)
 
     # Видео: грузим в VK ОДИН раз для всей рассылки — получаем video-attachment,
     # который шлём всем получателям. Нативная загрузка (video.save) требует
@@ -1608,10 +1573,6 @@ async def _send_broadcast_vk_part(
         if "?c=__CT__" in message_text:
             _ctv = r.get("contact_id")
             message_text = message_text.replace("?c=__CT__", f"?c={_ctv}" if _ctv else "")
-        # Внешние URL-кнопки в VK дописываем ссылкой в текст (см. выше).
-        if link_lines:
-            suffix = "\n\n" + "\n".join(link_lines)
-            message_text = f"{message_text}{suffix}" if message_text else suffix.strip()
         attachment = video_attachment if media_type == "video" else photo_attachment
         if media_type == "video" and vk_link_fallback:
             message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url
@@ -1624,11 +1585,9 @@ async def _send_broadcast_vk_part(
         vk_message_id: int | None = None
         vk_err_code: int | None = None
         try:
-            res = await vk_send(
-                vk_id_int, message_text,
-                token=vk_token,
-                keyboard=keyboard, attachment=attachment,
-                return_error=True,
+            res = await delivery.send_vk(
+                vk_id_int, message_text, token=vk_token,
+                keyboard=keyboard, attachment=attachment, return_error=True,
             )
             # return_error=True → res = (message_id|None, error_code|None, error_msg)
             mid, vk_err_code, vk_err_msg = res
@@ -1842,46 +1801,17 @@ async def _send_broadcast_max_part(
         if not rows:
             return 0
 
-    max_buttons = None
-    if buttons:
-        rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
-        max_buttons = tg_inline_to_max_keyboard(rows_btn)
-    elif button_text and button_url:
-        max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
+    # ⚠️ Кнопки — общий platform_delivery (тот же код, что в тесте).
+    max_buttons = delivery.max_keyboard(
+        delivery.button_pairs(buttons, button_text, button_url))
 
     # Фото в MAX: скачиваем R2-картинку → грузим в MAX (двухшаговый upload) →
     # attachment переиспользуется для ВСЕХ получателей (token валиден для всех).
     # Делаем один раз на рассылку. Видео в MAX по-прежнему ссылкой (ниже).
-    photo_attachment = None
-    if photo_url and media_type != "video":
-        try:
-            from app.services.max_api import upload_media as max_upload_media
-            import tempfile, os as _os
-            async with httpx.AsyncClient(timeout=60.0) as _cli:
-                _img = await _cli.get(photo_url)
-            if _img.status_code == 200 and _img.content:
-                _ext = ".jpg"
-                low = photo_url.lower()
-                for e in (".png", ".jpeg", ".jpg", ".webp"):
-                    if e in low:
-                        _ext = e
-                        break
-                _tmp = tempfile.NamedTemporaryFile(suffix=_ext, delete=False)
-                try:
-                    _tmp.write(_img.content)
-                    _tmp.flush()
-                    _tmp.close()
-                    photo_attachment = await max_upload_media(_tmp.name, token=max_token, kind="image")
-                finally:
-                    try:
-                        _os.unlink(_tmp.name)
-                    except OSError:
-                        pass
-            if not photo_attachment:
-                logger.warning(f"MAX broadcast: фото не загрузилось ({photo_url[:80]}) — шлём без фото")
-        except Exception as e:
-            logger.warning(f"MAX broadcast photo upload error: {e}")
-            photo_attachment = None
+    # ⚠️ Фото — общий platform_delivery (тот же код, что в тесте):
+    # только вложением, голой ссылкой в текст не вставляем.
+    photo_attachment = await delivery.prepare_max_photo(
+        photo_url, token=max_token, media_type=media_type)
 
     sent = 0
     for r in rows:
@@ -1894,7 +1824,9 @@ async def _send_broadcast_max_part(
         # блочные теги (<p>/<br>/<ul>) через html_to_telegram — MAX их не парсит —
         # и передаём parse_mode='html' ниже. MAX устойчив к незакрытым тегам и
         # HTML-сущностям (проверено), всё сообщение не отвергает.
-        message_text = html_to_telegram(text or "")
+        # ⚠️ Текст под MAX — общий platform_delivery (тот же код, что в тесте):
+        # снимает блочный HTML и добавляет ссылку на видео.
+        message_text = delivery.max_text(text, video_url=video_url, media_type=media_type)
         # ⚠️ {first_name} — персонально каждому (см. пояснение в VK-ветке).
         # В MAX подстановки не было вовсе: уходил сырой «{first_name}».
         if "{first_name}" in message_text:
@@ -1903,22 +1835,14 @@ async def _send_broadcast_max_part(
         if "?c=__CT__" in message_text:
             _ctm = r.get("contact_id")
             message_text = message_text.replace("?c=__CT__", f"?c={_ctm}" if _ctm else "")
-        # MAX пока без нативной загрузки картинки. Раньше вшивали R2-URL в начало
-        # текста — убрали по тому же правилу что для VK: голая R2-ссылка
-        # выглядит как спам. Лучше шлём без фото; нативную загрузку в MAX
-        # добавим отдельно. TODO: max_api.upload_photo + attachment.
-        # if photo_url: ...  # не добавляем URL в текст
-        # Видео в MAX: нативной загрузки из URL нет — даём ссылку на видео в текст,
-        # чтобы подписчик гарантированно мог его открыть.
-        if media_type == "video" and video_url:
-            message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url
         ok = False
         err: str | None = None
         max_message_id: str | None = None
         try:
             # Рассылка адресуется по user_id подписчика (platform_users.platform_user_id),
             # а не по id беседы — иначе MAX отвечает chat.not.found и молча не доставляет.
-            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons, recipient_kind="user", parse_mode="html", attachments=[photo_attachment] if photo_attachment else None)
+            res = await delivery.send_max(max_id_int, message_text, token=max_token,
+                                          buttons=max_buttons, attachment=photo_attachment)
             ok = bool(res)
             if not ok:
                 err = "MAX send returned None"
