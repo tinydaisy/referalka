@@ -134,6 +134,22 @@ export default function PublicSurveyPage() {
       setError('Без согласия на обработку персональных данных отправить анкету нельзя')
       return
     }
+    // ⚠️ Имя и почта ОБЯЗАТЕЛЬНЫ. Без них анкету можно было отправить совсем
+    // пустой: ответы приходили клиенту от неизвестно кого и связать их было не
+    // с кем. Спрашиваем только у тех, о ком мы этого ещё не знаем (askName /
+    // askEmail); кто пришёл из бота — данные уже подставлены, его не трогаем.
+    if (askName && !contact.name.trim()) {
+      setError('Напишите, как вас зовут')
+      return
+    }
+    if (askEmail && !contact.email.trim()) {
+      setError('Укажите почту — на неё придёт ответ')
+      return
+    }
+    if (askEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact.email.trim())) {
+      setError('Проверьте почту — кажется, в адресе опечатка')
+      return
+    }
     setSending(true); setError('')
     try {
       const r = await fetch(`${API_BASE}/api/v1/public/surveys/${slug}/submit`, {
@@ -264,13 +280,13 @@ export default function PublicSurveyPage() {
       {missingContacts && (
         <div className="mb-5 space-y-3">
           {askName && (
-          <Labeled label="Как вас зовут">
+          <Labeled label="Как вас зовут" required>
             <input className="fld" value={contact.name}
                    onChange={e => setContact({ ...contact, name: e.target.value })} />
           </Labeled>
           )}
           {askEmail && (
-          <Labeled label="Почта">
+          <Labeled label="Почта" required>
             <input className="fld" type="email" value={contact.email}
                    onChange={e => setContact({ ...contact, email: e.target.value })} />
           </Labeled>

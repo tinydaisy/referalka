@@ -12,6 +12,7 @@ GetCourse так нельзя — там форма человека не зна
 """
 import json
 import logging
+import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -238,6 +239,23 @@ async def submit_survey(
             missing.append(q["title"])
     if missing:
         raise HTTPException(400, "Заполните обязательные вопросы: " + "; ".join(missing[:5]))
+
+    # ⚠️ ИМЯ И ПОЧТА ОБЯЗАТЕЛЬНЫ. Без них анкету отправляли совсем пустой:
+    # ответы приходили клиенту от неизвестно кого, связать их было не с кем.
+    # Проверка ДО создания контакта — иначе неудачная отправка плодит пустых
+    # людей в базе (та же причина, что у проверки вопросов выше).
+    #
+    # ⚠️ Требуем только у НЕИЗВЕСТНОГО человека. Пришедшему по ссылке с
+    # contact_id имя и почту подставляет форма из базы, и слать их повторно
+    # она не обязана — с него спрашивать нечего.
+    if not data.contact_id and not data.chosen_contact_id:
+        if not (data.name or "").strip():
+            raise HTTPException(400, "Напишите, как вас зовут")
+        email = (data.email or "").strip()
+        if not email:
+            raise HTTPException(400, "Укажите почту — на неё придёт ответ")
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            raise HTTPException(400, "Проверьте почту — кажется, в адресе опечатка")
 
     # ⚠️ Резолв человека — ТОЛЬКО через общую точку (правило проекта): свои
     # SELECT по email плодят дубли. known_contact_id из ссылки главнее всего —
