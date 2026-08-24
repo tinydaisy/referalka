@@ -197,7 +197,6 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
   const giftsCount = sortedGifts.length > 0
     ? receivedGifts.length
     : (participant?.gifts_received_count ?? 0)
-  const lastReceived = receivedGifts.length > 0 ? receivedGifts[receivedGifts.length - 1] : null
   const nextGift = sortedGifts.find(g => g.points_cost > giftCountValue)
   const toNext = nextGift ? nextGift.points_cost - giftCountValue : 0
   const progressPct = nextGift ? Math.min(100, Math.round((giftCountValue / nextGift.points_cost) * 100)) : 100
@@ -681,15 +680,10 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#6b7c8e' }}>Доступно подарков</div>
-            {lastReceived && (
-              <div style={{
-                fontSize: 13, fontWeight: 700, color: DARK, marginTop: 2,
-                overflow: 'hidden', textOverflow: 'ellipsis',
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-              }}>
-                «{lastReceived.title}»
-              </div>
-            )}
+            {/* ⚠️ Название полученного подарка здесь НЕ показываем: те же самые
+                подарки идут списком сразу под этим блоком, и название
+                повторялось дважды подряд — нагромождение вместо сводки.
+                Что дальше — говорит строка «ещё N человек до подарка» ниже. */}
           </div>
           <div style={{ color: '#c5cdd6', fontSize: 22, fontWeight: 300 }}>›</div>
         </div>
