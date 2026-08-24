@@ -8,7 +8,7 @@ celery = Celery(
     backend=settings.redis_url,
     include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
-        "app.tasks.webinar_chunks",
+        "app.tasks.webinar_chunks", "app.tasks.webinar_stuck",
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check"]
 )
 
@@ -36,6 +36,14 @@ celery.conf.update(
         "upload-webinar-chunks": {
             "task": "app.tasks.webinar_chunks.upload_ready_chunks",
             "schedule": 60.0,
+        },
+        # Раз в 10 минут — закрываем эфиры, которые ведущий не завершил кнопкой
+        # (оборвался интернет, закрыл вкладку). Иначе сессия висит открытой
+        # вечно: статистика не считается, запись не собирается, а деплой
+        # заблокирован — он не начинается, пока идёт эфир.
+        "close-stuck-webinars": {
+            "task": "app.tasks.webinar_stuck.close_stuck_sessions",
+            "schedule": 600.0,
         },
         # Раз в час — помечаем истёкшие подписки + паузим их будущие рассылки
         "expire-overdue-subscriptions": {
