@@ -859,6 +859,8 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️⚠️ **У каждой статьи есть ПУБЛИЧНЫЙ адрес `/help/{slug}`** — открывается без входа в кабинет, вход через пункт «Помощь» в меню лендинга. Просят «внешнюю ссылку на инструкцию» → давать `pluson.ru/help/…`, а НЕ `/dashboard/help/…`: второй требует авторизации и редиректит постороннего на `/login`.
 
+⚠️⚠️ **Новая статья — ДВА действия:** запись в `sections.ts` И строка в карте `ARTICLES` ([ArticleView.tsx](web/src/app/help/%5Bslug%5D/ArticleView.tsx)). Next не умеет `import(переменная)`, каждая статья прописывается руками. Забыл второе — в кабинете открывается, а снаружи «Статья не найдена». Так 2026-08-24 обнаружились **7** статей, недоступных публично (новая + `getcourse-partner`, `getcourse-register`, `landing-widgets-people`, `landing-widgets-program`, `participants-export`, `participants-tg-ai`). Сверка: список `href` из `sections.ts` минус ключи карты должен быть пуст.
+
 Публичная обёртка — [PublicHelpFrame.tsx](web/src/app/help/PublicHelpFrame.tsx). Статьи написаны для кабинета и содержат ~119 внутренних ссылок `/dashboard/help/...`; обёртка переписывает их **перехватом клика**, а не правкой статей: `/dashboard/help/X → /help/X`, `/dashboard/остальное → /login`. ⚠️ Статья — ОДИН файл на обе версии, второй копии быть не должно.
 
 **Строка поиска** — `HelpSearch` в [_components.tsx](web/src/app/dashboard/help/_components.tsx), на главной странице раздела. Ищет по всем статьям всех разделов сразу.
