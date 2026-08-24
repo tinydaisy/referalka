@@ -23,22 +23,62 @@ bridge.subscribe((e: any) => {
   if (t === 'VKWebAppUpdateConfig' && e.detail.data?.insets) applyVkInsets(e.detail.data.insets)
 })
 
-// Точка входа VK Mini App: инициализируем VK Bridge до рендера App.
-// VKWebAppInit + GetUserInfo асинхронные — поэтому top-level await.
-(async () => {
-  const adapter = await initPlatform()
-  setPlatform(adapter)
-  await adapter.ready()
+/**
+ * ⚠️⚠️ ЭКРАН РИСУЕТСЯ ВСЕГДА, ЧЕМ БЫ НИ КОНЧИЛСЯ ЗАПУСК.
+ *
+ * Раньше отрисовка стояла ПОСЛЕ цепочки запросов к ВКонтакте. Любой из них,
+ * не ответив, останавливал всё: человек видел ЗАСТЫВШИЙ ЛОГОТИП и ничего
+ * больше. Так ВКонтакте не открывался у всех клиентов две-три недели.
+ *
+ * Опаснее всего был запрос данных профиля: он показывает окно «разрешить
+ * доступ», и пока человек не нажал, ответа НЕ ПРИХОДИТ ВОВСЕ — ни да, ни
+ * ошибки. Не появилось окно (медленная сеть, встроенный браузер) — вечное
+ * ожидание, которое даже не считается ошибкой.
+ *
+ * Теперь: что успели узнать за отведённое время — используем, не успели —
+ * открываем как есть. Пустой экран хуже экрана без фотографии.
+ */
+let rendered = false
 
-  // Начальные insets (если VK уже прислал конфиг до подписки).
-  try {
-    const cfg: any = await bridge.send('VKWebAppGetConfig')
-    if (cfg?.insets) applyVkInsets(cfg.insets)
-  } catch (_) { /* не критично — придёт через UpdateInsets */ }
-
+/** Нарисовать экран. ⚠️ Ровно один раз: и обычный путь, и страховка ниже
+ *  зовут именно её, иначе React смонтирует приложение дважды. */
+function renderApp() {
+  if (rendered) return
+  rendered = true
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>
   )
-})()
+}
+
+async function start() {
+  try {
+    const adapter = await initPlatform()
+    setPlatform(adapter)
+    await adapter.ready()
+  } catch (e) {
+    // ⚠️ Даже если запуск сорвался целиком — рисуем. Приложение умеет работать
+    // без данных площадки: человек хотя бы увидит события и сможет открыть их.
+    console.error('Запуск ВКонтакте сорвался — открываем как есть', e)
+  }
+
+  // Отступы под шапку ВКонтакте. ⚠️ Отрисовку НЕ блокируют: не ответил —
+  // подтянутся через подписку выше, а экран уже на месте.
+  bridge.send('VKWebAppGetConfig')
+    .then((cfg: any) => { if (cfg?.insets) applyVkInsets(cfg.insets) })
+    .catch(() => { /* придёт через VKWebAppUpdateConfig */ })
+
+  renderApp()
+}
+
+// ⚠️ Страховка на крайний случай: что бы ни случилось внутри start(), через
+// 6 секунд экран обязан быть на месте. Пустое окно недопустимо.
+setTimeout(() => {
+  if (!rendered) {
+    console.warn('ВКонтакте не ответил за 6 секунд — открываем экран без него')
+    renderApp()
+  }
+}, 6000)
+
+start()
