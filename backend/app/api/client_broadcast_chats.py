@@ -195,6 +195,25 @@ async def add_chat(
     if not chat_id:
         raise HTTPException(status_code=400, detail="Укажите ID чата")
     title = (data.title or "").strip() or None
+    chat_url = (data.chat_url or "").strip() or None
+
+    # ⚠️⚠️ БЕЗ ССЫЛКИ ЧАТ БЕСПОЛЕЗЕН. Везде, где человеку предлагают войти в чат
+    # (меню бота, письмо о регистрации, воронка догрева, плейсхолдер {chats}),
+    # показывается именно ССЫЛКА. Номер чата человеку не поможет — по нему
+    # никуда не перейти, и площадка просто ИСЧЕЗАЕТ из списка.
+    #
+    # Так и вышло у коллаб-события 92: Telegram-чат завели по номеру, ссылку не
+    # указали — люди видели только MAX и не понимали, куда делся Telegram.
+    #
+    # ⚠️ WhatsApp — исключение: там чат не добавляют вручную, его ВЫБИРАЮТ из
+    # списка чатов подключённого аккаунта, и ссылки-приглашения у него нет в
+    # принципе. Требовать её значило бы запретить добавление вовсе.
+    if not chat_url and platform != "whatsapp":
+        raise HTTPException(
+            status_code=400,
+            detail="Добавьте ссылку-приглашение в чат. Без неё людям некуда переходить — "
+                   "чат не появится ни в меню бота, ни в письмах, ни в рассылках.",
+        )
 
     # Уровень 'one' (тариф Профи) — по одному чату на площадку. Разрешаем только если
     # на этой площадке ещё НЕТ чата, либо это апдейт того же chat_id (тот же чат).
@@ -223,8 +242,7 @@ async def add_chat(
                              is_active = TRUE,
                              updated_at = now()
                RETURNING id, platform, chat_id, title, chat_url, is_public, added_via, is_active, use_for_broadcasts, is_private, created_at""",
-            client_id, platform, chat_id, title,
-            (data.chat_url or "").strip() or None,
+            client_id, platform, chat_id, title, chat_url,
             bool(data.is_public), (data.added_via or "manual"),
         )
     except Exception as e:
@@ -241,13 +259,30 @@ async def patch_chat(
 ):
     client_id = int(client["sub"])
     await _assert_feature(db, client_id)
+    # Площадка нужна, чтобы не требовать ссылку у WhatsApp (у его чатов её нет).
+    row_platform = await db.fetchval(
+        "SELECT platform FROM client_broadcast_chats WHERE id = $1 AND client_id = $2",
+        chat_id, client_id,
+    )
+    if row_platform is None:
+        raise HTTPException(status_code=404, detail="Чат не найден")
     sets, args = [], []
     if data.title is not None:
         args.append(data.title.strip() or None); sets.append(f"title = ${len(args)}")
     # Ссылка на чат: смотрим наличие ключа в JSON, а не `is not None` — иначе
     # очистить ссылку (прислать "" / null) было бы нельзя.
     if "chat_url" in data.model_fields_set:
-        args.append((data.chat_url or "").strip() or None); sets.append(f"chat_url = ${len(args)}")
+        # ⚠️ Стереть ссылку нельзя по той же причине, по какой её требуют при
+        # создании: чат без ссылки пропадает из меню бота и рассылок.
+        new_url = (data.chat_url or "").strip() or None
+        # ⚠️ WhatsApp исключён по той же причине, что и при создании: у его
+        # чатов ссылки-приглашения нет в принципе.
+        if not new_url and (row_platform or "") != "whatsapp":
+            raise HTTPException(
+                status_code=400,
+                detail="Ссылку на чат убрать нельзя — без неё людям некуда переходить.",
+            )
+        args.append(new_url); sets.append(f"chat_url = ${len(args)}")
     if data.is_active is not None:
         args.append(bool(data.is_active)); sets.append(f"is_active = ${len(args)}")
     if data.use_for_broadcasts is not None:

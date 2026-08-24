@@ -105,7 +105,13 @@ async def _check_collab_owners(event_id: int, tg_id: int, db: asyncpg.Connection
     from app.services.channels import get_client_telegram_token
     owners = await db.fetch(
         """SELECT eo.client_id,
-                  COALESCE(cl.brand_name, cl.name) AS name,
+                  -- ⚠️ ПОДПИСЫВАЕМ ЧЕЛОВЕКОМ: «Имя Фамилия (@ник)».
+                  -- Названия канала у карточки коллаба нет — там только ссылка
+                  -- и номер. Раньше сюда подставлялось имя/бренд КЛИЕНТА, и в
+                  -- одном списке оказывались вперемешку имя человека и название
+                  -- канала из профиля — один канал выходил дважды под разными
+                  -- подписями.
+                  TRIM(COALESCE(col.name,'') || ' ' || COALESCE(col.last_name,'')) AS name,
                   col.tg_channel_id, col.tg_channel_url,
                   pu.platform_user_id AS personal_tg_id
              FROM event_owners eo
@@ -159,9 +165,44 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
         mode = "organizer" if event["require_subscription"] else "none"
 
     def _finish(spk_ns, spk_ok):
-        """Слить проверку спикеров с проверкой коллаб-организаторов в единый ответ."""
-        ns = collab_ns + spk_ns
-        ok = collab_ok + spk_ok
+        """Слить проверку спикеров с проверкой коллаб-организаторов в единый ответ.
+
+        ⚠️⚠️ ОДИН КАНАЛ — ОДНА СТРОКА. У человека бывает ДВЕ карточки на один
+        канал: как организатора коллабы и как спикера того же события. Ссылка
+        одна, а номер канала заполнен только в одной из них — и проверка давала
+        два разных ответа на один канал:
+
+            1. Маркетинг услуг для частных практиков   ← карточка спикера, номера нет
+            ✅ Нурия (karycheva_marketing)             ← карточка организатора, номер есть
+
+        Человек видел «подпишитесь» и «вы подписаны» про ОДИН И ТОТ ЖЕ канал.
+
+        Поэтому: склеиваем по ссылке (а без неё — по номеру). Подтвердилась
+        подписка хоть в одной карточке — канал пройден. Иначе он навсегда
+        остался бы в «подпишитесь»: у карточки без номера проверять нечем.
+        """
+        def _key(c):
+            url = (c.get("tg_channel_url") or "").strip().lower().rstrip("/")
+            if url:
+                # t.me и telegram.me — один и тот же адрес.
+                return url.replace("telegram.me/", "t.me/").replace("https://", "").replace("http://", "")
+            return f"id:{c.get('tg_channel_id') or ''}"
+
+        def _dedup(items, seen):
+            out = []
+            for c in items:
+                k = _key(c)
+                if not k or k in seen:
+                    continue
+                seen.add(k)
+                out.append(c)
+            return out
+
+        seen: set = set()
+        # ⚠️ Подписанные разбираем ПЕРВЫМИ: если канал подтверждён хоть одной
+        # карточкой, он не должен попасть в «подпишитесь».
+        ok = _dedup(collab_ok + spk_ok, seen)
+        ns = _dedup(collab_ns + spk_ns, seen)
         return {
             "status": 0 if ns else 1,
             "not_subscribed": ns,

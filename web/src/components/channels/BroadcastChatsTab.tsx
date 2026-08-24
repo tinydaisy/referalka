@@ -508,6 +508,15 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
       alert('Укажите ID чата')
       return
     }
+    // ⚠️ Без ссылки чат бесполезен: везде, где человеку предлагают войти
+    // (меню бота, письмо о регистрации, воронка догрева, {chats} в рассылке),
+    // показывается именно ССЫЛКА. По номеру перейти некуда, и площадка просто
+    // исчезает из списка — так у коллаб-события пропал Telegram-чат.
+    // WhatsApp — исключение: там чат выбирают из списка аккаунта, ссылки нет.
+    if (platform !== 'whatsapp' && !url.trim()) {
+      alert('Добавьте ссылку-приглашение в чат.\n\nБез неё людям некуда переходить — чат не появится ни в меню бота, ни в письмах, ни в рассылках.')
+      return
+    }
     setSaving(true)
     try {
       await api.miniApp.broadcastChats.create({
@@ -634,7 +643,9 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
           <>
           {/* Ссылка + Определить ID */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Ссылка на группу / канал</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              Ссылка на группу / канал{platform !== 'whatsapp' && <span className="text-red-500"> *</span>}
+            </label>
             <div className="flex gap-2 items-stretch">
               <input
                 type="url"
@@ -700,7 +711,7 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
             >Отмена</button>
             <button
               onClick={save}
-              disabled={saving || !chatId.trim()}
+              disabled={saving || !chatId.trim() || (platform !== 'whatsapp' && !url.trim())}
               className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
               style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
             >

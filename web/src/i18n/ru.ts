@@ -8,7 +8,7 @@ export const ru = {
     events: 'Мероприятия',
     base: 'БАЗА',
     eventsSection: 'МОИ СОБЫТИЯ',
-    collaborations: 'Партнёры',
+    collaborations: 'Карточки спикеров',
     clients: 'Контакты',
     leadMagnets: 'Лид-магниты',
     analytics: 'Аналитика',

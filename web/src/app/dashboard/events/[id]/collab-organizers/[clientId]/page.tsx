@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Users, Star, Save, Plus, X, Gift, Image as ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import RefLinkInline from '@/components/RefLinkInline'
+import FileUploader from '@/components/FileUploader'
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -26,7 +27,11 @@ export default function CollabOrganizerCardPage() {
 
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState('')
-  const [tab, setTab] = useState<'talk' | 'links'>('talk')
+  const [tab, setTab] = useState<'talk' | 'profile' | 'links'>('talk')
+  // Профиль спикера — карточка коллаба (та же, что в программе и на лендинге).
+  const [prof, setProf] = useState<any>(null)
+  const [achText, setAchText] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [leaving, setLeaving] = useState(false)
@@ -65,6 +70,8 @@ export default function CollabOrganizerCardPage() {
       setGifts(r.gift_lead_magnets || [])
       setPosterId(r.organizer?.poster_id ?? null)
       setAllowBroadcasts(!!r.allow_collab_broadcasts)
+      setProf(r.profile || null)
+      setAchText(Array.isArray(r.profile?.achievements) ? r.profile.achievements.join('\n') : '')
       if (r.can_edit) {
         // Подарки берутся ТОЛЬКО из ПЛЮСОНа — грузим свой каталог
         const [lm, lp]: any[] = await Promise.all([
@@ -108,6 +115,34 @@ export default function CollabOrganizerCardPage() {
       alert(e?.message || 'Ошибка сохранения')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Сохранение профиля спикера. ⚠️ Отдельной кнопкой, а не общим «Сохранить»:
+  // вкладки правятся независимо, и человек не должен терять правки другой.
+  const saveProfile = async () => {
+    if (!prof) return
+    setSavingProfile(true)
+    try {
+      await api.collabHub.updateOrganizerCard(eventId, clientId, {
+        name: prof.name || null,
+        last_name: prof.last_name || null,
+        title: prof.title || null,
+        achievements: achText.split('\n').map(a => a.trim()).filter(Boolean),
+        photo_url: prof.photo_url || null,
+        tg_channel_url: prof.tg_channel_url || null,
+        tg_channel_id: prof.tg_channel_id || null,
+        vk_url: prof.vk_url || null,
+        max_url: prof.max_url || null,
+        instagram_url: prof.instagram_url || null,
+        website_url: prof.website_url || null,
+      })
+      await load()
+      setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1800)
+    } catch (e: any) {
+      alert(e?.message || 'Ошибка сохранения')
+    } finally {
+      setSavingProfile(false)
     }
   }
 
@@ -177,7 +212,7 @@ export default function CollabOrganizerCardPage() {
 
       {/* Подвкладки */}
       <div className="flex gap-6 border-b border-gray-200 mb-5">
-        {([['talk', 'Выступление'], ['links', 'Ссылки']] as const).map(([k, label]) => (
+        {([['talk', 'Выступление'], ['profile', 'Профиль спикера'], ['links', 'Ссылки']] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`pb-2.5 text-sm font-medium border-b-2 -mb-px transition ${
               tab === k ? 'border-[#25455D] text-[#25455D]' : 'border-transparent text-gray-400 hover:text-gray-600'
@@ -344,6 +379,98 @@ export default function CollabOrganizerCardPage() {
               <Save className="w-4 h-4" />
               {saving ? 'Сохраняю…' : savedFlash ? 'Сохранено' : 'Сохранить'}
             </button>
+          )}
+        </div>
+      )}
+
+      {/* ── ПРОФИЛЬ СПИКЕРА ──
+          ⚠️ Это карточка коллаба (collaborators), ТА ЖЕ, что читают программа,
+          лендинг, рассылки и проверка подписки. Раньше её отсюда править было
+          нельзя, и организатор коллабы — который сам выступает — не мог
+          поправить себя как спикера вообще. */}
+      {tab === 'profile' && (
+        <div className="space-y-4">
+          {!prof ? (
+            <p className="text-sm text-gray-500">Карточка спикера ещё не создана.</p>
+          ) : (
+            <>
+              {!canEdit && (
+                <p className="text-sm text-gray-500">Это чужая карточка — только просмотр.</p>
+              )}
+
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+                <h2 className="font-semibold text-gray-900">Основная информация</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Имя</label>
+                    <input type="text" value={prof.name || ''} disabled={!canEdit}
+                      onChange={e => setProf({ ...prof, name: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] disabled:bg-gray-50" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Фамилия</label>
+                    <input type="text" value={prof.last_name || ''} disabled={!canEdit}
+                      onChange={e => setProf({ ...prof, last_name: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] disabled:bg-gray-50" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Краткое позиционирование / Должность</label>
+                  <input type="text" value={prof.title || ''} disabled={!canEdit}
+                    onChange={e => setProf({ ...prof, title: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] disabled:bg-gray-50" />
+                  <p className="mt-1 text-xs text-gray-400">{(prof.title || '').length} из 140</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Регалии (по одной на строку)</label>
+                  <textarea value={achText} rows={6} disabled={!canEdit}
+                    onChange={e => setAchText(e.target.value)}
+                    placeholder={'Регалия 1\nРегалия 2\nРегалия 3'}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] resize-y disabled:bg-gray-50" />
+                  <p className="mt-1 text-xs text-gray-400">{achText.length} из 1100</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+                <h2 className="font-semibold text-gray-900">Фото</h2>
+                <FileUploader
+                  mode="single" kind="speaker_photo"
+                  collaboratorId={prof.id}
+                  value={prof.photo_url || null}
+                  onChange={(u: any) => setProf({ ...prof, photo_url: u || '' })}
+                  accept="image/*"
+                />
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+                <h2 className="font-semibold text-gray-900">Каналы и ссылки</h2>
+                {/* ⚠️ Номер TG-канала нужен для ПРОВЕРКИ ПОДПИСКИ при входе в чат
+                    события: без него канал показывается человеку, но подтвердить
+                    подписку нечем — он навсегда остаётся в «подпишитесь». */}
+                {([
+                  ['tg_channel_url', 'Ссылка на Telegram-канал'],
+                  ['tg_channel_id', 'ID Telegram-канала (нужен для проверки подписки)'],
+                  ['vk_url', 'Ссылка ВКонтакте'],
+                  ['max_url', 'Ссылка MAX'],
+                  ['instagram_url', 'Instagram'],
+                  ['website_url', 'Сайт'],
+                ] as const).map(([k, label]) => (
+                  <div key={k}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
+                    <input type="text" value={(prof as any)[k] || ''} disabled={!canEdit}
+                      onChange={e => setProf({ ...prof, [k]: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] disabled:bg-gray-50" />
+                  </div>
+                ))}
+              </div>
+
+              {canEdit && (
+                <button onClick={saveProfile} disabled={savingProfile}
+                  className="btn-gold px-6 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60">
+                  {savingProfile ? 'Сохраняем…' : 'Сохранить профиль'}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

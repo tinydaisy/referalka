@@ -9,7 +9,10 @@
 - Ник: нет в файле — спрашиваем у Telegram (getChat токеном канала импорта).
   Выгрузки ботов ник не отдают, а Telegram его знает — человек писал этому боту.
 - utm_source: пишется в contacts.utm_source, если у контакта он ещё пуст.
-- Мердж: ищем `platform_users` по (client_id, telegram, tg_id). Не нашли —
+- Мердж: ищем `platform_users` по площадке и id, а клиента берём ЧЕРЕЗ КОНТАКТ
+  (JOIN contacts → contacts.client_id). ⚠️ Колонки platform_users.client_id
+  больше нет: она дублировала то, что известно через контакт, и два источника
+  разъехались — человек попадал в чужую базу. Не нашли —
   ищем `contacts` по email_normalized или phone_normalized у того же клиента.
   Не нашли — создаём contact + platform_users.
 

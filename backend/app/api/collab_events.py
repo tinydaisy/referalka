@@ -364,6 +364,33 @@ class OrganizerCardUpdate(BaseModel):
     # Галочка «разрешаю рассылки по моей базе в этом событии» (одноразовая на событие).
     allow_collab_broadcasts: Optional[bool] = None
 
+    # ── Профиль спикера (карточка коллаба) ──────────────────────────────
+    # ⚠️ Организатор коллабы выступает на своём событии — значит он ЖЕ спикер,
+    # и ему нужен тот же профиль, что у спикера конференции. Раньше карточка
+    # показывала данные из ПРОФИЛЯ КЛИЕНТА и править их отсюда было нельзя:
+    # человек менял карточку, а на событии ничего не менялось.
+    #
+    # Пишем в `collaborators` его self-карточки — той же, что используют
+    # программа, лендинг и проверка подписки.
+    name: Optional[str] = None
+    last_name: Optional[str] = None
+    title: Optional[str] = None               # краткое позиционирование / должность
+    achievements: Optional[list] = None       # регалии, по одной на строку
+    photo_url: Optional[str] = None
+    photo_folder_url: Optional[str] = None
+    video_folder_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
+    tg_channel_id: Optional[str] = None
+    vk_url: Optional[str] = None
+    vk_channel_id: Optional[str] = None
+    max_url: Optional[str] = None
+    max_channel_id: Optional[str] = None
+    instagram_url: Optional[str] = None
+    website_url: Optional[str] = None
+    media_assets: Optional[list] = None
+    ask_topics: Optional[str] = None
+    show_ask_topics_field: Optional[bool] = None
+
 
 async def _organizer_ctx(db, event_id: int, client_id: int, me: int):
     """Общая проверка: я организатор события; целевой client_id — тоже организатор.
@@ -444,8 +471,33 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
 
     d = dict(row) if row else {}
     d["positioning"] = d.pop("owner_positioning", None) or d.pop("positioning", None)
+    # ⚠️ Профиль спикера — из карточки коллаба (`collaborators`), а НЕ из профиля
+    # клиента. Именно её читают программа, лендинг и проверка подписки. Раньше
+    # карточка показывала данные профиля клиента, править их отсюда было нельзя,
+    # и организатор коллабы не мог поправить себя как спикера вообще.
+    profile = None
+    if collab_id:
+        pr = await db.fetchrow(
+            """SELECT id, name, last_name, title, achievements, photo_url,
+                      photo_folder_url, video_folder_url,
+                      tg_channel_url, tg_channel_id, vk_url, vk_channel_id,
+                      max_url, max_channel_id, instagram_url, website_url,
+                      media_assets, ask_topics, show_ask_topics_field
+                 FROM collaborators WHERE id = $1""", collab_id)
+        if pr:
+            profile = dict(pr)
+            # asyncpg отдаёт jsonb СТРОКОЙ — фронт не сможет её отрисовать.
+            if isinstance(profile.get("media_assets"), str):
+                import json as _js
+                try:
+                    profile["media_assets"] = _js.loads(profile["media_assets"])
+                except Exception:
+                    profile["media_assets"] = []
+
     return {
         "ec_id": ec_id,
+        "collaborator_id": collab_id,
+        "profile": profile,
         "can_edit": can_edit,
         "is_me": can_edit,
         "event_status": ev["status"],
@@ -542,6 +594,50 @@ async def update_organizer_card(event_id: int, client_id: int, data: OrganizerCa
         await db.execute(
             "UPDATE event_owners SET allow_collab_broadcasts=$3 WHERE event_id=$1 AND client_id=$2",
             event_id, client_id, bool(data.allow_collab_broadcasts))
+
+    # ── Профиль спикера: пишем в карточку коллаба ──────────────────────
+    # ⚠️ ТУ ЖЕ карточку (`collaborators` self-коллаба), которую читают программа,
+    # лендинг, рассылки и проверка подписки. Отдельного «профиля организатора»
+    # не заводим: он бы разъехался с карточкой спикера, как уже разъехались
+    # профиль клиента и его self-карточка.
+    PROFILE_FIELDS = (
+        "name", "last_name", "title", "photo_url", "photo_folder_url",
+        "video_folder_url", "tg_channel_url", "tg_channel_id", "vk_url",
+        "vk_channel_id", "max_url", "max_channel_id", "instagram_url",
+        "website_url", "ask_topics", "show_ask_topics_field",
+    )
+    upd = {f: getattr(data, f, None) for f in PROFILE_FIELDS if f in fs}
+
+    # ⚠️ Те же пределы, что в кабинете спикера: карточка одна, правила к ней
+    # тоже должны быть одни — иначе через один экран влезет то, что другой
+    # отвергнет.
+    LIMITS = {"name": (255, "Имя"), "last_name": (255, "Фамилия"),
+              "title": (500, "Краткое позиционирование / должность"),
+              "tg_channel_url": (500, "Ссылка Telegram"), "vk_url": (500, "Ссылка ВКонтакте"),
+              "max_url": (500, "Ссылка MAX"), "instagram_url": (500, "Ссылка Instagram"),
+              "website_url": (500, "Ссылка на сайт")}
+    for f, (limit, label) in LIMITS.items():
+        v = upd.get(f)
+        if isinstance(v, str) and len(v) > limit:
+            raise HTTPException(
+                400, f"Поле «{label}» слишком длинное ({len(v)} символов, максимум {limit}). Сократите текст.")
+
+    if "achievements" in fs:
+        upd["achievements"] = [str(a).strip() for a in (data.achievements or []) if str(a).strip()]
+
+    if "media_assets" in fs:
+        import json as _js
+        from app.api.collaborators import _normalize_media_assets
+        upd["media_assets"] = _js.dumps(_normalize_media_assets(data.media_assets) or [])
+
+    if upd and collab_id:
+        cols, vals = [], []
+        for i, (k, v) in enumerate(upd.items(), start=2):
+            cols.append(f"{k} = ${i}" + ("::jsonb" if k == "media_assets" else ""))
+            vals.append(v)
+        await db.execute(
+            f"UPDATE collaborators SET {', '.join(cols)}, updated_at = NOW() WHERE id = $1",
+            collab_id, *vals)
 
     return {"ok": True}
 
