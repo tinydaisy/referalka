@@ -3195,6 +3195,36 @@ async def event_register_submit(slug: str, request: Request,
 PLUSON_LOGO_URL = platform_base_url() + "/images/logo_no_ivision_wwhite.png"
 
 
+async def _brand_favicon(db: asyncpg.Connection, client_id, title: str) -> str:
+    """Значок вкладки = логотип клиента ДЛЯ СВЕТЛОГО ФОНА.
+
+    ⚠️ Берём `brand_logo_light_url`, а не обычный `brand_logo_url`: вкладка
+    браузера светлая, и логотип, нарисованный под тёмный фон сайта, на ней
+    сливается — у белых лого от значка остаётся пустое место.
+
+    Порядок: светлый логотип → обычный → буква названия на фоне ПЛЮСОНа.
+    Своей копии этой логики в страницах быть не должно: их три (сводная,
+    таблица тура, регламент), и правило в них уже расходилось.
+    """
+    logo = ""
+    if client_id:
+        row = await db.fetchrow(
+            "SELECT brand_logo_light_url, brand_logo_url FROM clients WHERE id=$1",
+            client_id)
+        if row:
+            logo = (row["brand_logo_light_url"] or row["brand_logo_url"] or "").strip()
+    if logo:
+        return logo
+    t = (title or "•").strip()
+    letter = _html.escape(t[0].upper() if t else "•")
+    svg = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+           "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+           "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+           f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{letter}</text></svg>")
+    import urllib.parse as _up
+    return "data:image/svg+xml," + _up.quote(svg)
+
+
 def _fmt_num(v):
     """Число без хвостовых нулей: 5.0 -> 5, 3.25 -> 3.25, None -> ''."""
     if v is None:
@@ -3269,6 +3299,7 @@ async def public_tournament_index(slug: str, db: asyncpg.Connection = Depends(ge
         event["client_id"]) if event.get("client_id") else None
     brand = esc((cli["brand_name"] if cli else None) or (cli["name"] if cli else None) or "")
     brand_logo = (cli["brand_logo_url"] if cli else None) or ""
+    favicon_uri = await _brand_favicon(db, event.get("client_id"), event.get("title") or "")
 
     def _card(s) -> str:
         # ⚠️ Одна номинация — ОДНА СТРОКА. Раньше карточки шли сеткой в
@@ -3302,6 +3333,7 @@ async def public_tournament_index(slug: str, db: asyncpg.Connection = Depends(ge
     html = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(event.get('title') or 'Турнир')} — номинации</title>
+<link rel="icon" href="{esc(favicon_uri)}">
 <style>
 *{{box-sizing:border-box}}
 body{{margin:0;font-family:Roboto,system-ui,-apple-system,sans-serif;
@@ -3388,19 +3420,11 @@ async def public_tournament_table(slug: str, stage_id: int,
     title = esc(event.get("title") or event.get("slug"))
     stage_title = esc(stage["title"] or "")
 
-    # Favicon — буква названия
-    _t = (event.get("title") or event.get("slug") or "•").strip()
-    fav_letter = _html.escape(_t[0].upper() if _t else "•")
-    favicon_svg = (
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
-        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
-        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
-        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>")
-    import urllib.parse as _up
     # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента: страница открыта под его
-    # брендом (часто на его домене), и узнаваться должен он. Буква на фоне
-    # ПЛЮСОНа осталась запасным вариантом (решение владельца, 2026-08-18).
-    favicon_uri = (brand_logo or "") or ("data:image/svg+xml," + _up.quote(favicon_svg))
+    # брендом (часто на его домене), и узнаваться должен он. Берётся вариант
+    # ДЛЯ СВЕТЛОГО ФОНА — вкладка браузера светлая (см. _brand_favicon).
+    favicon_uri = await _brand_favicon(
+        db, event.get("client_id"), event.get("title") or event.get("slug") or "")
 
     # ── Шапка таблицы: группировка колонок по пакетам ──
     groups = []  # [{pkg_id, title, weight, normalize, aggregate, scheme, span}]
@@ -3787,17 +3811,9 @@ async def public_tournament_reglament(slug: str, stage_id: int,
     title = esc(event.get("title") or event.get("slug"))
     stage_title = esc(stage["title"] or "")
 
-    _t = (event.get("title") or event.get("slug") or "•").strip()
-    fav_letter = _html.escape(_t[0].upper() if _t else "•")
-    favicon_svg = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
-        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
-        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
-        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>")
-    import urllib.parse as _up
-    # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента: страница открыта под его
-    # брендом (часто на его домене), и узнаваться должен он. Буква на фоне
-    # ПЛЮСОНа осталась запасным вариантом (решение владельца, 2026-08-18).
-    favicon_uri = (brand_logo or "") or ("data:image/svg+xml," + _up.quote(favicon_svg))
+    # Значок вкладки — логотип клиента для СВЕТЛОГО фона (см. _brand_favicon).
+    favicon_uri = await _brand_favicon(
+        db, event.get("client_id"), event.get("title") or event.get("slug") or "")
 
     SCORER_RU = {"jury": "среднее по оценкам жюри", "vote": "народное голосование",
                  "manual": "ручной ввод организатором", "auto": "автоматически из системы"}
