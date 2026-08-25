@@ -61,6 +61,92 @@ function CharCounter({ value, limit }: { value: string; limit: number }) {
   )
 }
 
+/**
+ * Проверка разметки в тексте, который человек пишет сам (регалии, позиционирование).
+ *
+ * ⚠️ Зачем. Текст сюда вставляют из заметок и мессенджеров вместе с тегами, и
+ * ошибаются в них молча: страница показывает не то, что человек ожидал, а
+ * причину он не видит — в поле-то написано «правильно».
+ *
+ * Ловим три случая, которые реально встречались на проде:
+ *  1. `<b/>` вместо `</b>` — браузер считает это ОТКРЫВАЮЩИМ тегом, жирный не
+ *     закрывается и «течёт» до конца текста (у коллаба так пожирнели все
+ *     регалии после слова «Регалии:»). На выводе это чинит fixReversedClosingTags
+ *     в SafeHtml, но человеку всё равно надо сказать — иначе он копит ошибку.
+ *  2. Тег открыт и не закрыт — тот же расползающийся жирный.
+ *  3. Тег не из белого списка — он просто исчезнет при показе, и человек будет
+ *     думать, что оформление «не работает».
+ *
+ * ⚠️ Список тегов держать в синхроне с ALLOWED_TAGS в SafeHtml.tsx и
+ * htmlSanitize.ts — иначе подсказка начнёт врать про то, что можно.
+ */
+const ALLOWED_MARKUP_TAGS = new Set([
+  'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'a', 'br',
+  'ul', 'ol', 'li', 'p', 'h2', 'h3', 'blockquote',
+])
+const SELF_CLOSING_MARKUP_TAGS = new Set(['br'])
+
+function checkMarkup(text: string): string[] {
+  const raw = text || ''
+  if (!/<\/?[a-z][\s\S]*?>/i.test(raw)) return []
+
+  const problems: string[] = []
+  const open: string[] = []
+  const unknown = new Set<string>()
+  let reversed = false
+
+  const re = /<\s*(\/?)\s*([a-z0-9]+)\b[^>]*?(\/?)\s*>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(raw)) !== null) {
+    const closing = m[1] === '/'
+    const tag = m[2].toLowerCase()
+    const selfClosed = m[3] === '/'
+
+    if (!ALLOWED_MARKUP_TAGS.has(tag)) { unknown.add(tag); continue }
+    if (SELF_CLOSING_MARKUP_TAGS.has(tag)) continue
+
+    // `<b/>` — закрывающий тег, написанный задом наперёд.
+    if (!closing && selfClosed) { reversed = true; continue }
+
+    if (closing) {
+      const i = open.lastIndexOf(tag)
+      if (i !== -1) open.splice(i, 1)
+    } else {
+      open.push(tag)
+    }
+  }
+
+  if (reversed) {
+    problems.push('Закрывающий тег написан задом наперёд: нужно </b>, а не <b/>. Иначе жирным станет весь текст до конца.')
+  }
+  if (open.length > 0) {
+    const list = Array.from(new Set(open)).map(t => `<${t}>`).join(', ')
+    problems.push(`Тег открыт, но не закрыт: ${list}. Добавьте закрывающий — например </b>.`)
+  }
+  if (unknown.size > 0) {
+    const list = Array.from(unknown).map(t => `<${t}>`).join(', ')
+    problems.push(`Такие теги не поддерживаются и при показе исчезнут: ${list}.`)
+  }
+  return problems
+}
+
+/** Плашка с найденными ошибками разметки. Ничего не нашли — ничего не рисуем. */
+function MarkupHints({ value }: { value: string }) {
+  const problems = checkMarkup(value)
+  if (problems.length === 0) return null
+  return (
+    <div style={{
+      marginTop: 6, padding: '8px 10px', borderRadius: 8,
+      background: '#fff8e6', border: '1px solid #f0d9a0',
+      fontSize: 11, color: '#8a6100', lineHeight: 1.5,
+    }}>
+      {problems.map((p, i) => (
+        <div key={i} style={{ marginTop: i > 0 ? 4 : 0 }}>⚠️ {p}</div>
+      ))}
+    </div>
+  )
+}
+
 // «12.06 · 11:00–11:15 МСК» — подпись слота под привязанной темой.
 function fmtSlotLabel(s: {
   day_number: number | null; day_title: string | null; day_date: string | null
@@ -655,6 +741,12 @@ export default function SpeakerCabinetPage() {
     width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, background: '#fff'
   }
   const labelCss: React.CSSProperties = { display: 'block', fontSize: 12, color: '#5c7589', marginBottom: 4, marginTop: 14 }
+  // Пример тега в подсказке: моноширинным на светлой плашке, иначе `<b>` в
+  // обычном тексте читается как случайные символы, а не как то, что надо ввести.
+  const codeCss: React.CSSProperties = {
+    background: '#eef3f7', borderRadius: 4, padding: '1px 4px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, color: '#3a5a72',
+  }
   const btnCss: React.CSSProperties = {
     padding: '8px 14px', borderRadius: 8, border: '1px solid #cfd9e2', background: '#fff',
     color: DARK, fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -1085,6 +1177,9 @@ export default function SpeakerCabinetPage() {
           <label style={labelCss}>Кто вы? Ваше позиционирование (кратко как роль/должность)</label>
           <input style={(me.title || '').length > POSITIONING_LIMIT ? { ...inputCss, border: '2px solid #d64545', background: '#fdf3f3' } : inputCss} value={me.title || ''} onChange={(e) => update({ title: e.target.value })} placeholder="Кто вы и чем занимаетесь" />
           <CharCounter value={me.title || ''} limit={POSITIONING_LIMIT} />
+          {/* Позиционирование тоже показывается через SafeHtml — ошибка в теге
+              здесь так же расползается жирным по карточке. */}
+          <MarkupHints value={me.title || ''} />
 
           <label style={labelCss}>Email</label>
           <input style={inputCss} type="email" value={me.email || ''} onChange={(e) => update({ email: e.target.value })} />
@@ -1113,9 +1208,14 @@ export default function SpeakerCabinetPage() {
             placeholder={'Спикер ТЕД\nЧемпион мира по дебатам\nАвтор 3 книг…'}
           />
           <CharCounter value={achText} limit={ACHIEVEMENTS_LIMIT} />
-          <div style={{ fontSize: 11, color: '#9ab', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: '#9ab', marginTop: 4, lineHeight: 1.5 }}>
             Маркеры (•, *, —) можно не ставить — мы их сами уберём при сохранении.
+            <br />
+            Выделить жирным: <code style={codeCss}>&lt;b&gt;текст&lt;/b&gt;</code>,
+            курсивом: <code style={codeCss}>&lt;i&gt;текст&lt;/i&gt;</code>.
+            Тег обязательно закрывайте — <code style={codeCss}>&lt;/b&gt;</code>, со слешем впереди.
           </div>
+          <MarkupHints value={achText} />
         </Section>
 
         {me.show_notes_field && (

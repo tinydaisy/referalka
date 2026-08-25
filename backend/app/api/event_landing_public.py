@@ -261,8 +261,14 @@ async def get_public_landing(
     if "organizer" in kinds and owner:
         def _org_card(row) -> dict:
             social = _jsonb(row["social_links"])
+            # ⚠️ Название кабинета (`clients.name`) и имя человека — РАЗНЫЕ вещи.
+            # У коллабы `name` в выборке — это имя из карточки коллаба, поэтому
+            # бренд подставляем из отдельного поля, иначе в шапке вместо бренда
+            # оказалось бы имя спикера.
+            keys = row.keys()
+            client_name = row["client_name"] if "client_name" in keys else row["name"]
             return {
-                "brand_name": row["brand_name"] or row["name"],
+                "brand_name": row["brand_name"] or client_name,
                 "brand_logo_url": row["brand_logo_url"],
                 "brand_photo_url": row["profile_photo_url"],
                 "brand_positioning": row["positioning"],
@@ -283,13 +289,57 @@ async def get_public_landing(
         # на общем лендинге не было вовсе (прод, 2026-08-18).
         # Одиночному событию поле не нужно — там организатор один.
         if ev.get("is_collab"):
+            # ⚠️ Имя, фото и регалии организатора берём из КАРТОЧКИ КОЛЛАБА
+            # этого события (`event_collaborators` → `collaborators`), а не из
+            # профиля клиента. Это то же самое, что человек правит в кабинете
+            # спикера, — и то, что показывают все остальные блоки лендинга
+            # (спикеры, партнёры). Пока читали `clients`, правка карточки на
+            # общий лендинг не доезжала вовсе, и организатор не понимал, где
+            # вообще меняется его блок.
+            #
+            # ⚠️ Профиль клиента остаётся ЗАПАСНЫМ вариантом (COALESCE): карточку
+            # коллаба заполняют не все, и без подстановки блок у такого
+            # организатора оказался бы пустым. Бренд, логотип и соцсети — всегда
+            # из `clients`: это свойства кабинета, а не карточки человека.
+            #
+            # Связь карточки — `event_collaborators.speaker_id` (не
+            # collaborator_id), карточка самого клиента — `self_collaborator_id`.
             rows = await db.fetch(
-                """SELECT cl.id, cl.name, cl.brand_name, cl.brand_logo_url,
+                """SELECT cl.id, cl.name AS client_name, cl.brand_name, cl.brand_logo_url,
                           cl.profile_photo_url, cl.positioning, cl.achievements,
-                          cl.owner_photo_url, cl.owner_positioning,
-                          cl.owner_achievements, cl.bio, cl.social_links
+                          cl.social_links,
+                          -- ⚠️ Регалии карточки идут в `bio`, а НЕ в
+                          -- owner_achievements: блок организатора на лендинге
+                          -- рисует построчно именно bio, а owner_achievements —
+                          -- это «факты в цифрах» профиля ({label, value}), другая
+                          -- сущность. Положить строки туда — значит показать
+                          -- пустые плашки вместо регалий.
+                          COALESCE(
+                            CASE WHEN COALESCE(array_length(c.achievements, 1), 0) > 0
+                                 THEN array_to_string(c.achievements, E'\\n') END,
+                            cl.bio
+                          ) AS bio,
+                          COALESCE(
+                            NULLIF(btrim(CASE
+                              WHEN COALESCE(btrim(c.last_name),'') = '' THEN COALESCE(c.name,'')
+                              ELSE COALESCE(c.name,'') || ' ' || COALESCE(c.last_name,'')
+                            END), ''),
+                            cl.name
+                          ) AS name,
+                          COALESCE(NULLIF(c.photo_url, ''), cl.owner_photo_url) AS owner_photo_url,
+                          COALESCE(NULLIF(c.title, ''), cl.owner_positioning)  AS owner_positioning,
+                          -- «Факты в цифрах» ({label, value}) остаются из профиля:
+                          -- в карточке коллаба такой сущности нет вовсе.
+                          cl.owner_achievements
                      FROM event_owners eo
                      JOIN clients cl ON cl.id = eo.client_id
+                     -- Карточка этого клиента в ЭТОМ событии; нет её — берём
+                     -- его self-карточку, она же используется в каталоге Хаба.
+                     LEFT JOIN event_collaborators ec
+                            ON ec.event_id = $1
+                           AND ec.speaker_id = cl.self_collaborator_id
+                     LEFT JOIN collaborators c
+                            ON c.id = COALESCE(ec.speaker_id, cl.self_collaborator_id)
                     WHERE eo.event_id = $1 AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id""",
                 event["id"],
