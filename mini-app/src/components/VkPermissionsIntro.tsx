@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getClientProfile } from '../api'
+import { applyTheme, isDarkColor } from '../utils/theme'
 
 /**
  * Экран-объяснение ПЕРЕД запросом разрешений ВКонтакте.
@@ -29,21 +30,10 @@ import { getClientProfile } from '../api'
 
 const STORAGE_PREFIX = 'vk_perm_intro_'
 
-/**
- * Тёмный ли фон? Нужно, чтобы выбрать цвет текста.
- *
- * ⚠️ Считаем по ПЕРВОМУ цвету градиента и по формуле яркости, а не «на глаз»:
- * у клиентов фон бывает и почти чёрным, и светло-бежевым, и тёмно-синий текст
- * на тёмном фоне сливается полностью — экран становится нечитаемым.
- */
-function isDarkBg(bg: string): boolean {
-  const m = bg.match(/#([0-9a-f]{6})/i)
-  if (!m) return false
-  const n = parseInt(m[1], 16)
-  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
-  // Стандартная формула воспринимаемой яркости (0 — чёрный, 255 — белый).
-  return (0.299 * r + 0.587 * g + 0.114 * b) < 140
-}
+// Тёмный ли фон (чтобы выбрать цвет текста) — общая `isDarkColor` из
+// utils/theme. Своя копия здесь была до появления темы; две реализации одной
+// проверки разошлись бы порогом яркости, и один и тот же фон считался бы
+// тёмным на этом экране и светлым на остальных.
 
 /** Показывали ли уже этому человеку экран на этом устройстве. */
 export function vkIntroWasShown(vkUserId: string | number): boolean {
@@ -86,10 +76,13 @@ export default function VkPermissionsIntro({
       .then((p: any) => {
         setBrand(p?.brand_name || p?.name || '')
         setLogo(p?.brand_logo_url || '')
-        const c1 = p?.lp_bg_color
-        const c2 = p?.lp_bg_color_2
-        // Второй цвет не задан — заливаем первым, без градиента.
-        if (c1) setBg(c2 ? `linear-gradient(${p?.lp_bg_angle ?? 45}deg, ${c1}, ${c2})` : c1)
+        // ⚠️ Фон берём из общей темы (мигр. 331), а не из сырых колонок
+        // `lp_*`: у клиента со снятой галочкой «фирменные цвета» экран должен
+        // остаться стандартным — тема тогда приходит как null. Готовую
+        // заливку (с учётом угла и второго цвета) считает бэкенд, чтобы она
+        // не разъехалась с остальными экранами.
+        applyTheme(p?.theme)
+        if (p?.theme?.bg) setBg(p.theme.bg)
       })
       .catch(() => { /* без шапки экран всё равно понятен */ })
   }, [clientId])
@@ -100,7 +93,7 @@ export default function VkPermissionsIntro({
   }
 
   // Тёмный фон → белый текст, светлый → фирменный тёмно-синий.
-  const fg = isDarkBg(bg) ? '#ffffff' : '#25455D'
+  const fg = isDarkColor(bg) ? '#ffffff' : '#25455D'
 
   return (
     <div

@@ -90,6 +90,8 @@ interface Profile {
   tab_label_speakers?: string | null
   tab_label_game?: string | null
   tab_label_ecosystem?: string | null
+  /** Применять фирменные цвета (lp_*) в Mini App и веб-версии (мигр. 331). */
+  miniapp_use_brand_theme?: boolean | null
 }
 interface Offering {
   id: number
@@ -364,6 +366,9 @@ export default function MiniAppSettingsPage() {
         tab_label_speakers:     profile.tab_label_speakers  || '',
         tab_label_game:         profile.tab_label_game      || '',
         tab_label_ecosystem:    profile.tab_label_ecosystem || '',
+        // Галочка «фирменные цвета в Mini App». Шлём всегда явным bool:
+        // снятая галочка — это false, а не «поле не прислали».
+        miniapp_use_brand_theme: !!profile.miniapp_use_brand_theme,
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
@@ -1111,6 +1116,38 @@ export default function MiniAppSettingsPage() {
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
               />
             </Field>
+
+            {/* ── Фирменные цвета в Mini App (мигр. 331) ──────────────────
+                По умолчанию выключено: цвета лендинга есть у каждого
+                кабинета (заполнены значениями по умолчанию), и включение
+                «всем сразу» перекрасило бы Mini App у тех, кто их не
+                выбирал. Оформление там, где идут регистрации, — решение
+                клиента, а не наше. */}
+            <div className="pt-4 mt-4 border-t border-gray-200">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!profile.miniapp_use_brand_theme}
+                  onChange={e => update('miniapp_use_brand_theme', e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-900">
+                    Использовать в Mini App фирменные цвета
+                  </span>
+                  <span className="block text-xs text-gray-500 mt-1">
+                    Возьмём цвета из раздела{' '}
+                    <a href="/dashboard/settings?tab=landing-theme"
+                       className="text-amber-700 underline hover:text-amber-800">
+                      «Стили лендингов»
+                    </a>{' '}
+                    — фон, иконки, кнопки и карточки станут вашими. Действует
+                    и в мессенджерах, и в веб-версии события. Выключено —
+                    стандартное оформление платформы.
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
         </Section>
       )}

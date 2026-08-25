@@ -38,6 +38,7 @@ from app.services.external_landing import (
 )
 from app.services.webinar_service import day_stream_url
 from app.services.client_domains import client_public_link
+from app.services.miniapp_theme import theme_dict
 from app.services.preview_token import make_preview_token
 from app.config import settings
 from app.services.share_links import TG_DOMAIN
@@ -159,11 +160,18 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links, events_tab_visibility,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
-                  -- ⚠️ Фирменные цвета фона нужны экрану разрешений в VK Mini
-                  -- App: он показывается ДО загрузки события, и без них висел
-                  -- на общем светлом фоне — у клиента с тёмной темой это
+                  -- ⚠️ Фирменные цвета нужны Хабу и экрану разрешений в VK
+                  -- Mini App: он показывается ДО загрузки события, и без них
+                  -- висел на общем светлом фоне — у клиента с тёмной темой это
                   -- выглядело чужой страницей.
-                  lp_bg_color, lp_bg_color_2, lp_bg_angle
+                  miniapp_use_brand_theme,
+                  lp_bg_color, lp_bg_color_2, lp_bg_angle, lp_bg_gradient,
+                  lp_btn_color, lp_btn_color_2, lp_btn_angle, lp_btn_text_color,
+                  lp_btn_border_color, lp_btn_border_width,
+                  lp_icon_color,
+                  lp_card_bg, lp_card_bg_opacity, lp_card_text_color,
+                  lp_color_heading, lp_color_body,
+                  lp_day_tab_color, lp_day_tab_text_color
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
         client_id
@@ -174,6 +182,11 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     d["achievements"]       = _parse_jsonb(d.get("achievements"), [])
     d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
     d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
+    # Тема одним объектом; сырые колонки наружу не отдаём (см. витрину события).
+    d["theme"] = theme_dict(d)
+    for _c in list(d.keys()):
+        if _c.startswith("lp_") or _c == "miniapp_use_brand_theme":
+            d.pop(_c, None)
     return d
 
 
@@ -862,6 +875,17 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    c.brand_logo_url AS client_brand_logo,
                    c.tab_label_program, c.tab_label_speakers,
                    c.tab_label_game, c.tab_label_ecosystem,
+                   -- Фирменные цвета клиента (мигр. 331). Едут вместе с
+                   -- событием, а не отдельным запросом: Mini App рисует шапку
+                   -- сразу, и вторая загрузка дала бы вспышку чужих цветов.
+                   c.miniapp_use_brand_theme,
+                   c.lp_bg_color, c.lp_bg_color_2, c.lp_bg_angle, c.lp_bg_gradient,
+                   c.lp_btn_color, c.lp_btn_color_2, c.lp_btn_angle, c.lp_btn_text_color,
+                   c.lp_btn_border_color, c.lp_btn_border_width,
+                   c.lp_icon_color,
+                   c.lp_card_bg, c.lp_card_bg_opacity, c.lp_card_text_color,
+                   c.lp_color_heading, c.lp_color_body,
+                   c.lp_day_tab_color, c.lp_day_tab_text_color,
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
                       JOIN client_channels cc ON cc.channel_id = ch.id
@@ -885,6 +909,14 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     d = dict(row)
+
+    # Фирменные цвета одним объектом `theme` (мигр. 331). Галочка снята → None,
+    # и фронт рисует стандартными цветами платформы. Сырые колонки `lp_*` из
+    # ответа убираем: наружу идут роли («фон», «иконки»), а не имена полей базы.
+    d["theme"] = theme_dict(d)
+    for _c in list(d.keys()):
+        if _c.startswith("lp_") or _c == "miniapp_use_brand_theme":
+            d.pop(_c, None)
 
     # ⚠️⚠️ ССЫЛКИ В БОТОВ ОРГАНИЗАТОРОВ — ДЛЯ КНОПКИ «ВОЙТИ В ЧАТ».
     # Проверить подписку прямо на странице умеет только Telegram (там есть
@@ -1183,6 +1215,8 @@ class ProfileUpdate(BaseModel):
     tab_label_speakers:  Optional[str] = None
     tab_label_game:      Optional[str] = None
     tab_label_ecosystem: Optional[str] = None
+    # Применять фирменные цвета (lp_*) в Mini App и на веб-витрине события.
+    miniapp_use_brand_theme: Optional[bool] = None
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -1204,7 +1238,8 @@ async def get_my_profile(
                   start_lead_magnet_id, start_package_id,
                   events_tab_visibility,
                   speaker_page_slug,
-                  tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem
+                  tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
+                  miniapp_use_brand_theme
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -1315,6 +1350,10 @@ async def update_my_profile(
         if _lbl in _fs:
             _val = (getattr(data, _lbl) or "").strip()
             add(_lbl, _val or None)
+    # Фирменные цвета в Mini App. Колонка NOT NULL — снятая галочка приходит
+    # как false, а не как null, поэтому bool() без COALESCE.
+    if "miniapp_use_brand_theme" in _fs:
+        add("miniapp_use_brand_theme", bool(data.miniapp_use_brand_theme))
     if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
@@ -1448,7 +1487,8 @@ async def update_my_profile(
                           brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                           owner_photo_url, owner_positioning, owner_achievements,
                           bio, social_links,
-                          tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem""",
+                          tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
+                          miniapp_use_brand_theme""",
             *args
         )
     except asyncpg.exceptions.CheckViolationError:

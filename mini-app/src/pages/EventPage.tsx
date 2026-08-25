@@ -15,6 +15,7 @@ import RegistrationFlow from '../components/RegistrationFlow'
 import WelcomePage from '../components/WelcomePage'
 import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed } from '../api'
 import { getPlatformName } from '../platform'
+import { applyTheme } from '../utils/theme'
 
 type State = 'not_registered' | 'registered' | 'ended'
 
@@ -173,6 +174,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       if (cancelled) return
       clearTimeout(timeoutId)
       if (!landing) { setLoadError(true); return }
+      // Фирменные цвета клиента (мигр. 331) — ставим ДО отрисовки, иначе
+      // экран мигнёт стандартными цветами и перекрасится на глазах.
+      // `theme: null` (галочка снята) ничего не трогает.
+      applyTheme((landing as any).theme)
       setEvent(landing)
       setParticipant(part?.participant ? {
         ...part.participant,

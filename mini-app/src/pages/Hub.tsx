@@ -3,6 +3,7 @@ import BottomNav, { NavItem } from '../components/BottomNav'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
 import { getClientProfile, getClientEvents } from '../api'
+import { applyTheme } from '../utils/theme'
 
 interface Props {
   clientId: number
@@ -27,7 +28,11 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
   const tgId = tgUser?.id ? Number(tgUser.id) : undefined
 
   useEffect(() => {
-    getClientProfile(clientId).then(setProfile).catch(() => {})
+    getClientProfile(clientId).then((p: any) => {
+      // Фирменные цвета клиента (мигр. 331); `theme: null` — ничего не меняет.
+      applyTheme(p?.theme)
+      setProfile(p)
+    }).catch(() => {})
     // считаем, есть ли активные (now/upcoming) и любые события — для видимости вкладки
     getClientEvents(clientId, undefined, tgId).then((r: any) => {
       const now = r?.now || [], up = r?.upcoming || [], past = r?.past || []
