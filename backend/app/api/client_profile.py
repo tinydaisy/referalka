@@ -43,6 +43,12 @@ from app.services.features import has_feature_sql, client_has_feature
 
 # Готовое SQL-условие «клиенту доступен фирменный стиль Mini App» (мигр. 332).
 # Считается один раз при загрузке модуля: строка не зависит от запроса.
+import re as _re
+# Цвет в формате #RRGGBB (регистр любой). Валидируем на записи: битое значение
+# уехало бы в CSS и молча не сработало — экран остался бы в прежних цветах, и
+# клиент решил бы, что настройка не работает.
+_HEX_RE = _re.compile(r"^#?[0-9a-fA-F]{6}$")
+
 _HAS_THEME_FEATURE = has_feature_sql("c.id", "miniapp_brand_theme")
 # То же условие для запроса, где таблица подключена без алиаса (`FROM clients`).
 _HAS_THEME_FEATURE_NOALIAS = has_feature_sql("clients.id", "miniapp_brand_theme")
@@ -172,10 +178,10 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
                   -- висел на общем светлом фоне — у клиента с тёмной темой это
                   -- выглядело чужой страницей.
                   miniapp_use_brand_theme,
-                  lp_bg_color, lp_bg_color_2, lp_bg_angle, lp_bg_gradient,
-                  lp_btn_color, lp_btn_color_2, lp_btn_angle, lp_btn_text_color,
-                  lp_btn_border_color, lp_btn_border_width,
-                  lp_icon_color,
+                  ma_bg_color, ma_bg_color_2, ma_bg_angle,
+                  ma_accent_color,
+                  ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border,
+                  ma_radius,
                   """ + _HAS_THEME_FEATURE_NOALIAS + """ AS has_theme_feature
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
@@ -190,7 +196,7 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     # Тема одним объектом; сырые колонки наружу не отдаём (см. витрину события).
     d["theme"] = theme_dict(d)
     for _c in list(d.keys()):
-        if _c.startswith("lp_") or _c in ("miniapp_use_brand_theme", "has_theme_feature"):
+        if _c.startswith("ma_") or _c in ("miniapp_use_brand_theme", "has_theme_feature"):
             d.pop(_c, None)
     return d
 
@@ -889,10 +895,10 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    -- открывается на каждый вход в Mini App, второе обращение
                    -- к базе ради одного флага тут лишнее.
                    """ + _HAS_THEME_FEATURE + """ AS has_theme_feature,
-                   c.lp_bg_color, c.lp_bg_color_2, c.lp_bg_angle, c.lp_bg_gradient,
-                   c.lp_btn_color, c.lp_btn_color_2, c.lp_btn_angle, c.lp_btn_text_color,
-                   c.lp_btn_border_color, c.lp_btn_border_width,
-                   c.lp_icon_color,
+                   c.ma_bg_color, c.ma_bg_color_2, c.ma_bg_angle,
+                   c.ma_accent_color,
+                   c.ma_cta_color, c.ma_cta_color_2, c.ma_cta_angle, c.ma_cta_border,
+                   c.ma_radius,
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
                       JOIN client_channels cc ON cc.channel_id = ch.id
@@ -922,7 +928,7 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
     # ответа убираем: наружу идут роли («фон», «иконки»), а не имена полей базы.
     d["theme"] = theme_dict(d)
     for _c in list(d.keys()):
-        if _c.startswith("lp_") or _c in ("miniapp_use_brand_theme", "has_theme_feature"):
+        if _c.startswith("ma_") or _c in ("miniapp_use_brand_theme", "has_theme_feature"):
             d.pop(_c, None)
 
     # ⚠️⚠️ ССЫЛКИ В БОТОВ ОРГАНИЗАТОРОВ — ДЛЯ КНОПКИ «ВОЙТИ В ЧАТ».
@@ -1222,8 +1228,19 @@ class ProfileUpdate(BaseModel):
     tab_label_speakers:  Optional[str] = None
     tab_label_game:      Optional[str] = None
     tab_label_ecosystem: Optional[str] = None
-    # Применять фирменные цвета (lp_*) в Mini App и на веб-витрине события.
+    # Применять фирменные цвета в Mini App и на веб-витрине события.
     miniapp_use_brand_theme: Optional[bool] = None
+    # Свои цвета Mini App (мигр. 333). Три цвета + скругление, см.
+    # app/services/miniapp_theme.py — отдельных ролей не заводить.
+    ma_bg_color:     Optional[str] = None
+    ma_bg_color_2:   Optional[str] = None
+    ma_bg_angle:     Optional[int] = None
+    ma_accent_color: Optional[str] = None
+    ma_cta_color:    Optional[str] = None
+    ma_cta_color_2:  Optional[str] = None
+    ma_cta_angle:    Optional[int] = None
+    ma_cta_border:   Optional[str] = None
+    ma_radius:       Optional[int] = None
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -1246,7 +1263,9 @@ async def get_my_profile(
                   events_tab_visibility,
                   speaker_page_slug,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
-                  miniapp_use_brand_theme
+                  miniapp_use_brand_theme,
+                  ma_bg_color, ma_bg_color_2, ma_bg_angle, ma_accent_color,
+                  ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_radius
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -1373,6 +1392,44 @@ async def update_my_profile(
                 detail="Фирменный стиль Mini App доступен на тарифе Экстра.",
             )
         add("miniapp_use_brand_theme", _want_theme)
+
+    # Свои цвета Mini App (мигр. 333): три цвета + углы + граница + скругление.
+    # ⚠️ Гейт по фиче — как у галочки: настройка платная, и прямой PATCH мимо
+    # интерфейса не должен её менять.
+    _ma_colors = ("ma_bg_color", "ma_bg_color_2", "ma_accent_color",
+                  "ma_cta_color", "ma_cta_color_2", "ma_cta_border")
+    _ma_ints = {"ma_bg_angle": (0, 360, 45), "ma_cta_angle": (0, 360, 135),
+                "ma_radius": (0, 28, 14)}
+    _ma_touched = [f for f in (*_ma_colors, *_ma_ints) if f in _fs]
+    if _ma_touched:
+        if not await client_has_feature(db, int(client["sub"]), "miniapp_brand_theme"):
+            raise HTTPException(
+                status_code=403,
+                detail="Фирменный стиль Mini App доступен на тарифе Экстра.",
+            )
+        for _f in _ma_colors:
+            if _f not in _fs:
+                continue
+            _v = (getattr(data, _f) or "").strip()
+            # ⚠️ Колонки NOT NULL: пустое значение не пишем, иначе вставка
+            # упадёт. Пустое поле в форме = «оставить как было».
+            if not _v:
+                continue
+            if not _HEX_RE.match(_v):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Цвет «{_v}» указан неверно. Формат: #RRGGBB.",
+                )
+            add(_f, _v.upper() if _v.startswith("#") else f"#{_v.upper()}")
+        for _f, (_lo, _hi, _def) in _ma_ints.items():
+            if _f not in _fs:
+                continue
+            try:
+                _n = int(getattr(data, _f))
+            except (TypeError, ValueError):
+                _n = _def
+            add(_f, max(_lo, min(_hi, _n)))
+
     if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
@@ -1507,7 +1564,9 @@ async def update_my_profile(
                           owner_photo_url, owner_positioning, owner_achievements,
                           bio, social_links,
                           tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
-                          miniapp_use_brand_theme""",
+                          miniapp_use_brand_theme,
+                          ma_bg_color, ma_bg_color_2, ma_bg_angle, ma_accent_color,
+                          ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_radius""",
             *args
         )
     except asyncpg.exceptions.CheckViolationError:

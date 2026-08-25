@@ -90,8 +90,18 @@ interface Profile {
   tab_label_speakers?: string | null
   tab_label_game?: string | null
   tab_label_ecosystem?: string | null
-  /** Применять фирменные цвета (lp_*) в Mini App и веб-версии (мигр. 331). */
+  /** Применять свои цвета в Mini App и веб-версии (мигр. 331). */
   miniapp_use_brand_theme?: boolean | null
+  /** Свои цвета Mini App (мигр. 333): три цвета + углы + скругление. */
+  ma_bg_color?: string | null
+  ma_bg_color_2?: string | null
+  ma_bg_angle?: number | null
+  ma_accent_color?: string | null
+  ma_cta_color?: string | null
+  ma_cta_color_2?: string | null
+  ma_cta_angle?: number | null
+  ma_cta_border?: string | null
+  ma_radius?: number | null
 }
 interface Offering {
   id: number
@@ -375,6 +385,19 @@ export default function MiniAppSettingsPage() {
         // включить платную возможность, а старое `true` уезжало бы в каждом
         // запросе.
         miniapp_use_brand_theme: hasBrandTheme && !!profile.miniapp_use_brand_theme,
+        // Свои цвета Mini App. Шлём только при наличии фичи: без неё бэкенд
+        // отвечает 403, и весь профиль перестал бы сохраняться.
+        ...(hasBrandTheme ? {
+          ma_bg_color:     profile.ma_bg_color     || undefined,
+          ma_bg_color_2:   profile.ma_bg_color_2   || undefined,
+          ma_bg_angle:     profile.ma_bg_angle     ?? undefined,
+          ma_accent_color: profile.ma_accent_color || undefined,
+          ma_cta_color:    profile.ma_cta_color    || undefined,
+          ma_cta_color_2:  profile.ma_cta_color_2  || undefined,
+          ma_cta_angle:    profile.ma_cta_angle    ?? undefined,
+          ma_cta_border:   profile.ma_cta_border   || undefined,
+          ma_radius:       profile.ma_radius       ?? undefined,
+        } : {}),
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
@@ -1123,48 +1146,24 @@ export default function MiniAppSettingsPage() {
               />
             </Field>
 
-            {/* ── Фирменные цвета в Mini App (мигр. 331) ──────────────────
-                По умолчанию выключено: цвета лендинга есть у каждого
-                кабинета (заполнены значениями по умолчанию), и включение
-                «всем сразу» перекрасило бы Mini App у тех, кто их не
-                выбирал. Оформление там, где идут регистрации, — решение
-                клиента, а не наше. */}
-            <div className="pt-4 mt-4 border-t border-gray-200">
-              {!hasBrandTheme && (
-                <div className="mb-3 text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  Фирменный стиль Mini App входит в тариф <b>Экстра</b>.{' '}
-                  <a href="/dashboard/settings?tab=subscription"
-                     className="text-amber-700 underline hover:text-amber-800">
-                    Посмотреть тарифы
-                  </a>
-                </div>
-              )}
-              <label className={`flex items-start gap-3 ${hasBrandTheme ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
-                <input
-                  type="checkbox"
-                  disabled={!hasBrandTheme}
-                  checked={!!profile.miniapp_use_brand_theme}
-                  onChange={e => update('miniapp_use_brand_theme', e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer disabled:cursor-not-allowed"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-gray-900">
-                    Использовать в Mini App фирменные цвета
-                  </span>
-                  <span className="block text-xs text-gray-500 mt-1">
-                    Возьмём цвета из раздела{' '}
-                    <a href="/dashboard/settings?tab=landing-theme"
-                       className="text-amber-700 underline hover:text-amber-800">
-                      «Стили лендингов»
-                    </a>{' '}
-                    — фон, иконки, кнопки и карточки станут вашими. Действует
-                    и в мессенджерах, и в веб-версии события. Выключено —
-                    стандартное оформление платформы.
-                  </span>
-                </span>
-              </label>
-            </div>
           </div>
+        </Section>
+      )}
+
+      {/* ════════════════════════════════════════════════
+           ВКЛАДКА: ВКЛАДКИ → пункт 2 «Фирменные цвета»
+         ════════════════════════════════════════════════ */}
+      {tab === 'tabs' && profile && (
+        <Section
+          step={2}
+          title="Фирменные цвета Mini App"
+          hint="Три цвета — и всё приложение станет вашим. Остальные оттенки получаются из них: подложки карточек и плашек — те же цвета, только на 20% прозрачности."
+        >
+          <ThemeColorsBlock
+            profile={profile}
+            update={update}
+            locked={!hasBrandTheme}
+          />
         </Section>
       )}
 
@@ -1506,6 +1505,261 @@ function OfferingModal({
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ФИРМЕННЫЕ ЦВЕТА MINI APP (миграции 331–333)
+
+   ⚠️ ТРИ ЦВЕТА, А НЕ ПАЛИТРА. Синий (фон), персиковый (акцент) и кнопка
+   призыва к действию. Всё остальное на экране — производные от них через
+   прозрачность 20%. Отдельных настроек «цвет заголовка», «цвет вкладки
+   дня» и т.п. здесь БЫТЬ НЕ ДОЛЖНО: ровно так и вышел разнобой из пяти
+   несочетающихся оттенков, когда цвета тянулись из «Стилей лендингов».
+
+   ⚠️ Раздел ВИДЕН ВСЕМ, но без фичи `miniapp_brand_theme` (Экстра) поля
+   заблокированы и сверху висит объяснение. Прятать нельзя: клиент должен
+   понимать, за что платит.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/** Поле выбора цвета: кружок-пипетка + текстовый ввод #RRGGBB. */
+function ColorField({ label, hint, value, onChange, disabled }: {
+  label: string
+  hint?: string
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+}) {
+  const safe = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-800 mb-1.5">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={safe}
+          disabled={disabled}
+          onChange={e => onChange(e.target.value.toUpperCase())}
+          className="w-11 h-10 rounded-lg border border-gray-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 p-0.5 bg-white"
+        />
+        <input
+          type="text"
+          value={value}
+          disabled={disabled}
+          placeholder="#25455D"
+          maxLength={7}
+          onChange={e => onChange(e.target.value.toUpperCase())}
+          className="flex-1 px-3 py-2 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400 disabled:bg-gray-50 disabled:text-gray-400"
+          style={{ minWidth: 0 }}
+        />
+      </div>
+      {hint && <p className="text-xs text-gray-500 mt-1">{hint}</p>}
+    </div>
+  )
+}
+
+function ThemeColorsBlock({ profile, update, locked }: {
+  profile: Profile
+  update: <K extends keyof Profile>(key: K, value: Profile[K]) => void
+  locked: boolean
+}) {
+  const on = !!profile.miniapp_use_brand_theme
+  const bg1    = profile.ma_bg_color     || '#25455D'
+  const bg2    = profile.ma_bg_color_2   || '#0a1520'
+  const bgAng  = profile.ma_bg_angle     ?? 45
+  const accent = profile.ma_accent_color || '#FFCFA4'
+  const cta1   = profile.ma_cta_color    || '#dc2626'
+  const cta2   = profile.ma_cta_color_2  || '#7f1d1d'
+  const ctaAng = profile.ma_cta_angle    ?? 135
+  const ctaBrd = profile.ma_cta_border   || '#7f1d1d'
+  const radius = profile.ma_radius       ?? 14
+
+  const dis = locked || !on
+
+  // Тёмный ли цвет — чтобы в предпросмотре текст не сливался с фоном.
+  // ⚠️ Тот же расчёт, что на бэкенде (миграция 333): предпросмотр обязан
+  // показывать то, что человек реально увидит, иначе он ему врёт.
+  const isDark = (hex: string) => {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(hex)
+    if (!m) return true
+    const n = parseInt(m[1], 16)
+    return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) < 150
+  }
+  const rgba = (hex: string, a: number) => {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(hex)
+    if (!m) return 'transparent'
+    const n = parseInt(m[1], 16)
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
+  }
+
+  return (
+    <div className="max-w-2xl">
+      {locked && (
+        <div className="mb-4 text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          🔒 Фирменный стиль Mini App входит в тариф <b>Экстра</b>.{' '}
+          <a href="/dashboard/settings?tab=subscription"
+             className="text-amber-700 underline hover:text-amber-800 font-medium">
+            Посмотреть тарифы
+          </a>
+        </div>
+      )}
+
+      <label className={`flex items-start gap-3 mb-5 ${locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+        <input
+          type="checkbox"
+          disabled={locked}
+          checked={on}
+          onChange={e => update('miniapp_use_brand_theme', e.target.checked)}
+          className="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer disabled:cursor-not-allowed"
+        />
+        <span>
+          <span className="block text-sm font-medium text-gray-900">
+            Использовать свои цвета
+          </span>
+          <span className="block text-xs text-gray-500 mt-1">
+            Действует в мессенджерах и в веб-версии события. Выключено —
+            стандартное оформление платформы.
+          </span>
+        </span>
+      </label>
+
+      <div className={dis ? 'opacity-50' : ''}>
+        {/* ── 1. Синий: фон ─────────────────────────────────────────── */}
+        <div className="border border-gray-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-bold text-gray-900 mb-3">1. Основной фон</p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <ColorField label="Цвет 1" value={bg1} disabled={dis}
+                        onChange={v => update('ma_bg_color', v)} />
+            <ColorField label="Цвет 2" value={bg2} disabled={dis}
+                        onChange={v => update('ma_bg_color_2', v)} />
+          </div>
+          <div className="mt-3">
+            <label className="block text-sm font-medium text-gray-800 mb-1.5">
+              Угол градиента: {bgAng}°
+            </label>
+            <input type="range" min={0} max={360} step={5} value={bgAng} disabled={dis}
+                   onChange={e => update('ma_bg_angle', Number(e.target.value))}
+                   className="w-full accent-amber-500 disabled:cursor-not-allowed" />
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Шапка, тёмные плашки и фон приложения. Одинаковые цвета — заливка без градиента.
+          </p>
+        </div>
+
+        {/* ── 2. Акцент ─────────────────────────────────────────────── */}
+        <div className="border border-gray-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-bold text-gray-900 mb-3">2. Акцент</p>
+          <ColorField
+            label="Цвет акцента" value={accent} disabled={dis}
+            onChange={v => update('ma_accent_color', v)}
+            hint="Иконки меню, стрелки, активная вкладка дня. Карточки спикеров — этот же цвет на 20% прозрачности."
+          />
+        </div>
+
+        {/* ── 3. Кнопка действия ────────────────────────────────────── */}
+        <div className="border border-gray-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-bold text-gray-900 mb-3">3. Главная кнопка</p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <ColorField label="Цвет 1" value={cta1} disabled={dis}
+                        onChange={v => update('ma_cta_color', v)} />
+            <ColorField label="Цвет 2" value={cta2} disabled={dis}
+                        onChange={v => update('ma_cta_color_2', v)} />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 mt-3">
+            <ColorField label="Граница" value={ctaBrd} disabled={dis}
+                        onChange={v => update('ma_cta_border', v)} />
+            <div>
+              <label className="block text-sm font-medium text-gray-800 mb-1.5">
+                Угол градиента: {ctaAng}°
+              </label>
+              <input type="range" min={0} max={360} step={5} value={ctaAng} disabled={dis}
+                     onChange={e => update('ma_cta_angle', Number(e.target.value))}
+                     className="w-full accent-amber-500 disabled:cursor-not-allowed" />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Кнопка призыва к действию — «Получить записи», «Хочу участвовать».
+          </p>
+        </div>
+
+        {/* ── 4. Скругление ─────────────────────────────────────────── */}
+        <div className="border border-gray-200 rounded-xl p-4 mb-4">
+          <p className="text-sm font-bold text-gray-900 mb-3">4. Скругление углов: {radius} px</p>
+          <input type="range" min={0} max={28} step={1} value={radius} disabled={dis}
+                 onChange={e => update('ma_radius', Number(e.target.value))}
+                 className="w-full accent-amber-500 disabled:cursor-not-allowed" />
+          <p className="text-xs text-gray-500 mt-2">
+            Карточки, кнопки и плашки. 0 — прямые углы, 28 — сильно скруглённые.
+          </p>
+        </div>
+
+        {/* ── Предпросмотр ──────────────────────────────────────────── */}
+        <div className="border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-bold text-gray-900 mb-3">Как это будет выглядеть</p>
+          <div style={{ borderRadius: radius, overflow: 'hidden', border: '1px solid #e5e7eb' }}>
+            {/* Шапка */}
+            <div style={{
+              background: bg1 === bg2 ? bg1 : `linear-gradient(${bgAng}deg, ${bg1}, ${bg2})`,
+              padding: '14px 16px',
+              color: isDark(bg1) ? '#ffffff' : '#1a2a3a',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Название события</div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>· идёт сейчас</div>
+            </div>
+            {/* Тело */}
+            <div style={{ background: '#f7f8fa', padding: 14 }}>
+              <button type="button" style={{
+                width: '100%', border: `1px solid ${ctaBrd}`,
+                background: cta1 === cta2 ? cta1 : `linear-gradient(${ctaAng}deg, ${cta1}, ${cta2})`,
+                color: isDark(cta1) ? '#ffffff' : '#1a2a3a',
+                borderRadius: radius, padding: '13px 16px', marginBottom: 10,
+                fontWeight: 900, fontSize: 13, letterSpacing: 1.1,
+                textTransform: 'uppercase', cursor: 'default',
+              }}>
+                Получить записи
+              </button>
+              {/* Карточка спикера — акцент на 20% */}
+              <div style={{
+                background: rgba(accent, 0.2), borderRadius: radius,
+                padding: 12, display: 'flex', gap: 10, alignItems: 'center',
+              }}>
+                <div style={{
+                  width: 38, height: 38, borderRadius: '50%',
+                  background: accent, flexShrink: 0,
+                }} />
+                <div>
+                  <div style={{
+                    display: 'inline-block', background: accent,
+                    color: isDark(accent) ? '#ffffff' : '#1a2a3a',
+                    fontSize: 9, fontWeight: 800, letterSpacing: 0.8,
+                    padding: '3px 7px', borderRadius: 6, marginBottom: 3,
+                  }}>СПИКЕР</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>Имя Фамилия</div>
+                </div>
+              </div>
+              {/* Нижнее меню */}
+              <div style={{
+                display: 'flex', gap: 4, marginTop: 12, background: 'white',
+                borderRadius: radius, padding: 6,
+              }}>
+                {['Программа', 'Спикеры', 'Подарки'].map((t, i) => (
+                  <div key={t} style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 8, margin: '0 auto 3px',
+                      background: i === 0 ? accent : 'transparent',
+                    }} />
+                    <div style={{
+                      fontSize: 9, fontWeight: 700,
+                      color: i === 0 ? '#1a2a3a' : '#8a96a3',
+                    }}>{t}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

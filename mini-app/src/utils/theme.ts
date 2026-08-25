@@ -24,14 +24,15 @@ export type MiniAppTheme = {
   btn?: string | null
   btn_text?: string | null
   btn_border?: string | null
-  btn_border_width?: number | null
-  card_bg?: string | null
+  bg_tint?: string | null
+  card_tint?: string | null
   card_text?: string | null
-  card_bg_opacity?: number | null
+  on_bg_text?: string | null
+  on_bg_icon?: string | null
+  radius?: number | null
   day_tab?: string | null
   day_tab_text?: string | null
   heading?: string | null
-  body?: string | null
 } | null | undefined
 
 /** `#25455D` → `37,69,93`. Нужен для rgba-теней и полупрозрачных подложек. */
@@ -92,18 +93,18 @@ export function applyTheme(theme: MiniAppTheme): void {
   set('--cta-bg', theme.btn)
   set('--cta-text', theme.btn_text)
   set('--cta-border', theme.btn_border)
-  if (theme.btn_border_width != null) {
-    root.style.setProperty('--cta-border-width', `${theme.btn_border_width}px`)
-  }
 
-  // ── Карточки спикеров, «Об основателе» ──────────────────────────────
-  // Заливка светлая: акцентный цвет, разбавленный до заданной прозрачности.
-  const cardRgb = hexToRgb(theme.card_bg)
-  if (cardRgb) {
-    const a = theme.card_bg_opacity ?? 1
-    set('--card-tint', `rgba(${cardRgb},${a})`)
-  }
+  // ── Полупрозрачные подложки (20%) ───────────────────────────────────
+  // ⚠️ Готовые rgba считает БЭКЕНД: доля прозрачности — часть правил темы
+  // («всё остальное — игра прозрачностью»), а не решение отдельного экрана.
+  set('--card-tint', theme.card_tint)   // карточки спикеров, «Об основателе»
+  set('--bg-tint', theme.bg_tint)       // подложки от синего: зебра, плашки
   set('--card-text', theme.card_text)
+
+  // ── Скругление элементов ────────────────────────────────────────────
+  if (theme.radius != null) {
+    root.style.setProperty('--radius', `${theme.radius}px`)
+  }
 
   // ── Вкладка выбранного дня программы ────────────────────────────────
   set('--day-tab', theme.day_tab)
