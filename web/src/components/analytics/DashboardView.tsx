@@ -264,9 +264,8 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
             {/* ⚠️ Подчёркивание ПОСТОЯННОЕ, а не по наведению: по цифре можно
                 кликнуть и посмотреть, кто эти люди, но об этом никто не
                 догадывался — на телефоне наведения нет вовсе, а на компьютере
-                надо сначала случайно навести. Подчёркивание приглушённое
-                (decoration-*/underline-offset), чтобы не спорить с крупным
-                числом, но было видно сразу. */}
+                надо сначала случайно навести. Цвет приглушённый, чтобы не
+                спорить с крупным числом, но было видно сразу. */}
             <div className="text-4xl font-bold tabular-nums text-[#25455D] underline decoration-[#FFCFA4] decoration-2 underline-offset-4 group-hover:decoration-[#25455D]">
               {big}
             </div>

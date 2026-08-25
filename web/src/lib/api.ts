@@ -574,6 +574,9 @@ export const api = {
   dialogs: {
     list: (search?: string) =>
       request(`/api/v1/dialogs${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    /** Всего непрочитанных сообщений от людей — цифра для пункта меню «Контакты». */
+    unreadCount: (): Promise<{ unread: number }> =>
+      request('/api/v1/dialogs/unread-count'),
     messages: (contactId: number, platform?: string) =>
       request(`/api/v1/contacts/${contactId}/messages${platform ? `?platform=${platform}` : ''}`),
     reply: (contactId: number, data: { platform: string; text: string; channel_id?: number }) =>

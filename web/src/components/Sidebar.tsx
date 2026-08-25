@@ -16,6 +16,9 @@ export default function Sidebar() {
   const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string; assistant_access_level?: string | null; tariff_slug?: string; is_system_service?: boolean } | null>(null)
   const { t } = useLang()
 
+  // Непрочитанные сообщения от людей — цифра у пункта «Контакты».
+  const [unread, setUnread] = useState(0)
+
   useEffect(() => {
     api.auth.me().then((data: any) => setMe({
       name: data?.name,
@@ -26,6 +29,29 @@ export default function Sidebar() {
       tariff_slug: data?.subscription?.tariff_slug,
       is_system_service: !!data?.is_system_service,
     })).catch(() => {})
+  }, [])
+
+  // ⚠️ Обновляем по таймеру и при возврате на вкладку: человек читает
+  // переписку в соседнем разделе, и без этого цифра в меню оставалась бы
+  // прежней до перезагрузки страницы. Раз в минуту — запрос лёгкий (один
+  // COUNT по частичному индексу), но чаще дёргать незачем.
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      // Ошибку глушим: цифра в меню не повод показывать человеку сбой.
+      api.dialogs.unreadCount()
+        .then(r => { if (alive) setUnread(r?.unread || 0) })
+        .catch(() => {})
+    }
+    load()
+    const timer = setInterval(load, 60_000)
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      alive = false
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [])
 
   const features = me?.features || []
@@ -237,6 +263,18 @@ export default function Sidebar() {
                   >
                     <Icon size={17} />
                     <span className={locked ? 'text-white/45' : undefined}>{label}</span>
+                    {/* Непрочитанные сообщения от людей — общая цифра у пункта
+                        «Контакты», как счётчик на иконке мессенджера: видно, что
+                        кто-то написал, не заходя в раздел. */}
+                    {href === '/dashboard/clients' && unread > 0 && (
+                      <span
+                        title={`Новых сообщений: ${unread}`}
+                        className="ml-auto shrink-0 min-w-[20px] text-center text-[11px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: '#FFCFA4', color: '#25455D' }}
+                      >
+                        {unread}
+                      </span>
+                    )}
                     {/* Замочек = модуль не подключён. Пункт НЕ отключаем: клик
                         ведёт на страницу раздела, где объяснено, что делать. */}
                     {locked && <Lock size={12} className="ml-auto text-white/35" />}

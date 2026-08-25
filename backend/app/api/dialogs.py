@@ -179,6 +179,32 @@ async def _max_delete(token: str, message_id: str) -> Optional[str]:
 # GET список диалогов клиента
 # ─────────────────────────────────────────────────────────────────────────────
 
+@router.get("/dialogs/unread-count")
+async def dialogs_unread_count(
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Сколько всего непрочитанных сообщений от людей — цифра для пункта меню.
+
+    ⚠️ Отдельный лёгкий эндпоинт, а не поле в /auth/me: меню обновляет эту
+    цифру периодически, и тянуть ради неё весь профиль клиента с фичами и
+    подпиской было бы расточительно.
+
+    ⚠️ Считаем только direction='in' и только у сообщений, привязанных к
+    контакту: непривязанные (contact_id IS NULL) не показываются и в разделе
+    «Диалоги», так что цифра в меню обязана сходиться с тем, что человек
+    реально сможет открыть.
+    """
+    client_id = int(client["sub"])
+    total = await db.fetchval(
+        """SELECT COUNT(*) FROM direct_messages
+            WHERE client_id = $1 AND contact_id IS NOT NULL
+              AND direction = 'in' AND NOT is_read""",
+        client_id,
+    )
+    return {"unread": int(total or 0)}
+
+
 @router.get("/dialogs")
 async def list_dialogs(
     search: Optional[str] = Query(default=None),
