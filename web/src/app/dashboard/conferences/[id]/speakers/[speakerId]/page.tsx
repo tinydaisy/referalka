@@ -220,7 +220,9 @@ function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number
  */
 function CabinetPreviewBlock(
   { publicHost, slug, contactId }:
-  { publicHost: string; slug: string; contactId?: number | null },
+  // slug приходит из состояния страницы и до загрузки события равен null —
+  // блок в этот момент просто не рисуется (проверка ниже).
+  { publicHost: string; slug: string | null; contactId?: number | null },
 ) {
   const [copied, setCopied] = useState<string | null>(null)
   if (!slug) return null
