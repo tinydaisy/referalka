@@ -12,7 +12,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
-import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink, Pencil } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 
 const KINDS = [
@@ -64,7 +64,8 @@ export default function SurveyPage() {
         <ArrowLeft size={14} /> Все анкеты
       </Link>
 
-      <h1 className="mb-1 text-2xl font-bold text-gray-900">{survey.title}</h1>
+      {/* Название правится прямо в заголовке — по карандашику рядом. */}
+      <SurveyTitle survey={survey} onSaved={load} readOnly={isAssistant} />
       <p className="mb-6 text-sm text-gray-500">
         {survey.questions?.length || 0} вопрос(ов)
       </p>
@@ -96,6 +97,76 @@ export default function SurveyPage() {
 }
 
 /* ─────────────────────────── Вопросы и настройки ────────────────────────── */
+
+/**
+ * Название анкеты в заголовке + правка по карандашику.
+ *
+ * ⚠️ Правим ЗДЕСЬ, а не в списке анкет: название меняют, уже открыв анкету и
+ * увидев её содержимое, — там же, где правятся остальные её настройки.
+ */
+function SurveyTitle({ survey, onSaved, readOnly }: any) {
+  const [editing, setEditing] = useState(false)
+  const [title, setTitle] = useState(survey.title || '')
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    const v = title.trim()
+    // Пусто или не менялось — просто закрываем, лишний запрос не шлём.
+    if (!v || v === survey.title) { setEditing(false); setTitle(survey.title || ''); return }
+    setSaving(true)
+    try {
+      await api.surveys.update(survey.id, { title: v })
+      setEditing(false)
+      onSaved()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось переименовать')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mb-1 flex items-center gap-2">
+        <input
+          autoFocus
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') save()
+            // ⚠️ Esc возвращает прежнее название, а не сохраняет набранное:
+            // его жмут именно когда передумали переименовывать.
+            if (e.key === 'Escape') { setEditing(false); setTitle(survey.title || '') }
+          }}
+          disabled={saving}
+          className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-2xl font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button onClick={save} disabled={saving} title="Сохранить"
+                className="shrink-0 rounded-lg bg-[#25455D] px-3 py-2 text-white disabled:opacity-50">
+          <Check size={16} />
+        </button>
+        <button onClick={() => { setEditing(false); setTitle(survey.title || '') }}
+                disabled={saving} title="Отмена"
+                className="shrink-0 rounded-lg border border-gray-200 px-3 py-2 text-gray-500">
+          <X size={16} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-1 flex items-center gap-2">
+      <h1 className="text-2xl font-bold text-gray-900">{survey.title}</h1>
+      {!readOnly && (
+        <button onClick={() => setEditing(true)} title="Переименовать"
+                className="shrink-0 text-gray-300 transition-colors hover:text-gray-600">
+          <Pencil size={16} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 
 function EditTab({ survey, fields, onChanged, readOnly }: any) {
   const [adding, setAdding] = useState(false)

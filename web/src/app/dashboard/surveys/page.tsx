@@ -16,7 +16,6 @@ import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
 import {
   Plus, Trash2, Copy, Check, BarChart3, Settings2, ClipboardList, X, ExternalLink,
-  Pencil,
 } from 'lucide-react'
 // ⚠️ Форма поля — ОБЩАЯ с разделом «Контакты»: поле заводится из двух мест,
 // а форма должна быть одна (иначе разъедется список типов и вариантов).
@@ -240,26 +239,6 @@ function SurveysTab({ readOnly }: { readOnly: boolean }) {
 
 function SurveyRow({ survey, onChanged, readOnly }: any) {
   const [copied, setCopied] = useState('')
-  // Правка названия прямо в списке: открыть анкету ради переименования —
-  // лишний шаг, а название правят чаще всего.
-  const [editing, setEditing] = useState(false)
-  const [title, setTitle] = useState(survey.title || '')
-  const [saving, setSaving] = useState(false)
-
-  const saveTitle = async () => {
-    const v = title.trim()
-    if (!v || v === survey.title) { setEditing(false); setTitle(survey.title || ''); return }
-    setSaving(true)
-    try {
-      await api.surveys.update(survey.id, { title: v })
-      setEditing(false)
-      onChanged()
-    } catch (e: any) {
-      alert(e?.message || 'Не удалось переименовать')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const copy = (url: string, key: string) => {
     navigator.clipboard.writeText(url)
@@ -287,45 +266,10 @@ function SurveyRow({ survey, onChanged, readOnly }: any) {
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          {editing ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                autoFocus
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') saveTitle()
-                  // ⚠️ Esc возвращает прежнее название, а не сохраняет
-                  // набранное: человек передумал переименовывать.
-                  if (e.key === 'Escape') { setEditing(false); setTitle(survey.title || '') }
-                }}
-                disabled={saving}
-                className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button onClick={saveTitle} disabled={saving} title="Сохранить"
-                      className="shrink-0 rounded-lg bg-[#25455D] px-2 py-1.5 text-white disabled:opacity-50">
-                <Check size={14} />
-              </button>
-              <button onClick={() => { setEditing(false); setTitle(survey.title || '') }}
-                      disabled={saving} title="Отмена"
-                      className="shrink-0 rounded-lg border border-gray-200 px-2 py-1.5 text-gray-500">
-                <X size={14} />
-              </button>
-            </div>
-          ) : (
-            <div className="group flex items-center gap-1.5">
-              <Link href={`/dashboard/surveys/${survey.id}`}
-                    className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
-                {survey.title}
-              </Link>
-              {!readOnly && (
-                <button onClick={() => setEditing(true)} title="Переименовать"
-                        className="shrink-0 text-gray-300 transition-colors hover:text-gray-600">
-                  <Pencil size={13} />
-                </button>
-              )}
-            </div>
-          )}
+          <Link href={`/dashboard/surveys/${survey.id}`}
+                className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
+            {survey.title}
+          </Link>
           <div className="mt-0.5 text-xs text-gray-500">
             {survey.questions_count} вопрос(ов) · заполнили{' '}
             <b>{survey.people_count}</b> человек
