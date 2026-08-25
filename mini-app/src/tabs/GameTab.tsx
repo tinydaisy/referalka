@@ -702,12 +702,21 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         </div>
       </div>
 
-      {/* Получено подарков (кликабельный блок → окно подарков) */}
+      {/* ════════════════════════════════════════════════════════════════
+           ПОДАРКИ — ОДИН БЛОК ПОД ОБЩЕЙ РАМКОЙ.
+           Сводка «2/3 доступно», список подарков и кнопка «Все подарки» —
+           это один сюжет: сколько открыто, что именно и где остальные.
+           Раньше они были тремя отдельными карточками со своими тенями и
+           читались как три несвязанные темы, между которыми ещё и зазор.
+           Внутри блока — тонкие разделители вместо отступов и теней.
+         ════════════════════════════════════════════════════════════════ */}
+      <div style={{
+        background: 'white', borderRadius: 14, marginBottom: 12, overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+      }}>
+      {/* Сводка: сколько подарков доступно + до какого осталось (→ окно подарков) */}
       <div onClick={() => setView('gifts')}
-           style={{
-             background: 'white', borderRadius: 14, padding: 14, marginBottom: 12,
-             cursor: 'pointer', boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-           }}>
+           style={{ padding: 14, cursor: 'pointer' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* Большая цифра «получено/всего». Если порогов нет — просто число. */}
           <div style={{ fontSize: 30, fontWeight: 900, color: DARK, lineHeight: 1, whiteSpace: 'nowrap' }}>
@@ -749,7 +758,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
       {/* Первые 2 подарка сразу видны + кнопка «Все подарки» — чтобы было понятно,
           что подарков больше (не только цифра в сводке). */}
       {sortedGifts.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ borderTop: '1px solid #eef2f7' }}>
           {sortedGifts.slice(0, 2).map(g => {
             const unlocked = giftCountValue >= g.points_cost
             // ⚠️ Карточка в КРАТКОМ списке тоже должна открывать подарок.
@@ -765,9 +774,10 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                   else if (hasAnyGiftLink(g)) setGiftPick(g)
                 }}
                 style={{
-                  background: 'white', borderRadius: 12, padding: '10px 12px', marginBottom: 8,
+                  // Внутри общей рамки подарок — СТРОКА, а не карточка: своя
+                  // тень и скругление рисовали бы «карточку в карточке».
+                  padding: '10px 14px',
                   display: 'flex', gap: 10, alignItems: 'center', opacity: unlocked ? 1 : 0.75,
-                  boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
                   cursor: canOpen ? 'pointer' : 'default',
                 }}>
                 <div style={{ fontSize: 20, flexShrink: 0 }}>{unlocked ? '🎁' : '🔒'}</div>
@@ -783,8 +793,8 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
             )
           })}
           <button onClick={() => setView('gifts')} style={{
-            width: '100%', background: 'white', border: '1px solid #e3e8ee',
-            borderRadius: 12, padding: '11px', cursor: 'pointer',
+            width: '100%', background: 'transparent', border: 'none',
+            borderTop: '1px solid #eef2f7', padding: '11px', cursor: 'pointer',
             color: '#25455D', fontSize: 13, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
@@ -792,6 +802,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           </button>
         </div>
       )}
+      </div>{/* ← конец общей рамки блока подарков */}
 
       {/* ТОП — expander (скрыт, если клиент отключил рейтинг для события) */}
       {!participant?.hide_rating && (
