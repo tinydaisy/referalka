@@ -140,6 +140,50 @@ async def get_template(
     return tpl
 
 
+"""Плейсхолдеры, которые воронка умеет раскрывать.
+
+⚠️ Держать в синхроне с `_format_text` в services/funnel_service.py — там
+единственное место, где они подставляются. Разъедется список — проверка
+начнёт ругаться на рабочие имена.
+"""
+KNOWN_PLACEHOLDERS: frozenset[str] = frozenset({
+    "materials_list", "materials_list_description",
+    "materials_list_description_links", "materials_with_links",
+    "client_brand_name", "client_owner_name", "client_owner_bio",
+    "client_owner_positioning", "client_owner_achievements",
+    "subscription_channel", "owner_telegram",
+    "support_platform", "support_links",
+    # Раскрываются в ссылках лид-магнитов (реф-коды), не в самом тексте.
+    "plsn_ref", "ext_ref",
+})
+
+
+def _unknown_placeholders(text: str) -> list[str]:
+    """Имена в фигурных скобках, которых воронка не знает."""
+    import re
+    found = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", text or "")
+    return sorted({f for f in found if f not in KNOWN_PLACEHOLDERS})
+
+
+def _placeholder_error(bad: list[str]) -> str:
+    """Понятный текст ошибки + подсказка похожего имени.
+
+    Опечатка обычно в одну букву («material_list_description» вместо
+    «materials_…»), поэтому просто перечислить допустимые имена мало — человек
+    не увидит разницы. Подбираем ближайшее и называем его прямо.
+    """
+    import difflib
+    parts = []
+    for name in bad:
+        near = difflib.get_close_matches(name, sorted(KNOWN_PLACEHOLDERS), n=1, cutoff=0.6)
+        if near:
+            parts.append(f"«{{{name}}}» — такого нет. Вы имели в виду «{{{near[0]}}}»?")
+        else:
+            parts.append(f"«{{{name}}}» — такого плейсхолдера нет.")
+    return (" ".join(parts) +
+            " Проверьте написание — иначе получатель увидит эту строку как есть.")
+
+
 @template_router.patch("/{type}", summary="Обновить шаблон воронки")
 async def update_template(
     type: Literal['lead_magnet'],
@@ -179,6 +223,19 @@ async def update_template(
             if k.endswith('_media_url'):
                 cache_field = k.replace('_url', '_file_id')
                 fields.append(f"{cache_field} = NULL")
+
+    # ⚠️ Ловим опечатку в плейсхолдере ДО сохранения. Неизвестное имя молча
+    # уходило получателю сырым текстом: у клиента в подарочном сообщении вместо
+    # списка материалов стояло «{material_list_description}» (не хватало «s»),
+    # и заметили это только по жалобе. Проверка на бэкенде, а не во фронте, —
+    # чтобы срабатывала и при сохранении мимо интерфейса.
+    for k in ('text_1', 'text_2', 'text_3_delivered', 'text_3_stuck', 'text_survey'):
+        v = getattr(data, k, None)
+        if not v:
+            continue
+        bad = _unknown_placeholders(v)
+        if bad:
+            raise HTTPException(status_code=400, detail=_placeholder_error(bad))
 
     if not fields:
         return await _get_or_create_template(cid, type, db)
