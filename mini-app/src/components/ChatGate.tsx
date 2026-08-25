@@ -121,8 +121,22 @@ export function useChatGate(event: any, tgUser: any) {
         return
       }
       const own = event?.chat_bot_links || {}
-      const url = own[platformName] || own.telegram || own.max || own.vk
-      if (url) { openExternal(url); return }
+
+      // ⚠️⚠️ ЧЕЛОВЕК САМ ВЫБИРАЕТ ПЛОЩАДКУ — ЗА НЕГО НЕ РЕШАЕМ.
+      // Он пришёл из MAX, а его уводило в Telegram: бралась первая ссылка
+      // подряд (`own.telegram || own.max || own.vk`). В браузере своей
+      // площадки нет вовсе, поэтому в Telegram уходили ВСЕГДА.
+      //
+      // Правильно: он в мессенджере — ведём в бота ЭТОЙ площадки; он в
+      // браузере — показываем выбор из тех площадок, где бот есть.
+      if (own[platformName]) { openExternal(own[platformName]); return }
+
+      const avail = Object.keys(own).filter(k => own[k])
+      if (avail.length > 1) {
+        setBotOwners([{ client_id: 0, name: '', links: own }])
+        return
+      }
+      if (avail.length === 1) { openExternal(own[avail[0]]); return }
       // ссылок в ботов нет вовсе → отдаём чат как раньше, чтобы не запереть
     }
 
@@ -186,7 +200,7 @@ export function useChatGate(event: any, tgUser: any) {
 
   // ⚠️ Выбор организатора: в коллабе у каждого свой бот и своя база. Первым
   // идёт тот, кто привёл больше людей (порядок задаёт бэкенд).
-  const ownerModal = botOwners && botOwners.length > 1 ? (
+  const ownerModal = botOwners && botOwners.length > 0 ? (
     <div onClick={() => setBotOwners(null)} style={{
       position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.7)',
       display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000,
@@ -200,15 +214,18 @@ export function useChatGate(event: any, tgUser: any) {
           Войти в чат события
         </h3>
         <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5, margin: '0 0 16px' }}>
-          Событие ведут несколько организаторов. Выберите, через чьего бота войти —
-          он проверит подписку и пришлёт ссылку на чат.
+          {botOwners.length > 1
+            ? 'Событие ведут несколько организаторов. Выберите, через чьего бота войти — он проверит подписку и пришлёт ссылку на чат.'
+            : 'Выберите площадку, на которой вам удобнее общаться. Бот проверит подписку и пришлёт ссылку на чат.'}
         </p>
         {botOwners.map((o: any) => (
           <div key={o.client_id} style={{ marginBottom: 14 }}>
-            <div style={{
-              fontSize: 11, color: '#888', textTransform: 'uppercase',
-              letterSpacing: 0.5, fontWeight: 700, margin: '2px 2px 6px',
-            }}>{o.name}</div>
+            {o.name ? (
+              <div style={{
+                fontSize: 11, color: '#888', textTransform: 'uppercase',
+                letterSpacing: 0.5, fontWeight: 700, margin: '2px 2px 6px',
+              }}>{o.name}</div>
+            ) : null}
             {Object.entries(o.links || {}).map(([plat, url]: any) => (
               <button key={plat}
                 onClick={() => { setBotOwners(null); openExternal(url as string) }}
