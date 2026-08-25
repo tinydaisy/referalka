@@ -29,6 +29,22 @@ import { getClientProfile } from '../api'
 
 const STORAGE_PREFIX = 'vk_perm_intro_'
 
+/**
+ * Тёмный ли фон? Нужно, чтобы выбрать цвет текста.
+ *
+ * ⚠️ Считаем по ПЕРВОМУ цвету градиента и по формуле яркости, а не «на глаз»:
+ * у клиентов фон бывает и почти чёрным, и светло-бежевым, и тёмно-синий текст
+ * на тёмном фоне сливается полностью — экран становится нечитаемым.
+ */
+function isDarkBg(bg: string): boolean {
+  const m = bg.match(/#([0-9a-f]{6})/i)
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  // Стандартная формула воспринимаемой яркости (0 — чёрный, 255 — белый).
+  return (0.299 * r + 0.587 * g + 0.114 * b) < 140
+}
+
 /** Показывали ли уже этому человеку экран на этом устройстве. */
 export function vkIntroWasShown(vkUserId: string | number): boolean {
   if (!vkUserId) return false
@@ -56,6 +72,10 @@ export default function VkPermissionsIntro({
 }) {
   const [brand, setBrand] = useState<string>('')
   const [logo, setLogo] = useState<string>('')
+  // Фирменный фон клиента. ⚠️ Экран показывается ДО загрузки события, поэтому
+  // общий светлый фон приложения тут не годится: у клиента с тёмной темой
+  // первый экран выглядел чужой страницей. Цвета берём из его же профиля.
+  const [bg, setBg] = useState<string>('')
 
   // Логотип и название бренда КЛИЕНТА (не наши) — человек пришёл к нему,
   // а не в ПЛЮСОН. Нет логотипа → название текстом; нет и его → просто
@@ -66,6 +86,10 @@ export default function VkPermissionsIntro({
       .then((p: any) => {
         setBrand(p?.brand_name || p?.name || '')
         setLogo(p?.brand_logo_url || '')
+        const c1 = p?.lp_bg_color
+        const c2 = p?.lp_bg_color_2
+        // Второй цвет не задан — заливаем первым, без градиента.
+        if (c1) setBg(c2 ? `linear-gradient(${p?.lp_bg_angle ?? 45}deg, ${c1}, ${c2})` : c1)
       })
       .catch(() => { /* без шапки экран всё равно понятен */ })
   }, [clientId])
@@ -74,6 +98,9 @@ export default function VkPermissionsIntro({
     markShown(vkUserId)
     onContinue()
   }
+
+  // Тёмный фон → белый текст, светлый → фирменный тёмно-синий.
+  const fg = isDarkBg(bg) ? '#ffffff' : '#25455D'
 
   return (
     <div
@@ -86,7 +113,8 @@ export default function VkPermissionsIntro({
         justifyContent: 'flex-end',
         padding: '0 24px 40px',
         boxSizing: 'border-box',
-        background: 'var(--bg, #ffffff)',
+        // Фирменный фон клиента, пока не загрузился — общий фон приложения.
+        background: bg || 'var(--bg, #ffffff)',
         fontFamily: 'Roboto, sans-serif',
       }}
     >
@@ -99,13 +127,13 @@ export default function VkPermissionsIntro({
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
         ) : brand ? (
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#25455D', letterSpacing: 0.3 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: fg, letterSpacing: 0.3 }}>
             {brand}
           </div>
         ) : null}
       </div>
 
-      <p style={{ fontSize: 16, lineHeight: 1.5, color: '#25455D', margin: '0 0 18px' }}>
+      <p style={{ fontSize: 16, lineHeight: 1.5, color: fg, margin: '0 0 18px' }}>
         Чтобы регистрироваться на события, получать напоминания или подарки — разрешите:
       </p>
 
@@ -119,14 +147,14 @@ export default function VkPermissionsIntro({
               gap: 10,
               fontSize: 15,
               lineHeight: 1.45,
-              color: '#25455D',
+              color: fg,
               marginBottom: 10,
             }}
           >
             <span style={{
               flex: '0 0 auto',
               width: 6, height: 6, borderRadius: '50%',
-              background: '#25455D', marginTop: 8,
+              background: fg, marginTop: 8,
             }} />
             <span>{item}</span>
           </li>

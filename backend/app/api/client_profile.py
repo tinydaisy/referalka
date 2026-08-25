@@ -158,7 +158,12 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links, events_tab_visibility,
-                  tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem
+                  tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
+                  -- ⚠️ Фирменные цвета фона нужны экрану разрешений в VK Mini
+                  -- App: он показывается ДО загрузки события, и без них висел
+                  -- на общем светлом фоне — у клиента с тёмной темой это
+                  -- выглядело чужой страницей.
+                  lp_bg_color, lp_bg_color_2, lp_bg_angle
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
         client_id
