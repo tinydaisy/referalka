@@ -157,10 +157,13 @@ function SurveyTitle({ survey, onSaved, readOnly }: any) {
   return (
     <div className="mb-1 flex items-center gap-2">
       <h1 className="text-2xl font-bold text-gray-900">{survey.title}</h1>
+      {/* ⚠️ Карандашик НЕ бледно-серый: рядом крупный жирный заголовок, и на
+          его фоне светлая иконка не читалась вовсе — кнопку не замечали.
+          Фирменный тёмный цвет, подложка при наведении, размер побольше. */}
       {!readOnly && (
         <button onClick={() => setEditing(true)} title="Переименовать"
-                className="shrink-0 text-gray-300 transition-colors hover:text-gray-600">
-          <Pencil size={16} />
+                className="shrink-0 rounded-lg p-1.5 text-[#25455D] transition-colors hover:bg-gray-100">
+          <Pencil size={18} strokeWidth={2.2} />
         </button>
       )}
     </div>
