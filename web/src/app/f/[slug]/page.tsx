@@ -150,6 +150,16 @@ export default function PublicSurveyPage() {
       setError('Проверьте почту — кажется, в адресе опечатка')
       return
     }
+    if (askPhone && !contact.phone.trim()) {
+      setError('Укажите телефон')
+      return
+    }
+    // Не меньше 10 цифр: короче настоящего номера не бывает, а «000» и «123»
+    // вписывают вместо телефона — потом их не с кем связать.
+    if (askPhone && contact.phone.replace(/\D/g, '').length < 10) {
+      setError('Проверьте телефон — кажется, номер неполный')
+      return
+    }
     setSending(true); setError('')
     try {
       const r = await fetch(`${API_BASE}/api/v1/public/surveys/${slug}/submit`, {
@@ -292,7 +302,7 @@ export default function PublicSurveyPage() {
           </Labeled>
           )}
           {askPhone && (
-          <Labeled label="Телефон">
+          <Labeled label="Телефон" required>
             <input className="fld" value={contact.phone}
                    onChange={e => setContact({ ...contact, phone: e.target.value })} />
           </Labeled>
