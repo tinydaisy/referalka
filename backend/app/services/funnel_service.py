@@ -1663,9 +1663,32 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
              FROM funnel_runs WHERE id = $1""",
         run_id
     )
+    # ⚠️ Кнопка «ГОТОВО» живёт в переписке ВЕЧНО, а номер забега в неё зашит
+    # намертво. Человек нажимает её через неделю — забега уже может не быть
+    # (чистка, перенос данных), и он упирался в «что-то пошло не так», хотя
+    # ничего не сделал не так.
+    #
+    # Поэтому не найден по номеру — ищем ПОСЛЕДНИЙ забег этого же человека за
+    # тем же подарком на той же площадке. Так работает и старая кнопка, и
+    # новая: нажатие всегда попадает в актуальный забег.
+    if not run:
+        run = await db.fetchrow(
+            """SELECT fr.id, fr.client_id, fr.stage, fr.lead_magnet_id, fr.package_id,
+                      fr.contact_id, fr.platform_slug
+                 FROM funnel_runs fr
+                 JOIN platform_users pu ON pu.contact_id = fr.contact_id
+                                       AND pu.platform_slug = fr.platform_slug
+                WHERE pu.platform_user_id = $1
+                  AND fr.platform_slug = $2
+                ORDER BY fr.landed_at DESC NULLS LAST, fr.id DESC
+                LIMIT 1""",
+            str(tg_id), platform,
+        )
     if not run:
         return "not_found"
 
+    # Дальше работаем с НАЙДЕННЫМ забегом: номер из кнопки мог устареть.
+    run_id = run["id"]
     client_id = run["client_id"]
 
     if platform == "vk":
