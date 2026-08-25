@@ -44,14 +44,72 @@ async def required_survey_for_run(db, run: dict) -> Optional[dict]:
 
     # Уже заполнял → шлагбаум открыт. Проверяем по факту ответа, поэтому
     # повторно человека не гоняем даже если он вернулся за подарком позже.
+    #
+    # ⚠️ Кроме анкет с разрешённым повтором (`allow_repeat`): там клиент
+    # сознательно хочет ответы каждый раз — например, анкета на запись, а
+    # записываются не по одному разу. Раньше этот флаг здесь не смотрели, и
+    # такая анкета спрашивалась ровно однажды, вопреки настройке.
     contact_id = run.get("contact_id")
-    if contact_id:
+    if contact_id and not survey["allow_repeat"]:
         done = await db.fetchval(
             "SELECT 1 FROM survey_responses WHERE survey_id = $1 AND contact_id = $2 LIMIT 1",
             survey_id, contact_id)
         if done:
             return None
     return dict(survey)
+
+
+async def material_surveys_for_run(db, run: dict) -> dict[int, dict]:
+    """Анкеты, которые ещё не заполнены, — по КАЖДОМУ материалу пакета.
+
+    Возвращает {lead_magnet_id: строка анкеты}. Пусто — все материалы можно
+    отдавать сразу.
+
+    ⚠️ Зачем отдельно от `required_survey_for_run`. Та смотрит анкету только у
+    той сущности, по чьей ссылке пришёл человек: по ссылке пакета — анкету
+    пакета, и всё. Анкеты материалов ВНУТРИ пакета не проверялись никогда.
+    У клиента это выглядело так: он поставил «сначала анкета» на один подарок
+    из трёх, а люди получали все три сразу — настройка была, но не работала.
+
+    Здесь наоборот: анкета пакета не при чём (её проверяет функция выше),
+    смотрим ровно материалы внутри.
+    """
+    if not run.get("package_id"):
+        return {}
+
+    rows = await db.fetch(
+        """SELECT lm.id, lm.require_survey_id
+             FROM lead_magnet_package_items pi
+             JOIN lead_magnets lm ON lm.id = pi.lead_magnet_id
+            WHERE pi.package_id = $1 AND lm.require_survey_id IS NOT NULL""",
+        run["package_id"],
+    )
+    if not rows:
+        return {}
+
+    contact_id = run.get("contact_id")
+    out: dict[int, dict] = {}
+    for r in rows:
+        survey = await db.fetchrow(
+            "SELECT * FROM surveys WHERE id = $1 AND is_active = TRUE",
+            r["require_survey_id"])
+        # Анкета выключена → шлагбаум не работает, а не запирает подарок навсегда.
+        if not survey:
+            continue
+        # ⚠️ Уже заполнял → отдаём материал сразу, второй раз не гоняем. Но
+        # ТОЛЬКО если у анкеты не разрешено повторное заполнение: с
+        # `allow_repeat` клиент сознательно хочет собирать ответы каждый раз
+        # (например, анкета на запись — а записываются не по одному разу).
+        # Ровно так же ведёт себя и публичная страница анкеты.
+        if contact_id and not survey["allow_repeat"]:
+            done = await db.fetchval(
+                "SELECT 1 FROM survey_responses "
+                " WHERE survey_id = $1 AND contact_id = $2 LIMIT 1",
+                r["require_survey_id"], contact_id)
+            if done:
+                continue
+        out[r["id"]] = dict(survey)
+    return out
 
 
 async def survey_link_for_run(db, survey: dict, run: dict) -> str:

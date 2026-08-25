@@ -218,19 +218,22 @@ def _apply_link_params(url: str, params: dict) -> str:
 
 
 async def _materials_for_run(run: dict, db) -> list[dict]:
-    """Возвращает список материалов воронки: [{name, url, description}, ...].
+    """Возвращает список материалов воронки:
+    [{name, url, description, link_mode, button_label}, ...].
     Для одиночного лид-магнита — список из одного. Для пакета — все вложенные.
 
     В url каждого материала раскрываются плейсхолдеры {plsn_ref}/{ext_ref}
     (реф-коды рефовода) — см. _referrer_link_params."""
     if run["lead_magnet_id"]:
         rows = await db.fetch(
-            "SELECT name, url, description FROM lead_magnets WHERE id = $1",
+            "SELECT id, slug, name, url, description, link_mode, button_label "
+            "  FROM lead_magnets WHERE id = $1",
             run["lead_magnet_id"]
         )
     else:
         rows = await db.fetch(
-            """SELECT lm.name, lm.url, lm.description
+            """SELECT lm.id, lm.slug, lm.name, lm.url, lm.description,
+                      lm.link_mode, lm.button_label
                  FROM lead_magnet_package_items pi
                  JOIN lead_magnets lm ON lm.id = pi.lead_magnet_id
                 WHERE pi.package_id = $1
@@ -247,6 +250,16 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
         params = await _referrer_link_params(run, db)
         for m in materials:
             m["url"] = _apply_link_params(m["url"], params)
+
+    # ⚠️ Материал внутри пакета может требовать свою анкету. Тогда ссылка ведёт
+    # не на файл, а на воронку этого подарка в боте — там человека встретит
+    # анкета. Делается ЗДЕСЬ, в единой точке сборки материалов: иначе пришлось
+    # бы повторять в каждой платформенной ветке и в превью.
+    try:
+        await _apply_material_surveys(run, materials, db)
+    except Exception:
+        # fail-open: сбой проверки не должен лишать человека подарка.
+        log.exception("survey gate (материалы пакета): пропускаем подмену ссылок")
     return materials
 
 
@@ -259,6 +272,68 @@ async def _package_description_for_run(run: dict, db) -> str:
             run["package_id"],
         )) or ""
     return ""
+
+
+async def _apply_material_surveys(run: dict, materials: list[dict], db) -> None:
+    """Подменить ссылку у материалов, за которыми нужна анкета.
+
+    Материал внутри пакета может требовать свою анкету. Раньше это не
+    проверялось вовсе — человек получал такой подарок сразу, минуя анкету
+    (у клиента: «сначала анкета» стоит на одном подарке из трёх, а приходят
+    все три).
+
+    ⚠️ Ведём СРАЗУ НА АНКЕТУ, а не на воронку этого материала. Заход по ссылке
+    воронки (`m_{slug}`) запускает забег С НАЧАЛА: человек снова получил бы
+    Текст 1 и снова «подпишись и жми ГОТОВО» — хотя он уже подписан и уже
+    нажал. Второй круг человек читает как поломку.
+
+    Ссылка на анкету несёт в себе и человека, и номер подарка, и площадку,
+    поэтому после ответа материал приходит сам — туда же, в его мессенджер.
+    """
+    from app.services.survey_gate import material_surveys_for_run, survey_link_for_run
+    pending = await material_surveys_for_run(db, run)
+    if not pending:
+        return
+
+    for m in materials:
+        survey = pending.get(m.get("id"))
+        if not survey:
+            continue
+        # ⚠️ В ссылку кладём НОМЕР ЭТОГО материала, а не пакета: анкета по нему
+        # поймёт, какой именно подарок выдать после заполнения.
+        run_for_link = dict(run)
+        run_for_link["lead_magnet_id"] = m["id"]
+        run_for_link["package_id"] = None
+        m["url"] = await survey_link_for_run(db, survey, run_for_link)
+        # Пометка для текста сообщения: за этим подарком — сначала анкета.
+        m["needs_survey"] = True
+
+
+async def _package_link_mode(run: dict, db) -> Optional[str]:
+    """Как пакет велел отдавать свои материалы (или None — решает материал).
+
+    ⚠️ Значение пакета ПЕРЕБИВАЕТ настройку каждого материала: пакет сказал
+    «кнопками» — кнопками уходит всё, даже то, у чего лично стоит «ссылкой в
+    тексте». Иначе часть пунктов ушла бы кнопками, часть текстом, а нумерация
+    подписей разъехалась бы со списком в сообщении.
+    """
+    if not run.get("package_id"):
+        return None
+    return await db.fetchval(
+        "SELECT link_mode FROM lead_magnet_packages WHERE id = $1",
+        run["package_id"],
+    )
+
+
+async def _funnel_buttons(run: dict, materials: list[dict], db) -> list[dict]:
+    """Кнопки выдачи материалов: [{label, url}]. Пусто — кнопок нет.
+
+    Сборку правил держим в одном месте (`lead_magnet_buttons`), а не в каждой
+    платформенной ветке: иначе надписи и нумерация разъедутся между TG, VK и
+    MAX.
+    """
+    from app.services.lead_magnet_buttons import buttons_for_materials
+    return buttons_for_materials(materials, await _package_link_mode(run, db))
 
 
 def _format_text(template: str, ctx: dict, materials: list[dict],
@@ -281,15 +356,22 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
     # Формат пункта: жирное название на своей строке → НЕжирное описание на
     # следующей строке → (для *_links) ссылка отдельной строкой без эмодзи.
     def _one(i: int, m: dict, with_link: bool) -> str:
-        lines = [f"{i + 1}. <b>{m['name']}</b>"]
+        # ⚠️ Между названием и описанием — ПУСТАЯ СТРОКА (два переноса).
+        # Вплотную под жирным названием описание слипалось с ним в один абзац,
+        # и список подарков читался сплошной стеной текста.
+        parts = [f"{i + 1}. <b>{m['name']}</b>"]
         desc = (m.get("description") or "").strip()
         if desc:
-            lines.append(desc)
+            parts.append(desc)
+        # За этим подарком сначала анкета — предупреждаем, иначе человек жмёт
+        # ссылку в ожидании файла и не понимает, почему открылись вопросы.
+        if m.get("needs_survey"):
+            parts.append("📝 Сначала заполните анкету — подарок придёт сразу после отправки.")
         if with_link:
             url = (m.get("url") or "").strip()
             if url:
-                lines.append(url)
-        return "\n".join(lines)
+                parts.append(url)
+        return "\n\n".join(parts)
 
     def _list_desc(with_link: bool) -> str:
         body = "\n\n".join(_one(i, m, with_link) for i, m in enumerate(materials))
@@ -1750,12 +1832,19 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         vk_m2_url, vk_m2_type = _vk_funnel_media(
             template.get("text_2_media_url"), template.get("text_2_media_type"))
         vk_user_tok, vk_user_grp = await _vk_admin_user_token_for_client(client_id, db)
+        # Кнопки выдачи материалов. ⚠️ Каждая своей строкой — VK ужимает
+        # соседние надписи, а у нас они до 40 символов (это его же предел).
+        vk_btns = await _funnel_buttons(dict(run), materials, db)
+        vk_kb = ({"inline": True, "buttons": [
+            [{"action": {"type": "open_link", "link": b["url"], "label": b["label"]}}]
+            for b in vk_btns]} if vk_btns else None)
         try:
             await vk_send_with_media(
                 int(tg_id), text_2,
                 media_url=vk_m2_url,
                 media_type=vk_m2_type,
                 token=vk_token,
+                keyboard=vk_kb,
                 user_token=vk_user_tok, user_token_group_id=vk_user_grp,
             )
         except Exception as e:
@@ -1801,6 +1890,16 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         text_2, media_att2 = await _max_media_for_text(
             text_2, template.get("text_2_media_url"), template.get("text_2_media_type"), max_token)
         from app.services.max_api import send_message as max_send
+        # Кнопки выдачи материалов — отдельным вложением-клавиатурой, рядом с
+        # медиа: в MAX клавиатура и есть attachment.
+        max_btns = await _funnel_buttons(dict(run), materials, db)
+        if max_btns:
+            media_att2 = list(media_att2 or []) + [{
+                "type": "inline_keyboard",
+                "payload": {"buttons": [
+                    [{"type": "link", "url": b["url"], "text": b["label"]}]
+                    for b in max_btns]},
+            }]
         try:
             await max_send(int(tg_id), text_2, token=max_token,
                            recipient_kind="user", attachments=media_att2,
@@ -1849,12 +1948,19 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
     materials = await _materials_for_run(dict(run), db)
     pkg_desc = await _package_description_for_run(dict(run), db)
     text_2 = _format_text(template["text_2"], ctx, materials, pkg_desc)
+    # Материалы, помеченные «кнопкой», уходят кнопками под сообщением. Ссылка
+    # в абзаце теряется — человек дочитывает и не понимает, куда нажать.
+    btns = await _funnel_buttons(dict(run), materials, db)
+    # ⚠️ Каждая кнопка СВОЕЙ строкой: в ряд Telegram ужимает надписи до
+    # нечитаемых огрызков, а у нас они по 40 символов.
+    tg_markup = ({"inline_keyboard": [[{"text": b["label"], "url": b["url"]}] for b in btns]}
+                 if btns else None)
     _, fresh_fid = await _send_text_with_media(
         token, tg_id, text_2,
         template.get("text_2_media_url"),
         template.get("text_2_media_type"),
         file_id=template.get("text_2_media_file_id"),
-        reply_markup=None,
+        reply_markup=tg_markup,
     )
     await _maybe_cache_file_id(template, "text_2", fresh_fid, db)
 

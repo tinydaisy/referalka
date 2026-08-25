@@ -614,6 +614,23 @@ async def delete_question(
 #  Аналитика — как в Google Forms: проценты И абсолютные числа
 # ──────────────────────────────────────────────────────────────────────────
 
+# ⚠️ В аналитике считаем ТОЛЬКО ПОСЛЕДНЕЕ заполнение каждого человека.
+# Анкету с разрешённым повтором (`allow_repeat`) один и тот же человек
+# проходит несколько раз — и в отчёте он учитывался бы дважды, перекашивая
+# проценты: «60% выбрали А» могло означать, что один человек ответил трижды.
+# Берём свежий ответ, прошлые остаются в истории заполнений.
+#
+# Анонимные заполнения (contact_id IS NULL) не схлопываем — там непонятно,
+# один это человек или разные, и объединять их было бы догадкой.
+_LATEST_RESPONSES = """
+    SELECT DISTINCT ON (COALESCE(r.contact_id::text, 'anon:'||r.id::text))
+           r.id
+      FROM survey_responses r
+     WHERE r.survey_id = $1
+     ORDER BY COALESCE(r.contact_id::text, 'anon:'||r.id::text), r.id DESC
+"""
+
+
 @router.get("/surveys/{survey_id}/analytics")
 async def survey_analytics(
     survey_id: int, client=Depends(get_current_client), db=Depends(get_db),
@@ -631,6 +648,9 @@ async def survey_analytics(
     client_id = int(client["sub"])
     await _assert_own_survey(db, survey_id, client_id)
 
+    # «Всего заполнений» — ВСЕ отправки, включая повторные: клиенту важно
+    # видеть, сколько раз анкету заполняли. А проценты ниже считаются уже по
+    # последним ответам, иначе один человек с тремя заходами перекашивал бы их.
     total = await db.fetchval(
         "SELECT COUNT(*) FROM survey_responses WHERE survey_id=$1", survey_id) or 0
     people = await db.fetchval(
@@ -648,27 +668,28 @@ async def survey_analytics(
             "options": _jsonb(q["options"]), "answers_count": 0,
         }
         answered = await db.fetchval(
-            """SELECT COUNT(*) FROM survey_answers a
-                JOIN survey_responses r ON r.id = a.response_id
-               WHERE a.question_id = $1 AND COALESCE(a.value,'') <> ''""",
-            q["id"]) or 0
+            f"""SELECT COUNT(*) FROM survey_answers a
+                 WHERE a.question_id = $2 AND COALESCE(a.value,'') <> ''
+                   AND a.response_id IN ({_LATEST_RESPONSES})""",
+            survey_id, q["id"]) or 0
         item["answers_count"] = answered
 
         if q["kind"] in CHOICE_KINDS:
             # multiselect: один ответ = несколько вариантов, разворачиваем.
             rows = await db.fetch(
-                """SELECT val AS option, COUNT(*) AS cnt
-                     FROM survey_answers a
-                     CROSS JOIN LATERAL (
-                       SELECT CASE
-                         WHEN jsonb_typeof(a.value_json) = 'array'
-                           THEN jsonb_array_elements_text(a.value_json)
-                         ELSE a.value
-                       END AS val
-                     ) x
-                    WHERE a.question_id = $1 AND COALESCE(val,'') <> ''
-                    GROUP BY val ORDER BY cnt DESC""",
-                q["id"])
+                f"""SELECT val AS option, COUNT(*) AS cnt
+                      FROM survey_answers a
+                      CROSS JOIN LATERAL (
+                        SELECT CASE
+                          WHEN jsonb_typeof(a.value_json) = 'array'
+                            THEN jsonb_array_elements_text(a.value_json)
+                          ELSE a.value
+                        END AS val
+                      ) x
+                     WHERE a.question_id = $2 AND COALESCE(val,'') <> ''
+                       AND a.response_id IN ({_LATEST_RESPONSES})
+                     GROUP BY val ORDER BY cnt DESC""",
+                survey_id, q["id"])
             item["breakdown"] = [
                 {
                     "option": r["option"],
@@ -679,21 +700,24 @@ async def survey_analytics(
             ]
         elif q["kind"] in ('scale', 'number'):
             agg = await db.fetchrow(
-                """SELECT AVG(v)::numeric(10,2) AS avg, MIN(v) AS min, MAX(v) AS max
-                     FROM (SELECT NULLIF(regexp_replace(value,'[^0-9.-]','','g'),'')::numeric AS v
-                             FROM survey_answers WHERE question_id=$1
-                              AND value ~ '^-?[0-9]+(\\.[0-9]+)?$') t""",
-                q["id"])
+                f"""SELECT AVG(v)::numeric(10,2) AS avg, MIN(v) AS min, MAX(v) AS max
+                      FROM (SELECT NULLIF(regexp_replace(value,'[^0-9.-]','','g'),'')::numeric AS v
+                              FROM survey_answers
+                             WHERE question_id=$2
+                               AND value ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                               AND response_id IN ({_LATEST_RESPONSES})) t""",
+                survey_id, q["id"])
             item["avg"] = float(agg["avg"]) if agg and agg["avg"] is not None else None
             item["min"] = float(agg["min"]) if agg and agg["min"] is not None else None
             item["max"] = float(agg["max"]) if agg and agg["max"] is not None else None
             rows = await db.fetch(
-                """SELECT value AS option, COUNT(*) AS cnt
-                     FROM survey_answers
-                    WHERE question_id=$1 AND COALESCE(value,'') <> ''
-                    GROUP BY value
-                    ORDER BY NULLIF(regexp_replace(value,'[^0-9.-]','','g'),'')::numeric""",
-                q["id"])
+                f"""SELECT value AS option, COUNT(*) AS cnt
+                      FROM survey_answers
+                     WHERE question_id=$2 AND COALESCE(value,'') <> ''
+                       AND response_id IN ({_LATEST_RESPONSES})
+                     GROUP BY value
+                     ORDER BY NULLIF(regexp_replace(value,'[^0-9.-]','','g'),'')::numeric""",
+                survey_id, q["id"])
             item["breakdown"] = [
                 {
                     "option": r["option"], "count": r["cnt"],
@@ -703,17 +727,20 @@ async def survey_analytics(
             ]
         else:
             rows = await db.fetch(
-                """SELECT a.value, r.created_at, c.name, c.id AS contact_id
-                     FROM survey_answers a
-                     JOIN survey_responses r ON r.id = a.response_id
-                     JOIN contacts c ON c.id = r.contact_id
-                    WHERE a.question_id=$1 AND COALESCE(a.value,'') <> ''
-                    ORDER BY r.created_at DESC LIMIT 200""",
-                q["id"])
+                f"""SELECT a.value, r.created_at, c.name, c.id AS contact_id
+                      FROM survey_answers a
+                      JOIN survey_responses r ON r.id = a.response_id
+                      JOIN contacts c ON c.id = r.contact_id
+                     WHERE a.question_id=$2 AND COALESCE(a.value,'') <> ''
+                       AND a.response_id IN ({_LATEST_RESPONSES})
+                     ORDER BY r.created_at DESC LIMIT 200""",
+                survey_id, q["id"])
             item["texts"] = [dict(r) for r in rows]
         out.append(item)
 
     return {"responses_total": total, "people_total": people, "questions": out}
+
+
 
 
 @router.delete("/surveys/{survey_id}/responses/{response_id}")
