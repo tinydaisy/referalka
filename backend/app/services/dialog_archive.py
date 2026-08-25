@@ -145,6 +145,25 @@ async def _store_bytes_in_r2(
         return None
 
 
+def _is_page_link(url: str) -> bool:
+    """Это ссылка на СТРАНИЦУ просмотра, а не на сам файл?
+
+    VK для видео отдаёт адрес плеера (`vk.com/video-1_2`, `vk.com/video_ext.php`),
+    а не файл: скачивать оттуда нечего — вернётся HTML. Такие адреса храним
+    как есть и открываем по клику.
+
+    ⚠️ Проверяем по НАЧАЛУ адреса, а не по слову «video» где угодно: у
+    настоящих файлов в имени тоже бывает «video», и они уехали бы мимо
+    скачивания.
+    """
+    u = (url or "").lower()
+    return (
+        u.startswith("https://vk.com/video")
+        or u.startswith("http://vk.com/video")
+        or "vk.com/video_ext.php" in u
+    )
+
+
 async def store_media_from_url(
     *, client_id: int, contact_id: Optional[int], message_id: Optional[int],
     file_url: str, media_kind: str, file_name: Optional[str] = None,
@@ -247,6 +266,16 @@ async def archive_incoming(
         text=text, media_kind=media_kind, platform_message_id=platform_message_id,
         contact_id=contact_id, sent_at=sent_at,
     )
+    # ⚠️ Ссылку на СТРАНИЦУ (а не на файл) не качаем — сохраняем как есть.
+    # У VK-видео в attachments лежит адрес плеера vk.com/video-123_456: по нему
+    # приходит HTML-страница, а не видеофайл. Скачивание такого молча падало, и
+    # в переписке оставалась подпись «Видео» без ссылки — открыть присланное
+    # было нечем. Страница VK постоянная (в отличие от часовых ссылок на файлы),
+    # поэтому её можно просто запомнить и открывать по клику.
+    if row_id and file_url and media_kind and _is_page_link(file_url):
+        await update_message_media(row_id, file_url)
+        return row_id
+
     if row_id and file_url and media_kind and media_kind != "voice":
         # ⚠️ Берём contact_id ИЗ ЗАПИСАННОГО сообщения, а не из аргумента.
         # archive_direct_message умеет резолвить собеседника сам, когда id не
