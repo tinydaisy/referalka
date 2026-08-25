@@ -2258,6 +2258,13 @@ async def _handle_max_chat_join(
         except Exception:
             logger.warning("MAX chat-join: не смогли собрать организаторов события %s", event_id)
 
+        # ⚠️ ПЕРВЫМ В СПИСКЕ — КАНАЛ ВЛАДЕЛЬЦА ЭТОГО БОТА. Человек пришёл к
+        # конкретному организатору и знает именно его: чужой канал первой
+        # строкой читается как «подпишитесь непонятно на кого». Порядок строк
+        # в event_owners к делу отношения не имеет.
+        if ev["client_id"] in _owner_ids:
+            _owner_ids = [ev["client_id"]] + [c for c in _owner_ids if c != ev["client_id"]]
+
         from app.services.channels import get_client_max_token
         not_subscribed_channels = []
         _seen = set()

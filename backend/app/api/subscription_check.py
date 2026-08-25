@@ -106,7 +106,8 @@ async def _check_one_channel(
     return "not_subscribed"
 
 
-async def _check_collab_owners(event_id: int, tg_id: int, db: asyncpg.Connection):
+async def _check_collab_owners(event_id: int, tg_id: int, db: asyncpg.Connection,
+                               first_client_id: int | None = None):
     """Коллаб-событие с рычагом require_subscribe_all_owners: участник должен быть
     подписан на TG-каналы каналов-основателей ВСЕХ организаторов (event_owners).
 
@@ -133,6 +134,14 @@ async def _check_collab_owners(event_id: int, tg_id: int, db: asyncpg.Connection
             WHERE eo.event_id = $1 AND eo.status = 'accepted'
               AND col.tg_channel_id IS NOT NULL AND col.tg_channel_id <> ''""",
         event_id)
+
+    # ⚠️ ПЕРВЫМ — КАНАЛ ВЛАДЕЛЬЦА ТОГО БОТА, В КОТОРОМ ЧЕЛОВЕК СЕЙЧАС.
+    # Он пришёл к конкретному организатору и знает именно его; чужой канал
+    # первой строкой читается как «подпишитесь непонятно на кого». Порядок
+    # строк в event_owners (кто раньше принял приглашение) тут ни при чём.
+    if first_client_id:
+        owners = sorted(owners, key=lambda o: o["client_id"] != first_client_id)
+
     not_subscribed, subscribed = [], []
     async with httpx.AsyncClient() as http:
         for o in owners:

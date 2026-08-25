@@ -91,7 +91,11 @@ async def send_message(
         "user_id": user_vk_id,
         "message": safe_text,
         "random_id": random.randint(1, 2**31 - 1),
-        "dont_parse_links": 0,
+        # ⚠️ ПРЕВЬЮ ССЫЛОК ВЫКЛЮЧЕНО (1 = не разворачивать). В сообщениях со
+        # списком каналов и в меню события ВКонтакте разворачивал карточку
+        # первой ссылки — она занимала пол-экрана, остальные строки уезжали
+        # вниз, и человек не видел, на что ещё надо подписаться.
+        "dont_parse_links": 1,
     }
     if keyboard:
         params["keyboard"] = json.dumps(keyboard, ensure_ascii=False)

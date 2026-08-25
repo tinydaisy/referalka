@@ -811,7 +811,8 @@ def _gallery_html(speakers) -> str:
     return f'<div class="gallery">{items}</div>'
 
 
-def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) -> str:
+def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None,
+                   chat_bot_owner_links=None, chat_bot_owner_names=None) -> str:
     """Вкладка «Программа»: галерея + VIP + описание + дни/сессии + организаторы.
 
     chat_bot_links — {platform: deeplink_в_бот} для случая с обязательной
@@ -922,8 +923,28 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
     if plat_buttons:
         base_label = esc(event.get("chat_button_label") or "Чат события")
         sheet_rows = ""
+        _owner_links = chat_bot_owner_links or {}
+        _owner_names = chat_bot_owner_names or {}
         for plat, plat_name, href, is_primary in plat_buttons:
             main = ' <span class="chat-main">(главный)</span>' if (is_primary and len(plat_buttons) > 1) else ""
+
+            # ⚠️⚠️ КОНТАКТ В ССЫЛКЕ НЕИЗВЕСТЕН — ПОКАЗЫВАЕМ ВСЕХ ОРГАНИЗАТОРОВ.
+            # В коллабе у каждого свой бот и своя база, и решать за человека,
+            # к кому его отправить, нельзя: у чужого организатора его нет, он
+            # не пройдёт проверку подписки и не получит чат. Порядок — по
+            # числу приведённых на событие: у того, кто привёл больше, выше
+            # шанс, что человек пришёл именно от него.
+            _owners = _owner_links.get(plat) or []
+            if needs_sub and len(_owners) > 1:
+                for _cid, _url in _owners:
+                    _nm = esc(_owner_names.get(_cid) or plat_name)
+                    sheet_rows += (
+                        f'<a class="chat-opt" href="{esc(_url)}" target="_blank" rel="noopener">'
+                        f'<span class="chat-opt-ico">💬</span>'
+                        f'<span class="chat-opt-name">{esc(plat_name)} · {_nm}</span></a>'
+                    )
+                continue
+
             sheet_rows += (
                 f'<a class="chat-opt" href="{esc(href)}" target="_blank" rel="noopener">'
                 f'<span class="chat-opt-ico">💬</span>'
@@ -1621,7 +1642,8 @@ def render_page(event, collabs, days, stages, sessions, gifts,
                 share_texts, share_images, ref_enabled,
                 client, ref_cabinet=None, venue_profile=None,
                 venue_offerings=None, share_videos=None,
-                chat_bot_links=None, venue_multi=None) -> str:
+                chat_bot_links=None, venue_multi=None,
+                chat_bot_owner_links=None, chat_bot_owner_names=None) -> str:
     title = esc(event.get("title") or event.get("slug"))
     brand_raw = ((client["brand_name"] if client else None)
                  or (client["name"] if client else None) or "")
@@ -1642,14 +1664,19 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     # ⚠️ Значок вкладки — НАСТОЯЩИЙ логотип клиента: страница открыта под его
     # брендом (часто на его домене), и узнаваться должен он. Буква на фоне
     # ПЛЮСОНа осталась запасным вариантом (решение владельца, 2026-08-18).
-    favicon_uri = (blogo or "") or ("data:image/svg+xml," + _up.quote(favicon_svg))
+    # ⚠️ Логотип берём из `client`: переменной `blogo` в этой функции нет —
+    # она из соседней, и обращение к ней роняло страницу события целиком
+    # (NameError, прод 25.08 — публичная страница отдавала 500).
+    _blogo_uri = esc((client["brand_logo_url"] if client else None) or "")
+    favicon_uri = _blogo_uri or ("data:image/svg+xml," + _up.quote(favicon_svg))
 
     has_people = bool(collabs)
     module = event.get("module_slug") or "base"
     is_program_event = module in ("conference", "turnir") or bool(days)
 
     # ── Панели ──
-    program_html = _program_panel(event, collabs, days, stages, sessions, chat_bot_links)
+    program_html = _program_panel(event, collabs, days, stages, sessions, chat_bot_links,
+                                  chat_bot_owner_links, chat_bot_owner_names)
     # Слот спикера в программе (ec_id → (дата, время)) — для карточки во вкладке «Спикеры».
     # Берём ПЕРВЫЙ слот спикера (sessions уже отсортированы по day/sort_order/start_time).
     _day_date_by_num = {d.get("day_number"): d.get("day_date") for d in (days or [])}
@@ -2448,6 +2475,11 @@ async def event_page(slug: str, c: str = "", email: str = "",
     # Deeplink'и в бот площадок для кнопки чата (только если у события включена
     # обязательная подписка — тогда площадка ведёт в бот, который её проверит).
     chat_bot_links = {}
+    # {платформа: [(client_id, ссылка_в_бот), …]} — боты ВСЕХ организаторов
+    # коллабы. Заполняется, когда контакт в ссылке неизвестен: тогда человеку
+    # показываем выбор, а не решаем за него.
+    chat_bot_owner_links: dict = {}
+    chat_bot_owner_names: dict = {}   # client_id → как показать в списке
     sub_mode = ev.get("subscription_mode")
     needs_sub = ((sub_mode or "all_speakers") != "none") if sub_mode is not None \
         else bool(ev.get("require_subscription"))
@@ -2462,6 +2494,47 @@ async def event_page(slug: str, c: str = "", email: str = "",
                 db, event_id=event_id, client_id=ev["client_id"],
                 contact_id=contact_id,
             )
+
+            # ⚠️⚠️ КОНТАКТА В ССЫЛКЕ НЕТ — ЧЕЙ БОТ ПРЕДЛАГАТЬ, НЕИЗВЕСТНО.
+            # Раньше молча брался «первый владелец» (кто раньше принял
+            # приглашение) — к человеку это отношения не имеет.
+            #
+            # Правило: первым идёт тот организатор, кто привёл на событие
+            # больше людей — у него больше шансов оказаться «своим», и его
+            # аудитория крупнее. Остальные показываются следом, человек
+            # выбирает сам.
+            if not contact_id and ev.get("is_collab"):
+                try:
+                    _rows = await db.fetch(
+                        """SELECT eo.client_id,
+                                  (SELECT count(*) FROM event_participants ep
+                                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                                    WHERE ep.event_id = $1
+                                      AND rc.client_id = eo.client_id) AS brought
+                             FROM event_owners eo
+                            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                            ORDER BY brought DESC, eo.id""",
+                        event_id)
+                    _order = [r["client_id"] for r in _rows]
+                    if _order:
+                        _chat_cid = _order[0]
+                        # Боты ВСЕХ организаторов: человек выбирает, к кому идти.
+                        _all = {}
+                        for _cid in _order:
+                            for _plat, _url in (
+                                    await build_event_chat_bot_links(db, _cid, event_id)
+                            ).items():
+                                _all.setdefault(_plat, []).append((_cid, _url))
+                        chat_bot_owner_links = _all
+                        # Подписываем строки именем организатора — иначе три
+                        # одинаковых «Telegram» подряд неотличимы.
+                        for _r in await db.fetch(
+                                "SELECT id, COALESCE(NULLIF(brand_name,''), name) AS nm "
+                                "FROM clients WHERE id = ANY($1::int[])", _order):
+                            chat_bot_owner_names[_r["id"]] = _r["nm"]
+                except Exception:
+                    pass          # не собрали — работаем как раньше, одним ботом
+
             chat_bot_links = await build_event_chat_bot_links(db, _chat_cid, event_id)
         except Exception:
             chat_bot_links = {}
@@ -2515,6 +2588,8 @@ async def event_page(slug: str, c: str = "", email: str = "",
         venue_profile=venue_profile, venue_offerings=venue_offerings,
         venue_multi=venue_multi,
         share_videos=share_videos, chat_bot_links=chat_bot_links,
+        chat_bot_owner_links=chat_bot_owner_links,
+        chat_bot_owner_names=chat_bot_owner_names,
     )
     return HTMLResponse(
         content=html_str,

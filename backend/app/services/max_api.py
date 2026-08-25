@@ -148,6 +148,7 @@ async def send_message(
     parse_mode: str | None = None,
     recipient_kind: str = "chat",
     reply_to_mid: str | None = None,
+    disable_link_preview: bool = True,
 ) -> dict[str, Any] | None:
     """Отправить сообщение пользователю или в чат.
 
@@ -182,6 +183,13 @@ async def send_message(
         # сообщение молча не доставляется. Для ответа в реальную беседу (id чата
         # из апдейта вебхука) используем chat_id — recipient_kind='chat'.
         send_param = {"chat_id": chat_id} if recipient_kind == "chat" else {"user_id": chat_id}
+        # ⚠️ ПРЕВЬЮ ССЫЛОК ВЫКЛЮЧЕНО ПО УМОЛЧАНИЮ. В сообщениях с несколькими
+        # ссылками (список каналов, меню события) MAX разворачивал карточку
+        # первой из них — она занимала пол-экрана, а остальные строки уезжали
+        # вниз. Параметр идёт В АДРЕСЕ запроса, не в теле.
+        if disable_link_preview:
+            send_param = {**(send_param or {}), "disable_link_preview": "true"}
+
         return await max_call(
             "POST", "/messages",
             token=token,

@@ -47,6 +47,7 @@ async def _send_survey_gate_tg(callback, run_id: int, db) -> None:
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="📝 Заполнить анкету", url=url),
             ]]),
+            disable_web_page_preview=True,
         )
     except Exception:
         log.exception("survey gate: не удалось отправить анкету в TG (run=%s)", run_id)
@@ -302,6 +303,17 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         # self-коллаба внутри _gather_event_chat_channels).
         channels = []
         if mode != "none":
+            # ⚠️ Клиент ЭТОГО бота — он же пойдёт первым в списке каналов.
+            # `ev["client_id"]` тут «первый владелец» из event_owners, к тому,
+            # в чьём боте человек сидит, отношения не имеет.
+            _bot_cid = None
+            try:
+                from bot.handlers.start import _client_id_by_bot
+                if getattr(message, "bot", None) is not None:
+                    _bot_cid = await _client_id_by_bot(db, message.bot.id)
+            except Exception:
+                log.warning("evchat: не смогли определить клиента бота")
+
             founder = await _gather_founder_tg_channels(ev["client_id"], db)
             speakers = await _gather_event_chat_channels(event_id, mode, db, ev["client_id"])
             channels = founder + speakers
@@ -322,7 +334,7 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
             try:
                 from app.api.subscription_check import _check_collab_owners
                 collab_not_subscribed, collab_subscribed = await _check_collab_owners(
-                    event_id, user_tg_id, db)
+                    event_id, user_tg_id, db, first_client_id=_bot_cid)
             except Exception as e:
                 # Сбой проверки не запирает человека перед чатом.
                 log.warning("evchat collab owners check failed (event=%s): %s", event_id, e)

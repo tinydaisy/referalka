@@ -214,6 +214,12 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
         except Exception:
             pass                      # не собрали — проверяем как раньше, одного
 
+        # ⚠️ Первым — канал владельца ЭТОГО сообщества: человек пришёл к нему и
+        # знает именно его. Чужой канал первой строкой читается как
+        # «подпишитесь непонятно на кого».
+        if client_id in _owner_ids:
+            _owner_ids = [client_id] + [c for c in _owner_ids if c != client_id]
+
         _seen_urls = set()
         for _cid in _owner_ids:
             for _ch in await _gather_founder_vk_channels(_cid, db):
