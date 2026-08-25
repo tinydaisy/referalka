@@ -59,6 +59,8 @@ export default function DialogChat({
   // на сервере. Держим, чтобы человек видел, где были новые сообщения, и понял,
   // какую вкладку смотреть.
   const [unreadBy, setUnreadBy] = useState<Record<string, number>>({})
+  // Открытая на весь экран картинка (просмотр по клику), null — закрыт.
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('all')
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
@@ -217,14 +219,23 @@ export default function DialogChat({
                           ссылкой: человек прислал фото — его надо видеть, не
                           открывая вкладку. Клик по ней открывает оригинал. */}
                       {m.media_kind === 'photo' && m.media_url && (
-                        <a href={m.media_url} target="_blank" rel="noreferrer" className="block mb-1">
+                        // ⚠️ Клик открывает просмотр ВНУТРИ кабинета, а не
+                        // ссылку на файл. Ссылка вела в хранилище, и браузер
+                        // не показывал картинку, а скачивал её (у .webp это
+                        // особенно заметно) — приходилось лезть в загрузки.
+                        <button
+                          type="button"
+                          onClick={() => setLightbox(m.media_url!)}
+                          className="block mb-1 cursor-zoom-in"
+                          title="Открыть крупнее"
+                        >
                           <img
                             src={m.media_url}
                             alt="Фото"
                             loading="lazy"
                             className="rounded-lg max-w-[220px] max-h-[220px] w-auto h-auto object-cover"
                           />
-                        </a>
+                        </button>
                       )}
                       {m.media_kind && !(m.media_kind === 'photo' && m.media_url) && (
                         <div className={`text-xs mb-1 ${isOperator ? 'text-white/80' : 'text-gray-500'}`}>
@@ -328,6 +339,42 @@ export default function DialogChat({
           их загрузку в хранилище платформы несёт владелец кабинета.
         </div>
       </div>
+
+      {/* Просмотр картинки во весь экран. ⚠️ Это ЛАЙТБОКС, а не форма — по
+          правилу проекта он закрывается и кликом по фону тоже: терять здесь
+          нечего, а закрывать привычнее всего именно так. */}
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
+        >
+          <img
+            src={lightbox}
+            alt="Фото"
+            onClick={e => e.stopPropagation()}
+            className="max-w-full max-h-full rounded-lg object-contain cursor-default"
+          />
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center"
+            title="Закрыть"
+          >
+            <X size={18} />
+          </button>
+          {/* Оригинал открывается отдельной ссылкой — на случай, если нужно
+              рассмотреть в полном размере или сохранить себе. */}
+          <a
+            href={lightbox}
+            target="_blank"
+            rel="noreferrer"
+            onClick={e => e.stopPropagation()}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/80 hover:text-white underline"
+          >
+            Открыть оригинал
+          </a>
+        </div>
+      )}
     </div>
   )
 }
