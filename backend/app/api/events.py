@@ -1694,7 +1694,10 @@ async def list_event_collaborators(
                co.achievements, co.tg_channel_url, co.tg_channel_id,
                pu_tg.platform_user_id AS personal_tg_id,
                pu_tg.username         AS personal_tg_username,
-               co.instagram_url, co.website_url, ct.ref_code
+               co.instagram_url, co.website_url, ct.ref_code,
+               -- contact_id нужен карточке соорганизатора: по нему строится
+               -- ссылка предпросмотра кабинета участника (`/event/{slug}?c=`).
+               co.contact_id
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
           LEFT JOIN contacts ct ON ct.id = co.contact_id

@@ -7,6 +7,8 @@ import { ArrowLeft, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-rea
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import RefLinkInline from '@/components/RefLinkInline'
+import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
+import { useMe } from '@/hooks/useMe'
 
 /**
  * Страница соорганизатора в контексте конкретного мероприятия.
@@ -16,6 +18,9 @@ import RefLinkInline from '@/components/RefLinkInline'
  * Глобальная карточка коллаборатора — отдельная страница в /dashboard/collaborations.
  */
 export default function EventOrganizerPage() {
+  // Домен клиента: ссылки предпросмотра ведут на страницу события, а её
+  // организатор отдаёт своей аудитории — она должна быть на его домене.
+  const { publicHost } = useMe()
   const router = useRouter()
   const { id, ecId } = useParams()
   const eventId = Number(id)
@@ -165,6 +170,18 @@ export default function EventOrganizerPage() {
       {/* Партнёрская ссылка для ЭТОГО мероприятия */}
       <div className="mb-6">
         <RefLinkInline slug={event.slug} refCode={item.ref_code} eventStatus={event.status} />
+      </div>
+
+      {/* Предпросмотр кабинета участника: как выглядит страница события до
+          регистрации и после неё. Компонент общий с карточкой спикера
+          конференции — своей копии здесь быть не должно. */}
+      <div className="mb-6">
+        <CabinetPreviewBlock
+          publicHost={publicHost}
+          slug={event.slug}
+          contactId={item.contact_id}
+          personLabel="этого соорганизатора"
+        />
       </div>
 
       {/* Приоритет — управляет порядком отображения в Mini App
