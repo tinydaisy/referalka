@@ -587,15 +587,23 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
 
   return (
     <div className="space-y-0">
-    <div className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-4 ${
+    {/* ⚠️ На узком экране карточка разворачивается в КОЛОНКУ (flex-col →
+        sm:flex-row). Раньше всё жило одной строкой, и на телефоне бейдж
+        «Воронка событий» наезжал на счётчики подписчиков и на кнопки —
+        читать было нельзя. Ширину держит min-w-0 у каждой колонки: без него
+        flex не даёт тексту сжиматься, и он выталкивает соседей за край. */}
+    <div className={`bg-white rounded-2xl border shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 ${
       critical ? 'border-red-300 bg-red-50/40'
         : isSystem ? 'border-amber-100 bg-gradient-to-r from-amber-50/40 to-white'
         : 'border-gray-100'
     }`}>
+      <div className="flex items-start gap-3 min-w-0 flex-1">
       <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
+          {/* break-words вместо truncate: на телефоне длинное имя бота
+              переносится, а не режется многоточием. */}
+          <h3 className="font-semibold text-gray-900 break-words min-w-0">{ch.display_name}</h3>
           {isSystem && (
             <span
               className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold"
@@ -630,8 +638,8 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
             </span>
           )}
         </div>
-        <p className="flex items-center gap-2 text-xs text-gray-500 truncate">
-          <span className="truncate">
+        <p className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+          <span className="break-all">
             {ch.platform_display_name}
             {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
           </span>
@@ -646,6 +654,10 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
           )}
         </p>
       </div>
+      </div>
+      {/* Счётчики и кнопки: на телефоне — своей строкой под названием,
+          на компьютере — справа в ряд, как было. */}
+      <div className="flex items-center justify-between gap-3 sm:gap-4 shrink-0">
       <div className="flex items-center gap-4 text-sm shrink-0">
         <div className="flex items-center gap-1.5 text-green-600" title="Подписчики (ваши)">
           <Users size={14} />
@@ -656,7 +668,7 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
           <span>{ch.unsubscribed.toLocaleString('ru')}</span>
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         {isSystem ? (
           // Для системного канала — только информационная иконка с пояснением.
           // Управление (токен, удаление, импорт) — у администратора iViSiON: ПЛЮСОНа.
@@ -708,6 +720,7 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
             ><Trash2 size={14} /></button>
           </>
         )}
+      </div>
       </div>
     </div>
 

@@ -261,7 +261,13 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
         return (
           <button onClick={() => setPeople(card.option_value || null)}
                   className="group flex flex-1 flex-col items-center justify-center py-2 text-center">
-            <div className="text-4xl font-bold tabular-nums text-[#25455D] group-hover:underline">
+            {/* ⚠️ Подчёркивание ПОСТОЯННОЕ, а не по наведению: по цифре можно
+                кликнуть и посмотреть, кто эти люди, но об этом никто не
+                догадывался — на телефоне наведения нет вовсе, а на компьютере
+                надо сначала случайно навести. Подчёркивание приглушённое
+                (decoration-*/underline-offset), чтобы не спорить с крупным
+                числом, но было видно сразу. */}
+            <div className="text-4xl font-bold tabular-nums text-[#25455D] underline decoration-[#FFCFA4] decoration-2 underline-offset-4 group-hover:decoration-[#25455D]">
               {big}
             </div>
             <div className="mt-0.5 text-xs text-gray-500">
@@ -304,7 +310,8 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
                   <span className="min-w-0 flex-1 truncate group-hover:underline"
                         title={b.option}>{b.option}</span>
                   <span className="shrink-0 tabular-nums text-gray-600">
-                    {!card.eff_hide_absolute && <b className="text-[#25455D]">{b.count}</b>}
+                    {/* Цифра подчёркнута всегда — она кликабельна (см. выше) */}
+                    {!card.eff_hide_absolute && <b className="text-[#25455D] underline decoration-[#FFCFA4] decoration-2 underline-offset-2 group-hover:decoration-[#25455D]">{b.count}</b>}
                     {!card.eff_hide_absolute && !card.eff_hide_percent && ' · '}
                     {!card.eff_hide_percent && <span>{b.percent}%</span>}
                   </span>
@@ -744,6 +751,17 @@ export default function DashboardView({ eventId, readOnly = false }: {
                 ответили: <b className="text-[#25455D]">{totals.answered}</b>
                 <span className="ml-1 text-xs text-gray-400">— от них и считаются проценты</span>
               </span>
+            </div>
+          )}
+
+          {/* ⚠️ Подсказка про клик. По цифрам можно кликнуть и увидеть список
+              людей, но сами по себе они выглядят как обычный текст — клиент об
+              этой возможности не знал. Фон персиковый ПОЛУПРОЗРАЧНЫЙ, а текст
+              тёмный: персиковым по белому надпись почти не читается. */}
+          {!!cards.length && (
+            <div className="rounded-xl px-3 py-2 text-sm text-[#25455D]"
+                 style={{ background: `${PEACH}59` }}>
+              Нажмите на цифры в карточках для просмотра контактов
             </div>
           )}
 

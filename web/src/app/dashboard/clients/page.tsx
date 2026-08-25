@@ -40,6 +40,8 @@ interface Contact {
   salebot_id: string | null
   referrer_name: string | null
   is_participant: boolean
+  /** Непрочитанные сообщения ОТ человека в ботах (TG/VK/MAX). */
+  unread_count?: number
   identities: Identity[] | null
   // Backwards-compat поля (отдаются API для совместимости с рекомендованной идентичностью)
   platform_user_id: string | null
@@ -431,6 +433,14 @@ export default function ContactsPage() {
       ])
       setSelected(detail)
       setDuplicates(dups.items || [])
+      // Открыли карточку → DialogChat грузит переписку и на бэке помечает
+      // входящие прочитанными. Гасим бейдж и в списке, иначе счётчик висел бы
+      // до перезагрузки страницы, хотя сообщения уже прочитаны.
+      // ⚠️ Порядок строк НЕ пересчитываем: контакт не должен прыгать вниз
+      // прямо под курсором — он переедет при следующей загрузке списка.
+      setContacts((cs: any[]) => cs.map(c =>
+        c.id === id && c.unread_count ? { ...c, unread_count: 0 } : c
+      ))
     } catch (e: any) {
       console.error(e)
       // Контакт из ЧУЖОЙ базы (напр. уведомление пришло через @pluson_bot —
@@ -569,7 +579,11 @@ export default function ContactsPage() {
                 <Avatar contact={c} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-medium text-gray-900 truncate">
+                    {/* Есть непрочитанные — имя жирнее, как в мессенджерах:
+                        за один бейдж справа взгляд не цепляется. */}
+                    <span className={`text-sm truncate ${
+                      c.unread_count ? 'font-bold text-[#25455D]' : 'font-medium text-gray-900'
+                    }`}>
                       {getName(c)}
                     </span>
                     {c.identities && c.identities.length > 0 && (
@@ -594,6 +608,18 @@ export default function ContactsPage() {
                         className="shrink-0 text-red-500"
                       >
                         <MailX size={13} />
+                      </span>
+                    )}
+                    {/* Непрочитанные сообщения от человека — как в мессенджере.
+                        Бейдж прижат к правому краю (ml-auto), чтобы читался
+                        столбиком по всему списку, а не прыгал за именем. */}
+                    {!!c.unread_count && (
+                      <span
+                        title={`Новых сообщений: ${c.unread_count}`}
+                        className="ml-auto shrink-0 min-w-[20px] text-center text-[11px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: '#FFCFA4', color: '#25455D' }}
+                      >
+                        {c.unread_count}
                       </span>
                     )}
                   </div>
@@ -674,7 +700,9 @@ export default function ContactsPage() {
         {selected && !loadingDetail && (
           <div className="p-6">
             {/* Шапка */}
-            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100">
+            {/* items-start, а не items-center: имя переносится на 2 строки,
+                и при центрировании аватар с кнопками уезжали вниз. */}
+            <div className="flex items-start gap-4 mb-6 pb-6 border-b border-gray-100">
               <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white shrink-0"
                 style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
                 {getInitials(selected)}
@@ -747,7 +775,7 @@ export default function ContactsPage() {
                     : <Briefcase size={16} className="text-amber-600" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-semibold text-amber-900 uppercase tracking-wide">Этот контакт — коллаборатор</div>
+                  <div className="text-[11px] font-semibold text-amber-900 uppercase tracking-wide">Этот контакт имеет карточку спикера</div>
                   <div className="text-sm text-gray-800 truncate">
                     {selected.collaborator.name}
                     {selected.collaborator.title && <span className="text-gray-500"> — {selected.collaborator.title}</span>}
@@ -806,6 +834,13 @@ export default function ContactsPage() {
                 </div>
               </div>
             )}
+
+            {/* ⚠️ Всё, что ниже, на ТЕЛЕФОНЕ спрятано под «Информация о контакте».
+                Раньше параметры шли простынёй, и до переписки приходилось
+                листать полэкрана — а заходят в карточку чаще всего именно
+                ради диалога. На компьютере блок открыт всегда: там переписка
+                в соседней колонке, и прятать нечего. */}
+            <ContactInfoCollapse>
 
             {/* Контактные поля и метаданные — в одну колонку (друг под другом) */}
             <div className="grid grid-cols-1 gap-y-4 mb-6">
@@ -1273,6 +1308,8 @@ export default function ContactsPage() {
             {/* Партнёрская ссылка (миграция 105) */}
             <PartnerLinksBlock contact={selected} />
 
+            </ContactInfoCollapse>
+
             {/* Мобильный чат — под параметрами (на десктопе чат в средней колонке) */}
             <div className="md:hidden mt-6 pt-4 border-t border-gray-100 -mx-6">
               <div className="px-6 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Переписка</div>
@@ -1701,12 +1738,53 @@ function ContactNameEditor({
   return (
     <button
       onClick={() => setEditing(true)}
-      className="group flex items-center gap-2 max-w-full text-left"
+      className="group flex items-start gap-2 max-w-full text-left"
       title="Кликните чтобы изменить имя"
     >
-      <h2 className="text-xl font-bold text-gray-900 truncate group-hover:text-[#25455D]">{initialName}</h2>
-      <Pencil size={14} className="text-gray-300 group-hover:text-gray-600 shrink-0 transition-colors" />
+      {/* ⚠️ НЕ truncate: на телефоне имя обрезалось многоточием («Марго Форб…»)
+          и человека нельзя было опознать. Переносим на несколько строк —
+          места по вертикали хватает, а имя должно читаться целиком. */}
+      <h2 className="text-xl font-bold text-gray-900 break-words min-w-0 group-hover:text-[#25455D]">{initialName}</h2>
+      <Pencil size={14} className="mt-1.5 text-gray-300 group-hover:text-gray-600 shrink-0 transition-colors" />
     </button>
+  )
+}
+
+/**
+ * Сворачиваемая «Информация о контакте» — ТОЛЬКО на телефоне.
+ *
+ * ⚠️ Компьютер и телефон ведут себя по-разному намеренно. На компьютере
+ * карточка контакта и переписка стоят в РАЗНЫХ колонках, прятать параметры
+ * незачем — блок просто отрисован как был. На телефоне колонок нет, всё идёт
+ * одной лентой: параметров набирается на два экрана, и переписка оказывалась
+ * далеко внизу. Поэтому на узком экране параметры свёрнуты, а диалог виден
+ * сразу.
+ *
+ * ⚠️ Содержимое не размонтируется, а скрывается классом `hidden`: иначе при
+ * каждом сворачивании терялось бы состояние вложенных редакторов (набранный,
+ * но не сохранённый email) и заново дёргались бы их запросы.
+ */
+function ContactInfoCollapse({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      {/* Кнопка только на телефоне */}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="md:hidden w-full mb-4 flex items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left hover:bg-amber-100 transition-colors"
+      >
+        <span className="text-sm font-bold text-amber-900">Информация о контакте</span>
+        <span className="flex items-center gap-1.5 text-amber-800 shrink-0">
+          <span className="text-xs font-bold">{open ? 'Свернуть' : 'Развернуть'}</span>
+          {open
+            ? <ChevronUp size={18} strokeWidth={2.5} />
+            : <ChevronDown size={18} strokeWidth={2.5} />}
+        </span>
+      </button>
+      {/* На компьютере (md+) блок открыт всегда, флаг `open` его не касается */}
+      <div className={open ? '' : 'hidden md:block'}>{children}</div>
+    </>
   )
 }
 

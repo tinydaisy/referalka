@@ -402,6 +402,32 @@ async def get_contacts(
         f"SELECT COUNT(*) FROM contacts c {where_base} AND {UNSUB_EXISTS}", *params
     )
 
+    # ⚠️ «Сначала непрочитанные» — только в ЧИСТОМ списке, без поиска и фильтров.
+    # Если человек ищет конкретного или отобрал сегмент, он ждёт свой отбор в
+    # привычном алфавитном порядке: непрочитанные сообщения к его запросу
+    # отношения не имеют и перетасовали бы выдачу непонятно почему. Заодно в
+    # отфильтрованном списке вовсе не платим за подзапрос в ORDER BY.
+    is_plain_list = not (search or "").strip() and not any([
+        platforms, channel_ids, utm_sources, tags, event_ids,
+        lead_magnet_ids, package_ids, date_from, date_to,
+        created_from, created_to, blacklisted, field_filter,
+        include_unattached,
+    ]) and (subscription or "any").lower() == "any"
+
+    # ⚠️ Сортируем по ФАКТУ наличия непрочитанных (EXISTS), а не по их числу:
+    # иначе человек с десятью старыми сообщениями всегда стоял бы выше того,
+    # кто написал одно только что, — а важнее свежесть. Внутри группы — по
+    # последнему контакту. EXISTS вдобавок останавливается на первой строке,
+    # в отличие от COUNT(*), который пересчитывает всю переписку.
+    order_sql = (
+        """(EXISTS (SELECT 1 FROM direct_messages dm
+                     WHERE dm.client_id = c.client_id AND dm.contact_id = c.id
+                       AND dm.direction = 'in' AND NOT dm.is_read)) DESC,
+           c.last_contact_at DESC NULLS LAST,
+           c.name NULLS LAST, c.id"""
+        if is_plain_list else "c.name NULLS LAST, c.id"
+    )
+
     rows = await db.fetch(f"""
         SELECT
           c.id,
@@ -438,10 +464,19 @@ async def get_contacts(
           EXISTS (
             SELECT 1 FROM contact_blacklist bl
              WHERE bl.contact_id = c.id AND bl.client_id = c.client_id
-          ) AS is_blacklisted
+          ) AS is_blacklisted,
+          -- Непрочитанные сообщения ОТ человека (TG/VK/MAX): бейдж-счётчик в
+          -- списке + подъём таких контактов наверх.
+          -- ⚠️ Только direction='in': свои отправленные «непрочитанными» быть
+          -- не могут, иначе счётчик врал бы после каждого ответа оператора.
+          COALESCE((
+            SELECT COUNT(*) FROM direct_messages dm
+             WHERE dm.client_id = c.client_id AND dm.contact_id = c.id
+               AND dm.direction = 'in' AND NOT dm.is_read
+          ), 0) AS unread_count
         FROM contacts c
         {where}
-        ORDER BY c.name NULLS LAST, c.id
+        ORDER BY {order_sql}
         LIMIT ${len(params)+1} OFFSET ${len(params)+2}
     """, *params, limit, offset)
 

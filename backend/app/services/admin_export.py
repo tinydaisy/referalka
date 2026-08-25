@@ -8,6 +8,7 @@
 """
 
 from typing import Optional
+from app.services.share_links import TG_DOMAIN
 
 # ⚠️ Команды работают ТОЛЬКО в этом боте. Polling-диспетчер один на все боты
 # платформы, поэтому хендлер обязан сверить, из какого бота пришло сообщение:
@@ -68,21 +69,45 @@ def wa_link(phone: Optional[str]) -> str:
 
 
 def tg_link(username: Optional[str]) -> str:
-    """@ник или готовая ссылка → https://telegram.me/<ник>. Пусто → ''.
+    """@ник или готовая ссылка → t.me/<ник>. Пусто → ''.
 
-    В базе поле хранится по-разному: '@nick', 'nick', 'https://telegram.me/nick'.
+    В базе поле хранится по-разному: '@nick', 'nick', 't.me/nick'.
     """
     raw = (username or "").strip()
     if not raw:
         return ""
     if raw.startswith("http"):
         return raw
-    return f"https://telegram.me/{raw.lstrip('@')}"
+    return f"{TG_DOMAIN}/{raw.lstrip('@')}"
 
 
 def _clean_url(url: Optional[str]) -> str:
     raw = (url or "").strip()
     return raw if raw.startswith("http") else ""
+
+
+def fmt_until(expires_at) -> str:
+    """Дата окончания подписки → «до 03.09.2026». Нет даты → ''.
+
+    ⚠️ Дату считаем по МОСКВЕ, а не по часовому поясу сервера: подписка,
+    истекающая в 02:00 МСК, в UTC приходится на предыдущие сутки — и в списке
+    стояла бы дата на день раньше настоящей.
+    """
+    if not expires_at:
+        return ""
+    try:
+        from datetime import timezone, timedelta
+        msk = expires_at.astimezone(timezone(timedelta(hours=3)))
+        return f"до {msk.strftime('%d.%m.%Y')}"
+    except Exception:
+        # Формат даты не должен ронять всю выгрузку — лучше строка без срока.
+        return ""
+
+
+def _until_html(row: dict) -> str:
+    """Строка «до ДД.ММ.ГГГГ» курсивом для карточки. Нет даты → ''."""
+    until = fmt_until(row.get("expires_at"))
+    return f"<i>{until}</i>" if until else ""
 
 
 async def fetch_clients(db) -> list[dict]:
@@ -170,8 +195,25 @@ async def fetch_collabs(db) -> list[dict]:
                c.work_vk, c.work_max,
                c.social_links->>'vk'  AS soc_vk,
                c.social_links->>'max' AS soc_max,
-               c.is_published_in_hub
+               c.is_published_in_hub,
+               t.name AS tariff_name,
+               cs.expires_at,
+               -- Срок самого модуля отдельно от тарифа: подписка на тариф и
+               -- оплаченная Коллабораторная кончаются в разные дни.
+               (SELECT MAX(a.expires_at)
+                  FROM client_addons a
+                  JOIN features f2 ON f2.id = a.feature_id
+                 WHERE a.client_id = c.id AND f2.slug = 'collab_hub'
+                   AND a.status = 'active' AND a.expires_at > NOW()) AS collab_until
           FROM clients c
+          -- ⚠️ LEFT JOIN, а не JOIN: в Коллабораторной человек может быть
+          -- опубликован в каталоге и БЕЗ активной подписки. С обычным JOIN
+          -- такие молча выпали бы из выгрузки, и список стал бы короче
+          -- настоящего — незаметно для того, кто его читает.
+          LEFT JOIN client_subscriptions cs
+                 ON cs.id = c.current_subscription_id
+                AND cs.status = 'active' AND cs.expires_at > NOW()
+          LEFT JOIN tariffs t ON t.id = cs.tariff_id
          WHERE c.email NOT LIKE '%@hub.local'
            AND c.name NOT ILIKE 'ТЕСТ %'
            AND (
@@ -246,7 +288,10 @@ def build_grouped_message(rows: list[dict], title: str) -> list[str]:
         cur.append(head)
         cur_len += len(head)
         for i, r in enumerate(items, 1):
-            body = "\n" + format_row(r, i) + "\n"
+            # Срок подписки прямо в карточке: по списку сразу видно, у кого
+            # скоро кончается и с кем пора связаться. Название тарифа не
+            # повторяем — оно в заголовке блока.
+            body = "\n" + format_row(r, i, _until_html(r)) + "\n"
             if cur_len + len(body) > 3800:
                 flush()
                 # Продолжение блока на новой странице — иначе непонятно, чей это список.
@@ -272,12 +317,25 @@ def build_message(rows: list[dict], title: str, with_tariff: bool) -> list[str]:
     cur = [header]
     cur_len = len(header)
     for i, r in enumerate(rows, 1):
-        extra = ""
+        bits: list[str] = []
         if with_tariff:
-            bits = [r.get("tariff_name") or ""]
+            bits.append(r.get("tariff_name") or "")
             if r.get("addons"):
                 bits.append(r["addons"])
-            extra = "<i>" + " · ".join(b for b in bits if b) + "</i>"
+        # ⚠️ Два разных срока, и путать их нельзя: «Коллабораторная до …» — это
+        # оплаченный модуль, а «Тариф до …» — подписка на платформу. Человек
+        # может быть опубликован в каталоге вообще без подписки — тогда сроков
+        # нет, и мы пишем об этом прямо, а не оставляем пустую строку.
+        collab_until = fmt_until(r.get("collab_until"))
+        if collab_until:
+            bits.append(f"Коллабораторная {collab_until}")
+        tariff_until = fmt_until(r.get("expires_at"))
+        if tariff_until:
+            name = r.get("tariff_name") if not with_tariff else None
+            bits.append(f"Тариф{' «' + name + '»' if name else ''} {tariff_until}")
+        elif not with_tariff and not collab_until:
+            bits.append("без активной подписки")
+        extra = "<i>" + " · ".join(b for b in bits if b) + "</i>" if any(bits) else ""
         block = "\n" + format_row(r, i, extra) + "\n"
         if cur_len + len(block) > 3800:
             chunks.append("".join(cur))
