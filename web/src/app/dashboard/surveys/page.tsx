@@ -23,7 +23,14 @@ import FieldForm, { KINDS, NEEDS_OPTIONS, kindLabel } from '@/components/Contact
 
 export default function SurveysPage() {
   const { me, isAssistant } = useMe()
-  const [tab, setTab] = useState<'surveys' | 'fields'>('surveys')
+  // ⚠️ Вкладку читаем ИЗ АДРЕСА: на «Поля контакта» ссылаются из других
+  // разделов и из инструкций, а без этого ссылка ?tab=fields открывала
+  // список анкет — человек попадал не туда, куда его позвали.
+  const [tab, setTab] = useState<'surveys' | 'fields'>(() => {
+    if (typeof window === 'undefined') return 'surveys'
+    return new URLSearchParams(window.location.search).get('tab') === 'fields'
+      ? 'fields' : 'surveys'
+  })
 
   // ⚠️ Гейт по фиче, не по тарифу (состав тарифов меняется данными).
   // Замок нужен на САМОЙ странице: пункт меню не мешает открыть раздел
@@ -57,7 +64,16 @@ export default function SurveysPage() {
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => {
+              setTab(key)
+              // Отражаем вкладку в адресе, чтобы ссылку можно было скопировать
+              // и прислать человеку. replaceState — без записи в историю:
+              // «Назад» должно уводить из раздела, а не листать вкладки.
+              const u = new URL(window.location.href)
+              if (key === 'fields') u.searchParams.set('tab', 'fields')
+              else u.searchParams.delete('tab')
+              window.history.replaceState(null, '', u.toString())
+            }}
             className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm ${
               tab === key
                 ? 'border-[#25455D] font-semibold text-[#25455D]'

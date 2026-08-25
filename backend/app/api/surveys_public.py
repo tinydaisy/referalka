@@ -65,11 +65,27 @@ async def get_public_survey(
     if not s:
         raise HTTPException(404, "Анкета не найдена")
 
+    # ⚠️ Варианты ответа берём у вопроса, а если их там нет — У СВЯЗАННОГО
+    # ПОЛЯ КОНТАКТА. Вопрос, добавленный кнопкой «Добавить поле контакта»,
+    # своих вариантов не хранит: они живут в самом поле («Сотовая связь»,
+    # «WhatsApp»…). Раньше сюда попадал пустой список, и человек видел
+    # ЗАГОЛОВОК ВОПРОСА БЕЗ ВАРИАНТОВ — выбрать было нечего, анкету с
+    # обязательным вопросом нельзя было отправить вовсе.
     qs = await db.fetch(
-        """SELECT id, title, hint, kind, options, scale_min, scale_max,
-                  is_required, sort_order, field_id, image_url
-             FROM survey_questions WHERE survey_id = $1
-            ORDER BY sort_order, id""",
+        """SELECT q.id, q.title, q.hint, q.kind,
+                  CASE
+                    WHEN q.options IS NULL
+                      OR jsonb_typeof(q.options) <> 'array'
+                      OR jsonb_array_length(q.options) = 0
+                    THEN f.options
+                    ELSE q.options
+                  END AS options,
+                  q.scale_min, q.scale_max,
+                  q.is_required, q.sort_order, q.field_id, q.image_url
+             FROM survey_questions q
+             LEFT JOIN contact_fields f ON f.id = q.field_id
+            WHERE q.survey_id = $1
+            ORDER BY q.sort_order, q.id""",
         s["id"])
 
     known: dict = {}
