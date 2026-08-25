@@ -1,4 +1,5 @@
 """
+from app.services.share_links import TG_DOMAIN
 Контекстное приветствие в бота при открытии события из Mini App.
 
 Вызывается из двух мест:
@@ -644,7 +645,7 @@ async def send_event_open_message(
     if not bot_token or not bot_handle:
         return {"ok": True, "warning": "no client bot token/handle"}
 
-    bot_url_base = f"https://telegram.me/{bot_handle}"
+    bot_url_base = f"https://{TG_DOMAIN}/{bot_handle}"
     name = display_name or "друг"
     ev_title = ev["title"] or "событие"
 

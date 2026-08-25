@@ -23,7 +23,7 @@ from typing import Optional
 
 # Куда писать по вопросам сервиса. Это поддержка ПЛЮСОНА, а не клиента:
 # бонус выдаём мы, и разбираться с доступом тоже нам.
-SUPPORT_TG = "https://telegram.me/pluson_bot"
+SUPPORT_TG = "https://t.me/pluson_bot"
 SUPPORT_MAX = "https://max.ru/id890306512862_1_bot"
 
 SIGNATURE = "С уважением, команда iViSiON: ПЛЮСОН & Марго Форбс"

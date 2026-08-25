@@ -22,6 +22,7 @@ from app.database import get_db
 from app.services.tariff_discount import with_discount
 import asyncpg
 import json
+from app.services.share_links import TG_DOMAIN
 
 router = APIRouter(
     prefix="/api/v1/public/landing-widget",
@@ -576,7 +577,7 @@ async def participants_tg(
         "in_chat": in_chat,
         "count": len(usernames),
         "usernames": usernames,                                  # ["nick1", "nick2", ...]
-        "tg_urls": [f"https://telegram.me/{u}" for u in usernames],     # готовые ссылки
+        "tg_urls": [f"https://{TG_DOMAIN}/{u}" for u in usernames],     # готовые ссылки
         "mentions": [f"@{u}" for u in usernames],                # ["@nick1", "@nick2", ...]
         # по каждому нику — в чате он или нет (для смешанной выгрузки in_chat=all)
         "participants": [

@@ -29,6 +29,7 @@ from app.services.landing_support import support_links
 from app.services.collaborator_sort import order_by_sql
 from app.services.preview_token import preview_client_id
 from app.services.tariff_discount import with_discount
+from app.services.share_links import TG_DOMAIN
 
 router = APIRouter(prefix="/api/v1/public/event-landing", tags=["Лендинг события (публично)"])
 
@@ -478,7 +479,7 @@ async def get_public_landing(
         for c in chans:
             h = c["handle"].lstrip("@")
             url = {
-                "telegram": f"https://telegram.me/{h}",
+                "telegram": f"https://{TG_DOMAIN}/{h}",
                 "vk": f"https://vk.me/{h}",
                 "max": f"https://max.ru/{h}",
             }.get(c["platform_slug"])

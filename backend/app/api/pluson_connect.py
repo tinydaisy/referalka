@@ -13,6 +13,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services.pluson_connect_token import parse_pluson_connect_token
+from app.services.share_links import TG_DOMAIN
 
 router = APIRouter(prefix="/pluson-connect", tags=["Связка ПЛЮСОН"])
 
@@ -69,7 +70,7 @@ async def _bot_return_deeplink(db, client_id: int, platform: str) -> str:
     from app.services.share_links import get_client_bot_handles
     handles = await get_client_bot_handles(db, client_id)
     if platform == "telegram" and handles.get("telegram"):
-        return f"https://telegram.me/{handles['telegram'].lstrip('@')}?start=pluson_connected"
+        return f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start=pluson_connected"
     if platform == "max" and handles.get("max"):
         return f"https://max.ru/{handles['max'].lstrip('@')}?start=pluson_connected"
     if platform == "vk" and handles.get("vk"):

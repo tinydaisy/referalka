@@ -25,6 +25,7 @@ from app.services.bonuses import (
     mark_withdrawal_done,
     debit_bonus_for_payment,
 )
+from app.services.share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ async def get_my_referral_dashboard(
     # разбора обязан иметь бот КАЖДОЙ площадки, иначе код молча теряется.
     ref_code = client["referral_code"]
     web_link = f"https://pluson.ru/?pid={ref_code}"
-    bot_link = f"https://telegram.me/pluson_bot?start=ref{ref_code}"
+    bot_link = f"https://{TG_DOMAIN}/pluson_bot?start=ref{ref_code}"
 
     # MAX-ссылка — handle бота ПЛЮСОНа берём из БД, а не хардкодом: бот может
     # быть перевыпущен, и захардкоженный ник увёл бы людей в никуда.

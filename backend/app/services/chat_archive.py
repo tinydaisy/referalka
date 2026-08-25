@@ -24,6 +24,7 @@ import random
 from typing import Optional
 
 from app.database import get_pool
+from app.services.share_links import TG_DOMAIN
 
 log = logging.getLogger(__name__)
 
@@ -347,7 +348,7 @@ def _build_message_link(platform: str, chat_id: str, message_ref: Optional[str])
         cid = chat_id.lstrip("-")
         if cid.startswith("100"):
             cid = cid[3:]
-        return f"https://telegram.me/c/{cid}/{message_ref}"
+        return f"https://{TG_DOMAIN}/c/{cid}/{message_ref}"
     return None
 
 

@@ -195,8 +195,8 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
         def _key(c):
             url = (c.get("tg_channel_url") or "").strip().lower().rstrip("/")
             if url:
-                # t.me и telegram.me — один и тот же адрес.
-                return url.replace("telegram.me/", "t.me/").replace("https://", "").replace("http://", "")
+                # t.me и t.me — один и тот же адрес.
+                return url.replace("t.me/", "t.me/").replace("https://", "").replace("http://", "")
             return f"id:{c.get('tg_channel_id') or ''}"
 
         def _dedup(items, seen):

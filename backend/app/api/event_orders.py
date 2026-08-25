@@ -25,6 +25,7 @@ from app.database import get_db
 from app.services import client_payments
 from app.services.contact_merge import find_or_create_contact, resolve_ref_code
 from app.services.participant_registration import finalize_participant_registration
+from app.services.share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -491,7 +492,7 @@ async def thanks_by_tariff(
     for c in chans:
         h = c["handle"].lstrip("@")
         url = {
-            "telegram": f"https://telegram.me/{h}?start=ref_pg{ev['slug']}",
+            "telegram": f"https://{TG_DOMAIN}/{h}?start=ref_pg{ev['slug']}",
             "vk": f"https://vk.me/{h}",
             "max": f"https://max.ru/{h}?start=ref_pg{ev['slug']}",
         }.get(c["platform_slug"])
@@ -584,7 +585,7 @@ async def get_order(
     for c in chans:
         h = c["handle"].lstrip("@")
         url = {
-            "telegram": f"https://telegram.me/{h}?start=ref_pg{d['event_slug']}",
+            "telegram": f"https://{TG_DOMAIN}/{h}?start=ref_pg{d['event_slug']}",
             "vk": f"https://vk.me/{h}",
             "max": f"https://max.ru/{h}?start=ref_pg{d['event_slug']}",
         }.get(c["platform_slug"])

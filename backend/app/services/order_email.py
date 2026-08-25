@@ -17,6 +17,7 @@ import logging
 from typing import Optional
 
 from app.services.client_domains import platform_base_url
+from app.services.share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,7 @@ async def send_order_paid_email(db, order_id: int) -> bool:
     for b in bots:
         h = b["handle"].lstrip("@")
         url = {
-            "telegram": f"https://telegram.me/{h}?start=ref_pg{o['event_slug']}",
+            "telegram": f"https://{TG_DOMAIN}/{h}?start=ref_pg{o['event_slug']}",
             "vk": f"https://vk.me/{h}",
             "max": f"https://max.ru/{h}?start=ref_pg{o['event_slug']}",
         }.get(b["platform_slug"])

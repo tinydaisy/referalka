@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from app.services.share_links import TG_DOMAIN
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ async def _referrer_block(db, referrer_client_id: int | None) -> list[str]:
     ]
     if r["telegram_username"]:
         u = r["telegram_username"].lstrip("@").strip()
-        out.append(f"<b>Telegram:</b> <a href=\"https://telegram.me/{u}\">@{u}</a>")
+        out.append(f"<b>Telegram:</b> <a href=\"https://{TG_DOMAIN}/{u}\">@{u}</a>")
     out.append(f"<b>Карточка:</b> {_admin_client_link(r['email'], referrer_client_id)}")
     return out
 
@@ -321,7 +322,7 @@ async def notify_founder_new_client(
         if telegram_username:
             uname = telegram_username.lstrip("@").strip()
             parts.append(
-                f"<b>Telegram:</b> <a href=\"https://telegram.me/{uname}\">@{uname}</a>"
+                f"<b>Telegram:</b> <a href=\"https://{TG_DOMAIN}/{uname}\">@{uname}</a>"
             )
         parts += [
             f"<b>Когда:</b> {_msk_now_str()}",
@@ -344,7 +345,7 @@ async def notify_founder_new_client(
             if telegram_username:
                 u = telegram_username.lstrip("@").strip()
                 ref_lines.append(
-                    f"<b>Telegram:</b> <a href=\"https://telegram.me/{u}\">@{u}</a>"
+                    f"<b>Telegram:</b> <a href=\"https://{TG_DOMAIN}/{u}\">@{u}</a>"
                 )
             ref_lines += [
                 f"<b>Когда:</b> {_msk_now_str()}",
@@ -430,7 +431,7 @@ async def notify_referrer_about_purchase(
             if payer_row["telegram_username"]:
                 u = payer_row["telegram_username"].lstrip("@").strip()
                 founder_lines.append(
-                    f"<b>Telegram:</b> <a href=\"https://telegram.me/{u}\">@{u}</a>"
+                    f"<b>Telegram:</b> <a href=\"https://{TG_DOMAIN}/{u}\">@{u}</a>"
                 )
         founder_lines += [
             f"<b>Что купил:</b> {what_paid}",

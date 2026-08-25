@@ -133,7 +133,7 @@ def _validate_social_links(data) -> None:
             detail=(
                 "Соцсети нужно указывать полной ссылкой, а не никнеймом. "
                 f"Исправьте: {', '.join(bad)}. "
-                "Например: https://telegram.me/username, https://vk.com/username, "
+                "Например: https://t.me/username, https://vk.com/username, "
                 "https://instagram.com/username"
             ),
         )

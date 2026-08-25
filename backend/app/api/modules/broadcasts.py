@@ -499,7 +499,7 @@ DEFAULT_TEMPLATES = [
             "Вы можете продолжить взаимодействие с нами в следующих форматах:\n\n"
             "🔸 Бесплатный тест-драйв программы «Делай имя и продажи» для экспертов и предпринимателей\n"
             "👉 https://www.margoforbs.ru/dns_stupen1.html\n\n"
-            "🔸 Канал Марго Форбс Telegram 👉 https://telegram.me/margoforbs_business\n"
+            "🔸 Канал Марго Форбс Telegram 👉 https://t.me/margoforbs_business\n"
             "🔸 Канал Марго Форбс MAX 👉 https://max.ru/id890306512862_biz\n\n"
             "👉 Мастермайнд в тарифе VIP с записями выступлений\n"
             "https://medialift.margoforbs.ru/ivision-vip-tarif\n\n"

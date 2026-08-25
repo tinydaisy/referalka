@@ -70,6 +70,21 @@ async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | 
     return 'bot'
 
 
+# ⚠️⚠️ ДОМЕН TELEGRAM — ОДНА ТОЧКА НА ВЕСЬ ПРОЕКТ.
+# Меняется здесь, и меняется везде. Раньше он был вписан руками почти в двух
+# сотнях мест: перевод с `t.me` на `t.me` делали заменой по всем файлам,
+# обратно — снова по всем, и каждый раз что-нибудь оставалось на старом домене.
+#
+# ⚠️ Почему сейчас `t.me`: `openTelegramLink` в Mini App понимает ТОЛЬКО его.
+# На зеркале `t.me` кнопка «Открыть подарок» молча не срабатывала —
+# нажатие уходило впустую (прод, 25.08).
+#
+# Значение можно переопределить переменной окружения `TG_DOMAIN` — сменить
+# домен тогда получится вообще без правки кода.
+TG_DOMAIN = (
+    __import__("os").getenv("TG_DOMAIN") or "t.me"
+).strip().replace("https://", "").strip("/")
+
 PLUSON_TG_HANDLE = "pluson_bot"
 PLUSON_TG_APP = "pluson"          # short-name Mini App у общего бота
 PLUSON_VK_APP_ID = 54592404       # системный VK Mini App ПЛЮСОН (см. memory/vk_prod.md)
@@ -108,13 +123,13 @@ def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id:
     # link_mode='bot' → бот-флоу: t.me/{bot}?start=ref_pg… (бот шлёт воронку события
     # в ЛС). link_mode='miniapp' (дефолт) → открывается Mini App через startapp.
     if link_mode == 'bot':
-        return f"https://telegram.me/{handle}?start={payload}"
+        return f"https://{TG_DOMAIN}/{handle}?start={payload}"
     # Mini App: у VIP-бота клиента это Main Mini App (без short-name) —
     # `t.me/{handle}?startapp=…`. У общего @pluson_bot приложение привязано
     # отдельным short-name (`/newapp`), поэтому его надо дописывать в путь,
     # иначе ссылка НЕ открывает Mini App (и бот в режиме miniapp молчит).
     app_part = f"/{PLUSON_TG_APP}" if handle.lstrip('@') == PLUSON_TG_HANDLE else ""
-    return f"https://telegram.me/{handle}{app_part}?startapp={payload}"
+    return f"https://{TG_DOMAIN}/{handle}{app_part}?startapp={payload}"
 
 
 def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None, link_mode: str = 'miniapp') -> str:
@@ -213,7 +228,7 @@ def build_event_signup_links(handles: dict[str, str | None], event_slug: str) ->
     только как callback УЖЕ НАЖАТОЙ кнопки внутри бота, обработчика команды
     /start с таким аргументом в Telegram нет вовсе. Ссылка с ним вела в бота,
     где ничего не происходило.
-      • TG:  telegram.me/{handle}?start=ref_pg{slug}
+      • TG:  t.me/{handle}?start=ref_pg{slug}
       • VK:  vk.me/{handle}?ref=ref_pg{slug}
       • MAX: max.ru/{handle}?start=ref_pg{slug}
     Нет своего бота на площадке → пустая строка (системный бот не используется).
@@ -223,7 +238,7 @@ def build_event_signup_links(handles: dict[str, str | None], event_slug: str) ->
     mx = (handles.get("max") or "").lstrip('@')
     payload = f"ref_pg{event_slug}"
     return {
-        "telegram": f"https://telegram.me/{tg}?start={payload}" if tg else "",
+        "telegram": f"https://{TG_DOMAIN}/{tg}?start={payload}" if tg else "",
         "vk": f"https://vk.me/{vk}?ref={payload}" if vk else "",
         "max": f"https://max.ru/{mx}?start={payload}" if mx else "",
     }
@@ -293,7 +308,7 @@ def build_support_command_links(handles: dict[str, str | None], event_id: int) -
     """Deeplink-ссылки «Тех.поддержка» по площадкам: клик → бот вызывает команду
     support (сообщение со всеми каналами связи клиента-владельца события).
     Формат — тот же deeplink-паттерн, что evlive_/evchat_:
-      • TG:  telegram.me/{handle}?start=evsupport_{event_id}
+      • TG:  t.me/{handle}?start=evsupport_{event_id}
       • VK:  vk.me/{handle}?ref=evsupport_{event_id}
       • MAX: max.ru/{handle}?start=evsupport_{event_id}
     Нет своего бота на площадке (handle=None) → пустая строка (ссылка не строится,
@@ -302,7 +317,7 @@ def build_support_command_links(handles: dict[str, str | None], event_id: int) -
     vk = (handles.get("vk") or "").lstrip('@')
     mx = (handles.get("max") or "").lstrip('@')
     return {
-        "telegram": f"https://telegram.me/{tg}?start=evsupport_{event_id}" if tg else "",
+        "telegram": f"https://{TG_DOMAIN}/{tg}?start=evsupport_{event_id}" if tg else "",
         "vk": f"https://vk.me/{vk}?ref=evsupport_{event_id}" if vk else "",
         "max": f"https://max.ru/{mx}?start=evsupport_{event_id}" if mx else "",
     }
@@ -448,7 +463,7 @@ async def build_funnel_landing_links(
 
     # TG: только свой бот клиента
     if handles.get("telegram"):
-        result["telegram"] = f"https://telegram.me/{handles['telegram'].lstrip('@')}?start={payload}"
+        result["telegram"] = f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start={payload}"
 
     # VK: только собственное сообщество клиента (его vk_app_id)
     if handles.get("vk"):
@@ -602,7 +617,7 @@ async def build_invite_links_for_collaborator(
 
     # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
     if handles.get("telegram"):
-        result["telegram"] = f"https://telegram.me/{handles['telegram'].lstrip('@')}?start={payload}"
+        result["telegram"] = f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start={payload}"
 
     # VK: используем Mini App клиента (как лид-магниты) — `vk.com/app{vk_app_id}#spkinv_<code>`.
     # Mini App при загрузке парсит hash и шлёт POST /api/v1/vk/speaker-invite — бэк сам
@@ -641,7 +656,7 @@ async def build_speaker_self_register_links(
 
     # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
     if handles.get("telegram"):
-        result["telegram"] = f"https://telegram.me/{handles['telegram'].lstrip('@')}?start={payload}"
+        result["telegram"] = f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start={payload}"
 
     # VK: через Mini App клиента (как spkinv_). vk.me/{handle}?ref=
     # ненадёжен — VK не передаёт ref если пользователь раньше уже писал
@@ -675,7 +690,7 @@ async def build_speaker_self_edit_links(
 
     # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
     if handles.get("telegram"):
-        result["telegram"] = f"https://telegram.me/{handles['telegram'].lstrip('@')}?start={payload}"
+        result["telegram"] = f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start={payload}"
 
     if handles.get("vk"):
         vk_app_id = await get_client_vk_app_id(db, client_id)
@@ -718,7 +733,7 @@ async def build_event_chat_bot_links(
 
     # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
     if handles.get("telegram"):
-        result["telegram"] = f"https://telegram.me/{handles['telegram'].lstrip('@')}?start={payload}"
+        result["telegram"] = f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start={payload}"
 
     if handles.get("vk"):
         result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"

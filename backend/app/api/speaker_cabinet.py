@@ -33,6 +33,7 @@ from app.services.speaker_lead_magnet_stats import speaker_lead_magnet_stats
 from app.services.person_name import (
     display_name, search_name, SEARCH_NAME_ORDER_SQL, SEARCH_NAME_SQL,
 )
+from app.services.share_links import TG_DOMAIN
 
 # Лимиты длины полей, которые заполняет сам спикер. Держать в синхроне с
 # фронтом ([event_slug]/page.tsx) — иначе счётчик покажет одно, а сохранение
@@ -803,7 +804,7 @@ async def verify_channel(
 
     # Если ID канала ещё не сохранён — резолвим через getChat по @username из url
     if not channel_id and channel_url:
-        m = channel_url.replace("https://telegram.me/", "").replace("http://telegram.me/", "").replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
+        m = channel_url.replace("https://t.me/", "").replace("http://t.me/", "").replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
         if m and not m.startswith("+"):
             try:
                 async with httpx.AsyncClient(timeout=6) as http:
@@ -1121,7 +1122,7 @@ async def get_me_materials(
             # клиента нет своего TG-бота — TG invite-ссылку спикеру не показываем.
             tg_handle = (handles.get("telegram") or "").lstrip("@")
             if tg_handle:
-                partner_link["telegram"] = f"https://telegram.me/{tg_handle}?start={payload}"
+                partner_link["telegram"] = f"https://{TG_DOMAIN}/{tg_handle}?start={payload}"
         if "vk" in platforms and vk_app_id:
             partner_link["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
         if "max" in platforms and handles.get("max"):
@@ -1596,7 +1597,7 @@ async def get_me_invited(
             return None
         u = (uname or "").lstrip("@")
         if slug == "telegram":
-            return f"https://telegram.me/{u}" if u else None
+            return f"https://{TG_DOMAIN}/{u}" if u else None
         if slug == "vk":
             return f"https://vk.com/id{pid}" if str(pid).isdigit() else (f"https://vk.com/{u}" if u else None)
         if slug == "max":

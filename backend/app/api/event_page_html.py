@@ -624,8 +624,8 @@ def _tg_url(raw):
     if raw.lower().startswith("http"):
         return raw
     if raw.startswith("@"):
-        return "https://telegram.me/" + raw[1:]
-    return "https://telegram.me/" + raw
+        return "https://t.me/" + raw[1:]
+    return "https://t.me/" + raw
 
 
 def _avatar_html(photo, name, size=56, logo=False):
@@ -1096,7 +1096,7 @@ def _people_dm_link(slug_platform, pu_id, username):
     """Ссылка в личку человека по его платформе. None если построить нельзя."""
     if slug_platform == "telegram":
         if username:
-            return "https://telegram.me/" + str(username).lstrip("@")
+            return "https://t.me/" + str(username).lstrip("@")
         if pu_id and str(pu_id).lstrip("@").isdigit():
             return "tg://user?id=" + str(pu_id)
         return None

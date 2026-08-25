@@ -33,6 +33,7 @@ from aiogram.types import (
 
 from app.database import get_pool
 from app.services.client_domains import client_public_link, platform_base_url
+from app.services.share_links import TG_DOMAIN
 
 log = logging.getLogger(__name__)
 router = Router(name="medialift")
@@ -174,7 +175,7 @@ _ADD_CHANNEL_INSTRUCTION = (
     "⚠️ <b>Сначала добавьте этого бота администратором</b> вашего канала "
     "(иначе система не сможет проверять подписки на ваш канал).\n\n"
     "Затем пришлите канал одним из способов:\n"
-    "• ссылкой: <code>https://telegram.me/ваш_канал</code>\n"
+    "• ссылкой: <code>https://t.me/ваш_канал</code>\n"
     "• или <b>перешлите сюда любой пост из канала</b> — так подхватим и закрытый канал."
 )
 
@@ -394,7 +395,7 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
 
     # Резолвим ID канала, если пришла только ссылка на публичный @канал.
     if not chan_id and url:
-        m = url.replace("https://telegram.me/", "").replace("http://telegram.me/", "").replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
+        m = url.replace("https://t.me/", "").replace("http://t.me/", "").replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
         if m.startswith("+"):
             await message.answer(
                 "Это закрытый канал по инвайт-ссылке — по ней ID не получить.\n"
@@ -458,7 +459,7 @@ async def _handle_add_channel(message: Message, bot: Bot, *, chan_id: Optional[s
             contact_id=row["id"], contact_name=row["name"] or "Участник")
         contact_id = row["id"]
 
-        chan_url = url or (f"https://telegram.me/{title}" if title else "")
+        chan_url = url or (f"https://{TG_DOMAIN}/{title}" if title else "")
         await db.execute(
             """UPDATE collaborators SET tg_channel_url=$1, tg_channel_id=$2, updated_at=NOW()
                 WHERE id=$3""", chan_url, chan_id, coll_id)
@@ -519,7 +520,7 @@ async def on_channel_forward(message: Message, bot: Bot):
     if not ch or ch.type != "channel":
         await message.answer("Это не пост из канала. Перешлите пост именно из вашего КАНАЛА.")
         return
-    url = f"https://telegram.me/{ch.username}" if ch.username else ""
+    url = f"https://{TG_DOMAIN}/{ch.username}" if ch.username else ""
     await _handle_add_channel(message, bot, chan_id=str(ch.id), url=url, title_hint=ch.title)
 
 

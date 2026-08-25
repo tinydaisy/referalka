@@ -15,6 +15,7 @@ Welcome-email при регистрации на событие.
 """
 import logging
 from typing import Optional
+from app.services.share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ async def send_welcome_email_if_needed(
     )
     # Только свой бот клиента. Системный @pluson_bot убран — нет своего бота → нет TG-кнопки.
     tg_url = (
-        f"https://telegram.me/{tg_bot_handle}?startapp=ref_pg{event['slug']}"
+        f"https://{TG_DOMAIN}/{tg_bot_handle}?startapp=ref_pg{event['slug']}"
         if tg_bot_handle else ""
     )
 

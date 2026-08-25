@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # отправкой (api/modules/broadcasts.py). Своей сборки сообщения быть не
 # должно: именно от неё тест и бой разъезжались (см. platform_delivery).
 from app.services import platform_delivery as delivery
+from app.services.share_links import TG_DOMAIN
 
 
 def get_db_url() -> str:
@@ -647,7 +648,7 @@ async def _send_broadcast(schedule_id: int):
             # {game_link} вести некуда — оставляем ссылку пустой (плейсхолдер
             # подставится пустотой, кнопка/текст без рабочей ссылки на этой платформе).
             if bot_handle:
-                game_link_url = f"https://telegram.me/{bot_handle}?startapp=ref_pg{event_slug_for_glink}_tabgame"
+                game_link_url = f"https://{TG_DOMAIN}/{bot_handle}?startapp=ref_pg{event_slug_for_glink}_tabgame"
             else:
                 game_link_url = ""
 

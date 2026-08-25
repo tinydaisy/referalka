@@ -11,6 +11,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services.contact_merge import upsert_contact_with_identity, resolve_ref_code
+from app.services.share_links import TG_DOMAIN
 
 router = APIRouter(prefix="/participants", tags=["Участники"])
 
@@ -49,8 +50,8 @@ async def _resolve_post_register_redirect(db, client_id: int, event_slug: str) -
     @pluson_bot `/tg/event/{slug}`.
 
     Возвращаем ещё `bot_handle` — для fallback'а в обычном браузере
-    (когда нет Telegram.WebApp): `https://telegram.me/{handle}` для VIP,
-    `https://telegram.me/pluson_bot/pluson?startapp=…` для общего.
+    (когда нет Telegram.WebApp): `https://t.me/{handle}` для VIP,
+    `https://t.me/pluson_bot/pluson?startapp=…` для общего.
     """
     vip_handle = await db.fetchval(
         """SELECT ch.handle
@@ -683,7 +684,7 @@ def _build_messenger_url(platform_slug: str, username: str | None, pid: str | No
     """URL для перехода в ЛС на конкретной платформе."""
     if platform_slug == 'telegram':
         if username:
-            return f"https://telegram.me/{username.lstrip('@')}"
+            return f"https://{TG_DOMAIN}/{username.lstrip('@')}"
         if pid:
             return f"tg://user?id={pid}"
         return None

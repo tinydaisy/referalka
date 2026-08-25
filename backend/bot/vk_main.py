@@ -33,6 +33,7 @@ from app.services.contact_merge import upsert_contact_with_identity
 from app.services.client_domains import (
     client_public_link, client_public_url, platform_base_url, public_url_for,
 )
+from app.services.share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -671,7 +672,7 @@ async def _handle_speaker_self_register_vk(
                 bot_handle = (data["result"].get("username") or bot_handle).lstrip("@")
         except Exception:
             pass
-    spkinv_url = f"https://telegram.me/{bot_handle}?start=spkinv_{access_code}"
+    spkinv_url = f"https://{TG_DOMAIN}/{bot_handle}?start=spkinv_{access_code}"
 
     if already:
         text = (

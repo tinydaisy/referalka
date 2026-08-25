@@ -12,6 +12,7 @@ from app.database import get_pool
 from app.services.client_domains import client_public_link
 import html as _html
 import logging
+from app.services.share_links import TG_DOMAIN
 
 router = Router()
 log = logging.getLogger(__name__)
@@ -388,11 +389,11 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         for o in collab_subscribed:
             key = (o.get("tg_channel_url") or "").strip().lower().rstrip("/")
             key = (key.replace("https://", "").replace("http://", "")
-                      .replace("telegram.me/", "t.me/")) if key else f"id:{o.get('tg_channel_id')}"
+                      .replace("t.me/", "t.me/")) if key else f"id:{o.get('tg_channel_id')}"
             for c in channels:
                 ck = (c.get("tg_channel_url") or "").strip().lower().rstrip("/")
                 ck = (ck.replace("https://", "").replace("http://", "")
-                        .replace("telegram.me/", "t.me/")) if ck else f"id:{c.get('tg_channel_id')}"
+                        .replace("t.me/", "t.me/")) if ck else f"id:{c.get('tg_channel_id')}"
                 if ck == key:
                     verdicts[c["speaker_id"]] = "subscribed"
 
@@ -402,14 +403,14 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         # расходятся, и человек видел «подпишитесь на Нурию» и тут же
         # «✅ Нурия — вы подписаны» про ОДИН канал.
         #
-        # Склеиваем по адресу канала (t.me и telegram.me — один и тот же),
+        # Склеиваем по адресу канала (t.me и t.me — один и тот же),
         # а без адреса — по номеру. Из двух копий оставляем ту, где вердикт
         # ХУЖЕ: не подписан — значит не подписан, иначе гейт пропустит мимо.
         def _chan_key(c):
             u = (c.get("tg_channel_url") or "").strip().lower().rstrip("/")
             if u:
                 return (u.replace("https://", "").replace("http://", "")
-                         .replace("telegram.me/", "t.me/"))
+                         .replace("t.me/", "t.me/"))
             return f"id:{c.get('tg_channel_id') or ''}"
 
         if channels:
@@ -631,7 +632,7 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
     «Программа» и «⬅️ Вернуться в меню».
 
     Вызывается из callback-кнопки меню (`evlive_<id>`) и из внешней ссылки
-    `telegram.me/{бот}?start=evlive_<id>` — одна логика на обе точки входа."""
+    `t.me/{бот}?start=evlive_<id>` — одна логика на обе точки входа."""
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
@@ -874,7 +875,7 @@ async def handle_speaker_self_register(callback: CallbackQuery):
         bot_handle = me.username or "pluson_bot"
     except Exception:
         bot_handle = "pluson_bot"
-    spkinv_url = f"https://telegram.me/{bot_handle}?start=spkinv_{access_code}"
+    spkinv_url = f"https://{TG_DOMAIN}/{bot_handle}?start=spkinv_{access_code}"
 
     assistant_hint = (
         "\n\nЕсли хотите, чтобы ваш профиль вёл ассистент — войдите в кабинет "

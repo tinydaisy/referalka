@@ -22,6 +22,7 @@ from app.services.client_domains import (
     platform_base_url,
     public_url_for,
 )
+from app.services.share_links import TG_DOMAIN
 
 
 # Telegram parse_mode=HTML понимает только узкий набор тегов:
@@ -177,7 +178,7 @@ def speaker_card_link(event_slug, ec_id, link_mode=None, bot_handle=None, base_u
         return ""
     if link_mode == "miniapp" and bot_handle:
         h = str(bot_handle).lstrip("@")
-        return f"https://telegram.me/{h}?startapp=ref_pg{slug}_spk{ec_id}"
+        return f"https://{TG_DOMAIN}/{h}?startapp=ref_pg{slug}_spk{ec_id}"
     return public_url_for(base_url, f"event/{slug}?spk={ec_id}")
 
 

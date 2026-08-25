@@ -15,10 +15,10 @@ from app.services.admin_export import wa_link, tg_link
 
 
 def _nick_from(value: Optional[str]) -> str:
-    """@ник / ссылка telegram.me/ник / голый ник → ник в нижнем регистре.
+    """@ник / ссылка t.me/ник / голый ник → ник в нижнем регистре.
 
     Поля в базе заполнены по-разному: 'margo_forbs', '@numerosvetoch',
-    'https://telegram.me/forbs_margo2'.
+    'https://t.me/forbs_margo2'.
     """
     raw = (value or "").strip()
     if not raw:

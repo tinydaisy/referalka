@@ -53,7 +53,7 @@ async def activate(token: str, db: asyncpg.Connection = Depends(get_db)):
         return _html("Ошибка", (
             "<h1>Что-то пошло не так</h1>"
             "<p>Мы не смогли включить доступ. Напишите нам — разберёмся и всё выдадим.</p>"
-            "<p><a class='btn' href='https://telegram.me/pluson_bot'>Написать в поддержку</a></p>"
+            "<p><a class='btn' href='https://t.me/pluson_bot'>Написать в поддержку</a></p>"
         ), 500)
 
     if not res.get("ok"):
@@ -70,13 +70,13 @@ async def activate(token: str, db: asyncpg.Connection = Depends(get_db)):
                 "<h1>Срок ссылки истёк</h1>"
                 "<p>Ссылка на бонус действует ограниченное время, и оно закончилось.</p>"
                 "<p>Напишите нам — посмотрим, что можно сделать.</p>"
-                "<p><a class='btn' href='https://telegram.me/pluson_bot'>Написать в поддержку</a></p>"
+                "<p><a class='btn' href='https://t.me/pluson_bot'>Написать в поддержку</a></p>"
             ))
         return _html("Ссылка не найдена", (
             "<h1>Ссылка не найдена</h1>"
             "<p>Проверьте, что открыли её полностью — почтовые программы иногда "
             "разрывают длинные ссылки на две строки.</p>"
-            "<p><a class='btn' href='https://telegram.me/pluson_bot'>Написать в поддержку</a></p>"
+            "<p><a class='btn' href='https://t.me/pluson_bot'>Написать в поддержку</a></p>"
         ), 404)
 
     days = res.get("days")
