@@ -149,11 +149,30 @@ async def fetch_matches(db, service_client_id: int) -> list[dict]:
           JOIN cl
             ON (cl.tg_id IS NOT NULL AND cl.tg_id = s.tg_id)
             OR (cl.nick <> '' AND cl.nick = s.tg_nick)
-         ORDER BY s.contact_id
+         -- ⚠️ У одного человека бывает НЕСКОЛЬКО кабинетов (тот же TG-ник,
+         -- тот же телефон в разном написании). Берём САМЫЙ СВЕЖИЙ: его данные
+         -- актуальнее, а иначе выбор зависел бы от порядка строк в базе — то
+         -- есть был бы случайным.
+         ORDER BY s.contact_id, cl.id DESC
         """,
         service_client_id,
     )
-    return [dict(r) for r in rows]
+    # Оставляем по ОДНОЙ строке на контакт (первая — самый свежий кабинет).
+    seen: set[int] = set()
+    out: list[dict] = []
+    dupes: list[tuple[int, int]] = []
+    for r in rows:
+        if r["contact_id"] in seen:
+            dupes.append((r["contact_id"], r["client_id"]))
+            continue
+        seen.add(r["contact_id"])
+        out.append(dict(r))
+    if dupes:
+        print(f"⚠️ У {len(dupes)} контакт(ов) нашлось по несколько кабинетов — "
+              f"взяли самый свежий, остальные пропущены:")
+        for cid, skipped in dupes:
+            print(f"   контакт #{cid}: пропущен кабинет #{skipped}")
+    return out
 
 
 def plan_for(row: dict, with_names: bool = False) -> dict:
