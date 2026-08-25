@@ -54,6 +54,11 @@ export default function DialogChat({
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [chatPlatforms, setChatPlatforms] = useState<string[]>([])
+  // Непрочитанные по площадкам на момент ОТКРЫТИЯ диалога: {telegram: 2, max: 1}.
+  // ⚠️ Снимок, а не живая величина — открытие переписки её тут же обнуляет
+  // на сервере. Держим, чтобы человек видел, где были новые сообщения, и понял,
+  // какую вкладку смотреть.
+  const [unreadBy, setUnreadBy] = useState<Record<string, number>>({})
   const [activeTab, setActiveTab] = useState<string>('all')
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
@@ -68,6 +73,7 @@ export default function DialogChat({
       const r = await api.dialogs.messages(contactId)
       setMessages(r.messages || [])
       setChatPlatforms(r.platforms || [])
+      setUnreadBy(r.unread_by_platform || {})
     } catch { /* пусто */ } finally {
       setLoading(false)
     }
@@ -149,8 +155,22 @@ export default function DialogChat({
             <button
               key={p}
               onClick={() => setActiveTab(p)}
-              className={`text-xs px-2.5 py-1 rounded-full font-medium ${activeTab === p ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600'}`}
-            >{PLATFORM_LABEL[p] || p}</button>
+              className={`text-xs px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1.5 ${activeTab === p ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600'}`}
+            >
+              {PLATFORM_LABEL[p] || p}
+              {/* Сколько новых сообщений было на этой площадке, когда диалог
+                  открыли. У человека может быть три площадки сразу, и без
+                  цифры непонятно, в какую вкладку смотреть. */}
+              {!!unreadBy[p] && (
+                <span
+                  title={`Новых сообщений: ${unreadBy[p]}`}
+                  className="min-w-[16px] text-center text-[10px] font-bold px-1 py-0.5 rounded-full"
+                  style={{ background: '#FFCFA4', color: '#25455D' }}
+                >
+                  {unreadBy[p]}
+                </span>
+              )}
+            </button>
           ))}
           {tabs.length === 0 && (
             <span className="text-xs text-gray-400">Переписки пока нет</span>

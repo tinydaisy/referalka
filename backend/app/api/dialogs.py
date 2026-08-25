@@ -279,19 +279,35 @@ async def contact_messages(
             ORDER BY sent_at ASC, id ASC""",
         client_id, contact_id, platform,
     )
-    # какие платформы вообще есть в переписке (для вкладок TG/VK/MAX)
+    # Какие площадки есть в переписке (вкладки TG/VK/MAX) + сколько на каждой
+    # непрочитанных.
+    # ⚠️ Считаем ДО пометки прочитанным — иначе счётчики всегда были бы нулями.
     plats = await db.fetch(
-        "SELECT DISTINCT platform FROM direct_messages WHERE client_id=$1 AND contact_id=$2",
+        """SELECT platform,
+                  COUNT(*) FILTER (WHERE direction='in' AND NOT is_read) AS unread
+             FROM direct_messages
+            WHERE client_id=$1 AND contact_id=$2
+            GROUP BY platform""",
         client_id, contact_id,
     )
+    # ⚠️ Помечаем прочитанной ТОЛЬКО просматриваемую площадку. Раньше открытие
+    # любой вкладки гасило непрочитанные разом во всех — человек заходил в
+    # Telegram, а счётчик MAX обнулялся, хотя тех сообщений никто не видел.
+    # Вкладка «Все» (platform=None) по-прежнему гасит всё: там и правда всё
+    # показано.
     await db.execute(
         """UPDATE direct_messages SET is_read = TRUE
-            WHERE client_id=$1 AND contact_id=$2 AND direction='in' AND NOT is_read""",
-        client_id, contact_id,
+            WHERE client_id=$1 AND contact_id=$2 AND direction='in' AND NOT is_read
+              AND ($3::text IS NULL OR platform = $3)""",
+        client_id, contact_id, platform,
     )
     return {
         "messages": [dict(r) for r in rows],
         "platforms": [r["platform"] for r in plats],
+        # {'telegram': 2, 'max': 1} — сколько непрочитанных на каждой площадке
+        "unread_by_platform": {
+            r["platform"]: int(r["unread"] or 0) for r in plats if r["unread"]
+        },
     }
 
 
