@@ -78,6 +78,8 @@ export function useChatGate(event: any, tgUser: any) {
   // Когда true — показываем модалку с выбором чата (TG/VK/MAX).
   // Открывается, когда подписки ОК (или не нужны) и доступно больше одного чата.
   const [chooserOpen, setChooserOpen] = useState(false)
+  // Организаторы коллабы, чьи боты предлагаем, когда контакт неизвестен.
+  const [botOwners, setBotOwners] = useState<any[] | null>(null)
 
   // [DEBUG TEMP] последний результат запроса для отладки
   const [debug, setDebug] = useState<string>('')
@@ -100,7 +102,31 @@ export function useChatGate(event: any, tgUser: any) {
     // ещё не реализованы — поэтому в VK/MAX пускаем в чат без проверки.
     // TODO: реализовать проверку подписок на VK-сообщества и MAX-каналы.
     const platformName = getPlatform().name
-    const needsCheck = (isConference || !!event?.require_subscription) && platformName === 'telegram'
+    const needsSub = isConference || !!event?.require_subscription
+
+    // ⚠️⚠️ ПОДПИСКУ УМЕЕМ ПРОВЕРИТЬ ТОЛЬКО В TELEGRAM — там есть аккаунт
+    // человека. В браузере, MAX и ВКонтакте проверять нечем, и раньше чаты
+    // отдавались СРАЗУ: человек получал ссылку, ничего не подписав, хотя
+    // организатор требовал подписку.
+    //
+    // Правильный путь — отправить его в БОТА, где проверка и произойдёт.
+    // Контакт известен → бот его организатора (`chat_bot_links`). Неизвестен
+    // → показываем ботов всех организаторов (`chat_bot_owners`), первым тот,
+    // кто привёл больше людей: решать за человека нельзя — у чужого
+    // организатора его нет, проверку он не пройдёт и чат не получит.
+    if (needsSub && platformName !== 'telegram') {
+      const owners: any[] = event?.chat_bot_owners || []
+      if (owners.length > 1) {
+        setBotOwners(owners)
+        return
+      }
+      const own = event?.chat_bot_links || {}
+      const url = own[platformName] || own.telegram || own.max || own.vk
+      if (url) { openExternal(url); return }
+      // ссылок в ботов нет вовсе → отдаём чат как раньше, чтобы не запереть
+    }
+
+    const needsCheck = needsSub && platformName === 'telegram'
     if (!needsCheck || !event?.id || !tgUser?.id) {
       setDebug(`ПРОПУЩЕНО: platform=${platformName} needsCheck=${needsCheck} eventId=${event?.id} tgId=${tgUser?.id || '(пусто)'} module=${event?.module_slug} require_sub=${event?.require_subscription} isConf=${isConference}`)
       openOneOrChoose(chats)
@@ -157,6 +183,49 @@ export function useChatGate(event: any, tgUser: any) {
   const chats = collectChats(event)
   const primaryChat = chats.find(c => c.isPrimary) || chats[0]
   const backupChats = chats.filter(c => c !== primaryChat)
+
+  // ⚠️ Выбор организатора: в коллабе у каждого свой бот и своя база. Первым
+  // идёт тот, кто привёл больше людей (порядок задаёт бэкенд).
+  const ownerModal = botOwners && botOwners.length > 1 ? (
+    <div onClick={() => setBotOwners(null)} style={{
+      position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.7)',
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'white', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 520,
+        padding: '20px 18px 24px', maxHeight: '85vh', overflowY: 'auto',
+      }}>
+        <div style={{ width: 40, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 16px' }} />
+        <h3 style={{ color: DARK, fontSize: 17, fontWeight: 800, margin: '0 0 6px' }}>
+          Войти в чат события
+        </h3>
+        <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5, margin: '0 0 16px' }}>
+          Событие ведут несколько организаторов. Выберите, через чьего бота войти —
+          он проверит подписку и пришлёт ссылку на чат.
+        </p>
+        {botOwners.map((o: any) => (
+          <div key={o.client_id} style={{ marginBottom: 14 }}>
+            <div style={{
+              fontSize: 11, color: '#888', textTransform: 'uppercase',
+              letterSpacing: 0.5, fontWeight: 700, margin: '2px 2px 6px',
+            }}>{o.name}</div>
+            {Object.entries(o.links || {}).map(([plat, url]: any) => (
+              <button key={plat}
+                onClick={() => { setBotOwners(null); openExternal(url as string) }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', marginBottom: 6,
+                  background: '#f5f7fa', border: '1px solid #e3e8ee', borderRadius: 10,
+                  padding: '11px 14px', fontSize: 14, fontWeight: 700, color: DARK,
+                  cursor: 'pointer',
+                }}>
+                {plat === 'telegram' ? 'Telegram' : plat === 'vk' ? 'ВКонтакте' : 'MAX'}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null
 
   const chooserModal = chooserOpen && chats.length > 1 ? (
     <div onClick={closeChooser} style={{
@@ -364,7 +433,7 @@ export function useChatGate(event: any, tgUser: any) {
     </div>
   ) : null
 
-  const modal = <>{subscriptionModal}{chooserModal}</>
+  const modal = <>{subscriptionModal}{chooserModal}{ownerModal}</>
 
   return { openChat, modal, loading: chatGate.loading, debug }
 }

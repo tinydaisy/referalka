@@ -167,7 +167,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     }, 8000)
 
     Promise.all([
-      getEventLanding(slug, tgUser?.id).catch(() => null),
+      getEventLanding(slug, tgUser?.id, contactId).catch(() => null),
       tgUser?.id ? getParticipantInEvent(slug, tgUser.id).catch(() => null) : Promise.resolve(null),
     ]).then(async ([landing, part]) => {
       if (cancelled) return

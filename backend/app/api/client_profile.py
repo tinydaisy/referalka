@@ -769,6 +769,7 @@ async def public_event_bot_handle(
 
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
 async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
+                               contact_id: Optional[int] = Query(None),
                                db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
         """WITH cd AS (
@@ -879,6 +880,50 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     d = dict(row)
+
+    # ⚠️⚠️ ССЫЛКИ В БОТОВ ОРГАНИЗАТОРОВ — ДЛЯ КНОПКИ «ВОЙТИ В ЧАТ».
+    # Проверить подписку прямо на странице умеет только Telegram (там есть
+    # аккаунт человека). В браузере, MAX и ВКонтакте её проверить нечем — и
+    # раньше чаты отдавались СРАЗУ, минуя требование подписки: человек
+    # получал ссылку, ничего не подписав.
+    #
+    # Правильный путь — отправить его в бота, где проверка и произойдёт.
+    # Контакт известен → бот ЕГО организатора. Неизвестен → отдаём ботов всех
+    # организаторов, человек выбирает сам; первым тот, кто привёл больше
+    # людей на это событие.
+    d["chat_bot_links"] = {}
+    d["chat_bot_owners"] = []
+    try:
+        _needs = bool(d.get("require_subscription")) or (
+            d.get("module_slug") in ("conference", "turnir"))
+        if _needs:
+            from app.services.share_links import build_event_chat_bot_links
+            from app.services.event_client import resolve_event_client
+            _cid = await resolve_event_client(
+                db, event_id=d["id"], client_id=d["client_id"],
+                contact_id=contact_id)
+            d["chat_bot_links"] = await build_event_chat_bot_links(db, _cid, d["id"]) or {}
+
+            if not contact_id and d.get("is_collab"):
+                _rows = await db.fetch(
+                    """SELECT eo.client_id,
+                              COALESCE(NULLIF(cl.brand_name,''), cl.name) AS nm,
+                              (SELECT count(*) FROM event_participants ep
+                                 JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                                WHERE ep.event_id = $1
+                                  AND rc.client_id = eo.client_id) AS brought
+                         FROM event_owners eo
+                         JOIN clients cl ON cl.id = eo.client_id
+                        WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                        ORDER BY brought DESC, eo.id""",
+                    d["id"])
+                for _r in _rows:
+                    _lnk = await build_event_chat_bot_links(db, _r["client_id"], d["id"]) or {}
+                    if _lnk:
+                        d["chat_bot_owners"].append(
+                            {"client_id": _r["client_id"], "name": _r["nm"], "links": _lnk})
+    except Exception:
+        pass          # кнопка чата не должна ронять страницу события
 
     # ── Ссылка эфира = вебинарная комната ДНЯ (events.stream_url удалён, миграция 233) ──
     # У конкурса комнаты нет: «стрим» = ссылка голосования → сторонний лендинг.

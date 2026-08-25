@@ -203,8 +203,17 @@ export const getClientEvents = (
   return req(`/api/v1/public/clients/${clientId}/events${qs ? `?${qs}` : ''}`)
 }
 
-export const getEventLanding = (slug: string, tgId?: string | number | null) =>
-  req(`/api/v1/public/events/${slug}/landing${tgId ? `?tg_id=${tgId}` : ''}`)
+export const getEventLanding = (
+  slug: string, tgId?: string | number | null, contactId?: number | null,
+) => {
+  // ⚠️ contact_id нужен кнопке «Войти в чат»: по нему бэкенд понимает, в бота
+  // КАКОГО организатора вести человека в коллабе. Без него он отдаёт ботов
+  // всех организаторов, и человек выбирает сам.
+  const q: string[] = []
+  if (tgId) q.push(`tg_id=${tgId}`)
+  if (contactId) q.push(`contact_id=${contactId}`)
+  return req(`/api/v1/public/events/${slug}/landing${q.length ? '?' + q.join('&') : ''}`)
+}
 
 // Реф-ссылки события для всех активных платформ клиента (TG / VK / MAX).
 // Возвращает {links: {telegram?, vk?, max?}} — пользователь видит все доступные
