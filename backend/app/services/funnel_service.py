@@ -337,14 +337,22 @@ async def _funnel_buttons(run: dict, materials: list[dict], db) -> list[dict]:
 
 
 def _format_text(template: str, ctx: dict, materials: list[dict],
-                 pkg_description: str = "") -> str:
+                 pkg_description: str = "", package_mode: str | None = None) -> str:
+    # ⚠️ У материалов, которые уходят ТОЛЬКО кнопкой, ссылку в тексте НЕ
+    # печатаем: иначе человек получает одно и то же дважды — строкой и кнопкой
+    # (жалоба «выбрала кнопками, а пришло и ссылками, и кнопками»).
+    # Режим пакета главнее личной настройки материала.
+    from app.services.lead_magnet_buttons import show_link_in_text
     # {materials_list} — нумерованный список названий, названия ЖИРНЫЕ (<b>).
     materials_list = "\n\n".join(
         f"{i + 1}. <b>{m['name']}</b>" for i, m in enumerate(materials)
     )
     # {materials_with_links} — название ЖИРНОЕ (<b>) + ссылка через « — ».
     materials_with_links = "\n\n".join(
-        f"{i + 1}. <b>{m['name']}</b> — {m['url']}" for i, m in enumerate(materials)
+        (f"{i + 1}. <b>{m['name']}</b> — {m['url']}"
+         if show_link_in_text(m, package_mode)
+         else f"{i + 1}. <b>{m['name']}</b>")
+        for i, m in enumerate(materials)
     )
     # {materials_list_description} и {materials_list_description_links} — расширенный
     # список: жирное название, под ним НЕжирное описание (через « — »). Пункты
@@ -367,7 +375,7 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
         # ссылку в ожидании файла и не понимает, почему открылись вопросы.
         if m.get("needs_survey"):
             parts.append("📝 Сначала заполните анкету — подарок придёт сразу после отправки.")
-        if with_link:
+        if with_link and show_link_in_text(m, package_mode):
             url = (m.get("url") or "").strip()
             if url:
                 parts.append(url)
@@ -1827,7 +1835,8 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         materials = await _materials_for_run(dict(run), db)
         pkg_desc = await _package_description_for_run(dict(run), db)
         vk_ctx = await _get_brand_context(client_id, db, platform="vk")
-        text_2 = _format_text(template["text_2"], vk_ctx, materials, pkg_desc)
+        pkg_mode = await _package_link_mode(dict(run), db)
+        text_2 = _format_text(template["text_2"], vk_ctx, materials, pkg_desc, pkg_mode)
         # Видео в VK НЕ отправляется — только фото (решение 2026-07-08).
         vk_m2_url, vk_m2_type = _vk_funnel_media(
             template.get("text_2_media_url"), template.get("text_2_media_type"))
@@ -1886,7 +1895,8 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         materials = await _materials_for_run(dict(run), db)
         pkg_desc = await _package_description_for_run(dict(run), db)
         from app.services.message_builder import html_to_telegram
-        text_2 = html_to_telegram(_format_text(template["text_2"], max_ctx, materials, pkg_desc))
+        pkg_mode = await _package_link_mode(dict(run), db)
+        text_2 = html_to_telegram(_format_text(template["text_2"], max_ctx, materials, pkg_desc, pkg_mode))
         text_2, media_att2 = await _max_media_for_text(
             text_2, template.get("text_2_media_url"), template.get("text_2_media_type"), max_token)
         from app.services.max_api import send_message as max_send
@@ -1947,7 +1957,8 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
 
     materials = await _materials_for_run(dict(run), db)
     pkg_desc = await _package_description_for_run(dict(run), db)
-    text_2 = _format_text(template["text_2"], ctx, materials, pkg_desc)
+    pkg_mode = await _package_link_mode(dict(run), db)
+    text_2 = _format_text(template["text_2"], ctx, materials, pkg_desc, pkg_mode)
     # Материалы, помеченные «кнопкой», уходят кнопками под сообщением. Ссылка
     # в абзаце теряется — человек дочитывает и не понимает, куда нажать.
     btns = await _funnel_buttons(dict(run), materials, db)
@@ -2000,10 +2011,12 @@ async def send_text_3(run_id: int, db) -> None:
     pkg_desc = await _package_description_for_run(dict(run), db)
 
     if run["stage"] == "delivered":
-        text = _format_text(template["text_3_delivered"], ctx, materials, pkg_desc)
+        pkg_mode = await _package_link_mode(dict(run), db)
+        text = _format_text(template["text_3_delivered"], ctx, materials, pkg_desc, pkg_mode)
         kind = "delivered"
     else:
-        text = _format_text(template["text_3_stuck"], ctx, materials, pkg_desc)
+        pkg_mode = await _package_link_mode(dict(run), db)
+        text = _format_text(template["text_3_stuck"], ctx, materials, pkg_desc, pkg_mode)
         kind = "stuck"
 
     token = await _bot_token_for_client(client_id, db)

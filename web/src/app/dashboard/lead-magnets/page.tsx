@@ -711,7 +711,7 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
   // Как отдавать ВСЕ материалы пакета. ⚠️ Выбор пакета ГЛАВНЕЕ настройки
   // каждого материала: иначе часть пунктов ушла бы кнопками, часть текстом,
   // и нумерация подписей разъехалась бы со списком.
-  const [linkMode, setLinkMode] = useState<string>((initial as any)?.link_mode || '')
+  const [linkMode, setLinkMode] = useState<string>((initial as any)?.link_mode || 'text')
   const [selected, setSelected] = useState<number[]>(
     initial ? initial.items.sort((a, b) => a.sort_order - b.sort_order).map(i => i.lead_magnet_id) : []
   )
@@ -757,7 +757,7 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
       const payload = {
         name: name.trim(),
         description: description.trim() || null,
-        link_mode: linkMode || null,
+        link_mode: linkMode || 'text',
         items: selected.map((id, i) => ({ lead_magnet_id: id, sort_order: i })),
       }
       if (initial) await api.leadMagnetPackages.update(initial.id, payload)
@@ -797,20 +797,20 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
         </Field>
 
         <Field label="Как выдавать материалы пакета">
-          <select value={linkMode} onChange={e => setLinkMode(e.target.value)}
+          {/* ⚠️ Ровно ТРИ варианта, без «как настроено у каждого материала»:
+              все подарки пакета уходят в едином виде. Смешивать нельзя — часть
+              пунктов кнопками, часть текстом выглядит как сбой, да и нумерация
+              подписей разъехалась бы со списком в сообщении. */}
+          <select value={linkMode || 'text'} onChange={e => setLinkMode(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Как настроено у каждого материала</option>
             <option value="text">Всё ссылками в тексте</option>
             <option value="button">Всё кнопками</option>
             <option value="both">И ссылками, и кнопками</option>
           </select>
           <p className="mt-1 text-xs text-gray-500">
-            {/* ⚠️ Прямо говорим, что выбор пакета перебивает настройку
-                материала: иначе клиент не поймёт, почему подарок ушёл кнопкой,
-                хотя у самого материала стоит «ссылкой». */}
-            {linkMode
-              ? 'Действует на все материалы пакета — настройка каждого из них не учитывается. Надписи на кнопках берутся из материалов, спереди добавляется номер: «1. …».'
-              : 'Каждый материал отдаётся так, как настроен у себя.'}
+            Настройка пакета в приоритете: действует на все его материалы,
+            выбор каждого из них не учитывается. Надписи на кнопках берутся
+            из материалов, спереди добавляется номер: «1. …».
           </p>
         </Field>
 
