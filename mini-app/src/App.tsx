@@ -506,6 +506,11 @@ export default function App() {
   useEffect(() => {
     (async () => {
       const adapter = getPlatform()
+      // ⚠️ ЗДЕСЬ ТОЛЬКО НАСТОЯЩИЙ ЦВЕТ, НЕ `var(--…)`. Это команда самому
+      // мессенджеру покрасить ЕГО полосу (часы, крестик, «…») — она вне нашей
+      // страницы, CSS-переменную SDK не поймёт и просто ничего не покрасит.
+      // Фирменный цвет клиента ставится позже, в applyTheme (utils/theme.ts),
+      // когда его цвета уже загружены.
       adapter.setHeaderColor?.('#0a1520')
       adapter.setBackgroundColor?.('#f7f8fa')
 
@@ -838,7 +843,7 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
     return (
       <div style={{
         minHeight: '100vh',
-        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        background: 'var(--gradient)',
         color: '#fff',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 24,
@@ -851,16 +856,16 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
             }} />
           ) : (
             <div style={{
-              width: 72, height: 72, borderRadius: '50%', background: '#FFCFA4',
+              width: 72, height: 72, borderRadius: '50%', background: 'var(--peach)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               margin: '0 auto 24px',
             }}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#25455D" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--dark)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
           )}
-          <h1 style={{ color: '#FFCFA4', fontSize: 24, margin: '0 0 12px', fontWeight: 700 }}>
+          <h1 style={{ color: 'var(--peach)', fontSize: 24, margin: '0 0 12px', fontWeight: 700 }}>
             {TITLE[variant]}
           </h1>
           <p style={{ lineHeight: 1.5, opacity: 0.9, fontSize: 15, margin: '0 0 28px' }}>
@@ -868,7 +873,7 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
           </p>
           {chatUrl && (
             <a href={chatUrl} target="_top" style={{
-              display: 'inline-block', background: '#FFCFA4', color: '#25455D',
+              display: 'inline-block', background: 'var(--peach)', color: 'var(--dark)',
               fontWeight: 700, padding: '14px 32px', borderRadius: 12, fontSize: 16,
               textDecoration: 'none', boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
               marginBottom: 12,
@@ -888,13 +893,13 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(45deg, #25455D, #0a1520)',
+      background: 'var(--gradient)',
       color: '#fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 24,
     }}>
       <div style={{ maxWidth: 420, textAlign: 'center' }}>
-        <h1 style={{ color: '#FFCFA4', fontSize: 22, margin: '0 0 12px', fontWeight: 700 }}>
+        <h1 style={{ color: 'var(--peach)', fontSize: 22, margin: '0 0 12px', fontWeight: 700 }}>
           Что-то пошло не так
         </h1>
         <p style={{ lineHeight: 1.5, opacity: 0.9, fontSize: 15, margin: '0 0 24px' }}>
@@ -903,7 +908,7 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
         </p>
         {chatUrl && (
           <a href={chatUrl} target="_top" style={{
-            display: 'inline-block', background: '#FFCFA4', color: '#25455D',
+            display: 'inline-block', background: 'var(--peach)', color: 'var(--dark)',
             fontWeight: 700, padding: '12px 28px', borderRadius: 12, fontSize: 15,
             textDecoration: 'none',
           }}>Написать организатору</a>

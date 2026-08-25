@@ -136,6 +136,8 @@ export default function MiniAppSettingsPage() {
   // бренда/основателя/бот шлются через PATCH /auth/me, который ассистенту → 403.
   const { isAssistant, me } = useMe()
   const hasConference = !!me?.features?.includes('conference')
+  // Фирменный стиль Mini App — платная возможность (мигр. 332, Экстра+admin).
+  const hasBrandTheme = !!me?.features?.includes('miniapp_brand_theme')
   const [profile, setProfile] = useState<Profile | null>(null)
   // Вкладка площадки в блоке «Как открываются ваши ссылки» (Telegram/VK/MAX).
   const [linkTab, setLinkTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
@@ -366,9 +368,13 @@ export default function MiniAppSettingsPage() {
         tab_label_speakers:     profile.tab_label_speakers  || '',
         tab_label_game:         profile.tab_label_game      || '',
         tab_label_ecosystem:    profile.tab_label_ecosystem || '',
-        // Галочка «фирменные цвета в Mini App». Шлём всегда явным bool:
-        // снятая галочка — это false, а не «поле не прислали».
-        miniapp_use_brand_theme: !!profile.miniapp_use_brand_theme,
+        // Галочка «фирменные цвета в Mini App». Шлём явным bool: снятая
+        // галочка — это false, а не «поле не прислали».
+        // ⚠️ Без фичи всегда false, иначе у клиента, ушедшего с Экстра, весь
+        // профиль перестал бы сохраняться: бэкенд отвечает 403 на попытку
+        // включить платную возможность, а старое `true` уезжало бы в каждом
+        // запросе.
+        miniapp_use_brand_theme: hasBrandTheme && !!profile.miniapp_use_brand_theme,
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
@@ -1124,12 +1130,22 @@ export default function MiniAppSettingsPage() {
                 выбирал. Оформление там, где идут регистрации, — решение
                 клиента, а не наше. */}
             <div className="pt-4 mt-4 border-t border-gray-200">
-              <label className="flex items-start gap-3 cursor-pointer">
+              {!hasBrandTheme && (
+                <div className="mb-3 text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Фирменный стиль Mini App входит в тариф <b>Экстра</b>.{' '}
+                  <a href="/dashboard/settings?tab=subscription"
+                     className="text-amber-700 underline hover:text-amber-800">
+                    Посмотреть тарифы
+                  </a>
+                </div>
+              )}
+              <label className={`flex items-start gap-3 ${hasBrandTheme ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                 <input
                   type="checkbox"
+                  disabled={!hasBrandTheme}
                   checked={!!profile.miniapp_use_brand_theme}
                   onChange={e => update('miniapp_use_brand_theme', e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer"
+                  className="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer disabled:cursor-not-allowed"
                 />
                 <span>
                   <span className="block text-sm font-medium text-gray-900">

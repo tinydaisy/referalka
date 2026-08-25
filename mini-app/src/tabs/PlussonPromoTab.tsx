@@ -97,7 +97,7 @@ export default function PlussonPromoTab() {
           style={{ height: 32, marginBottom: 12, opacity: 0.95 }}
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
-        <div style={{ color: '#FFCFA4', fontSize: 11, letterSpacing: 2, fontWeight: 700, opacity: 0.85 }}>
+        <div style={{ color: 'var(--peach)', fontSize: 11, letterSpacing: 2, fontWeight: 700, opacity: 0.85 }}>
           iViSiON: ПЛЮСОН
         </div>
         <h1 style={{ color: 'white', fontSize: 18, fontWeight: 800, marginTop: 12, lineHeight: 1.35 }}>
@@ -112,7 +112,7 @@ export default function PlussonPromoTab() {
         <div
           style={{
             background: 'white',
-            border: '2px solid #FFCFA4',
+            border: '2px solid var(--peach)',
             borderRadius: 16,
             padding: 18,
             textAlign: 'center',
@@ -128,8 +128,8 @@ export default function PlussonPromoTab() {
           <button
             onClick={openCabinet}
             style={{
-              background: '#FFCFA4',
-              color: '#25455D',
+              background: 'var(--peach)',
+              color: 'var(--dark)',
               border: 'none',
               padding: '13px 22px',
               borderRadius: 12,
@@ -178,8 +178,8 @@ export default function PlussonPromoTab() {
                   width: 44,
                   height: 44,
                   borderRadius: 10,
-                  background: 'linear-gradient(135deg, #fff4e0, #FFCFA4)',
-                  color: '#25455D',
+                  background: 'linear-gradient(135deg, var(--warn-bg), var(--peach))',
+                  color: 'var(--dark)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',

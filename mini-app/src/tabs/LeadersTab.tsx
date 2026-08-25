@@ -46,10 +46,10 @@ export default function LeadersTab({ tgUser, onOpenLeader, onSwitchToPromo }: Pr
         </p>
         <div style={{
           marginTop: 28, padding: 16, borderRadius: 14,
-          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+          background: 'var(--gradient)',
           color: 'white', textAlign: 'left',
         }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#FFCFA4', marginBottom: 6 }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--peach)', marginBottom: 6 }}>
             А может сами станьте лидером?
           </p>
           <p style={{ fontSize: 13, lineHeight: 1.45, opacity: 0.9 }}>
@@ -61,8 +61,8 @@ export default function LeadersTab({ tgUser, onOpenLeader, onSwitchToPromo }: Pr
               onClick={onSwitchToPromo}
               style={{
                 marginTop: 14,
-                background: '#FFCFA4',
-                color: '#25455D',
+                background: 'var(--peach)',
+                color: 'var(--dark)',
                 border: 'none',
                 padding: '10px 18px',
                 borderRadius: 10,
@@ -117,9 +117,9 @@ function LeaderCard({ l, onOpen }: { l: Leader; onOpen: (id: number) => void }) 
         <div
           style={{
             width: 52, height: 52, borderRadius: '50%',
-            background: 'linear-gradient(45deg, #25455D, #0a1520)',
+            background: 'var(--gradient)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#FFCFA4', fontWeight: 700, fontSize: 20, flexShrink: 0,
+            color: 'var(--peach)', fontWeight: 700, fontSize: 20, flexShrink: 0,
           }}
         >
           {brand[0]?.toUpperCase()}

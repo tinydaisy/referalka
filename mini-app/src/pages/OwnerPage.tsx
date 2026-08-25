@@ -29,8 +29,8 @@ interface Props {
   onBack: () => void
 }
 
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 function IconTelegram() {
   return (
@@ -101,7 +101,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
       {/* Шапка с «Назад» */}
       <div style={{
         padding: '14px 18px',
-        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        background: 'var(--gradient)',
         color: 'white', position: 'relative', overflow: 'hidden',
         margin: '-16px -16px 0', borderRadius: 0,
       }}>
@@ -145,7 +145,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
                 border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
               }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: DARK, lineHeight: 1.1 }}>{a.value}</div>
-                <div style={{ fontSize: 11, color: '#6b7c8e', marginTop: 3, lineHeight: 1.25 }}>{a.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.25 }}>{a.label}</div>
               </div>
             ))}
           </div>
@@ -183,7 +183,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
               <a key={`tg-${i}`} href={ch.url} target="_blank" rel="noreferrer"
                  style={{
                    display: 'inline-flex', alignItems: 'center', gap: 8,
-                   background: 'linear-gradient(135deg, #25455D, #0a1520)',
+                   background: 'var(--gradient-135)',
                    padding: '10px 14px', borderRadius: 12, border: 'none',
                    color: PEACH, fontWeight: 800, fontSize: 13, textDecoration: 'none',
                    boxShadow: '0 2px 6px rgba(37,69,93,0.18)',
@@ -196,7 +196,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
               <a key={s.key} href={profile.social_links?.[s.key]} target="_blank" rel="noreferrer"
                  style={{
                    display: 'inline-flex', alignItems: 'center', gap: 8,
-                   background: 'linear-gradient(135deg, #25455D, #0a1520)',
+                   background: 'var(--gradient-135)',
                    padding: '10px 14px', borderRadius: 12, border: 'none',
                    color: PEACH, fontWeight: 800, fontSize: 13, textDecoration: 'none',
                    boxShadow: '0 2px 6px rgba(37,69,93,0.18)',

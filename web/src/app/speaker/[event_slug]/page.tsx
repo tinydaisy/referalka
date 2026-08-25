@@ -474,7 +474,14 @@ export default function SpeakerCabinetPage() {
         personal_max_id: me.personal_max_id, personal_max_username: me.personal_max_username,
         topics: me.topics,
         topic_descriptions: me.topic_descriptions || [],
-        media_assets: Array.isArray(me.media_assets) ? me.media_assets : [],
+        // ⚠️ Незаполненные активы НЕ отправляем. Новая строка создаётся с
+        // нулём («Добавить» не знает будущего числа), а бэкенд отвечает на
+        // такую 400 — и сохранение всего кабинета падало целиком из-за одной
+        // лишней строки. Жалоба спикера: «крестик её не удаляет, а сохранение
+        // с ней падает» — на деле крестик работал, но на фоне неудачного
+        // сохранения это выглядело так, будто он бесполезен.
+        media_assets: (Array.isArray(me.media_assets) ? me.media_assets : [])
+          .filter(a => a && a.platform && Number(a.subscribers) > 0),
       }
       if (me.show_gift_after_speech_field) {
         // Подарок взаимоисключающий: ручной ИЛИ из ПЛЮСОНа. При сохранении
@@ -1340,6 +1347,7 @@ export default function SpeakerCabinetPage() {
               <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                 <select
                   value={a.platform}
+                  disabled={!canEdit}
                   onChange={(e) => updMedia(i, { platform: e.target.value })}
                   style={{ ...inputCss, width: 130, flex: 'none' }}
                 >
@@ -1353,6 +1361,7 @@ export default function SpeakerCabinetPage() {
                     min={0}
                     value={a.subscribers === 0 ? '' : a.subscribers}
                     placeholder="19.9"
+                    disabled={!canEdit}
                     onChange={(e) => {
                       const v = e.target.value
                       if (v === '') return updMedia(i, { subscribers: 0 })
@@ -1367,10 +1376,29 @@ export default function SpeakerCabinetPage() {
                     fontSize: 13, fontWeight: 500, pointerEvents: 'none',
                   }}>к</span>
                 </div>
-                <button onClick={() => removeMedia(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
+                <button
+                  type="button"
+                  title="Удалить эту площадку"
+                  disabled={!canEdit}
+                  onClick={() => removeMedia(i)}
+                  style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5',
+                           borderRadius: 8, cursor: canEdit ? 'pointer' : 'not-allowed',
+                           opacity: canEdit ? 1 : 0.5 }}
+                >×</button>
               </div>
             )
           })}
+          {/* Незаполненные строки при сохранении просто отбрасываются (см.
+              payload). Но человек об этом не знает — без подсказки он решит,
+              что данные потерялись. */}
+          {mediaAssets.some(a => !(Number(a.subscribers) > 0)) && (
+            <div style={{ fontSize: 12, color: '#8a6d1f', background: '#fff8e6',
+                          border: '1px solid #f0e0b0', borderRadius: 8,
+                          padding: '7px 10px', marginBottom: 6 }}>
+              Впишите число подписчиков или удалите пустую строку крестиком —
+              иначе она не сохранится.
+            </div>
+          )}
           <button
             onClick={addMedia}
             disabled={availablePlatforms.length === 0 || !canEdit}

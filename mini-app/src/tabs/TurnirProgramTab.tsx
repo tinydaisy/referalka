@@ -87,12 +87,15 @@ function nowMsk(): { date: string; time: string } {
   }
 }
 
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 // Пастельные фоны для чередования карточек спикеров (наши бренд-цвета,
 // слегка приглушённые — чтобы карточки не сливались).
-const PASTELS = ['#fff8f0', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
+// ⚠️ ПЕРВЫЙ оттенок — из темы клиента (`--card-tint`): именно он
+// задаёт «фирменность» ряда карточек. Остальные пять дают чередование,
+// чтобы соседние карточки не сливались, и остаются нейтральными.
+const PASTELS = ['var(--card-tint)', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
 
 const ROLE_LABELS: Record<string, string> = {
   speaker:    'Спикер',
@@ -532,19 +535,19 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                   width: 56, height: 56, borderRadius: '50%', margin: '0 auto 4px',
                   background: sp.photo_url
                     ? `center/cover url(${sp.photo_url})`
-                    : 'linear-gradient(45deg, #25455D, #0a1520)',
+                    : 'var(--gradient)',
                   border: `1.5px solid ${PEACH}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: PEACH, fontWeight: 700, fontSize: 16,
                 }}>
                   {!sp.photo_url && initials(sp.name)}
                 </div>
-                <div style={{ fontSize: 10, lineHeight: 1.15, color: '#1a2a3a', fontWeight: 700,
+                <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text)', fontWeight: 700,
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {firstName}
                 </div>
                 {lastName && (
-                  <div style={{ fontSize: 10, lineHeight: 1.15, color: '#1a2a3a', fontWeight: 700,
+                  <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text)', fontWeight: 700,
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {lastName}
                   </div>
@@ -576,11 +579,11 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
              onClick={() => trackLinkClick(event?.slug, tgUser)}
              style={{
             display: 'flex', alignItems: 'center', gap: 12,
-            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+            background: 'var(--gradient-135)', color: 'white',
             borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,
           }}>
             <div style={{
-              background: '#d32f2f', color: 'white', fontSize: 11, fontWeight: 900,
+              background: 'var(--live)', color: 'white', fontSize: 11, fontWeight: 900,
               padding: '8px 12px', borderRadius: 8, letterSpacing: 1.2,
               display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
             }}>
@@ -601,7 +604,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
              onClick={() => trackLinkClick(event?.slug, tgUser)}
              style={{
             display: 'flex', alignItems: 'center', gap: 12,
-            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+            background: 'var(--gradient-135)', color: 'white',
             borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,
           }}>
             <div style={{
@@ -655,7 +658,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
           display: 'flex', alignItems: 'center', gap: 12,
           background: chatAccent === 'red'
             ? 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)'
-            : 'linear-gradient(135deg, #25455D, #0a1520)',
+            : 'var(--gradient-135)',
           color: 'white',
           borderRadius: 14, padding: 14, marginBottom: 12,
           border: chatAccent === 'red' ? '1px solid rgba(127,29,29,0.5)' : 0,
@@ -739,7 +742,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
               const accent = state === 'today'
               return (
                 <div key={d.day_number} style={{
-                  background: accent ? 'linear-gradient(135deg, #fff8f0, white)' : 'white',
+                  background: accent ? 'linear-gradient(135deg, var(--card-tint), white)' : 'white',
                   borderRadius: 12,
                   border: accent ? `1px solid ${PEACH}` : '1px solid transparent',
                   boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
@@ -757,13 +760,13 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                       {todayLive && (
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#d32f2f',
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--live)',
                                        display: 'inline-block', flexShrink: 0 }}/>
                       )}
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a', lineHeight: 1.2 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>
                         {dayLabel}
                       </div>
-                      <div style={{ fontSize: 11, color: '#6b7c8e', fontWeight: 500 }}>· {stateLabel}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>· {stateLabel}</div>
                     </div>
                     <div style={{ fontSize: 18, color: '#c5cdd6',
                                   transform: isOpen ? 'rotate(90deg)' : 'none',
@@ -790,7 +793,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                             const isLive = activeSession?.id === s.id
                             return (
                               <div key={s.id} style={{
-                                background: isLive ? 'linear-gradient(135deg, #fff8f0, white)' : altBg,
+                                background: isLive ? 'linear-gradient(135deg, var(--card-tint), white)' : altBg,
                                 border: isLive ? `2px solid ${PEACH}` : '1px solid rgba(37,69,93,0.20)',
                                 borderRadius: 12,
                                 padding: '10px 10px',
@@ -806,7 +809,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                   {isLive && (
                                     <span style={{
                                       display: 'inline-flex', alignItems: 'center', gap: 4,
-                                      background: '#d32f2f', color: 'white',
+                                      background: 'var(--live)', color: 'white',
                                       fontSize: 10, padding: '2px 8px', borderRadius: 10,
                                       fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
                                     }}>
@@ -825,7 +828,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                   )}
                                 </div>
 
-                                <p style={{ color: '#1a2a3a',
+                                <p style={{ color: 'var(--text)',
                                             fontSize: isLive ? 15 : 14, lineHeight: 1.4,
                                             fontWeight: isLive ? 900 : 700, marginBottom: 8 }}>
                                   {s.title}
@@ -845,7 +848,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                       width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
                                       background: s.photo_url
                                         ? `center/cover url(${s.photo_url})`
-                                        : 'linear-gradient(45deg, #25455D, #0a1520)',
+                                        : 'var(--gradient)',
                                       border: `1.5px solid ${PEACH}`,
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                                       color: PEACH, fontWeight: 700, fontSize: 12,
@@ -854,7 +857,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0,
                                                   display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                      <span style={{ color: '#1a2a3a', fontSize: 12, fontWeight: 700 }}>
+                                      <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>
                                         {s.speaker_name}
                                       </span>
                                       {speakerRoleLabel && (
@@ -919,7 +922,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                             и описание, и список дней — всё прячется внутри
                             этапа, пока этап свёрнут. */}
                         <div style={{
-                          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+                          background: 'var(--gradient)',
                           padding: '12px 14px',
                           borderRadius: isStageOpen && (hasDesc || sd.length > 0) ? '12px 12px 0 0' : 12,
                           cursor: expandable ? 'pointer' : 'default',
@@ -1018,7 +1021,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
       {!isTurnir && coOrganizers.length > 0 && (
         <>
           <div style={{
-            background: 'linear-gradient(45deg, #25455D, #0a1520)',
+            background: 'var(--gradient)',
             color: PEACH,
             padding: '14px 16px',
             borderRadius: 12,
@@ -1059,7 +1062,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                   </div>
                   {c.title && (
                     <EventDescription text={c.title}
-                      style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }} />
+                      style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.3 }} />
                   )}
                   {c.achievements && c.achievements.length > 0 && (
                     <EventDescription text={c.achievements.slice(0, 2).join(' · ')}
@@ -1077,7 +1080,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         <>
           {/* Жирная разделительная плашка между программой и спикерами */}
           <div style={{
-            background: 'linear-gradient(45deg, #25455D, #0a1520)',
+            background: 'var(--gradient)',
             color: PEACH,
             padding: '14px 16px',
             borderRadius: 12,
@@ -1128,7 +1131,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                   {isLive && (
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', gap: 5,
-                      background: '#d32f2f', color: 'white',
+                      background: 'var(--live)', color: 'white',
                       fontSize: 10, padding: '3px 9px', borderRadius: 10,
                       fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
                       marginBottom: 8,
@@ -1144,7 +1147,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                       width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
                       background: sp.photo_url
                         ? `center/cover url(${sp.photo_url})`
-                        : 'linear-gradient(45deg, #25455D, #0a1520)',
+                        : 'var(--gradient)',
                       border: `2px solid ${PEACH}`,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       color: PEACH, fontWeight: 700, fontSize: 18,
@@ -1162,13 +1165,13 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                       <div style={{
                         fontSize: isLive ? 16 : 15,
                         fontWeight: isLive ? 900 : 700,
-                        color: '#1a2a3a', lineHeight: 1.2,
+                        color: 'var(--text)', lineHeight: 1.2,
                       }}>
                         {sp.name}
                       </div>
                       {sp.title && (
                         <EventDescription text={sp.title}
-                          style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }} />
+                          style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3 }} />
                       )}
                     </div>
                   </div>
@@ -1181,7 +1184,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                         {topicsList.length > 1 ? 'Темы' : 'Тема'}
                       </div>
                       {topicsList.map((t, ti) => (
-                        <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600,
+                        <div key={ti} style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600,
                                                 lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
                           <EventDescription text={t} />
                         </div>
@@ -1215,7 +1218,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                     letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
                         🎁 Подарок на эфире
                       </div>
-                      <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>
                         {sp.gift_after_speech_title}
                       </div>
                     </div>
@@ -1231,7 +1234,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                     letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
                         🎟 Подарок в розыгрыше
                       </div>
-                      <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>
                         {sp.gift_raffle_title}
                       </div>
                     </div>
@@ -1300,7 +1303,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                         <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                       </svg>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 10, color: '#6b7c8e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700 }}>База знаний</div>
+                        <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700 }}>База знаний</div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: DARK, lineHeight: 1.3 }}>
                           {sp.knowledge_base_title}
                         </div>

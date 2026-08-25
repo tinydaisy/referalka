@@ -104,7 +104,7 @@ export default function LandingTab({ event, onRegister }: Props) {
           {endLabel && (
             <div style={{
               marginTop: 12,
-              background: '#d32f2f',
+              background: 'var(--live)',
               color: 'white',
               borderRadius: 12,
               padding: '12px 14px',

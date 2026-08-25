@@ -23,8 +23,8 @@ interface Props {
   onClose: () => void
 }
 
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 function openExternal(url: string) {
   const tg = (window as any).Telegram?.WebApp
@@ -92,7 +92,7 @@ export default function ContactCardModal({ eventSlug, participantId, viewerTgId,
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
               <div style={{
                 width: 56, height: 56, borderRadius: '50%',
-                background: 'linear-gradient(135deg, #FFCFA4, #d4a574)',
+                background: 'linear-gradient(135deg, var(--peach), #d4a574)',
                 color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontWeight: 800, fontSize: 18, flexShrink: 0,
               }}>{initials}</div>
@@ -140,7 +140,7 @@ export default function ContactCardModal({ eventSlug, participantId, viewerTgId,
                         <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>
                           {m.platform_name}
                         </div>
-                        <div style={{ fontSize: 11, color: '#6b7c8e',
+                        <div style={{ fontSize: 11, color: 'var(--muted)',
                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {m.username ? `@${m.username.replace(/^@+/, '')}` : 'без публичного юзернейма'}
                         </div>

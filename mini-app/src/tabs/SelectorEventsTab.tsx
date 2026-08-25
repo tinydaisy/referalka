@@ -71,9 +71,9 @@ function BrandHeader({ e }: { e: Ev }) {
       ) : (
         <div style={{
           width: 22, height: 22, borderRadius: '50%',
-          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+          background: 'var(--gradient)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#FFCFA4', fontWeight: 700, fontSize: 10, flexShrink: 0,
+          color: 'var(--peach)', fontWeight: 700, fontSize: 10, flexShrink: 0,
         }}>
           {brand[0]?.toUpperCase()}
         </div>
@@ -176,8 +176,8 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
           onClick={onSwitchToPromo}
           style={{
             marginTop: 24,
-            background: '#FFCFA4',
-            color: '#25455D',
+            background: 'var(--peach)',
+            color: 'var(--dark)',
             border: 'none',
             padding: '12px 20px',
             borderRadius: 12,

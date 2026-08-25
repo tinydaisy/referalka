@@ -79,6 +79,24 @@ async def get_client_features(db, client_id: int) -> list[str]:
     return [r["slug"] for r in rows]
 
 
+def has_feature_sql(client_expr: str, feature_slug: str) -> str:
+    """Готовое SQL-условие «у клиента есть фича» для встраивания в чужой SELECT.
+
+    Зачем. Публичные эндпоинты (витрина события, визитка клиента) дёргаются на
+    каждом открытии Mini App. Отдельный запрос `client_has_feature` добавил бы
+    к ним второе обращение к базе ради одного булева значения.
+
+    ⚠️ Тот же `_CLIENT_FEATURES_SQL`, что и у остальных хелперов, — иначе
+    правило доступа разошлось бы между «проверкой» и «встроенной проверкой».
+
+    ⚠️ `client_expr` подставляется в SQL как есть — это выражение ЗАПРОСА
+    (например `c.id`), а не пользовательский ввод. Значения передавать только
+    параметрами.
+    """
+    inner = _CLIENT_FEATURES_SQL.replace("$1", f"({client_expr})")
+    return f"EXISTS (SELECT 1 FROM ({inner}) _f WHERE _f.slug = '{feature_slug}')"
+
+
 async def client_has_feature(db, client_id: int, feature_slug: str) -> bool:
     """True если фича есть у клиента — в тарифе, как купленный модуль ИЛИ как
     вложенная фича купленного модуля (feature_bundles).

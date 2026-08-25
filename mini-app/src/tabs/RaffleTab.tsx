@@ -9,8 +9,8 @@ import {
 
 interface Props { event: any; participant: any; tgUser: any }
 
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 interface Ticket {
   id: number
@@ -119,7 +119,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
   }
 
   if (loading) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#6b7c8e', fontSize: 14 }}>Загружаем…</div>
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>Загружаем…</div>
   }
 
   if (subsOk === false) {
@@ -130,7 +130,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
           boxShadow: '0 2px 8px rgba(37,69,93,0.05)', textAlign: 'center',
         }}>
           <div style={{
-            fontSize: 11, color: '#6b7c8e', fontWeight: 700, letterSpacing: 0.8,
+            fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 0.8,
             textTransform: 'uppercase', marginBottom: 8,
           }}>
             Розыгрыш закрыт
@@ -138,7 +138,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
           <div style={{ fontSize: 16, fontWeight: 700, color: DARK, lineHeight: 1.35, marginBottom: 6 }}>
             Чтобы участвовать, подпишитесь на каналы организатора и спикеров
           </div>
-          <div style={{ fontSize: 13, color: '#6b7c8e', lineHeight: 1.45 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.45 }}>
             После подписки получите стартовый билет и сможете вводить кодовые слова.
           </div>
         </div>
@@ -183,13 +183,13 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
       }}>
         <div style={{
-          fontSize: 11, color: '#6b7c8e', fontWeight: 700, letterSpacing: 0.8,
+          fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 0.8,
           textTransform: 'uppercase', marginBottom: 10,
         }}>
           У вас {tickets.length} {tickets.length === 1 ? 'билет' : 'билетов'}
         </div>
         {tickets.length === 0 ? (
-          <div style={{ fontSize: 13, color: '#6b7c8e', padding: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: 6, lineHeight: 1.5 }}>
             {grantsFree
               ? 'Получите стартовый билет — нажмите кнопку ниже, и вводите кодовые слова, которые называют спикеры.'
               : 'Вводите кодовые слова, которые называют спикеры — за каждое получите билет.'}
@@ -198,7 +198,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
             {tickets.map(t => (
               <span key={t.id} style={{
-                background: `linear-gradient(135deg, ${PEACH}, #f5b97e)`, color: DARK,
+                background: 'var(--gradient-peach)', color: DARK,
                 padding: '7px 10px', borderRadius: 8, fontWeight: 700, fontSize: 12,
               }}>
                 {ticketNo(t.id)}
@@ -239,7 +239,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
       }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 4 }}>+1 билет за кодовое слово</div>
-        <div style={{ fontSize: 12, color: '#6b7c8e', marginBottom: 10 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           Спикер назовёт слово в эфире — введите его здесь.
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -282,7 +282,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
           <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {tickets.filter(t => t.code_word !== 'Free').map(t => (
               <span key={t.id} style={{
-                background: '#f1f3f6', color: '#6b7c8e', padding: '4px 10px',
+                background: '#f1f3f6', color: 'var(--muted)', padding: '4px 10px',
                 borderRadius: 8, fontSize: 11, fontWeight: 600,
               }}>
                 ✓ {t.code_word}
@@ -294,7 +294,7 @@ export default function RaffleTab({ event, participant, tgUser }: Props) {
 
       {wonPrizes.length > 0 && (
         <div style={{
-          background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: 'white',
+          background: 'var(--gradient)', color: 'white',
           borderRadius: 16, padding: 16, marginBottom: 14,
         }}>
           <div style={{

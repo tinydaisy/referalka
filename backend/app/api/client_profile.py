@@ -39,6 +39,13 @@ from app.services.external_landing import (
 from app.services.webinar_service import day_stream_url
 from app.services.client_domains import client_public_link
 from app.services.miniapp_theme import theme_dict
+from app.services.features import has_feature_sql, client_has_feature
+
+# Готовое SQL-условие «клиенту доступен фирменный стиль Mini App» (мигр. 332).
+# Считается один раз при загрузке модуля: строка не зависит от запроса.
+_HAS_THEME_FEATURE = has_feature_sql("c.id", "miniapp_brand_theme")
+# То же условие для запроса, где таблица подключена без алиаса (`FROM clients`).
+_HAS_THEME_FEATURE_NOALIAS = has_feature_sql("clients.id", "miniapp_brand_theme")
 from app.services.preview_token import make_preview_token
 from app.config import settings
 from app.services.share_links import TG_DOMAIN
@@ -171,7 +178,8 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
                   lp_icon_color,
                   lp_card_bg, lp_card_bg_opacity, lp_card_text_color,
                   lp_color_heading, lp_color_body,
-                  lp_day_tab_color, lp_day_tab_text_color
+                  lp_day_tab_color, lp_day_tab_text_color,
+                  """ + _HAS_THEME_FEATURE_NOALIAS + """ AS has_theme_feature
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
         client_id
@@ -185,7 +193,7 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     # Тема одним объектом; сырые колонки наружу не отдаём (см. витрину события).
     d["theme"] = theme_dict(d)
     for _c in list(d.keys()):
-        if _c.startswith("lp_") or _c == "miniapp_use_brand_theme":
+        if _c.startswith("lp_") or _c in ("miniapp_use_brand_theme", "has_theme_feature"):
             d.pop(_c, None)
     return d
 
@@ -879,6 +887,11 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    -- событием, а не отдельным запросом: Mini App рисует шапку
                    -- сразу, и вторая загрузка дала бы вспышку чужих цветов.
                    c.miniapp_use_brand_theme,
+                   -- Фича «Фирменный стиль Mini App» (мигр. 332, Экстра+admin).
+                   -- Считается прямо здесь, а не отдельным запросом: витрина
+                   -- открывается на каждый вход в Mini App, второе обращение
+                   -- к базе ради одного флага тут лишнее.
+                   """ + _HAS_THEME_FEATURE + """ AS has_theme_feature,
                    c.lp_bg_color, c.lp_bg_color_2, c.lp_bg_angle, c.lp_bg_gradient,
                    c.lp_btn_color, c.lp_btn_color_2, c.lp_btn_angle, c.lp_btn_text_color,
                    c.lp_btn_border_color, c.lp_btn_border_width,
@@ -915,7 +928,7 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
     # ответа убираем: наружу идут роли («фон», «иконки»), а не имена полей базы.
     d["theme"] = theme_dict(d)
     for _c in list(d.keys()):
-        if _c.startswith("lp_") or _c == "miniapp_use_brand_theme":
+        if _c.startswith("lp_") or _c in ("miniapp_use_brand_theme", "has_theme_feature"):
             d.pop(_c, None)
 
     # ⚠️⚠️ ССЫЛКИ В БОТОВ ОРГАНИЗАТОРОВ — ДЛЯ КНОПКИ «ВОЙТИ В ЧАТ».
@@ -1352,8 +1365,20 @@ async def update_my_profile(
             add(_lbl, _val or None)
     # Фирменные цвета в Mini App. Колонка NOT NULL — снятая галочка приходит
     # как false, а не как null, поэтому bool() без COALESCE.
+    # ⚠️ ВКЛЮЧЕНИЕ гейтим фичей (мигр. 332): скрытой галочки в кабинете мало,
+    # обычный PATCH мимо интерфейса включил бы платную возможность. ВЫКЛЮЧЕНИЕ
+    # разрешаем всегда — иначе клиент, ушедший с Экстра, не смог бы вернуть
+    # стандартное оформление.
     if "miniapp_use_brand_theme" in _fs:
-        add("miniapp_use_brand_theme", bool(data.miniapp_use_brand_theme))
+        _want_theme = bool(data.miniapp_use_brand_theme)
+        if _want_theme and not await client_has_feature(
+            db, int(client["sub"]), "miniapp_brand_theme"
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Фирменный стиль Mini App доступен на тарифе Экстра.",
+            )
+        add("miniapp_use_brand_theme", _want_theme)
     if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)

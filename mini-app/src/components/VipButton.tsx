@@ -43,7 +43,7 @@ export default function VipButton({ label, url, onClick, style, accent = 'red' }
         border: '1px solid rgba(127,29,29,0.5)',
       }
     : {
-        background: 'linear-gradient(135deg, #25455D, #0a1520)',
+        background: 'var(--gradient-135)',
         boxShadow: '0 4px 14px rgba(37,69,93,0.35)',
         border: '1px solid rgba(10,21,32,0.5)',
       }

@@ -41,7 +41,7 @@ export default function HubSelector({ tgUser, onOpenEvent, initialTab }: Props) 
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {tab === 'events' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>
-          <p style={{ color: '#FFCFA4', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
+          <p style={{ color: 'var(--peach)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
             iViSiON: ПЛЮСОН
           </p>
           <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, marginTop: 6 }}>
@@ -55,7 +55,7 @@ export default function HubSelector({ tgUser, onOpenEvent, initialTab }: Props) 
 
       {tab === 'leaders' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>
-          <p style={{ color: '#FFCFA4', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
+          <p style={{ color: 'var(--peach)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
             iViSiON: ПЛЮСОН
           </p>
           <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, marginTop: 6 }}>

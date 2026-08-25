@@ -46,10 +46,13 @@ interface Speaker {
   topics?: { topic: string }[]
 }
 
-const PEACH = '#FFCFA4'
-const DARK  = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK  = 'var(--dark)'
 
-const PASTELS = ['#fff8f0', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
+// ⚠️ ПЕРВЫЙ оттенок — из темы клиента (`--card-tint`): именно он
+// задаёт «фирменность» ряда карточек. Остальные пять дают чередование,
+// чтобы соседние карточки не сливались, и остаются нейтральными.
+const PASTELS = ['var(--card-tint)', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
 
 const ROLE_LABELS: Record<string, string> = {
   speaker:    'Спикер',
@@ -60,10 +63,10 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
-  speaker:    { bg: '#FFCFA4', fg: '#25455D' },
-  headliner:  { bg: '#25455D', fg: '#FFCFA4' },
+  speaker:    { bg: 'var(--peach)', fg: 'var(--dark)' },
+  headliner:  { bg: 'var(--dark)', fg: 'var(--peach)' },
   partner:    { bg: '#e8e9eb', fg: '#5a6a7a' },
-  organizer:  { bg: '#d6e4f0', fg: '#25455D' },
+  organizer:  { bg: '#d6e4f0', fg: 'var(--dark)' },
   jury:       { bg: '#f0d8ff', fg: '#5b2a8c' },
 }
 
@@ -213,10 +216,10 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
   }, [event?.id])
 
   if (loading) {
-    return <div style={{ padding: 20, color: '#6b7c8e' }}>Загружаем…</div>
+    return <div style={{ padding: 20, color: 'var(--muted)' }}>Загружаем…</div>
   }
   if (speakers.length === 0) {
-    return <div style={{ padding: 20, color: '#6b7c8e', textAlign: 'center' }}>Список спикеров пока пуст.</div>
+    return <div style={{ padding: 20, color: 'var(--muted)', textAlign: 'center' }}>Список спикеров пока пуст.</div>
   }
 
   // Группируем спикеров по сегментам (Жюри / Спикеры / Организаторы / Партнёры).
@@ -249,7 +252,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '10px 12px', borderRadius: 12, border: '1px solid #d9e2ea',
-                background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff',
+                background: 'var(--gradient)', color: '#fff',
                 fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 10,
               }}
             >
@@ -302,7 +305,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
-                  background: sp.photo_url ? `center/cover url(${sp.photo_url})` : 'linear-gradient(45deg, #25455D, #0a1520)',
+                  background: sp.photo_url ? `center/cover url(${sp.photo_url})` : 'var(--gradient)',
                   border: `2px solid ${PEACH}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: PEACH, fontWeight: 700, fontSize: 18,
@@ -317,9 +320,9 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                       textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
                     }}>{roleLabel}</span>
                   )}
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', lineHeight: 1.2 }}>{sp.name}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{sp.name}</div>
                   {sp.title && (
-                    <EventDescription text={sp.title} style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }} />
+                    <EventDescription text={sp.title} style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.3 }} />
                   )}
                 </div>
               </div>
@@ -375,7 +378,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                         </div>
                       )}
                       {topicsList.map((t, ti) => (
-                        <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
+                        <div key={ti} style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600, lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
                           {t}
                         </div>
                       ))}
@@ -385,7 +388,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                   {(sp.gift_after_speech_title || sp.gift_lm_name || sp.gift_lp_name) && (
                     <div style={{ marginTop: (topicsList.length > 0 || slotByEc[sp.id]) ? 8 : 0, background: '#fff7ef', border: '1px solid #ffe0c2', borderRadius: 8, padding: '6px 10px' }}>
                       <div style={{ fontSize: 10, color: '#b26a1f', fontWeight: 700, marginBottom: 2 }}>🎁 Подарок на эфире</div>
-                      <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.3 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, lineHeight: 1.3 }}>
                         {sp.gift_after_speech_title || sp.gift_lm_name || sp.gift_lp_name}
                       </div>
                     </div>
@@ -442,7 +445,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                     <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                   </svg>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10, color: '#6b7c8e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700 }}>База знаний</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700 }}>База знаний</div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: DARK, lineHeight: 1.3 }}>{sp.knowledge_base_title}</div>
                   </div>
                   <span style={{

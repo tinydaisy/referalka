@@ -7,7 +7,7 @@
 
 /* Тёмный брендовый фон страницы — виден по бокам узкой колонки на десктопе. */
 html, body {
-  background: linear-gradient(45deg, #25455D, #0a1520);
+  background: var(--gradient);
   background-attachment: fixed;
 }
 

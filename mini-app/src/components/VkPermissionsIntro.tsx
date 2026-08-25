@@ -93,7 +93,7 @@ export default function VkPermissionsIntro({
   }
 
   // Тёмный фон → белый текст, светлый → фирменный тёмно-синий.
-  const fg = isDarkColor(bg) ? '#ffffff' : '#25455D'
+  const fg = isDarkColor(bg) ? '#ffffff' : 'var(--dark)'
 
   return (
     <div

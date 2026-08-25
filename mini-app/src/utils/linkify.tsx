@@ -10,7 +10,7 @@ import { ReactNode } from 'react'
 
 const URL_RE = /(https?:\/\/[^\s<>"']+)/gi
 
-export function linkify(text: string, linkColor = '#25455D'): ReactNode[] {
+export function linkify(text: string, linkColor = 'var(--dark)'): ReactNode[] {
   if (!text) return []
   const parts: ReactNode[] = []
   let last = 0

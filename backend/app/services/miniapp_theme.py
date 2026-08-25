@@ -58,6 +58,14 @@ def theme_dict(row: Any) -> Optional[dict[str, Any]]:
     d = dict(row) if not isinstance(row, dict) else row
     if not d.get("miniapp_use_brand_theme"):
         return None
+    # ⚠️ Фича «Фирменный стиль Mini App» (мигр. 332) — платная, Экстра и выше.
+    # Проверяем ЗДЕСЬ, а не только при сохранении галочки: клиент мог включить
+    # её на Экстра и позже перейти на Профи — тогда галочка в базе осталась, а
+    # права на неё уже нет. Поле приходит из SELECT вызывающего запроса; если
+    # его не передали (старый вызов) — считаем, что фича есть, иначе тема
+    # молча пропала бы у тех, у кого всё оплачено.
+    if d.get("has_theme_feature") is False:
+        return None
 
     bg = _gradient(d.get("lp_bg_color"), d.get("lp_bg_color_2"),
                    d.get("lp_bg_angle"), d.get("lp_bg_gradient"))

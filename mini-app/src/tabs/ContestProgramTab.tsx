@@ -2,8 +2,8 @@ import { useChatGate } from '../components/ChatGate'
 import EventDescription from '../components/EventDescription'
 import { trackLinkClick } from '../api'
 
-const PEACH = '#FFCFA4'
-const DARK  = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK  = 'var(--dark)'
 
 // Авто-линкификация: «...текст https://foo.bar/x текст...» → React-узлы
 // с обычными <a> на http(s)-ссылках. Без HTML-инъекций (передаём строки и
@@ -82,7 +82,7 @@ export default function ContestProgramTab({
       {hasChat && (
         <button onClick={openChatWithCheck} disabled={chatLoading} style={{
           display: 'flex', alignItems: 'center', gap: 12,
-          background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+          background: 'var(--gradient-135)', color: 'white',
           borderRadius: 14, padding: 14, marginBottom: 12,
           border: 0, cursor: 'pointer', width: '100%', textAlign: 'left',
           fontFamily: 'inherit',

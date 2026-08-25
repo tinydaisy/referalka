@@ -56,8 +56,8 @@ interface Offering {
   cover_url?: string
 }
 
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 function initials(name: string): string {
   const parts = (name || '').trim().split(/\s+/)
@@ -83,7 +83,7 @@ function OfferingCard({ o }: { o: Offering }) {
         ) : (
           <div style={{
             width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-            background: 'linear-gradient(135deg, #fff4e0, #FFCFA4)',
+            background: 'linear-gradient(135deg, var(--warn-bg), var(--peach))',
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
           }}>{o.is_paid ? '💼' : '📄'}</div>
         )}
@@ -94,16 +94,16 @@ function OfferingCard({ o }: { o: Offering }) {
               display: 'flex', alignItems: 'flex-start', gap: 8,
               cursor: hasDesc ? 'pointer' : 'default',
             }}>
-            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: '#1a2a3a' }}>{o.title}</div>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{o.title}</div>
             {hasDesc && (
               <span style={{
                 flexShrink: 0, width: 26, height: 26, borderRadius: '50%',
-                background: '#FFCFA4', display: 'flex', alignItems: 'center',
+                background: 'var(--peach)', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', marginTop: 1,
                 transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s',
               }}>
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
-                     stroke="#25455D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                     stroke="var(--dark)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </span>
@@ -112,7 +112,7 @@ function OfferingCard({ o }: { o: Offering }) {
           {hasDesc && open && (
             <EventDescription
               text={o.description!}
-              style={{ fontSize: 12, color: '#6b7c8e', lineHeight: 1.4, marginTop: 6 }}
+              style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, marginTop: 6 }}
               renderPlain={(t) => linkify(t)}
             />
           )}
@@ -123,8 +123,8 @@ function OfferingCard({ o }: { o: Offering }) {
            style={{
              display: 'block', marginTop: 10,
              background: o.is_paid
-               ? 'linear-gradient(135deg, #FFCFA4, #f5b97e)'
-               : 'linear-gradient(135deg, #25455D, #0a1520)',
+               ? 'var(--gradient-peach)'
+               : 'var(--gradient-135)',
              color: o.is_paid ? DARK : PEACH,
              padding: 10, borderRadius: 10, textAlign: 'center',
              fontWeight: 700, fontSize: 13, textDecoration: 'none',
@@ -143,7 +143,7 @@ function OwnersList({ owners, onPick }: { owners: CollabOwner[]; onPick: (id: nu
     <div className="fade-in">
       <div style={{
         padding: '20px 18px 16px',
-        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        background: 'var(--gradient)',
         color: 'white',
       }}>
         <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>Проекты организаторов</div>
@@ -173,11 +173,11 @@ function OwnersList({ owners, onPick }: { owners: CollabOwner[]; onPick: (id: nu
               <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.25 }}>
                 {o.name}
                 {o.owner_name && o.owner_name !== o.name && (
-                  <span style={{ fontWeight: 500, color: '#6b7c8e' }}> ({o.owner_name})</span>
+                  <span style={{ fontWeight: 500, color: 'var(--muted)' }}> ({o.owner_name})</span>
                 )}
               </div>
               {o.positioning && (
-                <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.3 }}>
                   {o.positioning}
                 </div>
               )}
@@ -273,7 +273,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
       {/* Шапка-бренд */}
       <div style={{
         padding: '20px 18px 16px',
-        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        background: 'var(--gradient)',
         color: 'white', position: 'relative', overflow: 'hidden',
         margin: '-16px -16px 12px', borderRadius: 0,
       }}>
@@ -321,7 +321,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
                 border: '1px solid #f0f0f0',
               }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: DARK, lineHeight: 1.1 }}>{a.value}</div>
-                <div style={{ fontSize: 11, color: '#6b7c8e', marginTop: 3, lineHeight: 1.25 }}>{a.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.25 }}>{a.label}</div>
               </div>
             ))}
           </div>
@@ -350,7 +350,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
               {ownerName}
             </div>
             {profile.owner_positioning && (
-              <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3,
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.3,
                             overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
                             WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                 {profile.owner_positioning}
@@ -364,7 +364,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
       {/* Переключатель Бесплатно/Платно */}
       <div style={{
         display: 'flex', padding: 4, margin: '0 0 12px',
-        background: 'linear-gradient(135deg, #25455D, #0a1520)',
+        background: 'var(--gradient-135)',
         borderRadius: 14, gap: 4, boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.15)',
       }}>
         {(['free', 'paid'] as const).map(t => (
@@ -374,7 +374,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
                  flex: 1, padding: '10px 4px', textAlign: 'center',
                  fontSize: 13, fontWeight: 700,
                  color: tab === t ? DARK : 'rgba(255,255,255,0.55)',
-                 background: tab === t ? 'linear-gradient(135deg, #FFCFA4, #f5b97e)' : 'transparent',
+                 background: tab === t ? 'var(--gradient-peach)' : 'transparent',
                  borderRadius: 11, cursor: 'pointer',
                  boxShadow: tab === t ? '0 2px 8px rgba(255,207,164,0.4)' : 'none',
                }}>

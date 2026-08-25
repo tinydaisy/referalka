@@ -5,8 +5,8 @@ interface Props {
   onVipClick?: (vipUrl: string) => void | Promise<void>  // открытие VIP-ссылки с обогащёнными GET-параметрами
 }
 
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 function formatEndDate(d: string | Date | null | undefined): string {
   if (!d) return ''
@@ -39,7 +39,7 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
   // Карточка подарка при завершении (когда выбран режим «Подарок»).
   const giftCard = endGift ? (
     <div style={{
-      background: 'linear-gradient(135deg, #fff8f0, white)',
+      background: 'linear-gradient(135deg, var(--card-tint), white)',
       border: `2px solid ${PEACH}`, borderRadius: 16,
       padding: 14, marginBottom: 12,
     }}>
@@ -49,9 +49,9 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
         textAlign: 'center', textTransform: 'uppercase',
         padding: '12px 10px', borderRadius: 12, marginBottom: 12, lineHeight: 1.25,
       }}>🎁 Подарок для вас</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', marginBottom: endGift.description ? 6 : 10 }}>{endGift.title}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: endGift.description ? 6 : 10 }}>{endGift.title}</div>
       {endGift.description && (
-        <div style={{ fontSize: 13, color: '#6b7c8e', marginBottom: 10, lineHeight: 1.4 }}>{endGift.description}</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.4 }}>{endGift.description}</div>
       )}
       {endGift.url && (
         <a href={endGift.url} target="_blank" rel="noreferrer" style={{
@@ -80,7 +80,7 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
         {/* А дальше — карточка следующего события с афишей */}
         {successor && (
           <div style={{
-            background: 'linear-gradient(135deg, #fff8f0, white)',
+            background: 'linear-gradient(135deg, var(--card-tint), white)',
             border: `2px solid ${PEACH}`, borderRadius: 16,
             padding: 14, marginBottom: 12, cursor: 'pointer',
           }}>
@@ -98,9 +98,9 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
                      borderRadius: 12, marginBottom: 10, display: 'block',
                    }} />
             )}
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', marginBottom: 4 }}>{successor.title}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{successor.title}</div>
             {successor.start_at && (
-              <div style={{ fontSize: 12, color: '#6b7c8e', marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
                 {formatEndDate(successor.start_at)}
               </div>
             )}
@@ -116,7 +116,7 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
         {giftCard}
 
         <div style={{
-          background: '#1a2a3a', border: '1px solid var(--border)', borderRadius: 10,
+          background: 'var(--text)', border: '1px solid var(--border)', borderRadius: 10,
           padding: 12, fontSize: 11, color: 'var(--muted)', lineHeight: 1.5, textAlign: 'center',
         }}>
           В следующий раз приходите заранее — будет розыгрыш призов, партнёрская программа и подарки за приглашённых друзей
@@ -173,7 +173,7 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
       {/* Большая цифра охвата (если есть) */}
       {totalAudience > 0 && (
         <div style={{
-          background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+          background: 'var(--gradient-135)', color: 'white',
           borderRadius: 16, padding: '22px 16px', marginBottom: 14, textAlign: 'center',
         }}>
           <div style={{ fontSize: 44, fontWeight: 900, color: PEACH, lineHeight: 1 }}>
@@ -186,7 +186,7 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
       {/* А дальше — карточка следующего события с афишей */}
       {successor && (
         <div style={{
-          background: 'linear-gradient(135deg, #fff8f0, white)',
+          background: 'linear-gradient(135deg, var(--card-tint), white)',
           border: `2px solid ${PEACH}`, borderRadius: 16,
           padding: 14, marginBottom: 12, cursor: 'pointer',
         }}>
@@ -204,9 +204,9 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
                    borderRadius: 12, marginBottom: 10, display: 'block',
                  }} />
           )}
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', marginBottom: 4 }}>{successor.title}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{successor.title}</div>
           {successor.start_at && (
-            <div style={{ fontSize: 12, color: '#6b7c8e', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
               {formatEndDate(successor.start_at)}
             </div>
           )}

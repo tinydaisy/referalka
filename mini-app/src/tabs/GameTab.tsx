@@ -9,8 +9,8 @@ import { buildAllLinksText, countLinks } from '../utils/allLinksText'
 interface Props { event: any; participant: any; tgUser: any; botClientId?: number | null }
 
 const APP_URL = import.meta.env.VITE_APP_URL || 'https://pluson.ru'
-const PEACH = '#FFCFA4'
-const DARK = '#25455D'
+const PEACH = 'var(--peach)'
+const DARK = 'var(--dark)'
 
 interface Gift {
   id: number
@@ -316,7 +316,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         </div>
 
         <h3 style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-                     color: '#6b7c8e', margin: '4px 4px 10px' }}>
+                     color: 'var(--muted)', margin: '4px 4px 10px' }}>
           ✓ Доступно · {got.length}
         </h3>
         {got.length === 0
@@ -339,18 +339,18 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               }}>
               <div style={{
                 width: 48, height: 48, borderRadius: 12, flexShrink: 0,
-                background: 'linear-gradient(135deg, #fff4e0, #FFCFA4)',
+                background: 'linear-gradient(135deg, var(--warn-bg), var(--peach))',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
               }}>🎁</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a', marginBottom: 3 }}>{g.title}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>{g.title}</div>
                 {g.description && (
                   <div style={{ marginTop: 4 }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setDescOpen(o => ({ ...o, [g.id]: !o[g.id] })) }}
                       style={{
                         background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                        fontSize: 11, color: '#6b7c8e', display: 'flex', alignItems: 'center', gap: 4,
+                        fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4,
                       }}>
                       <span>{descOpen[g.id] ? 'Свернуть' : 'Подробнее'}</span>
                       <span style={{ fontSize: 9 }}>{descOpen[g.id] ? '▲' : '▼'}</span>
@@ -359,7 +359,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                       // ⚠️ whiteSpace: 'pre-wrap' — переносы строк из описания
                       // сохраняются. Без него весь текст слипался в одну кашу.
                       <div style={{
-                        fontSize: 11, color: '#6b7c8e', marginTop: 6,
+                        fontSize: 11, color: 'var(--muted)', marginTop: 6,
                         whiteSpace: 'pre-wrap', lineHeight: 1.45,
                       }}>{g.description}</div>
                     )}
@@ -378,13 +378,13 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     выбор из тех площадок, что у организатора есть. */}
                 {giftOpenHref(g) ? (
                   <button onClick={(e) => { e.stopPropagation(); openGift(giftOpenHref(g)!) }} style={{
-                    background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
+                    background: 'var(--gradient-135)', color: PEACH,
                     padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     border: 'none', cursor: 'pointer',
                   }}>Открыть</button>
                 ) : hasAnyGiftLink(g) ? (
                   <button onClick={(e) => { e.stopPropagation(); setGiftPick(g) }} style={{
-                    background: 'linear-gradient(135deg, #25455D, #0a1520)', color: PEACH,
+                    background: 'var(--gradient-135)', color: PEACH,
                     padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                     border: 'none', cursor: 'pointer',
                   }}>Открыть</button>
@@ -396,7 +396,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         {locked.length > 0 && (
           <>
             <h3 style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-                         color: '#6b7c8e', margin: '14px 4px 10px' }}>
+                         color: 'var(--muted)', margin: '14px 4px 10px' }}>
               🔒 Заблокировано · {locked.length}
             </h3>
             {/* Всегда видно минимум 2 подарка (с учётом полученных). Остальные —
@@ -421,7 +421,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     fontSize: 10, border: '2px solid white',
                   }}>🔒</div></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a', marginBottom: 3 }}>{g.title}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>{g.title}</div>
                     <div style={{ fontSize: 11, color: '#b86b00', fontWeight: 700 }}>Нужно ещё {need} {need === 1 ? 'человек' : 'человека'}</div>
                   </div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#b86b00',
@@ -434,7 +434,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               <button onClick={() => setShowAllGifts(v => !v)} style={{
                 width: '100%', background: 'white', border: '1px solid #e3e8ee',
                 borderRadius: 12, padding: '12px', marginTop: 4, cursor: 'pointer',
-                color: '#25455D', fontSize: 13, fontWeight: 700,
+                color: 'var(--dark)', fontSize: 13, fontWeight: 700,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               }}>
                 {showAllGifts
@@ -539,7 +539,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                 <>
                   <h3 style={{
                     fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-                    color: '#6b7c8e', margin: '4px 4px 10px',
+                    color: 'var(--muted)', margin: '4px 4px 10px',
                   }}>
                     🖼 Афиши для друзей · {pics.length}
                   </h3>
@@ -570,7 +570,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                 <>
                   <h3 style={{
                     fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-                    color: '#6b7c8e', margin: pics.length > 0 ? '18px 4px 10px' : '4px 4px 10px',
+                    color: 'var(--muted)', margin: pics.length > 0 ? '18px 4px 10px' : '4px 4px 10px',
                   }}>
                     🎬 Видео для друзей · {videos.length}
                   </h3>
@@ -601,7 +601,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           <>
             <h3 style={{
               fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-              color: '#6b7c8e', margin: '18px 4px 10px',
+              color: 'var(--muted)', margin: '18px 4px 10px',
             }}>
               ✍️ Тексты для друзей · {shareTexts.length}
             </h3>
@@ -614,7 +614,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                   boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
                 }}>
                   <div style={{
-                    fontSize: 13, color: '#1a2a3a', whiteSpace: 'pre-wrap',
+                    fontSize: 13, color: 'var(--text)', whiteSpace: 'pre-wrap',
                     lineHeight: 1.55, marginBottom: 10, wordBreak: 'break-word',
                   }}>{rendered}</div>
                   <button onClick={() => copyText(t.id, rendered)}
@@ -651,7 +651,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
             <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>
               Где забрать подарок?
             </div>
-            <div style={{ fontSize: 12, color: '#6b7c8e', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
               Выберите приложение — подарок придёт в бот организатора.
             </div>
             {Object.entries(giftPick.platform_links || {}).map(([plat, url]) => {
@@ -688,17 +688,17 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           flex: 1, background: 'white', borderRadius: 10, padding: '10px 12px',
           textAlign: 'center', boxShadow: '0 2px 6px rgba(37,69,93,0.05)',
         }}>
-          <div style={{ fontSize: 18, fontWeight: 900, color: '#6b7c8e', lineHeight: 1 }}>{visited}</div>
-          <div style={{ fontSize: 10, color: '#6b7c8e', marginTop: 4 }}>переходов</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--muted)', lineHeight: 1 }}>{visited}</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>переходов</div>
         </div>
         <div style={{
-          flex: 1, background: 'linear-gradient(135deg, #fff8f0 0%, white 100%)',
+          flex: 1, background: 'linear-gradient(135deg, var(--card-tint) 0%, white 100%)',
           border: `1.5px solid ${PEACH}`,
           borderRadius: 10, padding: '10px 12px', textAlign: 'center',
           boxShadow: '0 2px 6px rgba(37,69,93,0.05)',
         }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: DARK, lineHeight: 1 }}>{registered}</div>
-          <div style={{ fontSize: 10, color: '#6b7c8e', marginTop: 4 }}>регистраций</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>регистраций</div>
         </div>
       </div>
 
@@ -726,7 +726,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
             )}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: '#6b7c8e' }}>Доступно подарков</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Доступно подарков</div>
             {/* ⚠️ Название полученного подарка здесь НЕ показываем: те же самые
                 подарки идут списком сразу под этим блоком, и название
                 повторялось дважды подряд — нагромождение вместо сводки.
@@ -749,7 +749,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           <div style={{ height: 6, background: '#eef2f7', borderRadius: 3, overflow: 'hidden', marginTop: 8 }}>
             <div style={{
               height: '100%', width: `${progressPct}%`,
-              background: 'linear-gradient(90deg, #FFCFA4, #f5b97e)', borderRadius: 3,
+              background: 'linear-gradient(90deg, var(--peach), var(--peach2))', borderRadius: 3,
             }} />
           </div>
         )}
@@ -782,7 +782,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                 }}>
                 <div style={{ fontSize: 20, flexShrink: 0 }}>{unlocked ? '🎁' : '🔒'}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a',
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)',
                     overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
                     WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{g.title}</div>
                   <div style={{ fontSize: 11, color: unlocked ? '#2e7d32' : '#b86b00', fontWeight: 700, marginTop: 2 }}>
@@ -795,7 +795,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           <button onClick={() => setView('gifts')} style={{
             width: '100%', background: 'transparent', border: 'none',
             borderTop: '1px solid #eef2f7', padding: '11px', cursor: 'pointer',
-            color: '#25455D', fontSize: 13, fontWeight: 700,
+            color: 'var(--dark)', fontSize: 13, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           }}>
             Все подарки ({sortedGifts.length}) <span style={{ fontSize: 15 }}>▼</span>
@@ -812,7 +812,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
       }}>
         <div onClick={() => setTopOpen(!topOpen)}
              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
             🏆 ТОП рейтинг {myRank ? `· вы №${myRank}` : ''}
           </div>
           <div style={{ fontSize: 20, color: topOpen ? PEACH : '#c5cdd6',
@@ -835,7 +835,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '6px 8px', borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
-                    background: t.isMe ? '#fff8f0' : 'transparent',
+                    background: t.isMe ? 'var(--card-tint)' : 'transparent',
                     borderRadius: t.isMe ? 6 : 0,
                     border: 'none', width: '100%', textAlign: 'left',
                     fontFamily: 'inherit',
@@ -847,7 +847,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     {t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : t.rank}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: t.isMe ? 700 : 600, color: '#1a2a3a',
+                    <div style={{ fontSize: 13, fontWeight: t.isMe ? 700 : 600, color: 'var(--text)',
                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.isMe ? 'Вы' : t.name}
                     </div>
@@ -931,7 +931,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
       }}>
         <div onClick={() => setPeopleOpen(!peopleOpen)}
              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
             👥 Ваши люди
           </div>
           <div style={{ fontSize: 20, color: peopleOpen ? PEACH : '#c5cdd6',
@@ -950,7 +950,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               background: '#f0f3f7', color: '#8a96a3',
               fontSize: 14, fontWeight: 800,
             }}>👤</div>
-            <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+            <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>
               {visited} <span style={{ color: '#8a96a3', fontWeight: 500 }}>переходов по ссылке</span>
             </div>
           </div>
@@ -962,7 +962,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               background: '#e8f5e9', color: '#2e7d32',
               fontSize: 13, fontWeight: 800,
             }}>✓</div>
-            <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+            <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>
               {registered} <span style={{ color: '#8a96a3', fontWeight: 500 }}>регистраций</span>
             </div>
           </div>
@@ -974,7 +974,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               background: '#fff3e0', color: '#b86b00',
               fontSize: 13, fontWeight: 800,
             }}>{isContestPeople ? '🗳' : '🎬'}</div>
-            <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+            <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>
               {clicked} <span style={{ color: '#8a96a3', fontWeight: 500 }}>{clickedWord}</span>
             </div>
           </div>
@@ -1009,7 +1009,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
                     fontWeight: 700, fontSize: 12, flexShrink: 0,
                   }}>{p.initials}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>{p.name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{p.name}</div>
                     {p.username && (
                       <span style={{ fontSize: 11, color: '#0088cc', fontWeight: 500 }}>
                         @{p.username.replace(/^@/, '')}
@@ -1095,8 +1095,8 @@ const PLATFORM_META: Record<string, { label: string; icon: string; bg: string; f
 }
 
 function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCopy }: ShareLinksBlockProps) {
-  const PEACH = '#FFCFA4'
-  const DARK = '#25455D'
+  const PEACH = 'var(--peach)'
+  const DARK = 'var(--dark)'
 
   // Порядок: текущая платформа сверху, затем остальные. Платформы без ссылки
   // (бэк не вернул) — пропускаем.
@@ -1114,7 +1114,7 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
         background: 'white', borderRadius: 14, padding: 14, marginBottom: 12,
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
       }}>
-        <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 6, fontWeight: 500 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 500 }}>
           Ваша партнёрская ссылка на событие
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -1124,7 +1124,7 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{refLink}</div>
           <button onClick={() => onCopy('web', refLink)} style={{
-            background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', color: DARK,
+            background: 'var(--gradient-peach)', color: DARK,
             padding: '10px 14px', borderRadius: 10, fontWeight: 700, fontSize: 13,
             cursor: 'pointer', border: 'none',
           }}>{copiedPlatform === 'web' ? '✓' : 'Копировать'}</button>
@@ -1141,7 +1141,7 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
       <div style={{ fontSize: 13, color: DARK, marginBottom: 4, fontWeight: 700 }}>
         🔗 Ваши партнёрские ссылки
       </div>
-      <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 10, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.4 }}>
         Отправьте другу ту ссылку, которая ведёт в его привычное приложение.
       </div>
       {order.map((p, idx) => {
@@ -1161,7 +1161,7 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
               fontSize: 13, fontWeight: 800,
             }}>{meta.icon}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: '#6b7c8e', fontWeight: 600, marginBottom: 2 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>
                 {meta.label}{isCurrent ? ' · здесь' : ''}
               </div>
               <div style={{
@@ -1172,7 +1172,7 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
             </div>
             <button onClick={() => onCopy(p, url)} style={{
               flexShrink: 0,
-              background: isCurrent ? 'linear-gradient(135deg, #FFCFA4, #f5b97e)' : '#f0f3f7',
+              background: isCurrent ? 'var(--gradient-peach)' : '#f0f3f7',
               color: isCurrent ? DARK : DARK,
               padding: '10px 12px', borderRadius: 10, fontWeight: 700, fontSize: 12,
               cursor: 'pointer', border: 'none', minWidth: 84,

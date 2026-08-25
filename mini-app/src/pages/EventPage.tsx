@@ -469,7 +469,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         padding: 24,
       }}>
         <div style={{ maxWidth: 360, textAlign: 'center' }}>
-          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: '#25455D', fontWeight: 700 }}>
+          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: 'var(--dark)', fontWeight: 700 }}>
             Не удалось загрузить событие
           </h2>
           <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--muted)', margin: '0 0 24px' }}>
@@ -478,7 +478,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
           <button
             onClick={() => { setLoadError(false); setReloadKey(k => k + 1) }}
             style={{
-              background: '#FFCFA4', color: '#25455D',
+              background: 'var(--peach)', color: 'var(--dark)',
               fontWeight: 700, padding: '12px 28px', borderRadius: 12, fontSize: 15,
               border: 'none', cursor: 'pointer',
               boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
@@ -606,11 +606,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        background: 'var(--gradient)',
       }}>
         <div style={{
           width: 48, height: 48, borderRadius: '50%',
-          border: '4px solid rgba(255,207,164,0.25)', borderTopColor: '#FFCFA4',
+          border: '4px solid rgba(255,207,164,0.25)', borderTopColor: 'var(--peach)',
           animation: 'spin 0.8s linear infinite',
         }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -680,7 +680,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
 
       {autoRegToast && (
         <div style={{
-          background: '#FFCFA4', color: '#25455D', padding: '10px 14px',
+          background: 'var(--peach)', color: 'var(--dark)', padding: '10px 14px',
           fontSize: 12, lineHeight: 1.45, fontWeight: 700,
           borderBottom: '1px solid #f0b87a',
         }}>

@@ -39,11 +39,11 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
       <div className="grad-header" style={{ padding: '24px 18px 22px', textAlign: 'center' }}>
         <div style={{
           width: 64, height: 64, borderRadius: '50%',
-          background: '#FFCFA4', margin: '0 auto 12px',
+          background: 'var(--peach)', margin: '0 auto 12px',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 6px 18px rgba(255,207,164,0.4)',
         }}>
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#25455D" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--dark)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
@@ -58,19 +58,19 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
       <div style={{ padding: '18px 16px 24px', flex: 1 }}>
         {chatUrl && (
           <div style={{
-            background: '#FFCFA4', borderRadius: 16, padding: '16px 16px 14px',
+            background: 'var(--peach)', borderRadius: 16, padding: '16px 16px 14px',
             marginBottom: 16, boxShadow: '0 4px 14px rgba(255,207,164,0.35)',
           }}>
-            <div style={{ color: '#25455D', fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+            <div style={{ color: 'var(--dark)', fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
               Войдите в чат события
             </div>
-            <div style={{ color: '#25455D', fontSize: 12, fontWeight: 500, lineHeight: 1.45, opacity: 0.85 }}>
+            <div style={{ color: 'var(--dark)', fontSize: 12, fontWeight: 500, lineHeight: 1.45, opacity: 0.85 }}>
               Там вас ждут подарки за регистрацию, нетворкинг с другими участниками
               и оперативные ответы организатора.
             </div>
             <button onClick={openChat} disabled={loading} style={{
               marginTop: 12, width: '100%', padding: '10px 14px',
-              background: '#25455D', color: 'white', border: 'none',
+              background: 'var(--dark)', color: 'white', border: 'none',
               borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer',
               opacity: loading ? 0.7 : 1,
             }}>
@@ -90,7 +90,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
           />
         )}
 
-        <p style={{ color: '#25455D', fontSize: 13, fontWeight: 600, margin: '4px 0 10px' }}>
+        <p style={{ color: 'var(--dark)', fontSize: 13, fontWeight: 600, margin: '4px 0 10px' }}>
           А ещё в Mini App вас ждёт:
         </p>
 
@@ -123,7 +123,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
 
         <button onClick={handleContinue} style={{
           marginTop: 20, width: '100%', padding: '13px 16px',
-          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+          background: 'var(--gradient)',
           color: 'white', border: 'none', borderRadius: 14,
           fontSize: 15, fontWeight: 700, cursor: 'pointer',
         }}>
@@ -143,10 +143,10 @@ function Tile({ icon, title, text }: { icon: string; title: string; text: string
     }}>
       <div style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}>{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: '#25455D', fontSize: 13, fontWeight: 700, marginBottom: 2 }}>
+        <div style={{ color: 'var(--dark)', fontSize: 13, fontWeight: 700, marginBottom: 2 }}>
           {title}
         </div>
-        <div style={{ color: '#25455D', fontSize: 12, fontWeight: 500, lineHeight: 1.4, opacity: 0.8 }}>
+        <div style={{ color: 'var(--dark)', fontSize: 12, fontWeight: 500, lineHeight: 1.4, opacity: 0.8 }}>
           {text}
         </div>
       </div>

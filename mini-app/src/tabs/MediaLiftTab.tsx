@@ -3,9 +3,12 @@ import {
   getMedialiftChain, medialiftCheckSubscribe, medialiftAddChannel, medialiftMyCabinet, registerParticipant,
 } from '../api'
 
-const DARK = '#25455D'
-const PEACH = '#FFCFA4'
-const PASTELS = ['#fff8f0', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
+const DARK = 'var(--dark)'
+const PEACH = 'var(--peach)'
+// ⚠️ ПЕРВЫЙ оттенок — из темы клиента (`--card-tint`): именно он
+// задаёт «фирменность» ряда карточек. Остальные пять дают чередование,
+// чтобы соседние карточки не сливались, и остаются нейтральными.
+const PASTELS = ['var(--card-tint)', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
 
 interface Card {
   ec_id: number
@@ -142,7 +145,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
     }
   }
 
-  if (loading) return <div style={{ padding: 20, color: '#6b7c8e' }}>Загружаем…</div>
+  if (loading) return <div style={{ padding: 20, color: 'var(--muted)' }}>Загружаем…</div>
 
   // ── Экран ПОСЛЕ добавления канала — апселл (2 платные ступени) ──
   if (channelAdded) {
@@ -161,7 +164,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
           <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '8px 0 4px' }}>
             Канал добавлен{addedTitle ? `: «${addedTitle}»` : ''}!
           </h1>
-          <p style={{ fontSize: 14, color: '#6b7c8e', margin: 0 }}>
+          <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>
             Тут ваша ссылка и материалы. Рассказывайте — и ваш канал будет предлагаться всем, кто зайдёт под вами.
           </p>
         </div>
@@ -190,7 +193,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
               ].map(([n, l], i) => (
                 <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: 12, textAlign: 'center' }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: DARK }}>{n as number}</div>
-                  <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2 }}>{l as string}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{l as string}</div>
                 </div>
               ))}
             </div>
@@ -201,7 +204,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
         {texts.length > 0 && (
           <div style={{ background: '#fff', borderRadius: 14, padding: 14, marginBottom: 12, boxShadow: '0 2px 8px rgba(37,69,93,.05)' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>✍️ Готовые материалы</div>
-            <p style={{ fontSize: 12, color: '#6b7c8e', margin: '0 0 10px' }}>Скопируйте и разошлите — так растёт ваша аудитория.</p>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>Скопируйте и разошлите — так растёт ваша аудитория.</p>
             {texts.map((t, i) => (
               <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: 12, marginBottom: 10 }}>
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, marginBottom: 8 }}>{t}</div>
@@ -215,7 +218,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
         {st && (
           <details style={{ background: '#fff', borderRadius: 14, padding: '12px 14px', marginBottom: 12 }}>
             <summary style={{ fontWeight: 700, color: DARK, cursor: 'pointer' }}>📈 Как можно вырасти (прикидка)</summary>
-            <p style={{ fontSize: 13, color: '#6b7c8e', marginTop: 10 }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 10 }}>
               Каждый, кто зашёл по вашей ссылке, подписывается на вас и приводит своих. За 3–4 уровня ветки под вами
               набирается порядка <b>{estShows}</b> показов вашего канала. При конверсии в подписку ~43% и с учётом
               отписок это примерно <b>{estLive} живых подписчиков</b> — без вложений в рекламу.
@@ -224,7 +227,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
         )}
 
         {/* Апселл */}
-        <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff', borderRadius: 14, padding: 16, marginBottom: 12 }}>
+        <div style={{ background: 'var(--gradient)', color: '#fff', borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Свой материал эффективнее канала</div>
           <p style={{ fontSize: 13, opacity: 0.85, margin: '0 0 12px' }}>Заведите лид-магнит — люди получат ценность и попадут в вашу базу.</p>
           <a href="https://pluson.ru/register" target="_blank" rel="noreferrer"
@@ -247,7 +250,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
         <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '4px 0 6px' }}>
           Добавьте свой канал
         </h1>
-        <p style={{ fontSize: 14, color: '#6b7c8e', margin: '0 0 16px' }}>
+        <p style={{ fontSize: 14, color: 'var(--muted)', margin: '0 0 16px' }}>
           Вставьте ссылку на свой Telegram-канал — и вы попадёте в цепочку. Название
           подтянется автоматически.
         </p>
@@ -270,7 +273,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
         <button
           onClick={handleAddChannel} disabled={busy}
           style={{
-            width: '100%', background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff',
+            width: '100%', background: 'var(--gradient)', color: '#fff',
             fontWeight: 800, fontSize: 15, padding: '13px', borderRadius: 12, border: 'none',
             cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
           }}>
@@ -286,7 +289,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
       <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '4px 8px 4px' }}>
         Подпишитесь минимум на {required}
       </h1>
-      <p style={{ fontSize: 13, color: '#6b7c8e', margin: '0 8px 14px' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 8px 14px' }}>
         Отметьте карточки, подпишитесь на их каналы и войдите в систему.
       </p>
 
@@ -316,7 +319,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
       {error && <div style={{ color: '#c0392b', fontSize: 13, margin: '0 8px 12px' }}>{error}</div>}
 
       {cards.length === 0 && (
-        <div style={{ padding: 20, color: '#6b7c8e', textAlign: 'center' }}>
+        <div style={{ padding: 20, color: 'var(--muted)', textAlign: 'center' }}>
           Пока некого показать. Загляните позже.
         </div>
       )}
@@ -351,16 +354,16 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
                   width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
                   background: (isRich && c.photo_url)
                     ? `center/cover url(${c.photo_url})`
-                    : 'linear-gradient(45deg, #25455D, #0a1520)',
+                    : 'var(--gradient)',
                   border: `2px solid ${PEACH}`, display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                   color: PEACH, fontWeight: 700, fontSize: 17,
                 }}>{(!isRich || !c.photo_url) && initials(c.name)}</div>
 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a' }}>{c.name}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{c.name}</div>
                   {c.description && (
-                    <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
                       {c.description}
                     </div>
                   )}

@@ -19,7 +19,7 @@ const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 const CALENDAR_TAB: NavItem = { id: 'calendar',  label: 'Календарь',   icon: 'calendar'  }
 const ECOSYSTEM_TAB: NavItem = { id: 'ecosystem', label: 'О проекте',  icon: 'ecosystem' }
 
-const PEACH = '#FFCFA4'
+const PEACH = 'var(--peach)'
 
 export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props) {
   const [profile, setProfile] = useState<any>(null)
@@ -94,7 +94,7 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
               position: 'absolute', top: 14, left: 12,
               background: 'rgba(255,255,255,0.10)',
               border: '1px solid rgba(255,207,164,0.4)',
-              color: '#FFCFA4',
+              color: 'var(--peach)',
               fontSize: 12, fontWeight: 600,
               padding: '4px 10px', borderRadius: 999,
               cursor: 'pointer',
