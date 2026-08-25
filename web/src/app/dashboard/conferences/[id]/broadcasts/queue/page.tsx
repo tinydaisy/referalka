@@ -289,12 +289,18 @@ export default function QueuePage() {
   const [shiftSaving, setShiftSaving] = useState(false)
 
   const load = useCallback(async () => {
+    // ⚠️ У КАЖДОГО запроса свой .catch. Promise.all падает целиком, если
+    // сорвался хоть один — и вся страница оставалась ПУСТОЙ. Так и вышло:
+    // /conference/speakers отвечал 500 (код требовал колонку, которой ещё не
+    // было в базе), а клиент видел «очередь пуста», хотя рассылки были
+    // отправлены и лежали в базе. Список рассылок не должен зависеть от того,
+    // ответил ли справочник спикеров.
     const [tmpl, sched, spk, sess, days, ev] = await Promise.all([
-      api.conference.templates.list(eventId),
-      api.conference.schedules.list(eventId),
-      api.conference.speakers.list(eventId),
-      api.conference.sessions.list(eventId),
-      api.conference.days.list(eventId),
+      api.conference.templates.list(eventId).catch(() => ({ templates: [] })),
+      api.conference.schedules.list(eventId).catch(() => ({ schedules: [] })),
+      api.conference.speakers.list(eventId).catch(() => ({ speakers: [] })),
+      api.conference.sessions.list(eventId).catch(() => ({ sessions: [] })),
+      api.conference.days.list(eventId).catch(() => ({ days: [] })),
       api.events.get(eventId).catch(() => null),
     ])
     setIsCollab(!!ev?.event?.is_collab)
