@@ -25,6 +25,12 @@ interface LeadMagnet {
   description: string | null
   url: string
   slug: string
+  /** Как отдавать материал: ссылкой в тексте / кнопкой / и так, и так. */
+  link_mode?: 'text' | 'button' | 'both'
+  /** Надпись на кнопке, до 40 символов. Пусто → берём название материала. */
+  button_label?: string | null
+  /** Анкета-шлагбаум перед выдачей. */
+  require_survey_id?: number | null
   platform_links?: PlatformLinks
   created_at: string
   updated_at: string
@@ -62,6 +68,11 @@ function useFounderChannelsReady(): ChannelsReady {
   }, [])
   return channelsReady
 }
+
+// ⚠️ 40 — предел ВКонтакте, самой строгой из трёх площадок (проверено живой
+// отправкой: 40 принимает, 41 отвергает вместе со всем сообщением). Telegram
+// берёт и 128. Держим минимум, чтобы надпись доехала везде одинаковой.
+const BTN_LIMIT = 40
 
 export default function LeadMagnetsPage() {
   const [tab, setTab] = useState<Tab>(() => {
@@ -444,6 +455,9 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   const [description, setDescription] = useState(initial?.description || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Как отдавать материал: ссылкой в тексте, кнопкой или и так, и так.
+  const [linkMode, setLinkMode] = useState<string>((initial as any)?.link_mode || 'text')
+  const [buttonLabel, setButtonLabel] = useState<string>((initial as any)?.button_label || '')
   // Анкета-шлагбаум перед выдачей. По умолчанию не требуется.
   const [surveyId, setSurveyId] = useState<number | ''>(
     (initial as any)?.require_survey_id || '')
@@ -466,6 +480,8 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
       const payload = {
         name: name.trim(), description: description.trim() || null, url: url.trim(),
         require_survey_id: surveyId ? Number(surveyId) : null,
+        link_mode: linkMode,
+        button_label: buttonLabel.trim() || null,
       }
       if (initial) await api.leadMagnets.update(initial.id, payload)
       else await api.leadMagnets.create(payload)
@@ -492,6 +508,41 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="Короткое описание — покажется в воронке под названием подарка (плейсхолдер {materials_list_description})" />
         </Field>
+        <Field label="Как выдавать материал">
+          <select value={linkMode} onChange={e => setLinkMode(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="text">Ссылкой в тексте</option>
+            <option value="button">Кнопкой под сообщением</option>
+            <option value="both">И ссылкой, и кнопкой</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            Ссылка внутри абзаца теряется — по кнопке попасть проще.
+          </p>
+        </Field>
+
+        {linkMode !== 'text' && (
+          <Field label="Надпись на кнопке">
+            <input value={buttonLabel}
+                   onChange={e => setButtonLabel(e.target.value.slice(0, BTN_LIMIT))}
+                   maxLength={BTN_LIMIT}
+                   placeholder="Например: Забрать гайд"
+                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="mt-1 flex items-start justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                {/* ⚠️ Пусто — не ошибка: подставим название материала, обрезав
+                    под лимит. Клиент не должен думать, что кнопка сломается. */}
+                Пусто — возьмём название материала и обрежем до {BTN_LIMIT} символов.
+                В пакете спереди добавится номер: «1. …».
+              </p>
+              <span className={`shrink-0 text-xs tabular-nums ${
+                BTN_LIMIT - buttonLabel.length <= 5 ? 'text-amber-600' : 'text-gray-400'
+              }`}>
+                осталось {BTN_LIMIT - buttonLabel.length}
+              </span>
+            </div>
+          </Field>
+        )}
+
         {hasSurveys && <Field label="Сначала заполнить анкету">
           <select value={surveyId}
                   onChange={e => setSurveyId(e.target.value ? Number(e.target.value) : '')}
@@ -657,6 +708,10 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
 }) {
   const [name, setName] = useState(initial?.name || '')
   const [description, setDescription] = useState(initial?.description || '')
+  // Как отдавать ВСЕ материалы пакета. ⚠️ Выбор пакета ГЛАВНЕЕ настройки
+  // каждого материала: иначе часть пунктов ушла бы кнопками, часть текстом,
+  // и нумерация подписей разъехалась бы со списком.
+  const [linkMode, setLinkMode] = useState<string>((initial as any)?.link_mode || '')
   const [selected, setSelected] = useState<number[]>(
     initial ? initial.items.sort((a, b) => a.sort_order - b.sort_order).map(i => i.lead_magnet_id) : []
   )
@@ -702,6 +757,7 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
       const payload = {
         name: name.trim(),
         description: description.trim() || null,
+        link_mode: linkMode || null,
         items: selected.map((id, i) => ({ lead_magnet_id: id, sort_order: i })),
       }
       if (initial) await api.leadMagnetPackages.update(initial.id, payload)
@@ -737,6 +793,24 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <p className="text-xs text-gray-500 mt-1">
             Выводится в сообщении воронки над списком подарков.
+          </p>
+        </Field>
+
+        <Field label="Как выдавать материалы пакета">
+          <select value={linkMode} onChange={e => setLinkMode(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Как настроено у каждого материала</option>
+            <option value="text">Всё ссылками в тексте</option>
+            <option value="button">Всё кнопками</option>
+            <option value="both">И ссылками, и кнопками</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            {/* ⚠️ Прямо говорим, что выбор пакета перебивает настройку
+                материала: иначе клиент не поймёт, почему подарок ушёл кнопкой,
+                хотя у самого материала стоит «ссылкой». */}
+            {linkMode
+              ? 'Действует на все материалы пакета — настройка каждого из них не учитывается. Надписи на кнопках берутся из материалов, спереди добавляется номер: «1. …».'
+              : 'Каждый материал отдаётся так, как настроен у себя.'}
           </p>
         </Field>
 

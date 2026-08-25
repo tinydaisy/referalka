@@ -24,7 +24,17 @@ class PackageItemIn(BaseModel):
 class PackageIn(BaseModel):
     name: str
     description: Optional[str] = None
+    # Как отдавать ВСЕ материалы пакета: text / button / both.
+    # ⚠️ Значение пакета ПЕРЕБИВАЕТ настройку каждого материала (миграция 330):
+    # иначе часть пунктов ушла бы кнопками, часть текстом, а нумерация подписей
+    # разъехалась бы со списком. None — не задано, решает сам материал.
+    link_mode: Optional[str] = None
     items: List[PackageItemIn] = []
+
+
+def _norm_pkg_link_mode(v):
+    """Режим выдачи пакета. Мусор и пустое → None («решает материал»)."""
+    return v if v in ('text', 'button', 'both') else None
 
 
 async def _serialize_package(row, db: asyncpg.Connection) -> dict:
@@ -44,6 +54,7 @@ async def _serialize_package(row, db: asyncpg.Connection) -> dict:
         "id": row["id"],
         "name": row["name"],
         "description": row["description"],
+        "link_mode": row["link_mode"],
         "slug": row["slug"],
         "platform_links": platform_links,
         "created_at": row["created_at"],
@@ -58,7 +69,7 @@ async def list_packages(
     db: asyncpg.Connection = Depends(get_db)
 ):
     rows = await db.fetch(
-        """SELECT id, client_id, name, description, slug, created_at, updated_at
+        """SELECT id, client_id, name, description, slug, link_mode, created_at, updated_at
              FROM lead_magnet_packages WHERE client_id = $1
             ORDER BY name""",
         int(client["sub"])
@@ -92,10 +103,11 @@ async def create_package(
     slug = await _make_unique_lead_magnet_slug(db)
     async with db.transaction():
         row = await db.fetchrow(
-            """INSERT INTO lead_magnet_packages (client_id, name, description, slug)
-               VALUES ($1, $2, $3, $4)
-               RETURNING id, client_id, name, description, slug, created_at, updated_at""",
-            cid, data.name.strip(), data.description, slug
+            """INSERT INTO lead_magnet_packages (client_id, name, description, slug, link_mode)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING id, client_id, name, description, slug, link_mode, created_at, updated_at""",
+            cid, data.name.strip(), data.description, slug,
+            _norm_pkg_link_mode(data.link_mode),
         )
         if data.items:
             await db.executemany(
@@ -152,7 +164,7 @@ async def get_package(
     db: asyncpg.Connection = Depends(get_db)
 ):
     row = await db.fetchrow(
-        """SELECT id, client_id, name, description, slug, created_at, updated_at
+        """SELECT id, client_id, name, description, slug, link_mode, created_at, updated_at
              FROM lead_magnet_packages WHERE id = $1 AND client_id = $2""",
         package_id, int(client["sub"])
     )
@@ -184,10 +196,14 @@ async def update_package(
     async with db.transaction():
         row = await db.fetchrow(
             """UPDATE lead_magnet_packages
-                  SET name = $1, description = $2, updated_at = NOW()
+                  SET name = $1, description = $2,
+                      -- Правим только присланное: форма может слать не все поля.
+                      link_mode = CASE WHEN $5 THEN $6 ELSE link_mode END,
+                      updated_at = NOW()
                 WHERE id = $3 AND client_id = $4
-                RETURNING id, client_id, name, description, slug, created_at, updated_at""",
-            data.name.strip(), data.description, package_id, cid
+                RETURNING id, client_id, name, description, slug, link_mode, created_at, updated_at""",
+            data.name.strip(), data.description, package_id, cid,
+            'link_mode' in data.model_fields_set, _norm_pkg_link_mode(data.link_mode),
         )
         if not row:
             raise HTTPException(status_code=404, detail="Пакет не найден")

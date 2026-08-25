@@ -53,6 +53,26 @@ async def _make_unique_lead_magnet_slug(db: asyncpg.Connection) -> str:
             return candidate
 
 
+def _norm_link_mode(v):
+    """Режим выдачи → безопасное значение.
+
+    ⚠️ Мусор приводим к 'text' (прежнее поведение), а не роняем запрос: набор
+    вариантов может пополниться, и старый фронт не должен ломать сохранение.
+    """
+    return v if v in ('text', 'button', 'both') else 'text'
+
+
+def _norm_button_label(v):
+    """Надпись кнопки: обрезаем под лимит площадок и чистим пробелы.
+
+    ⚠️ Режем и на сервере, а не только в поле ввода: длинную надпись ВКонтакте
+    отвергает целиком — вместе со всем сообщением, а не только с кнопкой.
+    """
+    from app.services.lead_magnet_buttons import BUTTON_LABEL_LIMIT
+    s = (v or '').strip()
+    return s[:BUTTON_LABEL_LIMIT] or None
+
+
 class LeadMagnetIn(BaseModel):
     name: str
     description: Optional[str] = None
@@ -61,6 +81,12 @@ class LeadMagnetIn(BaseModel):
     # это поведение по умолчанию у всех существующих лид-магнитов.
     # ⚠️ Порядок в воронке: подписка на канал → анкета → файл.
     require_survey_id: Optional[int] = None
+    # Как отдавать материал: ссылкой в тексте (как было), кнопкой под
+    # сообщением или и так, и так. См. миграцию 330.
+    link_mode: Optional[str] = None
+    # Надпись на кнопке, до 40 символов (предел ВКонтакте). Пусто → берём
+    # название материала и режем под лимит.
+    button_label: Optional[str] = None
 
 
 @router.get("", summary="Список лид-магнитов клиента")
@@ -70,7 +96,8 @@ async def list_lead_magnets(
 ):
     cid = int(client["sub"])
     rows = await db.fetch(
-        """SELECT id, name, description, url, slug, require_survey_id, created_at, updated_at
+        """SELECT id, name, description, url, slug, require_survey_id,
+                  link_mode, button_label, created_at, updated_at
            FROM lead_magnets WHERE client_id = $1
            ORDER BY name""",
         cid
@@ -93,10 +120,13 @@ async def create_lead_magnet(
     cid = int(client["sub"])
     slug = await _make_unique_lead_magnet_slug(db)
     row = await db.fetchrow(
-        """INSERT INTO lead_magnets (client_id, name, description, url, slug)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, name, description, url, slug, require_survey_id, created_at, updated_at""",
-        cid, data.name.strip(), data.description, data.url.strip(), slug
+        """INSERT INTO lead_magnets (client_id, name, description, url, slug,
+                                     link_mode, button_label)
+           VALUES ($1, $2, $3, $4, $5, COALESCE($6,'text'), $7)
+           RETURNING id, name, description, url, slug, require_survey_id,
+                      link_mode, button_label, created_at, updated_at""",
+        cid, data.name.strip(), data.description, data.url.strip(), slug,
+        _norm_link_mode(data.link_mode), _norm_button_label(data.button_label),
     )
     out = dict(row)
     out["platform_links"] = await build_funnel_landing_links(
@@ -158,7 +188,8 @@ async def get_lead_magnet(
 ):
     cid = int(client["sub"])
     row = await db.fetchrow(
-        """SELECT id, name, description, url, slug, require_survey_id, created_at, updated_at
+        """SELECT id, name, description, url, slug, require_survey_id,
+                  link_mode, button_label, created_at, updated_at
            FROM lead_magnets WHERE id = $1 AND client_id = $2""",
         lead_magnet_id, cid
     )
@@ -186,12 +217,20 @@ async def update_lead_magnet(
         """UPDATE lead_magnets
               SET name = $1, description = $2, url = $3,
                   require_survey_id = CASE WHEN $6 THEN $7 ELSE require_survey_id END,
+                  -- ⚠️ Как и у анкеты: правим ТОЛЬКО присланное. Форма может
+                  -- слать не все поля, и без этой проверки сохранение молча
+                  -- сбрасывало бы уже настроенную выдачу кнопкой.
+                  link_mode    = CASE WHEN $8  THEN COALESCE($9,'text') ELSE link_mode END,
+                  button_label = CASE WHEN $10 THEN $11 ELSE button_label END,
                   updated_at = NOW()
             WHERE id = $4 AND client_id = $5
-            RETURNING id, name, description, url, slug, require_survey_id, created_at, updated_at""",
+            RETURNING id, name, description, url, slug, require_survey_id,
+                      link_mode, button_label, created_at, updated_at""",
         data.name.strip(), data.description, data.url.strip(),
         lead_magnet_id, cid,
         'require_survey_id' in data.model_fields_set, data.require_survey_id,
+        'link_mode' in data.model_fields_set, _norm_link_mode(data.link_mode),
+        'button_label' in data.model_fields_set, _norm_button_label(data.button_label),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
