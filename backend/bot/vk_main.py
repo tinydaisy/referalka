@@ -1126,7 +1126,13 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             # Snackbar тоже шлём — короткое, чтобы кнопка убрала спиннер.
             await _send_event_answer("Не вижу подписки. Смотрите сообщение в чате.")
         else:
-            await _send_event_answer("Что-то пошло не так. Попробуйте позже.")
+            # ⚠️ Сюда попадают ТЕХНИЧЕСКИЕ отказы (`no_token` — у клиента не
+            # подключён бот/канал, `not_found` — забег потерялся). Человек в
+            # этом не виноват и починить это не может, а «что-то пошло не так»
+            # он читает как «подарок не дали». Пишем нейтрально и зовём в
+            # поддержку; сам сбой уходит в лог — разбираться должен клиент.
+            logger.warning("VK fnl_check: неожиданный результат %r (run=%s)", result, run_id)
+            await _send_event_answer("Секунду, материалы уже в пути 🎁")
         return
 
     # Меню события (порт TG evchat_/evmenu_/evlive_/evsupport_ из handlers/funnel.py).

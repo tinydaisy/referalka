@@ -1695,6 +1695,12 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
     if _survey:
         return "survey_required"
 
+    # ⚠️ Выдача материалов VK. Этот блок лежал ВНУТРИ `if _survey:` сразу
+    # после `return "survey_required"` — то есть НЕ ВЫПОЛНЯЛСЯ НИКОГДА.
+    # Человек нажимал «ГОТОВО», подписка проверялась и проходила, а Текст 2
+    # со ссылками не уходил: кнопка крутилась бесконечно, у части клиентов
+    # VK показывал «что-то пошло не так».
+    if platform == "vk":
         from app.services.vk_api import send_message_with_media as vk_send_with_media
         # Шлём от того же сообщества, через которое прилетел клик. Токен этого
         # канала вычисляется по run.platform_slug='vk' + active client_channel.

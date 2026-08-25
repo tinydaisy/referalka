@@ -325,9 +325,18 @@ async def sync_email_identity_and_subscription(
             # email сменился — пробуем UPDATE
             try:
                 await db.execute(
+                    # ⚠️ Меняется адрес → снимаем отметку «письма не доходят».
+                    # Она ставится по отказу почтовика и висит на СТРОКЕ
+                    # идентичности, а не на самом адресе. Клиент исправлял
+                    # опечатку («glail.com» → «gmail.com»), но отметка
+                    # оставалась от старого адреса: письма не уходили и на
+                    # новый, а красная плашка в карточке не гасла.
                     """UPDATE platform_users
                           SET platform_user_id = $2,
                               first_name = COALESCE($3, first_name),
+                              email_is_dead   = FALSE,
+                              email_dead_reason = NULL,
+                              email_dead_at   = NULL,
                               updated_at = NOW()
                         WHERE id = $1""",
                     existing["id"], email_norm, first_name,

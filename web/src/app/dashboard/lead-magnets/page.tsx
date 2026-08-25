@@ -72,6 +72,11 @@ export default function LeadMagnetsPage() {
   // Канал(ы) основателя для воронки — массив (миграция 114).
   // null = ещё не загружено или загружено и пусто; [] = загружено и пусто; [..] = есть.
   const [tgChannels, setTgChannels] = useState<{ url: string; name?: string }[] | null>(null)
+  // VK-сообщества основателя. ⚠️ Подписку можно проверить, ТОЛЬКО если у
+  // сообщества известен числовой group_id — по одной ссылке VK членство не
+  // отдаёт. Сообщество без него = проверки фактически нет, материалы уходят
+  // всем подряд, и клиент об этом не догадывается.
+  const [vkChannels, setVkChannels] = useState<{ url: string; name?: string; group_id?: string }[]>([])
   // Сводные счётчики по всем лид-магнитам + всем пакетам (есть contact_id / получили)
   const [totals, setTotals] = useState<{ reached: number; received: number } | null>(null)
   // Главный бот воронки перехвачен сторонним сервисом (webhook) → воронки НЕ работают:
@@ -82,8 +87,14 @@ export default function LeadMagnetsPage() {
   useEffect(() => {
     api.miniApp.profile.get()
       .then((p: any) => {
-        const list = (p?.social_links || {}).telegram_channels
+        const soc = p?.social_links || {}
+        const list = soc.telegram_channels
         setTgChannels(Array.isArray(list) ? list : [])
+        // Массив vk_channels, иначе legacy-пара vk + vk_group_id.
+        const vkList = Array.isArray(soc.vk_channels) && soc.vk_channels.length
+          ? soc.vk_channels
+          : (soc.vk ? [{ url: soc.vk, group_id: soc.vk_group_id, name: '' }] : [])
+        setVkChannels(vkList)
       })
       .catch(() => setTgChannels([]))
   }, [])
@@ -198,6 +209,37 @@ export default function LeadMagnetsPage() {
           >
             Изменить список каналов →
           </a>
+        </div>
+      )}
+
+      {/* ⚠️ VK-сообщество указано, но без числового ID. Подписку в этом случае
+          проверить НЕЧЕМ: VK отдаёт членство только по group_id, по одной
+          ссылке — никак. Внешне всё выглядит рабочим (человек жмёт «ГОТОВО»
+          и получает материалы), но проверки нет — файлы уходят и тем, кто не
+          подписался. Клиент об этом не догадается, поэтому говорим прямо. */}
+      {vkChannels.some(ch => !String(ch.group_id || '').trim()) && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm">
+            <div className="font-semibold text-amber-900 mb-1">
+              ВКонтакте: подписка не проверяется по-настоящему
+            </div>
+            <div className="text-amber-800">
+              Сообщество основателя указано, но у него не заполнен ID сообщества —
+              а без него ВКонтакте не отвечает, подписан человек или нет.
+              Воронка сработает и выдаст материалы, но <b>подписку не проверит</b>:
+              файлы получат и те, кто не подписался.
+              <div className="mt-1">
+                Укажите сообщество ещё раз в профиле основателя — ID подставится сам.
+              </div>
+            </div>
+            <a
+              href="/dashboard/mini-app?tab=owner"
+              className="inline-flex items-center gap-1 mt-2 text-sm font-medium underline text-amber-900 hover:text-amber-700"
+            >
+              Настроить сообщество ВКонтакте →
+            </a>
+          </div>
         </div>
       )}
 
