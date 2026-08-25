@@ -482,7 +482,10 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
                       photo_folder_url, video_folder_url,
                       tg_channel_url, tg_channel_id, vk_url, vk_channel_id,
                       max_url, max_channel_id, instagram_url, website_url,
-                      media_assets, ask_topics, show_ask_topics_field
+                      media_assets, ask_topics, show_ask_topics_field,
+                      -- contact_id нужен ссылке предпросмотра кабинета
+                      -- участника (`/event/{slug}?c=`) на вкладке «Профиль спикера».
+                      contact_id
                  FROM collaborators WHERE id = $1""", collab_id)
         if pr:
             profile = dict(pr)
@@ -501,6 +504,9 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
         "can_edit": can_edit,
         "is_me": can_edit,
         "event_status": ev["status"],
+        # Slug нужен ссылкам предпросмотра кабинета участника на вкладке
+        # «Профиль спикера»: страница события — это `/event/{slug}`.
+        "event_slug": ev["slug"],
         # Согласие ЭТОГО организатора на рассылки по его базе + завершено ли событие.
         "allow_collab_broadcasts": await db.fetchval(
             "SELECT allow_collab_broadcasts FROM event_owners WHERE event_id=$1 AND client_id=$2",

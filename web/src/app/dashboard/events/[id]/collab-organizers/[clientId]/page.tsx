@@ -5,6 +5,9 @@ import { ArrowLeft, Users, Star, Save, Plus, X, Gift, Image as ImageIcon } from 
 import { api } from '@/lib/api'
 import RefLinkInline from '@/components/RefLinkInline'
 import FileUploader from '@/components/FileUploader'
+import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
+import MarkupHints, { MarkupTip } from '@/components/MarkupHints'
+import { useMe } from '@/hooks/useMe'
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -20,6 +23,8 @@ const DARK = '#25455D'
  *  2. Редактировать можно ТОЛЬКО СВОЮ карточку. Чужая — просмотр.
  */
 export default function CollabOrganizerCardPage() {
+  // Домен клиента: ссылки предпросмотра ведут на публичную страницу события.
+  const { publicHost } = useMe()
   const params = useParams()
   const router = useRouter()
   const eventId = Number(params?.id)
@@ -403,6 +408,16 @@ export default function CollabOrganizerCardPage() {
                 <p className="text-sm text-gray-500">Это чужая карточка — только просмотр.</p>
               )}
 
+              {/* Предпросмотр кабинета участника: как страница события выглядит
+                  до регистрации и после неё. Компонент общий с карточками
+                  спикера конференции и соорганизатора мероприятия. */}
+              <CabinetPreviewBlock
+                publicHost={publicHost}
+                slug={data.event_slug}
+                contactId={prof.contact_id}
+                personLabel="этого организатора"
+              />
+
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
                 <h2 className="font-semibold text-gray-900">Основная информация</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -425,6 +440,9 @@ export default function CollabOrganizerCardPage() {
                     onChange={e => setProf({ ...prof, title: e.target.value })}
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] disabled:bg-gray-50" />
                   <p className="mt-1 text-xs text-gray-400">{(prof.title || '').length} из 140</p>
+                  {/* Позиционирование тоже показывается через SafeHtml — ошибка
+                      в теге так же расползается жирным по карточке. */}
+                  <MarkupHints value={prof.title || ''} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Регалии (по одной на строку)</label>
@@ -433,6 +451,8 @@ export default function CollabOrganizerCardPage() {
                     placeholder={'Регалия 1\nРегалия 2\nРегалия 3'}
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#25455D] resize-y disabled:bg-gray-50" />
                   <p className="mt-1 text-xs text-gray-400">{achText.length} из 1100</p>
+                  <MarkupTip />
+                  <MarkupHints value={achText} />
                 </div>
               </div>
 
