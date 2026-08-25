@@ -382,7 +382,11 @@ def _format_text(template: str, ctx: dict, materials: list[dict],
         return "\n\n".join(parts)
 
     def _list_desc(with_link: bool) -> str:
-        body = "\n\n".join(_one(i, m, with_link) for i, m in enumerate(materials))
+        # ⚠️ Между подарками — разделительная черта, а не просто пустая строка.
+        # Внутри пункта пустые строки уже есть (название / описание / ссылка),
+        # поэтому без черты пункты сливались в одно полотно и было не понять,
+        # где кончается один подарок и начинается следующий.
+        body = "\n\n---\n\n".join(_one(i, m, with_link) for i, m in enumerate(materials))
         pkg = (pkg_description or "").strip()
         return f"{pkg}\n\n{body}" if pkg else body
 
