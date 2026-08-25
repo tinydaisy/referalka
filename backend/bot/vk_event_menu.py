@@ -196,9 +196,35 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
     # события (с дедупом self-коллаба внутри _gather_event_vk_channels).
     channels = []
     if mode != "none":
-        founder = await _gather_founder_vk_channels(client_id, db)
-        speakers = await _gather_event_vk_channels(event_id, mode, db, client_id)
-        channels = founder + speakers
+        # ⚠️⚠️ В КОЛЛАБЕ — КАНАЛЫ ВСЕХ ОРГАНИЗАТОРОВ, А НЕ ОДНОГО.
+        # Рычаг `require_subscribe_all_owners` для того и заведён: подписался
+        # на одного партнёра — в чат не пускаем, иначе обмен аудиторией теряет
+        # смысл. В Telegram так и работает; ВКонтакте проверял одного.
+        _owner_ids = [client_id]
+        try:
+            if await db.fetchval("SELECT is_collab FROM events WHERE id=$1", event_id) \
+               and await db.fetchval(
+                   "SELECT require_subscribe_all_owners FROM events WHERE id=$1", event_id):
+                _rows = await db.fetch(
+                    """SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                        ORDER BY (eo.role = 'owner') DESC, eo.id""",
+                    event_id)
+                _owner_ids = [r["client_id"] for r in _rows] or _owner_ids
+        except Exception:
+            pass                      # не собрали — проверяем как раньше, одного
+
+        _seen_urls = set()
+        for _cid in _owner_ids:
+            for _ch in await _gather_founder_vk_channels(_cid, db):
+                _u = (_ch.get("vk_url") or "").strip().lower()
+                if _u and _u in _seen_urls:
+                    continue          # один канал не показываем дважды
+                if _u:
+                    _seen_urls.add(_u)
+                channels.append(_ch)
+
+        channels += await _gather_event_vk_channels(event_id, mode, db, client_id)
 
     # Проверяем подписку на каждое VK-сообщество спикера.
     not_all_subscribed = False

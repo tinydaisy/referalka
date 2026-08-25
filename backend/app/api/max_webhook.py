@@ -2233,9 +2233,48 @@ async def _handle_max_chat_join(
     # (раньше передавался chat_id → MAX всегда отвечал «не подписан»).
     check_uid = user_id if user_id is not None else chat_id
     logger.info(f"MAX chat-join subcheck: event={event_id} user_id={check_uid} chat_id={chat_id} mode={mode}")
-    not_subscribed_channels = [] if mode == "none" else await _check_max_subscription(
-        conn, ev["client_id"], event_id, mode, check_uid, bot_token,
-    )
+    # ⚠️⚠️ В КОЛЛАБЕ ПРОВЕРЯЕМ КАНАЛЫ ВСЕХ ОРГАНИЗАТОРОВ, А НЕ ОДНОГО.
+    # Рычаг `require_subscribe_all_owners` для того и заведён: человек должен
+    # быть подписан на каналы каждого партнёра, иначе смысл обмена аудиторией
+    # теряется. В Telegram это работает (`_check_collab_owners`), а MAX
+    # проверял канал одного клиента — подписался на одного, попал в чат.
+    #
+    # ⚠️ Каждого организатора проверяем ЕГО ботом: бот админ только в своём
+    # канале, чужим токеном ответ не получить.
+    if mode == "none":
+        not_subscribed_channels = []
+    else:
+        _owner_ids = [ev["client_id"]]
+        try:
+            if await conn.fetchval("SELECT is_collab FROM events WHERE id=$1", event_id) \
+               and await conn.fetchval(
+                   "SELECT require_subscribe_all_owners FROM events WHERE id=$1", event_id):
+                _rows = await conn.fetch(
+                    """SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                        ORDER BY (eo.role = 'owner') DESC, eo.id""",
+                    event_id)
+                _owner_ids = [r["client_id"] for r in _rows] or _owner_ids
+        except Exception:
+            logger.warning("MAX chat-join: не смогли собрать организаторов события %s", event_id)
+
+        from app.services.channels import get_client_max_token
+        not_subscribed_channels = []
+        _seen = set()
+        for _cid in _owner_ids:
+            _tok = bot_token if _cid == ev["client_id"] else await get_client_max_token(_cid, conn)
+            if not _tok:
+                continue          # нет своего MAX-бота → проверить нечем, не блокируем
+            try:
+                for _ch in await _check_max_subscription(
+                        conn, _cid, event_id, mode, check_uid, _tok):
+                    _key = str(_ch.get("chat_id") or _ch.get("url") or _ch.get("name"))
+                    if _key in _seen:
+                        continue  # один канал не показываем дважды
+                    _seen.add(_key)
+                    not_subscribed_channels.append(_ch)
+            except Exception:
+                logger.warning("MAX chat-join: проверка каналов клиента %s не удалась", _cid)
     if not_subscribed_channels:
         lines = [
             "Чтобы войти в чат события, подпишитесь на эти каналы в MAX:",
