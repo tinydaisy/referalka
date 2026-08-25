@@ -248,8 +248,24 @@ async def archive_incoming(
         contact_id=contact_id, sent_at=sent_at,
     )
     if row_id and file_url and media_kind and media_kind != "voice":
+        # ⚠️ Берём contact_id ИЗ ЗАПИСАННОГО сообщения, а не из аргумента.
+        # archive_direct_message умеет резолвить собеседника сам, когда id не
+        # передали, — и в строку попадает верный контакт. А сюда уходил
+        # исходный None, медиа пыталось лечь в «папку 0», build_key считал это
+        # ошибкой, и ФОТО МОЛЧА ТЕРЯЛОСЬ: в переписке оставалась подпись
+        # «Фото» без самого файла (жалоба «не вижу, что мне шлют люди»).
+        eff_contact_id = contact_id
+        if eff_contact_id is None:
+            try:
+                pool = await get_pool()
+                async with pool.acquire() as db:
+                    eff_contact_id = await db.fetchval(
+                        "SELECT contact_id FROM direct_messages WHERE id = $1", row_id,
+                    )
+            except Exception as e:  # noqa: BLE001 — не смогли уточнить, кладём в папку 0
+                log.warning("dialog media: contact resolve failed: %s", e)
         url = await store_media_from_url(
-            client_id=client_id, contact_id=contact_id, message_id=row_id,
+            client_id=client_id, contact_id=eff_contact_id, message_id=row_id,
             file_url=file_url, media_kind=media_kind,
         )
         if url:

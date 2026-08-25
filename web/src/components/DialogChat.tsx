@@ -213,13 +213,36 @@ export default function DialogChat({
                     <span className="italic opacity-60">сообщение удалено</span>
                   ) : (
                     <>
-                      {m.media_kind && (
+                      {/* Картинку показываем САМОЙ КАРТИНКОЙ, а не подписью со
+                          ссылкой: человек прислал фото — его надо видеть, не
+                          открывая вкладку. Клик по ней открывает оригинал. */}
+                      {m.media_kind === 'photo' && m.media_url && (
+                        <a href={m.media_url} target="_blank" rel="noreferrer" className="block mb-1">
+                          <img
+                            src={m.media_url}
+                            alt="Фото"
+                            loading="lazy"
+                            className="rounded-lg max-w-[220px] max-h-[220px] w-auto h-auto object-cover"
+                          />
+                        </a>
+                      )}
+                      {m.media_kind && !(m.media_kind === 'photo' && m.media_url) && (
                         <div className={`text-xs mb-1 ${isOperator ? 'text-white/80' : 'text-gray-500'}`}>
                           {m.media_url ? (
                             <a href={m.media_url} target="_blank" rel="noreferrer" className="underline">
                               {MEDIA_LABEL[m.media_kind] || MEDIA_LABEL.other}
                             </a>
-                          ) : (MEDIA_LABEL[m.media_kind] || MEDIA_LABEL.other)}
+                          ) : (
+                            <>
+                              {MEDIA_LABEL[m.media_kind] || MEDIA_LABEL.other}
+                              {/* ⚠️ Честно говорим, что файла нет. Раньше тут
+                                  висело просто «Фото», и выглядело как будто
+                                  оно должно открыться — а открывать нечего:
+                                  ссылки мессенджеров живут около часа, и файл
+                                  сохраняется у нас. Не сохранился — потерян. */}
+                              <span className="opacity-60"> — файл не сохранился</span>
+                            </>
+                          )}
                         </div>
                       )}
                       {editingId === m.id ? (

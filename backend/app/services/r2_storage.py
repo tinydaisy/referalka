@@ -61,8 +61,16 @@ def build_key(
     if kind == "dialog_media":
         # Медиа личных переписок. Структура «по клиенту → по контакту → по
         # сообщению» — папку контакта целиком легко перенести/удалить.
-        if not contact_id:
-            raise ValueError("dialog_media требует contact_id")
+        #
+        # ⚠️ contact_id = 0 — ЗАКОННОЕ значение: собеседник ещё не привязан к
+        # контакту, такие файлы складываем в папку 0 (так и написано в
+        # докстринге store_media_from_url, и он передаёт сюда `contact_id or 0`).
+        # Раньше проверка `if not contact_id` считала ноль отсутствием и
+        # роняла сохранение: у людей БЕЗ контакта фото молча терялись —
+        # в переписке оставалась подпись «Фото» без самого файла.
+        # Поэтому сверяем именно с None, а не на «пустоту».
+        if contact_id is None:
+            raise ValueError("dialog_media требует contact_id (допустим 0 — без контакта)")
         sub = f"{message_id}/" if message_id else ""
         return f"{base}/dialogs/{contact_id}/{sub}{fname}"
 
