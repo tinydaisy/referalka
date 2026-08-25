@@ -38,9 +38,15 @@ export default function VipButton({ label, url, onClick, style, accent = 'red' }
   const isRed = accent === 'red'
   const palette: CSSProperties = isRed
     ? {
-        background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
+        // ⚠️ Акцентная кнопка берёт заливку из темы клиента (--cta-bg).
+        // По умолчанию там красный градиент платформы — вид не меняется;
+        // с включёнными фирменными цветами приезжает кнопка клиента вместе
+        // со своей рамкой. Раньше здесь был захардкожен пятистопный красный,
+        // и главная кнопка экрана оставалась чужой при фирменной теме.
+        background: 'var(--cta-bg)',
+        color: 'var(--cta-text)',
         boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
-        border: '1px solid rgba(127,29,29,0.5)',
+        border: 'var(--cta-border-width) solid var(--cta-border)',
       }
     : {
         background: 'var(--gradient-135)',

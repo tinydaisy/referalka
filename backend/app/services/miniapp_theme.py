@@ -27,10 +27,65 @@ THEME_COLUMNS = (
     "lp_btn_color", "lp_btn_color_2", "lp_btn_angle", "lp_btn_text_color",
     "lp_btn_border_color", "lp_btn_border_width",
     "lp_icon_color",
-    "lp_card_bg", "lp_card_bg_opacity", "lp_card_text_color",
-    "lp_color_heading", "lp_color_body",
-    "lp_day_tab_color", "lp_day_tab_text_color",
 )
+
+
+# Насколько сильно фирменный цвет разбавляется в заливке карточек.
+# 0.20 = лёгкий оттенок: цвет узнаётся, тёмный текст поверх читается.
+_CARD_TINT_OPACITY = 0.20
+
+
+def _rgb(hex_color: Optional[str]) -> Optional[tuple[int, int, int]]:
+    """`#25455D` → (37, 69, 93). Понимает и короткую запись `#abc`."""
+    if not hex_color:
+        return None
+    h = str(hex_color).strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return None
+    try:
+        n = int(h, 16)
+    except ValueError:
+        return None
+    return ((n >> 16) & 255, (n >> 8) & 255, n & 255)
+
+
+def _luminance(hex_color: Optional[str]) -> Optional[float]:
+    """Воспринимаемая яркость 0..255. Больше — светлее."""
+    rgb = _rgb(hex_color)
+    if not rgb:
+        return None
+    r, g, b = rgb
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _is_dark(hex_color: Optional[str], threshold: float = 150.0) -> bool:
+    """Тёмный ли цвет. Не разобрали — считаем тёмным: белый текст безопаснее."""
+    lum = _luminance(hex_color)
+    return True if lum is None else lum < threshold
+
+
+def _readable_on(bg_color: Optional[str], wanted: Optional[str],
+                 *, min_gap: float = 60.0) -> Optional[str]:
+    """Цвет `wanted` поверх фона `bg_color`, но только если он там ЧИТАЕМ.
+
+    ⚠️ Зачем. Клиент выбирает цвета для ЛЕНДИНГА, где фон другой. Механически
+    перенесённые в Mini App, они сливаются: тёмно-синий текст на тёмно-синем
+    фоне исчезает совсем. Человек при этом ничего не нарушал — он просто не
+    задавал «цвет текста поверх плашки», такой настройки нет.
+
+    Поэтому: цвет клиента берём, когда он достаточно отличается от фона по
+    яркости; иначе возвращаем контрастный (белый или тёмный). Лучше показать
+    не тот оттенок, чем нечитаемую надпись.
+    """
+    lum_bg = _luminance(bg_color)
+    lum_fg = _luminance(wanted)
+    if lum_bg is None:
+        return wanted
+    if lum_fg is not None and abs(lum_bg - lum_fg) >= min_gap:
+        return wanted
+    return "#FFFFFF" if lum_bg < 150 else "#1a2a3a"
 
 
 def _gradient(c1: Optional[str], c2: Optional[str], angle: Any, enabled: Any) -> Optional[str]:
@@ -98,21 +153,31 @@ def theme_dict(row: Any) -> Optional[dict[str, Any]]:
         # сделала бы их почти чёрными. Светлый оттенок получается разбавлением
         # акцентного цвета: он всегда светлее фона и всегда фирменный.
         "card_bg": d.get("lp_icon_color"),
-        "card_text": d.get("lp_card_text_color") or None,
-        # Вкладка выбранного дня программы.
-        "day_tab": d.get("lp_day_tab_color"),
-        "day_tab_text": d.get("lp_day_tab_text_color"),
-        # Заголовки и основной текст.
-        "heading": d.get("lp_color_heading"),
-        "body": d.get("lp_color_body"),
+        # Текст на карточке — тёмный: заливка светлая (20% оттенка).
+        "card_text": "#1a2a3a",
+        # ⚠️ Вкладка дня и заголовки — ПРОИЗВОДНЫЕ ОТ ПЕРСИКОВОГО, а не
+        # отдельные настройки. В Mini App всего три цвета (синий фон,
+        # персиковый акцент, CTA), остальное — их прозрачность; отдельные
+        # `lp_day_tab_color` и `lp_color_heading` заданы для лендинга и в
+        # Mini App давали разнобой из пяти несочетающихся оттенков.
+        "day_tab": d.get("lp_icon_color"),
+        "day_tab_text": _readable_on(d.get("lp_icon_color"), None),
+        # Заголовок читается на СВЕТЛОЙ подложке страницы — персиковый там
+        # почти невидим, поэтому берём тёмный от фирменного фона.
+        "heading": _readable_on("#FFFFFF", d.get("lp_bg_color")),
+        # ⚠️ Цвета ПОВЕРХ ТЁМНОГО ФИРМЕННОГО ФОНА (шапка, плашка стрима,
+        # тёмные кнопки). Считаются от фона, а не берутся из настроек: клиент
+        # выбирал цвета для лендинга и «какой текст поверх плашки» нигде не
+        # задавал. Механический перенос давал тёмный текст на тёмном фоне.
+        "on_bg_text": "#FFFFFF" if _is_dark(d.get("lp_bg_color")) else "#1a2a3a",
+        "on_bg_icon": _readable_on(d.get("lp_bg_color"), d.get("lp_icon_color")),
     }
-    # ⚠️ В базе прозрачность лежит В ПРОЦЕНТАХ (у клиента 1 — 55), а CSS ждёт
-    # долю. Без деления `opacity: 55` означало бы «непрозрачно», и вся
-    # полупрозрачность молча пропала бы.
-    try:
-        theme["card_bg_opacity"] = max(0.0, min(1.0, float(d.get("lp_card_bg_opacity")) / 100))
-    except (TypeError, ValueError):
-        theme["card_bg_opacity"] = 1.0
+    # ⚠️ Прозрачность карточек НЕ берём из лендинга. Там она задана для
+    # карточек НА ТЁМНОМ фоне (у клиента 1 — 55%), а в Mini App те же карточки
+    # лежат на светлой подложке: 55% фирменного цвета дают заливку в полный
+    # тон — «слишком ярко», карточки кричат громче содержимого.
+    # Держим лёгкий оттенок: цвет узнаётся, текст остаётся читаемым.
+    theme["card_bg_opacity"] = _CARD_TINT_OPACITY
 
     # ⚠️ Толщину рамки ограничиваем 3 px. На лендинге кнопка широкая, и 6 px
     # там смотрятся рамкой-акцентом; в Mini App кнопка узкая — такая рамка

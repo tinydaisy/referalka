@@ -176,9 +176,6 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
                   lp_btn_color, lp_btn_color_2, lp_btn_angle, lp_btn_text_color,
                   lp_btn_border_color, lp_btn_border_width,
                   lp_icon_color,
-                  lp_card_bg, lp_card_bg_opacity, lp_card_text_color,
-                  lp_color_heading, lp_color_body,
-                  lp_day_tab_color, lp_day_tab_text_color,
                   """ + _HAS_THEME_FEATURE_NOALIAS + """ AS has_theme_feature
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
@@ -896,9 +893,6 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    c.lp_btn_color, c.lp_btn_color_2, c.lp_btn_angle, c.lp_btn_text_color,
                    c.lp_btn_border_color, c.lp_btn_border_width,
                    c.lp_icon_color,
-                   c.lp_card_bg, c.lp_card_bg_opacity, c.lp_card_text_color,
-                   c.lp_color_heading, c.lp_color_body,
-                   c.lp_day_tab_color, c.lp_day_tab_text_color,
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
                       JOIN client_channels cc ON cc.channel_id = ch.id

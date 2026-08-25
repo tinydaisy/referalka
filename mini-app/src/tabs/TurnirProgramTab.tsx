@@ -594,7 +594,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
               <div style={{ fontSize: 14, fontWeight: 800 }}>Смотреть стрим</div>
               <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>Эфир уже идёт — подключайтесь</div>
             </div>
-            <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+            <div style={{ fontSize: 24, color: 'var(--on-dark-icon)', fontWeight: 600, marginRight: 4 }}>›</div>
           </a>
         ) : streamPendingToday ? (
           // Сегодня день эфира, но он ещё не начался по программе —
@@ -623,7 +623,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                 Эфир начнётся в {streamStartToday} МСК
               </div>
             </div>
-            <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+            <div style={{ fontSize: 24, color: 'var(--on-dark-icon)', fontWeight: 600, marginRight: 4 }}>›</div>
           </a>
         ) : (
           <div style={{
