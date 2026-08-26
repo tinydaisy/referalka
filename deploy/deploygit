@@ -1,0 +1,134 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════
+# ПЛЮСОН — накат ГОТОВОЙ сборки с GitHub. Команда: deploygit
+#
+# Чем отличается от `deploy`:
+#
+#   deploy      — собирает кабинет и Mini App ПРЯМО НА ПРОДЕ (2–5 минут).
+#                 Сборка идёт поверх работающей папки: Next.js читает файлы,
+#                 которые в этот момент переписывают, — отсюда ошибки у людей
+#                 и «сайт шатает». Плюс на 4 ГБ памяти приходится гасить
+#                 Celery, чтобы не словить нехватку памяти.
+#
+#   deploygit   — НИЧЕГО не собирает. Забирает готовую сборку, которую сделал
+#                 GitHub, раскладывает её РЯДОМ со старой и переключает.
+#                 Секунды вместо минут, Celery не гасим, сломанный код до
+#                 прода не доедет — сборка упадёт ещё на GitHub.
+#
+# Когда какую: обычно deploygit. deploy — если GitHub недоступен и выкатить
+# надо здесь и сейчас.
+#
+# ⚠️ Сборку на GitHub запускает пуш в main. Если её ещё нет или она идёт —
+# команда честно скажет об этом и подождёт, а не выкатит вчерашнюю.
+#
+# Запуск:  deploygit           — последняя сборка ветки main
+#          deploygit --wait    — дождаться, если сборка ещё идёт
+# ═══════════════════════════════════════════════════════════════════════════
+set -e
+
+REPO="tinydaisy/referalka"
+BRANCH="main"
+WORKFLOW="Сборка"
+PROJECT="/var/www/plusson"
+TOKEN_FILE="/root/.github_token"
+
+WAIT=0
+[ "$1" = "--wait" ] && WAIT=1
+
+# ── Токен для GitHub ───────────────────────────────────────────────────────
+# ⚠️ Артефакты сборки скачиваются только с токеном — публичного адреса у них
+# нет. Лежит отдельным файлом, чтобы не хранить его в репозитории.
+if [ ! -f "$TOKEN_FILE" ]; then
+  echo "❌ Нет токена GitHub: $TOKEN_FILE"
+  echo "   Создайте его строкой вида:  echo 'ghp_ваш_токен' > $TOKEN_FILE && chmod 600 $TOKEN_FILE"
+  exit 1
+fi
+TOKEN=$(tr -d '[:space:]' < "$TOKEN_FILE")
+
+api() { curl -sS -H "Authorization: token $TOKEN" \
+             -H "Accept: application/vnd.github+json" "$@"; }
+
+echo "══════ НАКАТ СБОРКИ С GITHUB ══════"
+
+# ── 1. Ищем сборку ─────────────────────────────────────────────────────────
+# Берём последний ПРОШЕДШИЙ прогон сборки ветки main. Упавшие и идущие
+# пропускаем: выкатывать недособранное нельзя.
+find_run() {
+  api "https://api.github.com/repos/$REPO/actions/runs?branch=$BRANCH&per_page=20" |
+  python3 -c "
+import json,sys
+runs = json.load(sys.stdin).get('workflow_runs', [])
+for r in runs:
+    if r['name'] != '$WORKFLOW':
+        continue
+    print(r['id'], r['status'], r['conclusion'] or '-', r['head_sha'][:8])
+    break
+"
+}
+
+INFO=$(find_run)
+[ -z "$INFO" ] && { echo "❌ Сборок ветки $BRANCH не найдено."; exit 1; }
+read -r RUN_ID STATUS CONCL SHA <<< "$INFO"
+
+if [ "$STATUS" != "completed" ]; then
+  if [ "$WAIT" = "1" ]; then
+    echo "► Сборка ещё идёт ($SHA). Жду..."
+    while [ "$STATUS" != "completed" ]; do
+      sleep 15
+      read -r RUN_ID STATUS CONCL SHA <<< "$(find_run)"
+    done
+  else
+    echo "⚠️ Сборка ещё идёт ($SHA). Подождите пару минут или запустите:  deploygit --wait"
+    exit 1
+  fi
+fi
+
+if [ "$CONCL" != "success" ]; then
+  echo "❌ Последняя сборка не прошла ($SHA, итог: $CONCL)."
+  echo "   Прод остаётся на прежней версии. Смотрите ошибку в GitHub → Actions."
+  exit 1
+fi
+
+echo "► Сборка найдена: коммит $SHA"
+
+# Уже стоит? Тогда и качать нечего.
+CURRENT=$(cd "$PROJECT" && git rev-parse --short=8 HEAD 2>/dev/null || echo "")
+if [ "$CURRENT" = "$SHA" ] && [ -f "$PROJECT/mini-app/dist/index.html" ]; then
+  echo "✓ Эта сборка уже на проде — обновлять нечего."
+  exit 0
+fi
+
+# ── 2. Качаем артефакт ─────────────────────────────────────────────────────
+ART_URL=$(api "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" |
+  python3 -c "
+import json,sys
+for a in json.load(sys.stdin).get('artifacts', []):
+    if a['name'] == 'build' and not a['expired']:
+        print(a['archive_download_url']); break
+")
+[ -z "$ART_URL" ] && {
+  echo "❌ Готовая сборка не найдена (могла истечь — GitHub хранит их ограниченно)."
+  echo "   Запустите сборку заново в Actions или выкатите командой:  deploy"
+  exit 1
+}
+
+echo "► Качаю сборку..."
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+curl -sSL -H "Authorization: token $TOKEN" "$ART_URL" -o "$TMP/build.zip"
+unzip -q "$TMP/build.zip" -d "$TMP/out"
+
+# Внутри zip лежит build.tar.gz — тот самый архив, который ждёт release.sh
+[ -f "$TMP/out/build.tar.gz" ] || {
+  echo "❌ В сборке нет ожидаемого архива — формат изменился."
+  exit 1
+}
+
+SIZE=$(du -h "$TMP/out/build.tar.gz" | cut -f1)
+echo "► Скачано: $SIZE"
+
+# ── 3. Раскладываем ────────────────────────────────────────────────────────
+# ⚠️ Всю дальнейшую работу делает release.sh: он раскладывает сборку рядом со
+# старой, переключает ссылку, накатывает миграции, рестартует только то, чей
+# код менялся, и откатывается, если сайт не ответил. Здесь мы её только
+# доставили — дублировать эту логику нельзя, она разъедется.
+exec bash "$PROJECT/deploy/release.sh" "$TMP/out/build.tar.gz" "$SHA"
