@@ -834,6 +834,17 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
         )
         await db.execute("DELETE FROM platform_users WHERE contact_id = $1", secondary_id)
 
+        # ⚠️⚠️ ПЕРЕПИСКУ ПЕРЕНОСИМ ТОЖЕ — иначе она пропадает НАВСЕГДА.
+        # Слитый контакт скрыт из списка (там `merged_into IS NULL`), а его
+        # сообщения оставались висеть на нём: открыть их было нельзя, ответить
+        # тоже. При этом счётчик непрочитанных в меню считает по всей базе и
+        # продолжал их показывать — человек видел «6 новых», заходил в
+        # контакты и не находил ни одного (прод, клиент 1, 26.08).
+        await db.execute(
+            "UPDATE direct_messages SET contact_id = $1 WHERE contact_id = $2",
+            primary_id, secondary_id,
+        )
+
         # Реферер per-событие при конфликте участий.
         # Если оба контакта участвуют в ОДНОМ событии, у primary-участия
         # реферер ПУСТОЙ, а у secondary-участия — заполнен, то перед удалением

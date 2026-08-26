@@ -429,7 +429,11 @@ async def get_contacts(
     # У кого переписки нет вовсе — падаем обратно на last_contact_at, иначе
     # такие контакты собрались бы в конце списка одной кучей.
     order_sql = (
-        """(EXISTS (SELECT 1 FROM direct_messages dm
+        # ⚠️ Закреплённые — ПЕРВЫМ ключом, выше непрочитанных: закрепление
+        # человек ставит руками и ждёт, что контакт останется на виду, что бы
+        # ни происходило дальше. Между собой — по свежести закрепления.
+        """(c.pinned_at IS NOT NULL) DESC, c.pinned_at DESC NULLS LAST,
+           (EXISTS (SELECT 1 FROM direct_messages dm
                      WHERE dm.client_id = c.client_id AND dm.contact_id = c.id
                        AND dm.direction = 'in' AND NOT dm.is_read)) DESC,
            COALESCE((SELECT MAX(dm.sent_at) FROM direct_messages dm
@@ -484,7 +488,8 @@ async def get_contacts(
             SELECT COUNT(*) FROM direct_messages dm
              WHERE dm.client_id = c.client_id AND dm.contact_id = c.id
                AND dm.direction = 'in' AND NOT dm.is_read
-          ), 0) AS unread_count
+          ), 0) AS unread_count,
+          c.pinned_at
         FROM contacts c
         {where}
         ORDER BY {order_sql}
@@ -1172,6 +1177,11 @@ class ContactUpdateRequest(BaseModel):
     # Сотрудник/лидген: исключается из турнирной таблицы; в отчёте рефоводов
     # его трафик уходит в группу «Организатор».
     is_staff: Optional[bool] = None
+    # Свои метки на контакте: «интересуется спикерством», «созвон в четверг».
+    # Приходят и из импорта, и из воронок — здесь клиент ставит их руками.
+    tags: Optional[list[str]] = None
+    # Закрепить наверху списка (True) или снять (False). Общее на кабинет.
+    pinned: Optional[bool] = None
 
 
 @router.patch("/contacts/{contact_id}")
@@ -1212,6 +1222,25 @@ async def update_contact(
         args.append(erp); sets.append(f"external_ref_param = ${len(args)}")
     if data.is_staff is not None:
         args.append(bool(data.is_staff)); sets.append(f"is_staff = ${len(args)}")
+    if data.tags is not None:
+        # ⚠️ Метки НЕ приводим к нижнему регистру и не нормализуем: в базе
+        # живут и «GetCourse», и «ivision», и «/imeet», и «webinar:cygum:18» —
+        # они пришли из разных источников, и для клиента это разные метки.
+        # Своя нормализация склеила бы их и порушила фильтры базы.
+        import json as _json
+        clean, seen = [], set()
+        for t in (data.tags or []):
+            t = (t or "").strip()
+            if not t or len(t) > 60 or t in seen:
+                continue          # пустые, слишком длинные и повторы отбрасываем
+            seen.add(t); clean.append(t)
+            if len(clean) >= 30:
+                break             # разумный предел на контакт
+        args.append(_json.dumps(clean, ensure_ascii=False))
+        sets.append(f"tags = ${len(args)}::jsonb")
+    if data.pinned is not None:
+        # Храним ВРЕМЯ: закреплённые показываются по свежести, последний сверху.
+        sets.append("pinned_at = NOW()" if data.pinned else "pinned_at = NULL")
 
     # email НЕ пишем в contacts — он живёт как идентичность (platform_users).
     email_change = data.email is not None

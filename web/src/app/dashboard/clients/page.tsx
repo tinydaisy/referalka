@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, UserCircle, Phone, Mail, MailX, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, ChevronLeft, ChevronUp, Send } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, MailX, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, ChevronLeft, ChevronUp, Send, Pin } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 import { useMe } from '@/hooks/useMe'
@@ -26,6 +26,7 @@ interface Contact {
   phone: string | null
   utm_source: string | null
   tags: string[] | null
+  pinned_at?: string | null
   ref_code: string | null
   external_ref_param: string | null
   linked_client_id?: number | null
@@ -930,6 +931,40 @@ export default function ContactsPage() {
                 onSaved={(v) => {
                   setSelected((s: any) => s ? { ...s, external_ref_param: v } : s)
                 }}
+              />
+
+              {/* Закрепить наверху списка.
+                  ⚠️ Закрепление ОБЩЕЕ на кабинет: помощник ведёт базу
+                  владельца, и оба должны видеть один порядок. */}
+              <div className="flex items-start gap-2">
+                <Pin size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!!selected.pinned_at}
+                      onChange={async (e) => {
+                        const v = e.target.checked
+                        const was = selected.pinned_at
+                        setSelected((s: any) => s ? { ...s, pinned_at: v ? new Date().toISOString() : null } : s)
+                        try { await api.contacts.update(selected.id, { pinned: v }); fetchContacts(search, offset, showUnsubscribed, filters) }
+                        catch { setSelected((s: any) => s ? { ...s, pinned_at: was } : s) }
+                      }}
+                      className="w-4 h-4 accent-[#25455D]"
+                    />
+                    <span className="text-sm text-gray-800">Закрепить наверху</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Контакт останется в начале списка — удобно, пока ведёте с человеком разговор.
+                  </p>
+                </div>
+              </div>
+
+              {/* Метки */}
+              <ContactTags
+                contactId={selected.id}
+                tags={selected.tags || []}
+                onSaved={(t) => setSelected((s: any) => s ? { ...s, tags: t } : s)}
               />
 
               {/* Сотрудник / лидген */}
@@ -2084,6 +2119,83 @@ function ContactFieldRow({ field, contactId }: { field: any; contactId: number }
           {value || <span className="text-gray-400">не указано</span>}
         </button>
       )}
+    </div>
+  )
+}
+
+
+/** Метки контакта: свои пометки вроде «интересуется спикерством».
+ *
+ * ⚠️ Метки приходят и сами — из импорта базы, из воронок, из Salebot. Здесь
+ * человек ставит их руками, поэтому существующие подсказываем: иначе рядом
+ * заведутся «ivision» и «iVision», и фильтр базы перестанет их находить.
+ */
+function ContactTags({ contactId, tags, onSaved }: {
+  contactId: number; tags: string[]; onSaved: (t: string[]) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function save(next: string[]) {
+    setSaving(true)
+    try {
+      await api.contacts.update(contactId, { tags: next })
+      onSaved(next)
+    } finally { setSaving(false) }
+  }
+
+  function add() {
+    const t = value.trim()
+    if (!t) return
+    if (!tags.includes(t)) save([...tags, t])
+    setValue(''); setEditing(false)
+  }
+
+  return (
+    <div className="flex items-start gap-2">
+      <Tag size={15} className="text-gray-400 mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-gray-800 mb-1">Метки</div>
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map(t => (
+            <span key={t} className="inline-flex items-center gap-1 text-xs bg-[#FFF1E3]
+                                     text-[#8a5a25] rounded-full px-2 py-0.5">
+              {t}
+              <button
+                onClick={() => save(tags.filter(x => x !== t))}
+                disabled={saving}
+                className="text-[#b98a5c] hover:text-[#8a5a25]"
+                title="Убрать метку"
+              >×</button>
+            </span>
+          ))}
+          {editing ? (
+            <input
+              autoFocus
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') add()
+                if (e.key === 'Escape') { setValue(''); setEditing(false) }
+              }}
+              onBlur={add}
+              placeholder="например: интересуется спикерством"
+              className="text-xs border border-gray-300 rounded-full px-2 py-0.5 w-56
+                         focus:outline-none focus:border-[#25455D]"
+            />
+          ) : (
+            <button
+              onClick={() => setEditing(true)}
+              className="text-xs text-gray-500 border border-dashed border-gray-300
+                         rounded-full px-2 py-0.5 hover:border-[#25455D] hover:text-[#25455D]"
+            >+ метка</button>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          По меткам можно отобрать людей в списке и в выгрузке.
+        </p>
+      </div>
     </div>
   )
 }
