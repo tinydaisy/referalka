@@ -23,6 +23,10 @@ from app.auth import get_current_client
 from app.database import get_db
 from app.services.dialog_archive import archive_direct_message
 from app.services.assistant_access import assistant_is_restricted
+# ⚠️ Тем же условием список контактов прячет полностью отписавшихся. Берём его
+# оттуда, а не переписываем рядом: разойдутся — цифра в меню снова перестанет
+# сходиться со списком, ровно с этого расхождения и началось.
+from app.api.contacts import UNSUB_EXISTS_SQL
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -184,7 +188,7 @@ async def dialogs_unread_count(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    """Сколько всего непрочитанных сообщений от людей — цифра для пункта меню.
+    """Сколько непрочитанных сообщений от людей — цифра для пункта меню.
 
     ⚠️ Отдельный лёгкий эндпоинт, а не поле в /auth/me: меню обновляет эту
     цифру периодически, и тянуть ради неё весь профиль клиента с фичами и
@@ -194,15 +198,36 @@ async def dialogs_unread_count(
     контакту: непривязанные (contact_id IS NULL) не показываются и в разделе
     «Диалоги», так что цифра в меню обязана сходиться с тем, что человек
     реально сможет открыть.
+
+    ⚠️ Цифра РАЗБИТА НА ДВЕ: сколько непрочитанных у подписанных (их видно в
+    списке контактов сразу) и сколько у полностью отписавшихся (список по
+    умолчанию их прячет — нужен тумблер «показать отписавшихся»). Одним числом
+    получалось расхождение, на которое пожаловался владелец: в меню висит «4»,
+    а в списке ни одного непрочитанного — все четверо оказались отписавшимися.
+    Прятать их из счётчика нельзя (человек написал — про это надо знать), и
+    показывать в списке вопреки фильтру тоже: фильтр выбрал сам клиент.
+
+    ⚠️ Контакт джойним с проверкой владельца и is_active: считать то, что
+    нельзя открыть, — это снова расхождение цифры со списком.
     """
     client_id = int(client["sub"])
-    total = await db.fetchval(
-        """SELECT COUNT(*) FROM direct_messages
-            WHERE client_id = $1 AND contact_id IS NOT NULL
-              AND direction = 'in' AND NOT is_read""",
+    row = await db.fetchrow(
+        f"""SELECT
+              COUNT(*) FILTER (WHERE NOT {UNSUB_EXISTS_SQL}) AS visible,
+              COUNT(*) FILTER (WHERE {UNSUB_EXISTS_SQL})     AS hidden
+            FROM direct_messages dm
+            JOIN contacts c ON c.id = dm.contact_id
+                           AND c.client_id = dm.client_id
+                           AND c.is_active = TRUE
+           WHERE dm.client_id = $1
+             AND dm.direction = 'in' AND NOT dm.is_read""",
         client_id,
     )
-    return {"unread": int(total or 0)}
+    visible = int((row and row["visible"]) or 0)
+    hidden = int((row and row["hidden"]) or 0)
+    # `unread` — суммарная цифра, оставлена для старых вкладок кабинета: там в
+    # браузере ещё крутится прежняя сборка, которая знает только это поле.
+    return {"unread": visible + hidden, "unread_visible": visible, "unread_hidden": hidden}
 
 
 @router.get("/dialogs")

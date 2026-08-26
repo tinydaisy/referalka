@@ -17,7 +17,9 @@ export default function Sidebar() {
   const { t } = useLang()
 
   // Непрочитанные сообщения от людей — цифра у пункта «Контакты».
-  const [unread, setUnread] = useState(0)
+  // ⚠️ Две цифры, а не одна: `visible` — у подписанных (видно в списке сразу),
+  // `hidden` — у полностью отписавшихся (список по умолчанию их прячет).
+  const [unread, setUnread] = useState({ visible: 0, hidden: 0 })
 
   useEffect(() => {
     api.auth.me().then((data: any) => setMe({
@@ -40,7 +42,13 @@ export default function Sidebar() {
     const load = () => {
       // Ошибку глушим: цифра в меню не повод показывать человеку сбой.
       api.dialogs.unreadCount()
-        .then(r => { if (alive) setUnread(r?.unread || 0) })
+        .then(r => {
+          if (!alive) return
+          // Старый бэкенд отдаёт только `unread` — тогда считаем всё видимым.
+          const hidden = r?.unread_hidden ?? 0
+          const visible = r?.unread_visible ?? ((r?.unread || 0) - hidden)
+          setUnread({ visible: Math.max(0, visible), hidden: Math.max(0, hidden) })
+        })
         .catch(() => {})
     }
     load()
@@ -263,16 +271,23 @@ export default function Sidebar() {
                   >
                     <Icon size={17} />
                     <span className={locked ? 'text-white/45' : undefined}>{label}</span>
-                    {/* Непрочитанные сообщения от людей — общая цифра у пункта
+                    {/* Непрочитанные сообщения от людей — цифра у пункта
                         «Контакты», как счётчик на иконке мессенджера: видно, что
-                        кто-то написал, не заходя в раздел. */}
-                    {href === '/dashboard/clients' && unread > 0 && (
+                        кто-то написал, не заходя в раздел.
+                        ⚠️ Когда есть непрочитанные у отписавшихся, показываем
+                        ДВЕ цифры «0/4»: список контактов по умолчанию прячет
+                        отписавшихся, и одна общая цифра выглядела расхождением —
+                        в меню «4», а в списке ни одного непрочитанного. */}
+                    {href === '/dashboard/clients' && (unread.visible + unread.hidden) > 0 && (
                       <span
-                        title={`Новых сообщений: ${unread}`}
+                        title={unread.hidden > 0
+                          ? `Новых сообщений: ${unread.visible} у подписанных, ${unread.hidden} у отписавшихся.`
+                            + ' Отписавшихся список прячет — включите тумблер «показать отписавшихся».'
+                          : `Новых сообщений: ${unread.visible}`}
                         className="ml-auto shrink-0 min-w-[20px] text-center text-[11px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ background: '#FFCFA4', color: '#25455D' }}
                       >
-                        {unread}
+                        {unread.hidden > 0 ? `${unread.visible}/${unread.hidden}` : unread.visible}
                       </span>
                     )}
                     {/* Замочек = модуль не подключён. Пункт НЕ отключаем: клик

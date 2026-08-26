@@ -575,7 +575,9 @@ export const api = {
     list: (search?: string) =>
       request(`/api/v1/dialogs${search ? `?search=${encodeURIComponent(search)}` : ''}`),
     /** Всего непрочитанных сообщений от людей — цифра для пункта меню «Контакты». */
-    unreadCount: (): Promise<{ unread: number }> =>
+    // unread_visible — у подписанных (их видно в списке контактов сразу),
+    // unread_hidden — у полностью отписавшихся (список по умолчанию их прячет).
+    unreadCount: (): Promise<{ unread: number; unread_visible?: number; unread_hidden?: number }> =>
       request('/api/v1/dialogs/unread-count'),
     messages: (contactId: number, platform?: string) =>
       request(`/api/v1/contacts/${contactId}/messages${platform ? `?platform=${platform}` : ''}`),
