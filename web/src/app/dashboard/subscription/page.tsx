@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CreditCard, CheckCircle2, X, ArrowRight, Wallet, ChevronDown } from 'lucide-react'
+import { CreditCard, CheckCircle2, ArrowRight, Wallet } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function SubscriptionPage() {
@@ -15,7 +15,6 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(false)
   const [bonusLoading, setBonusLoading] = useState(false)
   const [error, setError] = useState('')
-  const [featuresOpen, setFeaturesOpen] = useState(false)  // «Что входит в тариф» — свёрнут по умолчанию
 
   useEffect(() => {
     api.auth.me().then((d: any) => setMe(d)).catch(() => {})
@@ -55,8 +54,8 @@ export default function SubscriptionPage() {
   }, [tariffs, me])
 
   const sub = me?.subscription
-  const features: string[] = me?.features || []
   const isExpired = !sub || !sub.is_active || sub.days_left < 0
+  const isTrial = sub?.tariff_slug === 'trial'
   const expiresStr = sub?.expires_at
     ? new Date(sub.expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
     : '—'
@@ -136,9 +135,15 @@ export default function SubscriptionPage() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="font-semibold text-gray-800 mb-1">{sub?.tariff_name || 'Тариф не определён'}</h3>
+            {/* ⚠️ Триалу отдельной карточки среди тарифов НЕ заводим — просто
+                говорим словами, что это триал и какой тариф по нему открыт.
+                Карточка читалась бы как ещё один покупаемый вариант, а купить
+                триал нельзя. */}
+            <h3 className="font-semibold text-gray-800 mb-1">
+              {isTrial ? 'У вас триал — доступ к тарифу Профи' : (sub?.tariff_name || 'Тариф не определён')}
+            </h3>
             <p className="text-sm text-gray-500">
-              Действует до <b>{expiresStr}</b>
+              {isExpired ? 'Истёк' : 'Действует до'} <b>{expiresStr}</b>
               {!isExpired && sub?.days_left >= 0 && (
                 <span className={sub.days_left <= 7 ? 'text-amber-700 ml-2' : 'text-gray-500 ml-2'}>
                   · осталось {sub.days_left === 0 ? 'меньше дня' : `${sub.days_left} дн.`}
@@ -154,45 +159,20 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
-      {/* Что входит в текущий тариф — свёрнутый список над тарифами */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <button
-          onClick={() => setFeaturesOpen(o => !o)}
-          className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50 transition-colors"
-        >
-          <h3 className="font-semibold text-gray-800">Что входит в ваш тариф</h3>
-          <ChevronDown size={18} className={`text-gray-400 transition-transform ${featuresOpen ? 'rotate-180' : ''}`} />
-        </button>
-        {featuresOpen && (
-          <div className="px-6 pb-6 space-y-2 text-sm border-t border-gray-50 pt-4">
-            <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1">База — всегда включено</div>
-            {['Контакты', 'Мероприятия', 'Рассылки'].map(x => (
-              <div key={x} className="flex items-center gap-2 text-gray-700">
-                <CheckCircle2 size={16} className="text-green-500 shrink-0" /> {x}
-              </div>
-            ))}
-            <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1 mt-3">Опции тарифа</div>
-            {Object.entries(featureLabels).map(([slug, label]) => {
-              const enabled = features.includes(slug)
-              return (
-                <div key={slug} className={`flex items-center gap-2 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>
-                  {enabled
-                    ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-                    : <X size={16} className="text-gray-300 shrink-0" />}
-                  {label}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      {/* ⚠️ Блока «Что входит в ваш тариф» здесь больше нет (26.08.2026). Он
+          перечислял галочками то, что и так видно по разделам кабинета, и стоял
+          НАД карточками тарифов — из-за него оплату приходилось искать
+          прокруткой. Состав тарифа остался там, где он нужен для выбора: в
+          самой карточке тарифа. */}
 
       {/* Выбор тарифа */}
       {tariffs.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 id="tariffs" className="scroll-mt-24 font-semibold text-gray-800 mb-2">Продлить или сменить тариф</h3>
+          {/* ⚠️ Названия платёжной системы здесь нет намеренно: клиенту важно,
+              что придёт чек, а через кого проведён платёж — наша кухня. */}
           <p className="text-sm text-gray-500 mb-4">
-            Оплата идёт через Prodamus, чек 54-ФЗ приходит на email автоматически.
+            Чек 54-ФЗ придёт на email автоматически.
           </p>
 
           {bonusBalance > 0 && (
@@ -252,9 +232,15 @@ export default function SubscriptionPage() {
                       «Оплатить» на уже оплаченном тарифе читается как «вы не
                       оплатили» и путает. Золотую кнопку-призыв тоже убираем —
                       призывать покупать то, что уже есть, незачем. */}
+                  {/* ⚠️ На своём тарифе пишем не только «ваш», но и СРОК: из ряда
+                      одинаковых карточек иначе не понять, оплачено ли ещё. */}
                   {isCurrent && (
-                    <div className="mt-4 text-center text-xs font-semibold text-[#25455D]">
-                      ✓ Ваш текущий тариф
+                    <div className={`mt-4 text-center text-xs font-semibold ${
+                      isExpired ? 'text-red-600' : 'text-[#25455D]'
+                    }`}>
+                      {isExpired
+                        ? `Истекла ${expiresStr}`
+                        : `✓ Подключено · истекает ${expiresStr}`}
                     </div>
                   )}
                   <button
