@@ -90,7 +90,7 @@ export default function ContestProgramTab({
         }}>
           <div style={{
             width: 40, height: 40, borderRadius: 10,
-            background: 'rgba(255,207,164,0.15)',
+            background: 'rgba(var(--peach-rgb), 0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

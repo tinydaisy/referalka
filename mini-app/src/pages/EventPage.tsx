@@ -481,7 +481,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
               background: 'var(--peach)', color: 'var(--dark)',
               fontWeight: 700, padding: '12px 28px', borderRadius: 12, fontSize: 15,
               border: 'none', cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
+              boxShadow: '0 4px 14px rgba(var(--peach-rgb), 0.4)',
             }}
           >Обновить</button>
         </div>
@@ -610,7 +610,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       }}>
         <div style={{
           width: 48, height: 48, borderRadius: '50%',
-          border: '4px solid rgba(255,207,164,0.25)', borderTopColor: 'var(--peach)',
+          border: '4px solid rgba(var(--peach-rgb), 0.25)', borderTopColor: 'var(--peach)',
           animation: 'spin 0.8s linear infinite',
         }} />
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -632,7 +632,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
               в браузере он пустой, и человек упирался в тупик. */}
           {canGoBack && (
             <button onClick={onBack}
-                    style={{ background: 'rgba(255, 207, 164, 0.15)', border: 'none', color: 'white',
+                    style={{ background: 'rgba(var(--peach-rgb), 0.15)', border: 'none', color: 'white',
                              width: 36, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 20,
                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               ‹
@@ -643,7 +643,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
                          whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
               {event.title}
             </h1>
-            <p style={{ color: 'rgba(255, 207, 164, 0.85)', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
+            {/* ⚠️ Подпись «идёт сейчас» лежит НА ТЁМНОЙ шапке: берём цвет,
+                посчитанный от фона (--on-dark-icon), а не сам акцент — он
+                может совпасть с фирменным фоном и подпись пропадёт. */}
+            <p style={{ color: 'var(--on-dark-icon)', opacity: 0.85, fontSize: 12, marginTop: 2, fontWeight: 500 }}>
               {eventDateLabel(event)}
             </p>
           </div>

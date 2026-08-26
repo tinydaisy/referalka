@@ -16,7 +16,7 @@ interface Props {
   onVipClick?: (vipUrl: string) => void | Promise<void>  // открытие VIP-ссылки с партнёрским параметром
 }
 
-const TILE_BG = 'linear-gradient(45deg, rgba(37,69,93,0.04), rgba(255,207,164,0.10))'
+const TILE_BG = 'linear-gradient(45deg, rgba(37,69,93,0.04), rgba(var(--peach-rgb), 0.10))'
 
 export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, tgUser, onContinue, onVipClick }: Props) {
   const chatUrl: string | null = event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max || null
@@ -41,7 +41,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
           width: 64, height: 64, borderRadius: '50%',
           background: 'var(--peach)', margin: '0 auto 12px',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 6px 18px rgba(255,207,164,0.4)',
+          boxShadow: '0 6px 18px rgba(var(--peach-rgb), 0.4)',
         }}>
           <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--dark)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
@@ -50,7 +50,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
         <h1 style={{ color: 'white', fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>
           Поздравляем с регистрацией!
         </h1>
-        <p style={{ color: 'rgba(255,207,164,0.9)', fontSize: 13, marginTop: 6, fontWeight: 500 }}>
+        <p style={{ color: 'rgba(var(--peach-rgb), 0.9)', fontSize: 13, marginTop: 6, fontWeight: 500 }}>
           Вы записаны на «{eventTitle}»
         </p>
       </div>
@@ -59,7 +59,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
         {chatUrl && (
           <div style={{
             background: 'var(--peach)', borderRadius: 16, padding: '16px 16px 14px',
-            marginBottom: 16, boxShadow: '0 4px 14px rgba(255,207,164,0.35)',
+            marginBottom: 16, boxShadow: '0 4px 14px rgba(var(--peach-rgb), 0.35)',
           }}>
             <div style={{ color: 'var(--dark)', fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
               Войдите в чат события

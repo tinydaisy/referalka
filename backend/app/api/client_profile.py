@@ -180,7 +180,7 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
                   miniapp_use_brand_theme,
                   ma_bg_color, ma_bg_color_2, ma_bg_angle,
                   ma_accent_color,
-                  ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border,
+                  ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_cta_border_w,
                   ma_radius,
                   """ + _HAS_THEME_FEATURE_NOALIAS + """ AS has_theme_feature
              FROM clients
@@ -897,7 +897,7 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    """ + _HAS_THEME_FEATURE + """ AS has_theme_feature,
                    c.ma_bg_color, c.ma_bg_color_2, c.ma_bg_angle,
                    c.ma_accent_color,
-                   c.ma_cta_color, c.ma_cta_color_2, c.ma_cta_angle, c.ma_cta_border,
+                   c.ma_cta_color, c.ma_cta_color_2, c.ma_cta_angle, c.ma_cta_border, c.ma_cta_border_w,
                    c.ma_radius,
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
@@ -1240,6 +1240,7 @@ class ProfileUpdate(BaseModel):
     ma_cta_color_2:  Optional[str] = None
     ma_cta_angle:    Optional[int] = None
     ma_cta_border:   Optional[str] = None
+    ma_cta_border_w: Optional[int] = None
     ma_radius:       Optional[int] = None
 
 
@@ -1265,7 +1266,7 @@ async def get_my_profile(
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
                   miniapp_use_brand_theme,
                   ma_bg_color, ma_bg_color_2, ma_bg_angle, ma_accent_color,
-                  ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_radius
+                  ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_cta_border_w, ma_radius
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -1399,7 +1400,7 @@ async def update_my_profile(
     _ma_colors = ("ma_bg_color", "ma_bg_color_2", "ma_accent_color",
                   "ma_cta_color", "ma_cta_color_2", "ma_cta_border")
     _ma_ints = {"ma_bg_angle": (0, 360, 45), "ma_cta_angle": (0, 360, 135),
-                "ma_radius": (0, 28, 14)}
+                "ma_cta_border_w": (0, 6, 1), "ma_radius": (0, 28, 14)}
     _ma_touched = [f for f in (*_ma_colors, *_ma_ints) if f in _fs]
     if _ma_touched:
         if not await client_has_feature(db, int(client["sub"]), "miniapp_brand_theme"):
@@ -1566,7 +1567,7 @@ async def update_my_profile(
                           tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
                           miniapp_use_brand_theme,
                           ma_bg_color, ma_bg_color_2, ma_bg_angle, ma_accent_color,
-                          ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_radius""",
+                          ma_cta_color, ma_cta_color_2, ma_cta_angle, ma_cta_border, ma_cta_border_w, ma_radius""",
             *args
         )
     except asyncpg.exceptions.CheckViolationError:

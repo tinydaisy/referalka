@@ -107,7 +107,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
       }}>
         <button onClick={onBack}
                 style={{
-                  background: 'rgba(255, 207, 164, 0.15)', border: 'none', color: 'white',
+                  background: 'rgba(var(--peach-rgb), 0.15)', border: 'none', color: 'white',
                   width: 36, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 20,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>

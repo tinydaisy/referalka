@@ -56,6 +56,10 @@
   --bg-tint: rgba(37,69,93,0.2);
   /* Скругление карточек, кнопок и плашек — одно значение на всё. */
   --radius: 14px;
+  /* Подпись «🎁 Подарок на эфире», значок предупреждения, плашка роли
+     хедлайнера — тёплый коричневый по умолчанию, с темой становится
+     читаемым цветом на подложке акцента. */
+  --gift-label: #a86b2c;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -112,7 +116,7 @@ body {
   right: -40px;
   width: 160px;
   height: 160px;
-  background: radial-gradient(circle, rgba(255, 207, 164, 0.18) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(var(--peach-rgb), 0.18) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -128,7 +132,7 @@ body {
 /* === Buttons === */
 .btn { border-radius: 12px; padding: 14px 20px; font-size: 15px; font-weight: 700; width: 100%; cursor: pointer; border: none; transition: opacity 0.2s, transform 0.05s; font-family: inherit; }
 .btn:active { transform: scale(0.98); opacity: 0.85; }
-.btn-primary { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: var(--dark); box-shadow: 0 4px 12px rgba(255, 207, 164, 0.4); }
+.btn-primary { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: var(--dark); box-shadow: 0 4px 12px rgba(var(--peach-rgb), 0.4); }
 .btn-gold { background: var(--peach); color: var(--dark); }
 .btn-dark { background: var(--gradient); color: var(--peach); }
 .btn-outline { background: transparent; border: 1.5px solid var(--peach); color: var(--dark); padding: 12px 20px; font-size: 14px; }
@@ -268,7 +272,7 @@ body {
 .status-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; flex-shrink: 0; }
 .status-pill-new        { background: #eef2f7; color: #6b7c8e; }
 .status-pill-interested { background: #e0ecf8; color: #2c5f9b; }
-.status-pill-registered { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; box-shadow: 0 1px 3px rgba(255,207,164,0.5); }
+.status-pill-registered { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; box-shadow: 0 1px 3px rgba(var(--peach-rgb), 0.5); }
 
 /* Строка badge + status — флекс, чип уезжает вправо */
 .badge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

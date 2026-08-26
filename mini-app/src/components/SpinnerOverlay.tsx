@@ -11,7 +11,7 @@ export default function SpinnerOverlay() {
     }}>
       <div style={{
         width: 44, height: 44,
-        border: '4px solid rgba(255, 207, 164, 0.25)',
+        border: '4px solid rgba(var(--peach-rgb), 0.25)',
         borderTopColor: 'var(--peach)',
         borderRadius: '50%',
         animation: 'spinner-rot 0.8s linear infinite',

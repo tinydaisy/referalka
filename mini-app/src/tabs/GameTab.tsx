@@ -305,12 +305,15 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
 
         {/* Жёлтое предупреждение */}
         <div style={{
-          background: '#fff8e1', border: '1px solid #ffd54f',
-          borderRadius: 12, padding: '10px 12px', marginBottom: 14,
+          // ⚠️ Подложка — АКЦЕНТ клиента на 20%, а не фиксированный жёлтый:
+          // предупреждение стоит рядом с карточками подарков, и чужой
+          // жёлтый выпадал из фирменной темы.
+          background: 'var(--card-tint)', border: '1px solid rgba(var(--peach-rgb), 0.45)',
+          borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 14,
           display: 'flex', gap: 10, alignItems: 'flex-start',
         }}>
-          <div style={{ fontSize: 18, lineHeight: 1, color: '#b86b00', flexShrink: 0 }}>⚠</div>
-          <div style={{ fontSize: 11, color: '#7a5a00', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 18, lineHeight: 1, color: 'var(--gift-label)', flexShrink: 0 }}>⚠</div>
+          <div style={{ fontSize: 11, color: 'var(--text)', lineHeight: 1.5 }}>
             {giftRuleHint}
           </div>
         </div>
@@ -522,7 +525,7 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
               background: PEACH,
               color: DARK,
               marginBottom: 14,
-              boxShadow: '0 2px 8px rgba(255,207,164,0.35)',
+              boxShadow: '0 2px 8px rgba(var(--peach-rgb), 0.35)',
               opacity: sendingAll ? 0.7 : 1,
               lineHeight: 1.35,
             }}>

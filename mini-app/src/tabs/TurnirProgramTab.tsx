@@ -107,7 +107,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
   speaker:    { bg: 'rgba(37,69,93,0.08)',     fg: DARK },
-  headliner:  { bg: 'rgba(255,207,164,0.25)',  fg: '#a86b2c' },
+  headliner:  { bg: 'rgba(var(--peach-rgb), 0.25)',  fg: 'var(--gift-label)' },
   partner:    { bg: 'rgba(76,175,80,0.12)',    fg: '#2e7d32' },
   organizer:  { bg: 'rgba(156,39,176,0.10)',   fg: '#6a1b9a' },
   jury:       { bg: 'rgba(217,178,114,0.18)',  fg: '#8a6a1e' },
@@ -609,7 +609,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
           }}>
             <div style={{
               width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(255,207,164,0.15)',
+              background: 'rgba(var(--peach-rgb), 0.15)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -628,7 +628,9 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         ) : (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,
-            background: '#7a8a9a', color: 'white',
+            // ⚠️ Неактивная плашка стрима — подложка ОТ ФИРМЕННОГО ФОНА (20%),
+            // а не серый: серый выпадал из темы клиента.
+            background: 'var(--bg-tint)', color: 'var(--text)',
             borderRadius: 14, padding: 14, marginBottom: 10,
           }}>
             <div style={{
@@ -669,7 +671,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         }}>
           <div style={{
             width: 40, height: 40, borderRadius: 10,
-            background: chatAccent === 'red' ? 'rgba(255,255,255,0.18)' : 'rgba(255,207,164,0.15)',
+            background: chatAccent === 'red' ? 'rgba(255,255,255,0.18)' : 'rgba(var(--peach-rgb), 0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
@@ -799,7 +801,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                 padding: '10px 10px',
                                 // Тонкая полоса-разделитель сверху между слотами
                                 marginTop: idx === 0 ? 0 : 4,
-                                boxShadow: isLive ? '0 4px 14px rgba(255,207,164,0.45)' : 'none',
+                                boxShadow: isLive ? '0 4px 14px rgba(var(--peach-rgb), 0.45)' : 'none',
                               }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                                   {/* Время — ЖИРНОЕ */}
@@ -956,7 +958,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                           {hasDesc && isStageOpen && (
                             <div style={{
                               marginTop: 10, paddingTop: 10,
-                              borderTop: '1px solid rgba(255,207,164,0.25)',
+                              borderTop: '1px solid rgba(var(--peach-rgb), 0.25)',
                               fontSize: 13, lineHeight: 1.55, color: '#dbe5ee',
                               whiteSpace: 'pre-wrap',
                             }}>
@@ -1122,7 +1124,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     background: PASTELS[idx % PASTELS.length],
                     borderRadius: 14, padding: 14,
                     boxShadow: isLive
-                      ? '0 4px 14px rgba(255,207,164,0.45)'
+                      ? '0 4px 14px rgba(var(--peach-rgb), 0.45)'
                       : '0 2px 8px rgba(37,69,93,0.05)',
                     border: (isHighlighted || isLive) ? `2px solid ${PEACH}` : '2px solid transparent',
                     transition: 'border-color 0.3s',
@@ -1212,9 +1214,9 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                   {sp.gift_after_speech_title && (
                     <div style={{
                       marginTop: 8, padding: '8px 10px', borderRadius: 10,
-                      background: 'rgba(255,207,164,0.18)', border: '1px solid rgba(255,207,164,0.35)',
+                      background: 'rgba(var(--peach-rgb), 0.18)', border: '1px solid rgba(var(--peach-rgb), 0.35)',
                     }}>
-                      <div style={{ fontSize: 10, color: '#a86b2c', textTransform: 'uppercase',
+                      <div style={{ fontSize: 10, color: 'var(--gift-label)', textTransform: 'uppercase',
                                     letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
                         🎁 Подарок на эфире
                       </div>

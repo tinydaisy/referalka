@@ -128,7 +128,7 @@ function OfferingCard({ o }: { o: Offering }) {
              color: o.is_paid ? DARK : PEACH,
              padding: 10, borderRadius: 10, textAlign: 'center',
              fontWeight: 700, fontSize: 13, textDecoration: 'none',
-             boxShadow: o.is_paid ? '0 2px 6px rgba(255,207,164,0.4)' : 'none',
+             boxShadow: o.is_paid ? '0 2px 6px rgba(var(--peach-rgb), 0.4)' : 'none',
            }}>
           Получить
         </a>
@@ -147,7 +147,7 @@ function OwnersList({ owners, onPick }: { owners: CollabOwner[]; onPick: (id: nu
         color: 'white',
       }}>
         <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>Проекты организаторов</div>
-        <div style={{ fontSize: 13, color: 'rgba(255,207,164,0.85)', marginTop: 6 }}>
+        <div style={{ fontSize: 13, color: 'rgba(var(--peach-rgb), 0.85)', marginTop: 6 }}>
           Событие проводят {owners.length} организатора — выберите, чей проект посмотреть
         </div>
       </div>
@@ -279,7 +279,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
       }}>
         <div style={{
           position: 'absolute', top: -40, right: -40, width: 160, height: 160,
-          background: 'radial-gradient(circle, rgba(255,207,164,0.18) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(var(--peach-rgb), 0.18) 0%, transparent 70%)',
         }} />
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', position: 'relative' }}>
           {profile.brand_logo_url ? (
@@ -376,7 +376,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
                  color: tab === t ? DARK : 'rgba(255,255,255,0.55)',
                  background: tab === t ? 'var(--gradient-peach)' : 'transparent',
                  borderRadius: 11, cursor: 'pointer',
-                 boxShadow: tab === t ? '0 2px 8px rgba(255,207,164,0.4)' : 'none',
+                 boxShadow: tab === t ? '0 2px 8px rgba(var(--peach-rgb), 0.4)' : 'none',
                }}>
             {t === 'free' ? 'Бесплатно' : 'Платно'}
           </div>

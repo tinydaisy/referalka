@@ -101,6 +101,7 @@ interface Profile {
   ma_cta_color_2?: string | null
   ma_cta_angle?: number | null
   ma_cta_border?: string | null
+  ma_cta_border_w?: number | null
   ma_radius?: number | null
 }
 interface Offering {
@@ -396,6 +397,7 @@ export default function MiniAppSettingsPage() {
           ma_cta_color_2:  profile.ma_cta_color_2  || undefined,
           ma_cta_angle:    profile.ma_cta_angle    ?? undefined,
           ma_cta_border:   profile.ma_cta_border   || undefined,
+          ma_cta_border_w: profile.ma_cta_border_w ?? undefined,
           ma_radius:       profile.ma_radius       ?? undefined,
         } : {}),
         start_greeting_text:    profile.start_greeting_text    || null,
@@ -1573,6 +1575,7 @@ function ThemeColorsBlock({ profile, update, locked }: {
   const cta2   = profile.ma_cta_color_2  || '#7f1d1d'
   const ctaAng = profile.ma_cta_angle    ?? 135
   const ctaBrd = profile.ma_cta_border   || '#7f1d1d'
+  const ctaBrdW = profile.ma_cta_border_w ?? 1
   const radius = profile.ma_radius       ?? 14
 
   const dis = locked || !on
@@ -1667,8 +1670,17 @@ function ThemeColorsBlock({ profile, update, locked }: {
                         onChange={v => update('ma_cta_color_2', v)} />
           </div>
           <div className="grid sm:grid-cols-2 gap-4 mt-3">
-            <ColorField label="Граница" value={ctaBrd} disabled={dis}
-                        onChange={v => update('ma_cta_border', v)} />
+            <div>
+              <ColorField label="Цвет границы" value={ctaBrd} disabled={dis}
+                          onChange={v => update('ma_cta_border', v)} />
+              <label className="block text-sm font-medium text-gray-800 mt-3 mb-1.5">
+                Толщина границы: {ctaBrdW} px
+              </label>
+              <input type="range" min={0} max={6} step={1} value={ctaBrdW} disabled={dis}
+                     onChange={e => update('ma_cta_border_w', Number(e.target.value))}
+                     className="w-full accent-amber-500 disabled:cursor-not-allowed" />
+              <p className="text-xs text-gray-500 mt-1">0 — без границы.</p>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-800 mb-1.5">
                 Угол градиента: {ctaAng}°
@@ -1710,7 +1722,7 @@ function ThemeColorsBlock({ profile, update, locked }: {
             {/* Тело */}
             <div style={{ background: '#f7f8fa', padding: 14 }}>
               <button type="button" style={{
-                width: '100%', border: `1px solid ${ctaBrd}`,
+                width: '100%', border: ctaBrdW ? `${ctaBrdW}px solid ${ctaBrd}` : 'none',
                 background: cta1 === cta2 ? cta1 : `linear-gradient(${ctaAng}deg, ${cta1}, ${cta2})`,
                 color: isDark(cta1) ? '#ffffff' : '#1a2a3a',
                 borderRadius: radius, padding: '13px 16px', marginBottom: 10,

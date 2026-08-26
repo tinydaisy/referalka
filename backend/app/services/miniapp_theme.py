@@ -32,6 +32,7 @@ THEME_COLUMNS = (
     "ma_bg_color", "ma_bg_color_2", "ma_bg_angle",
     "ma_accent_color",
     "ma_cta_color", "ma_cta_color_2", "ma_cta_angle", "ma_cta_border",
+    "ma_cta_border_w",
     "ma_radius",
 )
 
@@ -164,6 +165,9 @@ def theme_dict(row: Any) -> Optional[dict[str, Any]]:
                          d.get("ma_cta_angle")),
         "btn_text": _readable_on(d.get("ma_cta_color")),
         "btn_border": d.get("ma_cta_border"),
+        # Толщина границы кнопки, px. Ограничиваем 0..6: толще — рамка
+        # съедает саму кнопку, надпись оказывается в коробке.
+        "btn_border_width": _clamp_int(d.get("ma_cta_border_w"), 0, 6, 1),
 
         # ── 4. СКРУГЛЕНИЕ ───────────────────────────────────────────────
         # Одно значение на карточки, кнопки и плашки. Ограничиваем 0..28:

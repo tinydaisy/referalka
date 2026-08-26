@@ -93,7 +93,7 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
             style={{
               position: 'absolute', top: 14, left: 12,
               background: 'rgba(255,255,255,0.10)',
-              border: '1px solid rgba(255,207,164,0.4)',
+              border: '1px solid rgba(var(--peach-rgb), 0.4)',
               color: 'var(--peach)',
               fontSize: 12, fontWeight: 600,
               padding: '4px 10px', borderRadius: 999,

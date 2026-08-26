@@ -875,7 +875,7 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
             <a href={chatUrl} target="_top" style={{
               display: 'inline-block', background: 'var(--peach)', color: 'var(--dark)',
               fontWeight: 700, padding: '14px 32px', borderRadius: 12, fontSize: 16,
-              textDecoration: 'none', boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
+              textDecoration: 'none', boxShadow: '0 4px 14px rgba(var(--peach-rgb), 0.4)',
               marginBottom: 12,
             }}>{BTN[variant]}</a>
           )}

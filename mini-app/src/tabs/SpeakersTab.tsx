@@ -297,7 +297,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                 background: PASTELS[idx % PASTELS.length],
                 borderRadius: 14, padding: 14,
                 boxShadow: highlightId === sp.id
-                  ? '0 4px 16px rgba(255,207,164,0.5)'
+                  ? '0 4px 16px rgba(var(--peach-rgb), 0.5)'
                   : '0 2px 8px rgba(37,69,93,0.05)',
                 border: highlightId === sp.id ? `2px solid ${PEACH}` : '2px solid transparent',
                 transition: 'border-color 0.3s, box-shadow 0.3s',

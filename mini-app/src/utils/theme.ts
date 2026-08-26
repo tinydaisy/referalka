@@ -24,6 +24,7 @@ export type MiniAppTheme = {
   btn?: string | null
   btn_text?: string | null
   btn_border?: string | null
+  btn_border_width?: number | null
   bg_tint?: string | null
   card_tint?: string | null
   card_text?: string | null
@@ -88,11 +89,25 @@ export function applyTheme(theme: MiniAppTheme): void {
   // ── Акцент: иконки меню, стрелки, кружки ────────────────────────────
   set('--peach', theme.icon)
   set('--peach-rgb', hexToRgb(theme.icon))
+  // ⚠️ Акцентный ГРАДИЕНТ тоже перекрываем. Он живёт отдельной переменной и
+  // красит кнопки «Копировать», переключатель «Платно/Бесплатно», активные
+  // вкладки. Без этой строки они оставались персиковыми при фирменной теме —
+  // самая заметная недоделка первой версии.
+  if (theme.icon) {
+    set('--peach2', theme.icon)
+    set('--gradient-peach', `linear-gradient(135deg, ${theme.icon}, ${theme.icon})`)
+  }
+  // Подпись у подарка и значок предупреждения — читаемый цвет на светлой
+  // подложке из того же акцента.
+  set('--gift-label', theme.card_text || '#1a2a3a')
 
   // ── Кнопка призыва к действию ───────────────────────────────────────
   set('--cta-bg', theme.btn)
   set('--cta-text', theme.btn_text)
   set('--cta-border', theme.btn_border)
+  if (theme.btn_border_width != null) {
+    root.style.setProperty('--cta-border-width', `${theme.btn_border_width}px`)
+  }
 
   // ── Полупрозрачные подложки (20%) ───────────────────────────────────
   // ⚠️ Готовые rgba считает БЭКЕНД: доля прозрачности — часть правил темы

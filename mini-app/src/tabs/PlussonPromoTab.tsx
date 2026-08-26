@@ -116,7 +116,7 @@ export default function PlussonPromoTab() {
             borderRadius: 16,
             padding: 18,
             textAlign: 'center',
-            boxShadow: '0 4px 14px rgba(255, 207, 164, 0.25)',
+            boxShadow: '0 4px 14px rgba(var(--peach-rgb), 0.25)',
           }}
         >
           <div style={{ color: 'var(--text)', fontWeight: 700, fontSize: 16, marginBottom: 4 }}>

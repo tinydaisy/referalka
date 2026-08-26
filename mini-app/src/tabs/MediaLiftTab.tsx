@@ -336,7 +336,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
                 background: PASTELS[idx % PASTELS.length],
                 borderRadius: 14, padding: 14, cursor: 'pointer',
                 border: isSel ? `2px solid ${PEACH}` : '2px solid transparent',
-                boxShadow: isSel ? '0 4px 16px rgba(255,207,164,0.5)' : '0 2px 8px rgba(37,69,93,0.05)',
+                boxShadow: isSel ? '0 4px 16px rgba(var(--peach-rgb), 0.5)' : '0 2px 8px rgba(37,69,93,0.05)',
                 transition: 'border-color .2s, box-shadow .2s',
               }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
