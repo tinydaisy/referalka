@@ -392,7 +392,7 @@ export default function SettingsPage() {
               <UserCheck size={18} className="text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-800">Служба поддержки</h3>
+              <h3 className="font-semibold text-gray-800">Служба поддержки и контакты для связи с вами</h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 Каналы для связи клиентов с вами. Указывайте <b>ссылкой</b>. Подставляются
                 в команду <code>/support</code> в ботах, в кнопку «Тех. поддержка» в меню
