@@ -1165,30 +1165,38 @@ function SubscriptionTab() {
   if (!data) return <div className="text-gray-500">Нет данных о подписке</div>
 
   const sub = data.subscription
-  const features: string[] = data.features || []
-  const FEATURE_LABELS: Record<string, string> = {
-    lead_magnets:     'Лид-магниты',
-    conference:       'Модуль Конференции',
-    awards:           'Премии',
-    channels:         'Свой брендированный бот',
-    export_contacts:  'Экспорт контактов',
-    collab_hub:       'Коллабораторная (Хаб)',
-    contests:         'Участие в конкурсах',
-  }
   const isExpired = !sub || !sub.is_active || sub.days_left < 0
+  // ⚠️ Триалу отдельной карточки НЕ заводим — просто говорим словами, что это
+  // триал и какой тариф по нему открыт. Отдельная карточка выглядела бы как
+  // ещё один вариант подписки, который можно купить, а купить его нельзя.
+  const isTrial = sub?.tariff_slug === 'trial'
   const expiresStr = sub?.expires_at
     ? new Date(sub.expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
     : '—'
 
   return (
     <div className="space-y-6">
-      {/* Текущий тариф */}
+      {/* Текущий тариф. ⚠️ Списка «что входит в тариф» здесь больше нет: он
+          перечислял галочками то, что и так видно по разделам кабинета, и
+          занимал целый экран над кнопкой оплаты — из-за него оплату приходилось
+          искать прокруткой. */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="font-semibold text-gray-800 mb-1">{sub?.tariff_name || 'Тариф не определён'}</h3>
+            <h3 className="font-semibold text-gray-800 mb-1">
+              {isTrial
+                ? 'У вас триал — доступ к тарифу Профи'
+                : (sub?.tariff_name || 'Тариф не определён')}
+            </h3>
             <p className="text-sm text-gray-500">
-              {sub?.tariff_price ? `${sub.tariff_price.toLocaleString('ru-RU')} ₽ / мес` : 'Бесплатно'}
+              {isTrial
+                ? (isExpired ? `Истёк ${expiresStr}` : `Истекает ${expiresStr}`)
+                : (isExpired ? `Истекла ${expiresStr}` : `Подключено · истекает ${expiresStr}`)}
+              {!isExpired && sub?.days_left >= 0 && (
+                <span className={sub.days_left <= 7 ? 'text-amber-700' : undefined}>
+                  {sub.days_left === 0 ? ' · сегодня последний день' : ` · осталось ${sub.days_left} дн.`}
+                </span>
+              )}
             </p>
           </div>
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -1197,56 +1205,15 @@ function SubscriptionTab() {
             {isExpired ? 'Истекла' : 'Активна'}
           </span>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <div className="text-gray-500">Действует до</div>
-            <div className="font-medium text-gray-800">{expiresStr}</div>
-          </div>
-          {!isExpired && sub?.days_left >= 0 && (
-            <div>
-              <div className="text-gray-500">Осталось</div>
-              <div className={`font-medium ${sub.days_left <= 7 ? 'text-amber-700' : 'text-gray-800'}`}>
-                {sub.days_left === 0 ? 'Сегодня истекает' : `${sub.days_left} дн.`}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Состав фич */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h3 className="font-semibold text-gray-800 mb-4">Что входит в тариф</h3>
-        <div className="space-y-2 text-sm">
-          <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1">База — всегда включено</div>
-          <div className="flex items-center gap-2 text-gray-700">
-            <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-            Контакты
-          </div>
-          <div className="flex items-center gap-2 text-gray-700">
-            <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-            Мероприятия
-          </div>
-          <div className="flex items-center gap-2 text-gray-700">
-            <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-            Рассылки
-          </div>
-          <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1 mt-3">Опции тарифа</div>
-          {Object.entries(FEATURE_LABELS).map(([slug, label]) => {
-            const enabled = features.includes(slug)
-            return (
-              <div key={slug} className={`flex items-center gap-2 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>
-                {enabled
-                  ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-                  : <X size={16} className="text-gray-300 shrink-0" />}
-                {label}
-              </div>
-            )
-          })}
-        </div>
+        {isExpired && (
+          <p className="mt-3 text-sm text-gray-600">
+            Кабинет заморожен: смотреть можно всё, менять — нет. Выберите тариф ниже и оплатите — доступ вернётся сразу.
+          </p>
+        )}
       </div>
 
       {/* Оплата подписки через Prodamus */}
-      <SubscriptionPaymentBlock currentTariffSlug={sub?.tariff_slug} />
+      <SubscriptionPaymentBlock currentTariffSlug={sub?.tariff_slug} expiresStr={expiresStr} isExpired={isExpired} />
 
       {/* Модули-аддоны поверх тарифа */}
       <ModulesBlock />
@@ -1396,7 +1363,11 @@ function ModulesBlock() {
 
 // ─── Блок выбора тарифа и оплаты ─────────────────────────────────────────────
 
-function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: string }) {
+function SubscriptionPaymentBlock({ currentTariffSlug, expiresStr, isExpired }: {
+  currentTariffSlug?: string
+  expiresStr?: string
+  isExpired?: boolean
+}) {
   const [tariffs, setTariffs] = useState<any[]>([])
   const [selectedSlug, setSelectedSlug] = useState<string>('')
   const [promotions, setPromotions] = useState<any[]>([])
@@ -1473,7 +1444,9 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-      <h3 className="font-semibold text-gray-800 mb-2">Продлить или сменить тариф</h3>
+      <h3 className="font-semibold text-gray-800 mb-2">
+        {isExpired ? 'Выберите тариф и оплатите' : 'Продлить или сменить тариф'}
+      </h3>
       <p className="text-sm text-gray-500 mb-4">
         Оплата идёт через Prodamus, чек 54-ФЗ приходит на email автоматически.
       </p>
@@ -1488,6 +1461,9 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
         {tariffs.map(t => {
           const promo = promotions.find(p => p.target_tariff_slug === t.slug || p.target_tariff_slug == null)
           const selected = selectedSlug === t.slug
+          // ⚠️ Свой тариф подписан прямо на карточке — «Подключено · истекает …».
+          // Иначе из ряда одинаковых карточек не понять, что уже оплачено.
+          const isMine = !!currentTariffSlug && currentTariffSlug === t.slug
           return (
             <button
               key={t.id}
@@ -1497,6 +1473,13 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
                 selected ? 'border-[#25455D] ring-2 ring-[#25455D]/20 bg-blue-50/30' : 'border-gray-200 hover:border-gray-300'
               }`}
             >
+              {isMine && (
+                <div className={`text-[10px] font-bold tracking-wider uppercase mb-1 ${
+                  isExpired ? 'text-red-600' : 'text-emerald-700'
+                }`}>
+                  {isExpired ? `Истекла ${expiresStr}` : `Подключено · истекает ${expiresStr}`}
+                </div>
+              )}
               {t.promo_banner_text && (
                 <div className="text-[10px] font-bold tracking-wider uppercase text-amber-700 mb-1">
                   {t.promo_banner_text}
