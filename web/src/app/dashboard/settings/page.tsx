@@ -1448,7 +1448,9 @@ function SubscriptionPaymentBlock({ currentTariffSlug, expiresStr, isExpired }: 
         {isExpired ? 'Выберите тариф и оплатите' : 'Продлить или сменить тариф'}
       </h3>
       <p className="text-sm text-gray-500 mb-4">
-        Оплата идёт через Prodamus, чек 54-ФЗ приходит на email автоматически.
+        {/* ⚠️ Названия платёжной системы здесь нет намеренно: клиенту важно, что
+            придёт чек, а через кого проведён платёж — наша внутренняя кухня. */}
+        Чек 54-ФЗ придёт на email автоматически.
       </p>
 
       {paidBanner && (
