@@ -570,6 +570,20 @@ async def update_event(
     if not updates:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
+    # ⚠️ Приветственное письмо — платная возможность платформы, а не часть
+    # купленного модуля. Отдельного адреса у неё нет (это поля события), поэтому
+    # middleware заморозки её не ловит — проверяем здесь. Актуально для клиента
+    # с оплаченным модулем «Конференции»/«Премии» и без действующего тарифа:
+    # событие он ведёт, а приветствие остаётся под замком.
+    if any(k.startswith("welcome_") for k in updates.keys()):
+        from app.services.subscriptions import is_active as _sub_active
+        if not await _sub_active(db, client_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Приветственное письмо доступно с действующей подпиской. "
+                       "Модуль остаётся в работе — продлите тариф, чтобы включить приветствие.",
+            )
+
     # Диагностика welcome — что приходит в PATCH (для отладки welcome-полей)
     if any(k.startswith("welcome_") for k in updates.keys()):
         import logging as _l

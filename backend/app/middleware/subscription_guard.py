@@ -77,6 +77,45 @@ PASSTHROUGH_EXACT = frozenset({
 })
 
 
+# ── Оплаченный модуль работает и без подписки (2026-08-26) ────────────────
+#
+# Модули «Конференции», «Премии/Турниры» и «Премии» покупаются ОТДЕЛЬНО от
+# тарифа. До этой правки купивший модуль без Профи/Экстра не мог им
+# пользоваться вовсе: фича у него есть, раздел виден, а любая правка —
+# 403 «Подписка истекла». То есть человек заплатил за модуль и получил
+# read-only. Теперь модуль работает; под замком остаются только платные
+# возможности САМОЙ платформы, перечисленные ниже.
+PAID_MODULE_FEATURES = ("conference", "tournaments", "awards")
+
+# ⚠️ Что остаётся замороженным даже с оплаченным модулем. Это не части модуля,
+# а то, за что платят подпиской: продающая страница, рассылки по базе, эфирная
+# комната, реферальная механика, розыгрыш, догрев, приветственное письмо и
+# приём денег. Иначе тариф можно было бы не продлевать вовсе: купил модуль
+# за раз — и пользуйся платформой целиком.
+#
+# Хвосты внутри события: /api/v1/events/37/broadcasts/… и т.д.
+MODULE_FROZEN_EVENT_TAILS = (
+    "/landing",       # конструктор лендинга
+    "/broadcasts",    # рассылки события
+    "/webinar",       # вебинарная комната
+    "/raffle",        # розыгрыш
+    "/nurture",       # догрев (покрывает и /nurture-reg)
+    "/referral",      # реферальная программа
+    "/tariffs",       # платные тарифы события
+    "/orders",        # заказы
+)
+
+# Разделы вне события.
+MODULE_FROZEN_PREFIXES = (
+    "/api/v1/broadcasts",                  # общие рассылки по базе
+    "/api/v1/clients/me/payment-settings", # приём платежей
+)
+
+# ⚠️ Приветственное письмо отдельным адресом НЕ живёт — это поля внутри общего
+# `PATCH /api/v1/events/{id}`. Закрыть его здесь, «по пути», невозможно;
+# проверка стоит в самом `update_event` (app/api/events.py).
+
+
 # ── Что остаётся доступным с оплаченной Коллабораторной ───────────────────
 #
 # Смысл: человек купил модуль и должен им пользоваться, даже если тариф
@@ -114,6 +153,17 @@ def _is_collab_path(path: str) -> bool:
         or path.startswith(COLLAB_PREFIXES)
         or bool(_UPLOAD_DELETE_RE.match(path))
     )
+
+
+def _module_path_frozen(path: str) -> bool:
+    """True — этот адрес остаётся закрытым даже у владельца оплаченного модуля."""
+    if path.startswith(MODULE_FROZEN_PREFIXES):
+        return True
+    m = _EVENT_RE.match(path)
+    if m:
+        tail = m.group(2) or ""
+        return any(tail.startswith(x) for x in MODULE_FROZEN_EVENT_TAILS)
+    return False
 
 
 def _collab_event_id(path: str) -> "int | None":
@@ -170,13 +220,23 @@ async def subscription_guard_middleware(request: Request, call_next):
         if is_active:
             return await call_next(request)
 
-        # Подписки нет. Остаётся один случай — оплаченная Коллабораторная.
+        from app.services.features import get_client_features
+        features = await get_client_features(db, client_id)
+
+        # Подписки нет. Случай первый — оплаченный модуль (Конференции,
+        # Премии, Турниры): им пользуются как обычно, кроме того, за что
+        # платят подпиской.
+        if any(f in features for f in PAID_MODULE_FEATURES):
+            if _module_path_frozen(path):
+                return _frozen()
+            return await call_next(request)
+
+        # Случай второй — оплаченная Коллабораторная.
         event_id = _collab_event_id(path)
         if not _is_collab_path(path) and event_id is None:
             return _frozen()
 
-        from app.services.features import client_has_feature
-        if not await client_has_feature(db, client_id, "collab_hub"):
+        if "collab_hub" not in features:
             return _frozen()
 
         # ⚠️ Событие правим ТОЛЬКО общее (`is_collab`). Свои обычные события
