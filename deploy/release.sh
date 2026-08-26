@@ -75,15 +75,35 @@ fi
 
 log "===== Деплой начат ====="
 
-OLD_SHA="$(cd "$PROJECT_DIR" && git rev-parse HEAD 2>/dev/null || echo '')"
+# ⚠️ «Что сейчас на проде» — это ОТМЕТКА .deployed_sha, а не git HEAD.
+# По HEAD судить нельзя: коммит часто делают прямо на сервере, и тогда HEAD уже
+# новый, а разложенная сборка ещё старая. От OLD_SHA считается список
+# изменившегося — то есть по HEAD скрипт сравнивал не то и рестартовал не то.
+# Так и вышло 26.08: правка в backend/ приехала, а plusson-api не рестартовали.
+OLD_SHA="$(tr -d '[:space:]' < "$PROJECT_DIR/.deployed_sha" 2>/dev/null || true)"
+[ -n "$OLD_SHA" ] || OLD_SHA="$(cd "$PROJECT_DIR" && git rev-parse HEAD 2>/dev/null || echo '')"
 
 # ── 1. Код из git ──────────────────────────────────────────────────────────
 # Бэкенд и боты — это Python, он не собирается: нужен только свежий код.
 cd "$PROJECT_DIR"
 log "Забираем код из main..."
 git fetch origin main --quiet
-git reset --hard origin/main --quiet
-NEW_SHA="${NEW_SHA:-$(git rev-parse HEAD)}"
+
+# ⚠️⚠️ ВСТАЁМ НА КОММИТ ПРИВЕЗЁННОЙ СБОРКИ, а не на origin/main.
+# Раньше был `reset --hard origin/main` — и когда main успевал уехать вперёд
+# (а он уезжает: сборка идёт минуты, за это время коммитят ещё раз), на прод
+# приезжала СБОРКА одного коммита и КОД другого. 26.08 так и случилось: фронт
+# лёг от 3a76068b, бэкенд — от e003ba11. В логе при этом бодрое
+# «Код: e003ba11 → 3a76068b», хотя рабочая копия осталась на первом.
+if [ -n "$NEW_SHA" ] && git rev-parse --verify --quiet "${NEW_SHA}^{commit}" >/dev/null; then
+  git reset --hard "$NEW_SHA" --quiet
+else
+  if [ -n "$NEW_SHA" ]; then
+    log "ВНИМАНИЕ: коммита $NEW_SHA нет в репозитории — встаём на origin/main"
+  fi
+  git reset --hard origin/main --quiet
+fi
+NEW_SHA="$(git rev-parse HEAD)"
 log "Код: ${OLD_SHA:0:8} → ${NEW_SHA:0:8}"
 
 # ── 1а. Проверка на опасные изменения ──────────────────────────────────────
@@ -236,7 +256,12 @@ RESTARTED=""
 # ботов и Celery, которые тут действительно надо трогать по делу.
 systemctl restart plusson-web && RESTARTED="$RESTARTED plusson-web"
 
-if need '^backend/app/(api|services|main\.py|config\.py|database\.py)'; then
+# ⚠️ ЛЮБОЙ файл в backend/app/ — а не перечисление папок. Список был
+# «api|services|main.py|config.py|database.py», и правка в
+# backend/app/middleware/ мимо него прошла: код приехал, plusson-api остался на
+# старом (26.08, разморозка оплаты подписки — выкатили нерабочим). Перечисление
+# папок ошибается молча и в опасную сторону, лишний рестарт api стоит секунды.
+if need '^backend/app/'; then
   systemctl restart plusson-api && RESTARTED="$RESTARTED plusson-api"
 fi
 

@@ -33,7 +33,14 @@ PROJECT="/var/www/plusson"
 TOKEN_FILE="/root/.github_token"
 
 WAIT=0
-[ "$1" = "--wait" ] && WAIT=1
+LAST=0
+for a in "$@"; do
+  [ "$a" = "--wait" ] && WAIT=1
+  # --last: выкатить последнюю успешную сборку, даже если она не самого свежего
+  # коммита. Нужно, когда сборка нового коммита упала, а откатиться на рабочее
+  # надо прямо сейчас.
+  [ "$a" = "--last" ] && LAST=1
+done
 
 # ── Токен для GitHub ───────────────────────────────────────────────────────
 # ⚠️ Артефакты сборки скачиваются только с токеном — публичного адреса у них
@@ -53,21 +60,59 @@ echo "══════ НАКАТ СБОРКИ С GITHUB ══════"
 # ── 1. Ищем сборку ─────────────────────────────────────────────────────────
 # Берём последний ПРОШЕДШИЙ прогон сборки ветки main. Упавшие и идущие
 # пропускаем: выкатывать недособранное нельзя.
-find_run() {
-  api "https://api.github.com/repos/$REPO/actions/runs?branch=$BRANCH&per_page=20" |
+# ⚠️⚠️ ЦЕЛЬ — СБОРКА ПОСЛЕДНЕГО КОММИТА main, а не «последняя успешная».
+# Раньше бралась просто свежайшая успешная. Сразу после пуша прогона нового
+# коммита ещё нет в списке — и команда молча выкатывала ПРЕДЫДУЩИЙ, отвечая
+# «Деплой завершён успешно». Поймано 26.08: правка ушла в git, деплой отчитался
+# успехом, на сайте её не было. Теперь ищем прогон ИМЕННО нужного коммита.
+TARGET=""
+if [ "$LAST" = "0" ]; then
+  TARGET="$(cd "$PROJECT" && git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1)"
+  TARGET="${TARGET:0:8}"
+fi
+
+find_run() {   # $1 — коммит (8 символов) или пусто = любой последний
+  api "https://api.github.com/repos/$REPO/actions/runs?branch=$BRANCH&per_page=30" |
   python3 -c "
 import json,sys
+want = '$1'
 runs = json.load(sys.stdin).get('workflow_runs', [])
 for r in runs:
     if r['name'] != '$WORKFLOW':
+        continue
+    if want and not r['head_sha'].startswith(want):
         continue
     print(r['id'], r['status'], r['conclusion'] or '-', r['head_sha'][:8])
     break
 "
 }
 
-INFO=$(find_run)
-[ -z "$INFO" ] && { echo "❌ Сборок ветки $BRANCH не найдено."; exit 1; }
+INFO=$(find_run "$TARGET")
+
+# Прогона нужного коммита ещё нет — GitHub его не завёл (пуш только что) или
+# сборка отключена. С --wait ждём появления, без него честно говорим.
+if [ -z "$INFO" ] && [ -n "$TARGET" ]; then
+  if [ "$WAIT" = "1" ]; then
+    echo "► Сборка коммита $TARGET ещё не началась. Жду..."
+    for _ in $(seq 1 40); do          # до 10 минут
+      sleep 15
+      INFO=$(find_run "$TARGET")
+      [ -n "$INFO" ] && break
+    done
+  fi
+  if [ -z "$INFO" ]; then
+    echo "⚠️ Сборки последнего коммита ($TARGET) на GitHub ещё нет."
+    echo "   Подождите минуту и запустите:  deploygit --wait"
+    echo "   Выкатить предыдущую готовую сборку (без вашего коммита):  deploygit --last"
+    exit 1
+  fi
+fi
+
+# --last — осознанно взять последнюю успешную, какой бы она ни была.
+if [ -z "$INFO" ]; then
+  INFO=$(find_run "")
+  [ -z "$INFO" ] && { echo "❌ Сборок ветки $BRANCH не найдено."; exit 1; }
+fi
 read -r RUN_ID STATUS CONCL SHA <<< "$INFO"
 
 if [ "$STATUS" != "completed" ]; then
@@ -75,12 +120,19 @@ if [ "$STATUS" != "completed" ]; then
     echo "► Сборка ещё идёт ($SHA). Жду..."
     while [ "$STATUS" != "completed" ]; do
       sleep 15
-      read -r RUN_ID STATUS CONCL SHA <<< "$(find_run)"
+      read -r RUN_ID STATUS CONCL SHA <<< "$(find_run "$SHA")"
     done
   else
     echo "⚠️ Сборка ещё идёт ($SHA). Подождите пару минут или запустите:  deploygit --wait"
     exit 1
   fi
+fi
+
+# ⚠️ Выкатываем НЕ последний коммит — говорим об этом вслух. Молчаливая выкатка
+# «почти свежего» и есть та ошибка, из-за которой правку считали задеплоенной.
+if [ -n "$TARGET" ] && [ "$SHA" != "$TARGET" ]; then
+  echo "⚠️ ВНИМАНИЕ: выкатывается $SHA, а последний коммит в $BRANCH — $TARGET."
+  echo "   Правок из $TARGET на проде НЕ БУДЕТ."
 fi
 
 if [ "$CONCL" != "success" ]; then
