@@ -78,15 +78,13 @@ export function useChatGate(event: any, tgUser: any) {
   // Когда true — показываем модалку с выбором чата (TG/VK/MAX).
   // Открывается, когда подписки ОК (или не нужны) и доступно больше одного чата.
   const [chooserOpen, setChooserOpen] = useState(false)
+  // ⚠️ Тот же список площадок, но адреса ведут В БОТОВ, а не в чат напрямую.
+  // Нужен, когда организатор требует подписку, а проверить её на этой
+  // площадке мы не можем (браузер, MAX, ВКонтакте). Окно ОДНО — второго
+  // для этого случая заводить нельзя, они разъезжаются по виду.
+  const [botChats, setBotChats] = useState<ReturnType<typeof collectChats> | null>(null)
   // Организаторы коллабы, чьи боты предлагаем на ВЫБРАННОЙ площадке.
   const [botOwners, setBotOwners] = useState<any[] | null>(null)
-  // Выбор площадки: {plats: ['max','telegram'], own, owners}.
-  const [platPick, setPlatPick] = useState<any | null>(null)
-
-  const PLAT_NAME: Record<string, string> = {
-    telegram: 'Telegram', max: 'MAX', vk: 'ВКонтакте',
-  }
-
   /** Переход после выбора площадки.
    *
    * Контакт известен (`own[plat]`) → сразу в бота его организатора.
@@ -94,7 +92,7 @@ export function useChatGate(event: any, tgUser: any) {
    * первым тот, кто привёл больше (порядок задаёт бэкенд).
    */
   function goToBots(plat: string, own: any, owners: any[]) {
-    setPlatPick(null)
+    setBotChats(null)
     const onPlat = (owners || [])
       .filter((o: any) => o.links?.[plat])
       .map((o: any) => ({ ...o, url: o.links[plat] }))
@@ -139,33 +137,39 @@ export function useChatGate(event: any, tgUser: any) {
     if (needsSub && platformName !== 'telegram') {
       // ⚠️⚠️ ПОРЯДОК: СНАЧАЛА ПЛОЩАДКА, ПОТОМ ОРГАНИЗАТОР.
       //
-      // Человек нажал «Войти в чат» → выбирает площадку (MAX / Telegram /
-      // ВКонтакте — те, где чат подключён). Дальше:
-      //   • контакт в ссылке известен → сразу в бота ЕГО организатора на
-      //     ВЫБРАННОЙ площадке;
-      //   • контакта нет → на выбранной площадке показываем ботов ВСЕХ
-      //     организаторов, первым тот, кто привёл больше людей.
+      // Человек нажал «Войти в чат» → выбирает площадку в ТОМ ЖЕ окне, что и
+      // обычно (второго окна для этого заводить нельзя — они разъезжаются по
+      // виду). Разница лишь в том, куда ведут кнопки: не в чат напрямую, а в
+      // бота, который проверит подписку.
       //
-      // Раньше было наоборот (сначала организатор) и вдобавок бралась первая
-      // ссылка подряд: человек заходил из MAX, а его уводило в Telegram.
+      //   • контакт в ссылке известен → бот ЕГО организатора;
+      //   • контакта нет → после площадки плашки всех организаторов, первым
+      //     тот, кто привёл больше людей.
       const own = event?.chat_bot_links || {}
       const owners: any[] = event?.chat_bot_owners || []
 
-      // На какие площадки вообще можем вести (где есть бот).
       const plats = Array.from(new Set([
         ...Object.keys(own).filter(k => own[k]),
         ...owners.flatMap((o: any) => Object.keys(o.links || {})),
-      ]))
+      ])) as ChatPlatform[]
+
       if (plats.length === 0) {
         openOneOrChoose(chats)   // ботов нет вовсе — не запираем человека
         return
       }
 
-      // Он уже в мессенджере, и там есть бот → площадку не спрашиваем.
-      const pick = plats.includes(platformName) ? platformName : null
-      if (pick) { goToBots(pick, own, owners); return }
+      // Он уже в мессенджере, и бот там есть → площадку не спрашиваем.
+      if (plats.includes(platformName as ChatPlatform)) {
+        goToBots(platformName, own, owners); return
+      }
 
-      setPlatPick({ plats, own, owners })
+      // Иначе — ОБЫЧНОЕ окно выбора площадки, но с адресами ботов.
+      setBotChats(plats.map(pl => ({
+        platform: pl,
+        url: own[pl] || (owners.find((o: any) => o.links?.[pl])?.links?.[pl] || ''),
+        isPrimary: pl === (event?.primary_chat_platform || 'telegram'),
+      })))
+      setChooserOpen(true)
       return
     }
 
@@ -220,64 +224,30 @@ export function useChatGate(event: any, tgUser: any) {
     setChatGate({ loading: false, notSubscribed: null, subscribed: [] })
   }
   function closeChooser() {
+    setBotChats(null)
     setChooserOpen(false)
   }
 
-  const chats = collectChats(event)
+  /** Клик по площадке в окне выбора.
+   *
+   * Обычный случай — открываем чат. Режим ботов (`botChats`) — идём в бота:
+   * контакт известен → сразу его организатор, неизвестен → плашки всех.
+   */
+  function pickPlatform(c: { platform: ChatPlatform; url: string }) {
+    closeChooser()
+    if (botChats) {
+      goToBots(c.platform, event?.chat_bot_links || {}, event?.chat_bot_owners || [])
+      return
+    }
+    openExternal(c.url)
+  }
+
+  const chats = botChats || collectChats(event)
   const primaryChat = chats.find(c => c.isPrimary) || chats[0]
   const backupChats = chats.filter(c => c !== primaryChat)
 
   // ⚠️ Выбор организатора: в коллабе у каждого свой бот и своя база. Первым
   // идёт тот, кто привёл больше людей (порядок задаёт бэкенд).
-  // ── Шаг 1: выбор ПЛОЩАДКИ ────────────────────────────────────────────────
-  const platModal = platPick ? (
-    <div onClick={() => setPlatPick(null)} style={{
-      position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.7)',
-      display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: 'white', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 520,
-        padding: '20px 18px 24px', maxHeight: '85vh', overflowY: 'auto',
-      }}>
-        <div style={{ width: 40, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 16px' }} />
-        <h3 style={{ color: DARK, fontSize: 17, fontWeight: 800, margin: '0 0 6px' }}>
-          Войти в чат события
-        </h3>
-        <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5, margin: '0 0 12px' }}>
-          Выберите площадку, на которой вам удобнее общаться. Бот проверит подписку
-          и пришлёт ссылку на чат.
-        </p>
-        {/* ⚠️ Человек — это отдельная запись на каждой площадке: аккаунты в
-            Telegram, MAX и ВКонтакте между собой не связаны. Выбрал не ту, где
-            регистрировался, — придётся заполнить данные заново. Молча этого
-            не делаем: он решит, что регистрация слетела. */}
-        <div style={{
-          background: '#fff8e1', border: '1px solid #ffd54f', borderRadius: 10,
-          padding: '10px 12px', margin: '0 0 16px',
-          display: 'flex', gap: 9, alignItems: 'flex-start',
-        }}>
-          <span style={{ fontSize: 15, lineHeight: 1, color: '#b86b00', flexShrink: 0 }}>⚠</span>
-          <span style={{ fontSize: 12, color: '#7a5a00', lineHeight: 1.5 }}>
-            Выбирайте ту площадку, где вы регистрировались на событие. На другой
-            бот вас ещё не знает — он попросит зарегистрироваться заново.
-          </span>
-        </div>
-        {platPick.plats.map((plat: string) => (
-          <button key={plat}
-            onClick={() => goToBots(plat, platPick.own, platPick.owners)}
-            style={{
-              display: 'block', width: '100%', textAlign: 'left', marginBottom: 8,
-              background: '#f5f7fa', border: '1px solid #e3e8ee', borderRadius: 10,
-              padding: '13px 14px', fontSize: 15, fontWeight: 700, color: DARK,
-              cursor: 'pointer',
-            }}>
-            💬 {PLAT_NAME[plat] || plat}
-          </button>
-        ))}
-      </div>
-    </div>
-  ) : null
-
   // ── Шаг 2: выбор ОРГАНИЗАТОРА (только когда контакт неизвестен) ──────────
   const ownerModal = botOwners && botOwners.length > 0 ? (
     <div onClick={() => setBotOwners(null)} style={{
@@ -328,9 +298,26 @@ export function useChatGate(event: any, tgUser: any) {
         <h3 style={{ color: DARK, fontSize: 17, fontWeight: 800, margin: '0 0 6px' }}>
           Войти в чат события
         </h3>
-        <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5, margin: '0 0 16px' }}>
+        <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5, margin: '0 0 12px' }}>
           Выберите площадку, на которой вам удобнее общаться.
+          {botChats ? ' Бот проверит подписку и пришлёт ссылку на чат.' : ''}
         </p>
+        {/* ⚠️ Аккаунты в Telegram, MAX и ВКонтакте между собой не связаны:
+            на чужой площадке бот человека ещё не знает и попросит данные
+            заново. Без предупреждения он решит, что регистрация слетела. */}
+        {botChats && (
+          <div style={{
+            background: '#fff8e1', border: '1px solid #ffd54f', borderRadius: 10,
+            padding: '10px 12px', margin: '0 0 16px',
+            display: 'flex', gap: 9, alignItems: 'flex-start',
+          }}>
+            <span style={{ fontSize: 15, lineHeight: 1, color: '#b86b00', flexShrink: 0 }}>⚠</span>
+            <span style={{ fontSize: 12, color: '#7a5a00', lineHeight: 1.5 }}>
+              Выбирайте ту площадку, где вы регистрировались на событие. На другой
+              бот вас ещё не знает — он попросит зарегистрироваться заново.
+            </span>
+          </div>
+        )}
 
         {primaryChat && (
           <>
@@ -341,7 +328,7 @@ export function useChatGate(event: any, tgUser: any) {
               Основной чат
             </div>
             <button
-              onClick={() => { closeChooser(); openExternal(primaryChat.url) }}
+              onClick={() => pickPlatform(primaryChat)}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                 background: 'var(--gradient-peach)',
@@ -378,7 +365,7 @@ export function useChatGate(event: any, tgUser: any) {
               {backupChats.map(c => (
                 <button
                   key={c.platform}
-                  onClick={() => { closeChooser(); openExternal(c.url) }}
+                  onClick={() => pickPlatform(c)}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                     background: '#f6f8fb', border: '1px solid #e5e9f0',
@@ -518,7 +505,7 @@ export function useChatGate(event: any, tgUser: any) {
     </div>
   ) : null
 
-  const modal = <>{subscriptionModal}{chooserModal}{platModal}{ownerModal}</>
+  const modal = <>{subscriptionModal}{chooserModal}{ownerModal}</>
 
   return { openChat, modal, loading: chatGate.loading, debug }
 }
