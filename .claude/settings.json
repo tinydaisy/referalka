@@ -135,7 +135,33 @@
       "Bash(scp /tmp/step1_load_contacts.py root@62.113.98.30:/tmp/step1_load_contacts.py)",
       "Bash(scp /tmp/step2_referrers.py /tmp/step3_participants.py /tmp/step4_registered.py root@62.113.98.30:/tmp/)",
       "Bash(scp /tmp/step3_participants.py /tmp/step4_registered.py root@62.113.98.30:/tmp/)",
-      "Bash(scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no /tmp/update_referrer_ref_codes.py root@62.113.98.30:/tmp/)"
+      "Bash(scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no /tmp/update_referrer_ref_codes.py root@62.113.98.30:/tmp/)",
+      "Bash(git:*)",
+      "Bash(deploy)",
+      "Bash(deploygit)",
+      "Bash(deploygit --wait)",
+      "Bash(status)",
+      "Bash(is-building)",
+      "Bash(systemctl status:*)",
+      "Bash(systemctl restart plusson-:*)",
+      "Bash(journalctl:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(find:*)",
+      "Bash(curl:*)",
+      "Bash(stat:*)",
+      "Bash(du:*)",
+      "Bash(df:*)",
+      "Bash(free:*)",
+      "Bash(ps:*)",
+      "Bash(wc:*)",
+      "Bash(sed -n:*)",
+      "Bash(python3:*)",
+      "Bash(npm run build:*)",
+      "Bash(sudo -u postgres psql:*)"
     ],
     "additionalDirectories": [
       "/Users/macbookair/Documents/projects/referalka",
@@ -146,6 +172,7 @@
       "/Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/conferences/[id]/speakers",
       "/Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/conferences/[id]/tabs",
       "/Users/macbookair/.ssh"
-    ]
+    ],
+    "defaultMode": "acceptEdits"
   }
 }
