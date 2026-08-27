@@ -443,8 +443,10 @@ async def get_me(
         row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
         base_url=_base,
     ) or None
+    # Пусто (не наш лендинг или он не опубликован) → отдаём None, чтобы
+    # кабинет не рисовал кнопку «Как вы выглядите на лендинге».
     d["landing_link"] = await _resolve_landing_link(
-        db, int(session["e_id"]), row["event_slug"], row["landing_url"], _base)
+        db, int(session["e_id"]), row["event_slug"], row["landing_url"], _base) or None
     return d
 
 
@@ -1183,31 +1185,33 @@ async def get_me_materials(
 
 async def _resolve_landing_link(db, event_id: int, event_slug: str,
                                 landing_url: str | None, base_url: str) -> str:
-    """Адрес, по которому спикер увидит СЕБЯ НА ЛЕНДИНГЕ события.
+    """Адрес, по которому человек увидит СЕБЯ НА ЛЕНДИНГЕ события.
 
-    ⚠️ Порядок именно такой:
-    1. Сторонний лендинг клиента (`events.landing_url`) — если он задан, вся
-       продающая страница живёт там.
-    2. Наш конструктор `/e/{slug}` — если страница СОБРАНА И ОПУБЛИКОВАНА.
-    3. Иначе — веб-страница события `/event/{slug}` (веб-версия Mini App).
+    ⚠️ Ссылка выдаётся ТОЛЬКО когда событие показывает НАШ лендинг
+    (`events.registration_mode='landing'`) и он опубликован. Пусто → кабинет
+    не рисует кнопку «Как вы выглядите на лендинге» вовсе.
 
-    Пункт 2 раньше отсутствовал: при пустом `landing_url` ссылка сразу падала
-    на `/event/{slug}`, и спикер попадал в веб-версию Mini App вместо лендинга,
-    хотя лендинг был собран и опубликован. Непубликованный лендинг сюда не
-    годится — он отдаёт «Страница не найдена».
+    Почему так (2026-08-27). Раньше ссылка была всегда: при `external` вела на
+    сторонний сайт клиента, а при простой форме — на `/event/{slug}`, то есть
+    в веб-версию Mini App. И там, и там карточки спикера в нашем виде нет:
+    человек жал «посмотреть, как я выгляжу» и не находил себя. Обещать показ
+    там, где показывать нечего, хуже, чем не показывать кнопку.
+
+    ⚠️ Неопубликованный лендинг тоже не годится — он отдаёт «Страница не
+    найдена». Параметр `landing_url` больше не участвует (он про сторонний
+    сайт) и оставлен только ради совместимости вызовов.
     """
-    ext = (landing_url or "").strip()
-    if ext:
-        return ext
-    published = await db.fetchval(
-        """SELECT p.is_published FROM event_landing_pages p
-            WHERE p.event_id = $1 AND p.kind = 'main'
-            LIMIT 1""",
+    row = await db.fetchrow(
+        """SELECT COALESCE(e.registration_mode, 'form') AS mode,
+                  (SELECT p.is_published FROM event_landing_pages p
+                    WHERE p.event_id = e.id AND p.kind = 'main'
+                    LIMIT 1) AS published
+             FROM events e WHERE e.id = $1""",
         event_id,
     )
-    if published:
-        return public_url_for(base_url, f"e/{event_slug}")
-    return public_url_for(base_url, f"event/{event_slug}")
+    if not row or row["mode"] != 'landing' or not row["published"]:
+        return ""
+    return public_url_for(base_url, f"e/{event_slug}")
 
 
 @router.get("/me/gift-stats", summary="Статистика переходов по подаркам спикера")
