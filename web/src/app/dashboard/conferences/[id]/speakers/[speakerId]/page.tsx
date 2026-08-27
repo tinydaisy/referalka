@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import { personWording as personWordingDict } from '@/lib/personWording'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
@@ -202,10 +203,7 @@ function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number
   )
 }
 
-// Словарь показа. Держать в синхроне с backend/app/services/person_wording.py.
-const PERSON_TITLE: Record<string, string> = {
-  speaker: 'Спикер', nominee: 'Номинант', member: 'Участник',
-}
+
 
 export default function ConferenceSpeakerPage() {
   // Домен клиента: кабинет спикера открывает сам спикер, ссылку он получает
@@ -280,6 +278,9 @@ export default function ConferenceSpeakerPage() {
   // Как называть участника — словарь события (миграция 304), одно слово
   // на весь продукт: интерфейс, рассылки, кабинет.
   const [personWording, setPersonWording] = useState<string>('speaker')
+  // Формы слова события: спикер / номинант / участник. Роль в БД при этом
+  // остаётся 'speaker' — здесь только человеческое слово.
+  const pw = personWordingDict(personWording)
   const [refCode, setRefCode] = useState<string | null>(null)
   // Подарок из ПЛЮСОНа (лид-магнит/пакет), если спикер выбрал его в своём
   // кабинете. Показываем отдельной read-only плашкой — иначе выглядит будто
@@ -570,7 +571,7 @@ export default function ConferenceSpeakerPage() {
     if (missing.length > 0) {
       setChannelVerifyMsg({
         ok: false,
-        text: `Сначала заполните и сохраните ${missing.join(' и ')} в профиле спикера — без них автопроверка не запустится.`,
+        text: `Сначала заполните и сохраните ${missing.join(' и ')} в профиле ${pw.gen} — без них автопроверка не запустится.`,
       })
       return
     }
@@ -593,7 +594,7 @@ export default function ConferenceSpeakerPage() {
   function switchGiftTab(target: 'manual' | 'pluson') {
     const hasPlusonGift = giftMagnets.length > 0 || !!giftPluson
     if (target === 'manual' && hasPlusonGift) {
-      alert('У спикера настроен подарок из ПЛЮСОН. Ввести подарок вручную нельзя, пока он выбран.\n\nУбрать подарок из ПЛЮСОН может только сам спикер в своём кабинете.')
+      alert(`У ${pw.gen} настроен подарок из ПЛЮСОН. Ввести подарок вручную нельзя, пока он выбран.\n\nУбрать подарок из ПЛЮСОН может только сам ${pw.nom} в своём кабинете.`)
       return
     }
     setGiftTab(target)
@@ -776,9 +777,9 @@ export default function ConferenceSpeakerPage() {
       {/* ── ВКЛАДКА «СТАТИСТИКА» ── */}
       {subTab === 'stats' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8">
-          <div className="font-semibold text-gray-900 mb-1">Переходы по подаркам спикера</div>
+          <div className="font-semibold text-gray-900 mb-1">Переходы по подаркам {pw.gen}</div>
           <div className="text-xs text-gray-500 mb-4">
-            Считается со дня выступления. То же самое спикер видит у себя в кабинете.
+            Считается со дня выступления. То же самое {pw.nom} видит у себя в кабинете.
           </div>
           <SpeakerGiftStats load={() => api.conference.speakers.giftStats(confId, speakerEventId)} />
         </div>
@@ -793,8 +794,8 @@ export default function ConferenceSpeakerPage() {
         {/* Прямая ссылка на карточку спикера (открывает вкладку «Спикеры» и скроллит к нему) */}
         {eventSlug && (
           <div className="bg-white border border-gray-200 rounded-2xl p-4">
-            <div className="font-semibold text-gray-900 text-sm mb-1">Ссылка на карточку этого спикера</div>
-            <div className="text-xs text-gray-600 mb-3">Откроет страницу события сразу на карточке спикера. Работает в вебе и в Mini App.</div>
+            <div className="font-semibold text-gray-900 text-sm mb-1">Ссылка на карточку этого {pw.gen}</div>
+            <div className="text-xs text-gray-600 mb-3">Откроет страницу события сразу на карточке {pw.gen}. Работает в вебе и в Mini App.</div>
             <SpeakerCardLink slug={eventSlug} ecId={speakerEventId} botHandle={mainBotHandle} />
           </div>
         )}
@@ -803,8 +804,8 @@ export default function ConferenceSpeakerPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
           <div className="flex items-start justify-between gap-3 mb-2">
             <div>
-              <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
-              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <a href={`https://${publicHost}/speaker/${eventSlug || ''}`} target="_blank" rel="noopener noreferrer" className="bg-white px-1 rounded font-mono text-[#25455D] underline hover:opacity-70">https://{publicHost}/speaker/{eventSlug || '…'}</a>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
+              <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения {pw.gen}</div>
+              <div className="text-xs text-gray-600 mt-0.5">{pw.title} откроет страницу <a href={`https://${publicHost}/speaker/${eventSlug || ''}`} target="_blank" rel="noopener noreferrer" className="bg-white px-1 rounded font-mono text-[#25455D] underline hover:opacity-70">https://{publicHost}/speaker/{eventSlug || '…'}</a>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
             </div>
           </div>
           <div className="flex items-center gap-2 mt-3">
@@ -830,7 +831,7 @@ export default function ConferenceSpeakerPage() {
                 }
               }}
               className="px-3 py-2 bg-brand text-white rounded-lg text-xs font-semibold hover:opacity-90">
-              {inviteCopied ? '✓ Скопировано' : '📋 Скопировать сообщение спикеру'}
+              {inviteCopied ? '✓ Скопировано' : `📋 Скопировать сообщение ${pw.dat}`}
             </button>
           </div>
           {countLinks(inviteLinks) > 1 && (
@@ -869,7 +870,7 @@ export default function ConferenceSpeakerPage() {
                   <option key={k} value={k}>
                     {/* Слово берётся из словаря события: «Спикер» / «Номинант» /
                         «Участник». Роль в БД при этом остаётся 'speaker'. */}
-                    {k === 'speaker' ? PERSON_TITLE[personWording] || (v as string) : (v as string)}
+                    {k === 'speaker' ? pw.title : (v as string)}
                   </option>
                 ))}
               </select>
@@ -900,7 +901,7 @@ export default function ConferenceSpeakerPage() {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm">В каких этапах участвует</h3>
             <p className="text-xs text-gray-500 -mt-1">
-              Отметьте этапы. Влияет на распределение жюри, турнирную таблицу и кабинет спикера —
+              Отметьте этапы. Влияет на распределение жюри, турнирную таблицу и кабинет {pw.gen} —
               человек виден только в выбранных этапах. Ничего не отмечено — не участвует ни в одном.
             </p>
             <div className="space-y-2">
@@ -947,37 +948,37 @@ export default function ConferenceSpeakerPage() {
 
         {/* Что спикер видит в своей форме — сразу после галочки «Коммерческое» */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
-          <h3 className="font-semibold text-gray-900 text-sm">Что спикер видит в своей форме</h3>
-          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">https://{publicHost}/speaker/{eventSlug || '…'}</code>.</p>
+          <h3 className="font-semibold text-gray-900 text-sm">Что {pw.nom} видит в своей форме</h3>
+          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются {pw.dat} на странице <code className="bg-gray-50 px-1 rounded">https://{publicHost}/speaker/{eventSlug || '…'}</code>.</p>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_topic_field}
               onChange={e => setEventForm(f => ({ ...f, show_topic_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Темы выступления — спикер может заполнить сам</span>
+            <span>Темы выступления — {pw.nom} может заполнить сам</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_gift_after_speech_field}
               onChange={e => setEventForm(f => ({ ...f, show_gift_after_speech_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Подарок после эфира — спикер может заполнить сам</span>
+            <span>Подарок после эфира — {pw.nom} может заполнить сам</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_knowledge_base_field}
               onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Материал в базу знаний — спикер может заполнить сам</span>
+            <span>Материал в базу знаний — {pw.nom} может заполнить сам</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_notes_field}
               onChange={e => setEventForm(f => ({ ...f, show_notes_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Заметки — спикер может заполнить сам</span>
+            <span>Заметки — {pw.nom} может заполнить сам</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={eventForm.show_partner_registration_link}
               onChange={e => setEventForm(f => ({ ...f, show_partner_registration_link: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Ссылка на регистрацию партнёром — спикеру предлагается зарегистрироваться партнёром клиента</span>
+            <span>Ссылка на регистрацию партнёром — {pw.dat} предлагается зарегистрироваться партнёром клиента</span>
           </label>
           <p className="text-xs text-gray-500 pt-1">Подарок для розыгрыша показывается автоматически, если для события включён модуль розыгрыша.</p>
         </div>
@@ -992,7 +993,7 @@ export default function ConferenceSpeakerPage() {
             slotLabel={(eventForm as any).slot_label}
             slotHasTopic={(eventForm as any).slot_has_topic} />
           <p className="text-xs text-gray-400 pt-2">
-            Если у спикера несколько тем, в программу и рассылки идёт та, что привязана к его слоту (отмечена зелёным). Спикер выбирает слот сам в своём кабинете; тема слота обновляется автоматически.
+            Если у {pw.gen} несколько тем, в программу и рассылки идёт та, что привязана к его слоту (отмечена зелёным). {pw.title} выбирает слот сам в своём кабинете; тема слота обновляется автоматически.
           </p>
         </div>
 
@@ -1093,11 +1094,11 @@ export default function ConferenceSpeakerPage() {
                 </ol>
               ) : (
                 <div className="text-emerald-800 text-xs">
-                  Спикер пока не выбрал ни одного подарка-лид-магнита.
+                  {pw.title} пока не выбрал ни одного подарка-лид-магнита.
                 </div>
               )}
               <div className="text-emerald-700 text-xs pt-1 border-t border-emerald-200">
-                Привязывать подарки из ПЛЮСОН спикер может только в своём кабинете спикера.
+                Привязывать подарки из ПЛЮСОН {pw.nom} может только в своём кабинете {pw.gen}.
               </div>
             </div>
           )}
@@ -1158,7 +1159,7 @@ export default function ConferenceSpeakerPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
             <span>Чёрный список</span>
-            <span className="text-xs text-gray-400 font-normal">— исключения для этого спикера</span>
+            <span className="text-xs text-gray-400 font-normal">— исключения для этого {pw.gen}</span>
           </h3>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={eventForm.exclude_gift_from_broadcast}
@@ -1185,7 +1186,7 @@ export default function ConferenceSpeakerPage() {
             <span className="text-sm text-gray-700">
               Исключать из Mini App и API для лендинга
               <span className="block text-xs text-gray-400">
-                Спикер не показывается в Mini App, на веб-странице события и не отдаётся
+                {pw.title} не показывается в Mini App, на веб-странице события и не отдаётся
                 на сторонний лендинг. В дашборде и рассылках остаётся.
               </span>
             </span>
@@ -1210,7 +1211,7 @@ export default function ConferenceSpeakerPage() {
       {subTab === 'profile' && (
       <form onSubmit={saveProfile} className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-bold text-gray-900 text-lg">Профиль спикера</h2>
+          <h2 className="font-bold text-gray-900 text-lg">Профиль {pw.gen}</h2>
           <span className="text-xs text-gray-400">Изменения применятся ко всем конференциям</span>
         </div>
 
@@ -1218,7 +1219,7 @@ export default function ConferenceSpeakerPage() {
           publicHost={publicHost}
           slug={eventSlug}
           contactId={profile.contact_id}
-          personLabel="этого спикера"
+          personLabel={`этого ${pw.gen}`}
         />
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
@@ -1259,7 +1260,7 @@ export default function ConferenceSpeakerPage() {
             <input type="checkbox" checked={!!profile.show_ask_topics_field}
               onChange={e => setProfile((p: any) => ({ ...p, show_ask_topics_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Показывать в кабинете спикера — спикер может заполнить сам</span>
+            <span>Показывать в кабинете {pw.gen} — {pw.nom} может заполнить сам</span>
           </label>
         </div>
 
@@ -1305,7 +1306,7 @@ export default function ConferenceSpeakerPage() {
               • <b>Для рассылок по чат-боту</b> (радио, одна) — пойдёт в рассылки бота.
               По умолчанию первая из библиотеки.
               <br />
-              • <b>Для анонсов</b> (чек-боксы, любое число) — отмеченные увидит спикер в
+              • <b>Для анонсов</b> (чек-боксы, любое число) — отмеченные увидит {pw.nom} в
               своём кабинете и скачает для своих каналов.
               <br />
               Загруженные здесь афиши попадают в общую библиотеку коллаба — её можно
@@ -1336,7 +1337,7 @@ export default function ConferenceSpeakerPage() {
               <span className="text-sm text-gray-800">
                 <b>Не использовать индивидуальные афиши в этом событии</b>
                 <span className="block text-xs text-gray-500 mt-0.5">
-                  Везде — в рассылках бота, на лендинге, в кабинете спикера и в экспорте
+                  Везде — в рассылках бота, на лендинге, в кабинете {pw.gen} и в экспорте
                   материалов — вместо афиши будет обычное «Фото для сайта». Сами афиши
                   останутся в библиотеке коллаба и будут работать в других событиях.
                 </span>
@@ -1501,7 +1502,7 @@ export default function ConferenceSpeakerPage() {
         {/* Личные аккаунты VK и MAX */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Личный аккаунт VK / MAX</h3>
-          <p className="text-xs text-gray-500 -mt-2">Используется для отправки ссылок и контакта со спикером. Не показывается участникам.</p>
+          <p className="text-xs text-gray-500 -mt-2">Используется для отправки ссылок и контакта с {pw.ins}. Не показывается участникам.</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">VK username</label>
@@ -1571,7 +1572,7 @@ export default function ConferenceSpeakerPage() {
                   className="flex-1 pr-4 py-2.5 text-sm focus:outline-none" />
               </div>
               <p className="text-xs text-gray-500 mt-1.5">
-                Только ник, без @. Ассистент сможет получить код доступа к кабинету спикера через бот.
+                Только ник, без @. Ассистент сможет получить код доступа к кабинету {pw.gen} через бот.
               </p>
             </div>
           </div>
@@ -1589,7 +1590,7 @@ export default function ConferenceSpeakerPage() {
                     Подключение канала к проверке подписки отключено.{' '}
                     {subscriptionMode === 'none'
                       ? <>В <a href={`${basePath}/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Не требовать подписку».</>
-                      : <>В <a href={`${basePath}/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только каналы организаторов», поэтому канал этого спикера не участвует в проверке.</>
+                      : <>В <a href={`${basePath}/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только каналы организаторов», поэтому канал этого {pw.gen} не участвует в проверке.</>
                     }
                   </div>
                 </div>
@@ -1598,7 +1599,7 @@ export default function ConferenceSpeakerPage() {
             return (
               <div className="pt-2 border-t border-gray-100 space-y-3">
                 <div className="text-xs text-gray-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-                  <div className="font-semibold text-gray-800">Как подключить канал спикера к проверке подписки:</div>
+                  <div className="font-semibold text-gray-800">Как подключить канал {pw.gen} к проверке подписки:</div>
                   <ol className="list-decimal pl-4 space-y-1.5">
                     <li>
                       <span className="font-semibold">Заполните выше «ID канала» и «ID личного аккаунта» спикера и сохраните профиль</span> — без них автопроверка не запустится.
