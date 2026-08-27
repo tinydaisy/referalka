@@ -1217,6 +1217,13 @@ async def _process_start(
                             )
                             return
 
+                        # Спикер / номинант / участник — по событию из ссылки
+                        # (`_e<id>`), иначе по тому, что откроется в кабинете.
+                        from app.services.person_wording import wording_for_collaborator
+                        w = await wording_for_collaborator(
+                            conn0, coll["collaborator_id"], invite_event_id,
+                        )
+
                         from app.api.collaborators import _upsert_personal_identity
                         foreign_owner = False
                         if coll["contact_id"] and coll["created_by_client_id"]:
@@ -1232,14 +1239,14 @@ async def _process_start(
                                 logger.warning("MAX spkinv upsert identity failed: %s", e)
 
                         if foreign_owner:
-                            sp_name = (coll["name"] or "").strip() or "спикер"
+                            sp_name = (coll["name"] or "").strip() or w["nom"]
                             await max_send_message(
                                 chat_id,
                                 (
                                     f"⚠️ Вы зашли не с того аккаунта.\n\n"
-                                    f"Эта ссылка выдана спикеру «{sp_name}». Ваш MAX-аккаунт уже привязан к другому контакту у этого клиента, "
-                                    f"поэтому я не могу записать вас как спикера.\n\n"
-                                    f"Попросите самого спикера открыть ссылку со своего личного MAX, либо передайте ссылку его ассистенту."
+                                    f"Эта ссылка выдана {w['dat']} «{sp_name}». Ваш MAX-аккаунт уже привязан к другому контакту у этого клиента, "
+                                    f"поэтому я не могу записать вас как {w['acc']}.\n\n"
+                                    f"Попросите самого {w['acc']} открыть ссылку со своего личного MAX, либо передайте ссылку его ассистенту."
                                 ),
                                 token=bot_token,
                             )
@@ -1271,7 +1278,7 @@ async def _process_start(
                             )
                         event_slug = ev["slug"] if ev else ""
                         event_title = ev["title"] if ev else "событие"
-                        sp_name = (coll["name"] or "").strip() or "спикер"
+                        sp_name = (coll["name"] or "").strip() or w["nom"]
                         # Кабинет спикера — публичная страница клиента, который
                         # завёл коллаба.
                         cabinet_url = await client_public_link(
@@ -1287,7 +1294,7 @@ async def _process_start(
                             chat_id,
                             (
                                 f"Здравствуйте, {sp_name}!\n\n"
-                                f"Вы — спикер «{event_title}». Чтобы заполнить свои данные, откройте свой кабинет:\n"
+                                f"Вы — {w['nom']} «{event_title}». Чтобы заполнить свои данные, откройте свой кабинет:\n"
                                 f"{cabinet_url}\n\n"
                                 f"Код доступа: {access_code}\n\n"
                                 "На странице выберите свою фамилию и введите этот код. "

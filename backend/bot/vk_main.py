@@ -608,6 +608,7 @@ async def _handle_speaker_self_register_vk(
     )
     from app.services.contact_merge import upsert_contact_with_identity
     from app.services.channels import get_client_telegram_token
+    from app.services.person_wording import wording
     ev = await get_event_for_self_register(db, event_id)
     if not ev:
         try:
@@ -615,6 +616,8 @@ async def _handle_speaker_self_register_vk(
         except Exception:
             pass
         return
+    # Спикер / номинант / участник — по настройке события.
+    w = wording(ev["person_wording"])
 
     contact_id, _pu, _is_new = await upsert_contact_with_identity(
         db,
@@ -647,7 +650,7 @@ async def _handle_speaker_self_register_vk(
                 event_id=event_id,
                 client_id=ev["client_id"],
                 contact_id=contact_id,
-                contact_name=contact_name or "Спикер",
+                contact_name=contact_name or w["title"],
             )
     except Exception as e:
         logger.exception("VK speaker_self_register failed: %s", e)
@@ -676,12 +679,12 @@ async def _handle_speaker_self_register_vk(
 
     if already:
         text = (
-            f"Вы уже спикер «{ev['title']}».\n\nОткройте свой кабинет: {spkinv_url}\n"
+            f"Вы уже {w['nom']} «{ev['title']}».\n\nОткройте свой кабинет: {spkinv_url}\n"
             f"Код доступа: {access_code}"
         )
     else:
         text = (
-            f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
+            f"Готово! Вы включены в {w['plural']} «{ev['title']}».\n\n"
             f"Откройте свой кабинет и заполните данные: {spkinv_url}\n"
             f"Код доступа: {access_code}"
         )
@@ -704,6 +707,10 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
     if not coll:
         return False
 
+    # Спикер / номинант / участник — по событию, в которое человека позвали.
+    from app.services.person_wording import wording_for_collaborator
+    w = await wording_for_collaborator(db, coll["collaborator_id"])
+
     from app.api.collaborators import _upsert_personal_identity
     foreign_owner = False
     if coll["contact_id"] and coll["created_by_client_id"]:
@@ -718,15 +725,15 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
             logger.warning("VK spkinv upsert identity failed: %s", e)
 
     if foreign_owner:
-        sp_name = (coll["name"] or "").strip() or "спикер"
+        sp_name = (coll["name"] or "").strip() or w["nom"]
         try:
             await vk_send_message(
                 int(user_id),
                 (
                     f"⚠️ Вы зашли не с того аккаунта.\n\n"
-                    f"Эта ссылка выдана спикеру «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
-                    f"поэтому я не могу записать вас как спикера.\n\n"
-                    f"Попросите самого спикера открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
+                    f"Эта ссылка выдана {w['dat']} «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
+                    f"поэтому я не могу записать вас как {w['acc']}.\n\n"
+                    f"Попросите самого {w['acc']} открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
                 ),
                 token=ctx.token,
             )
@@ -744,7 +751,7 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
     )
     event_slug = ev["slug"] if ev else ""
     event_title = ev["title"] if ev else "событие"
-    name = (coll["name"] or "").strip() or "спикер"
+    name = (coll["name"] or "").strip() or w["nom"]
     # Кабинет спикера — публичная страница клиента, который завёл коллаба.
     cabinet_url = await client_public_link(
         db, coll["created_by_client_id"],
@@ -753,7 +760,7 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
 
     text = (
         f"Здравствуйте, {name}!\n\n"
-        f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, "
+        f"Вы — {w['nom']} «{event_title}». Чтобы заполнить свои данные для участников события, "
         f"откройте свой кабинет:\n{cabinet_url}\n\n"
         f"Код доступа: {access_code}\n\n"
         f"На странице выберите свою фамилию из списка и введите этот код. "

@@ -450,7 +450,7 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
         ev = None
         if invite_event_id:
             ev = await conn.fetchrow(
-                """SELECT e.slug, e.title
+                """SELECT e.slug, e.title, e.person_wording
                      FROM event_collaborators ec
                      JOIN events e ON e.id = ec.event_id
                     WHERE ec.speaker_id = $1 AND ec.event_id = $2
@@ -459,7 +459,7 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
             )
         if not ev:
             ev = await conn.fetchrow(
-                """SELECT e.slug, e.title
+                """SELECT e.slug, e.title, e.person_wording
                      FROM event_collaborators ec
                      JOIN events e ON e.id = ec.event_id
                     WHERE ec.speaker_id = $1
@@ -473,7 +473,10 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
             )
         event_slug = ev["slug"] if ev else ""
         event_title = ev["title"] if ev else "событие"
-        sp_name = (coll["name"] or "").strip() or "спикер"
+        # Спикер / номинант / участник — по событию, в которое человека позвали.
+        from app.services.person_wording import wording
+        w = wording(ev["person_wording"] if ev else None)
+        sp_name = (coll["name"] or "").strip() or w["nom"]
         # Кабинет спикера — публичная страница клиента, который завёл коллаба.
         cabinet_url = await client_public_link(
             conn, coll["created_by_client_id"],
@@ -484,16 +487,16 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
         if foreign_owner:
             text = (
                 f"⚠️ Вы зашли не с того аккаунта.\n\n"
-                f"Эта ссылка выдана спикеру «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
-                f"поэтому я не могу записать вас как спикера.\n\n"
-                f"Попросите самого спикера открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
+                f"Эта ссылка выдана {w['dat']} «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
+                f"поэтому я не могу записать вас как {w['acc']}.\n\n"
+                f"Попросите самого {w['acc']} открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
             )
             await vk_send_message(int(vk_user_id), text, token=chan["bot_token"])
             return {"ok": True, "foreign_owner": True}
 
         text = (
             f"Здравствуйте, {sp_name}!\n\n"
-            f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, "
+            f"Вы — {w['nom']} «{event_title}». Чтобы заполнить свои данные для участников события, "
             f"откройте свой кабинет:\n{cabinet_url}\n\n"
             f"Код доступа: {access_code}\n\n"
             "На странице выберите свою фамилию из списка и введите этот код. "
@@ -577,10 +580,13 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
             get_event_for_self_register, find_existing_speaker, complete_speaker_self_register,
         )
         from app.services.contact_merge import upsert_contact_with_identity
+        from app.services.person_wording import wording
 
         ev = await get_event_for_self_register(conn, body.event_id)
         if not ev or ev["client_id"] != chan["client_id"]:
             raise HTTPException(status_code=404, detail="Событие не найдено")
+        # Спикер / номинант / участник — по настройке события.
+        w = wording(ev["person_wording"])
 
         contact_id, _pu, _is_new = await upsert_contact_with_identity(
             conn,
@@ -601,14 +607,14 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
             coll_id = existing["collaborator_id"]
             access_code = existing["access_code"]
             slug = existing["event_slug"]
-            sp_name = (existing["name"] or "").strip() or "спикер"
+            sp_name = (existing["name"] or "").strip() or w["nom"]
             # Кабинет спикера — на домене клиента-владельца события.
             cabinet_url = await client_public_link(
                 conn, ev["client_id"], f"speaker/{slug}"
             )
             text = (
                 f"Здравствуйте, {sp_name}!\n\n"
-                f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:\n"
+                f"Вы — {w['nom']} «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:\n"
                 f"{cabinet_url}\n\nКод доступа: {access_code}\n\n"
                 "На странице выберите свою фамилию и введите код. Сессия живёт 24 часа. "
                 "Код можно передать ассистенту."
@@ -623,14 +629,14 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
                 event_id=body.event_id,
                 client_id=ev["client_id"],
                 contact_id=contact_id,
-                contact_name=contact_name or "Спикер",
+                contact_name=contact_name or w["title"],
             )
             # Кабинет спикера — на домене клиента-владельца события.
             cabinet_url = await client_public_link(
                 conn, ev["client_id"], f"speaker/{slug}"
             )
             text = (
-                f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
+                f"Готово! Вы включены в {w['plural']} «{ev['title']}».\n\n"
                 f"Откройте свой кабинет и заполните данные:\n{cabinet_url}\n\n"
                 f"Код доступа: {access_code}\n\n"
                 "Код можно передать ассистенту — он заполнит за вас."
@@ -638,7 +644,7 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
 
         from app.services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
         keyboard = tg_inline_to_vk_keyboard([[
-            {"text": "📝 Открыть кабинет спикера", "url": cabinet_url},
+            {"text": f"📝 Открыть кабинет {w['gen']}", "url": cabinet_url},
         ]])
         try:
             await vk_send_message(int(vk_user_id), text, keyboard=keyboard, token=chan["bot_token"])

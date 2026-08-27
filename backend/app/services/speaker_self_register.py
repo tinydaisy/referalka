@@ -20,15 +20,28 @@ from typing import Optional, Tuple
 import asyncpg
 
 from app.api.collaborators import _generate_unique_access_code
+from app.services.person_wording import wording
 
 logger = logging.getLogger(__name__)
 
 
-SELF_REG_TEXT = (
-    "Вы находитесь в агенте по оформлению вас спикером. "
-    "Чтобы добавиться в состав спикеров — нажмите кнопку ниже."
-)
-SELF_REG_BUTTON = "Включить в спикеры"
+def self_reg_text(person_wording: Optional[str] = None) -> str:
+    """Первое сообщение по ссылке саморегистрации.
+
+    ⚠️ Слово («спикер» / «номинант» / «участник») берётся из
+    `events.person_wording` — захардкоженного «спикера» здесь быть не должно:
+    в премии человек называется номинантом, и текст обязан совпадать с тем,
+    что он видит в кабинете и в рассылках.
+    """
+    w = wording(person_wording)
+    return (
+        f"Вы находитесь в агенте по оформлению вас {w['ins']}. "
+        f"Чтобы добавиться в состав {w['plural_gen']} — нажмите кнопку ниже."
+    )
+
+
+def self_reg_button(person_wording: Optional[str] = None) -> str:
+    return f"Включить в {wording(person_wording)['plural']}"
 
 
 async def get_event_for_self_register(
@@ -37,8 +50,10 @@ async def get_event_for_self_register(
     """Узнаёт client_id и slug события. Без проверок видимости/статуса —
     клиент сам делится ссылкой, если событие не публикуется, спикер всё
     равно может зарегистрироваться."""
+    # person_wording отдаётся тем же запросом — иначе каждая точка отправки
+    # ходила бы за словом в БД отдельно (или, что хуже, писала «спикер»).
     row = await db.fetchrow(
-        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, slug, title FROM events WHERE id = $1",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, slug, title, person_wording FROM events WHERE id = $1",
         event_id,
     )
     return dict(row) if row else None
@@ -83,12 +98,14 @@ async def complete_speaker_self_register(
     возвращаем те же данные (access_code позволит спикеру повторно войти).
     """
     ev_row = await db.fetchrow(
-        "SELECT slug FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT slug, person_wording FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     if not ev_row:
         raise ValueError("Событие не найдено или не принадлежит клиенту")
     event_slug = ev_row["slug"]
+    # Запасное имя карточки: у премии — «Номинант», а не «Спикер».
+    fallback_name = wording(ev_row["person_wording"])["title"]
 
     # Найти или создать коллаба
     coll_row = await db.fetchrow(
@@ -106,7 +123,7 @@ async def complete_speaker_self_register(
                  (contact_id, name, access_code, created_by_client_id)
                VALUES ($1, $2, $3, $4)
                RETURNING id""",
-            contact_id, (contact_name or "Спикер").strip() or "Спикер",
+            contact_id, (contact_name or fallback_name).strip() or fallback_name,
             access_code, client_id,
         )
 

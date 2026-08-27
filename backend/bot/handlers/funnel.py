@@ -855,6 +855,9 @@ async def handle_speaker_self_register(callback: CallbackQuery):
         if not ev:
             await callback.answer("Событие не найдено", show_alert=True)
             return
+        # Спикер / номинант / участник — по настройке события.
+        from app.services.person_wording import wording
+        w = wording(ev["person_wording"])
         # Узнаём contact + его имя (upsert уже был при /start spkreg_).
         contact = await db.fetchrow(
             """SELECT c.id, c.name
@@ -874,7 +877,7 @@ async def handle_speaker_self_register(callback: CallbackQuery):
                 event_id=event_id,
                 client_id=ev["client_id"],
                 contact_id=contact["id"],
-                contact_name=contact["name"] or (user.full_name or "Спикер"),
+                contact_name=contact["name"] or (user.full_name or w["title"]),
             )
         except Exception as e:
             log.exception("speaker self-register failed: %s", e)
@@ -895,14 +898,14 @@ async def handle_speaker_self_register(callback: CallbackQuery):
         "сразу под именем). После этого он сможет открыть кабинет по ссылке от организатора."
     )
     if already:
-        head = f"Вы уже спикер «{ev['title']}».\n\nОткройте свой кабинет для заполнения данных:{assistant_hint}"
+        head = f"Вы уже {w['nom']} «{ev['title']}».\n\nОткройте свой кабинет для заполнения данных:{assistant_hint}"
     else:
         head = (
-            f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
-            f"Войдите в кабинет спикера и заполните данные о себе.{assistant_hint}"
+            f"Готово! Вы включены в {w['plural']} «{ev['title']}».\n\n"
+            f"Войдите в кабинет {w['gen']} и заполните данные о себе.{assistant_hint}"
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="📝 Открыть кабинет спикера", url=spkinv_url)
+        InlineKeyboardButton(text=f"📝 Открыть кабинет {w['gen']}", url=spkinv_url)
     ]])
     try:
         await callback.message.answer(head, reply_markup=kb)

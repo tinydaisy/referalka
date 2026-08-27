@@ -441,7 +441,7 @@ async def handle_start(message: Message, command: CommandObject):
                     # client_id владельца нужен, чтобы кабинет спикера открылся
                     # на домене клиента, а не на pluson.ru.
                     ev = await db.fetchrow(
-                        """SELECT slug, title,
+                        """SELECT slug, title, person_wording,
                                   (SELECT eo.client_id FROM event_owners eo
                                     WHERE eo.event_id = events.id AND eo.status = 'accepted'
                                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
@@ -451,6 +451,9 @@ async def handle_start(message: Message, command: CommandObject):
                     if not ev:
                         await message.answer("😕 Событие не найдено.")
                         return
+                    # Спикер / номинант / участник — по настройке события.
+                    from app.services.person_wording import wording
+                    w = wording(ev["person_wording"])
                     uname = (user.username or "").lstrip("@").strip().lower()
                     # 1) Спикер по личному TG (числовой id).
                     sp = await db.fetchrow(
@@ -479,13 +482,13 @@ async def handle_start(message: Message, command: CommandObject):
                             role_label = "assistant"
                     if not sp:
                         await message.answer(
-                            "😕 Этот Telegram-аккаунт не привязан ни к одному спикеру события.\n\n"
-                            "Если вы спикер и ещё не в списке — используйте ссылку регистрации спикером.\n"
-                            "Если вы ассистент — попросите спикера вписать ваш Telegram-ник в его карточке "
-                            "(поле «Telegram-ник ассистента» в кабинете спикера)."
+                            f"😕 Этот Telegram-аккаунт не привязан ни к одному {w['dat']} события.\n\n"
+                            f"Если вы {w['nom']} и ещё не в списке — используйте ссылку регистрации {w['ins']}.\n"
+                            f"Если вы ассистент — попросите {w['acc']} вписать ваш Telegram-ник в его карточке "
+                            f"(поле «Telegram-ник ассистента» в кабинете {w['gen']})."
                         )
                         return
-                    sp_name = (sp["name"] or "").strip() or "спикер"
+                    sp_name = (sp["name"] or "").strip() or w["nom"]
                     access_code = sp["access_code"]
                     # Кабинет спикера — публичная страница клиента: открываем на
                     # его домене, если он подключён.
@@ -494,9 +497,9 @@ async def handle_start(message: Message, command: CommandObject):
                     )
                     if role_label == "assistant":
                         text_lines = [
-                            f"Здравствуйте! Вы менеджер спикера <b>{sp_name}</b> («{ev['title']}»).",
+                            f"Здравствуйте! Вы менеджер {w['gen']} <b>{sp_name}</b> («{ev['title']}»).",
                             "",
-                            f"Ваш код доступа для редактирования карточки спикера: <code>{access_code}</code>",
+                            f"Ваш код доступа для редактирования карточки {w['gen']}: <code>{access_code}</code>",
                             "",
                             f"Откройте кабинет: <b>{cabinet_url}</b>",
                             "",
@@ -506,7 +509,7 @@ async def handle_start(message: Message, command: CommandObject):
                         text_lines = [
                             f"Здравствуйте, {sp_name}!",
                             "",
-                            f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы обновить данные:",
+                            f"Вы — {w['nom']} «{ev['title']}». Откройте свой кабинет, чтобы обновить данные:",
                             f"<b>{cabinet_url}</b>",
                             "",
                             f"Код доступа: <code>{access_code}</code>",
@@ -514,7 +517,7 @@ async def handle_start(message: Message, command: CommandObject):
                             "На странице выберите свою фамилию и введите этот код. Сессия живёт 24 часа.",
                         ]
                     kb = InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text="📝 Открыть кабинет спикера", url=cabinet_url)
+                        InlineKeyboardButton(text=f"📝 Открыть кабинет {w['gen']}", url=cabinet_url)
                     ]])
                     await message.answer(
                         "\n".join(text_lines),
@@ -544,13 +547,17 @@ async def handle_start(message: Message, command: CommandObject):
                 async with pool.acquire() as db:
                     from app.services.speaker_self_register import (
                         get_event_for_self_register, find_existing_speaker,
-                        SELF_REG_TEXT, SELF_REG_BUTTON,
+                        self_reg_text, self_reg_button,
                     )
+                    from app.services.person_wording import wording
                     from app.services.contact_merge import upsert_contact_with_identity
                     ev = await get_event_for_self_register(db, event_id)
                     if not ev:
                         await message.answer("😕 Событие не найдено или удалено.")
                         return
+                    # Как называть человека в этом событии: спикер / номинант /
+                    # участник (events.person_wording).
+                    w = wording(ev["person_wording"])
                     # Upsert контакта для client_id этого события.
                     contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
                         db,
@@ -568,7 +575,7 @@ async def handle_start(message: Message, command: CommandObject):
                         client_id=ev["client_id"], contact_id=contact_id,
                     )
                     if existing:
-                        name = (existing["name"] or "").strip() or "спикер"
+                        name = (existing["name"] or "").strip() or w["nom"]
                         slug = existing["event_slug"]
                         access_code = existing["access_code"]
                         # Кабинет спикера — на домене клиента-владельца события.
@@ -578,7 +585,7 @@ async def handle_start(message: Message, command: CommandObject):
                         text_lines = [
                             f"Здравствуйте, {name}!",
                             "",
-                            f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:",
+                            f"Вы — {w['nom']} «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:",
                             f"<b>{cabinet_url}</b>",
                             "",
                             f"Код доступа: <code>{access_code}</code>",
@@ -600,11 +607,13 @@ async def handle_start(message: Message, command: CommandObject):
                     # Не в списке → предлагаем зарегистрироваться.
                     kb = InlineKeyboardMarkup(inline_keyboard=[[
                         InlineKeyboardButton(
-                            text=f"➕ {SELF_REG_BUTTON}",
+                            text=f"➕ {self_reg_button(ev['person_wording'])}",
                             callback_data=f"spkreg_confirm_{event_id}",
                         )
                     ]])
-                    await message.answer(SELF_REG_TEXT, reply_markup=kb)
+                    await message.answer(
+                        self_reg_text(ev["person_wording"]), reply_markup=kb,
+                    )
                 return
             except Exception as e:
                 log.exception("spkreg_ handler failed: %s", e)
@@ -673,6 +682,14 @@ async def handle_start(message: Message, command: CommandObject):
                         )
                         return
 
+                    # Как называть человека: карточка живёт вне события, поэтому
+                    # слово берём у события из ссылки (`_e<id>`), иначе — у того,
+                    # которое откроется в кабинете.
+                    from app.services.person_wording import wording_for_collaborator
+                    w = await wording_for_collaborator(
+                        db, coll["collaborator_id"], invite_event_id,
+                    )
+
                     # Ассистент спикера: если у коллаба указан assistant_tg_username
                     # и зашедший TG-ник совпадает с ним — это законный помощник,
                     # который заполняет кабинет за спикера. Не привязываем его TG к
@@ -699,12 +716,12 @@ async def handle_start(message: Message, command: CommandObject):
                             foreign_owner = True
 
                     if foreign_owner:
-                        sp_name = (coll["name"] or "").strip() or "спикер"
+                        sp_name = (coll["name"] or "").strip() or w["nom"]
                         await message.answer(
                             f"⚠️ Вы зашли не с того аккаунта.\n\n"
-                            f"Эта ссылка выдана спикеру «{sp_name}». Ваш Telegram-аккаунт уже привязан к другому контакту у этого клиента, "
-                            f"поэтому я не могу записать вас как спикера.\n\n"
-                            f"Попросите самого спикера открыть ссылку со своего личного Telegram, "
+                            f"Эта ссылка выдана {w['dat']} «{sp_name}». Ваш Telegram-аккаунт уже привязан к другому контакту у этого клиента, "
+                            f"поэтому я не могу записать вас как {w['acc']}.\n\n"
+                            f"Попросите самого {w['acc']} открыть ссылку со своего личного Telegram, "
                             f"либо передайте ссылку его ассистенту."
                         )
                         return
@@ -743,7 +760,7 @@ async def handle_start(message: Message, command: CommandObject):
                     event_slug = ev["slug"] if ev else ""
                     event_title = ev["title"] if ev else "событие"
 
-                    name = (coll["name"] or "").strip() or "спикер"
+                    name = (coll["name"] or "").strip() or w["nom"]
                     # Кабинет спикера — на домене клиента, который завёл коллаба
                     # (событие могло ещё не найтись, поэтому берём владельца карточки).
                     cabinet_url = await client_public_link(
@@ -752,9 +769,9 @@ async def handle_start(message: Message, command: CommandObject):
                     )
                     if is_assistant:
                         text_lines = [
-                            f"Здравствуйте! Вы менеджер спикера <b>{name}</b> («{event_title}»).",
+                            f"Здравствуйте! Вы менеджер {w['gen']} <b>{name}</b> («{event_title}»).",
                             "",
-                            f"Ваш код доступа для редактирования карточки спикера: <code>{access_code}</code>",
+                            f"Ваш код доступа для редактирования карточки {w['gen']}: <code>{access_code}</code>",
                             "",
                             f"Откройте кабинет: <b>{cabinet_url}</b>",
                             "",
@@ -764,7 +781,7 @@ async def handle_start(message: Message, command: CommandObject):
                         text_lines = [
                             f"Здравствуйте, {name}!",
                             "",
-                            f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, откройте свой кабинет:",
+                            f"Вы — {w['nom']} «{event_title}». Чтобы заполнить свои данные для участников события, откройте свой кабинет:",
                             f"<b>{cabinet_url}</b>",
                             "",
                             f"Код доступа: <code>{access_code}</code>",
@@ -773,7 +790,7 @@ async def handle_start(message: Message, command: CommandObject):
                         ]
                     kb = InlineKeyboardMarkup(inline_keyboard=[[
                         InlineKeyboardButton(
-                            text="📝 Открыть кабинет спикера" if is_assistant else "📝 Открыть мой кабинет",
+                            text=f"📝 Открыть кабинет {w['gen']}" if is_assistant else "📝 Открыть мой кабинет",
                             url=cabinet_url,
                         )
                     ]]) if event_slug else None
