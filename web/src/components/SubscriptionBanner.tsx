@@ -1,24 +1,23 @@
 'use client'
 /**
- * Плашка «тариф истёк» в шапке кабинета.
+ * Плашка «подписка истекла» в шапке кабинета.
  *
- * ⚠️ ТЕКСТ ЗАВИСИТ ОТ ТОГО, ЕСТЬ ЛИ ОПЛАЧЕННЫЙ МОДУЛЬ (2026-08-27).
- * Раньше плашка была одна и красная: «Редактирование, рассылки и подключение
- * каналов недоступны». Человек с оплаченной Коллабораторной читал её как
- * приговор всему кабинету, переставал пробовать и писал в поддержку, что
- * модуль не работает вовсе — хотя работало всё, кроме нескольких разделов.
+ * ⚠️ ТЕКСТ — ТОЛЬКО ФАКТ, БЕЗ ПОЯСНЕНИЙ (решение владельца 2026-08-27).
+ * Прежняя плашка утверждала: «Редактирование, рассылки и подключение каналов
+ * недоступны. Просмотр всех данных сохранён». Оба утверждения неверны у
+ * клиента с оплаченным модулем — редактирование у него работает. Человек читал
+ * это как приговор всему кабинету и переставал пробовать: отсюда жалобы, что
+ * купленный модуль «не работает вовсе».
  *
- * Поэтому: модуль оплачен → янтарная плашка и перечисление ЗАКРЫТОГО, а не
- * «ничего не работает». Модуля нет → красная, как была.
- *
- * ⚠️ Названия модулей берём из справочника фич (`/public/features`), а не из
- * литералов в коде: состав и имена меняются данными в админке.
+ * Теперь: какой тариф и когда истёк + одна строка «часть функционала
+ * недоступна». Перечислять закрытое здесь нельзя — список меняется, а
+ * устаревшая плашка врёт заметнее, чем её отсутствие. Оплачен модуль —
+ * плашка янтарная (не приговор), нет — красная.
  */
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Info } from 'lucide-react'
 import { api } from '@/lib/api'
-import { useFeatureCatalog } from '@/components/FeatureLock'
 
 type Subscription = {
   tariff_slug: string
@@ -40,7 +39,6 @@ function formatDate(iso: string): string {
 export default function SubscriptionBanner() {
   const [sub, setSub] = useState<Subscription | null>(null)
   const [features, setFeatures] = useState<string[]>([])
-  const catalog = useFeatureCatalog()
 
   useEffect(() => {
     api.auth.me()
@@ -55,54 +53,34 @@ export default function SubscriptionBanner() {
   const isExpired = !sub.is_active || sub.days_left < 0
   if (!isExpired) return null
 
-  const mine = PAID_MODULES.filter(s => features.includes(s))
-  const names = mine
-    .map(s => catalog.find(f => f.slug === s)?.name || null)
-    .filter(Boolean) as string[]
+  const hasModule = PAID_MODULES.some(s => features.includes(s))
 
-  // Модуль оплачен — плашка объясняет, что именно закрыто, и не пугает.
-  if (mine.length) {
-    const what = names.length
-      ? (names.length === 1 ? `Модуль «${names[0]}» работает` : `Ваши модули (${names.join(', ')}) работают`)
-      : 'Оплаченный модуль работает'
-    return (
-      <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
-        <Info size={20} className="text-amber-600 shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-amber-800 text-sm">
-            Тариф закончился {formatDate(sub.expires_at)}. {what} — им можно пользоваться как обычно.
-          </div>
-          <div className="text-amber-700 text-xs mt-0.5">
-            Закрыты только разделы из тарифа: рассылки, реферальная программа, воронки догрева,
-            вебинарная комната и приём оплат. Ссылку на сторонний эфир (Zoom и подобное) можно
-            указать в настройках события. Продлите тариф, чтобы вернуть остальное.
-          </div>
-        </div>
-        <Link
-          href="/dashboard/settings?tab=subscription"
-          className="shrink-0 px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors"
-        >
-          Продлить
-        </Link>
-      </div>
-    )
-  }
+  // ⚠️ ТЕКСТ КОРОТКИЙ И ТОЛЬКО ПО ФАКТУ (решение владельца 2026-08-27).
+  // Прежние пояснения «редактирование недоступно», «просмотр всех данных
+  // сохранён» были неправдой: у клиента с оплаченным модулем редактирование
+  // работает, а «просмотр всех данных» ничего не объясняет. Никаких списков
+  // закрытого здесь — только название истёкшего тарифа и одна строка сути.
+  const tone = hasModule
+    ? { box: 'bg-amber-50 border-amber-200', head: 'text-amber-800', sub: 'text-amber-700',
+        icon: 'text-amber-600', btn: 'bg-amber-600 hover:bg-amber-700', Ico: Info }
+    : { box: 'bg-red-50 border-red-200', head: 'text-red-700', sub: 'text-red-600',
+        icon: 'text-red-600', btn: 'bg-red-600 hover:bg-red-700', Ico: AlertTriangle }
+  const Ico = tone.Ico
 
   return (
-    <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
-      <AlertTriangle size={20} className="text-red-600 shrink-0 mt-0.5" />
+    <div className={`mb-4 px-4 py-3 rounded-lg border flex items-start gap-3 ${tone.box}`}>
+      <Ico size={20} className={`${tone.icon} shrink-0 mt-0.5`} />
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-red-700 text-sm">
-          Тариф закончился {formatDate(sub.expires_at)}
+        <div className={`font-semibold text-sm ${tone.head}`}>
+          Подписка ПЛЮСОН, тариф «{sub.tariff_name}», истекла {formatDate(sub.expires_at)}
         </div>
-        <div className="text-red-600 text-xs mt-0.5">
-          Все данные на месте и открыты для просмотра. Пока тариф не продлён, нельзя менять
-          настройки, вести события и отправлять рассылки.
+        <div className={`text-xs mt-0.5 ${tone.sub}`}>
+          Часть функционала вам недоступна. Продлите подписку.
         </div>
       </div>
       <Link
         href="/dashboard/settings?tab=subscription"
-        className="shrink-0 px-3 py-1.5 rounded-md bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition-colors"
+        className={`shrink-0 px-3 py-1.5 rounded-md text-white text-xs font-medium transition-colors ${tone.btn}`}
       >
         Продлить
       </Link>

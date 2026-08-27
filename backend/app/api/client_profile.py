@@ -1335,8 +1335,24 @@ async def update_my_profile(
 
     if "bio"          in fs: add("bio",          data.bio or None)
 
+    # ⚠️⚠️ ПРОВЕРЯЕМ ТОЛЬКО РЕАЛЬНОЕ ИЗМЕНЕНИЕ РЕЖИМА (2026-08-27).
+    #
+    # Форма Mini App шлёт ВСЕ свои поля разом, включая режим ссылок, даже когда
+    # человек правит регалии. У клиента без Telegram-бота (а режим по умолчанию
+    # `miniapp`) проверка ниже валила ВЕСЬ PATCH с текстом «У вас не подключён
+    # Telegram-бот» — то есть визитку нельзя было сохранить вообще, ни строчки.
+    # Именно так выглядела жалоба «в Коллабораторной ничего не работает»:
+    # к подписке это отношения не имело.
+    #
+    # Правило: ругаемся, только если человек ПЕРЕКЛЮЧАЕТ режим на `miniapp`
+    # с другого значения. Пришло то же, что уже стоит в базе, — молчим.
+    _cur_modes = await db.fetchrow(
+        "SELECT default_link_mode, link_mode_telegram FROM clients WHERE id = $1",
+        int(client["sub"]),
+    ) or {}
+
     async def _guard_tg_miniapp() -> None:
-        """Нельзя включить Mini App в Telegram, если приложение к боту не привязано:
+        """Нельзя ВКЛЮЧИТЬ Mini App в Telegram, если приложение к боту не привязано:
         ссылка `?startapp=` тогда ничего не открывает, а бот в этом режиме молчит."""
         from app.services.share_links import telegram_mini_app_status
         st = await telegram_mini_app_status(db, int(client["sub"]))
@@ -1348,7 +1364,9 @@ async def update_my_profile(
             raise HTTPException(status_code=400, detail="default_link_mode должен быть 'miniapp' или 'bot'")
         # Общий режим применяется и к Telegram — значит проверяем Mini App, но
         # только если для TG не задан свой режим (он бы перекрыл общий).
-        if data.default_link_mode == "miniapp" and (data.link_mode_telegram or "") != "bot":
+        if (data.default_link_mode == "miniapp"
+                and (data.link_mode_telegram or "") != "bot"
+                and _cur_modes.get("default_link_mode") != "miniapp"):
             await _guard_tg_miniapp()
         add("default_link_mode", data.default_link_mode)
 
@@ -1363,7 +1381,8 @@ async def update_my_profile(
         val = (field or "").strip() or None
         if val is not None and val not in ("miniapp", "bot"):
             raise HTTPException(status_code=400, detail=f"{col} должен быть 'miniapp', 'bot' или пустым")
-        if platform == "telegram" and val == "miniapp":
+        if (platform == "telegram" and val == "miniapp"
+                and _cur_modes.get("link_mode_telegram") != "miniapp"):
             await _guard_tg_miniapp()
         add(col, val)
     if data.events_tab_visibility is not None:
