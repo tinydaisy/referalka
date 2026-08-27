@@ -222,7 +222,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     <div className="space-y-6 max-w-2xl">
       {/* 1) ПАРАМЕТРЫ КОНФЕРЕНЦИИ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h2 className="block-title">Параметры конференции</h2>
+        <h2 className="block-title">Параметры</h2>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">{ts.confTitle}</label>
           <input type="text" value={form.title} onChange={set('title')}
