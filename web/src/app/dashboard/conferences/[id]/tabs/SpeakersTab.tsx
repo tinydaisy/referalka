@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
+import { personWording } from '@/lib/personWording'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
@@ -171,6 +172,17 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   })
   const [savingSelfPick, setSavingSelfPick] = useState(false)
   const [selfPickSaved, setSelfPickSaved] = useState(false)
+  // Что человек видит в своей форме — значения ПО УМОЛЧАНИЮ для новых карточек
+  // (миграция 336). Уже заведённым ничего не меняет: заданное человеку лично
+  // главнее общей настройки.
+  const [showDefaults, setShowDefaults] = useState({
+    topic: true, gift: true, kb: false, notes: false, partner: true,
+  })
+  const [savingShowDefaults, setSavingShowDefaults] = useState(false)
+  const [showDefaultsSaved, setShowDefaultsSaved] = useState(false)
+  // Слово события: спикер / номинант / участник (миграция 304).
+  const [personWordingKey, setPersonWordingKey] = useState<string>('speaker')
+  const pw = personWording(personWordingKey)
 
   function load() {
     setLoading(true)
@@ -217,6 +229,14 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
           maxSpeakers: c.max_nominations_speakers ? String(c.max_nominations_speakers) : '',
           maxJury: c.max_nominations_jury ? String(c.max_nominations_jury) : '',
         })
+        setPersonWordingKey(c.person_wording || 'speaker')
+        setShowDefaults({
+          topic: c.default_show_topic_field !== false,
+          gift: c.default_show_gift_after_speech_field !== false,
+          kb: !!c.default_show_knowledge_base_field,
+          notes: !!c.default_show_notes_field,
+          partner: c.default_show_partner_registration_link !== false,
+        })
       })
       .catch(() => setDefaultStageIds([]))
   }, [eventId])
@@ -236,6 +256,22 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
     } catch (e: any) {
       alert(e?.message || 'Не удалось сохранить')
     } finally { setSavingSelfPick(false) }
+  }
+
+  async function saveShowDefaults() {
+    setSavingShowDefaults(true); setShowDefaultsSaved(false)
+    try {
+      await api.conference.update(eventId, {
+        default_show_topic_field: showDefaults.topic,
+        default_show_gift_after_speech_field: showDefaults.gift,
+        default_show_knowledge_base_field: showDefaults.kb,
+        default_show_notes_field: showDefaults.notes,
+        default_show_partner_registration_link: showDefaults.partner,
+      })
+      setShowDefaultsSaved(true); setTimeout(() => setShowDefaultsSaved(false), 2000)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить')
+    } finally { setSavingShowDefaults(false) }
   }
 
   async function saveDefaultStages() {
@@ -584,6 +620,46 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                   </button>
                 </div>
               )}
+
+              {/* Что человек видит в своей форме — ПО УМОЛЧАНИЮ (миграция 336).
+                  ⚠️ Действует только на НОВЫЕ карточки: у премии номинантов
+                  сотни, и выставлять одно и то же каждому вручную невозможно,
+                  но уже заданное человеку лично перебивать нельзя. */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="text-sm font-medium text-gray-800 mb-1">
+                  Что {pw.nom} видит в своей форме — по умолчанию
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  Так будут заполнены тумблеры у <b>новых</b> карточек — и по ссылке
+                  регистрации, и при добавлении из дашборда. Уже заведённым это ничего
+                  не меняет: в карточке человека настройка главнее, там же её и меняют.
+                </p>
+                <div className="space-y-2">
+                  {([
+                    ['topic', 'Темы выступления'],
+                    ['gift', 'Подарок после эфира'],
+                    ['kb', 'Материал в базу знаний'],
+                    ['notes', 'Заметки'],
+                    ['partner', 'Ссылка на регистрацию партнёром'],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                      <input type="checkbox"
+                        checked={(showDefaults as any)[key]}
+                        onChange={e => setShowDefaults(p => ({ ...p, [key]: e.target.checked }))}
+                        className="w-4 h-4 rounded border-gray-300" />
+                      <span>{label} — можно заполнить самому</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  У жюри темы и подарок остаются выключенными независимо от этих
+                  галочек — жюри не выступает и не дарит.
+                </p>
+                <button onClick={saveShowDefaults} disabled={savingShowDefaults}
+                  className="mt-3 px-4 py-1.5 rounded-lg text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90 disabled:opacity-60">
+                  {savingShowDefaults ? 'Сохраняю…' : showDefaultsSaved ? '✓ Сохранено' : 'Сохранить'}
+                </button>
+              </div>
             </div>
           )}
 

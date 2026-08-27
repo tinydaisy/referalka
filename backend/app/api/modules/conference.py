@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Union
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.speaker_defaults import default_show_flags
 from app.services import collaborator_sort
 from app.services.webinar_service import day_stream_url
 from app.services.client_domains import client_public_link
@@ -338,6 +339,14 @@ class ConferenceUpdate(BaseModel):
     self_pick_stages_jury: Optional[bool] = None
     max_nominations_speakers: Optional[int] = None
     max_nominations_jury: Optional[int] = None
+    # Что человек видит в своей форме — значения по умолчанию для НОВЫХ
+    # карточек (миграция 336). Уже заведённые не трогаются: заданное лично
+    # главнее общей настройки.
+    default_show_topic_field: Optional[bool] = None
+    default_show_gift_after_speech_field: Optional[bool] = None
+    default_show_knowledge_base_field: Optional[bool] = None
+    default_show_notes_field: Optional[bool] = None
+    default_show_partner_registration_link: Optional[bool] = None
 
 
 @router.get("/", summary="Данные конференции")
@@ -1402,15 +1411,10 @@ async def add_speaker_from_base(
     )
     first_topic = topics_list[0] if topics_list else None
 
-    # Автодефолты тогглов «показывать поле» по роли:
-    # - jury (премии/турниры): тема, подарок, материал базы знаний — НЕ показываем
-    # - speaker / headliner / organizer: тема + подарок — показываем, материал — нет
-    # - partner / general_partner: всё выключено (партнёрам поля не нужны)
-    is_jury = data.role == "jury"
-    is_speaker_like = data.role in ("speaker", "headliner", "organizer")
-    show_topic_default = is_speaker_like and not is_jury
-    show_gift_default = is_speaker_like and not is_jury
-    show_kb_default = False  # материал в базу знаний — opt-in
+    # Стартовые тумблеры «что человек видит в своей форме» — из настроек
+    # СОБЫТИЯ (миграция 336), с поправкой на роль (жюри не выступает и не
+    # дарит). Единая точка на все способы завести карточку.
+    _flags = await default_show_flags(db, event_id, data.role)
 
     # poster_id если передан — проверим что принадлежит этому коллабу
     if data.poster_id is not None:
@@ -1425,13 +1429,16 @@ async def add_speaker_from_base(
            (speaker_id, event_id, role, speaker_topic,
             gift_raffle_title, gift_raffle_url,
             poster_id, partner_url, extra_info, notes, is_commercial, is_visible, sort_order,
-            show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *""",
+            show_topic_field, show_gift_after_speech_field, show_knowledge_base_field,
+            show_notes_field, show_partner_registration_link)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *""",
         data.speaker_id, event_id, data.role, first_topic,
         data.gift_raffle_title, data.gift_raffle_url,
         data.poster_id, data.partner_url, data.extra_info, data.notes,
         data.is_commercial, data.is_visible, data.sort_order,
-        show_topic_default, show_gift_default, show_kb_default,
+        _flags["show_topic_field"], _flags["show_gift_after_speech_field"],
+        _flags["show_knowledge_base_field"], _flags["show_notes_field"],
+        _flags["show_partner_registration_link"],
     )
     await _save_topics(cse["id"], topics_list, db)
     await apply_default_speaker_stages(cse["id"], event_id, db)
@@ -1583,24 +1590,23 @@ async def create_and_add_speaker(
         )
         first_topic = topics_list[0] if topics_list else None
 
-        # Автодефолты show_* по роли (та же логика что в add_speaker_from_base).
-        is_jury = data.role == "jury"
-        is_speaker_like = data.role in ("speaker", "headliner", "organizer")
-        show_topic_default = is_speaker_like and not is_jury
-        show_gift_default = is_speaker_like and not is_jury
-        show_kb_default = False
+        # Стартовые тумблеры — из настроек события (миграция 336).
+        _flags = await default_show_flags(db, event_id, data.role)
         cse = await db.fetchrow(
             """INSERT INTO event_collaborators
                (speaker_id, event_id, role, speaker_topic,
                 gift_raffle_title, gift_raffle_url,
                 partner_url, extra_info, notes, is_commercial, is_visible, sort_order,
-                show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
+                show_topic_field, show_gift_after_speech_field, show_knowledge_base_field,
+                show_notes_field, show_partner_registration_link)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *""",
             sp["id"], event_id, data.role, first_topic,
             data.gift_raffle_title, data.gift_raffle_url,
             data.partner_url, data.extra_info, data.notes,
             data.is_commercial, data.is_visible, data.sort_order,
-            show_topic_default, show_gift_default, show_kb_default,
+            _flags["show_topic_field"], _flags["show_gift_after_speech_field"],
+            _flags["show_knowledge_base_field"], _flags["show_notes_field"],
+            _flags["show_partner_registration_link"],
         )
         await _save_topics(cse["id"], topics_list, db)
         await apply_default_speaker_stages(cse["id"], event_id, db)

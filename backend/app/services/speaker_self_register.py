@@ -158,19 +158,24 @@ async def complete_speaker_self_register(
     if existing_cse:
         return collaborator_id, access_code, event_slug, True
 
-    # role='speaker' + автодефолты show_* (см. add_speaker_from_base):
-    # speaker → topic + gift включены, kb выключен.
-    # show_partner_registration_link=FALSE — самозаписавшимся партнёрку
-    # не агитируем до явной активации клиентом (миграция 123).
+    # role='speaker' + стартовые тумблеры из настроек СОБЫТИЯ (миграция 336) —
+    # та же точка, что у «Нового спикера» и «Добавить из базы».
+    # ⚠️ Партнёрка у самозаписавшихся остаётся выключенной независимо от общей
+    # настройки: человек пришёл по ссылке сам, агитировать его в партнёры до
+    # явного решения клиента нельзя (миграция 123).
+    from app.services.speaker_defaults import default_show_flags
+    flags = await default_show_flags(db, event_id, 'speaker')
     new_ec_id = await db.fetchval(
         """INSERT INTO event_collaborators
              (speaker_id, event_id, role,
               is_commercial, is_visible, sort_order,
               show_topic_field, show_gift_after_speech_field, show_knowledge_base_field,
-              show_partner_registration_link)
-           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, TRUE, TRUE, FALSE, FALSE)
+              show_notes_field, show_partner_registration_link)
+           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, $3, $4, $5, $6, FALSE)
            RETURNING id""",
         collaborator_id, event_id,
+        flags["show_topic_field"], flags["show_gift_after_speech_field"],
+        flags["show_knowledge_base_field"], flags["show_notes_field"],
     )
     # Привязываем к этапам «по умолчанию» (conf_conferences.default_speaker_stage_ids)
     try:
