@@ -204,12 +204,16 @@ async def signup(
 
     # ── Карточка в событии ────────────────────────────────────────────────
     try:
+        # ⚠️ В `contact_name` передаём ТОЛЬКО имя: карточка коллаба хранит имя
+        # и фамилию раздельно (миграция 302), и полная строка осела бы целиком
+        # в поле «Имя», а фамилия осталась бы пустой. Фамилию проставляет
+        # UPDATE ниже.
         collaborator_id, access_code, _slug, already = await complete_speaker_self_register(
             db,
             event_id=ev["id"],
             client_id=client_id,
             contact_id=contact_id,
-            contact_name=f"{first_name} {last_name}".strip(),
+            contact_name=first_name,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
