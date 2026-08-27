@@ -530,10 +530,10 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
               уже добавленных (+ их ассистентов). */}
           {regLinks.length > 0 && (
             <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
-              <div className="text-sm font-semibold text-gray-900 mb-1">1. Ссылка для регистрации новых спикеров</div>
+              <div className="text-sm font-semibold text-gray-900 mb-1">1. Ссылка для регистрации новых {pw.plural_gen}</div>
               <p className="text-xs text-gray-500 mb-3">
-                Шлите тем, кого хотите пригласить выступить. Человек переходит,
-                нажимает «Включить в спикеры» — создаётся его карточка, и он получает
+                Шлите тем, кого хотите пригласить. Человек переходит,
+                нажимает «Включить в {pw.plural}» — создаётся его карточка, и он получает
                 доступ в кабинет, чтобы заполнить данные о себе.
               </p>
               {renderLinkRows(regLinks, 'reg')}
@@ -667,10 +667,10 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
             <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
               <div className="text-sm font-semibold text-gray-900 mb-1">2. Ссылка для входа в кабинет</div>
               <p className="text-xs text-gray-500 mb-3">
-                Для тех, кто <b>уже в списке</b> спикеров, и их <b>ассистентов</b>.
+                Для тех, кто <b>уже в списке</b> {pw.plural_gen}, и их <b>ассистентов</b>.
                 Новую карточку не создаёт — просто пускает в кабинет с кодом доступа.
                 <br />
-                Чтобы ассистент мог войти — спикер вписывает его Telegram-ник в своей
+                Чтобы ассистент мог войти — {pw.nom} вписывает его Telegram-ник в своей
                 карточке (поле «Telegram-ник ассистента» в кабинете).
               </p>
               {renderLinkRows(editLinks, 'edit')}
