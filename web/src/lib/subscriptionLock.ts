@@ -39,9 +39,32 @@ export function subscriptionExpired(me: any): boolean {
   return me.subscription?.is_active !== true
 }
 
-/** Закрыта ли конкретная вкладка из-за неоплаченного тарифа. */
-export function tabLockedBySubscription(me: any, tabId: string): boolean {
-  return subscriptionExpired(me) && (SUBSCRIPTION_LOCKED_TABS as readonly string[]).includes(tabId)
+/**
+ * Вкладки ОБЩЕГО события (коллабы), закрытые у клиента с оплаченной
+ * Коллабораторной без тарифа. Список короче: коллаба должна работать
+ * целиком, кроме того, за что платят подпиской (решение владельца
+ * 2026-08-27). Зеркало `_EVENT_STILL_FROZEN` в subscription_guard.py.
+ */
+export const COLLAB_LOCKED_TABS = [
+  'broadcast_templates',
+  'broadcast_queue',
+  'webinar',
+  'referral',
+  'nurture',
+  'tariffs',
+] as const
+
+/**
+ * Закрыта ли конкретная вкладка из-за неоплаченного тарифа.
+ *
+ * @param isCollabEvent событие общее (коллаба) и у клиента оплачен модуль
+ *        `collab_hub` — тогда список закрытого короче.
+ */
+export function tabLockedBySubscription(me: any, tabId: string, isCollabEvent = false): boolean {
+  if (!subscriptionExpired(me)) return false
+  const collabPaid = isCollabEvent && Array.isArray(me?.features) && me.features.includes('collab_hub')
+  const list: readonly string[] = collabPaid ? COLLAB_LOCKED_TABS : SUBSCRIPTION_LOCKED_TABS
+  return list.includes(tabId)
 }
 
 /** Подпись для замка — одна на все места. */

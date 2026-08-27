@@ -578,11 +578,20 @@ async def update_event(
     if any(k.startswith("welcome_") for k in updates.keys()):
         from app.services.subscriptions import is_active as _sub_active
         if not await _sub_active(db, client_id):
-            raise HTTPException(
-                status_code=403,
-                detail="Приветственное письмо доступно с действующей подпиской. "
-                       "Модуль остаётся в работе — продлите тариф, чтобы включить приветствие.",
-            )
+            # ⚠️ В ОБЩЕМ событии (коллабе) у владельца оплаченной Коллабораторной
+            # приветствие остаётся доступным (решение владельца 2026-08-27): без
+            # письма зритель коллабы не получает подтверждения регистрации, то
+            # есть ломается сам модуль, а не платная надстройка над ним. Закрыты
+            # там только рассылки, реферальная, догрев и вебинарная комната.
+            from app.services.features import client_has_feature
+            is_collab_ev = await db.fetchval("SELECT is_collab FROM events WHERE id=$1", event_id)
+            collab_ok = bool(is_collab_ev) and await client_has_feature(db, client_id, "collab_hub")
+            if not collab_ok:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Приветственное письмо доступно с действующей подпиской. "
+                           "Модуль остаётся в работе — продлите тариф, чтобы включить приветствие.",
+                )
 
     # Диагностика welcome — что приходит в PATCH (для отладки welcome-полей)
     if any(k.startswith("welcome_") for k in updates.keys()):

@@ -125,12 +125,17 @@ MODULE_FROZEN_PREFIXES = (
 COLLAB_PREFIXES = (
     "/api/v1/collab/",        # запросы, принятие, отзывы, выход из события
     "/api/v1/collab-hub/",    # своя карточка в каталоге, публикация
+    # ⚠️ Визитка ПРЕФИКСОМ, а не точным адресом (2026-08-27). Точный адрес не
+    # ловил `/clients/me/profile/resolve-telegram-chat-id` — резолв канала
+    # основателя, без которого TG-каналы в визитку не добавить. Человек с
+    # оплаченной Коллабораторной упирался в «Подписка истекла» на ровном
+    # месте, заполняя собственную карточку.
+    "/api/v1/clients/me/profile",
 )
 
 COLLAB_EXACT = frozenset({
     "/api/v1/collab",
     "/api/v1/collab-hub",
-    "/api/v1/clients/me/profile",   # бренд + основатель (визитка)
     "/api/v1/uploads",              # фото бренда, логотип, фото основателя
     "/api/v1/uploads/by-url",       # снять уже загруженное фото
 })
@@ -141,10 +146,45 @@ _UPLOAD_DELETE_RE = re.compile(r"^/api/v1/uploads/\d+$")
 # Правка события: /api/v1/events/37 и всё, что внутри него.
 _EVENT_RE = re.compile(r"^/api/v1/events/(\d+)(/.*)?$")
 
-# ⚠️ Даже в ОБЩЕМ событии это остаётся закрытым: приём денег и рассылка по базе
-# — платные возможности платформы, а не «участие в нетворке». Иначе тариф можно
-# было бы не продлевать вовсе: завёл коллабу и продавай.
-_EVENT_STILL_FROZEN = ("/tariffs", "/broadcasts", "/orders")
+# ⚠️ Что остаётся закрытым даже в ОБЩЕМ событии (решение владельца 2026-08-27).
+# Это не части Коллабораторной, а платные возможности САМОЙ платформы: работа
+# по базе (рассылки, догрев, реферальная механика), эфирная комната и приём
+# денег. Всё остальное в коллабе — состав, программа, афиши, лендинг, карточки
+# организаторов, чаты — работает без тарифа.
+#
+# ⚠️ Ссылку на сторонний эфир (Zoom и подобное) это НЕ закрывает: она живёт
+# полем `events.stream_url` внутри общего `PATCH /api/v1/events/{id}`. Закрыта
+# именно наша вебинарная комната (`/webinar`).
+#
+# ⚠️ `/nurture` покрывает и `/nurture-reg` — сравнение идёт по началу строки.
+_EVENT_STILL_FROZEN = (
+    "/broadcasts",   # рассылки события
+    "/webinar",      # вебинарная комната
+    "/referral",     # реферальная программа: пороги, подарки, тексты шеринга
+    "/nurture",      # воронки догрева (+ /nurture-reg)
+    "/tariffs",      # платные тарифы события — приём денег
+    "/orders",       # заказы
+)
+
+
+# ── Тексты отказа ────────────────────────────────────────────────────────
+#
+# ⚠️ Текст говорит, что именно закрыто, а не «ничего не работает». У человека с
+# оплаченным модулем общее «Подписка истекла» читалось как приговор всему
+# кабинету: он переставал пробовать и писал, что модуль не работает вовсе.
+DEFAULT_FROZEN_MSG = (
+    "Тариф истёк — этот раздел пока закрыт. Продлите подписку, чтобы вернуть доступ."
+)
+MODULE_FROZEN_MSG = (
+    "Ваш модуль работает, но этот раздел входит в тариф: рассылки, лендинг, "
+    "вебинарная комната, реферальная программа, догрев и приём оплат. "
+    "Продлите подписку, чтобы им пользоваться."
+)
+COLLAB_FROZEN_MSG = (
+    "Коллабораторная у вас работает. Закрыты только разделы из тарифа: рассылки, "
+    "реферальная программа, догрев, вебинарная комната и приём оплат. "
+    "Ссылку на сторонний эфир (Zoom и подобное) можно указать в настройках события."
+)
 
 
 def _is_collab_path(path: str) -> bool:
@@ -153,6 +193,15 @@ def _is_collab_path(path: str) -> bool:
         or path.startswith(COLLAB_PREFIXES)
         or bool(_UPLOAD_DELETE_RE.match(path))
     )
+
+
+def _event_tail_frozen(path: str) -> bool:
+    """Адрес — раздел внутри события, закрытый даже в общей коллабе."""
+    m = _EVENT_RE.match(path)
+    if not m:
+        return False
+    tail = m.group(2) or ""
+    return any(tail.startswith(x) for x in _EVENT_STILL_FROZEN)
 
 
 def _module_path_frozen(path: str) -> bool:
@@ -228,15 +277,23 @@ async def subscription_guard_middleware(request: Request, call_next):
         # платят подпиской.
         if any(f in features for f in PAID_MODULE_FEATURES):
             if _module_path_frozen(path):
-                return _frozen()
+                return _frozen(MODULE_FROZEN_MSG)
             return await call_next(request)
 
         # Случай второй — оплаченная Коллабораторная.
+        has_collab = "collab_hub" in features
         event_id = _collab_event_id(path)
+
+        # Общее событие, но раздел из платных: объясняем ИМЕННО это, а не
+        # «подписка истекла» — иначе человек с оплаченным модулем решает, что
+        # у него не работает вообще ничего, и перестаёт пробовать.
+        if has_collab and event_id is None and _event_tail_frozen(path):
+            return _frozen(COLLAB_FROZEN_MSG)
+
         if not _is_collab_path(path) and event_id is None:
             return _frozen()
 
-        if "collab_hub" not in features:
+        if not has_collab:
             return _frozen()
 
         # ⚠️ Событие правим ТОЛЬКО общее (`is_collab`). Свои обычные события
@@ -255,8 +312,5 @@ async def subscription_guard_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-def _frozen() -> JSONResponse:
-    return JSONResponse(
-        status_code=403,
-        content={"detail": "Подписка истекла. Продлите тариф для возобновления работы."},
-    )
+def _frozen(detail: str = DEFAULT_FROZEN_MSG) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": detail})
