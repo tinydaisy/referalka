@@ -18,6 +18,7 @@ import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import SpeakerGiftStats from '@/components/SpeakerGiftStats'
 import MarkupHints from '@/components/MarkupHints'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
+import { personWording } from '@/lib/personWording'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
@@ -287,6 +288,9 @@ export default function SpeakerCabinetPage() {
   const [token, setToken] = useState<string | null>(null)
   const [list, setList] = useState<SpeakerListItem[] | null>(null)
   const [eventTitle, setEventTitle] = useState<string>('')
+  // Как называть человека: спикер / номинант / участник. Нужно ДО входа —
+  // заголовок экрана авторизации тоже обязан совпадать со словом события.
+  const [loginWording, setLoginWording] = useState<string>('speaker')
   const [chosenId, setChosenId] = useState<number | null>(null)
   const [code, setCode] = useState('')
   const [me, setMe] = useState<SpeakerMe | null>(null)
@@ -331,6 +335,7 @@ export default function SpeakerCabinetPage() {
       .then((d) => {
         setList(d.speakers || [])
         setEventTitle(d.event_title || '')
+        setLoginWording(d.person_wording || 'speaker')
       })
       .catch((e) => setError(String(e.message || e)))
   }, [slug, token])
@@ -605,7 +610,7 @@ export default function SpeakerCabinetPage() {
     return (
       <div style={{ minHeight: '100vh', background: `linear-gradient(45deg, ${DARK}, #0a1520)`, padding: 20, fontFamily: 'Roboto, sans-serif' }}>
         <div style={{ maxWidth: 480, margin: '40px auto', background: '#fff', borderRadius: 16, padding: 28, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, marginBottom: 8 }}>Кабинет спикера</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, marginBottom: 8 }}>Кабинет {personWording(loginWording).gen}</h1>
           {eventTitle && <div style={{ fontSize: 15, color: '#5c7589', marginBottom: 20 }}>«{eventTitle}»</div>}
 
           {/* Настоящая <form> с полями username+password — чтобы браузер
@@ -617,6 +622,7 @@ export default function SpeakerCabinetPage() {
           <form onSubmit={(e) => { e.preventDefault(); onAuth() }}>
             <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Найдите свою фамилию</label>
             <SpeakerPicker
+              wording={loginWording}
               list={list || []}
               chosenId={chosenId}
               setChosenId={setChosenId}
@@ -989,8 +995,8 @@ export default function SpeakerCabinetPage() {
                     (collaborators.last_name, миграция 302), и шапка её теряла —
                     человек видел «Алексей — спикер» без фамилии. Порядок
                     «Имя Фамилия» — как везде, где карточку ПОКАЗЫВАЕМ. */}
-                {[me.name, me.last_name].filter(Boolean).join(' ') || 'Спикер'}
-                {me.role && <span style={{ fontWeight: 400, opacity: 0.85 }}> — {({ jury: 'жюри', organizer: 'организатор', headliner: 'хедлайнер', speaker: 'спикер', general_partner: 'генеральный партнёр', partner: 'партнёр' } as Record<string, string>)[me.role] || me.role}</span>}
+                {[me.name, me.last_name].filter(Boolean).join(' ') || personWording(me.person_wording).title}
+                {me.role && <span style={{ fontWeight: 400, opacity: 0.85 }}> — {({ jury: 'жюри', organizer: 'организатор', headliner: 'хедлайнер', speaker: personWording(me.person_wording).nom, general_partner: 'генеральный партнёр', partner: 'партнёр' } as Record<string, string>)[me.role] || me.role}</span>}
               </div>
             </div>
             </div>
@@ -1058,7 +1064,7 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'judging' && token && <JudgingTab token={token} />}
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
         {activeTab === 'invited' && token && <InvitedTab token={token} />}
-        {activeTab === 'slot' && token && <SlotTab token={token} myName={[me.name, me.last_name].filter(Boolean).join(' ')} canEdit={canEdit} />}
+        {activeTab === 'slot' && token && <SlotTab token={token} myName={[me.name, me.last_name].filter(Boolean).join(' ')} canEdit={canEdit} wording={me.person_wording || 'speaker'} />}
         {activeTab === 'broadcasts' && token && <MyBroadcastsTab token={token} canEdit={canEdit} accent={theme.accent} />}
 
         {activeTab === 'profile' && <>
@@ -1093,7 +1099,7 @@ export default function SpeakerCabinetPage() {
             />
           </div>
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: -6, marginBottom: 4 }}>
-            Только ник, без @. Ассистент сможет получить код доступа к кабинету спикера через бот.
+            Только ник, без @. Ассистент сможет получить код доступа к кабинету {personWording(me.person_wording).gen} через бот.
           </div>
 
           <label style={labelCss}>Кто вы? Ваше позиционирование (кратко как роль/должность)</label>
@@ -1551,7 +1557,7 @@ export default function SpeakerCabinetPage() {
         {me.show_knowledge_base_field && (
           <Section title="Материал в базу знаний">
             <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
-              Отобразится в мини-апп в вашей карточке спикера рядом с ссылками на соц сети.
+              Отобразится в мини-апп в вашей карточке {personWording(me.person_wording).gen} рядом с ссылками на соц сети.
             </div>
             <label style={labelCss}>Название</label>
             <input style={inputCss} value={me.knowledge_base_title || ''} onChange={(e) => update({ knowledge_base_title: e.target.value })} placeholder="Например: Презентация выступления" />
@@ -1771,11 +1777,14 @@ export default function SpeakerCabinetPage() {
   )
 }
 
-function SpeakerPicker({ list, chosenId, setChosenId, onUsernameAutofill }: {
+function SpeakerPicker({ list, chosenId, setChosenId, onUsernameAutofill, wording = 'speaker' }: {
   list: SpeakerListItem[]
   chosenId: number | null
   setChosenId: (n: number | null) => void
   onUsernameAutofill?: (name: string) => void
+  // Слово события: подсказка «вы добавлены номинантом» обязана совпадать
+  // с заголовком экрана.
+  wording?: string
 }) {
   const [query, setQuery] = useState<string>('')
   const [open, setOpen] = useState<boolean>(false)
@@ -1846,7 +1855,7 @@ function SpeakerPicker({ list, chosenId, setChosenId, onUsernameAutofill }: {
           marginTop: 4, padding: '12px 14px', fontSize: 13, color: '#7a8c9c',
           zIndex: 10, boxShadow: '0 4px 14px rgba(37,69,93,0.15)',
         }}>
-          Никого не нашли с такой фамилией. Уточните у организатора, что вы добавлены спикером.
+          Никого не нашли с такой фамилией. Уточните у организатора, что вы добавлены {personWording(wording).ins}.
         </div>
       )}
     </div>
@@ -2025,7 +2034,7 @@ function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
       // а не показываем пустое окно.
       const b = list.find(x => x.type === 'speaker_intro')
       if (!b) {
-        setIntroErr('Организатор ещё не создал рассылку «Знакомство со спикером» для этого события.')
+        setIntroErr(`Организатор ещё не создал рассылку «Знакомство с ${personWording(me.person_wording).ins}» для этого события.`)
       } else {
         setIntro(b)
       }
@@ -2082,11 +2091,11 @@ function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
         )}
         {me.card_link && (
           <a href={me.card_link} target="_blank" rel="noreferrer" style={linkCss}>
-            Ваша карточка в каталоге спикеров ↗
+            Ваша карточка в каталоге {personWording(me.person_wording).plural_gen} ↗
           </a>
         )}
         <button onClick={openIntro} disabled={introBusy} style={linkCss}>
-          {introBusy ? 'Загружаю…' : 'Ваше сообщение «Знакомство со спикером» 👁'}
+          {introBusy ? 'Загружаю…' : `Ваше сообщение «Знакомство с ${personWording(me.person_wording).ins}» 👁`}
         </button>
       </div>
 
@@ -2987,7 +2996,7 @@ function BroadcastPreviewModal({ item, onClose }: { item: any; onClose: () => vo
   )
 }
 
-function SlotTab({ token, myName, canEdit = true }: { token: string; myName: string; canEdit?: boolean }) {
+function SlotTab({ token, myName, canEdit = true, wording = 'speaker' }: { token: string; myName: string; canEdit?: boolean; wording?: string }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [activeStage, setActiveStage] = useState<number | null>(null)
@@ -3100,7 +3109,7 @@ function SlotTab({ token, myName, canEdit = true }: { token: string; myName: str
   }
 
   async function release() {
-    if (!confirm('Освободить ваш слот? Он станет доступен другим спикерам.')) return
+    if (!confirm(`Освободить ваш слот? Он станет доступен другим ${personWording(wording).plural_dat}.`)) return
     setSaving(true); setMsg(null)
     try {
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/release-slot`, {

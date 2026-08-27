@@ -81,8 +81,10 @@ def _decode(token: str) -> dict:
 async def list_speakers_for_login(event_slug: str, db: asyncpg.Connection = Depends(get_db)):
     """Отдаёт только id+фамилия+имя — достаточно для выбора в выпадающем списке.
     Без access_code в ответе — это публичный endpoint."""
+    # person_wording нужен ДО входа: заголовок экрана — «Кабинет номинанта»
+    # в премии, «Кабинет спикера» на конференции.
     ev = await db.fetchrow(
-        "SELECT id, title FROM events WHERE slug = $1", event_slug
+        "SELECT id, title, person_wording FROM events WHERE slug = $1", event_slug
     )
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -109,6 +111,7 @@ async def list_speakers_for_login(event_slug: str, db: asyncpg.Connection = Depe
         "event_id": ev["id"],
         "event_slug": event_slug,
         "event_title": ev["title"],
+        "person_wording": ev["person_wording"] or "speaker",
         "speakers": items,
     }
 
