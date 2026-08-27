@@ -142,6 +142,27 @@ async def auth(event_slug: str, data: CabinetAuthIn, db: asyncpg.Connection = De
     return {"token": token, "expires_in_hours": _CAB_TTL_HOURS}
 
 
+def _card_link_for_self(link: Optional[str], contact_id) -> Optional[str]:
+    """Личная ссылка спикера на СВОЮ карточку — с `c={contact_id}`.
+
+    ⚠️ Витрина события в браузере опознаёт пришедшего ТОЛЬКО по `?c=`
+    (`platform=contact`): без него человек для неё посторонний, и открывший
+    свою же карточку номинант упирался в форму регистрации.
+
+    ⚠️ В РАССЫЛКАХ этот параметр ставить нельзя — там та же ссылка уходит
+    многим, и каждый получатель открыл бы витрину под личностью спикера.
+    Поэтому правка живёт здесь, в кабинете, а не в `speaker_card_link`.
+
+    Ссылку на Mini App не трогаем: там человек опознаётся по своему аккаунту.
+    """
+    if not link or not contact_id:
+        return link
+    if "t.me/" in link or "telegram.me/" in link:
+        return link
+    sep = "&" if "?" in link else "?"
+    return f"{link}{sep}c={contact_id}"
+
+
 def _auth_session(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Нет токена сессии")
@@ -242,7 +263,7 @@ async def get_me(
                   (SELECT pe.platform_user_id FROM platform_users pe
                     WHERE pe.contact_id = ctc.id AND pe.platform_slug = 'email'
                     ORDER BY pe.id LIMIT 1) AS email,
-                  ctc.phone, ctc.ref_code,
+                  ctc.phone, ctc.ref_code, ctc.id AS my_contact_id,
                   e.title AS event_title, e.slug AS event_slug,
                   -- Логотип и бренд организатора: спикер открывает кабинет по
                   -- ссылке из письма и должен сразу видеть, чьё это событие.
@@ -439,9 +460,12 @@ async def get_me(
     # ⚠️ id события здесь — session["e_id"] (как строкой выше у can_edit),
     # переменной event_id в этой функции нет.
     _base = await event_public_base(db, int(session["e_id"]))
-    d["card_link"] = speaker_card_link(
-        row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
-        base_url=_base,
+    d["card_link"] = _card_link_for_self(
+        speaker_card_link(
+            row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
+            base_url=_base,
+        ),
+        row["my_contact_id"],
     ) or None
     # Пусто (не наш лендинг или он не опубликован) → отдаём None, чтобы
     # кабинет не рисовал кнопку «Как вы выглядите на лендинге».
@@ -1244,12 +1268,14 @@ async def get_me_broadcasts(
     se_id = int(session["se_id"])
     me = await db.fetchrow(
         """SELECT cse.event_id, e.slug AS event_slug, e.landing_url,
+                  col.contact_id AS my_contact_id,
                   cl.default_link_mode,
                   (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                      WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
                        AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
              FROM event_collaborators cse
              JOIN events e ON e.id = cse.event_id
+             JOIN collaborators col ON col.id = cse.speaker_id
              JOIN clients cl ON cl.id = (
                  SELECT eo.client_id FROM event_owners eo
                   WHERE eo.event_id = e.id AND eo.status='accepted'
@@ -1265,9 +1291,12 @@ async def get_me_broadcasts(
     _base = await event_public_base(db, event_id)
     # Ссылка на карточку спикера в кабинете участника (Mini App или веб —
     # по глобальной настройке клиента default_link_mode).
-    card_link = speaker_card_link(me["event_slug"], se_id,
-                                  me["default_link_mode"], me["bot_handle"],
-                                  base_url=_base)
+    card_link = _card_link_for_self(
+        speaker_card_link(me["event_slug"], se_id,
+                          me["default_link_mode"], me["bot_handle"],
+                          base_url=_base),
+        me["my_contact_id"],
+    )
     landing_link = await _resolve_landing_link(
         db, event_id, me["event_slug"], me["landing_url"], _base)
 
