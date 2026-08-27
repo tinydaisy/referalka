@@ -31,7 +31,7 @@ export default function ConfSpeakerInvitePage() {
 
       <Step step="1" title="Ссылка для регистрации новых спикеров">
         <p className="text-sm text-gray-700">
-          Раздел <b>«Люди»</b> → вкладка <b>«Ссылки спикеров»</b>, первый блок.
+          Раздел <b>«Люди»</b> → вкладка <b>«Общие ссылки»</b>, первый блок.
           Отправляйте её тем, кого хотите пригласить выступить.
         </p>
         <p className="text-sm text-gray-700 mt-2">

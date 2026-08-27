@@ -31,7 +31,7 @@ export default function AwardInvitePage() {
 
       <Step step="1" title="Две разные ссылки">
         <p className="text-sm text-gray-700">
-          Раздел <b>«Люди»</b> → вкладка <b>«Ссылки спикеров»</b>. Там два блока,
+          Раздел <b>«Люди»</b> → вкладка <b>«Общие ссылки»</b>. Там два блока,
           и путать их не стоит:
         </p>
         <div className="mt-3 space-y-2">

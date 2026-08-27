@@ -123,7 +123,7 @@ export default function ConferencePage() {
         // Слово берётся из словаря события (миграция 304), а не из типа:
         // клиент сам выбирает «Спикер / Номинант / Участник» в настройках.
         { id: 'speakers',      label: PERSON_TABS[event?.person_wording || 'speaker'] || t.conferences.tabs.speakers },
-        { id: 'speaker_links', label: 'Ссылки спикеров' },
+        { id: 'speaker_links', label: 'Общие ссылки' },
         { id: 'participants',  label: t.conferences.tabs.participants },
       ],
     },

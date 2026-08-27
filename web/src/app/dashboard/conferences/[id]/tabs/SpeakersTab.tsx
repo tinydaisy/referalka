@@ -541,10 +541,10 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
               {/* Этапы по умолчанию — только если у события есть этапы (турнир/конф) */}
               {stages.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm font-medium text-gray-800 mb-1">По умолчанию добавлять в этапы</div>
+                  <div className="text-sm font-medium text-gray-800 mb-1">По умолчанию добавлять в этапы/номинации/туры</div>
                   <p className="text-xs text-gray-500 mb-2">
-                    Новый спикер (по ссылке выше или добавленный из дашборда) автоматически попадёт в выбранные этапы —
-                    будет виден в распределении, турнирной таблице и своём кабинете.
+                    Новый человек (по ссылке выше или добавленный из дашборда) автоматически попадёт
+                    в выбранные — будет виден в распределении, турнирной таблице и своём кабинете.
                   </p>
                   <div className="space-y-1.5">
                     {stages.map(st => (
