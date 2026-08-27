@@ -155,6 +155,10 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   const [baseForm, setBaseForm] = useState({ role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [saving, setSaving] = useState(false)
   const [selfRegLinks, setSelfRegLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
+  // Веб-ссылка регистрации — БЕЗ мессенджеров. Нужна клиенту без подключённых
+  // ботов: модуль «Премии/Турниры» берут ради организации работы, и состав
+  // иначе пришлось бы заводить руками по одному.
+  const [selfRegWebUrl, setSelfRegWebUrl] = useState<string>('')
   const [selfEditLinks, setSelfEditLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
   const [copiedPlatform, setCopiedPlatform] = useState<string>('')
   // Только в турнире — сворачивание групп жюри / партнёры / спикеры
@@ -205,8 +209,8 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   // Клиент копирует и шарит — человек переходит, бот регистрирует.
   useEffect(() => {
     api.conference.speakers.selfRegisterLinks(eventId)
-      .then((r: any) => setSelfRegLinks(r.links || {}))
-      .catch(() => setSelfRegLinks({}))
+      .then((r: any) => { setSelfRegLinks(r.links || {}); setSelfRegWebUrl(r.web_url || '') })
+      .catch(() => { setSelfRegLinks({}); setSelfRegWebUrl('') })
     api.conference.speakers.selfEditLinks(eventId)
       .then((r: any) => setSelfEditLinks(r.links || {}))
       .catch(() => setSelfEditLinks({}))
@@ -385,7 +389,7 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
     </select>
   )
 
-  const platformLabels: Record<string, string> = { telegram: 'Telegram', vk: 'VK', max: 'MAX' }
+  const platformLabels: Record<string, string> = { telegram: 'Telegram', vk: 'VK', max: 'MAX', web: 'Без бота' }
   const regLinks = Object.entries(selfRegLinks).filter(([, v]) => !!v) as Array<[string, string]>
   const editLinks = Object.entries(selfEditLinks).filter(([, v]) => !!v) as Array<[string, string]>
 
@@ -413,7 +417,7 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
     </div>
   )
 
-  const hasLinks = regLinks.length > 0 || editLinks.length > 0
+  const hasLinks = regLinks.length > 0 || editLinks.length > 0 || !!selfRegWebUrl
 
   // Одна строка спикера в списке. Вынесено в функцию, чтобы переиспользовать
   // и в плоском списке, и в сгруппированных блоках турнира.
@@ -523,20 +527,31 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
         <div>
           {!hasLinks && (
             <div className="text-sm text-gray-400 py-8 text-center">
-              Ссылки появятся, когда у клиента подключён бот/площадка.
+              Ссылки не загрузились. Обновите страницу.
             </div>
           )}
           {/* Две раздельные ссылки: регистрация новых спикеров и вход в кабинет
               уже добавленных (+ их ассистентов). */}
-          {regLinks.length > 0 && (
+          {(regLinks.length > 0 || !!selfRegWebUrl) && (
             <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
               <div className="text-sm font-semibold text-gray-900 mb-1">1. Ссылка для регистрации новых {pw.plural_gen}</div>
               <p className="text-xs text-gray-500 mb-3">
                 Шлите тем, кого хотите пригласить. Человек переходит,
-                нажимает «Включить в {pw.plural}» — создаётся его карточка, и он получает
-                доступ в кабинет, чтобы заполнить данные о себе.
+                заполняет короткую форму (или нажимает «Включить в {pw.plural}» в боте) —
+                создаётся его карточка, и он попадает в кабинет заполнить данные о себе.
               </p>
-              {renderLinkRows(regLinks, 'reg')}
+              {/* ⚠️ Веб-ссылка идёт ПЕРВОЙ и показывается всегда: она работает
+                  без ботов и без мессенджеров — тому, у кого каналы не
+                  подключены, это единственный способ собрать состав ссылкой. */}
+              {!!selfRegWebUrl && renderLinkRows([['web', selfRegWebUrl]], 'reg')}
+              {!!selfRegWebUrl && (
+                <p className="text-xs text-gray-500 mt-2 mb-3">
+                  «Без бота» — обычная веб-страница: человек вводит имя, фамилию, email
+                  и ник в Telegram и сразу попадает в кабинет. Код доступа приходит ему
+                  на почту. Мессенджеры для этого не нужны.
+                </p>
+              )}
+              {regLinks.length > 0 && <div className="mt-2">{renderLinkRows(regLinks, 'reg')}</div>}
 
               {/* Этапы по умолчанию — только если у события есть этапы (турнир/конф) */}
               {stages.length > 0 && (

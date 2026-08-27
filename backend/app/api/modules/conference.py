@@ -13,10 +13,13 @@ from app.services.client_domains import client_public_link
 from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.speaker_lead_magnet_stats import speaker_lead_magnet_stats
 import asyncpg
+import logging
 import re
 import json
 import httpx
 from datetime import datetime, date, time, timedelta
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/events/{event_id}/conference", tags=["Конференция"])
 
@@ -1070,15 +1073,26 @@ async def speaker_self_register_links(
     отправляет потенциальным спикерам. По клику бот: TG — шлёт текст +
     кнопку «Включить в спикеры», VK/MAX — сразу регистрирует."""
     client_id = int(client["sub"])
-    ev = await db.fetchval(
-        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status='accepted')",
+    ev = await db.fetchrow(
+        "SELECT id, slug FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status='accepted')",
         event_id, client_id,
     )
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     from app.services.share_links import build_speaker_self_register_links
     links = await build_speaker_self_register_links(db, client_id, event_id)
-    return {"links": links}
+
+    # ⚠️ Веб-ссылка — БЕЗ мессенджеров и БЕЗ ботов. Отдаём всегда, даже когда
+    # `links` пуст: клиент, который платит за модуль ради организации работы,
+    # а каналы не подключал, иначе не может завести состав ссылкой вовсе.
+    # Адрес — на домене клиента (литералов pluson.ru в коде быть не должно).
+    web_url = None
+    try:
+        web_url = await client_public_link(db, client_id, f"/speaker/{ev['slug']}/join")
+    except Exception:
+        logger.exception("self-register-links: не собралась веб-ссылка")
+
+    return {"links": links, "web_url": web_url}
 
 
 @router.get("/speakers/self-edit-links", summary="Прямые ссылки входа в кабинет (для добавленных спикеров и ассистентов)")
@@ -1442,6 +1456,11 @@ async def add_speaker_from_base(
     )
     await _save_topics(cse["id"], topics_list, db)
     await apply_default_speaker_stages(cse["id"], event_id, db)
+    # Карточка в событии = участник события: иначе человек, открыв ссылку на
+    # своё событие, видит форму регистрации вместо своей карточки.
+    from app.services.collaborator_participant import ensure_collaborator_participant
+    await ensure_collaborator_participant(
+        db, event_id=event_id, collaborator_id=data.speaker_id)
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
         """SELECT cse.*, btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name, sp.title, sp.achievements,
@@ -1610,6 +1629,11 @@ async def create_and_add_speaker(
         )
         await _save_topics(cse["id"], topics_list, db)
         await apply_default_speaker_stages(cse["id"], event_id, db)
+
+    # Карточка в событии = участник события (см. collaborator_participant).
+    from app.services.collaborator_participant import ensure_collaborator_participant
+    await ensure_collaborator_participant(
+        db, event_id=event_id, collaborator_id=sp["id"])
 
     topics_map = await _load_topics([cse["id"]], db)
     result = {**dict(sp), **dict(cse), "speaker_id": sp["id"], "topics": topics_map.get(cse["id"], [])}

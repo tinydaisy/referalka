@@ -969,6 +969,11 @@ async def copy_event(
                     new_id, *[cse[c] for c in cols]
                 )
                 cse_map[cse['id']] = new_cse_id
+                # Карточка в новом событии = участник нового события — иначе
+                # перенесённый номинант упрётся в форму регистрации на копии.
+                from app.services.collaborator_participant import ensure_collaborator_participant
+                await ensure_collaborator_participant(
+                    db, event_id=new_id, collaborator_id=cse['speaker_id'])
 
             # conf_speaker_topics → cse_id
             topics = await db.fetch(
@@ -1800,6 +1805,11 @@ async def add_event_collaborator(
         await ensure_collaborator_contact(data.collaborator_id, db)
     except HTTPException:
         pass
+    # Карточка в событии = участник события: без этого человек, открыв ссылку
+    # на своё событие, видит форму регистрации вместо своей карточки.
+    from app.services.collaborator_participant import ensure_collaborator_participant
+    await ensure_collaborator_participant(
+        db, event_id=event_id, collaborator_id=data.collaborator_id)
     return {"id": new_id, "role": data.role, "already_existed": False}
 
 

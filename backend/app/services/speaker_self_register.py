@@ -156,6 +156,11 @@ async def complete_speaker_self_register(
         collaborator_id, event_id,
     )
     if existing_cse:
+        # Участие могло не создаться, когда карточку завели до 2026-08-27, —
+        # доставляем его и на повторном заходе.
+        from app.services.collaborator_participant import ensure_collaborator_participant
+        await ensure_collaborator_participant(
+            db, event_id=event_id, collaborator_id=collaborator_id)
         return collaborator_id, access_code, event_slug, True
 
     # role='speaker' + стартовые тумблеры из настроек СОБЫТИЯ (миграция 336) —
@@ -183,4 +188,8 @@ async def complete_speaker_self_register(
         await apply_default_speaker_stages(new_ec_id, event_id, db)
     except Exception:
         pass
+    # Карточка в событии = участник события (см. collaborator_participant).
+    from app.services.collaborator_participant import ensure_collaborator_participant
+    await ensure_collaborator_participant(
+        db, event_id=event_id, collaborator_id=collaborator_id)
     return collaborator_id, access_code, event_slug, False
