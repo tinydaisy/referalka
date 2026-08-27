@@ -850,6 +850,7 @@ async def handle_speaker_self_register(callback: CallbackQuery):
     async with pool.acquire() as db:
         from app.services.speaker_self_register import (
             get_event_for_self_register, complete_speaker_self_register,
+            self_pick_nominations_hint,
         )
         ev = await get_event_for_self_register(db, event_id)
         if not ev:
@@ -883,6 +884,8 @@ async def handle_speaker_self_register(callback: CallbackQuery):
             log.exception("speaker self-register failed: %s", e)
             await callback.answer("Что-то пошло не так. Попробуйте позже.", show_alert=True)
             return
+        # Зовём выбрать номинации, только если организатор это разрешил.
+        nominations_hint = await self_pick_nominations_hint(db, event_id)
 
     # Берём username бота для построения ссылки spkinv_<code>.
     try:
@@ -902,7 +905,8 @@ async def handle_speaker_self_register(callback: CallbackQuery):
     else:
         head = (
             f"Готово! Вы включены в {w['plural']} «{ev['title']}».\n\n"
-            f"Войдите в кабинет {w['gen']} и заполните данные о себе.{assistant_hint}"
+            f"Войдите в кабинет {w['gen']} и заполните данные о себе."
+            f"{nominations_hint}{assistant_hint}"
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=f"📝 Открыть кабинет {w['gen']}", url=spkinv_url)

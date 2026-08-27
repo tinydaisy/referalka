@@ -683,10 +683,12 @@ async def _handle_speaker_self_register_vk(
             f"Код доступа: {access_code}"
         )
     else:
+        from app.services.speaker_self_register import self_pick_nominations_hint
         text = (
             f"Готово! Вы включены в {w['plural']} «{ev['title']}».\n\n"
             f"Откройте свой кабинет и заполните данные: {spkinv_url}\n"
             f"Код доступа: {access_code}"
+            f"{await self_pick_nominations_hint(db, event_id)}"
         )
     try:
         await vk_send_message(user_id, text, token=ctx.token)

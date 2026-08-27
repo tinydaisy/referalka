@@ -578,6 +578,7 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
 
         from app.services.speaker_self_register import (
             get_event_for_self_register, find_existing_speaker, complete_speaker_self_register,
+            self_pick_nominations_hint,
         )
         from app.services.contact_merge import upsert_contact_with_identity
         from app.services.person_wording import wording
@@ -637,7 +638,8 @@ async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
             )
             text = (
                 f"Готово! Вы включены в {w['plural']} «{ev['title']}».\n\n"
-                f"Откройте свой кабинет и заполните данные:\n{cabinet_url}\n\n"
+                f"Откройте свой кабинет и заполните данные:\n{cabinet_url}"
+                f"{await self_pick_nominations_hint(conn, body.event_id)}\n\n"
                 f"Код доступа: {access_code}\n\n"
                 "Код можно передать ассистенту — он заполнит за вас."
             )

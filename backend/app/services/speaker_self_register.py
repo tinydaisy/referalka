@@ -44,6 +44,29 @@ def self_reg_button(person_wording: Optional[str] = None) -> str:
     return f"Включить в {wording(person_wording)['plural']}"
 
 
+async def self_pick_nominations_hint(db, event_id: int) -> str:
+    """Приписка «А также выберите номинации…» — ТОЛЬКО когда организатор
+    открыл самовыбор (`conf_conferences.self_pick_stages_speakers`, мигр. 328).
+
+    ⚠️ Галочка снята → строки нет вовсе: звать человека выбирать номинации
+    там, где выбора ему не дали, значит отправить его искать в кабинете блок,
+    которого он не увидит.
+
+    Смотрим именно speakers-галочку: саморегистрация всегда заводит карточку
+    с `role='speaker'` (жюри приглашают, а не записываются сами).
+    """
+    try:
+        allowed = await db.fetchval(
+            "SELECT self_pick_stages_speakers FROM conf_conferences WHERE event_id = $1",
+            event_id,
+        )
+    except Exception:
+        return ""
+    if not allowed:
+        return ""
+    return "\n\nА также выберите номинации, в которых хотите принять участие."
+
+
 async def get_event_for_self_register(
     db: asyncpg.Connection, event_id: int,
 ) -> Optional[dict]:
