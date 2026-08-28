@@ -30,6 +30,10 @@ cp deploy/plusson-bot.service /etc/systemd/system/
 systemctl daemon-reload
 
 echo "=== 7. Копируем конфиг nginx ==="
+# ⚠️ Это МИНИМАЛЬНЫЙ конфиг для первого старта (без 443 — сертификата ещё нет).
+# Боевой конфиг прода целиком лежит рядом: deploy/nginx-plusson-site.reference.conf
+# (mini-app, публичные страницы, вебхуки). После выпуска сертификата брать его
+# за основу, подменив пути к сертификату.
 cp deploy/nginx.conf /etc/nginx/sites-available/plusson
 ln -sf /etc/nginx/sites-available/plusson /etc/nginx/sites-enabled/plusson
 rm -f /etc/nginx/sites-enabled/default

@@ -72,19 +72,68 @@ def _site_path(domain: str) -> Path:
     return NGINX_SITES / f"client-{domain.strip().lower()}"
 
 
+def www_alias(domain: str) -> str:
+    """`www.<домен>`, если его вообще имеет смысл обслуживать. Иначе пусто.
+
+    ⚠️⚠️ ЗАЧЕМ (2026-08-28). Домен выдавался БЕЗ `www`: и в `server_name`, и в
+    сертификате стояло только голое имя. У человека, набравшего привычное
+    `www.сайт.ру`, запрос попадал в дефолтный server-блок с сертификатом
+    pluson.ru — браузер показывал «подключение не защищено» и дальше не пускал.
+    Поймано на живом клиенте (peregovorka.online): DNS у `www` вёл на нас,
+    люди по нему заходили, и для них сайт был сломан.
+
+    ⚠️ Проверяем DNS, а НЕ добавляем `www` вслепую: если записи нет, ACME не
+    сможет подтвердить это имя и **завалит выпуск целиком** — клиент остался
+    бы вообще без сертификата. Нет записи → работаем как раньше, по одному имени.
+
+    ⚠️ Только для КОРНЯ домена. У поддомена (`lp.example.ru`) `www.lp.example.ru`
+    никто не набирает, а лишнее имя — лишний шанс провалить выпуск.
+    """
+    from app.services.client_domains import is_apex_domain, normalize_domain
+
+    d = normalize_domain(domain)
+    if not d or d.startswith("www.") or not is_apex_domain(d):
+        return ""
+
+    from app.services.domain_dns import _query_sync
+
+    name = f"www.{d}"
+    # A-запись на нас либо CNAME куда угодно — во втором случае имя всё равно
+    # приезжает к нам (иначе бы клиент его не заводил), проверять цепочку
+    # целиком не нужно: ошибётся — ACME просто не подтвердит имя, и мы
+    # выпустим сертификат без него (см. фолбэк в issue_certificate).
+    if _query_sync(name, "A") or _query_sync(name, "CNAME"):
+        return name
+    return ""
+
+
 # ── nginx ───────────────────────────────────────────────────────────────────
 
-def _http_only_config(domain: str) -> str:
+def _server_names(domain: str, with_www: Optional[bool]) -> str:
+    """Строка для `server_name`. `with_www=None` — решить по DNS.
+
+    ⚠️ На 443 имя `www` можно указывать ТОЛЬКО если оно есть в сертификате.
+    Иначе браузер, пришедший на `www`, получит сертификат на другое имя и
+    покажет «подключение не защищено» — то есть станет хуже, чем было.
+    Поэтому после выпуска сюда приходит явный флаг, а не догадка по DNS.
+    """
+    if with_www is None:
+        with_www = bool(www_alias(domain))
+    return f"{domain} www.{domain}" if with_www else domain
+
+
+def _http_only_config(domain: str, with_www: Optional[bool] = None) -> str:
     """Временный конфиг на 80-м порту — нужен, чтобы certbot прошёл проверку.
 
     Сертификата ещё нет, поэтому 443-блок писать нельзя: nginx не стартует
     с ссылкой на несуществующий файл сертификата и уронит ВСЕ сайты.
     """
+    names = _server_names(domain, with_www)
     return f"""# Домен клиента {domain} — временный конфиг до выпуска сертификата.
 # Создаётся автоматически (миграция 270). Руками не править.
 server {{
     listen 80;
-    server_name {domain};
+    server_name {names};
 
     location /.well-known/acme-challenge/ {{
         root /var/www/html;
@@ -97,7 +146,8 @@ server {{
 """
 
 
-def _full_config(domain: str, cert_path: str = "", key_path: str = "") -> str:
+def _full_config(domain: str, cert_path: str = "", key_path: str = "",
+                 with_www: Optional[bool] = None) -> str:
     """Боевой конфиг: 80 → редирект, 443 с сертификатом и общими location.
 
     Пути к сертификату зависят от источника: Let's Encrypt и ZeroSSL пишут
@@ -105,12 +155,13 @@ def _full_config(domain: str, cert_path: str = "", key_path: str = "") -> str:
     """
     cert_path = cert_path or f"/etc/letsencrypt/live/{domain}/fullchain.pem"
     key_path = key_path or f"/etc/letsencrypt/live/{domain}/privkey.pem"
+    names = _server_names(domain, with_www)
     return f"""# Домен клиента {domain} — публичные страницы ПЛЮСОНа на своём домене.
 # Создаётся автоматически (миграция 270). Руками не править:
 # при перевыпуске сертификата файл перезаписывается.
 server {{
     listen 80;
-    server_name {domain};
+    server_name {names};
 
     location /.well-known/acme-challenge/ {{
         root /var/www/html;
@@ -122,13 +173,17 @@ server {{
 }}
 
 server {{
-    listen 443 ssl;
-    server_name {domain};
+    # ⚠️ http2 обязателен: без него браузер открывает до 6 отдельных
+    # TLS-соединений на страницу, и на мобильном канале часть не
+    # устанавливается — сайт «висит и грузится без стилей».
+    listen 443 ssl http2;
+    server_name {names};
 
     ssl_certificate     {cert_path};
     ssl_certificate_key {key_path};
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    include /etc/nginx/snippets/plusson-ssl-extra.conf;
 
     include {SHARED_LOCATIONS};
 }}
@@ -136,10 +191,13 @@ server {{
 
 
 def write_site_config(domain: str, *, with_ssl: bool,
-                      cert_path: str = "", key_path: str = "") -> None:
+                      cert_path: str = "", key_path: str = "",
+                      with_www: Optional[bool] = None) -> None:
+    """`with_www=None` — решить по DNS; после выпуска передавать ЯВНО, по факту
+    того, попал ли `www` в сертификат (см. `_server_names`)."""
     domain = domain.strip().lower()
-    body = (_full_config(domain, cert_path, key_path) if with_ssl
-            else _http_only_config(domain))
+    body = (_full_config(domain, cert_path, key_path, with_www) if with_ssl
+            else _http_only_config(domain, with_www))
     _site_path(domain).write_text(body, encoding="utf-8")
 
 
@@ -236,9 +294,10 @@ def cert_sources_for(domain: str) -> list[str]:
 def _issue_zerossl(domain: str, force: bool) -> None:
     """Выпуск через ZeroSSL (acme.sh). Корень Sectigo USERTrust — старый,
     известен и старым устройствам, в отличие от нового корня Let's Encrypt."""
-    cmd = [ACME_SH, "--home", str(ZEROSSL_DIR), "--issue",
-           "-d", domain, "-w", "/var/www/html",
-           "--server", "zerossl", "--keylength", "2048"]
+    cmd = [ACME_SH, "--home", str(ZEROSSL_DIR), "--issue", "-d", domain]
+    if w := www_alias(domain):
+        cmd += ["-d", w]
+    cmd += ["-w", "/var/www/html", "--server", "zerossl", "--keylength", "2048"]
     if force:
         cmd.append("--force")
     code, out = _run(cmd, timeout=300)
@@ -279,17 +338,29 @@ def issue_certificate(domain: str, *, force: bool = False,
 
     # 2. Выпуск. webroot, а не --nginx: плагин nginx правит конфиги сам и может
     #    затронуть основной сайт. Здесь мы управляем конфигами явно.
-    cmd = [
-        "certbot", "certonly", "--webroot", "-w", "/var/www/html",
-        "--cert-name", name,
-        "-d", domain,
-        "--key-type", "rsa", "--rsa-key-size", "2048",   # ⚠️ только RSA
-        "--non-interactive", "--agree-tos",
-        "--email", CERT_EMAIL,
-        "--no-eff-email",
-    ]
-    if force:
-        cmd.append("--force-renewal")
+    # ⚠️ `--expand` обязателен: без него certbot, встретив уже существующий
+    # сертификат на одно имя, молча оставит старый и `www` в него не попадёт.
+    www = www_alias(domain)
+
+    def _certbot_cmd(names: list[str]) -> list[str]:
+        args = [
+            "certbot", "certonly", "--webroot", "-w", "/var/www/html",
+            "--cert-name", name,
+        ]
+        for n in names:
+            args += ["-d", n]
+        args += [
+            "--expand",
+            "--key-type", "rsa", "--rsa-key-size", "2048",   # ⚠️ только RSA
+            "--non-interactive", "--agree-tos",
+            "--email", CERT_EMAIL,
+            "--no-eff-email",
+        ]
+        if force:
+            args.append("--force-renewal")
+        return args
+
+    cmd = _certbot_cmd([domain] + ([www] if www else []))
 
     if source == "zerossl":
         if not zerossl_available(domain):
@@ -300,6 +371,14 @@ def issue_certificate(domain: str, *, force: bool = False,
         cert_path, key_path = zerossl_paths(domain)
     else:
         code, out = _run(cmd, timeout=300)
+        if code != 0 and www:
+            # ⚠️ ВТОРАЯ ПОПЫТКА БЕЗ www. Запись у `www` есть, но подтвердить её
+            # не удалось (ведёт не на нас, отдаёт таймаут, застрял старый CNAME).
+            # Ронять из-за неё выпуск нельзя: без сертификата не работает ВЕСЬ
+            # домен клиента, а без `www` — только привычка набирать его руками.
+            logger.warning("cert %s: не подтвердился %s, пробую без него", domain, www)
+            www = ""          # в server_name его теперь класть нельзя
+            code, out = _run(_certbot_cmd([domain]), timeout=300)
         if code != 0:
             # Конфиг оставляем: домен уже ведёт на нас, и 80-й порт с редиректом
             # лучше, чем полное отсутствие ответа. Клиент увидит ошибку в кабинете.
@@ -307,9 +386,11 @@ def issue_certificate(domain: str, *, force: bool = False,
         cert_path = Path(f"/etc/letsencrypt/live/{domain}/fullchain.pem")
         key_path = Path(f"/etc/letsencrypt/live/{domain}/privkey.pem")
 
-    # 3. Боевой конфиг с 443.
+    # 3. Боевой конфиг с 443. `www` в server_name — только если он реально попал
+    #    в сертификат: иначе браузер на www получит чужое имя и откажется идти.
     write_site_config(domain, with_ssl=True,
-                      cert_path=str(cert_path), key_path=str(key_path))
+                      cert_path=str(cert_path), key_path=str(key_path),
+                      with_www=bool(www))
     ok, out = nginx_reload()
     if not ok:
         raise CertError(f"Сертификат выпущен, но nginx не принял конфиг: {out[:400]}")
