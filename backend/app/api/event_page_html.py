@@ -28,6 +28,9 @@ import asyncpg
 import html as _html
 import re as _re
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone, timedelta
 
 # Всё время программы — МСК (см. правило «Время программы — строки HH:MM МСК»).
@@ -2657,13 +2660,15 @@ def _register_not_found_page() -> str:
 <p>Ссылка устарела или событие ещё не опубликовано.</p></div></body></html>"""
 
 
-def render_register_page(event, client, poster_url, prefill=None) -> str:
+def render_register_page(event, client, poster_url, prefill=None, pid="") -> str:
     """Серверная HTML-страница формы регистрации на событие.
 
     prefill: None → форма с email-проверкой (контакт неизвестен, ?c отсутствует).
              dict {contact_id, email, phone, name, telegram_username} →
              известный незарегистрированный контакт; сразу полная форма
              с автозаполнением, без шага проверки email.
+    pid:     реф-код того, кто привёл — уходит вместе с формой, иначе
+             привлечение по веб-ссылке не засчитывается никому.
     """
     title = esc(event.get("title") or event.get("slug"))
     slug = esc(event.get("slug") or "")
@@ -2792,6 +2797,28 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
   .ok-box .tick {{ font-size:56px; margin-bottom:10px; }}
   .ok-box h2 {{ color:#25455D; margin:0; }}
   .ok-box p {{ color:#6b7c8e; font-size:14px; margin-top:10px; }}
+  /* Экран после регистрации: письмо + переход в бота */
+  .step3, .step-choice {{ display:none; }}
+  .done-tick {{ font-size:46px; text-align:center; margin-bottom:6px; }}
+  .done-h {{ font-size:19px; font-weight:800; color:#25455D; text-align:center; margin:0 0 14px; }}
+  .mail-note {{ background:#fff8ef; border:1px solid #ffd9b0; border-radius:12px;
+    padding:13px 14px; font-size:13.5px; line-height:1.5; color:#5a4630; }}
+  .bots-note {{ font-size:14px; line-height:1.5; color:#25455D; font-weight:600;
+    margin:18px 0 12px; }}
+  .bot-btn {{ display:block; width:100%; text-align:center; text-decoration:none;
+    padding:13px 16px; border-radius:12px; font-size:15px; font-weight:800;
+    background:linear-gradient(135deg,#FFCFA4,#f5b97e); color:#25455D;
+    box-shadow:0 2px 8px rgba(255,207,164,.4); margin-bottom:10px; }}
+  .btn-ghost {{ width:100%; padding:13px 16px; border:1.5px solid #dde4ea; border-radius:12px;
+    background:#fff; color:#41566a; font-size:14px; font-weight:700; cursor:pointer;
+    font-family:inherit; margin-top:4px; }}
+  /* Экран «Это вы?» — данные замаскированы */
+  .cand {{ width:100%; text-align:left; background:#fff; border:1.5px solid #dde4ea;
+    border-radius:12px; padding:12px 14px; margin-bottom:10px; cursor:pointer;
+    font-family:inherit; }}
+  .cand:hover {{ border-color:#FFCFA4; }}
+  .cand b {{ display:block; color:#25455D; font-size:14px; margin-bottom:3px; }}
+  .cand span {{ display:block; color:#6b7c8e; font-size:12.5px; line-height:1.5; }}
 </style>
 </head>
 <body>
@@ -2851,6 +2878,27 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         <p class="err" id="err2" style="display:none"></p>
         {support_hint}
       </div>
+
+      <!-- ШАГ «ЭТО ВЫ?»: данные указали на разных людей -->
+      <div class="step-choice" id="step-choice">
+        <p class="lead">Кажется, вы у нас уже есть. Выберите свою запись —
+          так регистрация попадёт к вам, а не создаст второго участника.</p>
+        <div id="cand-list"></div>
+        <button class="btn-ghost" id="btn-new" type="button">Меня здесь нет, я впервые</button>
+        <p class="err" id="err3" style="display:none"></p>
+      </div>
+
+      <!-- ШАГ 3: зарегистрирован — письмо и переход в бота -->
+      <div class="step3" id="step3">
+        <div class="done-tick">&#127881;</div>
+        <p class="done-h">Вы зарегистрированы!</p>
+        <div class="mail-note" id="mail-note"></div>
+        <div id="bots-block" style="display:none">
+          <p class="bots-note" id="bots-note"></p>
+          <div id="bots-list"></div>
+        </div>
+        <button class="btn-ghost" id="btn-continue" type="button">Продолжить на сайте</button>
+      </div>
     </div>
     {support_block}
   </div>
@@ -2862,6 +2910,10 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
   // contact_id из ?c=… (или из серверного prefill — известный контакт).
   var CONTACT_ID = (cParam && /^\\d+$/.test(cParam)) ? parseInt(cParam, 10) : {json.dumps(pf_contact_id)};
   var HAS_PREFILL = {json.dumps(has_prefill)};
+  // Реф-код того, кто привёл: из ?pid= или подставленный сервером.
+  var PID = (qs.get('pid') || {json.dumps(pid or "")} || '').trim();
+  var CHOSEN_CID = null;   // выбор на экране «Это вы?»
+  var FORCE_NEW = false;   // «меня здесь нет, я впервые»
 
   function isEmail(s) {{ return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s); }}
   function isPhone(s) {{ return s.replace(/\\D/g,'').length >= 10; }}
@@ -2943,8 +2995,13 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         contact_id: CONTACT_ID || null,
         email: email || null, name: name, phone: phone,
         telegram_username: tg || null,
+        pid: PID || null,
+        chosen_contact_id: CHOSEN_CID, force_new: FORCE_NEW,
         consent_pd: true, consent_marketing: true, step: 'register',
       }});
+      // Данные указали на РАЗНЫХ людей — просим человека узнать себя.
+      if (res.need_choice) {{ showChoice(res.candidates || []); return; }}
+      if (res.thanks) {{ showThanks(res); return; }}
       if (res.redirect) {{ location.href = res.redirect; return; }}
       location.reload();
     }} catch (e) {{
@@ -2952,6 +3009,72 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
       btnCreate.disabled = false; btnCreate.textContent = 'Зарегистрироваться';
     }}
   }});
+
+  // ── Экран «Это вы?» ──
+  function showStep(id) {{
+    ['step1','step2','step-choice','step3'].forEach(function(s) {{
+      var el = document.getElementById(s);
+      if (el) el.style.display = (s === id) ? 'block' : 'none';
+    }});
+  }}
+
+  function showChoice(list) {{
+    var box = document.getElementById('cand-list');
+    box.innerHTML = '';
+    list.forEach(function(c) {{
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'cand';
+      var parts = [];
+      if (c.email) parts.push(c.email);
+      if (c.phone) parts.push(c.phone);
+      (c.accounts || []).forEach(function(a) {{ parts.push(a.platform + ': @' + a.username); }});
+      var nm = document.createElement('b'); nm.textContent = c.name || 'Без имени';
+      var sp = document.createElement('span'); sp.textContent = parts.join(' · ');
+      b.appendChild(nm); b.appendChild(sp);
+      b.addEventListener('click', function() {{
+        CHOSEN_CID = c.id; FORCE_NEW = false;
+        showStep('step2'); resubmit();
+      }});
+      box.appendChild(b);
+    }});
+    showStep('step-choice');
+  }}
+
+  document.getElementById('btn-new').addEventListener('click', function() {{
+    CHOSEN_CID = null; FORCE_NEW = true;
+    showStep('step2'); resubmit();
+  }});
+
+  function resubmit() {{
+    btnCreate.disabled = false;
+    btnCreate.textContent = 'Зарегистрироваться';
+    btnCreate.click();
+  }}
+
+  // ── Экран «спасибо»: письмо + переход в бота ──
+  function showThanks(res) {{
+    var t = res.thanks || {{}};
+    document.getElementById('mail-note').textContent = t.email_notice || '';
+    var bots = t.bots || [];
+    if (bots.length) {{
+      document.getElementById('bots-note').textContent = t.bots_notice || '';
+      var list = document.getElementById('bots-list');
+      list.innerHTML = '';
+      bots.forEach(function(b) {{
+        var a = document.createElement('a');
+        a.className = 'bot-btn'; a.href = b.url; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = 'Перейти в ' + b.label;
+        list.appendChild(a);
+      }});
+      document.getElementById('bots-block').style.display = 'block';
+    }}
+    var cont = document.getElementById('btn-continue');
+    cont.addEventListener('click', function() {{
+      location.href = res.redirect || ('/event/' + encodeURIComponent(SLUG));
+    }});
+    showStep('step3');
+    window.scrollTo(0, 0);
+  }}
 </script>
 </body>
 </html>"""
@@ -2959,7 +3082,7 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
 
 @router.get("/event/{slug}/register", response_class=HTMLResponse,
             include_in_schema=False)
-async def event_register_page(slug: str, c: str = "",
+async def event_register_page(slug: str, c: str = "", pid: str = "",
                               db: asyncpg.Connection = Depends(get_db)):
     event = await _resolve_event(db, slug)
     if not event or event["status"] != "published":
@@ -2967,15 +3090,20 @@ async def event_register_page(slug: str, c: str = "",
     ev = dict(event)
 
     contact_id = int(c) if c and c.isdigit() else None
+    # ⚠️ `pid` — реф-код того, кто привёл. Раньше форма его не принимала вовсе:
+    # человек с веб-ссылки спикера не засчитывался никому, а в коллабе ещё и
+    # попадал к «первому владельцу» вместо того, кто его позвал.
+    pid = (pid or "").strip()[:64]
 
     # ⚠️⚠️ У КОЛЛАБЫ ВЛАДЕЛЬЦЕВ НЕСКОЛЬКО — берём того, в чьей базе человек.
     # `_resolve_event` отдаёт «первого владельца из списка», и человек,
     # пришедший из бота Нурии, регистрировался у Лилии: чужой домен, чужой
     # бренд, контакт уезжал в чужую базу (прод, 2026-08-25).
-    if contact_id:
+    if contact_id or pid:
         from app.services.event_client import resolve_event_client
         ev["client_id"] = await resolve_event_client(
-            db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
+            db, event_id=ev["id"], client_id=ev["client_id"],
+            contact_id=contact_id, partner_id=pid or None)
 
     prefill = None
     if contact_id:
@@ -3068,11 +3196,104 @@ async def event_register_page(slug: str, c: str = "",
     ev["_public_base"] = await client_public_url(db, ev.get("client_id"))
     poster_url = await _load_event_poster(db, ev["id"])
 
-    html_str = render_register_page(ev, client, poster_url, prefill=prefill)
+    html_str = render_register_page(ev, client, poster_url, prefill=prefill,
+                                    pid=pid)
     return HTMLResponse(
         content=html_str,
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
+
+
+async def _bot_owner_ids(db, *, is_collab: bool, event_id: int, client_id: int,
+                         contact_id: int, ref_contact_id) -> list[int]:
+    """ЧЬИХ ботов предлагать человеку после веб-регистрации.
+
+    Обычное событие — владельца, вариантов нет. У КОЛЛАБЫ организаторов
+    несколько, и правило такое (решение владельца 2026-08-28):
+
+      • пришёл по реф-ссылке → бот ТОГО, кто привёл. Человек уже в его базе,
+        его бот и должен с ним разговаривать;
+      • неизвестно, кто привёл → боты ВСЕХ организаторов, пусть выбирает сам.
+        Показать бота одного (например «первого из event_owners») нельзя —
+        это ровно та ошибка, из-за которой люди уезжали в чужую базу.
+    """
+    # ⚠️ `event` здесь — asyncpg.Record, у него НЕТ `.get()`. Поэтому признак
+    # приходит готовым булевым параметром, а не строкой запроса.
+    if not is_collab:
+        return [client_id]
+
+    # 1) Кто привёл: реф-код из ссылки → его владелец, если он организатор.
+    if ref_contact_id:
+        try:
+            from app.services.event_client import is_event_owner
+            rc = await db.fetchval(
+                "SELECT client_id FROM contacts WHERE id = $1", ref_contact_id)
+            if await is_event_owner(db, event_id, rc):
+                return [int(rc)]
+        except Exception:
+            logger.exception("_bot_owner_ids: referrer lookup failed")
+
+    # 2) Реф-кода нет — в чьей базе человек уже лежит (тот же резолвер, что в
+    #    догреве и службе заботы коллабы).
+    try:
+        from app.services.collab_referrer import resolve_source_organizer
+        src = await resolve_source_organizer(db, event_id, contact_id)
+        if src:
+            return [int(src)]
+    except Exception:
+        logger.exception("_bot_owner_ids: source organizer failed")
+
+    # 3) Ничего не известно — все организаторы.
+    rows = await db.fetch(
+        """SELECT eo.client_id FROM event_owners eo
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY (eo.role = 'owner') DESC, eo.id""",
+        event_id,
+    )
+    return [int(r["client_id"]) for r in rows] or [client_id]
+
+
+async def _build_after_register(db, *, is_collab: bool, event_id: int,
+                                client_id: int, contact_id: int,
+                                ref_contact_id=None) -> dict:
+    """Экран «спасибо» после веб-регистрации: письмо + переход в бота.
+
+    ⚠️ ТЕКСТ ПРО ПИСЬМО ПОКАЗЫВАЕМ ВСЕГДА, даже когда боты есть (решение
+    владельца 2026-08-28). Письмо со ссылкой на кабинет уходит в любом случае,
+    и человек должен знать, что искать его, возможно, придётся в «Спаме»:
+    иначе он не найдёт письмо и решит, что регистрация не прошла.
+
+    Кнопки ботов идут НИЖЕ и ведут по deeplink `evreg_…_ct{contact_id}` —
+    бот опознает человека и не заведёт его вторым контактом.
+    """
+    from app.services.share_links import build_event_reg_bot_links
+    from app.services.event_platforms import enabled_platforms
+
+    try:
+        owner_ids = await _bot_owner_ids(
+            db, is_collab=is_collab, event_id=event_id, client_id=client_id,
+            contact_id=contact_id, ref_contact_id=ref_contact_id)
+        bots = await build_event_reg_bot_links(
+            db, client_ids=owner_ids, event_id=event_id, contact_id=contact_id,
+            enabled=await enabled_platforms(db, event_id))
+    except Exception:
+        logger.exception("after-register: bot links failed")
+        bots = []
+
+    return {
+        "thanks": {
+            "email_notice": (
+                "Приглашение и ссылка на ваш кабинет участника отправлены "
+                "на почту. Письмо могло попасть в «Спам» — если оно там, "
+                "откройте его и нажмите «Не спам»."
+            ),
+            "bots_notice": (
+                "Перейдите в бота, чтобы получать напоминания о событии "
+                "и все привилегии участника."
+            ),
+            "bots": bots,
+        }
+    }
 
 
 async def _set_consents(db, contact_id, request, consent_pd, consent_marketing):
@@ -3131,14 +3352,27 @@ async def event_register_submit(slug: str, request: Request,
     except (ValueError, TypeError):
         link_cid = None
 
+    # ⚠️ КТО ПРИВЁЛ — реф-код из ссылки (`pid`). Резолвим ДО выбора базы: у
+    # коллабы от этого зависит, в чью базу ляжет контакт, чей бот предложим и
+    # с чьего домена уйдёт письмо.
+    ref_code, ref_contact_id = None, None
+    pid = (body.get("pid") or "").strip()
+    if pid:
+        try:
+            from app.services.contact_merge import resolve_ref_code
+            ref_code, ref_contact_id = await resolve_ref_code(db, pid)
+        except Exception:
+            ref_code, ref_contact_id = None, None
+
     # ⚠️⚠️ В ЧЬЮ БАЗУ ПОПАДЁТ ЧЕЛОВЕК. У коллабы владельцев несколько, и
     # `_resolve_event` отдаёт «первого из списка» — человек из бота Нурии
     # регистрировался у Лилии: контакт уезжал в чужую базу, привлечение не
     # засчитывалось никому, а ответ приходил с чужого домена.
-    if link_cid:
+    if link_cid or ref_code:
         from app.services.event_client import resolve_event_client
         client_id = await resolve_event_client(
-            db, event_id=event_id, client_id=client_id, contact_id=link_cid)
+            db, event_id=event_id, client_id=client_id,
+            contact_id=link_cid, partner_id=ref_code)
 
     email_raw = (body.get("email") or "").strip()
     email_norm = normalize_email(email_raw)
@@ -3239,11 +3473,39 @@ async def event_register_submit(slug: str, request: Request,
         })
 
     # ── ШАГ REGISTER: финальная регистрация ──
-    # Определяем целевой контакт.
-    found_cid = await _find_by_email(email_norm) if email_norm else None
+    # ⚠️⚠️ РЕЗОЛВ КОНТАКТА — ТОЛЬКО ОБЩИМИ ФУНКЦИЯМИ (2026-08-28). Здесь жил
+    # свой SELECT по email-идентичности: он брал первого попавшегося и не видел
+    # человека, найденного по ТЕЛЕФОНУ или TG-нику, — тот заводился вторым
+    # контактом. Правило проекта: искать через `find_contact_candidates`, а
+    # когда данные указывают на РАЗНЫХ людей — спрашивать самого человека
+    # («Это вы?»), как в анкетах, вебинарной авторизации и заказе тарифа.
+    from app.services.contact_merge import (
+        find_contact_candidates, create_new_contact,
+    )
 
-    if link_cid:
+    chosen_cid = body.get("chosen_contact_id")
+    try:
+        chosen_cid = int(chosen_cid) if chosen_cid is not None else None
+    except (ValueError, TypeError):
+        chosen_cid = None
+    force_new = bool(body.get("force_new"))
+
+    target_cid = None
+
+    if chosen_cid:
+        # Человек сам выбрал себя на экране «Это вы?». Принадлежность клиенту
+        # проверяем: id приходит из браузера.
+        target_cid = await db.fetchval(
+            """SELECT id FROM contacts
+                WHERE id = $1 AND client_id = $2 AND merged_into IS NULL
+                LIMIT 1""",
+            chosen_cid, client_id,
+        )
+
+    if not target_cid and link_cid:
+        # Контакт из ссылки (?c=) — самый надёжный признак, экран выбора не нужен.
         target_cid = link_cid
+        found_cid = await _find_by_email(email_norm) if email_norm else None
         # Email введён и принадлежит ДРУГОМУ контакту → слить (найденный старше).
         if found_cid and found_cid != link_cid:
             try:
@@ -3253,13 +3515,27 @@ async def event_register_submit(slug: str, request: Request,
                 target_cid = found_cid
             except Exception:
                 target_cid = link_cid  # мердж не критичен — берём из ссылки
-    elif found_cid:
-        target_cid = found_cid
-    else:
-        # Контакта нет — создаём.
-        target_cid, _is_new = await find_or_create_contact(
-            db, client_id=client_id, name=name, email=email_raw or None,
-            phone=phone)
+
+    if not target_cid and not force_new:
+        candidates = await find_contact_candidates(
+            db, client_id, email_raw or None, phone,
+            (tg_username or "").lstrip("@") or None)
+        if len(candidates) > 1:
+            return JSONResponse({"need_choice": True, "candidates": candidates})
+        if len(candidates) == 1:
+            target_cid = candidates[0]["id"]
+
+    if not target_cid:
+        if force_new:
+            # «Я здесь впервые» — обычный поиск снова нашёл бы старый контакт
+            # по email, и выбор человека был бы проигнорирован.
+            target_cid = await create_new_contact(
+                db, client_id=client_id, name=name, email=email_raw or None,
+                phone=phone)
+        else:
+            target_cid, _is_new = await find_or_create_contact(
+                db, client_id=client_id, name=name, email=email_raw or None,
+                phone=phone)
 
     # Привязать email-идентичность, если введён.
     if email_norm:
@@ -3270,24 +3546,56 @@ async def event_register_submit(slug: str, request: Request,
         except Exception:
             pass
 
-    # Обновить данные: введённое — записываем, пустое — не трогаем.
+    # Имя: введённое записываем, пустое не трогаем.
     await db.execute(
         """UPDATE contacts
-              SET name  = COALESCE($2, name),
-                  phone = COALESCE($3, phone),
-                  updated_at = NOW()
+              SET name = COALESCE($2, name), updated_at = NOW()
             WHERE id = $1""",
-        target_cid, name, phone,
+        target_cid, name,
     )
+    # ⚠️ ТЕЛЕФОН — ТОЛЬКО через set_contact_phone (2026-08-28). Здесь он писался
+    # прямым UPDATE, без `phone_normalized`, — а именно по нормализованному
+    # полю ищутся дубли. Человек, оставивший тот же номер в другом формате,
+    # заводился вторым контактом.
+    if phone:
+        try:
+            from app.services.contact_merge import set_contact_phone
+            await set_contact_phone(db, target_cid, phone)
+        except Exception:
+            pass
 
     await _attach_tg(target_cid)
     await _set_consents(
         db, target_cid, request,
         bool(body.get("consent_pd")), bool(body.get("consent_marketing")))
     await _register(target_cid)
+    # ⚠️ КТО ПРИВЁЛ. Веб-форма реф-код не сохраняла вовсе: человек, пришедший по
+    # ссылке спикера или организатора, не засчитывался НИКОМУ — ни в подарках,
+    # ни в Win-Win коллабы. Пишем только если поле пустое (первый выигрывает) и
+    # только чужой код: свой же ref_code сделал бы человека рефералом себя.
+    if ref_code:
+        try:
+            await db.execute(
+                """UPDATE event_participants ep
+                      SET referrer_ref_code = $3
+                    WHERE ep.event_id = $1 AND ep.contact_id = $2
+                      AND ep.referrer_ref_code IS NULL
+                      AND $3 <> COALESCE((SELECT c.ref_code FROM contacts c
+                                           WHERE c.id = ep.contact_id), '')""",
+                event_id, target_cid, ref_code,
+            )
+        except Exception:
+            logger.exception("web-register: referrer_ref_code failed")
+
+    # Экран «спасибо»: письмо + кнопки ботов. Собирает общий хелпер.
+    thanks = await _build_after_register(
+        db, is_collab=bool(event["is_collab"]), event_id=event_id,
+        client_id=client_id, contact_id=target_cid,
+        ref_contact_id=ref_contact_id)
     return JSONResponse({
         "registered": True, "contact_id": target_cid,
         "redirect": f"/event/{real_slug}?c={target_cid}",
+        **thanks,
     })
 
 

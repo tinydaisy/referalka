@@ -269,6 +269,9 @@ type SpeakerMaterials = {
   speaker_video_url: string | null
   announcement_texts: { id: number; content: string; sort: number }[]
   ref_links: { telegram?: string; vk?: string; max?: string }
+  /** Ссылка на форму регистрации прямо на сайте, с реф-кодом спикера.
+   *  Нужна тем, чья аудитория не в мессенджерах, и когда ботов нет вовсе. */
+  web_reg_link?: string
   partner_link: { telegram?: string; vk?: string; max?: string }
   partner_landing_configured: boolean
   // Партнёрский код самого спикера во внешней системе (миграция 118).
@@ -2167,6 +2170,10 @@ function MaterialsTab({
     { key: 'telegram', label: 'Telegram', url: materials.ref_links.telegram },
     { key: 'vk',       label: 'VK',       url: materials.ref_links.vk },
     { key: 'max',      label: 'MAX',      url: materials.ref_links.max },
+    // ⚠️ Веб-ссылка идёт ПОСЛЕДНЕЙ и есть всегда: у части аудитории нет
+    // мессенджеров, а у части клиентов не подключён ни один бот — тогда
+    // остальные строки пустые и раздавать спикеру было нечего.
+    { key: 'web',      label: 'Без мессенджера', url: materials.web_reg_link },
   ].filter(x => !!x.url) as { key: string; label: string; url: string }[]
 
   // Карточка для видео — превью с native controls + кнопка скачать.

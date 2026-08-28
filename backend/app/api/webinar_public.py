@@ -916,22 +916,17 @@ async def register_event(slug: str, day: int, body: RegEventIn):
                 import logging; logging.getLogger(__name__).warning(f"reg-event bot send failed: {e}")
 
         # Нет реального TG (или отправка не удалась) — страница «Выберите мессенджер».
-        from app.services.share_links import get_client_bot_handles, build_support_command_links
-        handles = await get_client_bot_handles(conn, client_id)
-        tg = (handles.get("telegram") or "").lstrip('@')
-        vk = (handles.get("vk") or "").lstrip('@')
-        mx = (handles.get("max") or "").lstrip('@')
-        dl = f"evreg_{target_event_id}_ct{contact_id}"
-        platforms = []
-        if tg:
-            platforms.append({"platform": "telegram", "label": "Telegram",
-                              "url": f"https://t.me/{tg}?start={dl}"})
-        if mx:
-            platforms.append({"platform": "max", "label": "MAX",
-                              "url": f"https://max.ru/{mx}?start={dl}"})
-        if vk:
-            platforms.append({"platform": "vk", "label": "ВКонтакте",
-                              "url": f"https://vk.me/{vk}?ref={dl}"})
+        # ⚠️ Кнопки площадок строит ОБЩИЙ хелпер (2026-08-28) — тот же, что на
+        # экране после веб-регистрации. Своя копия здесь уже была и жила
+        # отдельно: домен TG зашит литералом мимо TG_DOMAIN, площадки события
+        # (disabled_platforms) не учитывались.
+        from app.services.share_links import build_event_reg_bot_links
+        from app.services.event_platforms import enabled_platforms
+        platforms = await build_event_reg_bot_links(
+            conn, client_ids=client_id, event_id=target_event_id,
+            contact_id=contact_id,
+            enabled=await enabled_platforms(conn, target_event_id),
+        )
         return {"ok": True, "delivered": "choose", "event_title": tgt["title"],
                 "platforms": platforms}
 

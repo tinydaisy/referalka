@@ -26,7 +26,7 @@ from app.services.image_processor import process_image, is_image
 from app.services.support_message import support_block_for_event
 # ⚠️ На уровне модуля: хелпер _resolve_landing_link зовётся из нескольких
 # функций, локальный импорт внутри одной из них ему недоступен.
-from app.services.client_domains import public_url_for
+from app.services.client_domains import public_url_for, client_public_link
 from app.services.speaker_lead_magnet_stats import speaker_lead_magnet_stats
 # Порядок слов в имени: список выбора себя и занятые слоты — «Фамилия Имя»
 # (там ИЩУТ), профиль спикера — «Имя Фамилия» (там ПОКАЗЫВАЮТ).
@@ -1188,6 +1188,16 @@ async def get_me_materials(
         "speaker_video_url":  base.get("speaker_video_url"),
         "announcement_texts": [dict(r) for r in texts],
         "ref_links":    ref_links,
+        # ⚠️ ВЕБ-ССЫЛКА БЕЗ МЕССЕНДЖЕРА (2026-08-28). Часть аудитории спикера не
+        # сидит в ботах, а у части клиентов ботов нет вовсе — тогда остальные
+        # ссылки пустые и раздавать нечего. Форма на сайте работает всегда,
+        # реф-код в ней теперь засчитывается (раньше `pid` она игнорировала).
+        "web_reg_link": (
+            await client_public_link(
+                db, int(base["client_id"]),
+                f"/event/{base['event_slug']}/register?pid={base['speaker_ref_code']}")
+            if base.get("speaker_ref_code") else ""
+        ),
         "partner_link": partner_link,
         "partner_landing_configured": partner_landing_configured,
         # Партнёрский код самого спикера во внешней системе клиента

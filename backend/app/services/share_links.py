@@ -323,6 +323,62 @@ def build_support_command_links(handles: dict[str, str | None], event_id: int) -
     }
 
 
+async def build_event_reg_bot_links(
+    db, *, client_ids, event_id: int, contact_id: int,
+    enabled: Optional[set[str]] = None,
+) -> list[dict]:
+    """Кнопки «перейти в бота» для человека, УЖЕ зарегистрированного на событие.
+
+    ⚠️ Deeplink — тот же `evreg_<event_id>_ct<contact_id>`, что у вебинарной
+    комнаты. Свой формат заводить нельзя: обработчик `evreg_` уже написан во
+    ВСЕХ трёх ботах и делает ровно то, что нужно, — цепляет РЕАЛЬНУЮ
+    идентичность бота к контакту из ссылки (`known_contact_id`) и подтверждает
+    регистрацию. Без хвоста `_ct` человек завёлся бы в базе вторым контактом,
+    и веб-регистрация разошлась бы с ботом.
+
+    `client_ids` — чьи боты показываем. Их может быть несколько: в коллабе,
+    когда неизвестно, кто привёл, предлагаем ботов ВСЕХ организаторов.
+    Порядок клиентов сохраняем, дубли площадок отбрасываем — две кнопки
+    «Telegram» подряд читаются как ошибка.
+
+    `enabled` — площадки события (`disabled_platforms`): выключенную
+    организаторы вести не хотят, и предлагать её здесь нельзя.
+    """
+    if isinstance(client_ids, int):
+        client_ids = [client_ids]
+    ids = [int(c) for c in (client_ids or []) if c]
+    if not ids or not contact_id:
+        return []
+
+    dl = f"evreg_{int(event_id)}_ct{int(contact_id)}"
+
+    def _url(platform: str, handle: str) -> str:
+        if platform == "telegram":
+            return f"https://{TG_DOMAIN}/{handle}?start={dl}"
+        if platform == "max":
+            return f"https://max.ru/{handle}?start={dl}"
+        return f"https://vk.me/{handle}?ref={dl}"
+
+    labels = {"telegram": "Telegram", "max": "MAX", "vk": "ВКонтакте"}
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for cid in ids:
+        handles = await get_client_bot_handles(db, cid)
+        for platform in _MULTI_ORDER:          # telegram → max → vk, один порядок везде
+            if platform in seen:
+                continue
+            if enabled is not None and platform not in enabled:
+                continue
+            handle = (handles.get(platform) or "").lstrip("@")
+            if not handle:
+                continue
+            out.append({"platform": platform, "label": labels[platform],
+                        "url": _url(platform, handle)})
+            seen.add(platform)
+    return out
+
+
 async def get_client_vk_app_id(db, client_id: int) -> Optional[int]:
     """Возвращает VK App ID клиентского Mini App (из channels.platform_meta).
     Если клиент не подключил своё сообщество — None (фронт/бэк должны
