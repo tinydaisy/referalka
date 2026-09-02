@@ -72,10 +72,14 @@ async def _get_dashboard(db, dashboard_id: int, client_id: int) -> dict:
 class DashboardIn(BaseModel):
     title: Optional[str] = None
     event_id: Optional[int] = None
+    # Привязка к анкете: дашборд виден и внутри анкеты, и в «Аналитике».
+    survey_id: Optional[int] = None
     # Общие настройки показа — действуют на ВСЕ квадратики дашборда.
     hide_absolute: Optional[bool] = None
     hide_percent: Optional[bool] = None
     primary_metric: Optional[str] = None   # 'count' | 'percent'
+    # Вид показа: 'cards' — плитками, 'columns' — колонками со списком людей.
+    layout: Optional[str] = None
 
 
 class CardIn(BaseModel):
@@ -92,16 +96,28 @@ class CardIn(BaseModel):
 
 # ── Справочник разрезов ───────────────────────────────────────────────────
 @router.get("/sources", summary="Доступные разрезы: поля контакта и вопросы анкет")
-async def list_sources(client=Depends(get_current_client), db=Depends(get_db)):
+async def list_sources(
+    survey_id: Optional[int] = Query(default=None),
+    client=Depends(get_current_client), db=Depends(get_db),
+):
     """Чем можно резать базу и какие операторы у каждого типа.
 
     ⚠️ Отдаём ОБА источника — поля контакта и вопросы анкет. У клиента
     вопросы анкет обычно не привязаны к полям (`field_id IS NULL`), и без
     них нечем было бы пересекать «доход × готовность к наставнику».
+
+    `survey_id` сужает список до вопросов ОДНОЙ анкеты — это нужно разделу
+    «Дашборды анкеты»: там выбирают из своих вопросов, а не из всех сразу
+    (у клиента их под сотню, и одинаковые вопросы разных анкет не различить).
+    Поля контакта остаются: ими режут ответы («кто из ответивших с доходом
+    от 200 тысяч»).
     """
     client_id = int(client["sub"])
     sources = await resolve_sources(db, client_id)
     items = list(sources.values())
+    if survey_id:
+        items = [it for it in items
+                 if it["source"] == "field" or it.get("survey_id") == survey_id]
     for it in items:
         it["key"] = f"{it['source']}:{it['ref_id']}"
         it["operators"] = OPERATORS_BY_KIND.get(it["kind"], ["filled", "empty"])
@@ -113,9 +129,17 @@ async def list_sources(client=Depends(get_current_client), db=Depends(get_db)):
 @router.get("/dashboards", summary="Список дашбордов")
 async def list_dashboards(
     event_id: Optional[int] = Query(default=None),
+    survey_id: Optional[int] = Query(default=None),
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
+    """Дашборды: все клиента, конкретного события или конкретной анкеты.
+
+    ⚠️ Дашборд анкеты — не отдельная сущность, а обычный дашборд с привязкой.
+    Поэтому в разделе «Аналитика» видны ВСЕ дашборды клиента, включая
+    анкетные, а внутри анкеты — только её (решение владельца: это два входа
+    в одно место, а не два разных списка).
+    """
     client_id = int(client["sub"])
     if event_id:
         await _assert_owns_event(db, event_id, client_id)
@@ -125,11 +149,27 @@ async def list_dashboards(
                 ORDER BY sort_order, id""",
             client_id, event_id,
         )
-    else:
+    elif survey_id:
+        own = await db.fetchval(
+            "SELECT 1 FROM surveys WHERE id=$1 AND client_id=$2", survey_id, client_id)
+        if not own:
+            raise HTTPException(status_code=404, detail="Анкета не найдена")
         rows = await db.fetch(
             """SELECT * FROM analytics_dashboards
-                WHERE client_id = $1 AND event_id IS NULL
+                WHERE client_id = $1 AND survey_id = $2
                 ORDER BY sort_order, id""",
+            client_id, survey_id,
+        )
+    else:
+        # Раздел «Аналитика»: общие + анкетные. Событийные остаются внутри
+        # своего события — там их и настраивают, а в общем списке они
+        # выглядели бы оторванными от события, к которому относятся.
+        rows = await db.fetch(
+            """SELECT d.*, s.title AS survey_title
+                 FROM analytics_dashboards d
+                 LEFT JOIN surveys s ON s.id = d.survey_id
+                WHERE d.client_id = $1 AND d.event_id IS NULL
+                ORDER BY d.sort_order, d.id""",
             client_id,
         )
     return {"dashboards": [dict(r) for r in rows]}
@@ -146,15 +186,24 @@ async def create_dashboard(
     if data.event_id:
         await _assert_owns_event(db, data.event_id, client_id)
 
+    if data.survey_id:
+        own = await db.fetchval(
+            "SELECT 1 FROM surveys WHERE id=$1 AND client_id=$2",
+            data.survey_id, client_id)
+        if not own:
+            raise HTTPException(status_code=404, detail="Анкета не найдена")
+
     title = (data.title or "").strip() or "Дашборд"
     row = await db.fetchrow(
-        """INSERT INTO analytics_dashboards (client_id, event_id, title, sort_order)
-           VALUES ($1, $2, $3,
+        """INSERT INTO analytics_dashboards
+             (client_id, event_id, survey_id, title, sort_order)
+           VALUES ($1, $2, $4, $3,
                    COALESCE((SELECT MAX(sort_order) + 10 FROM analytics_dashboards
                               WHERE client_id = $1
-                                AND event_id IS NOT DISTINCT FROM $2), 0))
+                                AND event_id IS NOT DISTINCT FROM $2
+                                AND survey_id IS NOT DISTINCT FROM $4), 0))
            RETURNING *""",
-        client_id, data.event_id, title,
+        client_id, data.event_id, title, data.survey_id,
     )
     return dict(row)
 
@@ -186,6 +235,8 @@ async def update_dashboard(
     if "primary_metric" in fs:
         _add("primary_metric = ${i}",
              "percent" if data.primary_metric == "percent" else "count")
+    if "layout" in fs:
+        _add("layout = ${i}", "columns" if data.layout == "columns" else "cards")
 
     if sets:
         params.append(dashboard_id)

@@ -290,6 +290,9 @@ class QuestionIn(BaseModel):
     sort_order: Optional[int] = None
     # Привязка к полю контакта: ответ ляжет в карточку человека.
     field_id: Optional[int] = None
+    # Кто заполняет: 'visitor' — посетитель в анкете, 'staff' — основатель и
+    # сотрудники при обработке заявки (посетитель такой вопрос не видит).
+    filled_by: Optional[str] = None
 
 
 async def _survey_links(db, client_id: int, slug: str) -> dict:
@@ -488,14 +491,20 @@ async def add_question(
     if not title:
         raise HTTPException(400, "Впишите текст вопроса")
 
+    # ⚠️ Поле сотрудника с полем контакта не связывается. Поле контакта — одно
+    # значение на человека, а обрабатывают КАЖДУЮ заявку отдельно: у человека
+    # с двумя заявками отметки должны быть независимыми.
+    filled_by = 'staff' if data.filled_by == 'staff' else 'visitor'
+    field_id = None if filled_by == 'staff' else data.field_id
+
     # Вопрос привязан к полю контакта → тип и варианты берём у поля, чтобы
     # ответ гарантированно лёг в карточку и совпал с уже накопленными.
     kind, options = data.kind, _norm_options(data.options)
     scale_min, scale_max = data.scale_min, data.scale_max
-    if data.field_id:
+    if field_id:
         f = await db.fetchrow(
             "SELECT * FROM contact_fields WHERE id=$1 AND client_id=$2",
-            data.field_id, client_id)
+            field_id, client_id)
         if not f:
             raise HTTPException(404, "Поле контакта не найдено")
         kind = f["kind"]
@@ -503,20 +512,26 @@ async def add_question(
         scale_min, scale_max = f["scale_min"], f["scale_max"]
 
     import json as _json
+    # Порядок считаем внутри своей группы: поля сотрудника живут за отметкой
+    # 10000, чтобы не перемешиваться с вопросами посетителя при перетаскивании.
+    base_order = 10000 if filled_by == 'staff' else 0
     row = await db.fetchrow(
         """INSERT INTO survey_questions
              (survey_id, field_id, title, hint, kind, options,
-              scale_min, scale_max, is_required, sort_order, image_url)
+              scale_min, scale_max, is_required, sort_order, image_url,
+              filled_by)
            VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,COALESCE($9,FALSE),
-                   COALESCE($10,(SELECT COALESCE(MAX(sort_order),0)+1
-                                   FROM survey_questions WHERE survey_id=$1)),
-                   $11)
+                   COALESCE($10,(SELECT COALESCE(MAX(sort_order),$12)+10
+                                   FROM survey_questions
+                                  WHERE survey_id=$1 AND filled_by=$13)),
+                   $11, $13)
         RETURNING *""",
-        survey_id, data.field_id, title, data.hint, kind,
+        survey_id, field_id, title, data.hint, kind,
         _json.dumps(options if isinstance(options, list) else []),
         scale_min if kind == 'scale' else None,
         scale_max if kind == 'scale' else None,
         data.is_required, data.sort_order, data.image_url,
+        base_order, filled_by,
     )
     return {**dict(row), "options": _jsonb(row["options"])}
 
@@ -530,6 +545,12 @@ async def update_question(
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
     await _assert_feature(db, int(client["sub"]))
     await _assert_own_survey(db, survey_id, int(client["sub"]))
+
+    cur = await db.fetchrow(
+        "SELECT filled_by, is_protected FROM survey_questions "
+        "WHERE id=$1 AND survey_id=$2", question_id, survey_id)
+    if not cur:
+        raise HTTPException(404, "Вопрос не найден")
 
     fs = data.model_fields_set
     sets, vals = [], []
@@ -560,7 +581,16 @@ async def update_question(
     if 'sort_order' in fs:
         add('sort_order', data.sort_order)
     if 'field_id' in fs:
-        add('field_id', data.field_id)
+        # Поле сотрудника с полем контакта не связывается — см. add_question.
+        add('field_id', None if cur["filled_by"] == 'staff' else data.field_id)
+    if 'filled_by' in fs and data.filled_by in ('visitor', 'staff'):
+        # ⚠️ Защищённое поле переключить в вопрос посетителя нельзя: иначе
+        # «Обработано» уехало бы в публичную анкету, и её заполняли бы люди.
+        if cur["is_protected"] and data.filled_by != 'staff':
+            raise HTTPException(
+                400, "Поле «Обработано» заполняете вы и ваши сотрудники — "
+                     "посетителю его показать нельзя.")
+        add('filled_by', data.filled_by)
     if not sets:
         raise HTTPException(400, "Нечего менять")
 
@@ -611,11 +641,24 @@ async def delete_question(
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
     await _assert_feature(db, int(client["sub"]))
     await _assert_own_survey(db, survey_id, int(client["sub"]))
-    res = await db.execute(
+
+    # ⚠️ «Обработано» удалить нельзя: на неё опирается разбор заявок — по ней
+    # красится строка в таблице и строится дашборд анкеты. Проверка по флагу,
+    # а не по названию: клиент вправе переписать заголовок под свой процесс,
+    # и после переименования защита не должна отваливаться.
+    q = await db.fetchrow(
+        "SELECT is_protected FROM survey_questions WHERE id=$1 AND survey_id=$2",
+        question_id, survey_id)
+    if not q:
+        raise HTTPException(404, "Вопрос не найден")
+    if q["is_protected"]:
+        raise HTTPException(
+            400, "Поле «Обработано» удалить нельзя — по нему ведётся разбор "
+                 "заявок. Его можно переименовать.")
+
+    await db.execute(
         "DELETE FROM survey_questions WHERE id=$1 AND survey_id=$2",
         question_id, survey_id)
-    if res.endswith("0"):
-        raise HTTPException(404, "Вопрос не найден")
     return {"ok": True}
 
 
@@ -865,11 +908,100 @@ async def get_response(
 
 @router.get("/surveys/{survey_id}/responses")
 async def list_responses(
-    survey_id: int, client=Depends(get_current_client), db=Depends(get_db),
+    survey_id: int,
+    sort: str = "created_at",
+    dir: str = "desc",
+    q: str = "",
+    processed: str = "all",
+    filters: str = "",
+    limit: int = 500,
+    offset: int = 0,
+    client=Depends(get_current_client), db=Depends(get_db),
 ):
-    """Кто и когда заполнил — с ответами. Для таблицы «все ответы»."""
+    """Таблица заявок: кто заполнил, что ответил, что отметил сотрудник.
+
+    Сортировка — по любому столбцу (клик по заголовку), по умолчанию свежие
+    сверху. Фильтры — тем же конструктором условий, что в дашбордах: люди
+    одни и те же, и два разных языка отбора клиента бы запутали.
+    """
     client_id = int(client["sub"])
     await _assert_own_survey(db, survey_id, client_id)
+
+    # Поле «Обработано» — по нему красится строка и фильтруется список.
+    flag = await db.fetchrow(
+        "SELECT id FROM survey_questions "
+        "WHERE survey_id=$1 AND filled_by='staff' AND is_protected LIMIT 1",
+        survey_id)
+    flag_id = flag["id"] if flag else None
+
+    params: list = [survey_id]
+    where = ["r.survey_id = $1"]
+
+    # Поиск по человеку: имя, почта, телефон, ники площадок.
+    if (q or "").strip():
+        params.append(f"%{q.strip()}%")
+        n = len(params)
+        where.append(
+            f"""(c.name ILIKE ${n} OR c.phone ILIKE ${n}
+                 OR EXISTS (SELECT 1 FROM platform_users pu
+                             WHERE pu.contact_id = c.id
+                               AND (pu.platform_user_id ILIKE ${n}
+                                    OR pu.username ILIKE ${n})))""")
+
+    # «Обработано / не обработано» — самый частый отбор, поэтому отдельно
+    # от конструктора условий: ради него не надо собирать дерево.
+    if flag_id and processed in ("yes", "no"):
+        params.append(flag_id)
+        n = len(params)
+        exists = (f"EXISTS (SELECT 1 FROM survey_answers sa WHERE sa.response_id = r.id "
+                  f"AND sa.question_id = ${n} AND sa.value = 'Да')")
+        where.append(exists if processed == "yes" else f"NOT {exists}")
+
+    # Конструктор условий из дашбордов — работает по контакту.
+    if (filters or "").strip():
+        from app.services.analytics_cards import build_filters_sql, _Params
+        import json as _json
+        try:
+            tree = _json.loads(filters)
+        except ValueError:
+            tree = None
+        if tree:
+            # ⚠️ _Params копирует список, поэтому параметры забираем обратно —
+            # иначе добавленные им значения потеряются и номера $N разъедутся.
+            p = _Params(params)
+            cond = build_filters_sql(tree, p)
+            if cond != "TRUE":
+                where.append(cond)
+                params = p.values
+
+    # ⚠️ Сортировка — только по разрешённому списку: имя столбца подставляется
+    # в SQL, и принимать его от браузера как есть нельзя.
+    sort_map = {
+        "created_at": "r.created_at",
+        "name": "c.name",
+        "phone": "c.phone",
+        "email": "email",
+        "processed": "processed",
+    }
+    order_col = sort_map.get(sort)
+    if order_col is None and sort.startswith("q:"):
+        # Сортировка по ответу на конкретный вопрос.
+        try:
+            qid = int(sort[2:])
+        except ValueError:
+            qid = 0
+        if qid:
+            params.append(qid)
+            order_col = (f"(SELECT sa.value FROM survey_answers sa "
+                         f"WHERE sa.response_id = r.id AND sa.question_id = ${len(params)})")
+    order_col = order_col or "r.created_at"
+    order_dir = "ASC" if (dir or "").lower() == "asc" else "DESC"
+
+    limit = max(1, min(int(limit or 500), 2000))
+    offset = max(0, int(offset or 0))
+    params.extend([limit, offset])
+    lim_n, off_n = len(params) - 1, len(params)
+
     rows = await db.fetch(
         """SELECT r.id, r.created_at, r.platform_slug, r.contact_id,
                   c.name, c.phone,
@@ -892,15 +1024,100 @@ async def list_responses(
                     LIMIT 1) AS max_nick,
                   COALESCE(json_agg(json_build_object(
                       'question_id', a.question_id, 'value', a.value
-                  ) ORDER BY a.question_id) FILTER (WHERE a.id IS NOT NULL), '[]') AS answers
+                  ) ORDER BY a.question_id) FILTER (WHERE a.id IS NOT NULL), '[]') AS answers,
+                  """ + (
+                      f"EXISTS (SELECT 1 FROM survey_answers sa "
+                      f"WHERE sa.response_id = r.id AND sa.question_id = {int(flag_id)} "
+                      f"AND sa.value = 'Да')" if flag_id else "FALSE"
+                  ) + """ AS processed
              FROM survey_responses r
              JOIN contacts c ON c.id = r.contact_id
              LEFT JOIN survey_answers a ON a.response_id = r.id
-            WHERE r.survey_id = $1
+            WHERE """ + " AND ".join(where) + f"""
             GROUP BY r.id, c.id
-            ORDER BY r.created_at DESC
-            LIMIT 500""",
-        survey_id)
+            ORDER BY {order_col} {order_dir} NULLS LAST, r.id DESC
+            LIMIT ${lim_n} OFFSET ${off_n}""",
+        *params)
+
+    total = await db.fetchval(
+        "SELECT COUNT(*) FROM survey_responses r JOIN contacts c ON c.id = r.contact_id "
+        "WHERE " + " AND ".join(where), *params[:-2])
+
     # ⚠️ json_agg приходит СТРОКОЙ — без разворота фронт не может пройтись по
     # ответам (та же засада, что с `options`).
-    return [{**dict(r), "answers": _jsonb(r["answers"])} for r in rows]
+    return {
+        "responses": [{**dict(r), "answers": _jsonb(r["answers"])} for r in rows],
+        "total": total,
+    }
+
+
+@router.put("/surveys/{survey_id}/responses/{response_id}/staff-answers")
+async def save_staff_answers(
+    survey_id: int, response_id: int, data: dict,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Отметки сотрудника по заявке: галочка «Обработано», заметка и прочее.
+
+    Правится из ДВУХ мест — прямо в таблице и в карточке заявки; эндпоинт
+    один, чтобы поведение в них не разъехалось.
+
+    ⚠️ Ответ сотрудника ложится в ту же `survey_answers`, что и ответ
+    посетителя: поле сотрудника — это обычный вопрос анкеты, просто с другим
+    заполняющим. Отдельного хранилища нет, поэтому дашборды и выгрузка видят
+    эти отметки наравне с остальными ответами, без единой строчки правок.
+    """
+    client_id = int(client["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_own_survey(db, survey_id, client_id)
+
+    # Помощнику с ограниченными правами обработка заявок РАЗРЕШЕНА: ради неё
+    # его и заводят. Закрыто у него другое — правка самих анкет и вопросов.
+    r = await db.fetchrow(
+        "SELECT id FROM survey_responses WHERE id=$1 AND survey_id=$2",
+        response_id, survey_id)
+    if not r:
+        raise HTTPException(404, "Заявка не найдена")
+
+    answers = data.get("answers") or {}
+    if not isinstance(answers, dict):
+        raise HTTPException(400, "Ожидается объект с ответами")
+
+    # ⚠️ Писать можно ТОЛЬКО в поля сотрудника этой анкеты: иначе через эту
+    # ручку правились бы ответы посетителя, и было бы не разобрать, что
+    # человек написал сам, а что дописали за него.
+    allowed = {
+        q["id"]: q for q in await db.fetch(
+            "SELECT id, kind FROM survey_questions "
+            "WHERE survey_id=$1 AND filled_by='staff'", survey_id)
+    }
+
+    # Общий хелпер с публичной анкетой — второй реализации быть не должно,
+    # иначе «Да»/«Нет» в кабинете и в анкете начнут писаться по-разному.
+    from app.api.surveys_public import _answer_to_text
+
+    import json as _json
+    saved = 0
+    for qid, raw in answers.items():
+        try:
+            q = allowed[int(qid)]
+        except (ValueError, KeyError):
+            continue
+        text = _answer_to_text(raw, q["kind"])
+        if text:
+            await db.execute(
+                """INSERT INTO survey_answers (response_id, question_id, value, value_json)
+                   VALUES ($1,$2,$3,$4::jsonb)
+                   ON CONFLICT (response_id, question_id)
+                   DO UPDATE SET value = EXCLUDED.value,
+                                 value_json = EXCLUDED.value_json""",
+                response_id, q["id"], text, _json.dumps(raw))
+        else:
+            # Пустое значение — это снятая галочка или стёртая заметка.
+            # Пустую строку не храним: тогда «не отвечено» и «ответили пусто»
+            # считались бы разным, и дашборд врал бы.
+            await db.execute(
+                "DELETE FROM survey_answers WHERE response_id=$1 AND question_id=$2",
+                response_id, q["id"])
+        saved += 1
+
+    return {"ok": True, "saved": saved}

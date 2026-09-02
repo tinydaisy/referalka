@@ -39,12 +39,20 @@ def _jsonb(value: Any) -> Any:
     return value if value is not None else []
 
 
-def _answer_to_text(value: Any) -> str:
+def _answer_to_text(value: Any, kind: str | None = None) -> str:
     """Человекочитаемое представление ответа — оно идёт в карточку контакта,
-    выгрузки и отчёт. Для нескольких вариантов — через запятую."""
+    выгрузки и отчёт. Для нескольких вариантов — через запятую.
+
+    ⚠️ У галочки (`kind='bool'`) снятое состояние даёт ПУСТУЮ строку, а не
+    «Нет»: пустой ответ вызывающий код удаляет, и только так галочку можно
+    снять обратно. В анкете посетителя `kind` не передаётся — там `False`
+    по-прежнему сохраняется словом «Нет» (человек осознанно выбрал вариант).
+    """
     if value is None:
         return ""
     if isinstance(value, bool):
+        if kind == 'bool':
+            return "Да" if value else ""
         return "Да" if value else "Нет"
     if isinstance(value, list):
         return ", ".join(str(v).strip() for v in value if str(v).strip())
@@ -85,6 +93,7 @@ async def get_public_survey(
              FROM survey_questions q
              LEFT JOIN contact_fields f ON f.id = q.field_id
             WHERE q.survey_id = $1
+              AND q.filled_by = 'visitor'
             ORDER BY q.sort_order, q.id""",
         s["id"])
 
@@ -239,8 +248,13 @@ async def submit_survey(
         raise HTTPException(404, "Анкета не найдена")
     client_id = s["client_id"]
 
+    # ⚠️ Только вопросы посетителя. Фильтра на выдаче недостаточно: ответ
+    # можно отправить и мимо формы, а поля сотрудника («Обработано», заметки)
+    # посетитель заполнять не должен ни при каких обстоятельствах.
     qs = await db.fetch(
-        "SELECT * FROM survey_questions WHERE survey_id = $1 ORDER BY sort_order, id",
+        """SELECT * FROM survey_questions
+            WHERE survey_id = $1 AND filled_by = 'visitor'
+            ORDER BY sort_order, id""",
         s["id"])
     by_id = {q["id"]: q for q in qs}
 
