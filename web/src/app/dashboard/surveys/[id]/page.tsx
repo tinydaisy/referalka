@@ -8,12 +8,13 @@
  * поля, чтобы накопленные значения не разъехались.
  */
 import { useEffect, useState } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import AnswersTable from '@/components/surveys/AnswersTable'
 import DashboardView from '@/components/analytics/DashboardView'
 import { useMe } from '@/hooks/useMe'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink, Pencil, Lock } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 
@@ -30,18 +31,18 @@ const KINDS = [
 const NEEDS_OPTIONS = new Set(['select', 'multiselect'])
 const kindLabel = (k: string) => KINDS.find(x => x.value === k)?.label || k
 
+type SurveyTab = 'edit' | 'answers' | 'report' | 'dashboard'
+const SURVEY_TABS: readonly SurveyTab[] = ['edit', 'answers', 'report', 'dashboard']
+
 export default function SurveyPage() {
   const { id } = useParams<{ id: string }>()
-  const search = useSearchParams()
   const { isAssistant } = useMe()
   // ⚠️ Ответы и отчёт — РАЗНЫЕ вкладки (решение владельца): список
   // заполнивших и сводка по вопросам — разные задачи, смешивать нельзя.
-  const [tab, setTab] = useState<'edit' | 'answers' | 'report' | 'dashboard'>(() => {
-    const t = search.get('tab')
-    return t === 'report' ? 'report'
-         : t === 'answers' ? 'answers'
-         : t === 'dashboard' ? 'dashboard' : 'edit'
-  })
+  // ⚠️ Через useUrlTab: он не только читает вкладку из адреса, но и ПИШЕТ её
+  // туда при переключении. Без записи обновление страницы всегда возвращало
+  // на «Вопросы и настройки», даже если человек работал с ответами.
+  const [tab, setTab] = useUrlTab<SurveyTab>('tab', 'edit', SURVEY_TABS)
   const [survey, setSurvey] = useState<any>(null)
   const [fields, setFields] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -77,7 +78,7 @@ export default function SurveyPage() {
       <div className="mb-6 flex gap-2 border-b border-gray-200">
         {([
           ['edit', 'Вопросы и настройки'],
-          ['answers', 'Заявки'],
+          ['answers', 'Ответы'],
           ['report', 'Отчёт'],
           ['dashboard', 'Дашборды анкеты'],
         ] as const).map(([key, label]) => (
@@ -794,13 +795,22 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved, filledBy }
         </label>
       )}
 
-      {!linked && (
+      {/* ⚠️ У «Обработано» тип менять нельзя: на галочке держится подсветка
+          строк, отбор «обработаны» и дашборд. Название — можно. */}
+      {!linked && !question?.is_protected && (
         <label className="mb-3 block">
           <span className="mb-1 block text-sm text-gray-600">Что вписывают</span>
           <select className="input bg-white" value={kind} onChange={e => setKind(e.target.value)}>
             {KINDS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
           </select>
         </label>
+      )}
+
+      {question?.is_protected && (
+        <p className="mb-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
+          Это галочка «обработано» — по ней подсвечиваются разобранные
+          ответы и считается дашборд. Поменять можно только название.
+        </p>
       )}
 
       {NEEDS_OPTIONS.has(effKind) && (

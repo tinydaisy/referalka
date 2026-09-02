@@ -138,6 +138,20 @@ function Leaf({ node, sources, onChange, onRemove }: {
             {(meta.options || []).length === 0 && (
               <span className="text-xs text-gray-400">Вариантов нет</span>
             )}
+            {/* ⚠️ «Не заполнено» прямо в списке вариантов: поле заполнено не
+                у всех, и это самый частый отбор. Искать его отдельным
+                оператором в выпадающем меню люди не догадываются. Выбор
+                переключает сам оператор — в дереве это `empty`, а не
+                вариант ответа. */}
+            <label className="flex items-start gap-1.5 border-b border-gray-100 pb-1 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={false}
+                onChange={() => onChange({ ...node, operator: 'empty', values: [] })}
+              />
+              <span className="text-gray-500">Не заполнено</span>
+            </label>
             {(meta.options || []).map(opt => (
               <label key={opt} className="flex items-start gap-1.5 text-sm">
                 <input

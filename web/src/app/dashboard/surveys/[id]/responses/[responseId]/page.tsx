@@ -54,7 +54,7 @@ export default function SurveyResponsePage() {
       <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
         <Link href={`/dashboard/surveys/${id}?tab=answers`}
               className="flex items-center gap-2 text-gray-500 hover:text-gray-700">
-          <ArrowLeft size={14} /> Назад к заявкам
+          <ArrowLeft size={14} /> Назад к ответам
         </Link>
         {/* В карточке контакта рядом со сведениями открыта переписка —
             отсюда можно сразу ответить человеку. */}
@@ -78,7 +78,7 @@ export default function SurveyResponsePage() {
         <div className="mb-6 rounded-xl border-2 p-4"
              style={{ borderColor: `${DARK}33`, background: `${DARK}0A` }}>
           <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-gray-800">
-            <Lock size={14} className="text-gray-500" /> Обработка заявки
+            <Lock size={14} className="text-gray-500" /> Обработка ответа
           </h2>
           <p className="mb-3 text-xs text-gray-500">
             Это видите только вы и ваши помощники — посетителю не показывается.
@@ -137,7 +137,7 @@ export default function SurveyResponsePage() {
 }
 
 /**
- * Поле сотрудника в карточке заявки.
+ * Поле сотрудника в карточке ответа.
  *
  * Галочка сохраняется сразу по клику, текст — когда уходишь из поля: слать
  * запрос на каждую букву не нужно.
@@ -191,7 +191,7 @@ function StaffField({ surveyId, responseId, question }: any) {
         {done && <Check size={13} className="text-green-600" />}
       </span>
       {question.kind === 'textarea' ? (
-        <textarea {...common} rows={4} placeholder="Заметка по заявке" />
+        <textarea {...common} rows={4} placeholder="Заметка" />
       ) : question.kind === 'select' && Array.isArray(question.options) ? (
         <select value={val} disabled={saving} className="input bg-white"
                 onChange={e => { setVal(e.target.value); save(e.target.value) }}>

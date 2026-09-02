@@ -1,13 +1,13 @@
 'use client'
 
 /**
- * Таблица заявок анкеты.
+ * Таблица ответов на анкету.
  *
  * Зачем отдельным файлом: страница анкеты уже за тысячу строк, а тут
  * сортировка, фильтры, настройка колонок и правка полей сотрудника прямо в
  * ячейках — вместе они сделали бы файл нечитаемым.
  *
- * ⚠️ Поля сотрудника правятся ОТСЮДА и из карточки заявки. Эндпоинт у обоих
+ * ⚠️ Поля сотрудника правятся ОТСЮДА и из карточки ответа. Эндпоинт у обоих
  * общий (`PUT .../staff-answers`), иначе поведение в двух местах разъехалось
  * бы: где-то галочка снимается, где-то нет.
  */
@@ -97,7 +97,7 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
   }
 
   // ⚠️ Поиск ждёт паузы в наборе: без задержки запрос уходил бы на каждую
-  // букву, и при 135 заявках список дёргался бы на каждом нажатии.
+  // букву, и на сотне ответов список дёргался бы на каждом нажатии.
   useEffect(() => {
     const t = setTimeout(() => { load() }, q ? 400 : 0)
     return () => clearTimeout(t)
@@ -123,6 +123,24 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
       ? visible.filter(k => k !== key)
       : [...visible, key]
     saveVisible(next)
+  }
+
+  /** Переставить столбец в сохранённом порядке. */
+  const moveCol = (i: number, delta: number) => {
+    const next = [...visible]
+    const j = i + delta
+    if (j < 0 || j >= next.length) return
+    const [moved] = next.splice(i, 1)
+    next.splice(j, 0, moved)
+    saveVisible(next)
+  }
+
+  /** Подпись столбца по ключу — и для человека, и для вопроса. */
+  const titleOf = (key: string) => {
+    const p = PERSON_COLUMNS.find(c => c.key === key)
+    if (p) return p.title
+    const qid = Number(key.replace('q:', ''))
+    return questions.find(x => x.id === qid)?.title || key
   }
 
   const clickSort = (key: string) => {
@@ -152,8 +170,17 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
 
   if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
 
-  const shownPerson = PERSON_COLUMNS.filter(c => visible.includes(c.key))
-  const shownQuestions = questions.filter(x => visible.includes(`q:${x.id}`))
+  // ⚠️ Столбцы строим ПО СОХРАНЁННОМУ ПОРЯДКУ (`visible`), а не фильтрацией
+  // фиксированных массивов: иначе перестановка в «Настройке отображения»
+  // ни на что не влияла бы.
+  const shownCols = visible
+    .map((key: string) => {
+      const p = PERSON_COLUMNS.find(c => c.key === key)
+      if (p) return { kind: 'person' as const, key, title: p.title }
+      const q = questions.find(x => `q:${x.id}` === key)
+      return q ? { kind: 'question' as const, key, title: q.title, q } : null
+    })
+    .filter(Boolean) as any[]
 
   return (
     <div>
@@ -161,9 +188,13 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          {/* ⚠️ Отступ под лупу задаём INLINE: у класса `.input` свой
+              `padding` из globals.css, и Tailwind-утилита `pl-9` его не
+              перебивает — тот же слой. Из-за этого текст подсказки налезал
+              на иконку. */}
           <input value={q} onChange={e => setQ(e.target.value)}
                  placeholder="Имя, почта, телефон, ник"
-                 className="input pl-9" />
+                 className="input" style={{ paddingLeft: '2.25rem' }} />
         </div>
 
         <div className="flex overflow-hidden rounded-lg border border-gray-200">
@@ -209,7 +240,7 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
       )}
 
       <p className="mb-2 text-sm text-gray-500">
-        Заявок: <b className="text-gray-800">{total}</b>
+        Ответов: <b className="text-gray-800">{total}</b>
         {rows.length < total && ` · показаны первые ${rows.length}`}
       </p>
 
@@ -217,21 +248,17 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
         <p className="text-sm text-gray-400">
           {q || processed !== 'all'
             ? 'По этому отбору ничего не нашлось.'
-            : 'Анкету пока никто не заполнил. Отправьте ссылку — заявки появятся здесь.'}
+            : 'Анкету пока никто не заполнил. Отправьте ссылку — ответы появятся здесь.'}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200">
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-600">
-                {shownPerson.map(c => (
+                {shownCols.map(c => (
                   <Th key={c.key} title={c.title} active={sort === c.key} dir={dir}
+                      staff={c.kind === 'question' && c.q.filled_by === 'staff'}
                       onClick={() => clickSort(c.key)} />
-                ))}
-                {shownQuestions.map(x => (
-                  <Th key={x.id} title={x.title} active={sort === `q:${x.id}`} dir={dir}
-                      staff={x.filled_by === 'staff'}
-                      onClick={() => clickSort(`q:${x.id}`)} />
                 ))}
                 <th className="px-3 py-2" />
               </tr>
@@ -241,46 +268,51 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
                 <tr key={r.id}
                     className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
                     /* ⚠️ Обработанные подсвечены полупрозрачным фирменным
-                       синим: полоса цвета сразу показывает, что разобрано. */
-                    style={r.processed ? { background: `${DARK}14` } : undefined}>
-                  {shownPerson.map(c => (
-                    <td key={c.key} className="px-3 py-2">
-                      {c.key === 'created_at' ? (
-                        <span className="whitespace-nowrap text-gray-500">{fmtDate(r.created_at)}</span>
-                      ) : c.key === 'name' ? (
-                        <button
-                          onClick={() => router.push(`/dashboard/surveys/${surveyId}/responses/${r.id}`)}
-                          className="font-medium hover:underline" style={{ color: DARK }}>
-                          {r.name || 'Без имени'}
-                        </button>
-                      ) : (
-                        <span className="text-gray-700">{r[c.key] || '—'}</span>
-                      )}
-                    </td>
-                  ))}
-
-                  {shownQuestions.map(x => (
-                    <td key={x.id} className="px-3 py-2 align-top">
-                      {x.filled_by === 'staff' ? (
-                        <StaffCell surveyId={surveyId} responseId={r.id} question={x}
-                                   value={answerOf(r, x.id)}
-                                   onSaved={(val: string) => {
-                                     setRows(list => list.map(row => row.id !== r.id ? row : {
-                                       ...row,
-                                       processed: x.is_protected ? val === 'Да' : row.processed,
-                                       answers: [
-                                         ...(row.answers || []).filter((a: any) => a.question_id !== x.id),
-                                         ...(val ? [{ question_id: x.id, value: val }] : []),
-                                       ],
-                                     }))
-                                   }} />
-                      ) : (
-                        <span className="block max-w-[280px] whitespace-pre-wrap break-words text-gray-700">
-                          {answerOf(r, x.id) || '—'}
-                        </span>
-                      )}
-                    </td>
-                  ))}
+                       синим. Прозрачность 8% (`14`) читалась как обычный
+                       серый — подняли до 22% (`38`), чтобы цвет был виден. */
+                    style={r.processed ? { background: `${DARK}38` } : undefined}>
+                  {shownCols.map((c: any) => {
+                    if (c.kind === 'person') {
+                      return (
+                        <td key={c.key} className="px-3 py-2">
+                          {c.key === 'created_at' ? (
+                            <span className="whitespace-nowrap text-gray-500">{fmtDate(r.created_at)}</span>
+                          ) : c.key === 'name' ? (
+                            <button
+                              onClick={() => router.push(`/dashboard/surveys/${surveyId}/responses/${r.id}`)}
+                              className="font-medium hover:underline" style={{ color: DARK }}>
+                              {r.name || 'Без имени'}
+                            </button>
+                          ) : (
+                            <span className="text-gray-700">{r[c.key] || '—'}</span>
+                          )}
+                        </td>
+                      )
+                    }
+                    const x = c.q
+                    return (
+                      <td key={c.key} className="px-3 py-2 align-top">
+                        {x.filled_by === 'staff' ? (
+                          <StaffCell surveyId={surveyId} responseId={r.id} question={x}
+                                     value={answerOf(r, x.id)}
+                                     onSaved={(val: string) => {
+                                       setRows(list => list.map(row => row.id !== r.id ? row : {
+                                         ...row,
+                                         processed: x.is_protected ? val === 'Да' : row.processed,
+                                         answers: [
+                                           ...(row.answers || []).filter((a: any) => a.question_id !== x.id),
+                                           ...(val ? [{ question_id: x.id, value: val }] : []),
+                                         ],
+                                       }))
+                                     }} />
+                        ) : (
+                          <span className="block max-w-[280px] whitespace-pre-wrap break-words text-gray-700">
+                            {answerOf(r, x.id) || '—'}
+                          </span>
+                        )}
+                      </td>
+                    )
+                  })}
 
                   <td className="px-3 py-2 text-right">
                     <button onClick={e => removeResponse(e, r)} disabled={removing === r.id}
@@ -299,7 +331,8 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
       {showCols && (
         <ColumnsModal
           person={PERSON_COLUMNS} visitor={visitorQuestions} staff={staffQuestions}
-          visible={visible} onToggle={toggleCol} onClose={() => setShowCols(false)} />
+          visible={visible} onToggle={toggleCol} onMove={moveCol} titleOf={titleOf}
+          onClose={() => setShowCols(false)} />
       )}
     </div>
   )
@@ -400,7 +433,7 @@ function StaffCell({ surveyId, responseId, question, value, onSaved }: any) {
  * Группы — только заголовки для удобства, целиком они не переключаются
  * (требование владельца: «каждое поле можно добавить или убавить»).
  */
-function ColumnsModal({ person, visitor, staff, visible, onToggle, onClose }: any) {
+function ColumnsModal({ person, visitor, staff, visible, onToggle, onMove, onClose, titleOf }: any) {
   const Row = ({ k, title, hint }: any) => (
     <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50">
       <input type="checkbox" checked={visible.includes(k)} onChange={() => onToggle(k)}
@@ -420,9 +453,40 @@ function ColumnsModal({ person, visitor, staff, visible, onToggle, onClose }: an
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <p className="mb-4 text-sm text-gray-500">
-          Отметьте, какие столбцы показывать в таблице. Настройка общая —
-          её видят и ваши помощники.
+          Отметьте, какие столбцы показывать в таблице, и расставьте их по
+          порядку. Настройка сохраняется и видна вашим помощникам.
         </p>
+
+        {/* Порядок столбцов — стрелками, а не перетаскиванием: стрелки
+            работают на телефоне и не конфликтуют с прокруткой окна
+            (тот же приём, что у тарифов события). */}
+        {visible.length > 1 && (
+          <div className="mb-4 rounded-xl bg-gray-50 p-3">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Порядок столбцов
+            </h4>
+            <div className="space-y-1">
+              {visible.map((k: string, i: number) => (
+                <div key={k} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5">
+                  <span className="w-5 text-xs text-gray-400">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-gray-700">
+                    {titleOf(k)}
+                  </span>
+                  <button onClick={() => onMove(i, -1)} disabled={i === 0}
+                          title="Выше"
+                          className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-30">
+                    <ArrowUp size={14} />
+                  </button>
+                  <button onClick={() => onMove(i, 1)} disabled={i === visible.length - 1}
+                          title="Ниже"
+                          className="rounded p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-30">
+                    <ArrowDown size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mb-4">
           <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -451,9 +515,12 @@ function ColumnsModal({ person, visitor, staff, visible, onToggle, onClose }: an
           </div>
         )}
 
-        <div className="mt-5 flex justify-end">
-          <button onClick={onClose} className="btn-gold">Готово</button>
-        </div>
+        {/* ⚠️ Кнопки «Готово» нет намеренно: галочки применяются сразу, и
+            кнопка обманывала бы — будто без неё ничего не сохранится.
+            Окно закрывается крестиком. */}
+        <p className="mt-4 text-xs text-gray-400">
+          Изменения применяются сразу и сохраняются.
+        </p>
       </div>
     </div>
   )

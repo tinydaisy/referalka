@@ -275,6 +275,9 @@ class SurveyIn(BaseModel):
     # Подарок, который анкета выдаёт после заполнения (миграция 283).
     gift_lead_magnet_id: Optional[int] = None
     gift_package_id: Optional[int] = None
+    # Настройка таблицы ответов: какие столбцы видны и в каком порядке.
+    # Общая на анкету — помощники должны видеть ту же таблицу, что владелец.
+    table_settings: Optional[dict] = None
 
 
 class QuestionIn(BaseModel):
@@ -418,6 +421,12 @@ async def update_survey(
         if data.after_mode not in ('thanks', 'url'):
             raise HTTPException(400, "Неизвестное действие после заполнения")
         add('after_mode', data.after_mode)
+    if 'table_settings' in fs:
+        # ⚠️ Без этой ветки настройка столбцов молча терялась при
+        # перезагрузке страницы: фронт её слал, а бэкенд выбрасывал.
+        import json as _js
+        vals.append(_js.dumps(data.table_settings or {}))
+        sets.append(f"table_settings = ${len(vals)}::jsonb")
     for col in ('gift_lead_magnet_id', 'gift_package_id'):
         if col in fs:
             val = getattr(data, col)
@@ -568,6 +577,13 @@ async def update_question(
     if 'kind' in fs:
         if data.kind not in KINDS:
             raise HTTPException(400, "Неизвестный тип вопроса")
+        # ⚠️ У «Обработано» тип менять нельзя: на галочке (`bool`) держатся
+        # подсветка строк, отбор «обработаны» и дашборд анкеты. Название —
+        # можно. Проверка на бэке обязательна: форму можно обойти запросом.
+        if cur["is_protected"] and data.kind != 'bool':
+            raise HTTPException(
+                400, "У поля «Обработано» тип менять нельзя — это галочка, "
+                     "по ней считается обработка. Название поменять можно.")
         add('kind', data.kind)
     if 'options' in fs:
         vals.append(__import__('json').dumps(_norm_options(data.options)))
@@ -741,18 +757,28 @@ async def survey_analytics(
 
         if q["kind"] in CHOICE_KINDS:
             # multiselect: один ответ = несколько вариантов, разворачиваем.
+            # ⚠️ `jsonb_array_elements_text` НЕЛЬЗЯ внутри CASE — Postgres
+            # отвечает «set-returning functions are not allowed in CASE», и
+            # ВЕСЬ отчёт падал с 500 (вкладка «Отчёт» открывалась пустой).
+            # Разворот делаем через UNION ALL: ветка «массив» + ветка «не
+            # массив», как в дашбордах аналитики.
             rows = await db.fetch(
                 f"""SELECT val AS option, COUNT(*) AS cnt
-                      FROM survey_answers a
-                      CROSS JOIN LATERAL (
-                        SELECT CASE
-                          WHEN jsonb_typeof(a.value_json) = 'array'
-                            THEN jsonb_array_elements_text(a.value_json)
-                          ELSE a.value
-                        END AS val
+                      FROM (
+                        SELECT jsonb_array_elements_text(a.value_json) AS val
+                          FROM survey_answers a
+                         WHERE a.question_id = $2
+                           AND jsonb_typeof(a.value_json) = 'array'
+                           AND a.response_id IN ({_LATEST_RESPONSES})
+                        UNION ALL
+                        SELECT a.value AS val
+                          FROM survey_answers a
+                         WHERE a.question_id = $2
+                           AND (a.value_json IS NULL
+                                OR jsonb_typeof(a.value_json) <> 'array')
+                           AND a.response_id IN ({_LATEST_RESPONSES})
                       ) x
-                     WHERE a.question_id = $2 AND COALESCE(val,'') <> ''
-                       AND a.response_id IN ({_LATEST_RESPONSES})
+                     WHERE COALESCE(val,'') <> ''
                      GROUP BY val ORDER BY cnt DESC""",
                 survey_id, q["id"])
             item["breakdown"] = [
@@ -781,7 +807,13 @@ async def survey_analytics(
                      WHERE question_id=$2 AND COALESCE(value,'') <> ''
                        AND response_id IN ({_LATEST_RESPONSES})
                      GROUP BY value
-                     ORDER BY NULLIF(regexp_replace(value,'[^0-9.-]','','g'),'')::numeric""",
+                     -- ⚠️ К числу приводим ТОЛЬКО настоящие числа. Человек
+                     -- вписывает в числовое поле что угодно («—», «около 30»),
+                     -- и после чистки регуляркой остаётся один дефис: приведение
+                     -- падало «invalid input syntax for type numeric», и весь
+                     -- отчёт отдавал 500. Нечисловые уходят в конец списка.
+                     ORDER BY CASE WHEN value ~ '^-?[0-9]+(\.[0-9]+)?$'
+                                   THEN value::numeric END NULLS LAST, value""",
                 survey_id, q["id"])
             item["breakdown"] = [
                 {
