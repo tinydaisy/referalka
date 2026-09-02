@@ -27,8 +27,9 @@ import ProgramTab from '@/app/dashboard/conferences/[id]/tabs/ProgramTab'
 // в привлечение людей + Win-Win коэффициент.
 import CollabReportTab from './tabs/CollabReportTab'
 import DashboardView from '@/components/analytics/DashboardView'
+import EventCrmTab from '@/components/analytics/EventCrmTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard' | 'crm'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -118,15 +119,17 @@ export default function EventPage() {
     // раздел: видно, кто из организаторов сколько людей привёл и каков его
     // Win-Win коэффициент. У обычного мероприятия отчёт не показываем —
     // привлекает один человек, сравнивать не с кем.
-    // ⚠️ Раздел появляется, если внутри есть хоть одна вкладка: отчёт (только
-    // у коллабы) или дашборд (по фиче). Иначе получилась бы пустая группа.
-    ...((event.is_collab || hasAnalyticsDashboard) ? [{
+    // ⚠️ Раздел есть ВСЕГДА: CRM доступна всем тарифам. Раньше группа
+    // появлялась только у коллабы или при фиче дашбордов, и у обычного
+    // мероприятия «Отслеживаний» не было вовсе.
+    {
       key: 'tracking' as GroupKey, label: 'Отслеживания',
       tabs: [
+        { key: 'crm' as TabKey, label: 'CRM' },
         ...(event.is_collab ? [{ key: 'report' as TabKey, label: 'Отчёт по привлечению' }] : []),
         ...(hasAnalyticsDashboard ? [{ key: 'dashboard' as TabKey, label: 'Дашборд' }] : []),
       ],
-    }] : []),
+    },
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
     // ⚠️ У КОЛЛАБ-события платежей нет — раздел скрыт.
     ...((isVip && !event.is_collab) ? [{
@@ -232,6 +235,7 @@ export default function EventPage() {
       {activeTab === 'report'  && event.is_collab && <CollabReportTab eventId={eventId} />}
       {/* Дашборд события: движок общий с «Аналитикой», но считает только по
           участникам этого события — условие подставляет бэк. */}
+      {activeTab === 'crm' && <EventCrmTab eventId={eventId} />}
       {activeTab === 'dashboard' && hasAnalyticsDashboard && <DashboardView eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'collab_organizers' && event.is_collab && <CollabOrganizersTab eventId={eventId} />}

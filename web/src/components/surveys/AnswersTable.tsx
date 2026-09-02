@@ -15,9 +15,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Search, Trash2, SlidersHorizontal, ArrowUp, ArrowDown, X, Check, Loader2,
+  Search, Trash2, SlidersHorizontal, ArrowUp, ArrowDown, X, Check, Loader2, Filter,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import ConditionBuilder, { emptyTree, SourceMeta } from '@/components/analytics/ConditionBuilder'
 
 const DARK = '#25455D'
 
@@ -62,6 +63,13 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const [showCols, setShowCols] = useState(false)
 
+  // Фильтры — тем же конструктором условий, что в дашбордах: люди одни и те
+  // же, и два разных языка отбора клиента бы запутали.
+  const [showFilters, setShowFilters] = useState(false)
+  const [filters, setFilters] = useState<any>(emptyTree())
+  const [applied, setApplied] = useState('')          // что реально ушло в запрос
+  const [sources, setSources] = useState<SourceMeta[]>([])
+
   const staffQuestions = useMemo(
     () => questions.filter(x => x.filled_by === 'staff'), [questions])
   const visitorQuestions = useMemo(
@@ -76,6 +84,7 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
   const load = async () => {
     const params = new URLSearchParams({ sort, dir, processed })
     if (q.trim()) params.set('q', q.trim())
+    if (applied) params.set('filters', applied)
     const [data, survey] = await Promise.all([
       api.surveys.responses(surveyId, params.toString()).catch(() => ({ responses: [], total: 0 })),
       api.surveys.get(surveyId).catch(() => ({ questions: [] })),
@@ -93,7 +102,14 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
     const t = setTimeout(() => { load() }, q ? 400 : 0)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surveyId, sort, dir, processed, q])
+  }, [surveyId, sort, dir, processed, q, applied])
+
+  // Разрезы для конструктора — только вопросы ЭТОЙ анкеты плюс поля контакта.
+  useEffect(() => {
+    api.analytics.sources(surveyId)
+      .then((d: any) => setSources(d?.sources || []))
+      .catch(() => setSources([]))   // нет доступа к дашбордам — фильтры просто не покажем
+  }, [surveyId])
 
   const saveVisible = async (next: string[]) => {
     setSettings({ ...(settings || {}), visible: next })
@@ -161,11 +177,36 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
           ))}
         </div>
 
+        {sources.length > 0 && (
+          <button onClick={() => setShowFilters(v => !v)}
+                  className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+                  style={applied
+                    ? { borderColor: DARK, color: DARK, background: `${DARK}0F` }
+                    : { borderColor: '#e5e7eb', color: '#374151', background: '#fff' }}>
+            <Filter size={15} /> Фильтры{applied ? ' · включены' : ''}
+          </button>
+        )}
+
         <button onClick={() => setShowCols(true)}
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
           <SlidersHorizontal size={15} /> Настройка отображения
         </button>
       </div>
+
+      {showFilters && sources.length > 0 && (
+        <div className="mb-3 rounded-xl border border-gray-200 bg-white p-4">
+          <ConditionBuilder value={filters} sources={sources} onChange={setFilters} />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => setApplied(JSON.stringify(filters))} className="btn-gold">
+              Показать
+            </button>
+            <button onClick={() => { setFilters(emptyTree()); setApplied('') }}
+                    className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
+              Сбросить
+            </button>
+          </div>
+        </div>
+      )}
 
       <p className="mb-2 text-sm text-gray-500">
         Заявок: <b className="text-gray-800">{total}</b>

@@ -12,6 +12,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import AnswersTable from '@/components/surveys/AnswersTable'
+import DashboardView from '@/components/analytics/DashboardView'
 import { useMe } from '@/hooks/useMe'
 import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink, Pencil, Lock } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
@@ -35,9 +36,11 @@ export default function SurveyPage() {
   const { isAssistant } = useMe()
   // ⚠️ Ответы и отчёт — РАЗНЫЕ вкладки (решение владельца): список
   // заполнивших и сводка по вопросам — разные задачи, смешивать нельзя.
-  const [tab, setTab] = useState<'edit' | 'answers' | 'report'>(() => {
+  const [tab, setTab] = useState<'edit' | 'answers' | 'report' | 'dashboard'>(() => {
     const t = search.get('tab')
-    return t === 'report' ? 'report' : t === 'answers' ? 'answers' : 'edit'
+    return t === 'report' ? 'report'
+         : t === 'answers' ? 'answers'
+         : t === 'dashboard' ? 'dashboard' : 'edit'
   })
   const [survey, setSurvey] = useState<any>(null)
   const [fields, setFields] = useState<any[]>([])
@@ -74,8 +77,9 @@ export default function SurveyPage() {
       <div className="mb-6 flex gap-2 border-b border-gray-200">
         {([
           ['edit', 'Вопросы и настройки'],
-          ['answers', 'Ответы'],
+          ['answers', 'Заявки'],
           ['report', 'Отчёт'],
+          ['dashboard', 'Дашборды анкеты'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
                   className={`-mb-px border-b-2 px-4 py-2 text-sm ${
@@ -93,6 +97,9 @@ export default function SurveyPage() {
       )}
       {tab === 'answers' && <AnswersTab surveyId={Number(id)} />}
       {tab === 'report' && <ReportTab surveyId={Number(id)} />}
+      {/* Дашборды этой анкеты. Движок общий с разделом «Аналитика» — это
+          два входа в одно место, а не два разных списка. */}
+      {tab === 'dashboard' && <DashboardView surveyId={Number(id)} />}
     </div>
   )
 }

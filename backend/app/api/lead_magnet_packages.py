@@ -291,3 +291,18 @@ async def package_analytics(
         },
         "runs": [dict(r) for r in runs],
     }
+
+
+@router.get("/{package_id}/crm", summary="CRM пакета: люди по этапам")
+async def package_crm_view(
+    package_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """То же, что у лид-магнита: колонки этапов со списками людей."""
+    from app.services.lead_magnet_crm import lead_magnet_crm
+    data = await lead_magnet_crm(
+        db, client_id=int(client["sub"]), package_id=package_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Пакет не найден")
+    return data

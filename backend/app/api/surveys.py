@@ -884,7 +884,8 @@ async def get_response(
     # его и помечаем `from_field`, иначе страница пишет «не ответил» там, где
     # в карточке значение прекрасно видно.
     rows = await db.fetch(
-        """SELECT q.id, q.title, q.kind, q.sort_order,
+        """SELECT q.id, q.title, q.kind, q.sort_order, q.options,
+                  q.filled_by, q.is_protected,
                   COALESCE(a.value, v.value) AS value,
                   (a.value IS NULL AND v.value IS NOT NULL) AS from_field
              FROM survey_questions q
@@ -914,7 +915,10 @@ async def get_response(
     return {
         **dict(r),
         "survey": dict(survey) if survey else None,
-        "answers": [dict(x) for x in rows],
+        # ⚠️ options разворачиваем: asyncpg отдаёт JSONB СТРОКОЙ, и без этого
+        # выпадающий список у поля сотрудника не отрисуется (та же засада,
+        # что с вариантами вопросов).
+        "answers": [{**dict(x), "options": _jsonb(x["options"])} for x in rows],
         "contact_fields": [dict(x) for x in fields],
     }
 

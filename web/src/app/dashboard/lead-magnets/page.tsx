@@ -297,8 +297,14 @@ interface CountRow { id: number; landed: number; known: number; started: number;
  * Цифры считаются по живым контактам, поэтому совпадают с числом строк в списке.
  */
 function LandedCounter({
-  reached, received, notReceived, href,
-}: { reached: number; received: number; notReceived: number; href: string }) {
+  reached, received, notReceived, href, crmHref,
+}: {
+  reached: number; received: number; notReceived: number
+  /** Старый переход в «Контакты» с фильтром — оставлен для подсказки. */
+  href: string
+  /** Куда ведёт клик: CRM этого лид-магнита или пакета. */
+  crmHref: string
+}) {
   const empty = reached === 0
   if (empty) {
     return (
@@ -309,14 +315,23 @@ function LandedCounter({
     )
   }
   const cell = 'px-1 rounded hover:bg-white/50 transition-colors'
+  // ⚠️ Клик ведёт в CRM лид-магнита, а НЕ в «Контакты» с фильтром: оттуда
+  // человек уходил со страницы лид-магнитов и терял контекст, а увидеть все
+  // этапы воронки разом было нельзя. Старое поведение — в `href`, он ещё
+  // используется в подсказке «смотреть в контактах» ниже.
+  //
+  // Было (до 2026-09-02):
+  //   <a href={href}>{reached}</a>
+  //   <a href={`${href}&lead_magnet_stage=delivered`}>{received}</a>
+  //   <a href={`${href}&lead_magnet_stage=not_delivered`}>{notReceived}</a>
   return (
     <span className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-[#FFCFA4] text-[#25455D]">
       <Users size={12} />
-      <a href={href} className={cell} title={`${reached} — зашли по ссылке (все)`}>{reached}</a>
+      <a href={crmHref} className={cell} title={`${reached} — зашли по ссылке (все)`}>{reached}</a>
       <span className="text-[#25455D]/40">/</span>
-      <a href={`${href}&lead_magnet_stage=delivered`} className={cell} title={`${received} — забрали материалы`}>{received}</a>
+      <a href={crmHref} className={cell} title={`${received} — забрали материалы`}>{received}</a>
       <span className="text-[#25455D]/40">/</span>
-      <a href={`${href}&lead_magnet_stage=not_delivered`} className={cell} title={`${notReceived} — не забрали материалы`}>{notReceived}</a>
+      <a href={crmHref} className={cell} title={`${notReceived} — не забрали материалы`}>{notReceived}</a>
     </span>
   )
 }
@@ -406,6 +421,7 @@ function MagnetsList() {
                   received={counts[lm.id]?.delivered || 0}
                   notReceived={counts[lm.id]?.not_delivered || 0}
                   href={`/dashboard/clients?lead_magnet_ids=${lm.id}`}
+                  crmHref={`/dashboard/lead-magnets/crm?lead_magnet_id=${lm.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(lm)} title="Аналитика"
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
@@ -665,6 +681,7 @@ function PackagesList() {
                   received={counts[pkg.id]?.delivered || 0}
                   notReceived={counts[pkg.id]?.not_delivered || 0}
                   href={`/dashboard/clients?package_ids=${pkg.id}`}
+                  crmHref={`/dashboard/lead-magnets/crm?package_id=${pkg.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(pkg)} title="Аналитика"
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">

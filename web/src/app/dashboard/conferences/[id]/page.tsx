@@ -27,6 +27,7 @@ const PERSON_TABS: Record<string, string> = {
 }
 import ReportTab from './tabs/ReportTab'
 import DashboardView from '@/components/analytics/DashboardView'
+import EventCrmTab from '@/components/analytics/EventCrmTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
@@ -40,8 +41,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard' | 'crm'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing', 'dashboard', 'crm']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -130,6 +131,8 @@ export default function ConferencePage() {
     {
       key: 'tracking', label: 'Отслеживания',
       tabs: [
+        // CRM — всем тарифам: другой показ уже имеющихся данных о людях.
+        { id: 'crm', label: 'CRM' },
         { id: 'announcements', label: 'Анонсы спикеров' },
         { id: 'report', label: 'Отчёт по привлечению' },
         // Дашборд-квадратики по участникам события. Гейт — фича Экстра.
@@ -320,6 +323,7 @@ export default function ConferencePage() {
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
       {/* Дашборд события: тот же движок, что в «Аналитике», но считает
           только по участникам этого события (условие добавляет бэк). */}
+      {tab === 'crm'          && <EventCrmTab eventId={eventId} />}
       {tab === 'dashboard'    && hasAnalyticsDashboard && <DashboardView eventId={eventId} />}
       {tab === 'broadcast_templates' && <BroadcastTemplatesView />}
       {tab === 'broadcast_queue'     && <BroadcastQueueView />}

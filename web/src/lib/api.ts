@@ -265,6 +265,9 @@ export const api = {
     // Массовая проверка членства участников в Telegram-чате события (только TG).
     checkChats: (id: number) =>
       request(`/api/v1/events/${id}/check-chats`, { method: 'POST' }),
+    // CRM события: люди по этапам — не зарегистрированы / зарегистрированы /
+    // в чате / были в эфире. В коллабе отдаёт только СВОИХ приведённых.
+    crm: (id: number) => request(`/api/v1/events/${id}/crm`),
     addParticipantFromContact: (id: number, contactId: number, isRegistered = false) =>
       request(`/api/v1/events/${id}/participants/from-contact`, {
         method: 'POST',
@@ -978,6 +981,9 @@ export const api = {
       request(`/api/v1/lead-magnets/${id}`, { method: 'DELETE' }),
     analytics: (id: number) =>
       request(`/api/v1/lead-magnets/${id}/analytics`),
+    // CRM: люди по этапам воронки колонками (2 колонки, либо 3 если перед
+    // подарком стоит анкета).
+    crm: (id: number) => request(`/api/v1/lead-magnets/${id}/crm`),
   },
   // Дополнительные поля контакта («Доход», «Ниша», «Статус») — создаются один
   // раз на весь кабинет и существуют сразу у всех контактов.
@@ -1190,6 +1196,7 @@ export const api = {
       request(`/api/v1/lead-magnet-packages/${id}`, { method: 'DELETE' }),
     analytics: (id: number) =>
       request(`/api/v1/lead-magnet-packages/${id}/analytics`),
+    crm: (id: number) => request(`/api/v1/lead-magnet-packages/${id}/crm`),
   },
   funnelTemplates: {
     get: (type: string = 'lead_magnet') =>

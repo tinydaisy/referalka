@@ -1259,6 +1259,81 @@ async def check_chats(
     return await check_event_chat_membership(db, event_id, client_id)
 
 
+@router.get("/{event_id}/crm", summary="CRM события: люди по этапам")
+async def event_crm(
+    event_id: int, client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Четыре колонки: не зарегистрированы / зарегистрированы / в чате / были в эфире.
+
+    Доступно ВСЕМ тарифам — это другой показ уже имеющихся данных о людях,
+    а не отдельная платная возможность.
+
+    ⚠️ В КОЛЛАБ-событии каждый организатор видит ТОЛЬКО СВОИХ приведённых.
+    Суть коллаборации в том, что каждый ведёт свою базу через своего бота:
+    контакты партнёра ему не принадлежат, и показывать их нельзя. Отбор идёт
+    по владельцу контакта (`contacts.client_id`), а не по событию.
+    """
+    client_id = int(client["sub"])
+    ev = await db.fetchrow(
+        """SELECT e.id, e.is_collab FROM events e
+            WHERE e.id = $1 AND EXISTS (SELECT 1 FROM event_owners eo
+                  WHERE eo.event_id = e.id AND eo.client_id = $2
+                    AND eo.status = 'accepted')""",
+        event_id, client_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    rows = await db.fetch(
+        """SELECT ep.id, c.id AS contact_id, c.name,
+                  ep.is_registered, ep.is_in_chat,
+                  -- «Был в эфире»: нажал кнопку эфира ЛИБО оставил контакты
+                  -- при входе в нашу вебинарную комнату. Два разных пути к
+                  -- одному и тому же — человек дошёл до трансляции.
+                  (ep.link_clicked_at IS NOT NULL
+                   OR EXISTS (SELECT 1 FROM webinar_registrations wr
+                                JOIN webinar_rooms wroom ON wroom.id = wr.room_id
+                               WHERE wr.contact_id = c.id
+                                 AND wroom.event_id = ep.event_id)) AS was_live,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='telegram'
+                    LIMIT 1) AS telegram,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='vk'
+                    LIMIT 1) AS vk,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id)
+                     FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug='max'
+                    LIMIT 1) AS max_nick
+             FROM event_participants ep
+             JOIN contacts c ON c.id = ep.contact_id
+            WHERE ep.event_id = $1 AND c.client_id = $2
+            ORDER BY ep.registered_at DESC NULLS LAST, ep.id DESC""",
+        event_id, client_id)
+
+    people = [dict(r) for r in rows]
+    total = len(people)
+
+    def pct(n: int) -> float:
+        return round(n * 100.0 / total, 1) if total else 0.0
+
+    groups = {
+        "not_registered": [p for p in people if not p["is_registered"]],
+        "registered": [p for p in people if p["is_registered"]],
+        "in_chat": [p for p in people if p["is_in_chat"]],
+        "was_live": [p for p in people if p["was_live"]],
+    }
+    return {
+        "total": total,
+        "is_collab": ev["is_collab"],
+        "columns": [
+            {"key": k, "count": len(v), "percent": pct(len(v)), "people": v}
+            for k, v in groups.items()
+        ],
+    }
+
+
 @router.get("/{event_id}/participants", summary="Список участников события")
 async def event_participants(
     event_id: int,

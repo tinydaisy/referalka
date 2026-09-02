@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import PeopleColumnBase from './PeopleColumnBase'
 import ConditionBuilder, { SourceMeta, emptyTree } from './ConditionBuilder'
 
 const DARK = '#25455D'
@@ -410,6 +411,44 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
  * Поэтому: сначала ОТКУДА (поля контакта / конкретная анкета), потом
  * галочки ровно на нужных вопросах.
  */
+/**
+ * Колонка дашборда в режиме «колонками»: в шапке цифра, внутри люди.
+ * Список подгружается при первом раскрытии — грузить всех сразу при
+ * десятке колонок значило бы десяток запросов на открытие страницы.
+ */
+function PeopleColumn({ card, dashId }: { card: Card; dashId: number }) {
+  const [people, setPeople] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const load = async () => {
+    if (loaded) return
+    setLoading(true)
+    try {
+      const r = await api.analytics.cardPeople(dashId, card.id, card.option_value || undefined)
+      setPeople(r.people || [])
+      setLoaded(true)
+    } catch { setPeople([]) }
+    finally { setLoading(false) }
+  }
+
+  // Заголовок: у плитки это сам вариант («200-300 т.р.»), у списка — название.
+  const title = card.view === 'tile'
+    ? (card.option_value || card.title || 'Разрез')
+    : (card.title || 'Разрез')
+
+  return (
+    <PeopleColumnBase
+      title={title}
+      count={card.count ?? card.answered ?? 0}
+      percent={card.eff_hide_percent ? null : card.percent}
+      hint={card.survey_title || undefined}
+      people={people} loading={loading} onExpand={load}
+    />
+  )
+}
+
+
 function PickFieldsModal({ sources, used, onClose, onAdd }: {
   sources: SourceMeta[]
   used: Set<string>
@@ -520,8 +559,10 @@ function PickFieldsModal({ sources, used, onClose, onAdd }: {
   )
 }
 
-export default function DashboardView({ eventId, readOnly = false }: {
+export default function DashboardView({ eventId, surveyId, readOnly = false }: {
   eventId?: number
+  /** Дашборды конкретной анкеты. Тот же движок — просто другая привязка. */
+  surveyId?: number
   readOnly?: boolean
 }) {
   const [dashboards, setDashboards] = useState<any[]>([])
@@ -540,13 +581,15 @@ export default function DashboardView({ eventId, readOnly = false }: {
 
   const loadList = useCallback(async () => {
     const [d, s] = await Promise.all([
-      api.analytics.dashboards(eventId),
-      api.analytics.sources(),
+      api.analytics.dashboards(eventId, surveyId),
+      // В дашборде анкеты предлагаем разрезы ТОЛЬКО этой анкеты: у клиента
+      // под сотню вопросов, и одинаковые вопросы разных анкет не различить.
+      api.analytics.sources(surveyId),
     ])
     setDashboards(d.dashboards || [])
     setSources(s.sources || [])
     return d.dashboards || []
-  }, [eventId])
+  }, [eventId, surveyId])
 
   const loadCards = useCallback(async (id: number) => {
     const r = await api.analytics.dashboard(id)
@@ -591,7 +634,9 @@ export default function DashboardView({ eventId, readOnly = false }: {
     if (title === null) return
     setBusy(true)
     try {
-      const d = await api.analytics.createDashboard({ title, event_id: eventId })
+      const d = await api.analytics.createDashboard({
+        title, event_id: eventId, survey_id: surveyId,
+      })
       await loadList()
       setActiveId(d.id)
       await loadCards(d.id)
@@ -696,6 +741,20 @@ export default function DashboardView({ eventId, readOnly = false }: {
                   перебивает общую. */}
               {!!cards.length && (
                 <div className="flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 px-3 py-1.5 text-xs">
+                  {/* Вид показа: плитками (как было) или колонками со
+                      списком людей внутри. */}
+                  <span className="text-gray-500">вид:</span>
+                  <button onClick={() => saveDash({ layout: 'cards' })}
+                          className={`rounded px-2 py-0.5 ${dash?.layout !== 'columns' ? 'text-white' : 'bg-gray-200 text-gray-600'}`}
+                          style={dash?.layout !== 'columns' ? { background: DARK } : undefined}>
+                    плитками
+                  </button>
+                  <button onClick={() => saveDash({ layout: 'columns' })}
+                          className={`rounded px-2 py-0.5 ${dash?.layout === 'columns' ? 'text-white' : 'bg-gray-200 text-gray-600'}`}
+                          style={dash?.layout === 'columns' ? { background: DARK } : undefined}>
+                    колонками
+                  </button>
+                  <span className="text-gray-400">|</span>
                   <label className="flex items-center gap-1">
                     <input type="checkbox" checked={!dash?.hide_absolute}
                            onChange={e => saveDash({ hide_absolute: !e.target.checked })} />
@@ -774,6 +833,13 @@ export default function DashboardView({ eventId, readOnly = false }: {
                   + Выбрать поля
                 </button>
               )}
+            </div>
+          ) : dash?.layout === 'columns' ? (
+            /* Вид колонками: в шапке цифра, внутри список людей. */
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {cards.map(c => (
+                <PeopleColumn key={c.id} card={c} dashId={activeId} />
+              ))}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

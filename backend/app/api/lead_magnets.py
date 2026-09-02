@@ -313,3 +313,22 @@ async def lead_magnet_analytics(
         },
         "runs": [dict(r) for r in runs],
     }
+
+
+@router.get("/{lead_magnet_id}/crm", summary="CRM лид-магнита: люди по этапам")
+async def lead_magnet_crm_view(
+    lead_magnet_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Колонки «перешли → подписались → получили» со списками людей.
+
+    Раньше клик по цифрам уводил в «Контакты» с фильтром: человек терял
+    страницу лид-магнитов, а увидеть все этапы разом было нельзя.
+    """
+    from app.services.lead_magnet_crm import lead_magnet_crm
+    data = await lead_magnet_crm(
+        db, client_id=int(client["sub"]), lead_magnet_id=lead_magnet_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Лид-магнит не найден")
+    return data

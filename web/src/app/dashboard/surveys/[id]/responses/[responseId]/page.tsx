@@ -5,17 +5,22 @@
  *
  * ⚠️ Не модалка: из ответа чаще всего идут дальше — в карточку контакта, — а
  * всплывающее окно такой переход обрывает. Наверху две ссылки: «Назад к
- * ответам» и «Открыть карточку контакта».
+ * ответам» и «Открыть карточку с перепиской».
  *
  * ⚠️ Показываем ВСЕ вопросы анкеты, включая те, на которые не ответили:
  * пропущенный вопрос — тоже информация (например, необязательный, который
  * все игнорируют).
+ *
+ * ⚠️ Поля сотрудника правятся и ЗДЕСЬ, и в таблице заявок — через один и тот
+ * же эндпоинт, иначе поведение в двух местах разъедется.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
-import { ArrowLeft, UserCircle } from 'lucide-react'
+import { ArrowLeft, MessagesSquare, Check, Loader2, Lock } from 'lucide-react'
+
+const DARK = '#25455D'
 
 export default function SurveyResponsePage() {
   const { id, responseId } = useParams<{ id: string; responseId: string }>()
@@ -40,16 +45,22 @@ export default function SurveyResponsePage() {
     ['MAX', data.max_nick],
   ].filter(([, v]) => !!v) as Array<[string, string]>
 
+  const all = data.answers || []
+  const staff = all.filter((a: any) => a.filled_by === 'staff')
+  const visitor = all.filter((a: any) => a.filled_by !== 'staff')
+
   return (
     <div className="max-w-3xl">
       <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
         <Link href={`/dashboard/surveys/${id}?tab=answers`}
               className="flex items-center gap-2 text-gray-500 hover:text-gray-700">
-          <ArrowLeft size={14} /> Назад к ответам
+          <ArrowLeft size={14} /> Назад к заявкам
         </Link>
+        {/* В карточке контакта рядом со сведениями открыта переписка —
+            отсюда можно сразу ответить человеку. */}
         <Link href={`/dashboard/clients?contact=${data.contact_id}`}
-              className="flex items-center gap-2 text-[#25455D] hover:underline">
-          <UserCircle size={15} /> Открыть карточку контакта
+              className="flex items-center gap-2 hover:underline" style={{ color: DARK }}>
+          <MessagesSquare size={15} /> Открыть карточку и написать
         </Link>
       </div>
 
@@ -61,6 +72,25 @@ export default function SurveyResponsePage() {
         {' · '}
         {new Date(data.created_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК
       </p>
+
+      {/* Обработка — САМЫМ ВЕРХОМ: за этим сюда и заходят. */}
+      {staff.length > 0 && (
+        <div className="mb-6 rounded-xl border-2 p-4"
+             style={{ borderColor: `${DARK}33`, background: `${DARK}0A` }}>
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-gray-800">
+            <Lock size={14} className="text-gray-500" /> Обработка заявки
+          </h2>
+          <p className="mb-3 text-xs text-gray-500">
+            Это видите только вы и ваши помощники — посетителю не показывается.
+          </p>
+          <div className="space-y-3">
+            {staff.map((a: any) => (
+              <StaffField key={a.id} surveyId={Number(id)} responseId={Number(responseId)}
+                          question={a} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {contacts.length > 0 && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
@@ -79,7 +109,7 @@ export default function SurveyResponsePage() {
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold text-gray-800">Ответы на анкету</h2>
         <div className="space-y-4">
-          {(data.answers || []).map((a: any) => (
+          {visitor.map((a: any) => (
             <div key={a.id}>
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
                 {a.title}
@@ -97,11 +127,80 @@ export default function SurveyResponsePage() {
               </div>
             </div>
           ))}
-          {!(data.answers || []).length && (
+          {!visitor.length && (
             <p className="text-sm text-gray-400">В анкете нет вопросов.</p>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Поле сотрудника в карточке заявки.
+ *
+ * Галочка сохраняется сразу по клику, текст — когда уходишь из поля: слать
+ * запрос на каждую букву не нужно.
+ */
+function StaffField({ surveyId, responseId, question }: any) {
+  const [val, setVal] = useState(question.value || '')
+  const [saving, setSaving] = useState(false)
+  const [ok, setOk] = useState(false)
+  const initial = useRef(question.value || '')
+
+  const save = async (raw: any) => {
+    setSaving(true)
+    try {
+      await api.surveys.saveStaffAnswers(surveyId, responseId, { [question.id]: raw })
+      initial.current = typeof raw === 'boolean' ? (raw ? 'Да' : '') : String(raw || '').trim()
+      setOk(true); setTimeout(() => setOk(false), 1500)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить')
+      setVal(initial.current)
+    } finally { setSaving(false) }
+  }
+
+  const done = ok && !saving
+
+  if (question.kind === 'bool') {
+    return (
+      <label className="flex cursor-pointer items-center gap-2">
+        <input type="checkbox" checked={val === 'Да'} disabled={saving}
+               onChange={e => { setVal(e.target.checked ? 'Да' : ''); save(e.target.checked) }}
+               className="h-4 w-4 rounded border-gray-300" />
+        <span className="text-sm font-medium text-gray-800">{question.title}</span>
+        {saving && <Loader2 size={13} className="animate-spin text-gray-400" />}
+        {done && <Check size={13} className="text-green-600" />}
+      </label>
+    )
+  }
+
+  const common = {
+    value: val,
+    disabled: saving,
+    onChange: (e: any) => setVal(e.target.value),
+    onBlur: () => { if (val !== initial.current) save(val) },
+    className: 'input',
+  }
+
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-800">
+        {question.title}
+        {saving && <Loader2 size={13} className="animate-spin text-gray-400" />}
+        {done && <Check size={13} className="text-green-600" />}
+      </span>
+      {question.kind === 'textarea' ? (
+        <textarea {...common} rows={4} placeholder="Заметка по заявке" />
+      ) : question.kind === 'select' && Array.isArray(question.options) ? (
+        <select value={val} disabled={saving} className="input bg-white"
+                onChange={e => { setVal(e.target.value); save(e.target.value) }}>
+          <option value="">—</option>
+          {question.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <input {...common} />
+      )}
+    </label>
   )
 }
