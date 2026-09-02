@@ -11,8 +11,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import AnswersTable from '@/components/surveys/AnswersTable'
 import { useMe } from '@/hooks/useMe'
-import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink, Pencil } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink, Pencil, Lock } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 
 const KINDS = [
@@ -176,7 +177,14 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
   // Быстрое добавление уже заведённого поля контакта отдельной кнопкой:
   // внутри формы вопроса эту возможность не находят (замечание владельца).
   const [addingField, setAddingField] = useState(false)
+  // Поле сотрудника: тот же вопрос анкеты, но заполняют его при разборе
+  // заявок, а посетитель не видит.
+  const [addingStaff, setAddingStaff] = useState(false)
   const [copied, setCopied] = useState('')
+
+  const allQuestions = survey.questions || []
+  const visitorQuestions = allQuestions.filter((q: any) => q.filled_by !== 'staff')
+  const staffQuestions = allQuestions.filter((q: any) => q.filled_by === 'staff')
 
   const copy = (url: string, key: string) => {
     navigator.clipboard.writeText(url)
@@ -237,17 +245,24 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
       <div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-gray-800">Вопросы</h3>
-          {!readOnly && !adding && !addingField && (
+          {/* ⚠️ Порядок кнопок значим: «поле контакта» намеренно ТРЕТЬЯ.
+              Раньше она стояла первой, и в неё жали не глядя — хотя нужна
+              она реже всего. */}
+          {!readOnly && !adding && !addingStaff && !addingField && (
             <div className="flex flex-wrap gap-2">
+              <button onClick={() => setAdding(true)} className="btn-gold inline-flex items-center gap-2">
+                <Plus size={16} /> Добавить вопрос анкеты
+              </button>
+              <button onClick={() => setAddingStaff(true)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                <Plus size={16} /> Добавить поле сотрудника
+              </button>
               {fields.length > 0 && (
                 <button onClick={() => setAddingField(true)}
                         className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                   <Plus size={16} /> Добавить поле контакта
                 </button>
               )}
-              <button onClick={() => setAdding(true)} className="btn-gold inline-flex items-center gap-2">
-                <Plus size={16} /> Добавить вопрос
-              </button>
             </div>
           )}
         </div>
@@ -265,14 +280,38 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
                         onSaved={() => { setAdding(false); onChanged() }} />
         )}
 
-        {!survey.questions?.length && !adding && (
+        {addingStaff && (
+          <QuestionForm surveyId={survey.id} fields={fields} filledBy="staff"
+                        onClose={() => setAddingStaff(false)}
+                        onSaved={() => { setAddingStaff(false); onChanged() }} />
+        )}
+
+        {!visitorQuestions.length && !adding && (
           <p className="text-sm text-gray-400">
             Вопросов пока нет.
           </p>
         )}
 
-        <QuestionsList survey={survey} fields={fields}
+        <QuestionsList survey={survey} fields={fields} questions={visitorQuestions}
                        onChanged={onChanged} readOnly={readOnly} />
+
+        {/* Поля сотрудника — отдельным блоком: посетитель их не видит, и
+            смешивать их с вопросами анкеты в одном списке значило бы
+            каждый раз гадать, что увидит человек, а что нет. */}
+        {staffQuestions.length > 0 && (
+          <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <div className="mb-1 flex items-center gap-2">
+              <Lock size={14} className="text-gray-500" />
+              <h4 className="font-semibold text-gray-800">Поля сотрудника</h4>
+            </div>
+            <p className="mb-3 text-sm text-gray-500">
+              Их заполняете вы и ваши помощники при разборе заявок.
+              В анкете посетитель их не видит.
+            </p>
+            <QuestionsList survey={survey} fields={fields} questions={staffQuestions}
+                           onChanged={onChanged} readOnly={readOnly} />
+          </div>
+        )}
       </div>
 
       <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} />
@@ -503,11 +542,17 @@ function AddFieldBlock({ surveyId, fields, used, onClose, onSaved }: any) {
  * карточку при выделении текста в полях (та же засада, что в конструкторе
  * лендинга).
  */
-function QuestionsList({ survey, fields, onChanged, readOnly }: any) {
-  const [order, setOrder] = useState<any[]>(survey.questions || [])
+function QuestionsList({ survey, fields, questions, onChanged, readOnly }: any) {
+  // Список приходит уже отфильтрованным по группе (вопросы посетителя либо
+  // поля сотрудника) — перетаскивание работает внутри своей группы.
+  const items = questions || survey.questions || []
+  const [order, setOrder] = useState<any[]>(items)
   const [dragId, setDragId] = useState<number | null>(null)
 
-  useEffect(() => { setOrder(survey.questions || []) }, [survey.questions])
+  // ⚠️ Сравниваем по составу и порядку id, а не по самому массиву: он
+  // новый на каждый рендер, и зависимость от него зациклила бы обновление.
+  const itemsKey = items.map((q: any) => q.id).join(',')
+  useEffect(() => { setOrder(items) }, [itemsKey])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const drop = async (targetId: number) => {
     if (dragId == null || dragId === targetId) { setDragId(null); return }
@@ -631,19 +676,30 @@ function QuestionRow({
             Изменить
           </button>
           )}
-          <button onClick={remove}
-                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600">
-            <Trash2 size={15} />
-          </button>
+          {/* «Обработано» удалить нельзя: по ней ведётся разбор заявок и
+              строится дашборд анкеты. Переименовать — можно. */}
+          {question.is_protected ? (
+            <span title="Это поле нельзя удалить — по нему ведётся разбор заявок"
+                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-gray-300">
+              <Lock size={15} />
+            </span>
+          ) : (
+            <button onClick={remove}
+                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600">
+              <Trash2 size={15} />
+            </button>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
+function QuestionForm({ surveyId, question, fields, onClose, onSaved, filledBy }: any) {
+  // Поле сотрудника: заполняется при разборе заявок, посетителю не видно.
+  const staff = (filledBy || question?.filled_by) === 'staff'
   const [title, setTitle] = useState(question?.title || '')
-  const [kind, setKind] = useState(question?.kind || 'text')
+  const [kind, setKind] = useState(question?.kind || (staff ? 'bool' : 'text'))
   const [fieldId, setFieldId] = useState<number | ''>(question?.field_id || '')
   const [options, setOptions] = useState<string[]>(
     Array.isArray(question?.options) ? question.options : [])
@@ -654,7 +710,9 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
 
   // Привязали к полю контакта → тип и варианты берём у поля: иначе ответы
   // разъедутся с уже накопленными значениями этого поля.
-  const linked = fields.find((f: any) => f.id === Number(fieldId))
+  // ⚠️ У поля сотрудника привязки нет: поле контакта — одно значение на
+  // человека, а обрабатывают каждую заявку отдельно.
+  const linked = staff ? null : fields.find((f: any) => f.id === Number(fieldId))
   const effKind = linked ? linked.kind : kind
   const effOptions = linked
     ? (Array.isArray(linked.options) ? linked.options : [])
@@ -668,10 +726,11 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
     setSaving(true); setErr('')
     try {
       const payload: any = {
-        title: title.trim(), is_required: required,
-        field_id: fieldId ? Number(fieldId) : null,
-        image_url: imageUrl || null,
+        title: title.trim(), is_required: staff ? false : required,
+        field_id: staff || !fieldId ? null : Number(fieldId),
+        image_url: staff ? null : (imageUrl || null),
       }
+      if (!question) payload.filled_by = staff ? 'staff' : 'visitor'
       if (!linked) {
         payload.kind = kind
         payload.options = NEEDS_OPTIONS.has(kind) ? options.filter(o => o.trim()) : []
@@ -689,31 +748,44 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
     <div className="mb-3 rounded-xl border border-[#25455D]/30 bg-white p-4">
       <div className="mb-3 flex items-center justify-between">
         <h4 className="font-semibold text-gray-800">
-          {question ? 'Изменить вопрос' : 'Новый вопрос'}
+          {question
+            ? (staff ? 'Изменить поле сотрудника' : 'Изменить вопрос')
+            : (staff ? 'Новое поле сотрудника' : 'Новый вопрос')}
         </h4>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
       </div>
 
+      {staff && (
+        <p className="mb-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
+          Это поле заполняете вы и ваши помощники при разборе заявок —
+          прямо в таблице ответов. Посетитель его не увидит.
+        </p>
+      )}
+
       <label className="mb-3 block">
-        <span className="mb-1 block text-sm text-gray-600">Текст вопроса</span>
+        <span className="mb-1 block text-sm text-gray-600">
+          {staff ? 'Название поля' : 'Текст вопроса'}
+        </span>
         <input className="input" value={title} onChange={e => setTitle(e.target.value)} />
       </label>
 
-      <label className="mb-3 block">
-        <span className="mb-1 block text-sm text-gray-600">Записать ответ в поле контакта</span>
-        <select className="input bg-white" value={fieldId}
-                onChange={e => setFieldId(e.target.value ? Number(e.target.value) : '')}>
-          <option value="">Не записывать — ответ только в этой анкете</option>
-          {fields.map((f: any) => (
-            <option key={f.id} value={f.id}>{f.title}</option>
-          ))}
-        </select>
-        <span className="mt-1 block text-xs text-gray-500">
-          {linked
-            ? `Ответ попадёт в карточку человека. Тип берётся у поля: ${kindLabel(linked.kind)}.`
-            : 'Выберите поле, чтобы ответ сохранялся в карточке и фильтровал базу.'}
-        </span>
-      </label>
+      {!staff && (
+        <label className="mb-3 block">
+          <span className="mb-1 block text-sm text-gray-600">Записать ответ в поле контакта</span>
+          <select className="input bg-white" value={fieldId}
+                  onChange={e => setFieldId(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">Не записывать — ответ только в этой анкете</option>
+            {fields.map((f: any) => (
+              <option key={f.id} value={f.id}>{f.title}</option>
+            ))}
+          </select>
+          <span className="mt-1 block text-xs text-gray-500">
+            {linked
+              ? `Ответ попадёт в карточку человека. Тип берётся у поля: ${kindLabel(linked.kind)}.`
+              : 'Выберите поле, чтобы ответ сохранялся в карточке и фильтровал базу.'}
+          </span>
+        </label>
+      )}
 
       {!linked && (
         <label className="mb-3 block">
@@ -757,19 +829,25 @@ function QuestionForm({ surveyId, question, fields, onClose, onSaved }: any) {
         </div>
       )}
 
-      {/* Картинка вопроса: пример, схема, вариант — своя у каждого вопроса. */}
-      <div className="mb-3">
-        <span className="mb-1 block text-sm text-gray-600">Картинка к вопросу</span>
-        <FileUploader mode="single" kind="survey_media"
-                      value={imageUrl || null}
-                      onChange={(u: string | null) => setImageUrl(u || '')} />
-      </div>
+      {/* Картинка и обязательность — только у вопросов посетителя: поле
+          сотрудника показывается ячейкой в таблице, картинке там не место,
+          а «обязательность» ни на что не влияет (форму никто не сдаёт). */}
+      {!staff && (
+        <>
+          <div className="mb-3">
+            <span className="mb-1 block text-sm text-gray-600">Картинка к вопросу</span>
+            <FileUploader mode="single" kind="survey_media"
+                          value={imageUrl || null}
+                          onChange={(u: string | null) => setImageUrl(u || '')} />
+          </div>
 
-      <label className="flex cursor-pointer items-center gap-2">
-        <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
-               className="h-4 w-4 rounded border-gray-300" />
-        <span className="text-sm text-gray-700">Обязательный вопрос</span>
-      </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
+                   className="h-4 w-4 rounded border-gray-300" />
+            <span className="text-sm text-gray-700">Обязательный вопрос</span>
+          </label>
+        </>
+      )}
 
       {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
 
@@ -867,144 +945,12 @@ function ReportTab({ surveyId }: { surveyId: number }) {
 }
 
 /**
- * Вкладка «Ответы» — ТАБЛИЦА заполнивших.
+ * Вкладка «Ответы» — таблица заявок.
  *
- * ⚠️ Именно таблица, а не карточки: на сотне человек и полусотне вопросов
- * карточки превращаются в нечитаемую простыню (замечание владельца
- * 2026-08-12). В строке — только контакты и дата; ответы открываются по
- * клику на строку.
+ * ⚠️ Сама таблица живёт отдельным компонентом: там сортировка, фильтры,
+ * настройка колонок и правка полей сотрудника прямо в ячейках — в этом
+ * файле они сделали бы страницу нечитаемой.
  */
 function AnswersTab({ surveyId }: { surveyId: number }) {
-  const router = useRouter()
-  const [rows, setRows] = useState<any[]>([])
-  const [questions, setQuestions] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [q, setQ] = useState('')
-  const [desc, setDesc] = useState(true)
-  const [removing, setRemoving] = useState<number | null>(null)
-
-  // Удаление заполнения: нужно, чтобы тестовые прогоны и явный мусор не
-  // искажали отчёт навсегда. ⚠️ Удаляется ТОЛЬКО заполнение — контакт
-  // человека, его участия и заполненные поля остаются.
-  const removeResponse = async (e: React.MouseEvent, r: any) => {
-    e.stopPropagation()   // иначе клик уйдёт в строку и откроет ответ
-    if (!confirm(
-      `Удалить это заполнение${r.name ? ` — ${r.name}` : ''}?\n\n` +
-      'Ответы пропадут из отчёта. Сам контакт человека и заполненные им ' +
-      'поля останутся.'
-    )) return
-    setRemoving(r.id)
-    try {
-      await api.surveys.deleteResponse(surveyId, r.id)
-      setRows(list => list.filter(x => x.id !== r.id))
-    } catch (err: any) {
-      alert(err?.message || 'Не удалось удалить')
-    } finally {
-      setRemoving(null)
-    }
-  }
-
-  useEffect(() => {
-    Promise.all([
-      api.surveys.responses(surveyId).catch(() => []),
-      api.surveys.get(surveyId).catch(() => ({ questions: [] })),
-    ])
-      .then(([r, s]: any[]) => { setRows(r || []); setQuestions(s?.questions || []) })
-      .finally(() => setLoading(false))
-  }, [surveyId])
-
-  if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
-
-  if (!rows.length) {
-    return (
-      <p className="text-sm text-gray-400">
-        Анкету пока никто не заполнил. Отправьте ссылку — ответы появятся здесь.
-      </p>
-    )
-  }
-
-  const needle = q.trim().toLowerCase()
-  const filtered = rows.filter(r => {
-    if (!needle) return true
-    return [r.name, r.email, r.phone, r.telegram, r.vk, r.max_nick]
-      .some(v => (v || '').toString().toLowerCase().includes(needle))
-  })
-
-  const sorted = [...filtered].sort((a, b) => {
-    const ta = new Date(a.created_at).getTime()
-    const tb = new Date(b.created_at).getTime()
-    return desc ? tb - ta : ta - tb
-  })
-
-  return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <span className="text-sm text-gray-600">
-          Заполнили: <b className="text-gray-900">{rows.length}</b>
-          {needle && filtered.length !== rows.length && (
-            <span className="text-gray-400"> · найдено {filtered.length}</span>
-          )}
-        </span>
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="Поиск: имя, почта, телефон, ник"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm focus:border-[#25455D] focus:outline-none"
-        />
-      </div>
-
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-        <table className="w-full min-w-[760px] text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs text-gray-500">
-              {/* Дата — ПЕРВАЯ колонка (решение владельца): по ней и
-                  сортируют, и ориентируются в первую очередь. */}
-              <th className="cursor-pointer whitespace-nowrap px-3 py-2 font-medium hover:text-gray-800"
-                  onClick={() => setDesc(!desc)}
-                  title="Сортировать по дате">
-                Заполнено {desc ? '↓' : '↑'}
-              </th>
-              <th className="px-3 py-2 font-medium">Имя</th>
-              <th className="px-3 py-2 font-medium">Почта</th>
-              <th className="px-3 py-2 font-medium">Телефон</th>
-              <th className="px-3 py-2 font-medium">Telegram</th>
-              <th className="px-3 py-2 font-medium">ВКонтакте</th>
-              <th className="px-3 py-2 font-medium">MAX</th>
-              <th className="w-10 px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map(r => (
-              <tr key={r.id}
-                  onClick={() => router.push(`/dashboard/surveys/${surveyId}/responses/${r.id}`)}
-                  className="cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                <td className="whitespace-nowrap px-3 py-2 text-gray-500">
-                  {new Date(r.created_at).toLocaleString('ru-RU', {
-                    timeZone: 'Europe/Moscow',
-                    day: '2-digit', month: '2-digit', year: '2-digit',
-                    hour: '2-digit', minute: '2-digit',
-                  })}
-                </td>
-                <td className="px-3 py-2 font-medium text-gray-900">{r.name || 'Без имени'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.email || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.phone || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.telegram || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.vk || '—'}</td>
-                <td className="px-3 py-2 text-gray-600">{r.max_nick || '—'}</td>
-                <td className="px-3 py-2">
-                  <button onClick={e => removeResponse(e, r)}
-                          disabled={removing === r.id}
-                          title="Удалить это заполнение"
-                          className="rounded-md p-1 text-gray-300 hover:bg-red-50 hover:text-red-500 disabled:opacity-40">
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-    </div>
-  )
+  return <AnswersTable surveyId={surveyId} />
 }

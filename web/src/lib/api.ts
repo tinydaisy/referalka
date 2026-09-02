@@ -911,18 +911,22 @@ export const api = {
     },
     // Дашборды-квадратики. Разрез — поле контакта ИЛИ вопрос анкеты
     // (ключ вида 'field:3' / 'question:24').
-    sources: () => request('/api/v1/analytics/sources'),
+    // surveyId сужает разрезы до вопросов ОДНОЙ анкеты — для «Дашбордов анкеты».
+    sources: (surveyId?: number) =>
+      request(`/api/v1/analytics/sources${surveyId ? `?survey_id=${surveyId}` : ''}`),
     /** Медийные активы: подписано/всего по площадкам. */
     platforms: () => request('/api/v1/analytics/platforms'),
-    dashboards: (eventId?: number) =>
-      request(`/api/v1/analytics/dashboards${eventId ? `?event_id=${eventId}` : ''}`),
-    createDashboard: (data: { title?: string; event_id?: number }) =>
+    dashboards: (eventId?: number, surveyId?: number) =>
+      request(`/api/v1/analytics/dashboards${
+        eventId ? `?event_id=${eventId}` : surveyId ? `?survey_id=${surveyId}` : ''}`),
+    createDashboard: (data: { title?: string; event_id?: number; survey_id?: number }) =>
       request('/api/v1/analytics/dashboards', { method: 'POST', body: JSON.stringify(data) }),
     renameDashboard: (id: number, title: string) =>
       request(`/api/v1/analytics/dashboards/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
     // Общие настройки показа — действуют на все квадратики дашборда.
     updateDashboard: (id: number, data: {
-      hide_absolute?: boolean; hide_percent?: boolean; primary_metric?: 'count' | 'percent'
+      hide_absolute?: boolean; hide_percent?: boolean;
+      primary_metric?: 'count' | 'percent'; layout?: 'cards' | 'columns'
     }) => request(`/api/v1/analytics/dashboards/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     deleteDashboard: (id: number) =>
       request(`/api/v1/analytics/dashboards/${id}`, { method: 'DELETE' }),
@@ -1008,13 +1012,21 @@ export const api = {
     deleteQuestion: (id: number, qid: number) =>
       request(`/api/v1/surveys/${id}/questions/${qid}`, { method: 'DELETE' }),
     analytics: (id: number) => request(`/api/v1/surveys/${id}/analytics`),
-    responses: (id: number) => request(`/api/v1/surveys/${id}/responses`),
+    // qs — строка параметров таблицы: сортировка, поиск, отбор по обработке.
+    responses: (id: number, qs = '') =>
+      request(`/api/v1/surveys/${id}/responses${qs ? `?${qs}` : ''}`),
     response: (id: number, responseId: number) =>
       request(`/api/v1/surveys/${id}/responses/${responseId}`),
     // Удалить одно заполнение — чтобы тестовые прогоны и мусор не искажали
     // отчёт. Контакт человека при этом остаётся.
     deleteResponse: (id: number, responseId: number) =>
       request(`/api/v1/surveys/${id}/responses/${responseId}`, { method: 'DELETE' }),
+    // Отметки сотрудника по заявке (галочка «Обработано», заметка).
+    // ⚠️ Одна ручка на таблицу и карточку — иначе поведение разъедется.
+    saveStaffAnswers: (id: number, responseId: number, answers: Record<string, any>) =>
+      request(`/api/v1/surveys/${id}/responses/${responseId}/staff-answers`, {
+        method: 'PUT', body: JSON.stringify({ answers }),
+      }),
   },
   // Продукты/услуги вне событий (миграция 290): лендинг, тарифы, материалы.
   products: {

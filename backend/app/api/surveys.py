@@ -620,15 +620,28 @@ async def reorder_questions(
     ids = data.get("ids") or []
     if not isinstance(ids, list):
         raise HTTPException(400, "Ожидается список ids")
+
+    # ⚠️ Порядок считаем ВНУТРИ группы, а не сквозным 1,2,3: поля сотрудника
+    # живут за отметкой 10000, и сквозная нумерация перемешала бы их с
+    # вопросами посетителя. Список приходит по одной группе за раз.
+    kinds = {
+        r["id"]: r["filled_by"] for r in await db.fetch(
+            "SELECT id, filled_by FROM survey_questions WHERE survey_id=$1", survey_id)
+    }
     async with db.transaction():
-        for pos, qid in enumerate(ids, start=1):
+        pos = {'visitor': 0, 'staff': 10000}
+        for qid in ids:
             try:
                 qid = int(qid)
             except (TypeError, ValueError):
                 continue
+            grp = kinds.get(qid)
+            if grp is None:
+                continue
+            pos[grp] += 10
             await db.execute(
                 "UPDATE survey_questions SET sort_order=$1 WHERE id=$2 AND survey_id=$3",
-                pos, qid, survey_id)
+                pos[grp], qid, survey_id)
     return {"ok": True}
 
 
