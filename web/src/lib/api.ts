@@ -1540,9 +1540,10 @@ export const api = {
   // Пароль владельцу не отдаётся: новому уходит письмом, «Напомнить» шлёт письмо помощнику.
   assistant: {
     list:          () => request('/api/v1/clients/me/assistants'),
-    create:        (email: string, access_level: 'full' | 'limited' = 'limited') =>
+    // 'orders' — менеджер заказов: только «Контакты» и «Анкеты».
+    create:        (email: string, access_level: 'full' | 'limited' | 'orders' = 'limited') =>
       request('/api/v1/clients/me/assistants', { method: 'POST', body: JSON.stringify({ email, access_level }) }),
-    setAccessLevel: (grantId: number, access_level: 'full' | 'limited') =>
+    setAccessLevel: (grantId: number, access_level: 'full' | 'limited' | 'orders') =>
       request(`/api/v1/clients/me/assistants/${grantId}`, { method: 'PATCH', body: JSON.stringify({ access_level }) }),
     resetPassword: (grantId: number) =>
       request(`/api/v1/clients/me/assistants/${grantId}/reset-password`, { method: 'POST' }),

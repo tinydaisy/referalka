@@ -74,6 +74,8 @@ export default function Sidebar() {
   const isFullAssistant = isAnyAssistant && me?.assistant_access_level === 'full'
   // Режем UI только ограниченному ассистенту — полный работает как владелец (миграция 208).
   const isAssistant = isAnyAssistant && !isFullAssistant
+  // Менеджер заказов — только «Контакты» и «Анкеты».
+  const isOrdersAssistant = isAnyAssistant && me?.assistant_access_level === 'orders'
   // МедиаЛифт — служебный раздел сервисного аккаунта («ПЛЮСОН Сервис»).
   // Одно-единственное событие, не список: пункт ведёт сразу внутрь него.
   const isSystemService = !!me?.is_system_service
@@ -126,7 +128,20 @@ export default function Sidebar() {
     return pathname === href || pathname.startsWith(href + '/')
   }
 
-  const sections = [
+  // ⚠️ Менеджеру заказов собираем СВОЁ короткое меню, а не вырезаем пункты
+  // из общего: при добавлении нового раздела он иначе появился бы у него
+  // сам собой. Разрешаем список, а не запрещаем.
+  const ordersSections = [
+    {
+      label: 'Работа с заявками',
+      items: [
+        { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
+        { href: '/dashboard/surveys', label: 'Анкеты', icon: ClipboardList },
+      ],
+    },
+  ]
+
+  const sections = isOrdersAssistant ? ordersSections : [
     {
       items: [
         { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },

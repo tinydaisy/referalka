@@ -31,8 +31,16 @@ router = APIRouter(prefix="/clients/me/assistants", tags=["Помощники к
 
 
 def _normalize_level(value: Optional[str]) -> str:
-    """'full' | 'limited'. Всё непонятное — 'limited' (безопасный default)."""
-    return "full" if (value or "").strip().lower() == "full" else "limited"
+    """'full' | 'limited' | 'orders'. Непонятное → 'limited' (безопасный default).
+
+    ⚠️ 'orders' («менеджер заказов») — самый узкий уровень: только «Контакты»
+    и «Анкеты». Разрешительный список путей живёт в middleware, здесь мы лишь
+    принимаем значение.
+    """
+    v = (value or "").strip().lower()
+    if v in ("full", "orders"):
+        return v
+    return "limited"
 
 
 def _generate_password(length: int = 12) -> str:
@@ -95,13 +103,22 @@ async def _send_assistant_email(
             client_channel_id=ch["client_channel_id"],
         )
 
-        rights = (
-            "У вас полный доступ к кабинету — как у самого владельца. "
-            "Недоступны только раздел помощников, а также пароль и email владельца."
-            if access_level == "full"
-            else "Вы сможете работать с контактами, событиями, рассылками и реф-программой, "
-                 "но не сможете удалять данные и заходить в разделы «Каналы» и «Настройки»."
-        )
+        if access_level == "full":
+            rights = (
+                "У вас полный доступ к кабинету — как у самого владельца. "
+                "Недоступны только раздел помощников, а также пароль и email владельца."
+            )
+        elif access_level == "orders":
+            rights = (
+                "Вам открыты два раздела: «Контакты» и «Анкеты». Вы разбираете "
+                "заявки — смотрите ответы, отмечаете обработанные и пишете "
+                "заметки. Остальные разделы кабинета вам не видны."
+            )
+        else:
+            rights = (
+                "Вы сможете работать с контактами, событиями, рассылками и реф-программой, "
+                "но не сможете удалять данные и заходить в разделы «Каналы» и «Настройки»."
+            )
 
         if kind == "granted":
             subject = f"Вам открыли доступ в кабинет «{client_brand_name}» — iViSiON: ПЛЮСОН"

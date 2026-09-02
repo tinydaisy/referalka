@@ -416,9 +416,12 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
  * Список подгружается при первом раскрытии — грузить всех сразу при
  * десятке колонок значило бы десяток запросов на открытие страницы.
  */
-function PeopleColumn({ card, dashId, surveyId, onChanged, readOnly }: {
+function PeopleColumn({ card, dashId, surveyId, onChanged, readOnly,
+                       onMove, canMoveLeft, canMoveRight }: {
   card: Card; dashId: number; surveyId?: number
   onChanged: () => void; readOnly?: boolean
+  onMove?: (delta: -1 | 1) => void
+  canMoveLeft?: boolean; canMoveRight?: boolean
 }) {
   const [people, setPeople] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -450,10 +453,11 @@ function PeopleColumn({ card, dashId, surveyId, onChanged, readOnly }: {
     finally { setLoading(false) }
   }
 
-  // Заголовок: у плитки это сам вариант («200-300 т.р.»), у списка — название.
-  const title = card.view === 'tile'
-    ? (card.option_value || card.title || 'Разрез')
-    : (card.title || 'Разрез')
+  // ⚠️ Заголовок колонки: СНАЧАЛА собственное название («Консультация
+  // проведена — Да»), и только если его нет — вариант ответа. Было
+  // наоборот, и колонка подписывалась голым «Да»: при нескольких полях
+  // такие колонки неразличимы, а переименование не показывалось.
+  const title = card.title || card.option_value || 'Разрез'
 
   return (
     <PeopleColumnBase
@@ -464,6 +468,8 @@ function PeopleColumn({ card, dashId, surveyId, onChanged, readOnly }: {
       people={people} loading={loading} onExpand={load}
       onRename={readOnly ? undefined : rename}
       onRemove={readOnly ? undefined : remove}
+      onMove={readOnly ? undefined : onMove}
+      canMoveLeft={canMoveLeft} canMoveRight={canMoveRight}
       // ⚠️ В дашборде АНКЕТЫ клик ведёт на заполненную анкету человека:
       // сюда приходят разбирать ответы, и карточка контакта — лишний крюк.
       // Ответа может не быть (человек прошёл по условию поля контакта) —
@@ -753,6 +759,24 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
     await loadCards(activeId)
   }
 
+  /** Подвинуть колонку стрелкой. В режиме колонок перетаскивания нет:
+   *  ряд прокручивается вбок, и перетаскивание конфликтовало бы с
+   *  прокруткой — особенно на телефоне. */
+  const moveCard = async (i: number, delta: -1 | 1) => {
+    if (!activeId) return
+    const j = i + delta
+    if (j < 0 || j >= cards.length) return
+    const next = [...cards]
+    const [moved] = next.splice(i, 1)
+    next.splice(j, 0, moved)
+    setCards(next)
+    try {
+      await api.analytics.reorderCards(activeId, next.map(c => c.id))
+    } catch {
+      await loadCards(activeId)
+    }
+  }
+
   const drop = async (targetId: number) => {
     if (dragId == null || dragId === targetId || !activeId) { setDragId(null); return }
     const from = cards.findIndex(c => c.id === dragId)
@@ -927,9 +951,11 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
           ) : dash?.layout === 'columns' ? (
             /* Вид колонками: в шапке цифра, внутри список людей. */
             <div className="flex gap-3 overflow-x-auto pb-2">
-              {cards.map(c => (
+              {cards.map((c, i) => (
                 <PeopleColumn key={c.id} card={c} dashId={activeId} surveyId={surveyId}
-                              onChanged={() => loadCards(activeId)} readOnly={readOnly} />
+                              onChanged={() => loadCards(activeId)} readOnly={readOnly}
+                              onMove={(d: -1 | 1) => moveCard(i, d)}
+                              canMoveLeft={i > 0} canMoveRight={i < cards.length - 1} />
               ))}
             </div>
           ) : (

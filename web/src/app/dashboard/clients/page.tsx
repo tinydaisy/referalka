@@ -588,6 +588,13 @@ export default function ContactsPage() {
                 <Avatar contact={c} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
+                    {/* ⚠️ Гвоздик у закреплённых: они подняты наверх списка,
+                        и без значка непонятно, почему человек стоит первым
+                        (замечание владельца). */}
+                    {c.pinned_at && (
+                      <Pin size={12} className="shrink-0 text-[#25455D]"
+                           style={{ fill: 'currentColor' }} />
+                    )}
                     {/* Есть непрочитанные — имя жирнее, как в мессенджерах:
                         за один бейдж справа взгляд не цепляется. */}
                     <span className={`text-sm truncate ${

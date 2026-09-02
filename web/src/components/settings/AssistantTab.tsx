@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { RotateCcw, Trash2, Mail, UserPlus, Info, Building2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
-type AccessLevel = 'full' | 'limited'
+type AccessLevel = 'full' | 'limited' | 'orders'
 
 interface AssistantRow {
   grant_id: number
@@ -20,6 +20,9 @@ interface AssistantRow {
 const LEVEL_HINT: Record<AccessLevel, string> = {
   full: 'Может всё то же, что и вы: настройки, каналы, лид-магниты, удаление данных, оплата. Не сможет управлять помощниками и не увидит ваш пароль.',
   limited: 'Может править контакты, события, рассылки, реф-программу и продукты Mini App. Не сможет удалять данные, заходить в «Каналы» и «Настройки».',
+  // ⚠️ Разрешительный список: открыты ровно два раздела, всё остальное
+  // закрыто. Так новый раздел кабинета не откроется менеджеру случайно.
+  orders: 'Только «Контакты» и «Анкеты»: разбирает заявки — звонит, ставит отметку «обработано», пишет заметки. Не увидит события, рассылки, деньги и настройки.',
 }
 
 export default function AssistantTab() {
@@ -261,11 +264,12 @@ function LevelPicker({
   disabled?: boolean
 }) {
   const options: { id: AccessLevel; title: string }[] = [
+    { id: 'orders',  title: 'Менеджер заказов' },
     { id: 'limited', title: 'Ограниченный доступ' },
     { id: 'full',    title: 'Полный доступ' },
   ]
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {options.map(o => {
         const active = value === o.id
         return (

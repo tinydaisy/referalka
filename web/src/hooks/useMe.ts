@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 
 export type MeRole = 'owner' | 'assistant'
-export type AssistantAccessLevel = 'full' | 'limited'
+export type AssistantAccessLevel = 'full' | 'limited' | 'orders'
 
 export interface Me {
   id?: number
@@ -66,6 +66,8 @@ export function useMe() {
   }, [])
   const isAnyAssistant = me?.role === 'assistant'
   const isFullAssistant = isAnyAssistant && me?.assistant_access_level === 'full'
+  // Менеджер заказов: открыты только «Контакты» и «Анкеты».
+  const isOrdersAssistant = isAnyAssistant && me?.assistant_access_level === 'orders'
   // «Ограниченный» ассистент — тот, кому режем UI. Полный ведёт себя как владелец.
   const isAssistant = isAnyAssistant && !isFullAssistant
   const isOwner = !isAssistant
@@ -77,7 +79,7 @@ export function useMe() {
   const publicBase = me?.public_base || me?.platform_base || 'https://pluson.ru'
   const platformBase = me?.platform_base || 'https://pluson.ru'
   return {
-    me, isAssistant, isOwner, isAnyAssistant, isFullAssistant,
+    me, isAssistant, isOwner, isAnyAssistant, isFullAssistant, isOrdersAssistant,
     publicBase, platformBase,
     publicHost: hostOf(publicBase),
     platformHost: hostOf(platformBase),

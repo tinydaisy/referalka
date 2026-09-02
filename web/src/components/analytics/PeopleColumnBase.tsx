@@ -16,7 +16,10 @@
 
 import { ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight, Loader2, Pencil, X } from 'lucide-react'
+import {
+  ChevronDown, ChevronRight, ChevronLeft, ChevronRight as ChevronRightIcon,
+  Loader2, Pencil, X,
+} from 'lucide-react'
 
 const DARK = '#25455D'
 const PEACH = '#FFCFA4'
@@ -34,6 +37,7 @@ export interface ColumnPerson {
 export default function PeopleColumnBase({
   title, count, percent, people, loading, hint, tone = 'dark',
   onExpand, footer, collapsedByDefault = false, hrefFor, onRename, onRemove,
+  onMove, canMoveLeft, canMoveRight,
 }: {
   title: string
   count: number
@@ -52,6 +56,11 @@ export default function PeopleColumnBase({
   onRename?: () => void
   /** Убрать колонку. Не передан — крестика нет. */
   onRemove?: () => void
+  /** Подвинуть колонку влево/вправо. Стрелками, а не перетаскиванием:
+   *  работают на телефоне и не конфликтуют с прокруткой ряда. */
+  onMove?: (delta: -1 | 1) => void
+  canMoveLeft?: boolean
+  canMoveRight?: boolean
   footer?: ReactNode
   collapsedByDefault?: boolean
 }) {
@@ -86,6 +95,20 @@ export default function PeopleColumnBase({
           <button onClick={toggle} className="min-w-0 flex-1 text-left">
             <span className="block truncate text-sm font-semibold">{title}</span>
           </button>
+          {onMove && (
+            <>
+              <button onClick={() => onMove(-1)} disabled={!canMoveLeft}
+                      title="Левее"
+                      className="shrink-0 rounded p-1 opacity-70 hover:opacity-100 disabled:opacity-25">
+                <ChevronLeft size={14} />
+              </button>
+              <button onClick={() => onMove(1)} disabled={!canMoveRight}
+                      title="Правее"
+                      className="shrink-0 rounded p-1 opacity-70 hover:opacity-100 disabled:opacity-25">
+                <ChevronRightIcon size={14} />
+              </button>
+            </>
+          )}
           {onRename && (
             <button onClick={onRename} title="Переименовать колонку"
                     className="shrink-0 rounded p-1 opacity-70 hover:opacity-100">
