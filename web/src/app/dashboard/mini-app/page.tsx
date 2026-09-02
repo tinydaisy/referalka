@@ -12,7 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { CharCount, overClass, POSITIONING_LIMIT, BIO_LIMIT, ACH_LABEL_LIMIT, ACH_VALUE_LIMIT } from '@/components/FieldLimits'
+import { CharCount, overClass, POSITIONING_LIMIT, BIO_LIMIT, ACH_LABEL_LIMIT, ACH_VALUE_LIMIT, BUTTON_LABEL_LIMIT } from '@/components/FieldLimits'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import HtmlTextArea from '@/components/HtmlTextArea'
@@ -22,6 +22,7 @@ import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVk
 import SpeakerPhotosField from '@/components/SpeakerPhotosField'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 const BRAND = '#25455D'
 const GRADIENT = 'linear-gradient(45deg, #25455D, #0a1520)'
@@ -132,6 +133,7 @@ const SOCIAL_FIELDS: { key: string; label: string; placeholder: string; hint?: s
 ]
 
 type Tab = 'brand' | 'owner' | 'products' | 'bot' | 'tabs'
+const MINIAPP_TABS: readonly Tab[] = ['brand', 'owner', 'products', 'bot', 'tabs']
 
 // Дефолтные значения приветствия /start — те же, что бот ставит, если поля
 // пустые. Показываем их предзаполненными, чтобы клиент видел готовый шаблон.
@@ -175,11 +177,10 @@ export default function MiniAppSettingsPage() {
   const [leadPackages, setLeadPackages] = useState<{ id: number; name: string }[]>([])
   // Активная вкладка блока «Каналы основателя» (TG / VK / MAX)
   const [founderTab, setFounderTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
-  const [tab, setTab] = useState<Tab>(() => {
-    if (typeof window === 'undefined') return 'brand'
-    const t = new URLSearchParams(window.location.search).get('tab')
-    return (t === 'owner' || t === 'products' || t === 'bot' || t === 'tabs') ? t as Tab : 'brand'
-  })
+  // ⚠️ Через useUrlTab: он не только читает вкладку из адреса, но и ПИШЕТ её
+  // туда при переключении. Без записи обновление страницы всегда возвращало
+  // на «Бренд», даже если человек настраивал бота.
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'brand', MINIAPP_TABS)
 
   // Ассистент видит только «Продукты» — форсим вкладку, как только роль известна.
   useEffect(() => {
@@ -428,12 +429,22 @@ export default function MiniAppSettingsPage() {
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
         // Кнопки приветствия: выкидываем пустые (без текста; custom без ссылки), максимум 5.
+        // ⚠️ У каждого типа своё поле, которое НУЖНО отправить: у custom
+        // это url, у product — какой продукт открывать. Раньше здесь всё,
+        // кроме custom, сводилось к {type, label}, и product_slug терялся по
+        // дороге — бэкенд отбрасывал кнопку продукта как неполную, а человек
+        // жал «Сохранить» и не понимал, почему она исчезает.
         start_buttons: (profile.start_buttons || [])
-          .filter(b => (b.label || '').trim() && (b.type !== 'custom' || (b.url || '').trim()))
+          .filter(b => (b.label || '').trim()
+            && (b.type !== 'custom' || (b.url || '').trim())
+            && (b.type !== 'product' || (b.product_slug || '').trim()))
           .slice(0, 5)
           .map(b => b.type === 'custom'
             ? { type: 'custom', label: b.label.trim(), url: (b.url || '').trim() }
-            : { type: b.type, label: b.label.trim() }),
+            : b.type === 'product'
+              ? { type: 'product', label: b.label.trim(),
+                  product_slug: (b.product_slug || '').trim() }
+              : { type: b.type, label: b.label.trim() }),
         start_mode:             profile.start_mode || 'greeting',
         start_event_id:         profile.start_mode === 'event' ? (profile.start_event_id || null) : null,
         start_lead_magnet_id:   profile.start_mode === 'lead_magnet' ? (profile.start_lead_magnet_id || null) : null,
@@ -1034,8 +1045,12 @@ export default function MiniAppSettingsPage() {
                           value={btn.label || ''}
                           onChange={e => updateStartBtn(idx, { label: e.target.value })}
                           placeholder={btn.type === 'events' ? '📅 Все события' : btn.type === 'owner' ? '🌐 Об основателе' : 'Текст кнопки'}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                          className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:border-amber-400 ${
+                            overClass(btn.label || '', BUTTON_LABEL_LIMIT) || 'border-gray-300'}`}
                         />
+                        {/* Длинная надпись обрезается на телефоне многоточием —
+                            показываем, сколько осталось. */}
+                        <CharCount value={btn.label || ''} limit={BUTTON_LABEL_LIMIT} />
                         {btn.type === 'product' ? (
                           <>
                             <select
