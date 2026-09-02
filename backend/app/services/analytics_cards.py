@@ -202,6 +202,32 @@ def build_condition_sql(cond: dict, p: _Params, depth: int = 0) -> str:
     return unnest.strip()
 
 
+def _selects_unanswered(filters: Any, ref_id: int) -> bool:
+    """Отбирают ли условия ИМЕННО неответивших на этот же разрез.
+
+    Нужно одной плитке — «Не обработано»: она считает тех, у кого поле
+    пустое, а обычная логика «сколько ответили» на таком условии всегда
+    даёт ноль. Проверяем узко: ровно условие «не заполнено» по тому же
+    полю, что и сам разрез. Любое другое дерево — обычный путь.
+    """
+    tree = _jsonb(filters)
+    if not isinstance(tree, dict):
+        return False
+    items = tree.get("items")
+    if not isinstance(items, list):
+        return False
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        if it.get("operator") == "empty":
+            try:
+                if int(it.get("ref_id") or 0) == int(ref_id):
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
 def build_filters_sql(filters: Any, p: _Params) -> str:
     """Всё дерево условий квадратика → предикат. Пусто → TRUE."""
     tree = _jsonb(filters)
@@ -259,16 +285,18 @@ async def resolve_sources(db, client_id: int) -> dict[int | str, dict]:
 async def card_people(
     db, *, client_id: int, source: str, ref_id: int, filters: Any,
     event_id: int | None = None, option: str | None = None,
-    limit: int = 1000, offset: int = 0,
+    limit: int = 1000, offset: int = 0, survey_id: int | None = None,
 ) -> dict:
     """Кто эти люди — за цифрой в квадратике.
 
     ⚠️ Считает ПО ТЕМ ЖЕ правилам, что и сама цифра (те же условия, тот же
-    разворот мультиселекта). Иначе список разошёлся бы с числом, на которое
-    человек нажал, и доверять дашборду стало бы нельзя.
+    разворот мультиселекта, та же привязка к событию и анкете). Иначе
+    список разошёлся бы с числом, на которое человек нажал, и доверять
+    дашборду стало бы нельзя.
 
     `option` — конкретный вариант («Эксперт/консультант»); пусто → все
-    ответившие на разрез.
+    ответившие на разрез, а при условии «не заполнено» — все прошедшие
+    условия (иначе список «Не обработано» был бы всегда пустым).
     """
     p = _Params([client_id])
     where = "c.client_id = $1 AND c.is_active = TRUE"
@@ -276,6 +304,9 @@ async def card_people(
     if event_id:
         where += f" AND EXISTS (SELECT 1 FROM event_participants ep " \
                  f"WHERE ep.contact_id = c.id AND ep.event_id = {p.add(event_id)})"
+    if survey_id:
+        where += f" AND EXISTS (SELECT 1 FROM survey_responses sr " \
+                 f"WHERE sr.contact_id = c.id AND sr.survey_id = {p.add(survey_id)})"
 
     where += " AND " + build_filters_sql(filters, p)
 
@@ -283,7 +314,11 @@ async def card_people(
     bind = bind_tpl.format(ref=p.add(ref_id))
     alias = "a" if source == "question" else "v"
 
-    if option:
+    # Список за плиткой «Не обработано»: условие уже отобрало нужных людей,
+    # добавлять «и ответил на разрез» нельзя — тогда список станет пустым.
+    if not option and _selects_unanswered(filters, ref_id):
+        match = "TRUE"
+    elif option:
         # Тот же разворот массива, что в разбивке — иначе человек с
         # несколькими вариантами («Эксперт, Предприниматель») не нашёлся бы.
         opt = p.add(option)
@@ -339,12 +374,17 @@ async def card_people(
 async def compute_tile(
     db, *, client_id: int, source: str, ref_id: int, filters: Any,
     option: str | None, event_id: int | None = None,
+    survey_id: int | None = None,
 ) -> dict:
     """Плитка-цифра: сколько человек выбрали ОДИН конкретный вариант.
 
     Именно это владелец называет «квадратиком» (как в GetCourse:
     «200-300 т.р. — 176 пользователей»). Считает теми же правилами, что и
     разбивка в списочном виде, включая разворот мультиселекта.
+
+    ⚠️ `survey_id` сужает счёт до людей, заполнявших ЭТУ анкету. Нужен
+    дашборду анкеты: без него «не обработано» считалось бы от всей базы
+    (7346 человек), хотя заявок всего 135, и цифра была бы бессмысленной.
     """
     p = _Params([client_id])
     where = "c.client_id = $1 AND c.is_active = TRUE"
@@ -352,6 +392,9 @@ async def compute_tile(
     if event_id:
         where += f" AND EXISTS (SELECT 1 FROM event_participants ep " \
                  f"WHERE ep.contact_id = c.id AND ep.event_id = {p.add(event_id)})"
+    if survey_id:
+        where += f" AND EXISTS (SELECT 1 FROM survey_responses sr " \
+                 f"WHERE sr.contact_id = c.id AND sr.survey_id = {p.add(survey_id)})"
     where += " AND " + build_filters_sql(filters, p)
 
     # ⚠️ scope считаем ДО p.add(ref_id): запрос использует только `where`,
@@ -374,6 +417,14 @@ async def compute_tile(
 
     if not option:
         # Плитка без варианта = «сколько всего ответили».
+        #
+        # ⚠️ Исключение — когда условия сами отбирают НЕответивших («не
+        # заполнено»). Тогда ответивших ноль по определению, и плитка «Не
+        # обработано» показывала бы 0 вместо числа неразобранных заявок.
+        # В этом случае считаем всех, кто прошёл условия.
+        if answered == 0 and scope > 0 and _selects_unanswered(filters, ref_id):
+            return {"count": scope, "answered": scope, "scope": scope,
+                    "percent": 100.0}
         return {"count": answered, "answered": answered, "scope": scope,
                 "percent": 100.0 if answered else 0.0}
 
@@ -403,6 +454,7 @@ async def compute_tile(
 async def compute_card(
     db, *, client_id: int, source: str, ref_id: int, filters: Any,
     event_id: int | None = None, meta: dict | None = None,
+    survey_id: int | None = None,
 ) -> dict:
     """Считает один квадратик.
 
@@ -418,6 +470,10 @@ async def compute_card(
     if event_id:
         where += f" AND EXISTS (SELECT 1 FROM event_participants ep " \
                  f"WHERE ep.contact_id = c.id AND ep.event_id = {p.add(event_id)})"
+    # У дашборда анкеты — заполнение этой анкеты (см. compute_tile).
+    if survey_id:
+        where += f" AND EXISTS (SELECT 1 FROM survey_responses sr " \
+                 f"WHERE sr.contact_id = c.id AND sr.survey_id = {p.add(survey_id)})"
 
     where += " AND " + build_filters_sql(filters, p)
 

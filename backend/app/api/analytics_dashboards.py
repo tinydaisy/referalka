@@ -319,12 +319,13 @@ async def get_dashboard(
                 item.update(await compute_tile(
                     db, client_id=client_id, source=r["source"], ref_id=r["ref_id"],
                     filters=r["filters"], option=r["option_value"],
-                    event_id=dash["event_id"],
+                    event_id=dash["event_id"], survey_id=dash["survey_id"],
                 ))
             else:
                 item.update(await compute_card(
                     db, client_id=client_id, source=r["source"], ref_id=r["ref_id"],
                     filters=r["filters"], event_id=dash["event_id"], meta=meta,
+                    survey_id=dash["survey_id"],
                 ))
         except Exception as e:                      # noqa: BLE001
             # Один битый квадратик не должен обрушить весь дашборд.
@@ -384,7 +385,7 @@ async def card_people_list(
     return await card_people(
         db, client_id=client_id, source=row["source"], ref_id=row["ref_id"],
         filters=row["filters"], event_id=dash["event_id"], option=option,
-        limit=limit, offset=offset,
+        limit=limit, offset=offset, survey_id=dash["survey_id"],
     )
 
 
@@ -407,7 +408,7 @@ async def card_people_csv(
     data = await card_people(
         db, client_id=client_id, source=row["source"], ref_id=row["ref_id"],
         filters=row["filters"], event_id=dash["event_id"], option=option,
-        limit=5000,
+        limit=5000, survey_id=dash["survey_id"],
     )
 
     # ⚠️ Разделитель «;» и BOM — иначе Excel открывает кириллицу кракозябрами
