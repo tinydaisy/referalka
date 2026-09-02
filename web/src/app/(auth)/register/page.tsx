@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle, ArrowRight, Eye, EyeOff } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
+import AuthAside from '@/components/auth/AuthAside'
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -82,57 +83,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left — gradient */}
-      <div className="hidden lg:flex lg:w-1/2 gradient-bg flex-col justify-center px-16 py-12">
-        <div className="mb-8">
-          {/* ⚠️ Название СПРАВА от логотипа, а не бледной строкой над ним:
-              так это бренд, а не подпись к картинке. Высота блока с названием
-              и подзаголовком совпадает с логотипом — они читаются как одно
-              целое. Персиковый — фирменный акцент. */}
-          <div className="flex items-center gap-5">
-            <img src="/images/logo_no_ivision_wwhite.png" alt="iViSiON: ПЛЮСОН"
-              className="auth-logo shrink-0"
-              width={110} height={90}
-              onError={e => { (e.target as any).style.display='none' }} />
-            <div>
-              <div className="text-2xl font-bold leading-tight" style={{ color: '#FFCFA4' }}>
-                iViSiON: ПЛЮСОН
-              </div>
-              <p className="text-white/70 text-sm mt-1 leading-snug">
-                Платформа для экспертов,<br />спикеров и организаторов
-              </p>
-            </div>
-          </div>
-
-          {/* Лозунг в ДВЕ строки: тремя он занимал пол-экрана и спорил с
-              логотипом за внимание. */}
-          <h1 className="text-white text-3xl font-bold mt-8 leading-tight">
-            Всё, что вы попросили бы для привлечения<br />клиентов у технаря. Только без технаря.
-          </h1>
-        </div>
-
-        {/* ⚠️ Коротко, без перечня после двоеточия. Раньше каждый пункт был
-            строкой на всю ширину с шестью запятыми — экран превращался в
-            сплошной текст, который не читают. Первые три задачи (упаковаться,
-            привлечь, продать) свёрнуты в одну строку: подробности человек
-            увидит на лендинге и в тарифах.
-            ⚠️ «Отдельными модулями» оставлено — они докупаются, и человек не
-            должен решить, что всё включено. */}
-        <div className="space-y-4">
-          {[
-            'Упаковаться, привлечь и продать — в одном месте',
-            'Лендинги, эфиры, лид-магниты, готовые воронки в ТГ, ВК и МАХ',
-            'Рост без вложений в рекламу — обмен аудиторией',
-            'Авторские события: конференции, премии, турниры — отдельными модулями',
-          ].map(item => (
-            <div key={item} className="flex items-start gap-3">
-              <CheckCircle className="text-gold shrink-0 mt-0.5" size={20} style={{ color: '#FFCFA4' }} />
-              <span className="text-white/90 leading-snug">{item}</span>
-            </div>
-          ))}
-        </div>
-
-      </div>
+      <AuthAside />
 
       {/* Right — form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-12 bg-white">
