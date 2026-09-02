@@ -999,3 +999,39 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 - Тексты — одно место ([plusson_bonus_texts.py](backend/app/services/plusson_bonus_texts.py)) на письмо и боты.
 - Напоминания: 3, 14, 30, 60 день + за 7 и за 1 день. Счётчик `reminders_sent` (задача бежит раз в час).
 
+
+---
+
+## Обработка заявок из анкет + CRM (миграции 337–340, 02.09.2026)
+
+### Таблицы
+
+| Что | Где |
+|---|---|
+| `survey_questions.filled_by` | `visitor` \| `staff` — кто заполняет вопрос |
+| `survey_questions.is_protected` | системное поле, удалять нельзя (сейчас «Обработано») |
+| `surveys.table_settings` JSONB | какие столбцы видны в таблице заявок, общая на анкету |
+| `analytics_dashboards.survey_id` | привязка дашборда к анкете (рядом с `event_id`) |
+| `analytics_dashboards.layout` | `cards` \| `columns` — вид показа |
+
+Миграция 337 — восстановление DDL, накаченного когда-то мимо миграций:
+`event_participants.is_registered` / `is_in_chat` / `entry_link` и фича `surveys`.
+
+### Эндпоинты
+
+| Метод + путь | Что делает |
+|---|---|
+| `PUT /surveys/{id}/responses/{rid}/staff-answers` | отметки сотрудника по заявке; пишет ТОЛЬКО в поля `filled_by='staff'` |
+| `GET /surveys/{id}/responses` | таблица заявок: `sort`, `dir`, `q`, `processed`, `filters`, `limit`, `offset`; отдаёт `{responses, total}` |
+| `GET /events/{id}/crm` | четыре колонки людей по этапам события |
+| `GET /lead-magnets/{id}/crm` | колонки воронки лид-магнита (2 или 3) |
+| `GET /lead-magnet-packages/{id}/crm` | то же для пакета |
+| `GET /analytics/dashboards?survey_id=` | дашборды одной анкеты |
+| `GET /analytics/sources?survey_id=` | разрезы, суженные до вопросов одной анкеты |
+
+### Правила доступа
+
+- Обработка заявок (`staff-answers`) — **разрешена помощнику**: ради неё его и заводят. Закрыта у него правка самих анкет и вопросов.
+- CRM события — **всем тарифам**, без гейта по фиче.
+- Анкеты — фича `surveys`, дашборды — `analytics_dashboard` (обе: Экстра + admin).
+- В коллаб-событии CRM отдаёт только контакты **текущего** клиента (`contacts.client_id`).
