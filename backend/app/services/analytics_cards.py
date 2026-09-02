@@ -310,6 +310,7 @@ async def card_people(
     db, *, client_id: int, source: str, ref_id: int, filters: Any,
     event_id: int | None = None, option: str | None = None,
     limit: int = 1000, offset: int = 0, survey_id: int | None = None,
+    meta_kind: str | None = None,
 ) -> dict:
     """Кто эти люди — за цифрой в квадратике.
 
@@ -345,6 +346,12 @@ async def card_people(
     # «expects 3 arguments, 4 were passed».
     if not option and _selects_unanswered(filters, ref_id):
         match = "TRUE"
+    elif (meta_kind or "") == "bool" and option == "Нет":
+        # «Нет» у галочки = «галочка не стоит» (см. compute_tile). Список
+        # обязан совпадать с цифрой, иначе колонка врёт: число есть, людей нет.
+        bind = bind_tpl.format(ref=p.add(ref_id))
+        match = (f"NOT EXISTS (SELECT 1 {from_sql} WHERE {bind} "
+                 f"AND COALESCE({col},'') <> '')")
     elif option:
         bind = bind_tpl.format(ref=p.add(ref_id))
         # Тот же разворот массива, что в разбивке — иначе человек с
@@ -388,10 +395,15 @@ async def card_people(
                    -- в карточку контакта (там разбирают именно ответы).
                    {"(SELECT sr.id FROM survey_responses sr "
                     "WHERE sr.contact_id = c.id AND sr.survey_id = " + str(int(survey_id)) + " "
-                    "ORDER BY sr.id DESC LIMIT 1)" if survey_id else "NULL"} AS response_id
+                    "ORDER BY sr.id DESC LIMIT 1)" if survey_id else "NULL"} AS response_id,
+                   -- Дата заполнения анкеты — по ней сортируем. Свежие заявки
+                   -- нужны сверху: с ними и работают.
+                   {"(SELECT sr2.created_at FROM survey_responses sr2 "
+                    "WHERE sr2.contact_id = c.id AND sr2.survey_id = " + str(int(survey_id)) + " "
+                    "ORDER BY sr2.created_at DESC LIMIT 1)" if survey_id else "NULL"} AS answered_at
               FROM contacts c
              WHERE {where}
-             ORDER BY c.id DESC
+             ORDER BY {"answered_at DESC NULLS LAST, " if survey_id else ""}c.id DESC
              LIMIT {lim} OFFSET {off}""",
         *p.values,
     )
@@ -412,7 +424,7 @@ async def card_people(
 async def compute_tile(
     db, *, client_id: int, source: str, ref_id: int, filters: Any,
     option: str | None, event_id: int | None = None,
-    survey_id: int | None = None,
+    survey_id: int | None = None, meta_kind: str | None = None,
 ) -> dict:
     """Плитка-цифра: сколько человек выбрали ОДИН конкретный вариант.
 
@@ -433,6 +445,15 @@ async def compute_tile(
     if survey_id:
         where += f" AND EXISTS (SELECT 1 FROM survey_responses sr " \
                  f"WHERE sr.contact_id = c.id AND sr.survey_id = {p.add(survey_id)})"
+
+    # ⚠️ ЗНАМЕНАТЕЛЬ ПРОЦЕНТОВ — база дашборда БЕЗ условий этой плитки.
+    # Иначе колонка «Не обработано» делила своих людей на них же и всегда
+    # показывала 100%: её условие («поле не заполнено») уже сузило выборку.
+    # Проценты колонок должны складываться в 100 по всей воронке, а для
+    # этого знаменатель у всех обязан быть один.
+    base_total = await db.fetchval(
+        f"SELECT COUNT(*) FROM contacts c WHERE {where}", *p.values) or 0
+
     where += " AND " + build_filters_sql(filters, p)
 
     # ⚠️ scope считаем ДО p.add(ref_id): запрос использует только `where`,
@@ -461,10 +482,37 @@ async def compute_tile(
         # обработано» показывала бы 0 вместо числа неразобранных заявок.
         # В этом случае считаем всех, кто прошёл условия.
         if answered == 0 and scope > 0 and _selects_unanswered(filters, ref_id):
-            return {"count": scope, "answered": scope, "scope": scope,
-                    "percent": 100.0}
-        return {"count": answered, "answered": answered, "scope": scope,
-                "percent": 100.0 if answered else 0.0}
+            return {"count": scope, "answered": base_total, "scope": base_total,
+                    "percent": round(scope * 100.0 / base_total, 1) if base_total else 0.0}
+        # ⚠️ Процент — доля от ВСЕХ прошедших условия (scope), а не от самих
+        # ответивших. Иначе он всегда 100%: плитка считает ответивших и делит
+        # их на себя же. У колонок «Консультация проведена» так и выходило —
+        # везде 100%, и цифра ничего не значила.
+        return {"count": answered, "answered": base_total, "scope": base_total,
+                "percent": round(answered * 100.0 / base_total, 1) if base_total else 0.0}
+
+    # ⚠️⚠️ «НЕТ» У ГАЛОЧКИ = «ГАЛОЧКА НЕ СТОИТ», и точка.
+    #
+    # Снятая галочка ответ УДАЛЯЕТ, а не пишет слово «Нет» (иначе отметку
+    # нельзя было бы снять обратно). Из-за этого колонка «Нет» искала
+    # несуществующую строку и всегда показывала ноль — вариант предлагался,
+    # но не работал.
+    #
+    # Считаем это ЗДЕСЬ, в расчёте, а не только при создании колонки: иначе
+    # починились бы лишь новые колонки, а созданные раньше и собранные
+    # руками остались бы пустыми навсегда.
+    if (meta_kind or "") == "bool" and option == "Нет":
+        count = await db.fetchval(
+            f"""SELECT COUNT(*) FROM contacts c
+                 WHERE {where}
+                   AND NOT EXISTS (SELECT 1 {from_sql} WHERE {bind}
+                                    AND COALESCE({col},'') <> '')""",
+            *p.values,
+        ) or 0
+        return {
+            "count": count, "answered": base_total, "scope": base_total,
+            "percent": round(count * 100.0 / base_total, 1) if base_total else 0.0,
+        }
 
     opt = p.add(option)
     count = await db.fetchval(
@@ -484,8 +532,8 @@ async def compute_tile(
     ) or 0
 
     return {
-        "count": count, "answered": answered, "scope": scope,
-        "percent": round(count * 100.0 / answered, 1) if answered else 0.0,
+        "count": count, "answered": base_total, "scope": base_total,
+        "percent": round(count * 100.0 / base_total, 1) if base_total else 0.0,
     }
 
 

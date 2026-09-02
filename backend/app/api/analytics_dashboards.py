@@ -320,6 +320,9 @@ async def get_dashboard(
                     db, client_id=client_id, source=r["source"], ref_id=r["ref_id"],
                     filters=r["filters"], option=r["option_value"],
                     event_id=dash["event_id"], survey_id=dash["survey_id"],
+                    # Тип разреза нужен, чтобы отличить галочку: у неё «Нет»
+                    # значит «не отмечено», а не выбранный вариант.
+                    meta_kind=meta.get("kind"),
                 ))
             else:
                 item.update(await compute_card(
@@ -386,6 +389,8 @@ async def card_people_list(
         db, client_id=client_id, source=row["source"], ref_id=row["ref_id"],
         filters=row["filters"], event_id=dash["event_id"], option=option,
         limit=limit, offset=offset, survey_id=dash["survey_id"],
+        meta_kind=(await resolve_sources(db, client_id)).get(
+            f"{row['source']}:{row['ref_id']}", {}).get("kind"),
     )
 
 
@@ -409,6 +414,8 @@ async def card_people_csv(
         db, client_id=client_id, source=row["source"], ref_id=row["ref_id"],
         filters=row["filters"], event_id=dash["event_id"], option=option,
         limit=5000, survey_id=dash["survey_id"],
+        meta_kind=(await resolve_sources(db, client_id)).get(
+            f"{row['source']}:{row['ref_id']}", {}).get("kind"),
     )
 
     # ⚠️ Разделитель «;» и BOM — иначе Excel открывает кириллицу кракозябрами
