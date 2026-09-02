@@ -190,8 +190,11 @@ export default function MiniAppSettingsPage() {
   // наличии фичи: без неё выбирать всё равно нечего.
   useEffect(() => {
     if (!hasProducts) return
+    // ⚠️ Эндпоинт отдаёт {products: [...]} — не `items` и не голый массив.
+    // Из-за неверного ключа список выпадал пустым, хотя продукты есть.
     api.products.list()
-      .then((r: any) => setProducts(Array.isArray(r) ? r : (r?.items || [])))
+      .then((r: any) => setProducts(
+        Array.isArray(r) ? r : (r?.products || r?.items || [])))
       .catch(() => setProducts([]))
   }, [hasProducts])
 
@@ -1039,13 +1042,26 @@ export default function MiniAppSettingsPage() {
                               className="w-full mt-2 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:border-amber-400"
                             >
                               <option value="">— выберите продукт —</option>
+                              {/* ⚠️ Черновики помечаем: их публичная страница
+                                  отвечает «не найдено», и кнопка в боте вела
+                                  бы в пустоту. Не прячем — человек может
+                                  готовить запуск и опубликовать позже. */}
                               {products.map(p => (
-                                <option key={p.id} value={p.slug}>{p.title}</option>
+                                <option key={p.id} value={p.slug}>
+                                  {p.title}{p.status !== 'published' ? ' — черновик' : ''}
+                                </option>
                               ))}
                             </select>
                             <p className="text-xs text-gray-400 mt-1">
                               Ссылка ставится автоматически — ведёт на страницу продукта.
                             </p>
+                            {btn.product_slug && products.find(
+                              p => p.slug === btn.product_slug && p.status !== 'published') && (
+                              <p className="text-xs text-amber-600 mt-1">
+                                Продукт в черновике — по кнопке откроется «Страница не найдена».
+                                Опубликуйте его в разделе «Продукты и услуги».
+                              </p>
+                            )}
                             {!products.length && (
                               <p className="text-xs text-amber-600 mt-1">
                                 У вас пока нет продуктов — заведите его в разделе «Продукты и услуги».
