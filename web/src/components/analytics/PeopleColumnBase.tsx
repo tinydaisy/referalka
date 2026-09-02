@@ -33,7 +33,7 @@ export interface ColumnPerson {
 
 export default function PeopleColumnBase({
   title, count, percent, people, loading, hint, tone = 'dark',
-  onExpand, footer, collapsedByDefault = false,
+  onExpand, footer, collapsedByDefault = false, hrefFor,
 }: {
   title: string
   count: number
@@ -44,6 +44,10 @@ export default function PeopleColumnBase({
   tone?: 'dark' | 'peach'
   /** Зовём при первом раскрытии — список подгружается лениво. */
   onExpand?: () => void
+  /** Куда ведёт клик по человеку. По умолчанию — карточка контакта.
+   *  В дашборде АНКЕТЫ ведём на его заполненную анкету: там разбирают
+   *  ответы, и карточка контакта — лишний крюк. */
+  hrefFor?: (p: ColumnPerson) => string
   footer?: ReactNode
   collapsedByDefault?: boolean
 }) {
@@ -94,7 +98,7 @@ export default function PeopleColumnBase({
           ) : !people.length ? (
             <p className="p-3 text-sm text-gray-400">Пусто</p>
           ) : (
-            people.map(p => <PersonRow key={p.id} person={p} />)
+            people.map(p => <PersonRow key={p.id} person={p} hrefFor={hrefFor} />)
           )}
           {footer}
         </div>
@@ -104,7 +108,10 @@ export default function PeopleColumnBase({
 }
 
 /** Строка человека: имя ведёт в карточку контакта, под ним — ники площадок. */
-function PersonRow({ person }: { person: ColumnPerson }) {
+function PersonRow({ person, hrefFor }: {
+  person: ColumnPerson
+  hrefFor?: (p: ColumnPerson) => string
+}) {
   const nicks = [
     person.telegram && `TG ${at(person.telegram)}`,
     person.vk && `VK ${at(person.vk)}`,
@@ -112,7 +119,7 @@ function PersonRow({ person }: { person: ColumnPerson }) {
   ].filter(Boolean) as string[]
 
   return (
-    <Link href={`/dashboard/clients?contact=${person.id}`}
+    <Link href={hrefFor ? hrefFor(person) : `/dashboard/clients?contact=${person.id}`}
           className="block rounded-lg px-2 py-1.5 hover:bg-gray-50">
       <div className="truncate text-sm font-medium" style={{ color: DARK }}>
         {person.name || 'Без имени'}

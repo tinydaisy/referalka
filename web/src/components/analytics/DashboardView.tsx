@@ -416,7 +416,9 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
  * Список подгружается при первом раскрытии — грузить всех сразу при
  * десятке колонок значило бы десяток запросов на открытие страницы.
  */
-function PeopleColumn({ card, dashId }: { card: Card; dashId: number }) {
+function PeopleColumn({ card, dashId, surveyId }: {
+  card: Card; dashId: number; surveyId?: number
+}) {
   const [people, setPeople] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -444,6 +446,15 @@ function PeopleColumn({ card, dashId }: { card: Card; dashId: number }) {
       percent={card.eff_hide_percent ? null : card.percent}
       hint={card.survey_title || undefined}
       people={people} loading={loading} onExpand={load}
+      // ⚠️ В дашборде АНКЕТЫ клик ведёт на заполненную анкету человека:
+      // сюда приходят разбирать ответы, и карточка контакта — лишний крюк.
+      // Ответа может не быть (человек прошёл по условию поля контакта) —
+      // тогда открываем карточку, как везде.
+      hrefFor={surveyId
+        ? (p: any) => p.response_id
+            ? `/dashboard/surveys/${surveyId}/responses/${p.response_id}`
+            : `/dashboard/clients?contact=${p.id}`
+        : undefined}
     />
   )
 }
@@ -838,7 +849,7 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
             /* Вид колонками: в шапке цифра, внутри список людей. */
             <div className="flex flex-wrap gap-3 pb-2">
               {cards.map(c => (
-                <PeopleColumn key={c.id} card={c} dashId={activeId} />
+                <PeopleColumn key={c.id} card={c} dashId={activeId} surveyId={surveyId} />
               ))}
             </div>
           ) : (

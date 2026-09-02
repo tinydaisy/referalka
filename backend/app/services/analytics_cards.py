@@ -358,7 +358,13 @@ async def card_people(
                    (SELECT pt.username FROM platform_users pt
                      WHERE pt.contact_id = c.id AND pt.platform_slug = 'telegram'
                        AND COALESCE(pt.username,'') <> ''
-                     ORDER BY pt.id LIMIT 1) AS telegram
+                     ORDER BY pt.id LIMIT 1) AS telegram,
+                   -- Последний ответ человека на эту анкету: в дашборде
+                   -- анкеты клик по имени ведёт сразу на его ответы, а не
+                   -- в карточку контакта (там разбирают именно ответы).
+                   {"(SELECT sr.id FROM survey_responses sr "
+                    "WHERE sr.contact_id = c.id AND sr.survey_id = " + str(int(survey_id)) + " "
+                    "ORDER BY sr.id DESC LIMIT 1)" if survey_id else "NULL"} AS response_id
               FROM contacts c
              WHERE {where}
              ORDER BY c.id DESC
@@ -370,7 +376,10 @@ async def card_people(
         "total": total,
         "people": [
             {"id": r["id"], "name": r["name"], "email": r["email"],
-             "phone": r["phone"], "telegram": r["telegram"]}
+             "phone": r["phone"], "telegram": r["telegram"],
+             # Есть только у дашборда анкеты — по нему фронт ведёт клик на
+             # заполненную анкету человека вместо карточки контакта.
+             "response_id": r["response_id"]}
             for r in rows
         ],
     }
