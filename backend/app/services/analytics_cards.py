@@ -311,14 +311,18 @@ async def card_people(
     where += " AND " + build_filters_sql(filters, p)
 
     from_sql, bind_tpl, col = _value_expr(source)
-    bind = bind_tpl.format(ref=p.add(ref_id))
     alias = "a" if source == "question" else "v"
 
     # Список за плиткой «Не обработано»: условие уже отобрало нужных людей,
     # добавлять «и ответил на разрез» нельзя — тогда список станет пустым.
+    #
+    # ⚠️ ref_id добавляем в параметры ТОЛЬКО когда он попадёт в SQL: asyncpg
+    # строго сверяет число параметров с плейсхолдерами и иначе падает
+    # «expects 3 arguments, 4 were passed».
     if not option and _selects_unanswered(filters, ref_id):
         match = "TRUE"
     elif option:
+        bind = bind_tpl.format(ref=p.add(ref_id))
         # Тот же разворот массива, что в разбивке — иначе человек с
         # несколькими вариантами («Эксперт, Предприниматель») не нашёлся бы.
         opt = p.add(option)
@@ -336,6 +340,7 @@ async def card_people(
               )
             )"""
     else:
+        bind = bind_tpl.format(ref=p.add(ref_id))
         match = f"EXISTS (SELECT 1 {from_sql} WHERE {bind} AND COALESCE({col},'') <> '')"
 
     where += f" AND {match}"
