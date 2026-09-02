@@ -92,8 +92,12 @@ export default function PeopleColumnBase({
           а кнопка внутри кнопки недопустима. Сворачивает клик по заголовку. */}
       <div className="rounded-t-xl px-3 py-2.5" style={head}>
         <div className="flex items-center justify-between gap-1">
+          {/* ⚠️ Заголовок ПЕРЕНОСИТСЯ, а не обрезается: у названий вида
+              «Консультация — регистрация» видно было только «Консультация …»,
+              и колонки становились неразличимы. break-words — на случай
+              одного длинного слова без пробелов. */}
           <button onClick={toggle} className="min-w-0 flex-1 text-left">
-            <span className="block truncate text-sm font-semibold">{title}</span>
+            <span className="block break-words text-sm font-semibold leading-snug">{title}</span>
           </button>
           {onMove && (
             <>
@@ -135,7 +139,7 @@ export default function PeopleColumnBase({
       </div>
 
       {open && (
-        <div className="max-h-[420px] overflow-y-auto p-2">
+        <div className="max-h-[420px] overflow-y-auto scroll-visible p-2">
           {loading ? (
             <div className="flex items-center gap-2 p-3 text-sm text-gray-400">
               <Loader2 size={14} className="animate-spin" /> Загружаем…

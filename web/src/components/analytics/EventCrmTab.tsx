@@ -60,7 +60,7 @@ export default function EventCrmTab({ eventId }: { eventId: number }) {
           На событие пока никто не заходил.
         </p>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className="flex gap-3 overflow-x-auto pb-3 scroll-visible">
           {data.columns.map((c: any) => {
             const meta = TITLES[c.key] || { title: c.key, hint: '', tone: 'dark' as const }
             return (

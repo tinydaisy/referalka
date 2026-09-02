@@ -863,16 +863,22 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
                     колонками
                   </button>
                   <span className="text-gray-400">|</span>
-                  <label className="flex items-center gap-1">
-                    <input type="checkbox" checked={!dash?.hide_absolute}
-                           onChange={e => saveDash({ hide_absolute: !e.target.checked })} />
-                    числа
-                  </label>
+                  {/* ⚠️ В режиме колонок цифра стоит в шапке ВСЕГДА, и
+                      «числа» с «крупно» ни на что не влияют — показываем
+                      только «проценты», которые действительно убираются. */}
+                  {dash?.layout !== 'columns' && (
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={!dash?.hide_absolute}
+                             onChange={e => saveDash({ hide_absolute: !e.target.checked })} />
+                      числа
+                    </label>
+                  )}
                   <label className="flex items-center gap-1">
                     <input type="checkbox" checked={!dash?.hide_percent}
                            onChange={e => saveDash({ hide_percent: !e.target.checked })} />
                     проценты
                   </label>
+                  {dash?.layout !== 'columns' && <>
                   <span className="text-gray-400">|</span>
                   <span className="text-gray-500">крупно:</span>
                   <button onClick={() => saveDash({ primary_metric: 'count' })}
@@ -885,6 +891,7 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
                           style={dash?.primary_metric === 'percent' ? { background: DARK } : undefined}>
                     процент
                   </button>
+                  </>}
                 </div>
               )}
 
@@ -950,7 +957,7 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
             </div>
           ) : dash?.layout === 'columns' ? (
             /* Вид колонками: в шапке цифра, внутри список людей. */
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            <div className="flex gap-3 overflow-x-auto pb-3 scroll-visible">
               {cards.map((c, i) => (
                 <PeopleColumn key={c.id} card={c} dashId={activeId} surveyId={surveyId}
                               onChanged={() => loadCards(activeId)} readOnly={readOnly}

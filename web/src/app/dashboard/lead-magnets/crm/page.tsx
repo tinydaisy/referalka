@@ -65,7 +65,7 @@ function CrmView() {
               По этой ссылке пока никто не переходил.
             </p>
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            <div className="flex gap-3 overflow-x-auto pb-3 scroll-visible">
               {data.columns.map((c: any, i: number) => (
                 <PeopleColumnBase key={c.key}
                   title={c.title} count={c.count} percent={c.percent}
