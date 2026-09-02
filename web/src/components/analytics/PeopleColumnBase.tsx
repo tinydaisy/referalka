@@ -14,7 +14,7 @@
  * прокручивать сотни строк.
  */
 
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 
@@ -48,20 +48,28 @@ export default function PeopleColumnBase({
   collapsedByDefault?: boolean
 }) {
   const [open, setOpen] = useState(!collapsedByDefault)
-  const [everOpened, setEverOpened] = useState(!collapsedByDefault)
+  const [everOpened, setEverOpened] = useState(false)
 
-  const toggle = () => {
-    const next = !open
-    setOpen(next)
-    if (next && !everOpened) { setEverOpened(true); onExpand?.() }
-  }
+  // ⚠️ Колонка открыта сразу, поэтому список надо запросить при первой
+  // отрисовке, а не только по клику: иначе раскрытая колонка показывала
+  // «Пусто», хотя люди есть.
+  useEffect(() => {
+    if (open && !everOpened) { setEverOpened(true); onExpand?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const toggle = () => setOpen(v => !v)
 
   const head = tone === 'peach'
     ? { background: PEACH, color: DARK }
     : { background: DARK, color: '#fff' }
 
+  // ⚠️ Колонки делят ширину поровну (`flex-1`), а не стоят фиксированной
+  // шириной: на широком экране две колонки жались слева, а справа оставалось
+  // пустое место. Минимум 240px — чтобы на телефоне они прокручивались вбок,
+  // а не сжимались в нечитаемые полоски.
   return (
-    <div className="flex w-[280px] shrink-0 flex-col rounded-xl border border-gray-200 bg-white">
+    <div className="flex min-w-[240px] flex-1 flex-col rounded-xl border border-gray-200 bg-white">
       {/* Шапка — всегда видна, по ней и сворачиваем. */}
       <button onClick={toggle} className="rounded-t-xl px-3 py-2.5 text-left" style={head}>
         <div className="flex items-center justify-between gap-2">

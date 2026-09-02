@@ -836,7 +836,7 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
             </div>
           ) : dash?.layout === 'columns' ? (
             /* Вид колонками: в шапке цифра, внутри список людей. */
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            <div className="flex flex-wrap gap-3 pb-2">
               {cards.map(c => (
                 <PeopleColumn key={c.id} card={c} dashId={activeId} />
               ))}

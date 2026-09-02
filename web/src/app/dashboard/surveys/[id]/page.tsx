@@ -31,6 +31,8 @@ const KINDS = [
 const NEEDS_OPTIONS = new Set(['select', 'multiselect'])
 const kindLabel = (k: string) => KINDS.find(x => x.value === k)?.label || k
 
+const DARK = '#25455D'   // фирменный синий
+
 type SurveyTab = 'edit' | 'answers' | 'report' | 'dashboard'
 const SURVEY_TABS: readonly SurveyTab[] = ['edit', 'answers', 'report', 'dashboard']
 
@@ -250,9 +252,13 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
       {/* ⚠️ Вопросы ВЫШЕ настроек: кнопка «Сохранить» из блока настроек
           висела над списком вопросов и читалась как «сохранить вопросы».
           Кнопка должна стоять под тем, что она сохраняет. */}
+      {/* Порядок на странице повторяет порядок в самой анкете: сначала то,
+          что человек видит вверху, потом вопросы. */}
+      <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} part="header" />
+
       <div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold text-gray-800">Вопросы</h3>
+          <h3 className="font-semibold text-gray-800">Вопросы анкеты</h3>
           {/* ⚠️ Порядок кнопок значим: «поле контакта» намеренно ТРЕТЬЯ.
               Раньше она стояла первой, и в неё жали не глядя — хотя нужна
               она реже всего. */}
@@ -307,13 +313,16 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
             смешивать их с вопросами анкеты в одном списке значило бы
             каждый раз гадать, что увидит человек, а что нет. */}
         {staffQuestions.length > 0 && (
-          <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+          /* ⚠️ Выделен фирменным синим, а не серым: серый сливался с
+             белыми карточками вопросов, и блок терялся на странице. */
+          <div className="mt-6 rounded-xl border-2 p-4"
+               style={{ borderColor: `${DARK}40`, background: `${DARK}0F` }}>
             <div className="mb-1 flex items-center gap-2">
-              <Lock size={14} className="text-gray-500" />
-              <h4 className="font-semibold text-gray-800">Поля сотрудника</h4>
+              <Lock size={14} style={{ color: DARK }} />
+              <h4 className="font-semibold" style={{ color: DARK }}>Поля сотрудника</h4>
             </div>
-            <p className="mb-3 text-sm text-gray-500">
-              Их заполняете вы и ваши помощники при разборе заявок.
+            <p className="mb-3 text-sm text-gray-600">
+              Их заполняете вы и ваши помощники при разборе ответов.
               В анкете посетитель их не видит.
             </p>
             <QuestionsList survey={survey} fields={fields} questions={staffQuestions}
@@ -322,12 +331,12 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
         )}
       </div>
 
-      <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} />
+      <SettingsBlock survey={survey} onChanged={onChanged} readOnly={readOnly} part="settings" />
     </div>
   )
 }
 
-function SettingsBlock({ survey, onChanged, readOnly }: any) {
+function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
   // Подарок, который анкета выдаёт после заполнения.
   const [giftId, setGiftId] = useState<number | ''>(survey.gift_lead_magnet_id || '')
   const [magnets, setMagnets] = useState<any[]>([])
@@ -363,23 +372,46 @@ function SettingsBlock({ survey, onChanged, readOnly }: any) {
     } finally { setSaving(false) }
   }
 
+  // ⚠️ Блок один, а рисуется в ДВУХ местах страницы: «Шапка анкеты» стоит
+  // НАД вопросами (картинка и текст идут перед ними и у посетителя), всё
+  // остальное — под ними. Состояние и сохранение общие, поэтому это один
+  // компонент с переключателем `part`, а не две копии формы.
+  if (part === 'header') {
+    return (
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+        <h3 className="mb-1 font-semibold text-gray-800">Шапка анкеты</h3>
+        <p className="mb-3 text-sm text-gray-500">
+          Картинка и текст, которые человек видит вверху, до вопросов.
+        </p>
+
+        <div className="mb-3">
+          <span className="mb-1 block text-sm text-gray-600">Картинка вверху анкеты</span>
+          <FileUploader mode="single" kind="survey_media"
+                        value={imageUrl || null}
+                        onChange={(u: string | null) => setImageUrl(u || '')} />
+        </div>
+
+        <label className="mb-3 block">
+          <span className="mb-1 block text-sm text-gray-600">Текст перед вопросами</span>
+          <textarea className="input min-h-[70px]" value={intro} disabled={readOnly}
+                    onChange={e => setIntro(e.target.value)} />
+        </label>
+
+        {!readOnly && (
+          <div className="flex items-center gap-3">
+            <button onClick={save} disabled={saving} className="btn-gold disabled:opacity-50">
+              {saving ? 'Сохраняем…' : 'Сохранить шапку'}
+            </button>
+            {saved && <span className="text-sm text-green-600">Сохранено</span>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <h3 className="mb-3 font-semibold text-gray-800">Настройки</h3>
-
-      {/* Обложка — показывается вверху анкеты, до вопросов. */}
-      <div className="mb-3">
-        <span className="mb-1 block text-sm text-gray-600">Картинка вверху анкеты</span>
-        <FileUploader mode="single" kind="survey_media"
-                      value={imageUrl || null}
-                      onChange={(u: string | null) => setImageUrl(u || '')} />
-      </div>
-
-      <label className="mb-3 block">
-        <span className="mb-1 block text-sm text-gray-600">Текст перед вопросами</span>
-        <textarea className="input min-h-[70px]" value={intro} disabled={readOnly}
-                  onChange={e => setIntro(e.target.value)} />
-      </label>
+      <h3 className="mb-3 font-semibold text-gray-800">Настройки анкеты</h3>
 
       <label className="mb-3 block">
         <span className="mb-1 block text-sm text-gray-600">Что показать после отправки</span>
