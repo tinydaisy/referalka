@@ -1466,7 +1466,7 @@ async def update_my_profile(
             if not isinstance(_b, dict):
                 continue
             _t = (str(_b.get("type") or "custom")).strip()
-            if _t not in ("events", "owner", "custom", "product"):
+            if _t not in ("events", "owner", "custom", "product", "plusson"):
                 _t = "custom"
             _lbl = (str(_b.get("label") or "")).strip()
             _url = (str(_b.get("url") or "")).strip()
@@ -1492,7 +1492,9 @@ async def update_my_profile(
                                    f"Укажите полный адрес, например https://{TG_DOMAIN}/ваш_ник",
                         )
                     _clean.append({"type": "custom", "label": _lbl, "url": _fixed})
-            else:  # events / owner — url проставит резолвер, храним только текст
+            else:  # events / owner / plusson — url проставит резолвер,
+                   # храним только текст. У plusson ссылка ещё и зависит от
+                   # площадки бота, поэтому вычисляется в момент показа.
                 if _lbl:
                     _clean.append({"type": _t, "label": _lbl})
             if len(_clean) >= 5:

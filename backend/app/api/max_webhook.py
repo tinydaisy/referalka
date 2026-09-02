@@ -1616,6 +1616,7 @@ async def _process_start(
             async with _wp.acquire() as _wc:
                 g = await resolve_start_greeting(
                     _wc, client_id_override, greet_name=first_name or "",
+                    platform="max",
                 )
             # Режим «конкретное событие» → штатный флоу события (ref_pg{slug}),
             # ровно как по ссылке. Защита от петли: рекурсим только при пустом payload.

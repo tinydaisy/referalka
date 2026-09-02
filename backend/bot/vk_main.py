@@ -536,7 +536,7 @@ async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
     # подключён свой домен, кнопки приветствия ведут туда.
     greet_base = await client_public_url(db, ctx.client_id)
 
-    g = await resolve_start_greeting(db, ctx.client_id, greet_name="")
+    g = await resolve_start_greeting(db, ctx.client_id, greet_name="", platform="vk")
     if g.get("kind") == "event":
         ev_id = await db.fetchval("SELECT id FROM events WHERE slug = $1 LIMIT 1", g["event_slug"])
         if ev_id and await _vk_open_event_funnel(ev_id, user_id, db, ctx):

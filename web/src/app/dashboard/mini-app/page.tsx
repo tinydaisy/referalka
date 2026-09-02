@@ -32,7 +32,7 @@ interface Achievement { label: string; value: string }
 //   owner  — «Об основателе» (ссылка автоматом, меняется текст)
 //   custom — произвольная (текст + своя ссылка)
 interface StartButton {
-  type: 'events' | 'owner' | 'custom' | 'product'
+  type: 'events' | 'owner' | 'custom' | 'product' | 'plusson'
   label: string
   url?: string
   /** Для типа 'product': какой продукт открывать. Храним slug, а не
@@ -293,6 +293,7 @@ export default function MiniAppSettingsPage() {
   // ── Кнопки приветствия ──────────────────────────────────────────
   const DEFAULT_BTN_LABEL: Record<StartButton['type'], string> = {
     events: '📅 Все события', owner: '🌐 Об основателе', custom: '', product: '',
+    plusson: '🎁 ПЛЮСОН — 14 дней бесплатно',
   }
   function updateStartBtn(idx: number, patch: Partial<StartButton>) {
     if (!profile) return
@@ -1018,6 +1019,7 @@ export default function MiniAppSettingsPage() {
                             <option value="product" disabled={!hasProducts}>
                               {hasProducts ? 'Продукт' : 'Продукт 🔒'}
                             </option>
+                            <option value="plusson">Моя ссылка на ПЛЮСОН</option>
                           </select>
                           <div className="ml-auto flex items-center gap-1">
                             <button type="button" onClick={() => moveStartBtn(idx, -1)} disabled={idx === 0}
@@ -1087,6 +1089,12 @@ export default function MiniAppSettingsPage() {
                               </p>
                             )}
                           </>
+                        ) : btn.type === 'plusson' ? (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Ваша партнёрская ссылка на ПЛЮСОН. Подставляется сама и ведёт
+                            в бот <b>той же площадки</b>: нажали в MAX — откроется MAX,
+                            в Telegram — Telegram. Регистрации по ней закрепляются за вами.
+                          </p>
                         ) : (
                           <p className="text-xs text-gray-400 mt-1">
                             {btn.type === 'events'

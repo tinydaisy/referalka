@@ -29,6 +29,7 @@ async def resolve_start_greeting(
     client_id: int,
     *,
     greet_name: str = "",
+    platform: str = "telegram",
 ) -> dict[str, Any]:
     """Резолвит приветствие на голый /start для VIP-бота клиента.
 
@@ -120,12 +121,17 @@ async def resolve_start_greeting(
     owner_label = (client["start_btn_owner_label"] or "").strip() or "🌐 Об основателе"
     photo_url = client["owner_photo_url"] or client["profile_photo_url"]
 
+    # Реф-ссылку на ПЛЮСОН готовим заранее: она зависит от площадки бота
+    # и требует запроса в БД, а сам разбор кнопок — обычная функция.
+    plusson_url = await _plusson_ref_url(conn, client_id, platform)
+
     buttons = _resolve_buttons(
         client_id,
         client["start_buttons"],
         client["start_btn_events_label"],
         client["start_btn_owner_label"],
         base_url,
+        plusson_url,
     )
 
     return {
@@ -199,6 +205,42 @@ def _owner_url(client_id: int, base_url: str | None = None) -> str:
     return public_url_for(base_url, f"o/{client_id}?tab=ecosystem")
 
 
+async def _plusson_ref_url(conn, client_id: int, platform: str) -> str:
+    """Реф-ссылка клиента на ПЛЮСОН — В БОТ ТОЙ ЖЕ ПЛОЩАДКИ.
+
+    ⚠️ Человек нажимает кнопку в MAX — вести его в Telegram бессмысленно: он
+    там может не быть вовсе. Поэтому для MAX отдаём max.ru, для остальных —
+    Telegram.
+
+    ⚠️ Handle MAX-бота берём ИЗ БАЗЫ и только с непустым токеном: у сервисного
+    клиента есть карточка MAX-канала без токена — бот за ней не заведён, и
+    ссылка вела бы в пустоту (та же оговорка, что в реф-программе).
+    """
+    code = await conn.fetchval(
+        "SELECT referral_code FROM clients WHERE id = $1", client_id)
+    if not code:
+        return ""
+
+    if platform == "max":
+        handle = await conn.fetchval(
+            """SELECT ch.handle
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                 JOIN clients cl ON cl.id = cc.client_id
+                WHERE ch.platform_slug = 'max'
+                  AND COALESCE(ch.handle, '') <> ''
+                  AND COALESCE(ch.bot_token, '') <> ''
+                ORDER BY cl.is_system_service DESC, cc.is_active DESC, ch.id
+                LIMIT 1"""
+        )
+        if handle:
+            return f"https://max.ru/{handle.lstrip('@')}?start=ref{code}"
+        # MAX-бота нет — ведём в Telegram, это лучше нерабочей кнопки.
+
+    from app.services.share_links import PLUSON_TG_HANDLE
+    return f"https://{TG_DOMAIN}/{PLUSON_TG_HANDLE}?start=ref{code}"
+
+
 def _product_url(slug: str, base_url: str | None = None) -> str:
     """Публичная страница продукта. Клиент выбирает продукт, адрес ставится сам."""
     return public_url_for(base_url, f"pr/{slug}")
@@ -216,7 +258,8 @@ def _default_buttons(client_id: int, events_label, owner_label,
 
 
 def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label,
-                     base_url: str | None = None) -> list[dict]:
+                     base_url: str | None = None,
+                     plusson_url: str = "") -> list[dict]:
     """Разбирает clients.start_buttons (JSONB) в список готовых кнопок.
 
     Каждая кнопка: {'kind': 'events'|'owner'|'custom', 'label': str, 'url': str}.
@@ -250,6 +293,13 @@ def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label,
             out.append({"kind": "owner",
                         "label": label or "🌐 Об основателе",
                         "url": _owner_url(client_id, base_url)})
+        elif kind == "plusson":
+            # Реф-ссылка клиента на ПЛЮСОН — в бот ТОЙ ЖЕ площадки, где
+            # человек нажал кнопку (см. _plusson_ref_url).
+            if plusson_url:
+                out.append({"kind": "plusson",
+                            "label": label or "🎁 ПЛЮСОН",
+                            "url": plusson_url})
         elif kind == "product":
             # ⚠️ Храним slug, а не готовый адрес: у клиента может быть свой
             # домен, и вшитая ссылка на pluson.ru перестала бы вести к нему.
