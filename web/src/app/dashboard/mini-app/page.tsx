@@ -11,7 +11,7 @@
  *   • profile (бренд + основатель) — общая кнопка «Сохранить визитку» внизу.
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { CharCount, overClass, POSITIONING_LIMIT, BIO_LIMIT, ACH_LABEL_LIMIT, ACH_VALUE_LIMIT, BUTTON_LABEL_LIMIT } from '@/components/FieldLimits'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
@@ -151,7 +151,27 @@ const DEFAULT_TAB_LABELS = {
   tab_label_ecosystem: 'О проекте',
 } as const
 
+/**
+ * ⚠️ Обёртка в `Suspense` ОБЯЗАТЕЛЬНА, без неё СБОРКА ПАДАЕТ ЦЕЛИКОМ:
+ * «useSearchParams() should be wrapped in a suspense boundary at page
+ * /dashboard/mini-app». Хук `useUrlTab` (вкладка живёт в адресе) читает
+ * `useSearchParams`, а этот роут — статический, и Next 14 пререндерит его на
+ * сборке; у страниц вида `[id]` этого не происходит, поэтому там та же
+ * связка проходит молча.
+ *
+ * ⚠️ Ловится только на сборке — `tsc --noEmit` такую ошибку не видит.
+ * Ставя `useUrlTab` (или любой другой `useSearchParams`) на страницу БЕЗ
+ * динамического сегмента в пути, сразу заворачивайте её так же.
+ */
 export default function MiniAppSettingsPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-gray-400">Загружаем…</p>}>
+      <MiniAppSettings />
+    </Suspense>
+  )
+}
+
+function MiniAppSettings() {
   // Ассистенту доступна ТОЛЬКО вкладка «Продукты» (client_offerings) — визитка
   // бренда/основателя/бот шлются через PATCH /auth/me, который ассистенту → 403.
   const { isAssistant, me } = useMe()

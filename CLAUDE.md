@@ -429,6 +429,8 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Next 14.2.3, а не 15** — `params` читать через `useParams()`, НЕ через `use(params)`, иначе Application error.
 
+⚠️⚠️ **Страница БЕЗ динамического сегмента + `useSearchParams` (в т.ч. через `useUrlTab`) — ОБЯЗАТЕЛЬНО в `<Suspense>`**, иначе **сборка падает целиком**: «useSearchParams() should be wrapped in a suspense boundary at page …». Такие роуты Next пререндерит на сборке, а `[id]`-страницы — нет, поэтому там та же связка проходит молча. **`tsc --noEmit` эту ошибку НЕ видит** — проверять только сборкой. Поймано 2026-09-02 на `/dashboard/mini-app`: выкатка встала для всего проекта, пока страницу не обернули. Приём в проекте уже используется (`lead-magnets/crm`, `events/new/gifts`, `verify-email`, `link-pluson`, `password-reset/confirm`) — новую страницу заворачивать так же.
+
 ### ⚠️⚠️ Веб-витрина события — ЭТО Mini App, а не отдельная страница (2026-08-18, ПРОД)
 
 `pluson.ru/event/{slug}` отдаёт **сборку Mini App** (`mini-app/dist-web`, точка входа `main-web.tsx`, адаптер [web.ts](mini-app/src/platform/web.ts)). Правка в `mini-app/src/` едет сразу в Telegram, VK, MAX и веб.
