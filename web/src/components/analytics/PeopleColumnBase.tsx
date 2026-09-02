@@ -16,7 +16,7 @@
 
 import { ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, Pencil, X } from 'lucide-react'
 
 const DARK = '#25455D'
 const PEACH = '#FFCFA4'
@@ -33,7 +33,7 @@ export interface ColumnPerson {
 
 export default function PeopleColumnBase({
   title, count, percent, people, loading, hint, tone = 'dark',
-  onExpand, footer, collapsedByDefault = false, hrefFor,
+  onExpand, footer, collapsedByDefault = false, hrefFor, onRename, onRemove,
 }: {
   title: string
   count: number
@@ -48,6 +48,10 @@ export default function PeopleColumnBase({
    *  В дашборде АНКЕТЫ ведём на его заполненную анкету: там разбирают
    *  ответы, и карточка контакта — лишний крюк. */
   hrefFor?: (p: ColumnPerson) => string
+  /** Переименовать колонку. Не передан — карандашика нет. */
+  onRename?: () => void
+  /** Убрать колонку. Не передан — крестика нет. */
+  onRemove?: () => void
   footer?: ReactNode
   collapsedByDefault?: boolean
 }) {
@@ -73,21 +77,39 @@ export default function PeopleColumnBase({
   // пустое место. Минимум 240px — чтобы на телефоне они прокручивались вбок,
   // а не сжимались в нечитаемые полоски.
   return (
-    <div className="flex min-w-[240px] flex-1 flex-col rounded-xl border border-gray-200 bg-white">
+    <div className="flex w-[260px] shrink-0 grow basis-[260px] flex-col rounded-xl border border-gray-200 bg-white">
       {/* Шапка — всегда видна, по ней и сворачиваем. */}
-      <button onClick={toggle} className="rounded-t-xl px-3 py-2.5 text-left" style={head}>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold">{title}</span>
-          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      {/* ⚠️ Шапка — не <button>, а <div>: карандаш и крестик внутри неё,
+          а кнопка внутри кнопки недопустима. Сворачивает клик по заголовку. */}
+      <div className="rounded-t-xl px-3 py-2.5" style={head}>
+        <div className="flex items-center justify-between gap-1">
+          <button onClick={toggle} className="min-w-0 flex-1 text-left">
+            <span className="block truncate text-sm font-semibold">{title}</span>
+          </button>
+          {onRename && (
+            <button onClick={onRename} title="Переименовать колонку"
+                    className="shrink-0 rounded p-1 opacity-70 hover:opacity-100">
+              <Pencil size={13} />
+            </button>
+          )}
+          {onRemove && (
+            <button onClick={onRemove} title="Убрать колонку"
+                    className="shrink-0 rounded p-1 opacity-70 hover:opacity-100">
+              <X size={14} />
+            </button>
+          )}
+          <button onClick={toggle} className="shrink-0 rounded p-1">
+            {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
         </div>
-        <div className="mt-1 flex items-baseline gap-2">
+        <button onClick={toggle} className="mt-1 flex w-full items-baseline gap-2 text-left">
           <span className="text-2xl font-bold tabular-nums">{count}</span>
           {typeof percent === 'number' && (
             <span className="text-sm opacity-90">{percent}%</span>
           )}
-        </div>
+        </button>
         {hint && <div className="mt-0.5 text-[11px] opacity-80">{hint}</div>}
-      </button>
+      </div>
 
       {open && (
         <div className="max-h-[420px] overflow-y-auto p-2">

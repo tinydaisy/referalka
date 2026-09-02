@@ -945,9 +945,15 @@ export const api = {
       request(`/api/v1/analytics/dashboards/${dashId}/cards/reorder`, { method: 'POST', body: JSON.stringify({ ids }) }),
     // keys — какие именно разрезы добавить ('field:3'); view='tile' создаёт
     // по квадратику-цифре на каждый вариант ответа.
-    autofill: (dashId: number, keys?: string[], view?: 'tile' | 'list') =>
+    // options — под какие ответы делать колонки: { 'question:24': ['Да'] }.
+    // Без них на поле создаётся пара «Да»/«Нет», и половина колонок пустая.
+    autofill: (dashId: number, keys?: string[], view?: 'tile' | 'list',
+               options?: Record<string, string[]>) =>
       request(`/api/v1/analytics/dashboards/${dashId}/autofill`, {
-        method: 'POST', body: JSON.stringify({ ...(keys ? { keys } : {}), ...(view ? { view } : {}) }),
+        method: 'POST', body: JSON.stringify({
+          ...(keys ? { keys } : {}), ...(view ? { view } : {}),
+          ...(options ? { options } : {}),
+        }),
       }),
     // Кто эти люди — за цифрой в квадратике.
     cardPeople: (dashId: number, cardId: number, option?: string, limit = 200) => {

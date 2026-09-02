@@ -416,12 +416,28 @@ function CardTile({ card, sources, dashId, onChanged, readOnly, onHandle }: {
  * Список подгружается при первом раскрытии — грузить всех сразу при
  * десятке колонок значило бы десяток запросов на открытие страницы.
  */
-function PeopleColumn({ card, dashId, surveyId }: {
+function PeopleColumn({ card, dashId, surveyId, onChanged, readOnly }: {
   card: Card; dashId: number; surveyId?: number
+  onChanged: () => void; readOnly?: boolean
 }) {
   const [people, setPeople] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+
+  // ⚠️ Переименование и удаление были только у плиток — в режиме колонок
+  // клиент не мог убрать лишнюю колонку и переписать заголовок.
+  const rename = async () => {
+    const next = prompt('Название колонки', card.title || '')
+    if (next === null) return
+    await api.analytics.updateCard(dashId, card.id, { title: next.trim() })
+    onChanged()
+  }
+
+  const remove = async () => {
+    if (!confirm(`Убрать колонку «${card.title}»?`)) return
+    await api.analytics.deleteCard(dashId, card.id)
+    onChanged()
+  }
 
   const load = async () => {
     if (loaded) return
@@ -446,6 +462,8 @@ function PeopleColumn({ card, dashId, surveyId }: {
       percent={card.eff_hide_percent ? null : card.percent}
       hint={card.survey_title || undefined}
       people={people} loading={loading} onExpand={load}
+      onRename={readOnly ? undefined : rename}
+      onRemove={readOnly ? undefined : remove}
       // ⚠️ В дашборде АНКЕТЫ клик ведёт на заполненную анкету человека:
       // сюда приходят разбирать ответы, и карточка контакта — лишний крюк.
       // Ответа может не быть (человек прошёл по условию поля контакта) —
@@ -464,7 +482,8 @@ function PickFieldsModal({ sources, used, onClose, onAdd }: {
   sources: SourceMeta[]
   used: Set<string>
   onClose: () => void
-  onAdd: (keys: string[], view: 'tile' | 'list') => Promise<void>
+  onAdd: (keys: string[], view: 'tile' | 'list',
+          options?: Record<string, string[]>) => Promise<void>
 }) {
   const groups = Array.from(new Set(sources.map(s => s.group)))
   const [group, setGroup] = useState(groups[0] || '')
@@ -475,16 +494,42 @@ function PickFieldsModal({ sources, used, onClose, onAdd }: {
   // Показываем только то, что имеет смысл рисовать: списки, да/нет, числа.
   const items = sources.filter(s => s.group === group && s.auto && !used.has(s.key))
 
+  // Какие ИМЕННО ответы превращать в колонки: { 'question:24': ['Да'] }.
+  // Отметил один — будет одна колонка, отметил все — по колонке на каждый.
+  const [opts, setOpts] = useState<Record<string, string[]>>({})
+
+  /** Варианты ответа поля. У «да/нет» их в options нет — подставляем сами. */
+  const optionsOf = (s: SourceMeta): string[] =>
+    (s.options?.length ? s.options : (s.kind === 'bool' ? ['Да', 'Нет'] : []))
+
   const toggle = (k: string) => {
     const next = new Set(picked)
-    next.has(k) ? next.delete(k) : next.add(k)
+    if (next.has(k)) { next.delete(k) } else {
+      next.add(k)
+      // При выборе поля отмечаем все его ответы — обычно нужны все, а
+      // лишние снять проще, чем отмечать каждый.
+      const s = items.find(x => x.key === k)
+      if (s && !opts[k]) setOpts(o => ({ ...o, [k]: optionsOf(s) }))
+    }
     setPicked(next)
+  }
+
+  const toggleOpt = (k: string, opt: string) => {
+    setOpts(o => {
+      const cur = o[k] || []
+      return { ...o, [k]: cur.includes(opt) ? cur.filter(x => x !== opt) : [...cur, opt] }
+    })
   }
 
   const submit = async () => {
     if (!picked.size) return
     setBusy(true)
-    try { await onAdd([...picked], view); onClose() }
+    try {
+      const chosen: Record<string, string[]> = {}
+      picked.forEach(k => { if (opts[k]?.length) chosen[k] = opts[k] })
+      await onAdd([...picked], view, chosen)
+      onClose()
+    }
     finally { setBusy(false) }
   }
 
@@ -534,21 +579,48 @@ function PickFieldsModal({ sources, used, onClose, onAdd }: {
               Здесь всё уже добавлено.
             </div>
           )}
-          {items.map(s => (
-            <label key={s.key}
-                   className="flex cursor-pointer items-start gap-2 rounded-lg p-2 text-sm hover:bg-gray-50">
-              <input type="checkbox" className="mt-0.5"
-                     checked={picked.has(s.key)} onChange={() => toggle(s.key)} />
-              <span className="min-w-0 flex-1">
-                <span className="block">{s.title}</span>
-                <span className="text-xs text-gray-400">
-                  {s.kind === 'bool' ? 'да / нет'
-                    : s.options?.length ? `${s.options.length} вариантов`
-                    : 'число'}
-                </span>
-              </span>
-            </label>
-          ))}
+          {items.map(s => {
+            const on = picked.has(s.key)
+            const vals = optionsOf(s)
+            return (
+              <div key={s.key} className="rounded-lg p-2 hover:bg-gray-50">
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-0.5"
+                         checked={on} onChange={() => toggle(s.key)} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block">{s.title}</span>
+                    <span className="text-xs text-gray-400">
+                      {s.kind === 'bool' ? 'да / нет'
+                        : vals.length ? `${vals.length} вариантов`
+                        : 'число'}
+                    </span>
+                  </span>
+                </label>
+
+                {/* ⚠️ Под каким ответом создавать колонку — выбирает клиент.
+                    Раньше на каждое поле создавалась пара «Да»/«Нет», и ряд
+                    забивался колонками, которые тут же удаляли: в CRM нужна
+                    одна колонка на стадию («консультация проведена»). */}
+                {on && vals.length > 0 && view === 'tile' && (
+                  <div className="ml-6 mt-1 rounded-lg bg-gray-50 p-2">
+                    <div className="mb-1 text-xs text-gray-500">
+                      По каким ответам сделать колонки:
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      {vals.map(v => (
+                        <label key={v} className="flex cursor-pointer items-center gap-1.5 text-sm">
+                          <input type="checkbox"
+                                 checked={(opts[s.key] || []).includes(v)}
+                                 onChange={() => toggleOpt(s.key, v)} />
+                          <span>{v}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         <div className="mt-3 flex items-center gap-2">
@@ -674,9 +746,10 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
     else { setActiveId(null); setCards([]) }
   }
 
-  const addPicked = async (keys: string[], view: 'tile' | 'list') => {
+  const addPicked = async (keys: string[], view: 'tile' | 'list',
+                          options?: Record<string, string[]>) => {
     if (!activeId) return
-    await api.analytics.autofill(activeId, keys, view)
+    await api.analytics.autofill(activeId, keys, view, options)
     await loadCards(activeId)
   }
 
@@ -830,7 +903,13 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
           {!!cards.length && (
             <div className="rounded-xl px-3 py-2 text-sm text-[#25455D]"
                  style={{ background: `${PEACH}59` }}>
-              Нажмите на цифры в карточках для просмотра контактов
+              {/* У колонок люди уже на виду — подсказка про цифры там
+                  бессмысленна, нужна своя. */}
+              {dash?.layout === 'columns'
+                ? (surveyId
+                    ? 'Нажмите на имя человека — откроются его ответы на анкету'
+                    : 'Нажмите на имя человека — откроется его карточка')
+                : 'Нажмите на цифры в карточках для просмотра контактов'}
             </div>
           )}
 
@@ -847,9 +926,10 @@ export default function DashboardView({ eventId, surveyId, readOnly = false }: {
             </div>
           ) : dash?.layout === 'columns' ? (
             /* Вид колонками: в шапке цифра, внутри список людей. */
-            <div className="flex flex-wrap gap-3 pb-2">
+            <div className="flex gap-3 overflow-x-auto pb-2">
               {cards.map(c => (
-                <PeopleColumn key={c.id} card={c} dashId={activeId} surveyId={surveyId} />
+                <PeopleColumn key={c.id} card={c} dashId={activeId} surveyId={surveyId}
+                              onChanged={() => loadCards(activeId)} readOnly={readOnly} />
               ))}
             </div>
           ) : (

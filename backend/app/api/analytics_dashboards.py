@@ -581,6 +581,13 @@ async def autofill(
     wanted_set = {str(k) for k in wanted} if isinstance(wanted, list) else None
     view = "tile" if (data or {}).get("view") == "tile" else "list"
 
+    # ⚠️ Какие ИМЕННО ответы превращать в колонки: {'question:24': ['Да']}.
+    # Без этого на каждое поле создавалась пара «Да»/«Нет», и ряд забивался
+    # колонками, которые клиент тут же удалял: в CRM нужна одна колонка на
+    # стадию («консультация проведена»), а не две.
+    picked_opts = (data or {}).get("options")
+    picked_opts = picked_opts if isinstance(picked_opts, dict) else {}
+
     sources = await resolve_sources(db, client_id)
     # Дубли ловим по (разрез + вид + вариант): у плиток на один разрез
     # приходится несколько строк, по одной на вариант.
@@ -613,6 +620,10 @@ async def autofill(
             # смысла (значений десятки) — там остаётся список.
             if view == "tile":
                 opts = meta["options"] or (["Да", "Нет"] if meta["kind"] == "bool" else [])
+                # Клиент отметил конкретные ответы — берём только их.
+                chosen = picked_opts.get(key)
+                if isinstance(chosen, list) and chosen:
+                    opts = [o for o in opts if o in {str(c) for c in chosen}]
                 if not opts:
                     if (key, "list", None) in existing:
                         continue
@@ -629,13 +640,32 @@ async def autofill(
                     if (key, "tile", opt) in existing:
                         continue
                     added += 1
+                    # ⚠️ «Нет» у галочки — это ОТСУТСТВИЕ ответа, а не слово
+                    # «Нет»: снятая галочка ответ удаляет (иначе её нельзя
+                    # было бы снять). Колонка с вариантом «Нет» всегда
+                    # оказывалась пустой, поэтому вместо варианта ставим
+                    # условие «поле не заполнено» — как у «Не обработано».
+                    is_no = meta["kind"] == "bool" and opt == "Нет"
+                    filters = json.dumps({
+                        "op": "and",
+                        "items": [{
+                            "source": meta["source"], "ref_id": meta["ref_id"],
+                            "operator": "empty", "values": [],
+                        }],
+                    }) if is_no else "{}"
                     await db.execute(
                         """INSERT INTO analytics_cards
                              (dashboard_id, source, ref_id, sort_order,
-                              view, option_value, survey_id)
-                           VALUES ($1,$2,$3,$4,'tile',$5,$6)""",
+                              view, option_value, survey_id, title, filters)
+                           VALUES ($1,$2,$3,$4,'tile',$5,$6,$7,$8::jsonb)""",
                         dashboard_id, meta["source"], meta["ref_id"],
-                        base + added * 10, opt, meta.get("survey_id"),
+                        base + added * 10,
+                        None if is_no else opt, meta.get("survey_id"),
+                        # ⚠️ Заголовок «Поле — Ответ», а не голое «Да»: при
+                        # нескольких полях на дашборде колонки «Да» и «Да»
+                        # неразличимы. Клиент может переименовать.
+                        f"{meta['title']} — {opt}",
+                        filters,
                     )
             else:
                 if (key, "list", None) in existing:
