@@ -199,6 +199,11 @@ def _owner_url(client_id: int, base_url: str | None = None) -> str:
     return public_url_for(base_url, f"o/{client_id}?tab=ecosystem")
 
 
+def _product_url(slug: str, base_url: str | None = None) -> str:
+    """Публичная страница продукта. Клиент выбирает продукт, адрес ставится сам."""
+    return public_url_for(base_url, f"pr/{slug}")
+
+
 def _default_buttons(client_id: int, events_label, owner_label,
                      base_url: str | None = None) -> list[dict]:
     """Две дефолтные кнопки (события + об основателе) — обратная совместимость."""
@@ -245,6 +250,14 @@ def _resolve_buttons(client_id: int, start_buttons, events_label, owner_label,
             out.append({"kind": "owner",
                         "label": label or "🌐 Об основателе",
                         "url": _owner_url(client_id, base_url)})
+        elif kind == "product":
+            # ⚠️ Храним slug, а не готовый адрес: у клиента может быть свой
+            # домен, и вшитая ссылка на pluson.ru перестала бы вести к нему.
+            slug = (item.get("product_slug") or "").strip()
+            if slug:
+                out.append({"kind": "product",
+                            "label": label or "🎁 Продукт",
+                            "url": _product_url(slug, base_url)})
         else:  # custom
             # Кривой URL (напр. `https//t.me/…` без двоеточия) не должен ронять
             # ВСЁ приветствие: чиним что можем, безнадёжную кнопку — пропускаем.

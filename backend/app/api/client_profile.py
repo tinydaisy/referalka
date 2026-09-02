@@ -1466,11 +1466,23 @@ async def update_my_profile(
             if not isinstance(_b, dict):
                 continue
             _t = (str(_b.get("type") or "custom")).strip()
-            if _t not in ("events", "owner", "custom"):
+            if _t not in ("events", "owner", "custom", "product"):
                 _t = "custom"
             _lbl = (str(_b.get("label") or "")).strip()
             _url = (str(_b.get("url") or "")).strip()
-            if _t == "custom":
+            if _t == "product":
+                # ⚠️ Храним slug, а не адрес: у клиента может быть свой домен,
+                # и вшитая ссылка на pluson.ru перестала бы к нему вести.
+                # Продукт проверяем на принадлежность — иначе по чужому slug
+                # кнопка вела бы на посторонний продукт.
+                _slug = (str(_b.get("product_slug") or "")).strip()
+                own = await db.fetchval(
+                    "SELECT 1 FROM products WHERE slug=$1 AND client_id=$2",
+                    _slug, int(client["sub"])) if _slug else None
+                if _lbl and own:
+                    _clean.append({"type": "product", "label": _lbl,
+                                   "product_slug": _slug})
+            elif _t == "custom":
                 if _lbl and _url:
                     _fixed = normalize_button_url(_url)
                     if not _fixed:

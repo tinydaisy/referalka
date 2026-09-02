@@ -31,7 +31,14 @@ interface Achievement { label: string; value: string }
 //   events — «Все события» (ссылка ставится автоматом, меняется только текст)
 //   owner  — «Об основателе» (ссылка автоматом, меняется текст)
 //   custom — произвольная (текст + своя ссылка)
-interface StartButton { type: 'events' | 'owner' | 'custom'; label: string; url?: string }
+interface StartButton {
+  type: 'events' | 'owner' | 'custom' | 'product'
+  label: string
+  url?: string
+  /** Для типа 'product': какой продукт открывать. Храним slug, а не
+   *  готовый адрес — у клиента может быть свой домен. */
+  product_slug?: string
+}
 
 /**
  * Ссылку кастомной кнопки бэкенд чинит сам (`https//` → `https://`, `t.me/x` и
@@ -149,6 +156,9 @@ export default function MiniAppSettingsPage() {
   const hasConference = !!me?.features?.includes('conference')
   // Фирменный стиль Mini App — платная возможность (мигр. 332, Экстра+admin).
   const hasBrandTheme = !!me?.features?.includes('miniapp_brand_theme')
+  // Кнопка «Продукт» в приветствии — по фиче products.
+  const hasProducts = !!me?.features?.includes('products')
+  const [products, setProducts] = useState<any[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
   // Вкладка площадки в блоке «Как открываются ваши ссылки» (Telegram/VK/MAX).
   const [linkTab, setLinkTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
@@ -175,6 +185,15 @@ export default function MiniAppSettingsPage() {
   useEffect(() => {
     if (isAssistant) setTab('products')
   }, [isAssistant])
+
+  // Список продуктов для кнопки «Продукт» в приветствии. Грузим только при
+  // наличии фичи: без неё выбирать всё равно нечего.
+  useEffect(() => {
+    if (!hasProducts) return
+    api.products.list()
+      .then((r: any) => setProducts(Array.isArray(r) ? r : (r?.items || [])))
+      .catch(() => setProducts([]))
+  }, [hasProducts])
 
   // Проверяем у Telegram-бота наличие Mini App: если его нет, режим «Mini App»
   // выбрать нельзя (ссылки `?startapp=` были бы мёртвыми).
@@ -270,7 +289,7 @@ export default function MiniAppSettingsPage() {
   }
   // ── Кнопки приветствия ──────────────────────────────────────────
   const DEFAULT_BTN_LABEL: Record<StartButton['type'], string> = {
-    events: '📅 Все события', owner: '🌐 Об основателе', custom: '',
+    events: '📅 Все события', owner: '🌐 Об основателе', custom: '', product: '',
   }
   function updateStartBtn(idx: number, patch: Partial<StartButton>) {
     if (!profile) return
@@ -287,6 +306,7 @@ export default function MiniAppSettingsPage() {
       type,
       label: (cur.label || '').trim() || DEFAULT_BTN_LABEL[type],
       url: type === 'custom' ? (cur.url || '') : undefined,
+      product_slug: type === 'product' ? (cur.product_slug || '') : undefined,
     }
     update('start_buttons', next)
   }
@@ -990,6 +1010,11 @@ export default function MiniAppSettingsPage() {
                             <option value="events">Все события</option>
                             <option value="owner">Об основателе</option>
                             <option value="custom">Произвольная ссылка</option>
+                            {/* Без фичи пункт виден, но выбрать нельзя: скрытый
+                                вариант читается как «такого нет вовсе». */}
+                            <option value="product" disabled={!hasProducts}>
+                              {hasProducts ? 'Продукт' : 'Продукт 🔒'}
+                            </option>
                           </select>
                           <div className="ml-auto flex items-center gap-1">
                             <button type="button" onClick={() => moveStartBtn(idx, -1)} disabled={idx === 0}
@@ -1006,7 +1031,28 @@ export default function MiniAppSettingsPage() {
                           placeholder={btn.type === 'events' ? '📅 Все события' : btn.type === 'owner' ? '🌐 Об основателе' : 'Текст кнопки'}
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
                         />
-                        {btn.type === 'custom' ? (
+                        {btn.type === 'product' ? (
+                          <>
+                            <select
+                              value={btn.product_slug || ''}
+                              onChange={e => updateStartBtn(idx, { product_slug: e.target.value })}
+                              className="w-full mt-2 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:border-amber-400"
+                            >
+                              <option value="">— выберите продукт —</option>
+                              {products.map(p => (
+                                <option key={p.id} value={p.slug}>{p.title}</option>
+                              ))}
+                            </select>
+                            <p className="text-xs text-gray-400 mt-1">
+                              Ссылка ставится автоматически — ведёт на страницу продукта.
+                            </p>
+                            {!products.length && (
+                              <p className="text-xs text-amber-600 mt-1">
+                                У вас пока нет продуктов — заведите его в разделе «Продукты и услуги».
+                              </p>
+                            )}
+                          </>
+                        ) : btn.type === 'custom' ? (
                           <>
                             <input
                               value={btn.url || ''}
