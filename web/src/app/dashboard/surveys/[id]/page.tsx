@@ -62,10 +62,13 @@ export default function SurveyPage() {
   if (!survey) return <p className="p-6 text-sm text-red-600">Анкета не найдена</p>
 
   return (
-    // ⚠️ На «Ответах» ширину НЕ ограничиваем: там таблица с семью колонками,
-    // и в узкой колонке она жалась, оставляя полэкрана пустым. Формы вопросов
-    // и отчёт наоборот читаются хуже во всю ширину — им лимит оставляем.
-    <div className={tab === 'answers' ? 'max-w-none' : 'max-w-4xl'}>
+    /* ⚠️ Своей ширины страница НЕ задаёт: её держит общая обёртка кабинета
+       (`max-w-6xl` в DashboardLayout) — по неё же идёт плашка тарифа сверху.
+       Было `max-w-4xl`, и страница анкеты обрывалась заметно левее остальных
+       разделов: таблица ответов и колонки дашборда жались, справа зияло
+       пустое место. Длинные текстовые формы ограничиваются САМИ (см. ниже),
+       а не за счёт всей страницы. */
+    <div>
       <Link href="/dashboard/surveys"
             className="mb-4 flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700">
         <ArrowLeft size={14} /> Все анкеты
@@ -95,11 +98,16 @@ export default function SurveyPage() {
         ))}
       </div>
 
+      {/* Формы и отчёт держим в читаемой колонке: строка во всю ширину
+          экрана читается тяжело. Таблице ответов, дашбордам и колонкам,
+          наоборот, нужна вся ширина — им лимит не ставим. */}
       {tab === 'edit' && (
-        <EditTab survey={survey} fields={fields} onChanged={load} readOnly={isAssistant} />
+        <div className="max-w-4xl">
+          <EditTab survey={survey} fields={fields} onChanged={load} readOnly={isAssistant} />
+        </div>
       )}
       {tab === 'answers' && <AnswersTab surveyId={Number(id)} />}
-      {tab === 'report' && <ReportTab surveyId={Number(id)} />}
+      {tab === 'report' && <div className="max-w-4xl"><ReportTab surveyId={Number(id)} /></div>}
       {/* Дашборды этой анкеты. Движок общий с разделом «Аналитика» — это
           два входа в одно место, а не два разных списка. */}
       {tab === 'dashboard' && <DashboardView surveyId={Number(id)} />}
