@@ -20,8 +20,19 @@ import asyncpg
 from app.database import get_pool
 
 
+# Уровни доступа помощника. 'orders' — «менеджер заказов»: только
+# «Контакты» и «Анкеты» (миграция 342).
+_LEVELS = ("full", "limited", "orders")
+
+
 async def get_grant_access_level(grant_id: Optional[int]) -> str:
-    """Возвращает 'full' | 'limited'. Отозванный/неизвестный пропуск → 'limited'."""
+    """Возвращает 'full' | 'limited' | 'orders'.
+
+    ⚠️ Неизвестное значение и отозванный пропуск → 'limited' (безопасный
+    дефолт). Раньше здесь стояло `"full" if lvl == "full" else "limited"`, и
+    новый уровень молча превращался в 'limited': роль сохранялась в базе, но
+    не действовала — менеджер видел весь кабинет.
+    """
     if not grant_id:
         return "limited"
     pool = await get_pool()
@@ -31,7 +42,7 @@ async def get_grant_access_level(grant_id: Optional[int]) -> str:
         lvl = await conn.fetchval(
             "SELECT access_level FROM assistant_grants WHERE id = $1", int(grant_id)
         )
-    return "full" if lvl == "full" else "limited"
+    return lvl if lvl in _LEVELS else "limited"
 
 
 async def is_full_grant_row(db: asyncpg.Connection, grant_id: Optional[int]) -> bool:
