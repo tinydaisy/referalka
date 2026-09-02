@@ -1004,6 +1004,10 @@ export const api = {
   },
   surveys: {
     list: () => request('/api/v1/surveys'),
+    // Сколько заявок ждут обработки по всем анкетам — цифра у пункта меню.
+    unprocessedCount: () => request('/api/v1/surveys/unprocessed-count'),
+    // Кому можно слать письмо о заполнении: владелец + помощники кабинета.
+    notifyRecipients: () => request('/api/v1/surveys/notify-recipients'),
     create: (data: any) =>
       request('/api/v1/surveys', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: number) => request(`/api/v1/surveys/${id}`),

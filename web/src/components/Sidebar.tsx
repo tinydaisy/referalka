@@ -21,6 +21,11 @@ export default function Sidebar() {
   // `hidden` — у полностью отписавшихся (список по умолчанию их прячет).
   const [unread, setUnread] = useState({ visible: 0, hidden: 0 })
 
+  // Необработанные заявки анкет — цифра у пункта «Анкеты», по тому же
+  // принципу, что непрочитанные у «Контактов»: видно, что есть работа, не
+  // заходя в раздел. «Необработанная» = не стоит галочка «Обработано».
+  const [unprocessed, setUnprocessed] = useState(0)
+
   useEffect(() => {
     api.auth.me().then((data: any) => setMe({
       name: data?.name,
@@ -49,6 +54,12 @@ export default function Sidebar() {
           const visible = r?.unread_visible ?? ((r?.unread || 0) - hidden)
           setUnread({ visible: Math.max(0, visible), hidden: Math.max(0, hidden) })
         })
+        .catch(() => {})
+      // Тем же тиком — необработанные заявки анкет: человек отмечает
+      // «Обработано» в соседнем разделе, и без обновления цифра в меню
+      // висела бы прежней до перезагрузки страницы.
+      api.surveys.unprocessedCount()
+        .then(r => { if (alive) setUnprocessed(Math.max(0, r?.unprocessed || 0)) })
         .catch(() => {})
     }
     load()
@@ -303,6 +314,19 @@ export default function Sidebar() {
                         style={{ background: '#FFCFA4', color: '#25455D' }}
                       >
                         {unread.hidden > 0 ? `${unread.visible}/${unread.hidden}` : unread.visible}
+                      </span>
+                    )}
+                    {/* Заявки анкет, которые ещё не обработали. Та же логика,
+                        что у непрочитанных сообщений: цифра видна из любого
+                        раздела, обновляется раз в минуту и при возврате на
+                        вкладку. Ноль — бейджа нет вовсе. */}
+                    {href === '/dashboard/surveys' && unprocessed > 0 && (
+                      <span
+                        title={`Заявок ждут обработки: ${unprocessed}`}
+                        className="ml-auto shrink-0 min-w-[20px] text-center text-[11px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: '#FFCFA4', color: '#25455D' }}
+                      >
+                        {unprocessed}
                       </span>
                     )}
                     {/* Замочек = модуль не подключён. Пункт НЕ отключаем: клик

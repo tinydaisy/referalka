@@ -282,13 +282,29 @@ function SurveyRow({ survey, onChanged, readOnly }: any) {
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link href={`/dashboard/surveys/${survey.id}`}
-                className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
-            {survey.title}
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={`/dashboard/surveys/${survey.id}`}
+                  className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
+              {survey.title}
+            </Link>
+            {/* Сколько заявок этой анкеты ждут обработки. Кликом ведём сразу
+                в её ответы с отбором «не обработаны» — чтобы из списка
+                попадать в работу, а не в общий список всех заполнений. */}
+            {survey.unprocessed_count > 0 && (
+              <Link href={`/dashboard/surveys/${survey.id}?tab=answers`}
+                    title={`Заявок ждут обработки: ${survey.unprocessed_count}`}
+                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                    style={{ background: '#FFCFA4', color: '#25455D' }}>
+                {survey.unprocessed_count}
+              </Link>
+            )}
+          </div>
           <div className="mt-0.5 text-xs text-gray-500">
             {survey.questions_count} вопрос(ов) · заполнили{' '}
             <b>{survey.people_count}</b> человек
+            {survey.unprocessed_count > 0 && (
+              <> · <b className="text-[#25455D]">{survey.unprocessed_count}</b> не обработано</>
+            )}
             {!survey.is_active && ' · выключена'}
           </div>
         </div>

@@ -427,6 +427,13 @@ async def submit_survey(
                                      updated_at = NOW()""",
                     contact_id, q["field_id"], text, json.dumps(raw))
 
+    # Уведомление организатору: чат — всегда, письмо — по настройке анкеты.
+    # ⚠️ ПОСЛЕ транзакции: сообщение шлётся по сети, держать на нём открытую
+    # транзакцию нельзя. Внутри всё завёрнуто в try/except — сбой уведомления
+    # не должен превратиться в ошибку отправки анкеты у человека.
+    from app.services.survey_notify import notify_survey_filled
+    await notify_survey_filled(db, s, resp_id, contact_id)
+
     return await _after_submit(db, s, contact_id, data, repeated=False)
 
 

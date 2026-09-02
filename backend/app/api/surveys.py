@@ -278,6 +278,9 @@ class SurveyIn(BaseModel):
     # Настройка таблицы ответов: какие столбцы видны и в каком порядке.
     # Общая на анкету — помощники должны видеть ту же таблицу, что владелец.
     table_settings: Optional[dict] = None
+    # Кому слать письмо о заполнении (миграция 343). NULL = «по умолчанию»
+    # (владелец + менеджеры заказов), пустой список = не слать никому.
+    notify_emails: Optional[list] = None
 
 
 class QuestionIn(BaseModel):
@@ -318,18 +321,78 @@ async def _survey_links(db, client_id: int, slug: str) -> dict:
     return out
 
 
+# ⚠️ «Необработанная заявка» = у заполнения НЕ стоит галочка защищённого поля
+# сотрудника «Обработано» (миграция 338). Считается в трёх местах — цифра у
+# пункта меню, цифра у каждой анкеты в списке и цифра на вкладке «Ответы», —
+# поэтому выражение ОДНО на всех: посчитай его где-нибудь по-своему, и цифры
+# начнут расходиться между экранами, а доверять им перестанут.
+#
+# ⚠️ `f.qid IS NOT NULL` обязателен: у анкеты может не быть поля «Обработано»
+# вовсе (заведена мимо миграции). Без проверки `question_id = NULL` не совпал
+# бы ни с чем, NOT EXISTS дал бы истину, и НЕОБРАБОТАННЫМИ показались бы ВСЕ
+# заполнения такой анкеты.
+_UNPROCESSED_FLAG_JOIN = """
+    LEFT JOIN LATERAL (
+        SELECT MIN(q.id) AS qid FROM survey_questions q
+         WHERE q.survey_id = s.id AND q.filled_by = 'staff' AND q.is_protected
+    ) f ON TRUE"""
+
+_UNPROCESSED_COUNT_SQL = """
+    (SELECT COUNT(*) FROM survey_responses r
+      WHERE r.survey_id = s.id AND f.qid IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM survey_answers a
+                         WHERE a.response_id = r.id
+                           AND a.question_id = f.qid
+                           AND a.value = 'Да'))"""
+
+
+@router.get("/surveys/unprocessed-count")
+async def surveys_unprocessed_count(
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Сколько заявок ждут обработки по ВСЕМ анкетам кабинета — цифра у пункта
+    меню «Анкеты», как непрочитанные у «Контактов».
+
+    ⚠️ Маршрут объявлен ДО `/surveys/{survey_id}`: тот принимает int, и
+    «unprocessed-count» на нём отвалился бы с 422, а не проскочил дальше.
+
+    ⚠️ Без гейта по фиче: цифра — это чтение своих данных. Правило проекта
+    «смотреть можно, менять нельзя».
+    """
+    total = await db.fetchval(
+        f"""SELECT COALESCE(SUM({_UNPROCESSED_COUNT_SQL}), 0)
+              FROM surveys s {_UNPROCESSED_FLAG_JOIN}
+             WHERE s.client_id = $1""",
+        int(client["sub"]),
+    )
+    return {"unprocessed": int(total or 0)}
+
+
+@router.get("/surveys/notify-recipients")
+async def surveys_notify_recipients(
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Кому можно слать письмо о заполненной анкете — для выпадающего списка
+    в настройках анкеты: владелец кабинета и его помощники.
+
+    ⚠️ Объявлен ДО `/surveys/{survey_id}` по той же причине, что и счётчик."""
+    from app.services.survey_notify import notify_recipients
+    return {"recipients": await notify_recipients(db, int(client["sub"]))}
+
+
 @router.get("/surveys")
 async def list_surveys(client=Depends(get_current_client), db=Depends(get_db)):
     client_id = int(client["sub"])
     rows = await db.fetch(
-        """SELECT s.*,
+        f"""SELECT s.*,
                   (SELECT COUNT(*) FROM survey_questions q WHERE q.survey_id = s.id)
                       AS questions_count,
                   (SELECT COUNT(*) FROM survey_responses r WHERE r.survey_id = s.id)
                       AS responses_count,
                   (SELECT COUNT(DISTINCT r.contact_id) FROM survey_responses r
-                    WHERE r.survey_id = s.id) AS people_count
-             FROM surveys s
+                    WHERE r.survey_id = s.id) AS people_count,
+                  {_UNPROCESSED_COUNT_SQL} AS unprocessed_count
+             FROM surveys s {_UNPROCESSED_FLAG_JOIN}
             WHERE s.client_id = $1
             ORDER BY s.id DESC""",
         client_id,
@@ -387,6 +450,17 @@ async def get_survey(
     d = dict(s)
     d["questions"] = [{**dict(q), "options": _jsonb(q["options"])} for q in qs]
     d["links"] = await _survey_links(db, client_id, d["slug"])
+    # Цифра у вкладки «Ответы» — тем же выражением, что в меню и в списке.
+    d["unprocessed_count"] = int(await db.fetchval(
+        f"""SELECT {_UNPROCESSED_COUNT_SQL}
+              FROM surveys s {_UNPROCESSED_FLAG_JOIN}
+             WHERE s.id = $1""",
+        survey_id) or 0)
+    # Кому уходит письмо о заполнении: сохранённый список и итоговый — с
+    # учётом «настройку не открывали» (NULL = владелец + менеджеры заказов).
+    from app.services.survey_notify import resolve_notify_emails
+    d["notify_emails_effective"] = await resolve_notify_emails(
+        db, client_id, s["notify_emails"])
     return d
 
 
@@ -444,6 +518,24 @@ async def update_survey(
                         "настройку «Сначала анкета».")
             add(col, val)
 
+    if 'notify_emails' in fs:
+        # ⚠️ Через `model_fields_set`, а не `is not None`: пустой список —
+        # осознанное «письма не слать», и отличить его от «поле не прислали»
+        # (где действует список по умолчанию) можно только так.
+        if data.notify_emails is None:
+            add('notify_emails', None)
+        else:
+            # Пишем только реальные почты кабинета — чужой адрес в настройку
+            # заявок клиента попасть не должен даже запросом мимо интерфейса.
+            from app.services.survey_notify import notify_recipients
+            allowed = {p["email"].lower(): p["email"]
+                       for p in await notify_recipients(db, int(client["sub"]))}
+            picked: list[str] = []
+            for e in data.notify_emails:
+                real = allowed.get(str(e or '').strip().lower())
+                if real and real not in picked:
+                    picked.append(real)
+            add('notify_emails', picked)
     if 'allow_repeat' in fs:
         add('allow_repeat', bool(data.allow_repeat))
     if 'is_active' in fs:
@@ -977,9 +1069,13 @@ async def list_responses(
     await _assert_own_survey(db, survey_id, client_id)
 
     # Поле «Обработано» — по нему красится строка и фильтруется список.
+    # ⚠️ ORDER BY id — тот же вопрос, что берёт счётчик необработанных
+    # (`MIN(id)` в `_UNPROCESSED_COUNT_SQL`). Без сортировки БД вправе отдать
+    # любой, и отбор «не обработаны» разошёлся бы с цифрой на вкладке.
     flag = await db.fetchrow(
         "SELECT id FROM survey_questions "
-        "WHERE survey_id=$1 AND filled_by='staff' AND is_protected LIMIT 1",
+        "WHERE survey_id=$1 AND filled_by='staff' AND is_protected "
+        "ORDER BY id LIMIT 1",
         survey_id)
     flag_id = flag["id"] if flag else None
 

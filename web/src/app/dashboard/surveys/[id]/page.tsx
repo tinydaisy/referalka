@@ -17,6 +17,7 @@ import { useMe } from '@/hooks/useMe'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { ArrowLeft, Plus, Trash2, X, Copy, Check, GripVertical, ExternalLink, Pencil, Lock } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
+import { MultiSelectDropdown } from '@/components/MultiSelectDropdown'
 
 const KINDS = [
   { value: 'text', label: 'Короткий текст' },
@@ -88,12 +89,22 @@ export default function SurveyPage() {
           ['dashboard', 'Дашборды анкеты'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
-                  className={`-mb-px border-b-2 px-4 py-2 text-sm ${
+                  className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm ${
                     tab === key
                       ? 'border-[#25455D] font-semibold text-[#25455D]'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}>
             {label}
+            {/* Сколько заявок ждут обработки. Считает бэкенд тем же
+                выражением, что цифры в меню и в списке анкет — иначе
+                экраны показывали бы разные числа. */}
+            {key === 'answers' && survey.unprocessed_count > 0 && (
+              <span title={`Заявок ждут обработки: ${survey.unprocessed_count}`}
+                    className="rounded-full px-1.5 py-0.5 text-[11px] font-bold"
+                    style={{ background: '#FFCFA4', color: '#25455D' }}>
+                {survey.unprocessed_count}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -367,6 +378,26 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  // Кому уходит письмо о заполненной анкете.
+  // ⚠️ Показываем `notify_emails_effective` — это либо сохранённый список,
+  // либо, если настройку ещё не открывали, значения по умолчанию (владелец и
+  // менеджеры заказов). Иначе галочек не было бы вовсе, и выглядело бы так,
+  // будто письма не уходят никому, хотя они уходят.
+  const [notifyEmails, setNotifyEmails] = useState<string[]>(
+    survey.notify_emails_effective || [])
+  // ⚠️ Пока клиент список не трогал, поле в PATCH не шлём: в базе останется
+  // NULL («по умолчанию»), и заведённый позже менеджер заказов начнёт
+  // получать письма сам. Отправь мы список всегда — настройка застыла бы на
+  // сегодняшнем составе команды.
+  const [notifyTouched, setNotifyTouched] = useState(false)
+  const [recipients, setRecipients] = useState<any[]>([])
+  useEffect(() => {
+    if (part !== 'settings') return
+    api.surveys.notifyRecipients()
+      .then((r: any) => setRecipients(r?.recipients || []))
+      .catch(() => setRecipients([]))
+  }, [part])
+
   const save = async () => {
     setSaving(true)
     try {
@@ -374,6 +405,7 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
         intro, after_mode: afterMode, thanks_text: thanks,
         redirect_url: redirect, allow_repeat: allowRepeat, is_active: isActive,
         image_url: imageUrl || null,
+        ...(notifyTouched ? { notify_emails: notifyEmails } : {}),
       })
       setSaved(true); setTimeout(() => setSaved(false), 1500)
       onChanged()
@@ -468,6 +500,40 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
         Если анкета, наоборот, стоит ПЕРЕД подарком (включается в самом
         лид-магните) — настраивать это здесь не нужно, там своя галочка.
       </p>
+
+      {/* Кому приходит письмо о заполненной анкете. В чат уведомлений
+          сообщение уходит всегда — там его видит вся команда, настраивать
+          нечего; письма же нужны не каждому помощнику. */}
+      <div className="mb-3">
+        {readOnly ? (
+          // У помощника настройки анкеты только для чтения — показываем
+          // список текстом: выпадающий список с галочками намекал бы, что
+          // его можно менять, а сохранить он всё равно не сможет.
+          <>
+            <span className="mb-1 block text-sm text-gray-600">
+              Кому слать письмо о заполнении
+            </span>
+            <div className="input bg-gray-50 text-gray-600">
+              {notifyEmails.length ? notifyEmails.join(', ') : 'Никому'}
+            </div>
+          </>
+        ) : (
+          <MultiSelectDropdown<string>
+            label="Кому слать письмо о заполнении"
+            options={recipients.map((r: any) => ({ value: r.email, label: r.label, hint: r.email }))}
+            values={notifyEmails}
+            onChange={(next) => { setNotifyEmails(next); setNotifyTouched(true) }}
+            placeholder="Никому"
+            searchPlaceholder="Поиск по имени или почте…"
+            emptyText="Помощников пока нет"
+          />
+        )}
+        <span className="mt-1 block text-xs text-gray-500">
+          Уведомление в чат уходит всегда. По умолчанию письмо получают
+          основатель и менеджеры заказов — остальных помощников можно
+          отметить здесь.
+        </span>
+      </div>
 
       <label className="mb-2 flex cursor-pointer items-center gap-2">
         <input type="checkbox" checked={allowRepeat} disabled={readOnly}
