@@ -24,7 +24,7 @@ import asyncpg
 from app.database import get_db
 from app.services import client_payments
 from app.services.contact_merge import find_or_create_contact, resolve_ref_code
-from app.services.participant_registration import finalize_participant_registration
+from app.services.event_participant import upsert_event_participant
 from app.services.share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
@@ -255,20 +255,12 @@ async def create_order(
 
     # ── Бесплатный тариф: заказа нет, сразу регистрируем ─────────────────
     if price <= 0:
-        # ⚠️ Рефовода записываем только если его ещё нет: первый, кто привёл,
-        # и остаётся — иначе повторный заход по чужой ссылке перепишет.
-        await db.execute(
-            """INSERT INTO event_participants
-                   (event_id, contact_id, is_registered, referrer_ref_code)
-               VALUES ($1, $2, TRUE, $3)
-               ON CONFLICT (event_id, contact_id)
-               DO UPDATE SET is_registered = TRUE,
-                             referrer_ref_code =
-                               COALESCE(event_participants.referrer_ref_code, $3)""",
-            t["event_id"], contact_id, resolved_ref,
+        # Единая точка записи в участники (см. services/event_participant.py):
+        # реф-код пишется только если пуст, письмо уходит один раз.
+        await upsert_event_participant(
+            db, event_id=t["event_id"], contact_id=contact_id,
+            is_registered=True, referrer_ref_code=resolved_ref,
         )
-        await finalize_participant_registration(
-            db, event_id=t["event_id"], contact_id=contact_id)
         return {
             "ok": True,
             "free": True,
@@ -276,14 +268,10 @@ async def create_order(
         }
 
     # ── Платный тариф: заказ + ссылка на оплату ──────────────────────────
-    participant_id = await db.fetchval(
-        """INSERT INTO event_participants (event_id, contact_id, referrer_ref_code)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (event_id, contact_id)
-           DO UPDATE SET referrer_ref_code =
-                           COALESCE(event_participants.referrer_ref_code, $3)
-           RETURNING id""",
-        t["event_id"], contact_id, resolved_ref,
+    # Регистрации ещё нет — она случится после оплаты (_mark_order_paid).
+    participant_id, _is_new, _became = await upsert_event_participant(
+        db, event_id=t["event_id"], contact_id=contact_id,
+        is_registered=False, referrer_ref_code=resolved_ref,
     )
 
     order_id = await db.fetchval(
@@ -399,14 +387,8 @@ async def quick_register(
     if not own:
         raise HTTPException(status_code=404, detail="Контакт не найден")
 
-    await db.execute(
-        """INSERT INTO event_participants (event_id, contact_id, is_registered)
-           VALUES ($1, $2, TRUE)
-           ON CONFLICT (event_id, contact_id) DO UPDATE SET is_registered = TRUE""",
-        t["event_id"], contact_id,
-    )
-    await finalize_participant_registration(
-        db, event_id=t["event_id"], contact_id=contact_id)
+    await upsert_event_participant(
+        db, event_id=t["event_id"], contact_id=contact_id, is_registered=True)
     return {"ok": True, "redirect": f"/event/{t['event_slug']}?c={contact_id}"}
 
 
@@ -737,15 +719,9 @@ async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) 
 
     # Оплата = регистрация на событие.
     if order["contact_id"]:
-        await db.execute(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered)
-               VALUES ($1, $2, TRUE)
-               ON CONFLICT (event_id, contact_id)
-               DO UPDATE SET is_registered = TRUE""",
-            order["event_id"], order["contact_id"],
-        )
-        await finalize_participant_registration(
-            db, event_id=order["event_id"], contact_id=order["contact_id"])
+        await upsert_event_participant(
+            db, event_id=order["event_id"], contact_id=order["contact_id"],
+            is_registered=True)
 
     try:
         from app.services.order_email import (

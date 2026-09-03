@@ -1,0 +1,140 @@
+"""Единая точка записи человека в участники события (2026-09-03).
+
+⚠️⚠️ ПРЯМОЙ `INSERT INTO event_participants` В КОДЕ БОЛЬШЕ НЕ ПИШЕМ.
+Вместо него — `upsert_event_participant` отсюда.
+
+Зачем. К сентябрю 2026 вставка участника жила в 27 местах: Mini App, три бота,
+вебхуки, розыгрыш, вебинар, заказы, карточки спикеров, веб-страница. Каждая
+новая точка входа дописывала свой INSERT рядом — быстрее, чем разбираться с
+чужим кодом. Места разъехались по всему, что можно:
+
+* три разных поведения при повторе на одну таблицу — где-то `is_registered`
+  ставился принудительно, где-то `old OR new`, где-то `DO NOTHING`. Из-за
+  последнего реф-код, пришедший вторым заходом, молча терялся;
+* `registered_at` заполнялся в трёх местах из шестнадцати — по этой колонке
+  нельзя было строить отчёты;
+* в трёх местах не было `ON CONFLICT` вовсе: два одновременных запроса давали
+  человеку 500 прямо в форме регистрации;
+* уведомление «Новый интерес» определялось по-разному, а в одном месте —
+  вообще без проверки, поэтому уходило повторно.
+
+Правила, одинаковые теперь везде:
+
+1. **`is_registered` только повышается.** FALSE→TRUE можно, обратно — нет.
+   Человек, уже зарегистрированный, не должен «разрегистрироваться» оттого,
+   что открыл страницу события ещё раз. Снять галочку может только организатор
+   вручную (`PATCH /events/{id}/participants/{pid}`) — это отдельное действие.
+
+2. **`registered_at` ставится в момент перехода в TRUE**, а не при вставке
+   строки: строка часто рождается со статусом «интересовался», и время
+   создания записи — не время регистрации.
+
+3. **Реф-код пишется, только если пуст.** Первый приведший в приоритете:
+   человека привёл один, а по ссылке второго он мог зайти позже.
+
+4. **Возвращаем `is_new`** — «первое касание». По нему шесть мест шлют
+   организатору «Новый интерес»; без этого признака уведомления бы замолчали.
+   Считаем через `xmax = 0`: у вставленной строки он нулевой, у обновлённой —
+   нет. Это надёжнее, чем `RETURNING` при `DO NOTHING` (там строка вообще не
+   возвращается, и приходится доselect-ить).
+
+⚠️ Функция НЕ решает, в чью базу писать человека, и НЕ создаёт контакт. Она
+получает готовый `contact_id`. Резолв клиента — `resolve_event_client`, резолв
+человека — `upsert_contact_with_identity` (см. contact_merge). Разделение
+намеренное: у трёх задач разные ключи и разные точки вызова.
+"""
+import logging
+from typing import Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+async def upsert_event_participant(
+    db,
+    *,
+    event_id: int,
+    contact_id: int,
+    is_registered: bool = False,
+    referrer_ref_code: Optional[str] = None,
+    referrer_participant_id: Optional[int] = None,
+    entry_link: Optional[str] = None,
+    finalize: bool = True,
+    send_menu: bool = True,
+) -> Tuple[int, bool, bool]:
+    """Заводит или обновляет участие. Идемпотентна.
+
+    Возвращает `(participant_id, is_new, became_registered)`:
+
+    * `is_new` — строки участия раньше не было. По нему шлют «Новый интерес».
+    * `became_registered` — человек ИМЕННО СЕЙЧАС стал зарегистрированным.
+      По нему шлют письма и подарки: у повторного вызова он False, поэтому
+      второе письмо тому же человеку не уйдёт.
+
+    `finalize=True` (по умолчанию) — при переходе в «зарегистрирован» сама
+    зовёт `finalize_participant_registration`: стоп догрева, меню бота,
+    письмо, раздача контакта организаторам коллабы. Ставить False нужно, когда
+    вызывающий работает ВНУТРИ транзакции: финализация ходит в сеть (Telegram,
+    SMTP), и держать на ней открытую транзакцию нельзя — тогда её зовут сами,
+    после коммита.
+
+    ⚠️ `send_menu=False` — когда вызывающий шлёт меню сам (регистрация прямо в
+    боте отвечает им на нажатие кнопки), иначе человек получит два подряд.
+    """
+    row = await db.fetchrow(
+        # ⚠️ `was` берём ОТДЕЛЬНЫМ подзапросом, а не из RETURNING. Проверено на
+        # боевой базе: `RETURNING event_participants.is_registered` отдаёт уже
+        # ОБНОВЛЁННОЕ значение, а не прежнее — то есть «был зарегистрирован» и
+        # «стал сейчас» по нему неразличимы, и письмо о регистрации не ушло бы
+        # никому. CTE читает строку до записи, в том же снимке транзакции.
+        """WITH before AS (
+               SELECT is_registered FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2
+           )
+           INSERT INTO event_participants
+               (event_id, contact_id, is_registered, registered_at,
+                referrer_ref_code, referrer_participant_id, entry_link)
+           VALUES ($1, $2, $3, CASE WHEN $3 THEN NOW() END, $4, $5, $6)
+           ON CONFLICT (event_id, contact_id) DO UPDATE SET
+               -- Статус только повышается: повторный заход не снимает регистрацию.
+               is_registered = event_participants.is_registered OR EXCLUDED.is_registered,
+               -- Время регистрации — момент перехода в TRUE, не момент вставки.
+               registered_at = CASE
+                   WHEN event_participants.registered_at IS NOT NULL
+                       THEN event_participants.registered_at
+                   WHEN EXCLUDED.is_registered THEN NOW()
+                   ELSE NULL END,
+               -- Первый приведший в приоритете — пустое поле дозаполняем, чужое не трогаем.
+               referrer_ref_code = COALESCE(
+                   NULLIF(event_participants.referrer_ref_code, ''),
+                   EXCLUDED.referrer_ref_code),
+               referrer_participant_id = COALESCE(
+                   event_participants.referrer_participant_id,
+                   EXCLUDED.referrer_participant_id),
+               entry_link = COALESCE(event_participants.entry_link, EXCLUDED.entry_link)
+           RETURNING id,
+                     (xmax = 0) AS is_new,
+                     is_registered AS now_registered,
+                     COALESCE((SELECT is_registered FROM before), FALSE) AS was_registered""",
+        event_id, contact_id, bool(is_registered),
+        (referrer_ref_code or None), referrer_participant_id, entry_link,
+    )
+
+    pid = int(row["id"])
+    is_new = bool(row["is_new"])
+    # Стал зарегистрированным именно сейчас: стоит TRUE, а до вызова не стоял.
+    # У вставки строки «до» не было вовсе — считаем как FALSE.
+    was = (not is_new) and bool(row["was_registered"])
+    became = bool(row["now_registered"]) and not was
+
+    if became and finalize:
+        try:
+            from app.services.participant_registration import (
+                finalize_participant_registration,
+            )
+            await finalize_participant_registration(
+                db, event_id=event_id, contact_id=contact_id, send_menu=send_menu)
+        except Exception as e:
+            logger.warning(
+                "finalize failed (event=%s contact=%s): %s", event_id, contact_id, e)
+
+    return pid, is_new, became
