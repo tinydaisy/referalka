@@ -355,70 +355,45 @@ async def salebot_register(
         if not event:
             raise HTTPException(status_code=404, detail="Событие не найдено у этого клиента")
 
-        existing_participant = await db.fetchrow(
-            "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2",
-            event_id_int, contact_id
-        )
-
         # Реф-код берём из contacts — единственный источник
         ref_code = await db.fetchval(
             "SELECT ref_code FROM contacts WHERE id = $1", contact_id
         )
 
-        if existing_participant:
-            participant_id = existing_participant["id"]
-            # Обновляем булевы поля (только в сторону TRUE, назад не откатываем)
-            if data.is_registered or data.is_in_chat:
-                await db.execute(
-                    """
-                    UPDATE event_participants SET
-                      is_registered = is_registered OR $1,
-                      is_in_chat    = is_in_chat    OR $2
-                    WHERE id = $3
-                    """,
-                    data.is_registered, data.is_in_chat, participant_id
-                )
-                if data.is_registered:
-                    from app.services.participant_registration import finalize_participant_registration
-                    await finalize_participant_registration(
-                        db, event_id=event_id_int, contact_id=contact_id,
-                    )
-        else:
-            is_new_participant = True
-
-            # Ищем ref_code рефовода. Приоритет:
-            #   1. pid — прямой ref_code (с учётом merged_ref_codes для слитых контактов)
-            #   2. partner_tg_id — fallback через TG-идентичность партнёра
-            referrer_ref_code = None
-            if data.pid:
-                referrer_ref_code, _ = await resolve_ref_code(
-                    db, data.pid, client_id=data.client_id
-                )
-            if not referrer_ref_code and data.partner_tg_id:
-                referrer_ref_code = await db.fetchval(
-                    """
-                    SELECT c.ref_code FROM platform_users pu
-                    JOIN contacts c ON c.id = pu.contact_id
-                    WHERE c.client_id = $1 AND pu.platform_slug = 'telegram'
-                      AND pu.platform_user_id = $2
-                    """,
-                    data.client_id, str(data.partner_tg_id)
-                )
-
-            participant_id = await db.fetchval(
-                """
-                INSERT INTO event_participants
-                  (event_id, contact_id, is_registered, is_in_chat, registered_at, referrer_ref_code)
-                VALUES ($1, $2, $3, $4, NOW(), $5)
-                RETURNING id
-                """,
-                event_id_int, contact_id, data.is_registered, data.is_in_chat, referrer_ref_code
+        # Ищем ref_code рефовода. Приоритет:
+        #   1. pid — прямой ref_code (с учётом merged_ref_codes для слитых контактов)
+        #   2. partner_tg_id — fallback через TG-идентичность партнёра
+        # ⚠️ Резолвим ДО записи, а не только в ветке «участника ещё нет»:
+        # вебхук может прийти повторно, и рефовода из него терять незачем —
+        # записан он будет всё равно только в пустое поле.
+        referrer_ref_code = None
+        if data.pid:
+            referrer_ref_code, _ = await resolve_ref_code(
+                db, data.pid, client_id=data.client_id
             )
-            if data.is_registered:
-                from app.services.participant_registration import finalize_participant_registration
-                await finalize_participant_registration(
-                    db, event_id=event_id_int, contact_id=contact_id,
-                )
+        if not referrer_ref_code and data.partner_tg_id:
+            referrer_ref_code = await db.fetchval(
+                """
+                SELECT c.ref_code FROM platform_users pu
+                JOIN contacts c ON c.id = pu.contact_id
+                WHERE c.client_id = $1 AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2
+                """,
+                data.client_id, str(data.partner_tg_id)
+            )
+
+        # ⚠️ Раньше здесь были SELECT и следом INSERT без ON CONFLICT: два
+        # одновременных вебхука (платёжные системы и Salebot шлют повторы —
+        # это норма) давали 500. Теперь одна точка записи.
+        from app.services.event_participant import upsert_event_participant
+        participant_id, is_new_p, _became = await upsert_event_participant(
+            db, event_id=event_id_int, contact_id=contact_id,
+            is_registered=bool(data.is_registered),
+            is_in_chat=bool(data.is_in_chat),
+            referrer_ref_code=referrer_ref_code,
+        )
+        if is_new_p:
+            is_new_participant = True
 
     # Если event_id не передавался — берём ref_code контакта (для веб-интеграций
     # без события — сразу отдаём свежесозданный ref_code партнёра).

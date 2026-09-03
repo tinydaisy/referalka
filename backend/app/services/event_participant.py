@@ -55,6 +55,7 @@ async def upsert_event_participant(
     event_id: int,
     contact_id: int,
     is_registered: bool = False,
+    is_in_chat: bool = False,
     referrer_ref_code: Optional[str] = None,
     referrer_participant_id: Optional[int] = None,
     entry_link: Optional[str] = None,
@@ -69,6 +70,9 @@ async def upsert_event_participant(
     * `became_registered` — человек ИМЕННО СЕЙЧАС стал зарегистрированным.
       По нему шлют письма и подарки: у повторного вызова он False, поэтому
       второе письмо тому же человеку не уйдёт.
+
+    `is_in_chat` — вошёл в чат события. Как и статус регистрации, только
+    повышается: назад не откатываем.
 
     `finalize=True` (по умолчанию) — при переходе в «зарегистрирован» сама
     зовёт `finalize_participant_registration`: стоп догрева, меню бота,
@@ -91,12 +95,14 @@ async def upsert_event_participant(
                 WHERE event_id = $1 AND contact_id = $2
            )
            INSERT INTO event_participants
-               (event_id, contact_id, is_registered, registered_at,
+               (event_id, contact_id, is_registered, is_in_chat, registered_at,
                 referrer_ref_code, referrer_participant_id, entry_link)
-           VALUES ($1, $2, $3, CASE WHEN $3 THEN NOW() END, $4, $5, $6)
+           VALUES ($1, $2, $3, $7, CASE WHEN $3 THEN NOW() END, $4, $5, $6)
            ON CONFLICT (event_id, contact_id) DO UPDATE SET
                -- Статус только повышается: повторный заход не снимает регистрацию.
                is_registered = event_participants.is_registered OR EXCLUDED.is_registered,
+               -- То же с «в чате»: назад не откатываем.
+               is_in_chat = event_participants.is_in_chat OR EXCLUDED.is_in_chat,
                -- Время регистрации — момент перехода в TRUE, не момент вставки.
                registered_at = CASE
                    WHEN event_participants.registered_at IS NOT NULL
@@ -117,6 +123,7 @@ async def upsert_event_participant(
                      COALESCE((SELECT is_registered FROM before), FALSE) AS was_registered""",
         event_id, contact_id, bool(is_registered),
         (referrer_ref_code or None), referrer_participant_id, entry_link,
+        bool(is_in_chat),
     )
 
     pid = int(row["id"])

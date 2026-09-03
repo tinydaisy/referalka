@@ -869,21 +869,18 @@ async def handle_start(message: Message, command: CommandObject):
                             first_name=user.first_name or "",
                             last_name=user.last_name or "",
                         )
-                        existing = await db.fetchval(
-                            "SELECT id FROM event_participants WHERE event_id=$1 AND contact_id=$2",
-                            event["id"], contact_id,
+                        # ⚠️ Раньше здесь были SELECT + INSERT без ON CONFLICT
+                        # (двойной /start ронял обработчик в общий except, и
+                        # человек молча не получал сообщение о регистрации), а
+                        # финализация не звалась вовсе — то есть догрев не
+                        # гас и письмо о регистрации не уходило.
+                        # send_menu=False: своё сообщение с кнопкой кабинета
+                        # отправляется ниже, два меню подряд человеку не нужны.
+                        from app.services.event_participant import upsert_event_participant
+                        await upsert_event_participant(
+                            db, event_id=event["id"], contact_id=contact_id,
+                            is_registered=True, send_menu=False,
                         )
-                        if existing:
-                            await db.execute(
-                                "UPDATE event_participants SET is_registered=TRUE WHERE id=$1",
-                                existing,
-                            )
-                        else:
-                            await db.execute(
-                                """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                                   VALUES ($1, $2, TRUE)""",
-                                event["id"], contact_id,
-                            )
                         # Mini App открывается прямо в контексте этого события:
                         # у клиента со своим TG-ботом — /c/{client_id}/tg/event/{slug}.
                         # (@pluson_bot тоже «свой» — он принадлежит сервисному клиенту.)
