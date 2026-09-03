@@ -29,7 +29,7 @@ GET/POST /api/v1/public/conference/{event_id}/check-subscription?tg_id=...
 """
 import asyncio
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.config import settings
 from app.database import get_db
@@ -158,12 +158,25 @@ async def _check_collab_owners(event_id: int, tg_id: int, db: asyncpg.Connection
     return not_subscribed, subscribed
 
 
-async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
+async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection,
+                    *, point: str = "chat"):
+    """point='chat' — проверка перед входом в чат; 'registration' — перед кабинетом.
+
+    ⚠️ Точка нужна, чтобы уважать галочку «где проверять» (мигр. 344): подписка
+    может требоваться только при регистрации, а вход в чат оставаться свободным.
+    Без этого включение проверки при регистрации молча включило бы её и в чате.
+    """
     event = await db.fetchrow(
-        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, require_subscription, is_collab, require_subscribe_all_owners FROM events WHERE id = $1", event_id
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, require_subscription, is_collab, require_subscribe_all_owners, sub_check_at_chat FROM events WHERE id = $1", event_id
     )
     if not event:
         return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
+
+    # Проверка при входе в чат выключена галочкой → пропускаем без вопросов.
+    # ⚠️ Только для точки 'chat': шлюз кабинета живёт по своей галочке и сюда
+    # приходит уже после её проверки.
+    if point == "chat" and event["sub_check_at_chat"] is False:
+        return {"status": 1, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
 
     # Коллаб-событие + рычаг «подписка на всех организаторов» — отдельная проверка
     # (каналы основателей всех совладельцев, каждый через свой бот).
@@ -325,3 +338,105 @@ async def check_subscription_post(
     db: asyncpg.Connection = Depends(get_db),
 ):
     return await _do_check(event_id, body.tg_id_int(), db)
+
+
+# ── Шлюз подписки ПРИ ВХОДЕ В КАБИНЕТ (миграция 344) ─────────────────
+#
+# Отдельно от проверки для чата, хотя проверяет то же самое. Причина в отметке:
+# у чата её нет — там подписку сверяют на каждый клик; у кабинета есть, и
+# отметка ставится ОДИН РАЗ, при первом успехе.
+#
+# ⚠️ ОТМЕТКА НЕ СНИМАЕТСЯ ПРИ ОТПИСКЕ (решение владельца): требуем подписку до
+# ПЕРВОГО ФАКТА. Иначе человек, отписавшийся через месяц, терял бы доступ к
+# программе события, на которое давно зарегистрирован.
+#
+# ⚠️ Проверяем канал ТОЙ ПЛОЩАДКИ, откуда человек пришёл. Сейчас реально
+# проверяется только Telegram (`_do_check` ходит в getChatMember) — во ВКонтакте
+# и MAX проверка каналов организаторов пока не заведена. Поэтому не-Telegram
+# заходы шлюз ПРОПУСКАЕТ, а не блокирует: закрыть кабинет проверкой, которой
+# физически нет, значит запереть человека навсегда.
+
+
+class RegistrationGateBody(BaseModel):
+    """Кто стучится в кабинет. Площадка нужна, чтобы понять, чем проверять."""
+    platform: str = "telegram"
+    platform_user_id: str = ""
+    contact_id: int | None = None
+
+
+@router.post(
+    "/conference/{event_id}/registration-gate",
+    summary="Пускать ли участника в кабинет: проверка подписки + отметка",
+)
+async def registration_gate(
+    event_id: int,
+    body: RegistrationGateBody,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """`{allowed, reason, not_subscribed[], subscribed[]}`.
+
+    `allowed=True` — открываем кабинет. `reason` объясняет, почему:
+      off        — проверка при регистрации выключена
+      already    — отметка уже стоит, второй раз не спрашиваем
+      passed     — проверили сейчас, подписан → ставим отметку
+      no_check   — проверить нечем (не Telegram / каналы не заданы) → пропускаем
+      required   — не подписан, кабинет закрыт (единственный False)
+    """
+    ev = await db.fetchrow(
+        "SELECT id, sub_check_at_registration FROM events WHERE id = $1", event_id
+    )
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    if not ev["sub_check_at_registration"]:
+        return {"allowed": True, "reason": "off", "not_subscribed": [], "subscribed": []}
+
+    # Отметка уже стоит → пропускаем, не дёргая площадку лишний раз.
+    # ⚠️ Ищем участника по КОНТАКТУ: contact_id приходит с фронта, а если его
+    # нет — резолвим по идентичности площадки. Своего SELECT по contacts не
+    # пишем: связка «идентичность → контакт» живёт в platform_users.
+    contact_id = body.contact_id
+    if not contact_id and body.platform_user_id:
+        contact_id = await db.fetchval(
+            """SELECT pu.contact_id FROM platform_users pu
+                JOIN contacts c ON c.id = pu.contact_id
+               WHERE pu.platform_slug = $1 AND pu.platform_user_id = $2
+               LIMIT 1""",
+            body.platform, str(body.platform_user_id),
+        )
+
+    if contact_id:
+        done = await db.fetchval(
+            """SELECT sub_checked_at FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2""",
+            event_id, contact_id,
+        )
+        if done:
+            return {"allowed": True, "reason": "already", "not_subscribed": [], "subscribed": []}
+
+    # Проверять умеем только Telegram — см. предупреждение выше.
+    if body.platform != "telegram" or not str(body.platform_user_id).isdigit():
+        return {"allowed": True, "reason": "no_check", "not_subscribed": [], "subscribed": []}
+
+    # ⚠️ point='registration': иначе снятая галочка «проверять при входе в чат»
+    # выключила бы и шлюз кабинета — это разные точки с разными настройками.
+    res = await _do_check(event_id, int(body.platform_user_id), db, point="registration")
+    not_sub = res.get("not_subscribed") or []
+
+    if not_sub:
+        return {
+            "allowed": False, "reason": "required",
+            "not_subscribed": not_sub,
+            "subscribed": res.get("subscribed") or [],
+            "not_subscribed_text": res.get("not_subscribed_text") or "",
+        }
+
+    # Подписан (или проверять было нечего) → ставим отметку навсегда.
+    if contact_id:
+        await db.execute(
+            """UPDATE event_participants SET sub_checked_at = NOW()
+                WHERE event_id = $1 AND contact_id = $2 AND sub_checked_at IS NULL""",
+            event_id, contact_id,
+        )
+    return {"allowed": True, "reason": "passed",
+            "not_subscribed": [], "subscribed": res.get("subscribed") or []}

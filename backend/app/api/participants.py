@@ -858,6 +858,10 @@ async def get_participant_in_event(
     _row_select = """SELECT ep.id, ep.event_id, ep.contact_id, c.ref_code, c.name AS contact_name,
                   ep.is_registered, ep.is_in_chat,
                   ep.registered_at, ep.activated_at, ep.welcomed_at,
+                  -- Прошёл ли уже проверку подписки (мигр. 344). Стоит отметка —
+                  -- интро с замками больше не показываем, даже если человек
+                  -- потом отписался: требуем подписку до ПЕРВОГО факта.
+                  ep.sub_checked_at,
                   e.title AS event_title, e.module_slug,
                   -- Чей это контакт. Нужен веб-витрине: по кнопке «назад» она
                   -- открывает календарь ЭТОГО организатора. Без него человек

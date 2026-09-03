@@ -124,14 +124,18 @@ async function handleVkFunnelIfNeeded(
           if (g?.group_id) gid = Number(g.group_id)
         } catch (_) {}
       }
-      // Разрешение на ЛС + подписка на сообщество (как у m_/p_).
+      // ⚠️⚠️ ТОЛЬКО разрешение на ЛС. Подписку на сообщество (joinGroup) здесь
+      // НЕ просим — модерация ВКонтакте отклонила Mini App за это: «сервис
+      // запрашивает подписку на сообщество до просмотра его функций» (п.1.1.2
+      // правил Mini Apps, 01.09.2026). Подписка теперь предлагается ПОСЛЕ
+      // регистрации — см. интро и настройку sub_check_at_registration.
+      //
+      // ⚠️ Разрешение на ЛС остаётся здесь: без него человек, ушедший не
+      // зарегистрировавшись (а таких ~40%), недостижим для догрева вовсе.
       await new Promise<void>((resolve) => {
         if (!gid) return resolve()
         adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
       })
-      if (adapter.joinGroup && gid) {
-        try { adapter.joinGroup({ vkGroupId: gid }, () => {}) } catch (_) {}
-      }
       const user = adapter.user
       try {
         const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/event-landing`, {
@@ -186,10 +190,9 @@ async function handleVkFunnelIfNeeded(
         if (!gid) return resolve()
         adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
       })
-      // Подписка на само сообщество (стену) — отдельное действие от AllowMessages.
-      if (adapter.joinGroup && gid) {
-        try { adapter.joinGroup({ vkGroupId: gid }, () => {}) } catch (_) {}
-      }
+      // ⚠️ Подписку на сообщество (joinGroup) не просим — см. комментарий выше
+      // про модерацию. Материалы лид-магнита приходят В ЛИЧКУ, то есть по
+      // разрешению на сообщения; подписка на стену для их выдачи не нужна.
       try {
         const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/funnel-landing`, {
           method: 'POST',
@@ -420,12 +423,18 @@ async function sendVkEventStart(
   }
 
   adapter.requestWriteAccess({ vkGroupId: groupId }, async () => {
-    // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
-    // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
-    // зафиксирует подписавшегося в базе.
-    if (adapter.joinGroup) {
-      try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
-    }
+    // ⚠️⚠️ ПОДПИСКУ НА СООБЩЕСТВО ЗДЕСЬ НЕ ПРОСИМ. Раньше сразу за разрешением
+    // на ЛС шёл joinGroup — и модерация ВКонтакте отклонила приложение:
+    // «сервис запрашивает подписку на сообщество до просмотра его функций»
+    // (п.1.1.2 правил Mini Apps, 01.09.2026). Человек видел окно подписки
+    // раньше, чем само событие.
+    //
+    // Подписка теперь предлагается ПОСЛЕ регистрации — на экране интро, и
+    // только если организатор включил это в настройках события
+    // (events.sub_check_at_registration, мигр. 344).
+    //
+    // ⚠️ Не возвращать сюда joinGroup «чтобы собрать больше подписчиков»: это
+    // ровно то, за что приложение снимают с публикации.
     // Регистрируем контакт по VK-аккаунту (имя + vk_id). Email/телефон у VK
     // НЕ запрашиваем: VKWebAppGetEmail/GetPhoneNumber = «избыточные права»,
     // из-за которых модерация VK отклоняла приложение (2026-07). Для воронок
@@ -524,14 +533,20 @@ export default function App() {
       if (adapter.name === 'vk') {
         const vkId = adapter.launchParams?.vk_user_id || ''
         if (vkId && !vkIntroWasShown(vkId)) {
-          // ⚠️ Клиента достаём ДО выхода: иначе на экране не будет ни
+          // ⚠️ Клиента и событие достаём ДО выхода: иначе на экране не будет ни
           // логотипа, ни названия бренда — разбор startapp идёт ниже, а мы
           // до него не доходим. Человек должен видеть, к кому он пришёл.
-          if (!detectClientIdFromPath()) {
+          //
+          // ⚠️ Slug нужен, чтобы текст «зачем разрешать» отвечал типу события
+          // (у конференции — про спикеров, у конкурса — про голосование).
+          // Без него останется общая фраза про напоминание — не ошибка, но
+          // менее точная.
+          {
             const sp0 = adapter.startParam
             if (sp0 && (sp0.startsWith('ref') || sp0.startsWith('hub'))) {
-              const cid0 = parseStartParam(sp0).clientId
-              if (cid0) setClientId(cid0)
+              const p0 = parseStartParam(sp0)
+              if (p0.clientId && !detectClientIdFromPath()) setClientId(p0.clientId)
+              if (p0.eventSlug) setEventSlug(p0.eventSlug)
             }
           }
           setVkIntro(true)
@@ -739,6 +754,7 @@ export default function App() {
       <VkPermissionsIntro
         vkUserId={getPlatform().launchParams?.vk_user_id || ''}
         clientId={effectiveClientId}
+        eventSlug={eventSlug}
         onContinue={() => {
           setVkIntro(false)
           setLoading(true)

@@ -123,6 +123,17 @@ class UpdateEventRequest(BaseModel):
     # Коллаб-событие: рычаг «подписка на каналы ВСЕХ организаторов-совладельцев»
     # (Коллабораторная, миграция 134). Работает только для is_collab-события.
     require_subscribe_all_owners: Optional[bool] = None
+    # ГДЕ проверяем подписку (миграция 344). КОГО проверять — это отдельная
+    # настройка (conf_conferences.subscription_mode / require_subscription),
+    # одна на обе точки: выбрали «каналы организаторов» — значит и в чате, и
+    # при регистрации проверяются они же.
+    #
+    # ⚠️ Проверка ПРИ РЕГИСТРАЦИИ появилась из-за модерации ВКонтакте: просить
+    # подписку на входе в приложение запрещено (п.1.1.2), а после регистрации —
+    # можно. Не выключать «просто чтобы не мешало»: без неё окно подписки
+    # некуда перенести.
+    sub_check_at_chat: Optional[bool] = None
+    sub_check_at_registration: Optional[bool] = None
     # VIP / Чат
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None

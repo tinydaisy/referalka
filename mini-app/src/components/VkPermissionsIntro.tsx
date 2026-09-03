@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getClientProfile } from '../api'
+import { getClientProfile, getEventLanding } from '../api'
 import { applyTheme, isDarkColor } from '../utils/theme'
 
 /**
@@ -51,13 +51,38 @@ function markShown(vkUserId: string | number) {
   try { localStorage.setItem(`${STORAGE_PREFIX}${vkUserId}`, '1') } catch { /* см. выше */ }
 }
 
+/**
+ * Зачем человеку разрешать сообщения — своими словами под каждый тип события.
+ *
+ * ⚠️ Текст НАШ, и только он. Окно, которое ВКонтакте показывает следом
+ * («Сообщество хочет отправлять вам сообщения»), рисует сама площадка —
+ * подставить туда свою причину нельзя. Поэтому вся объяснительная работа
+ * происходит здесь, до окна.
+ *
+ * ⚠️ Про имя и фото НЕ пишем: `VKWebAppGetUserInfo` отдаёт их без всякого
+ * окна, предупреждать не о чем. Фото людей нам и не нужно.
+ *
+ * ⚠️ Про подписку на сообщество тоже НЕ пишем — её здесь больше не просят
+ * (модерация, п.1.1.2). Она предлагается после регистрации.
+ */
+const REASON_BY_MODULE: Record<string, string> = {
+  conference: 'пришлём напоминание, программу, информацию о спикерах и подарки',
+  turnir:     'пришлём напоминание, программу и ссылки на эфиры',
+  contest:    'сообщим о старте голосования и результатах',
+  base:       'пришлём напоминание о начале и ссылку на эфир',
+}
+const REASON_DEFAULT = REASON_BY_MODULE.base
+
 export default function VkPermissionsIntro({
   vkUserId,
   clientId,
+  eventSlug,
   onContinue,
 }: {
   vkUserId: string | number
   clientId: number | null
+  /** Slug события из ссылки — по нему берём тип и подбираем причину. */
+  eventSlug?: string | null
   onContinue: () => void
 }) {
   const [brand, setBrand] = useState<string>('')
@@ -66,6 +91,10 @@ export default function VkPermissionsIntro({
   // общий светлый фон приложения тут не годится: у клиента с тёмной темой
   // первый экран выглядел чужой страницей. Цвета берём из его же профиля.
   const [bg, setBg] = useState<string>('')
+  // Причина «зачем разрешать» — под тип события. Пока тип не загружен, стоит
+  // текст мероприятия: он самый общий и подходит любому событию, так что
+  // человек не увидит пустого места, даже если запрос не успеет.
+  const [reason, setReason] = useState<string>(REASON_DEFAULT)
 
   // Логотип и название бренда КЛИЕНТА (не наши) — человек пришёл к нему,
   // а не в ПЛЮСОН. Нет логотипа → название текстом; нет и его → просто
@@ -86,6 +115,21 @@ export default function VkPermissionsIntro({
       })
       .catch(() => { /* без шапки экран всё равно понятен */ })
   }, [clientId])
+
+  // Тип события → своя причина. Отдельным запросом, потому что экран
+  // показывается ДО загрузки события (маршрутизация ещё не дошла).
+  //
+  // ⚠️ Ошибку глушим молча: не узнали тип — остаётся общий текст про
+  // напоминание. Экран не должен зависеть от того, ответил ли сервер.
+  useEffect(() => {
+    if (!eventSlug) return
+    getEventLanding(eventSlug)
+      .then((e: any) => {
+        const m = e?.module_slug
+        if (m && REASON_BY_MODULE[m]) setReason(REASON_BY_MODULE[m])
+      })
+      .catch(() => { /* остаётся текст по умолчанию */ })
+  }, [eventSlug])
 
   const handleContinue = () => {
     markShown(vkUserId)
@@ -126,33 +170,14 @@ export default function VkPermissionsIntro({
         ) : null}
       </div>
 
-      <p style={{ fontSize: 16, lineHeight: 1.5, color: fg, margin: '0 0 18px' }}>
-        Чтобы регистрироваться на события, получать напоминания или подарки — разрешите:
+      {/* ⚠️ ОДНА ФРАЗА, а не список. Раньше тут было три пункта — имя/фото,
+          сообщения, подписка. Два из трёх убраны: имя и фото ВКонтакте отдаёт
+          без окна (предупреждать не о чем), а подписку на сообщество мы здесь
+          больше не просим — за неё сняли с модерации. Осталось единственное
+          право, окно которого человек реально увидит. */}
+      <p style={{ fontSize: 17, lineHeight: 1.5, color: fg, margin: '0 0 32px' }}>
+        Разрешите отправлять вам сообщения — {reason}
       </p>
-
-      <ul style={{ margin: '0 0 32px', padding: 0, listStyle: 'none' }}>
-        {['доступ к имени и фото', 'отправку вам сообщений', 'подписку на сообщество'].map(item => (
-          <li
-            key={item}
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-              fontSize: 15,
-              lineHeight: 1.45,
-              color: fg,
-              marginBottom: 10,
-            }}
-          >
-            <span style={{
-              flex: '0 0 auto',
-              width: 6, height: 6, borderRadius: '50%',
-              background: fg, marginTop: 8,
-            }} />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
 
       {/* ⚠️ Оба класса: .btn — размеры и поведение, .btn-gold — фирменный цвет.
           Свой style={{background}} тут нельзя (правило проекта). */}

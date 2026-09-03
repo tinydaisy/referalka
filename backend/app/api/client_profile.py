@@ -878,6 +878,10 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    e.primary_chat_platform,
                    e.chat_member_count_label, e.chat_button_label, e.accent_button,
                    e.require_subscription,
+                   -- Где проверяем подписку (мигр. 344). Mini App читает
+                   -- sub_check_at_registration, чтобы решить, показывать ли
+                   -- интро с замками после регистрации.
+                   e.sub_check_at_chat, e.sub_check_at_registration,
                    e.hide_stream_button, e.skip_contact_form,
                    e.landing_cta_label, e.landing_cta_repeat,
                    e.is_collab,

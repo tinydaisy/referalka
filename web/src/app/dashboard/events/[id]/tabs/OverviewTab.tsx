@@ -38,6 +38,12 @@ export default function OverviewTab({
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
+  // Где проверяем подписку (мигр. 344).
+  // ⚠️ Дефолт «в чат» — TRUE: так работало всегда, и снимать его молча нельзя.
+  // Поле может не прийти со старого бэка → трактуем отсутствие как включённое.
+  const [subCheckAtChat, setSubCheckAtChat] = useState<boolean>(
+    event.sub_check_at_chat === undefined ? true : !!event.sub_check_at_chat)
+  const [subCheckAtReg, setSubCheckAtReg] = useState<boolean>(!!event.sub_check_at_registration)
   const [requireAllOwners, setRequireAllOwners] = useState<boolean>(!!event.require_subscribe_all_owners)
   const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
   // Способ регистрации и галочка регистрации на нашем лендинге (миграция 262).
@@ -99,6 +105,10 @@ export default function OverviewTab({
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
       if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
+      if (subCheckAtChat !== (event.sub_check_at_chat === undefined ? true : !!event.sub_check_at_chat))
+        payload.sub_check_at_chat = subCheckAtChat
+      if (subCheckAtReg !== !!event.sub_check_at_registration)
+        payload.sub_check_at_registration = subCheckAtReg
       if (requireAllOwners !== !!event.require_subscribe_all_owners) payload.require_subscribe_all_owners = requireAllOwners
       if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
       if (regMode !== (event.registration_mode || null))         payload.registration_mode = regMode
@@ -216,12 +226,12 @@ export default function OverviewTab({
         onAccent={setAccentButton}
       />
 
-      {/* 3) ПОДПИСКА НА КАНАЛЫ ОРГАНИЗАТОРОВ */}
+      {/* 3) ПРОВЕРКА ПОДПИСКИ НА КАНАЛЫ */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <h2 className="block-title mb-1">Подписка на каналы организаторов</h2>
+        <h2 className="block-title mb-1">Проверка подписки на каналы</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Если включено — участник должен быть подписан на Telegram-каналы всех
-          соорганизаторов события, чтобы войти в чат и получить доступ к Игре/Розыгрышу.
+          Сначала выберите, на чьи каналы должен быть подписан участник, а затем — где это проверять.
+          Проверяется канал той площадки, откуда человек пришёл.
         </p>
         <div className="space-y-3">
           {[
@@ -244,6 +254,41 @@ export default function OverviewTab({
             </label>
           ))}
         </div>
+
+        {/* ГДЕ проверяем — галочки. Показываем только когда подписка вообще
+            требуется: без неё выбирать точки бессмысленно.
+            ⚠️ Настройка «на чьи каналы» ОДНА на обе точки (решение владельца):
+            выбрали организаторов — значит и в чате, и при регистрации они. */}
+        {requireSubscription && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-sm font-medium text-gray-900 mb-2">Где проверять</p>
+            <div className="space-y-2">
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-gray-300">
+                <input type="checkbox" checked={subCheckAtChat}
+                  onChange={(e) => setSubCheckAtChat(e.target.checked)}
+                  className="mt-0.5 accent-[#25455D]" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">При входе в чат</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Перед тем как дать ссылку на чат события.
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-gray-300">
+                <input type="checkbox" checked={subCheckAtReg}
+                  onChange={(e) => setSubCheckAtReg(e.target.checked)}
+                  className="mt-0.5 accent-[#25455D]" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">При входе в кабинет после регистрации</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Человек зарегистрировался, но программу и спикеров увидит только после подписки.
+                    Проверяем один раз: подписался — дальше кабинет открыт, даже если потом отпишется.
+                  </p>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Коллаб-событие: рычаг «подписка на всех организаторов-совладельцев» */}
         {event.is_collab && (

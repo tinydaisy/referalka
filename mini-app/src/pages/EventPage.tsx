@@ -13,8 +13,8 @@ import EcosystemTab from '../tabs/EcosystemTab'
 import MediaLiftTab from '../tabs/MediaLiftTab'
 import RegistrationFlow from '../components/RegistrationFlow'
 import WelcomePage from '../components/WelcomePage'
-import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed } from '../api'
-import { getPlatformName } from '../platform'
+import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed, checkRegistrationGate } from '../api'
+import { getPlatformName, getPlatform } from '../platform'
 import { applyTheme } from '../utils/theme'
 
 type State = 'not_registered' | 'registered' | 'ended'
@@ -135,6 +135,19 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   // Обёртка над setTab: при каждом переходе перечитываем данные участника.
   // Reload без условий — счётчики/топ могли поменяться от чужих действий.
   function setTab(next: string) {
+    // ⚠️ ШЛЮЗ ПОДПИСКИ: пока не подписался — с «Интро» уйти нельзя, там
+    // единственное место, где можно подписаться и перепроверить.
+    //
+    // ⚠️ Считаем условие ЗДЕСЬ, а не берём `gateLocked` из внешней области:
+    // тот объявлен ниже по файлу через const, и обращение к нему отсюда
+    // работает лишь потому, что клик случается после отрисовки. Полагаться
+    // на такую тонкость нельзя — при переносе кода она молча сломается.
+    const lockedNow = tab === 'welcome' && next !== 'welcome'
+      && !!event?.sub_check_at_registration
+      && participant?.sub_checked_at == null
+      && gateChannels.length > 0
+    if (lockedNow) return
+
     // Уход с «Интро» на любую другую вкладку → отмечаем welcomed_at и
     // вкладка исчезает из навигации (не возвращается).
     if (tab === 'welcome' && next !== 'welcome'
@@ -304,12 +317,64 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const refOn    = !!event?.referral_enabled
   const raffleOn = !!event?.raffle_enabled
 
+  // ⚠️⚠️ ШЛЮЗ ПОДПИСКИ ПРИ ВХОДЕ В КАБИНЕТ (мигр. 344).
+  // Организатор включил `sub_check_at_registration` → зарегистрированный
+  // участник не попадает в кабинет, пока не подпишется на каналы. Интро при
+  // этом остаётся на экране, остальные вкладки ВИДНЫ, но под замком.
+  //
+  // ⚠️ Проверяется ДО ПЕРВОГО ФАКТА: как только `sub_checked_at` проставлен,
+  // шлюз выключается навсегда — даже если человек потом отписался.
+  //
+  // ⚠️ Почему подписку просят здесь, а не при запуске Mini App: модерация
+  // ВКонтакте запрещает просить её до просмотра функций (п.1.1.2).
+  const gateNeeded = registered
+    && !!event?.sub_check_at_registration
+    && participant?.sub_checked_at == null
+  const [gateChannels, setGateChannels] = useState<{ name: string; tg_channel_url: string | null }[]>([])
+
+  // Спрашиваем бэкенд: пускать ли в кабинет. Он же поставит отметку, если
+  // человек уже подписан, — тогда список каналов придёт пустым и замков не будет.
+  useEffect(() => {
+    if (!gateNeeded || !event?.id) { setGateChannels([]); return }
+    let cancelled = false
+    const p = getPlatform()
+    const uid = p.user?.id || tgUser?.id || ''
+    checkRegistrationGate(event.id, p.name, uid, participant?.contact_id)
+      .then((r: any) => {
+        if (cancelled) return
+        if (r?.allowed) {
+          // Прошёл (или проверять было нечем) — отметку поставил бэкенд,
+          // отражаем её локально, чтобы шлюз не сработал повторно.
+          setGateChannels([])
+          setParticipant((prev: any) => prev?.sub_checked_at
+            ? prev
+            : { ...(prev || {}), sub_checked_at: new Date().toISOString() })
+        } else {
+          setGateChannels(r?.not_subscribed || [])
+        }
+      })
+      .catch(() => {
+        // ⚠️ Сбой проверки НЕ запирает кабинет: человек уже зарегистрирован,
+        // и отказывать ему из-за нашей сетевой ошибки нельзя.
+        if (!cancelled) setGateChannels([])
+      })
+    return () => { cancelled = true }
+  }, [gateNeeded, event?.id, participant?.contact_id])
+  // ⚠️ Пока проверка не ответила, замки НЕ вешаем: иначе на каждом заходе
+  // кабинет на секунду «моргал» бы блокировкой у тех, кто давно подписан.
+  const gateLocked = gateNeeded && gateChannels.length > 0
+
   // Welcome-вкладка («Интро») видна только до того момента, как человек
   // ушёл с неё на любую другую вкладку. После этого welcomed_at != NULL и
   // вкладка пропадает — обратно вернуться нельзя.
   // Для конкурсов и турниров «Интро» не показываем — сразу в «Программу».
+  //
+  // ⚠️ ИСКЛЮЧЕНИЕ: пока не пройден шлюз подписки, «Интро» показываем ВСЕГДА —
+  // в том числе конкурсам и турнирам и тем, у кого welcomed_at уже стоит.
+  // Иначе человеку негде подписаться: экран с каналами живёт именно здесь.
   const hidesWelcome = ['contest', 'turnir'].includes(event?.module_slug)
-  const showWelcomeTab = registered && participant?.welcomed_at == null && !hidesWelcome
+  const showWelcomeTab = gateLocked
+    || (registered && participant?.welcomed_at == null && !hidesWelcome)
 
   // Вкладка «Спикеры» — если у события ЕСТЬ ЛЮДИ (карточки спикеров,
   // организаторов, жюри, партнёров), как это давно делает веб-страница
@@ -357,6 +422,25 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   if (speakerEcId && hasSpeakersTab && !navItems.some(n => n.id === 'speakers')) {
     navItems = [...navItems, { id: 'speakers', label: tabLabels.speakers || 'Спикеры', icon: 'speakers' }]
   }
+
+  // ⚠️ Шлюз подписки закрыт → все вкладки, кроме «Интро», под замком.
+  // Именно ПОД ЗАМКОМ, а не спрятаны: человек должен видеть, что его ждёт
+  // внутри, — иначе требование подписаться выглядит как пустое препятствие.
+  if (gateLocked) {
+    navItems = navItems.map(n => n.id === 'welcome' ? n : { ...n, locked: true })
+  }
+
+  // ⚠️ Шлюз подписки закрыт, а человек стоит не на «Интро» — возвращаем его
+  // туда. Так бывает при заходе по ссылке с вкладкой (`_tabgame`) или при
+  // обычном открытии уже зарегистрированного участника: экран с каналами
+  // живёт на «Интро», и без этого человек упирался бы в замки, не понимая,
+  // где подписаться.
+  //
+  // ⚠️ setTabState, а НЕ setTab: тот при закрытом шлюзе отказывается уходить
+  // с «Интро», и такой вызов был бы съеден собственной защитой.
+  useEffect(() => {
+    if (gateLocked && tab !== 'welcome') setTabState('welcome')
+  }, [gateLocked, tab])
 
   // Если текущая вкладка пропала из navItems (например клиент выключил
   // рефералку/розыгрыш) — переключаем на первую доступную.
@@ -438,7 +522,6 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     const target = await resolveRegistrationTarget()
     const fullUrl = target || landingUrl
     if (!fullUrl) return
-    const { getPlatform } = await import('../platform')
     getPlatform().redirectTo(fullUrl)
   }
 
@@ -457,7 +540,6 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         if (data?.redirect_url) fullUrl = data.redirect_url
       }
     } catch { /* fallback — открываем как есть */ }
-    const { getPlatform } = await import('../platform')
     getPlatform().openExternal(fullUrl)
   }
 
@@ -703,6 +785,32 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
             referralEnabled={refOn}
             tgUser={tgUser}
             onVipClick={redirectToVip}
+            eventId={event?.id}
+            contactId={participant?.contact_id}
+            gateChannels={gateLocked ? gateChannels : undefined}
+            onGateRecheck={async () => {
+              // «Я подписался — проверить»: спрашиваем заново. Прошёл —
+              // бэкенд ставит отметку, мы гасим замки и открываем программу.
+              try {
+                const p = getPlatform()
+                const uid = p.user?.id || tgUser?.id || ''
+                const r: any = await checkRegistrationGate(
+                  event.id, p.name, uid, participant?.contact_id)
+                if (r?.allowed) {
+                  setGateChannels([])
+                  setParticipant((prev: any) => ({
+                    ...(prev || {}), sub_checked_at: new Date().toISOString(),
+                  }))
+                  return true
+                }
+                setGateChannels(r?.not_subscribed || [])
+                return false
+              } catch {
+                // Сбой сети не должен запирать зарегистрированного человека.
+                setGateChannels([])
+                return true
+              }
+            }}
             onContinue={() => {
               setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
               setTab('program')

@@ -74,6 +74,25 @@ export async function req(path: string, options?: RequestInit) {
 export const checkConferenceSubscription = (eventId: number, tgId: number) =>
   req(`/api/v1/public/conference/${eventId}/check-subscription?tg_id=${tgId}`)
 
+// Шлюз подписки ПРИ ВХОДЕ В КАБИНЕТ (мигр. 344). Отдельно от проверки для
+// чата: у чата подписку сверяют на каждый клик, а тут при первом успехе
+// ставится отметка и больше не спрашиваем — даже если человек потом отписался.
+// Ответ: {allowed, reason, not_subscribed[], subscribed[]}.
+export const checkRegistrationGate = (
+  eventId: number,
+  platform: string,
+  platformUserId: string | number,
+  contactId?: number | null,
+) =>
+  req(`/api/v1/public/conference/${eventId}/registration-gate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      platform,
+      platform_user_id: String(platformUserId || ''),
+      contact_id: contactId || null,
+    }),
+  })
+
 // ── МедиаЛифт (тип события medialift) ──
 // Ветка участников для зашедшего (до 7, подписка на 3). contact_id опционален.
 export const getMedialiftChain = (slug: string, contactId?: number) =>
