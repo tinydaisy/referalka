@@ -299,7 +299,8 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   async function searchBase(q: string) {
     setBaseLoading(true)
     try {
-      const r = await api.collaborators.list(q || undefined)
+      // По имени: здесь человека ищут глазами, порядок по приходу тут мешает.
+      const r = await api.collaborators.list(q || undefined, 'name')
       setBaseList(r.collaborators || [])
     } finally {
       setBaseLoading(false)

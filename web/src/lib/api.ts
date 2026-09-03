@@ -297,7 +297,17 @@ export const api = {
       request(`/api/v1/events/${id}/collaborators/${ecId}/verify-channel`, { method: 'POST' }),
   },
   collaborators: {
-    list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    // sort: 'brought' (по среднему приходу, дефолт бэка) | 'name' (по фамилии).
+    // ⚠️ Там, где список нужен для ПОИСКА человека (выбор спикера, выбор
+    // соорганизатора), передавать 'name': по приходу список перемешан, и
+    // глазами в нём никого не найти.
+    list: (q?: string, sort?: 'brought' | 'name') => {
+      const p = new URLSearchParams()
+      if (q) p.set('q', q)
+      if (sort) p.set('sort', sort)
+      const qs = p.toString()
+      return request(`/api/v1/collaborators/${qs ? `?${qs}` : ''}`)
+    },
     get: (id: number) => request(`/api/v1/collaborators/${id}`),
     create: (data: any) =>
       request('/api/v1/collaborators/', { method: 'POST', body: JSON.stringify(data) }),

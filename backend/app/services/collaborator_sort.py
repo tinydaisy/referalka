@@ -55,6 +55,69 @@ _REFERRALS_COUNT: Final[str] = """COALESCE((
 ), 0)"""
 
 
+# Средний приход коллаба — сколько людей в среднем приходит по его личной
+# реф-ссылке за одно событие, в котором у него есть карточка.
+#
+#   средний приход = все приведённые им / число его событий
+#
+# ⚠️ Считаем ЗАХОДЫ, а не регистрации (решение владельца, 2026-09-03): вопрос
+# «сколько людей приводит спикер» — про охват, а регистрация зависит ещё и от
+# того, как организатор построил событие. Тем же критерием («все перешедшие»)
+# меряется referrals_count_sql, по которому спикеры сортируются в программе, —
+# цифры в разделе и в программе сходятся. Это НЕ то же, что вклад в коллабе
+# (brought_count_sql): там считаются регистрации, потому что там делится общий
+# результат совместного события.
+#
+# ⚠️ Знаменатель — ВСЕ события коллаба, включая те, где он никого не привёл
+# (там просто 0 в числителе). Иначе спикер, приведший 10 человек на одном
+# событии и никого на четырёх, показывал бы «10 в среднем» вместо 10/5 = 2.0.
+#
+# ⚠️ Реф-код резолвится с учётом merged_ref_codes: после объединения контактов
+# старый код продолжает встречаться у уже пришедших участников, и без этой
+# проверки часть приведённых потерялась бы.
+_AVG_BROUGHT: Final[str] = """(
+  SELECT CASE WHEN COUNT(DISTINCT ec_avg.event_id) = 0 THEN NULL
+              ELSE ROUND(
+                COALESCE(SUM((
+                  SELECT COUNT(*) FROM event_participants ep_avg
+                   WHERE ep_avg.event_id = ec_avg.event_id
+                     AND ep_avg.referrer_ref_code IS NOT NULL
+                     AND ep_avg.referrer_ref_code <> ''
+                     AND (ep_avg.referrer_ref_code = ct_avg.ref_code
+                          OR ct_avg.merged_ref_codes ? ep_avg.referrer_ref_code)
+                )), 0)::numeric / COUNT(DISTINCT ec_avg.event_id), 1)
+         END
+    FROM event_collaborators ec_avg
+    JOIN contacts ct_avg ON ct_avg.id = {tbl}.contact_id
+   WHERE ec_avg.speaker_id = {tbl}.id
+)"""
+
+_EVENTS_COUNT: Final[str] = """(
+  SELECT COUNT(DISTINCT ec_cnt.event_id)
+    FROM event_collaborators ec_cnt
+   WHERE ec_cnt.speaker_id = {tbl}.id
+)"""
+
+
+def avg_brought_sql(tbl: str = "c") -> str:
+    """SQL-выражение «средний приход за событие» (numeric или NULL).
+
+    `tbl` — алиас таблицы **collaborators** (не event_collaborators): нужны
+    колонки `id` и `contact_id`. NULL = событий у коллаба нет вовсе, в UI
+    показывать «—», а не 0.
+    """
+    return _AVG_BROUGHT.format(tbl=tbl)
+
+
+def events_count_sql(tbl: str = "c") -> str:
+    """SQL-выражение «в скольких событиях участвует коллаб» (int).
+
+    Нужно рядом со средним: без числа событий непонятно, на чём среднее
+    посчитано — «3.0» по одному событию и по десяти весят по-разному.
+    """
+    return _EVENTS_COUNT.format(tbl=tbl)
+
+
 def group_rank_sql(tbl: str = "cse") -> str:
     """SQL-выражение `group_rank` (int). Меньше — выше в списке."""
     return _GROUP_RANK.format(tbl=tbl)

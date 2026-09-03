@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Any
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.collaborator_sort import avg_brought_sql, events_count_sql
 import asyncpg
 import secrets
 import json
@@ -245,6 +246,10 @@ def row_to_dict(row):
             d["media_assets"] = []
     elif ma is None:
         d["media_assets"] = []
+    # ROUND() в SQL даёт numeric → asyncpg отдаёт Decimal, и наружу он уехал бы
+    # строкой «2.0». Фронту нужно число, чтобы сравнивать и форматировать.
+    if d.get("avg_brought") is not None:
+        d["avg_brought"] = float(d["avg_brought"])
     return d
 
 
@@ -286,23 +291,44 @@ _COLLAB_JOIN = """
 """
 
 
+# Порядок списка коллабов. По умолчанию — по среднему приходу: раздел нужен
+# в первую очередь чтобы видеть, кто реально приводит людей.
+#
+# ⚠️ NULL (событий нет вовсе) уходит в конец при ЛЮБОМ направлении — такой
+# коллаб не «худший по приходу», о нём просто нечего сказать.
+_NAME_ORDER = "NULLIF(btrim(COALESCE(c.last_name,'')),'') ASC NULLS LAST, c.name ASC"
+_SORT_ORDERS = {
+    "brought": f"{avg_brought_sql('c')} DESC NULLS LAST, {_NAME_ORDER}",
+    "name": _NAME_ORDER,
+}
+
+
 @router.get("/", summary="Список коллабораций клиента")
 async def list_collaborators(
     q: Optional[str] = None,
+    sort: str = "brought",
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
+    # Значение приходит из браузера и подставляется в SQL — только из словаря.
+    order_by = _SORT_ORDERS.get(sort, _SORT_ORDERS["brought"])
+    select = (
+        f"{_COLLAB_SELECT},\n"
+        f"    {avg_brought_sql('c')} AS avg_brought,\n"
+        f"    {events_count_sql('c')} AS events_count"
+    )
     if q:
         rows = await db.fetch(
-            f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} "
-            f"WHERE c.created_by_client_id = $1 AND (c.name ILIKE $2 OR COALESCE(c.last_name,'') ILIKE $2) ORDER BY NULLIF(btrim(COALESCE(c.last_name,'')),'') ASC NULLS LAST, c.name ASC",
+            f"SELECT {select} FROM collaborators c {_COLLAB_JOIN} "
+            f"WHERE c.created_by_client_id = $1 AND (c.name ILIKE $2 OR COALESCE(c.last_name,'') ILIKE $2) "
+            f"ORDER BY {order_by}",
             client_id, f"%{q}%"
         )
     else:
         rows = await db.fetch(
-            f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} "
-            f"WHERE c.created_by_client_id = $1 ORDER BY NULLIF(btrim(COALESCE(c.last_name,'')),'') ASC NULLS LAST, c.name ASC",
+            f"SELECT {select} FROM collaborators c {_COLLAB_JOIN} "
+            f"WHERE c.created_by_client_id = $1 ORDER BY {order_by}",
             client_id
         )
     return {"collaborators": [row_to_dict(r) for r in rows]}

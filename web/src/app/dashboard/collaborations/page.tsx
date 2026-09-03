@@ -315,6 +315,33 @@ function AddFromContactModal({
   )
 }
 
+type SortMode = 'brought' | 'name'
+
+// Средний приход за событие. Пусто (событий у коллаба нет) — прочерк, а не 0:
+// это «нечего показать», а не «никого не приводит».
+function AvgBrought({ value, events }: { value: number | null; events: number }) {
+  if (value == null) {
+    return (
+      <div className="shrink-0 w-20 text-right" title="Ещё не участвовал ни в одном событии">
+        <div className="text-lg font-bold text-gray-300 leading-none">—</div>
+      </div>
+    )
+  }
+  // Целое показываем без «.0»: «12» читается быстрее, чем «12.0».
+  const shown = Number.isInteger(value) ? String(value) : value.toFixed(1)
+  return (
+    <div
+      className="shrink-0 w-20 text-right"
+      title={`В среднем ${shown} чел. за событие · событий: ${events}`}
+    >
+      <div className="text-lg font-bold text-gray-900 leading-none">{shown}</div>
+      <div className="text-[11px] text-gray-400 mt-0.5">
+        {events} {events === 1 ? 'событие' : events < 5 ? 'события' : 'событий'}
+      </div>
+    </div>
+  )
+}
+
 export default function CollaborationsPage() {
   const { t } = useLang()
   const { isAssistant } = useMe()
@@ -322,19 +349,26 @@ export default function CollaborationsPage() {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<SortMode>('brought')
   const [showImport, setShowImport] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [showCreateNew, setShowCreateNew] = useState(false)
 
-  function load(q?: string) {
+  function load(q?: string, sortMode: SortMode = sort) {
     setLoading(true)
-    api.collaborators.list(q)
+    api.collaborators.list(q, sortMode)
       .then(r => setItems(r.collaborators || []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
+
+  function changeSort(next: SortMode) {
+    if (next === sort) return
+    setSort(next)
+    load(query || undefined, next)
+  }
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -389,11 +423,34 @@ export default function CollaborationsPage() {
           {t.common.find}
         </button>
         {query && (
-          <button type="button" onClick={() => { setQuery(''); load() }}
+          <button type="button" onClick={() => { setQuery(''); load('') }}
             className="px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-sm text-gray-500 hover:text-gray-700 transition-colors">
             {t.common.reset}
           </button>
         )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-sm text-gray-500 hidden sm:inline">Сортировка:</span>
+          <div className="flex rounded-xl border border-gray-200 bg-white overflow-hidden">
+            {([
+              ['brought', 'По приходу'],
+              ['name', 'По имени'],
+            ] as [SortMode, string][]).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => changeSort(mode)}
+                className={`px-4 py-2.5 text-sm transition-colors ${
+                  sort === mode
+                    ? 'bg-gray-100 text-gray-900 font-semibold'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </form>
 
       {loading ? (
@@ -420,6 +477,18 @@ export default function CollaborationsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Шапка — чтобы цифра справа не висела без объяснения, что это. */}
+          <div className="flex items-center gap-4 px-5 py-2.5 bg-gray-50/70 border-b border-gray-100">
+            <div className="flex-1 min-w-0 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Человек
+            </div>
+            <div className="shrink-0 w-20 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-400 leading-tight">
+              Средний<br />приход
+            </div>
+            {!isAssistant && <div className="w-[30px] shrink-0" />}
+            <div className="w-[18px] shrink-0" />
+          </div>
+
           <div className="divide-y divide-gray-50">
             {/* ⚠️ Кликабельна ВСЯ строка, а не только имя и стрелка: раньше
                 промах мимо текста читался как «нажимаю и не открывается».
@@ -440,6 +509,10 @@ export default function CollaborationsPage() {
                   <span className="font-semibold text-gray-900 truncate group-hover:text-brand transition-colors block">{item.name}</span>
                   {item.title && <p className="text-sm text-gray-500 truncate">{item.title}</p>}
                 </div>
+                <AvgBrought
+                  value={item.avg_brought ?? null}
+                  events={item.events_count ?? 0}
+                />
                 {!isAssistant && (
                   <div className="relative z-10 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => handleDelete(item.id, item.name)}

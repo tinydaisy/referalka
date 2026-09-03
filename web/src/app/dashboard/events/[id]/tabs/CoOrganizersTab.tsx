@@ -209,7 +209,8 @@ function CollaboratorPicker({
 
   useEffect(() => {
     setLoading(true)
-    api.collaborators.list(q || undefined)
+    // По имени: здесь человека ищут глазами, порядок по приходу тут мешает.
+    api.collaborators.list(q || undefined, 'name')
       .then((d: any) => {
         const arr = Array.isArray(d) ? d : (d?.items ?? d?.collaborators ?? [])
         setList(Array.isArray(arr) ? arr : [])
