@@ -52,6 +52,41 @@ function formatDateLong(dt?: string) {
   } catch { return '' }
 }
 
+/**
+ * Дата события одной строкой: «24 сентября — 1 октября 2026 г., 11:00 МСК».
+ *
+ * ⚠️ Показываем ВЕСЬ диапазон, а не только первый день. У конференции дней
+ * бывает несколько (у iVISION-9 — с 24 сентября по 1 октября), и человек,
+ * видя одну дату, считал событие однодневным.
+ *
+ * Год у первой даты убираем, если он тот же — «24 сентября 2026 г. — 1
+ * октября 2026 г.» читается тяжело и не помещается в строку.
+ */
+function formatDateRange(start?: string, end?: string) {
+  const startLabel = formatDateLong(start)
+  if (!startLabel || !end) return startLabel
+  try {
+    const s = new Date(start!), e = new Date(end)
+    const fmt = (d: Date, opts: Intl.DateTimeFormatOptions) =>
+      d.toLocaleDateString('ru', { ...opts, timeZone: 'Europe/Moscow' })
+    // Один и тот же день — диапазон не нужен.
+    const sameDay = fmt(s, { day: 'numeric', month: 'numeric', year: 'numeric' })
+                 === fmt(e, { day: 'numeric', month: 'numeric', year: 'numeric' })
+    if (sameDay) return startLabel
+    const sameYear = fmt(s, { year: 'numeric' }) === fmt(e, { year: 'numeric' })
+    const left = fmt(s, sameYear
+      ? { day: 'numeric', month: 'long' }
+      : { day: 'numeric', month: 'long', year: 'numeric' })
+    // Время берём от НАЧАЛА: людям важно, когда подключаться в первый день.
+    const startTime = s.toLocaleTimeString('ru', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+    const right = fmt(e, { day: 'numeric', month: 'long', year: 'numeric' })
+    return startTime === '00:00'
+      ? `${left} — ${right}`
+      : `${left} — ${right}, ${startTime} МСК`
+  } catch { return startLabel }
+}
+
 /** Текст по умолчанию, когда клиент свой не задал. */
 const PRE_REG_DEFAULT = 'Скоро сообщим о старте регистрации'
 
@@ -199,7 +234,7 @@ export default function LandingTab({ event, onRegister }: Props) {
           <div className="card" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 16 }}>📅</span>
             <span style={{ color: 'var(--warn)', fontSize: 13, fontWeight: 600 }}>
-              {formatDateLong(event?.start_at)}
+              {formatDateRange(event?.start_at, event?.end_at)}
             </span>
           </div>
         )}
