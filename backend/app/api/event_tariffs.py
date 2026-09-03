@@ -613,15 +613,12 @@ async def add_buyer(
         )
         if not contact_ok:
             raise HTTPException(status_code=404, detail="Контакт не найден")
-        prow = await db.fetchrow(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at)
-               VALUES ($1, $2, TRUE, NOW())
-               ON CONFLICT (event_id, contact_id)
-               DO UPDATE SET is_registered = TRUE
-               RETURNING id""",
-            event_id, data.contact_id,
+        # Регистрацию проставит общий вызов ниже — здесь только заводим участие,
+        # чтобы получить его id для записи об оплате.
+        from app.services.event_participant import upsert_event_participant
+        participant_id, _is_new, _became = await upsert_event_participant(
+            db, event_id=event_id, contact_id=data.contact_id, finalize=False,
         )
-        participant_id = prow["id"]
     else:
         # Проверяем что участник принадлежит этому событию.
         ok = await db.fetchval(
@@ -656,9 +653,15 @@ async def add_buyer(
                  note = COALESCE(EXCLUDED.note, event_participant_tariffs.note)""",
             event_id, participant_id, tariff_id, data.amount, note,
         )
-    await db.execute(
-        "UPDATE event_participants SET is_registered = TRUE WHERE id = $1", participant_id
-    )
+    # ⚠️ Отметка оплаты = регистрация, и теперь через общую точку: раньше здесь
+    # стоял голый UPDATE, поэтому человеку, которого организатор отметил
+    # оплатившим вручную, не гас догрев и не уходило письмо о регистрации.
+    _cid = await db.fetchval(
+        "SELECT contact_id FROM event_participants WHERE id = $1", participant_id)
+    if _cid:
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            db, event_id=event_id, contact_id=int(_cid), is_registered=True)
     return {"ok": True, "participant_id": participant_id, "status": status}
 
 

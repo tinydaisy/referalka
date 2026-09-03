@@ -332,11 +332,9 @@ async def mark_link_click(body: LinkClickRequest):
             last_name=lname,
         )
 
-        await conn.execute(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered, link_clicked_at)
-               VALUES ($1, $2, FALSE, now())
-               ON CONFLICT (event_id, contact_id)
-               DO UPDATE SET link_clicked_at = COALESCE(event_participants.link_clicked_at, EXCLUDED.link_clicked_at)""",
-            event_id, contact_id,
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            conn, event_id=event_id, contact_id=contact_id,
+            mark_link_clicked=True,
         )
     return {"ok": True}

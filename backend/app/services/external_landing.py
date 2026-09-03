@@ -513,20 +513,13 @@ async def resolve_or_create_participant(
         # организатору уведомление «Новый интерес» РОВНО ОДИН РАЗ на
         # (человек × событие) — независимо от пути (бот /start, форма, лендинг,
         # webhook): все они проходят через эту единую функцию.
-        pid = await db.fetchval(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered, referrer_ref_code)
-               VALUES ($1, $2, FALSE, $3)
-               ON CONFLICT (event_id, contact_id) DO NOTHING
-               RETURNING id""",
-            event_id, contact_id, resolved_ref_code,
+        # ⚠️ Раньше DO NOTHING + доselect: реф-код, пришедший вторым заходом,
+        # молча терялся. Теперь пишется, если поле пустое.
+        from app.services.event_participant import upsert_event_participant
+        pid, is_first, _became = await upsert_event_participant(
+            db, event_id=event_id, contact_id=contact_id,
+            referrer_ref_code=resolved_ref_code, finalize=False,
         )
-        is_first = pid is not None
-        if not is_first:
-            # Запись уже была — достаём её id (нужен для ссылок), уведомление НЕ шлём.
-            pid = await db.fetchval(
-                "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2 LIMIT 1",
-                event_id, contact_id,
-            )
 
         if is_first:
             await _notify_organizer_new_interest(

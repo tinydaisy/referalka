@@ -1801,18 +1801,17 @@ async def add_event_participant_from_contact(
         raise HTTPException(status_code=404, detail="Контакт не найден")
 
     is_registered = bool(data.is_registered)
-    row = await db.fetchrow(
-        """INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (event_id, contact_id)
-           DO UPDATE SET is_registered = event_participants.is_registered OR EXCLUDED.is_registered
-           RETURNING id, is_registered, (xmax = 0) AS is_new""",
-        event_id, data.contact_id, is_registered
+    from app.services.event_participant import upsert_event_participant
+    pid, is_new, _became = await upsert_event_participant(
+        db, event_id=event_id, contact_id=data.contact_id,
+        is_registered=is_registered,
     )
+    now_reg = await db.fetchval(
+        "SELECT is_registered FROM event_participants WHERE id = $1", pid)
     return {
-        "id": row["id"],
-        "is_registered": row["is_registered"],
-        "is_new": bool(row["is_new"]),
+        "id": pid,
+        "is_registered": bool(now_reg),
+        "is_new": is_new,
     }
 
 

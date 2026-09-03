@@ -141,12 +141,12 @@ async def mark_live(slug: str, body: LiveIn):
     async with pool.acquire() as conn:
         async with conn.transaction():
             event_id, _client_id, contact_id = await _resolve_event_and_contact(conn, slug, body)
-            await conn.execute(
-                """INSERT INTO event_participants (event_id, contact_id, is_registered, live_at)
-                   VALUES ($1, $2, FALSE, now())
-                   ON CONFLICT (event_id, contact_id)
-                   DO UPDATE SET live_at = EXCLUDED.live_at""",
-                event_id, contact_id,
+            # ⚠️ finalize=False: мы внутри транзакции, а финализация ходит в
+            # сеть (Telegram, SMTP). Здесь она и не нужна — регистрации нет.
+            from app.services.event_participant import upsert_event_participant
+            await upsert_event_participant(
+                conn, event_id=event_id, contact_id=contact_id,
+                mark_live=True, finalize=False,
             )
     return {"ok": True}
 

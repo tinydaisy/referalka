@@ -338,16 +338,9 @@ async def register_event_from_deeplink(
         platform_user_id=str(platform_user_id), username=username,
         first_name=first_name, known_contact_id=contact_id_hint,
     )
-    await db.execute(
-        "INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at) "
-        "VALUES ($1,$2,TRUE,NOW()) ON CONFLICT (event_id, contact_id) "
-        "DO UPDATE SET is_registered=TRUE, registered_at=COALESCE(event_participants.registered_at, NOW())",
-        event_id, cid)
-    try:
-        from app.services.participant_registration import finalize_participant_registration
-        await finalize_participant_registration(db, event_id=event_id, contact_id=cid)
-    except Exception:
-        pass
+    from app.services.event_participant import upsert_event_participant
+    await upsert_event_participant(
+        db, event_id=event_id, contact_id=cid, is_registered=True)
     ev = await db.fetchrow("SELECT title, slug FROM events WHERE id=$1", event_id)
     return {"contact_id": cid,
             "event_title": ev["title"] if ev else "",

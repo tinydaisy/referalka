@@ -3287,19 +3287,11 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
                 contact_id, ev["client_id"],
             )
             if own_cid:
-                from app.services.participant_registration import (
-                    finalize_participant_registration,
+                from app.services.event_participant import upsert_event_participant
+                await upsert_event_participant(
+                    db, event_id=ev["id"], contact_id=contact_id,
+                    is_registered=True,
                 )
-                await db.execute(
-                    """INSERT INTO event_participants
-                           (event_id, contact_id, is_registered)
-                         VALUES ($1, $2, TRUE)
-                         ON CONFLICT (event_id, contact_id)
-                         DO UPDATE SET is_registered = TRUE""",
-                    ev["id"], contact_id,
-                )
-                await finalize_participant_registration(
-                    db, event_id=ev["id"], contact_id=contact_id)
                 return RedirectResponse(
                     url=f"/event/{ev['slug']}?c={contact_id}", status_code=302)
 
@@ -3579,19 +3571,17 @@ async def event_register_submit(slug: str, request: Request,
 
     async def _register(target_cid):
         """UPSERT участника is_registered=TRUE + финализация."""
-        await db.execute(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                 VALUES ($1, $2, TRUE)
-                 ON CONFLICT (event_id, contact_id)
-                 DO UPDATE SET is_registered = TRUE""",
-            event_id, target_cid,
-        )
-        # ⚠️ Раздачу контакта организаторам коллабы делает сама
+        # ⚠️ Раздачу контакта организаторам коллабы и рассылку писем делает
         # finalize_participant_registration — она общая для ВСЕХ путей входа
-        # (бот, Mini App, веб, вебхуки). Здесь отдельного вызова быть не должно:
-        # иначе правило пришлось бы дублировать в каждой точке регистрации.
-        await finalize_participant_registration(
-            db, event_id=event_id, contact_id=target_cid)
+        # (бот, Mini App, веб, вебхуки) и зовётся изнутри upsert-функции.
+        # ⚠️ Реф-код тут раньше НЕ ПИСАЛСЯ вовсе: `ref_code` резолвился выше,
+        # использовался для выбора базы — и терялся. Человек, пришедший по
+        # ссылке спикера, не засчитывался никому.
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            db, event_id=event_id, contact_id=target_cid,
+            is_registered=True, referrer_ref_code=ref_code,
+        )
 
     # ── ШАГ CHECK: только проверка email (контакт неизвестен) ──
     if step == "check":

@@ -460,23 +460,17 @@ async def send_event_open_message(
                         referrer_contact_id, event_id,
                     )
 
-                inserted = await conn.fetchval(
-                    """INSERT INTO event_participants
-                          (event_id, contact_id, is_registered, referrer_ref_code, referrer_participant_id)
-                        VALUES ($1, $2, FALSE, $3, $4)
-                       ON CONFLICT DO NOTHING
-                     RETURNING id""",
-                    event_id, contact_id, resolved_ref_code, referrer_participant_id,
+                # ⚠️ finalize=False: мы внутри транзакции, а финализация ходит
+                # в сеть. Регистрации здесь и нет — это «интерес».
+                # Дозапись реф-кода при повторе теперь внутри функции.
+                from app.services.event_participant import upsert_event_participant
+                _pid, _is_new, _became = await upsert_event_participant(
+                    conn, event_id=event_id, contact_id=contact_id,
+                    referrer_ref_code=resolved_ref_code,
+                    referrer_participant_id=referrer_participant_id,
+                    finalize=False,
                 )
-                if inserted is None and resolved_ref_code:
-                    await conn.execute(
-                        """UPDATE event_participants
-                              SET referrer_ref_code = $3,
-                                  referrer_participant_id = COALESCE(referrer_participant_id, $4)
-                            WHERE event_id = $1 AND contact_id = $2
-                              AND referrer_ref_code IS NULL""",
-                        event_id, contact_id, resolved_ref_code, referrer_participant_id,
-                    )
+                inserted = _pid if _is_new else None
 
             # Уведомление организатору — один раз, при первом «интересе» (новой записи).
             # Вне транзакции upsert, чтобы внешний HTTP в Telegram не блокировал коммит.

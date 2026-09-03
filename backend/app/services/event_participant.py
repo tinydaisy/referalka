@@ -59,6 +59,8 @@ async def upsert_event_participant(
     referrer_ref_code: Optional[str] = None,
     referrer_participant_id: Optional[int] = None,
     entry_link: Optional[str] = None,
+    mark_link_clicked: bool = False,
+    mark_live: bool = False,
     finalize: bool = True,
     send_menu: bool = True,
 ) -> Tuple[int, bool, bool]:
@@ -73,6 +75,10 @@ async def upsert_event_participant(
 
     `is_in_chat` — вошёл в чат события. Как и статус регистрации, только
     повышается: назад не откатываем.
+
+    `mark_link_clicked` — клик по ссылке события (первый раз, дальше не
+    сдвигается). `mark_live` — человек в эфире; это время, наоборот,
+    обновляется каждый раз: по нему видно последнее присутствие.
 
     `finalize=True` (по умолчанию) — при переходе в «зарегистрирован» сама
     зовёт `finalize_participant_registration`: стоп догрева, меню бота,
@@ -96,8 +102,10 @@ async def upsert_event_participant(
            )
            INSERT INTO event_participants
                (event_id, contact_id, is_registered, is_in_chat, registered_at,
-                referrer_ref_code, referrer_participant_id, entry_link)
-           VALUES ($1, $2, $3, $7, CASE WHEN $3 THEN NOW() END, $4, $5, $6)
+                referrer_ref_code, referrer_participant_id, entry_link,
+                link_clicked_at, live_at)
+           VALUES ($1, $2, $3, $7, CASE WHEN $3 THEN NOW() END, $4, $5, $6,
+                   CASE WHEN $8 THEN NOW() END, CASE WHEN $9 THEN NOW() END)
            ON CONFLICT (event_id, contact_id) DO UPDATE SET
                -- Статус только повышается: повторный заход не снимает регистрацию.
                is_registered = event_participants.is_registered OR EXCLUDED.is_registered,
@@ -116,14 +124,21 @@ async def upsert_event_participant(
                referrer_participant_id = COALESCE(
                    event_participants.referrer_participant_id,
                    EXCLUDED.referrer_participant_id),
-               entry_link = COALESCE(event_participants.entry_link, EXCLUDED.entry_link)
+               entry_link = COALESCE(event_participants.entry_link, EXCLUDED.entry_link),
+               -- Первый клик по ссылке и первый вход в эфир — время ПЕРВОГО
+               -- раза, повторные заходы его не сдвигают.
+               link_clicked_at = COALESCE(event_participants.link_clicked_at,
+                                          EXCLUDED.link_clicked_at),
+               -- А вот «был в эфире» обновляем каждый раз: по нему видно
+               -- последнее присутствие, и так было до сведения точек.
+               live_at = COALESCE(EXCLUDED.live_at, event_participants.live_at)
            RETURNING id,
                      (xmax = 0) AS is_new,
                      is_registered AS now_registered,
                      COALESCE((SELECT is_registered FROM before), FALSE) AS was_registered""",
         event_id, contact_id, bool(is_registered),
         (referrer_ref_code or None), referrer_participant_id, entry_link,
-        bool(is_in_chat),
+        bool(is_in_chat), bool(mark_link_clicked), bool(mark_live),
     )
 
     pid = int(row["id"])

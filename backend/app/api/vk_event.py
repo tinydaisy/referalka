@@ -1162,14 +1162,18 @@ async def handle_vk_event(body: VkEventRequest):
                             WHERE contact_id = $1 AND event_id = $2 LIMIT 1""",
                         referrer_contact_id, ev["id"],
                     )
-                inserted = await conn.fetchval(
-                    """INSERT INTO event_participants
-                          (event_id, contact_id, referrer_participant_id, referrer_ref_code)
-                       VALUES ($1, $2, $3, $4)
-                       ON CONFLICT (event_id, contact_id) DO NOTHING
-                       RETURNING id""",
-                    ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
+                # Единая точка записи. ⚠️ Раньше стоял DO NOTHING — реф-код,
+                # пришедший вторым заходом, молча терялся.
+                from app.services.event_participant import upsert_event_participant
+                _pid, _is_new, _became = await upsert_event_participant(
+                    conn, event_id=ev["id"], contact_id=contact_id,
+                    referrer_ref_code=resolved_ref_code,
+                    referrer_participant_id=referrer_participant_id,
+                    finalize=False,
                 )
+                # `inserted` дальше по коду = признак «человек здесь впервые»
+                # (по нему уходит «Новый интерес» организатору).
+                inserted = _pid if _is_new else None
                 # Event-welcome: шлём от ИМЕНИ КЛИЕНТСКОГО VK-сообщества (если подключено),
                 # иначе от системного. Без этого юзер всегда получал бы welcome от системного
                 # @ivision_pluson, а не от того сообщества, через которое открыл Mini App.
@@ -1552,14 +1556,18 @@ async def _vk_event_landing_background(body: VkEventLandingRequest, vk_user_id: 
                     "SELECT id FROM event_participants WHERE contact_id = $1 AND event_id = $2 LIMIT 1",
                     referrer_contact_id, ev["id"],
                 )
-            inserted = await conn.fetchval(
-                """INSERT INTO event_participants
-                      (event_id, contact_id, referrer_participant_id, referrer_ref_code)
-                   VALUES ($1, $2, $3, $4)
-                   ON CONFLICT (event_id, contact_id) DO NOTHING
-                   RETURNING id""",
-                ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
+            # Единая точка записи. ⚠️ Раньше стоял DO NOTHING — реф-код,
+            # пришедший вторым заходом, молча терялся.
+            from app.services.event_participant import upsert_event_participant
+            _pid, _is_new, _became = await upsert_event_participant(
+                conn, event_id=ev["id"], contact_id=contact_id,
+                referrer_ref_code=resolved_ref_code,
+                referrer_participant_id=referrer_participant_id,
+                finalize=False,
             )
+            # `inserted` дальше по коду = признак «человек здесь впервые»
+            # (по нему уходит «Новый интерес» организатору).
+            inserted = _pid if _is_new else None
             is_registered = bool(await conn.fetchval(
                 "SELECT is_registered FROM event_participants WHERE event_id=$1 AND contact_id=$2",
                 ev["id"], contact_id,

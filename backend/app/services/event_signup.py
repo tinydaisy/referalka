@@ -21,24 +21,17 @@ async def signup_participant_in_bot(db, *, event_id: int, contact_id: int) -> bo
     """Регистрирует контакт на событие. True — регистрация есть (или уже была).
 
     Идемпотентно: повторное нажатие кнопки не плодит записи и не ломает ничего —
-    UPSERT по (event_id, contact_id) + `finalize_participant_registration` сам
-    выходит молча, если участник уже был зарегистрирован.
+    запись идёт через `upsert_event_participant`, а он сам решает, случилась
+    ли регистрация именно сейчас, и только тогда шлёт письма.
     """
-    from app.services.participant_registration import (
-        finalize_participant_registration,
-    )
     try:
-        await db.execute(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                 VALUES ($1, $2, TRUE)
-                 ON CONFLICT (event_id, contact_id)
-                 DO UPDATE SET is_registered = TRUE""",
-            event_id, contact_id,
-        )
         # ⚠️ send_menu=False — меню шлёт сам вызывающий, ответом на нажатие
         # кнопки в боте. Иначе человек получил бы два одинаковых меню подряд.
-        await finalize_participant_registration(
-            db, event_id=event_id, contact_id=contact_id, send_menu=False)
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            db, event_id=event_id, contact_id=contact_id,
+            is_registered=True, send_menu=False,
+        )
         return True
     except Exception as e:
         log.warning("signup_participant_in_bot failed (event=%s contact=%s): %s",
