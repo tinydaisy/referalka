@@ -50,6 +50,10 @@ IMAGE_UPLOAD_KINDS = {
     "brand_photo", "brand_logo", "owner_photo", "speaker_gallery", "funnel_media", "broadcast_photo",
     "broadcast_video",
     "event_video", "speaker_video", "referral_video",
+    # Афиша, пока регистрация не открыта (мигр. 345). Отдельная от event_poster:
+    # временная картинка живёт, пока запись закрыта, а финальная готовится
+    # параллельно — обе должны существовать одновременно.
+    "pre_reg_poster",
     "landing_bg", "landing_media",
     # Картинки лендинга ПРОДУКТА (миграция 293) и материалов продукта.
     # ⚠️ event_id НЕ требуют — продукт живёт вне событий.
@@ -114,7 +118,7 @@ async def upload_file(
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
     if kind in ("event_poster", "certificate", "referral_material", "event_video",
-                "referral_video", "landing_bg", "landing_media"):
+                "referral_video", "landing_bg", "landing_media", "pre_reg_poster"):
         if not event_id:
             raise HTTPException(400, detail=f"{kind} требует event_id")
         await _check_event_belongs(event_id, client_id, db)
@@ -365,6 +369,7 @@ async def storage_usage(
 # ему нужно понимать, что это за файл и откуда он взялся.
 _KIND_LABEL = {
     "event_poster": "Афиша события",
+    "pre_reg_poster": "Афиша до старта регистрации",
     "event_video": "Видео события",
     "referral_material": "Материал для друзей",
     "referral_video": "Видео для друзей",
@@ -399,6 +404,7 @@ _KIND_TAB = {
     # строки ссылка вела на ?tab=participants — то есть не туда, где файл.
     "webinar_recording": "webinar",
     "event_poster": "posters",
+    "pre_reg_poster": "posters",
     "event_video": "posters",
     "referral_material": "referral",
     "referral_video": "referral",

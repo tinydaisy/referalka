@@ -28,6 +28,11 @@ export default function LandingSettingsBlock({
   landingUrl, onLandingUrl,
   ctaLabel, onCtaLabel,
   ctaRepeat, onCtaRepeat,
+  regClosed, onRegClosed,
+  preRegText, onPreRegText,
+  preRegBtnLabel, onPreRegBtnLabel,
+  preRegBtnUrl, onPreRegBtnUrl,
+  registeredCount = 0,
   skipContactForm, onSkipContactForm,
   allowExternal = true,
   hasLanding = false,
@@ -50,6 +55,19 @@ export default function LandingSettingsBlock({
   /** Дублировать кнопку под описанием (миграция 314). */
   ctaRepeat?: boolean
   onCtaRepeat?: (v: boolean) => void
+  /** «Регистрация ещё не открыта» (миграция 345): событие видно, записаться
+   *  нельзя. Вместо любой страницы регистрации — заглушка с текстом и
+   *  необязательной кнопкой. */
+  regClosed?: boolean
+  onRegClosed?: (v: boolean) => void
+  preRegText?: string
+  onPreRegText?: (v: string) => void
+  preRegBtnLabel?: string
+  onPreRegBtnLabel?: (v: string) => void
+  preRegBtnUrl?: string
+  onPreRegBtnUrl?: (v: string) => void
+  /** Сколько уже зарегистрировалось — предупреждаем при закрытии записи. */
+  registeredCount?: number
   skipContactForm: boolean
   onSkipContactForm: (v: boolean) => void
   /** false — только внутренний лендинг (коллаб-событие) */
@@ -97,7 +115,10 @@ export default function LandingSettingsBlock({
   // ⚠️ Ссылка регистрации не может быть пустой: с неё идут кнопки в рассылках
   // ({landing_url}), в боте и в Mini App. Поэтому не даём сохранить событие,
   // если выбранный способ не может дать рабочий адрес.
-  const error =
+  // ⚠️ При закрытой регистрации проверка не действует: страницы регистрации
+  // человек всё равно не увидит, а требование заполнить адрес лендинга просто
+  // не дало бы сохранить событие — то есть включить саму заглушку.
+  const error = regClosed ? '' :
     isExternal && !landingUrl.trim()
       ? 'Укажите адрес стороннего лендинга — без него кнопка «Зарегистрироваться» ведёт в никуда.'
       : (mode === 'landing' && !hasLanding)
@@ -114,6 +135,107 @@ export default function LandingSettingsBlock({
           {error}
         </div>
       )}
+
+      {/* ⚠️ «Регистрация ещё не открыта» — ВЫШЕ выбора страницы, а не пунктом
+          внутри него: это не способ регистрации, а её отсутствие. Пунктом
+          списка настройка была бы недоступна тем, кто выбрал сторонний
+          лендинг, — а им она нужна ровно так же. */}
+      {onRegClosed && (
+        <div className={`rounded-xl border-2 p-3.5 transition-colors ${
+          regClosed ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200'
+        }`}>
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={!!regClosed}
+              onChange={e => {
+                const next = e.target.checked
+                // ⚠️ Предупреждаем, если записи уже есть: клиент должен знать,
+                // что закрывает приём НОВЫХ, а не отменяет чужие регистрации.
+                if (next && registeredCount > 0) {
+                  const ok = confirm(
+                    `На событие уже зарегистрировано ${registeredCount} чел. `
+                    + 'Они останутся зарегистрированными и сохранят доступ в свой кабинет — '
+                    + 'закроется только приём новых.\n\nЗакрыть регистрацию?'
+                  )
+                  if (!ok) return
+                }
+                onRegClosed(next)
+              }}
+              className="mt-0.5 accent-[#25455D]"
+            />
+            <div>
+              <p className="text-sm font-medium text-gray-800">Регистрация ещё не открыта</p>
+              <p className="mt-0.5 text-xs text-gray-400 leading-relaxed">
+                Событие видно в календаре, но записаться нельзя. Вместо страницы регистрации
+                человек увидит афишу, описание и ваш текст. Нужно, когда дата уже известна,
+                а спикеры, программа и лендинг ещё готовятся.
+              </p>
+            </div>
+          </label>
+
+          {regClosed && (
+            <div className="mt-4 space-y-4 border-t border-gray-200 pt-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">Текст вместо кнопки</label>
+                <textarea
+                  value={preRegText || ''}
+                  onChange={e => onPreRegText?.(e.target.value)}
+                  rows={2}
+                  maxLength={300}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Главное на странице — крупным шрифтом. Пусто — будет «Скоро сообщим о старте регистрации».
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Кнопка <span className="font-normal text-gray-400">— необязательно</span>
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={preRegBtnLabel || ''}
+                    onChange={e => onPreRegBtnLabel?.(e.target.value)}
+                    maxLength={40}
+                    placeholder="Например: Выступить спикером"
+                    className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                    style={{ flex: '0 0 42%', minWidth: 0 }}
+                  />
+                  <input
+                    value={preRegBtnUrl || ''}
+                    onChange={e => onPreRegBtnUrl?.(e.target.value)}
+                    placeholder="https://…"
+                    className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none"
+                    style={{ flex: '1 1 auto', minWidth: 0 }}
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Кнопка появится, только если заполнены оба поля. Ведёт куда угодно —
+                  на анкету, в чат, на форму заявки.
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-gray-50 px-3.5 py-2.5 text-xs leading-relaxed text-gray-500">
+                Афиша на этой странице — своя: <b>«Афиша до старта регистрации»</b> на вкладке «Афиши».
+                Не загрузите — возьмётся обычная афиша события.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Настройки страницы регистрации не удаляем и не прячем при закрытой
+          записи — они сохранены и заработают, когда клиент её откроет. */}
+      {regClosed && (
+        <p className="text-xs text-gray-400">
+          Пока регистрация закрыта, настройки ниже не действуют — они сохранятся и
+          заработают, когда вы её откроете.
+        </p>
+      )}
+
+      <div className={regClosed ? 'pointer-events-none space-y-5 opacity-45' : 'space-y-5'}>
 
       {allowExternal && (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -250,6 +372,7 @@ export default function LandingSettingsBlock({
           </p>
         </div>
       )}
+      </div>
     </div>
   )
 }

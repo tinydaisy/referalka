@@ -64,6 +64,13 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     // кнопку за экран. ⚠️ В resync-useEffect ниже НЕ добавлять — по той же
     // причине, что и skip_contact_form: снятая галочка затиралась бы обратно.
     landing_cta_repeat: !!event?.landing_cta_repeat,
+    // «Регистрация ещё не открыта» (миграция 345): событие видно, записаться
+    // нельзя. ⚠️ В resync-useEffect ниже НЕ добавлять — по той же причине, что
+    // и skip_contact_form: снятая галочка затиралась бы обратно.
+    registration_closed: !!event?.registration_closed,
+    pre_reg_text: event?.pre_reg_text || '',
+    pre_reg_btn_label: event?.pre_reg_btn_label || '',
+    pre_reg_btn_url: event?.pre_reg_btn_url || '',
     // Как называть участника (миграция 304): спикер / номинант / участник.
     person_wording: event?.person_wording || 'speaker',
     // Что показывать на «Итогах» при завершении события (миграция 195).
@@ -87,6 +94,18 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   // Текст ошибки настроек регистрации ('' = всё в порядке) — приходит из
   // LandingSettingsBlock, блокирует сохранение.
   const [regError, setRegError] = useState('')
+
+  // Сколько уже записалось — цифра нужна в предупреждении при закрытии записи
+  // (миграция 345). Пока запись открыта: после закрытия она уже не меняется.
+  const [registeredCount, setRegisteredCount] = useState(0)
+  useEffect(() => {
+    if (form.registration_closed) return
+    let cancelled = false
+    api.events.participants(eventId, 'yes')
+      .then((r: any) => { if (!cancelled) setRegisteredCount(r?.counts?.registered ?? 0) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [eventId, form.registration_closed])
 
   // Лид-магниты и пакеты для выбора подарка при завершении события.
   useEffect(() => {
@@ -153,6 +172,16 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         eventPatch.landing_cta_label = form.landing_cta_label.trim() || null
       if (form.landing_cta_repeat !== !!event?.landing_cta_repeat)
         eventPatch.landing_cta_repeat = form.landing_cta_repeat
+      // «Регистрация ещё не открыта» (миграция 345). Пустая строка = очистка:
+      // бэкенд приводит её к NULL, текст возвращается к формулировке по умолчанию.
+      if (form.registration_closed !== !!event?.registration_closed)
+        eventPatch.registration_closed = form.registration_closed
+      if (form.pre_reg_text.trim() !== (event?.pre_reg_text || ''))
+        eventPatch.pre_reg_text = form.pre_reg_text.trim() || null
+      if (form.pre_reg_btn_label.trim() !== (event?.pre_reg_btn_label || ''))
+        eventPatch.pre_reg_btn_label = form.pre_reg_btn_label.trim() || null
+      if (form.pre_reg_btn_url.trim() !== (event?.pre_reg_btn_url || ''))
+        eventPatch.pre_reg_btn_url = form.pre_reg_btn_url.trim() || null
       if (form.person_wording !== (event?.person_wording || 'speaker'))
         eventPatch.person_wording = form.person_wording
       if (form.description !== (event?.description || ''))
@@ -456,6 +485,15 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onCtaLabel={(v) => setForm(f => ({ ...f, landing_cta_label: v }))}
         ctaRepeat={form.landing_cta_repeat}
         onCtaRepeat={(v) => setForm(f => ({ ...f, landing_cta_repeat: v }))}
+        regClosed={form.registration_closed}
+        onRegClosed={(v) => setForm(f => ({ ...f, registration_closed: v }))}
+        preRegText={form.pre_reg_text}
+        onPreRegText={(v) => setForm(f => ({ ...f, pre_reg_text: v }))}
+        preRegBtnLabel={form.pre_reg_btn_label}
+        onPreRegBtnLabel={(v) => setForm(f => ({ ...f, pre_reg_btn_label: v }))}
+        preRegBtnUrl={form.pre_reg_btn_url}
+        onPreRegBtnUrl={(v) => setForm(f => ({ ...f, pre_reg_btn_url: v }))}
+        registeredCount={registeredCount}
         skipContactForm={form.skip_contact_form}
         onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
         allowExternal={!event?.is_collab}

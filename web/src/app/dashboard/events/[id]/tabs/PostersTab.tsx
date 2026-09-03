@@ -57,6 +57,11 @@ function SubTabs({ current, onChange }: { current: SubTab; onChange: (t: SubTab)
 function PostersBlock({ eventId }: { eventId: number }) {
   const [items, setItems] = useState<Poster[]>([])
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  // Афиша, пока регистрация не открыта (миграция 345). Колонка события, а не
+  // строка event_posters: там CHECK на три ориентации, и четвёртый вид пришлось
+  // бы отфильтровывать в трёх десятках запросов к афишам события.
+  const [preRegPoster, setPreRegPoster] = useState<string | null>(null)
+  const [regClosed, setRegClosed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
@@ -68,7 +73,10 @@ function PostersBlock({ eventId }: { eventId: number }) {
         api.events.get(eventId),
       ])
       setItems(r.items || [])
-      setVideoUrl(ev?.event?.video_url ?? ev?.video_url ?? null)
+      const e = ev?.event ?? ev
+      setVideoUrl(e?.video_url ?? null)
+      setPreRegPoster(e?.pre_reg_poster_url ?? null)
+      setRegClosed(!!e?.registration_closed)
       setErr(null)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
@@ -79,6 +87,13 @@ function PostersBlock({ eventId }: { eventId: number }) {
     try {
       await api.events.update(eventId, { video_url: url })
       setVideoUrl(url)
+    } catch (e: any) { setErr(e.message) }
+  }
+
+  async function savePreRegPoster(url: string | null) {
+    try {
+      await api.events.update(eventId, { pre_reg_poster_url: url })
+      setPreRegPoster(url)
     } catch (e: any) { setErr(e.message) }
   }
 
@@ -138,6 +153,35 @@ function PostersBlock({ eventId }: { eventId: number }) {
           </div>
         )
       })}
+
+      {/* Афиша, пока регистрация не открыта (миграция 345) */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="mb-4">
+          <h3 className="font-semibold text-gray-900">Афиша до старта регистрации</h3>
+          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+            Показывается, пока регистрация не открыта — вместо обычной афиши. Нужна, когда
+            финальной афиши ещё нет. Не загрузите — возьмётся обычная афиша события.
+          </p>
+          {/* ⚠️ Подсказка, где включается сам режим: иначе клиент загрузит
+              картинку и не поймёт, почему её нигде не видно. */}
+          {!regClosed && (
+            <p className="text-xs text-gray-400 mt-2">
+              Сейчас регистрация открыта — эта афиша не показывается. Включается галочкой
+              «Регистрация ещё не открыта» в настройках события.
+            </p>
+          )}
+        </div>
+        <FileUploader
+          mode="single"
+          kind="pre_reg_poster"
+          eventId={eventId}
+          value={preRegPoster}
+          onChange={u => savePreRegPoster(u)}
+          aspectClass="aspect-video"
+          emptyText="Афиша не загружена"
+          buttonLabel="Загрузить"
+        />
+      </div>
 
       {/* Общее видео события — отдаётся всем спикерам на их странице «Материалы». */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

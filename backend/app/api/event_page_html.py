@@ -53,6 +53,10 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
             "landing_url, start_at, end_at, is_collab, skip_contact_form, "
+            # «Регистрация ещё не открыта» (мигр. 345): вместо формы —
+            # заглушка с описанием, крупным текстом и кнопкой клиента.
+            "registration_closed, pre_reg_text, pre_reg_btn_label, "
+            "pre_reg_btn_url, pre_reg_poster_url, "
             # Галочки площадок (миграция 263) — куда организаторы ведут зрителей.
             "disabled_platforms, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
@@ -2660,6 +2664,144 @@ def _register_not_found_page() -> str:
 <p>Ссылка устарела или событие ещё не опубликовано.</p></div></body></html>"""
 
 
+# Разрешённые теги в описании события — тот же набор, что в Mini App
+# (mini-app/src/utils/htmlSanitize.ts). Описание клиент часто вставляет из
+# заметок и мессенджеров вместе с разметкой, и выводить её тегами нельзя.
+_PRE_REG_ALLOWED_TAGS = {
+    "p", "br", "b", "strong", "i", "em", "u", "s",
+    "ul", "ol", "li", "h2", "h3", "h4", "blockquote", "span", "div", "hr",
+}
+_PRE_REG_TAG_RE = _re.compile(r"<\s*/?\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>")
+
+
+def _pre_reg_description_html(text) -> str:
+    """Описание события для страницы-заглушки.
+
+    ⚠️ Разметку клиента сохраняем, но чужие теги вычищаем: скрипт в описании
+    выполнился бы у каждого посетителя. Атрибуты срезаем ЦЕЛИКОМ — вместе с
+    ними уходят onclick/onerror, а ссылки в описании и так становятся
+    кликабельными ниже, через `_rich_text` для текста без разметки.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    # Разметки нет вовсе — обычный текст с переносами и кликабельными ссылками.
+    if not _PRE_REG_TAG_RE.search(raw):
+        return _rich_text(raw)
+
+    def _keep(m):
+        tag = m.group(1).lower()
+        if tag not in _PRE_REG_ALLOWED_TAGS:
+            return ""
+        closing = m.group(0).lstrip().startswith("</")
+        return f"</{tag}>" if closing else f"<{tag}>"
+
+    return _PRE_REG_TAG_RE.sub(_keep, raw)
+
+
+def render_pre_reg_page(event, client, poster_url) -> str:
+    """Страница события, пока регистрация ещё не открыта (миграция 345).
+
+    ⚠️ Это ОТДЕЛЬНАЯ страница, а не «форма без кнопки». Обычная страница
+    регистрации начинается сразу с ввода email — то есть она вся и есть
+    регистрация, скрывать в ней нечего. Здесь другое содержимое: афиша,
+    название, дата, описание и крупный текст о том, когда откроется запись.
+
+    Кнопка НЕОБЯЗАТЕЛЬНА: у большинства событий на этом этапе вести некуда,
+    и пустая кнопка была бы хуже её отсутствия. Если задана — ведёт куда
+    угодно («Выступить спикером», «Стать жюри», «Написать организатору»).
+    """
+    title = esc(event.get("title") or event.get("slug"))
+    brand_raw = ((client["brand_name"] if client else None)
+                 or (client["name"] if client else None) or "")
+    brand = esc(brand_raw)
+    brand_block = f'<div class="brand">{brand}</div>' if brand else ""
+
+    date_str = esc(_fmt_event_date(event.get("start_at")))
+    date_block = f'<div class="when">📅 {date_str}</div>' if date_str else ""
+
+    poster_block = (f'<img class="poster" src="{esc(poster_url)}" alt="{title}">'
+                    if poster_url else "")
+
+    desc_html = _pre_reg_description_html(event.get("description"))
+    desc_block = f'<div class="desc">{desc_html}</div>' if desc_html else ""
+
+    # Текст — главное на странице, поэтому крупнее описания.
+    lead = esc((event.get("pre_reg_text") or "").strip()
+               or "Скоро сообщим о старте регистрации")
+
+    btn_label = (event.get("pre_reg_btn_label") or "").strip()
+    btn_url = (event.get("pre_reg_btn_url") or "").strip()
+    btn_block = ""
+    if btn_label and btn_url:
+        btn_block = (f'<a class="btn" href="{esc(btn_url)}" target="_blank" '
+                     f'rel="noopener noreferrer">{esc(btn_label)}</a>')
+
+    fav_letter = esc((brand_raw or title or "П")[:1].upper())
+    favicon_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+        f"<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
+    )
+    import urllib.parse as _up
+    _blogo = (client["brand_logo_url"] if client else None) or ""
+    favicon_uri = _blogo or ("data:image/svg+xml," + _up.quote(favicon_svg))
+
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<link rel="icon" href="{favicon_uri}">
+<style>
+  * {{ box-sizing:border-box; }}
+  html,body {{ margin:0; padding:0; font-family:'Roboto',-apple-system,BlinkMacSystemFont,sans-serif;
+    background:linear-gradient(45deg,#25455D,#0a1520); background-attachment:fixed; color:#1f2d3a; }}
+  .wrap {{ max-width:480px; margin:0 auto; min-height:100vh; background:#f7f8fa;
+    box-shadow:0 0 40px rgba(0,0,0,.35); display:flex; flex-direction:column; }}
+  .hero {{ background:linear-gradient(45deg,#25455D,#0a1520); color:#fff; padding:22px 18px 16px; }}
+  .hero .brand {{ font-size:12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:6px; }}
+  .hero h1 {{ font-size:21px; margin:0; line-height:1.25; }}
+  .poster {{ width:100%; display:block; }}
+  .content {{ flex:1; padding:18px 16px 40px; }}
+  .when {{ background:#fff; border-radius:14px; padding:12px 14px; font-size:14px; font-weight:700;
+    color:#25455D; box-shadow:0 2px 10px rgba(37,69,93,.08); }}
+  .desc {{ margin-top:16px; font-size:14px; line-height:1.6; color:#33475b; word-wrap:break-word; }}
+  .desc p {{ margin:0 0 10px; }}
+  .desc ul,.desc ol {{ margin:0 0 10px; padding-left:20px; }}
+  .desc h2,.desc h3,.desc h4 {{ margin:16px 0 8px; color:#25455D; }}
+  /* Главное на странице — когда откроется запись, поэтому крупнее описания. */
+  .lead-box {{ margin-top:22px; background:#fff; border-radius:16px; padding:22px 18px;
+    box-shadow:0 2px 10px rgba(37,69,93,.08); text-align:center; }}
+  .lead-box .lead {{ font-size:18px; font-weight:700; color:#25455D; line-height:1.4; margin:0; }}
+  .btn {{ display:block; margin-top:16px; padding:14px 16px; border-radius:12px; font-size:15px;
+    font-weight:800; text-decoration:none; text-align:center;
+    background:linear-gradient(135deg,#FFCFA4,#f5b97e); color:#25455D;
+    box-shadow:0 2px 8px rgba(255,207,164,.4); }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    {brand_block}
+    <h1>{title}</h1>
+  </div>
+  {poster_block}
+  <div class="content">
+    {date_block}
+    {desc_block}
+    <div class="lead-box">
+      <p class="lead">{lead}</p>
+      {btn_block}
+    </div>
+  </div>
+</div>
+</body>
+</html>"""
+
+
 def render_register_page(event, client, poster_url, prefill=None, pid="") -> str:
     """Серверная HTML-страница формы регистрации на событие.
 
@@ -3088,6 +3230,21 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
     if not event or event["status"] != "published":
         return HTMLResponse(content=_register_not_found_page(), status_code=404)
     ev = dict(event)
+
+    # ⚠️ Регистрация ещё не открыта (мигр. 345) — вместо формы отдельная
+    # страница-заглушка. Проверка стоит ПЕРВОЙ: ниже есть ветка «регистрируем
+    # без ввода контактных данных», которая записала бы пришедшего из бота
+    # молча, ещё до показа какой-либо страницы.
+    if ev.get("registration_closed"):
+        _client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
+        ev["_public_base"] = await client_public_url(db, ev.get("client_id"))
+        # Афиша своя — «до старта регистрации»: финальной может ещё не быть.
+        _poster = (ev.get("pre_reg_poster_url") or "").strip() \
+            or await _load_event_poster(db, ev["id"])
+        return HTMLResponse(
+            content=render_pre_reg_page(ev, _client, _poster),
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 
     contact_id = int(c) if c and c.isdigit() else None
     # ⚠️ `pid` — реф-код того, кто привёл. Раньше форма его не принимала вовсе:

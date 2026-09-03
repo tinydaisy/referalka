@@ -23,6 +23,7 @@ from PIL import Image, ImageOps
 
 MAX_DIM_BY_KIND = {
     "event_poster":      1920,
+    "pre_reg_poster":    1920,
     "referral_material": 1920,
     "certificate":       1600,
     "lead_magnet":       1920,

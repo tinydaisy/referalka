@@ -524,12 +524,21 @@ async def public_event_landing_redirect(
     параметров. Иначе пустой объект. Используется в mini-app/index.html
     inline-скриптом для мгновенного редиректа на сторонний лендинг."""
     row = await db.fetchrow(
-        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, landing_url, status, registration_mode FROM events WHERE slug = $1 LIMIT 1",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, landing_url, status, registration_mode, registration_closed FROM events WHERE slug = $1 LIMIT 1",
         slug,
     )
     if not row:
         return {}
     if row["status"] != "published":
+        return {}
+
+    # ⚠️ Регистрация ещё не открыта (мигр. 345) — НИКУДА не уводим: ни на наш
+    # лендинг, ни на сторонний сайт. Проверка стоит ДО разбора способа
+    # регистрации, потому что именно отсюда Mini App узнаёт, прыгать ли на
+    # лендинг, — и прыжок происходит раньше, чем человек что-либо увидит.
+    # На чужом сайте регистрацию закрыть мы не можем, поэтому единственный
+    # честный вариант — не отправлять туда, пока клиент не откроет запись.
+    if row["registration_closed"]:
         return {}
 
     # ⚠️ Способ регистрации задаётся явно (миграция 262). NULL → простая форма.
@@ -884,6 +893,12 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    e.sub_check_at_chat, e.sub_check_at_registration,
                    e.hide_stream_button, e.skip_contact_form,
                    e.landing_cta_label, e.landing_cta_repeat,
+                   -- «Регистрация ещё не открыта» (мигр. 345): вместо кнопки
+                   -- участия показывается заглушка. Флаг нужен фронту здесь,
+                   -- потому что Mini App решает САМ, уводить ли на лендинг, —
+                   -- и должен узнать о закрытой регистрации до этого прыжка.
+                   e.registration_closed, e.pre_reg_text,
+                   e.pre_reg_btn_label, e.pre_reg_btn_url, e.pre_reg_poster_url,
                    e.is_collab,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,

@@ -91,6 +91,9 @@ SELECT e.id, e.slug, e.title, e.module_slug,
        -- лендинг. Раньше карточка жёстко вела на /event/{slug} (внутреннюю
        -- страницу), и человек не попадал на продающий лендинг события.
        e.registration_mode,
+       -- Регистрация ещё не открыта (мигр. 345): карточка ведёт на страницу
+       -- события, а не на лендинг/чужой сайт — там показывается заглушка.
+       e.registration_closed,
        NULLIF(btrim(e.landing_url), '') AS landing_url,
        EXISTS (SELECT 1 FROM event_landing_pages lp
                 WHERE lp.event_id = e.id AND lp.kind = 'main'
@@ -154,6 +157,11 @@ def _card_href(e: dict) -> str:
     Лендинг выбран, но не опубликован → внутренняя страница (иначе 404).
     """
     slug = e.get("slug") or ""
+    # ⚠️ Регистрация ещё не открыта (мигр. 345) — ведём на страницу события со
+    # заглушкой, а не на лендинг и тем более не на сторонний сайт: там кнопка
+    # покупки живёт своей жизнью и о нашей настройке не знает.
+    if e.get("registration_closed"):
+        return f"/event/{slug}/register"
     mode = e.get("registration_mode") or "form"
     if mode == "landing" and e.get("has_landing"):
         return f"/e/{slug}"

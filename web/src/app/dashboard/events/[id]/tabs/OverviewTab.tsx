@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -53,6 +53,23 @@ export default function OverviewTab({
   const [landingCtaLabel, setLandingCtaLabel] = useState(event.landing_cta_label || '')
   // Дубль кнопки под описанием (миграция 314): длинный текст уводит верхнюю кнопку за экран.
   const [landingCtaRepeat, setLandingCtaRepeat] = useState<boolean>(!!event.landing_cta_repeat)
+  // «Регистрация ещё не открыта» (миграция 345): событие видно, записаться нельзя.
+  const [regClosed, setRegClosed] = useState<boolean>(!!event.registration_closed)
+  const [preRegText, setPreRegText] = useState(event.pre_reg_text || '')
+  const [preRegBtnLabel, setPreRegBtnLabel] = useState(event.pre_reg_btn_label || '')
+  const [preRegBtnUrl, setPreRegBtnUrl] = useState(event.pre_reg_btn_url || '')
+  // Сколько уже записалось — показываем в предупреждении при закрытии записи.
+  const [registeredCount, setRegisteredCount] = useState(0)
+  useEffect(() => {
+    // Считаем только когда галочка ещё не стоит: цифра нужна ровно в момент
+    // закрытия записи, а лишний запрос на каждой карточке события ни к чему.
+    if (regClosed) return
+    let cancelled = false
+    api.events.participants(eventId, 'yes')
+      .then((r: any) => { if (!cancelled) setRegisteredCount(r?.counts?.registered ?? 0) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [eventId, regClosed])
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -115,6 +132,14 @@ export default function OverviewTab({
       const lcl = landingCtaLabel.trim()
       if (lcl !== (event.landing_cta_label || ''))             payload.landing_cta_label = lcl || null
       if (landingCtaRepeat !== !!event.landing_cta_repeat)     payload.landing_cta_repeat = landingCtaRepeat
+      // «Регистрация ещё не открыта» (миграция 345). Пустая строка = очистка:
+      // бэкенд приводит её к NULL, и текст возвращается к формулировке по умолчанию.
+      if (regClosed !== !!event.registration_closed)           payload.registration_closed = regClosed
+      if (preRegText.trim() !== (event.pre_reg_text || ''))    payload.pre_reg_text = preRegText.trim() || null
+      if (preRegBtnLabel.trim() !== (event.pre_reg_btn_label || ''))
+        payload.pre_reg_btn_label = preRegBtnLabel.trim() || null
+      if (preRegBtnUrl.trim() !== (event.pre_reg_btn_url || ''))
+        payload.pre_reg_btn_url = preRegBtnUrl.trim() || null
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -328,6 +353,15 @@ export default function OverviewTab({
         onCtaLabel={setLandingCtaLabel}
         ctaRepeat={landingCtaRepeat}
         onCtaRepeat={setLandingCtaRepeat}
+        regClosed={regClosed}
+        onRegClosed={setRegClosed}
+        preRegText={preRegText}
+        onPreRegText={setPreRegText}
+        preRegBtnLabel={preRegBtnLabel}
+        onPreRegBtnLabel={setPreRegBtnLabel}
+        preRegBtnUrl={preRegBtnUrl}
+        onPreRegBtnUrl={setPreRegBtnUrl}
+        registeredCount={registeredCount}
         skipContactForm={skipContactForm}
         hasLanding={!!event?.landing_published}
         landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}

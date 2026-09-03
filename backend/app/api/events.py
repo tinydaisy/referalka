@@ -174,6 +174,20 @@ class UpdateEventRequest(BaseModel):
     # Повторить кнопку регистрации под описанием (миграция 314): при длинном
     # тексте кнопка вверху уезжает, и дочитавший не понимает, что делать.
     landing_cta_repeat: Optional[bool] = None
+    # ⚠️ «Регистрация ещё не открыта» (миграция 345). Событие видно в календаре,
+    # но записаться нельзя: дата известна, а спикеры, программа и лендинг ещё
+    # готовятся. Вместо любой страницы регистрации (Mini App, веб-форма,
+    # лендинг-конструктор, сторонний сайт) показывается страница-заглушка:
+    # афиша до старта + описание + крупный текст + необязательная кнопка.
+    registration_closed: Optional[bool] = None
+    pre_reg_text: Optional[str] = None
+    pre_reg_btn_label: Optional[str] = None
+    pre_reg_btn_url: Optional[str] = None
+    # Афиша, пока регистрация закрыта. Отдельная от event_posters — там CHECK
+    # на три ориентации, и четвёртый вид пришлось бы отфильтровывать в 31
+    # запросе, которые берут «афишу события»; один забытый фильтр молча
+    # подменил бы боевую афишу временной.
+    pre_reg_poster_url: Optional[str] = None
     # Как называть участника: speaker|nominee|member (миграция 304).
     # Одно слово на всё событие — интерфейс, рассылки, кабинет.
     person_wording: Optional[str] = None
@@ -616,6 +630,26 @@ async def update_event(
         if v is not None and v not in ("vip", "chat", "none"):
             raise HTTPException(status_code=400, detail="accent_button должен быть 'vip', 'chat' или 'none'")
 
+    # ⚠️ «Регистрация ещё не открыта» (миграция 345). Пустая строка = осознанная
+    # очистка поля, а не «оставить как было»: клиент стирает текст, чтобы
+    # вернуть формулировку по умолчанию. Без NULLIF в базе оседала бы пустая
+    # строка, и страница показывала бы пустоту вместо дефолта.
+    for _f in ("pre_reg_text", "pre_reg_btn_label", "pre_reg_btn_url", "pre_reg_poster_url"):
+        if _f in updates and isinstance(updates[_f], str):
+            updates[_f] = updates[_f].strip() or None
+    # Ссылка кнопки — только внешний адрес или якорь. Схемы javascript:/data:
+    # на публичной странице означали бы чужой код в браузере посетителя.
+    if updates.get("pre_reg_btn_url"):
+        _u = updates["pre_reg_btn_url"]
+        if not (_u.startswith("http://") or _u.startswith("https://")
+                or _u.startswith("mailto:") or _u.startswith("tel:")):
+            # Человек чаще всего вставляет адрес без схемы — дописываем сами,
+            # иначе браузер поймёт его как относительный путь на нашем домене.
+            if "://" in _u or _u.startswith("javascript:") or _u.startswith("data:"):
+                raise HTTPException(status_code=400,
+                                    detail="Ссылка кнопки должна начинаться с http:// или https://")
+            updates["pre_reg_btn_url"] = "https://" + _u.lstrip("/")
+
     # link_mode у события удалён (миграция 240) — режим только из настроек
     # кабинета. Поле в payload молча игнорируем (старые клиенты могут слать).
     updates.pop("link_mode", None)
@@ -843,7 +877,9 @@ async def copy_event(
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
                   skip_contact_form, landing_cta_label, landing_cta_repeat, registration_mode,
-                  person_wording)
+                  person_wording,
+                  registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
+                  pre_reg_poster_url)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
@@ -852,7 +888,8 @@ async def copy_event(
                        $17,$18,
                        $19,$20,
                        $21,$22,
-                       $23,$24,$25,$26,$27)
+                       $23,$24,$25,$26,$27,
+                       $28,$29,$30,$31,$32)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -878,6 +915,15 @@ async def copy_event(
             # Словарь («спикер/номинант/участник») тоже переносим: без него
             # копия премии заговорила бы «спикерами».
             src.get('person_wording') or 'speaker',
+            # ⚠️ Заглушку «регистрация ещё не открыта» переносим целиком: копию
+            # делают как раз для следующего захода, и текст с кнопкой набивать
+            # заново незачем. Копия и так рождается черновиком — раньше времени
+            # она никому не покажется.
+            src.get('registration_closed') or False,
+            src.get('pre_reg_text'),
+            src.get('pre_reg_btn_label'),
+            src.get('pre_reg_btn_url'),
+            src.get('pre_reg_poster_url'),
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

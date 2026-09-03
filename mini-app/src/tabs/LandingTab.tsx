@@ -52,8 +52,19 @@ function formatDateLong(dt?: string) {
   } catch { return '' }
 }
 
+/** Текст по умолчанию, когда клиент свой не задал. */
+const PRE_REG_DEFAULT = 'Скоро сообщим о старте регистрации'
+
 export default function LandingTab({ event, onRegister }: Props) {
-  const heroPoster = event?.posters?.find((p: any) => p.orientation === 'horizontal')?.url || event?.poster_url
+  // ⚠️ Регистрация ещё не открыта (мигр. 345): дата известна, а спикеры,
+  // программа и лендинг ещё готовятся. Вместо кнопки участия — крупный текст
+  // и, если клиент задал, одна кнопка со своей ссылкой («Выступить спикером»,
+  // «Стать жюри»). Афиша при этом берётся отдельная — «до старта регистрации»:
+  // финальной может ещё не быть вовсе.
+  const preReg = !!event?.registration_closed
+  const heroPoster = (preReg && event?.pre_reg_poster_url)
+    || event?.posters?.find((p: any) => p.orientation === 'horizontal')?.url
+    || event?.poster_url
   // У конкурсов своя верстка: дата = окончание голосования, красный баннер
   // «Голосование всего до …», кнопка дублируется сверху и снизу описания.
   // Старые типы (base/conference/...) рендерятся как раньше.
@@ -63,7 +74,34 @@ export default function LandingTab({ event, onRegister }: Props) {
   const ctaLabel = (event?.landing_cta_label || '').trim()
     || (isContest ? 'КАК ГОЛОСОВАТЬ?' : 'Зарегистрироваться')
 
-  const cta = (
+  // Блок «регистрация ещё не открыта» — встаёт РОВНО на место кнопки участия
+  // во всех раскладках. Второй страницы не заводим: разошлась бы с этой при
+  // первой же правке вёрстки события.
+  const preRegBlock = (
+    <div>
+      <div style={{
+        color: 'var(--text)', fontSize: 17, fontWeight: 700, lineHeight: 1.4,
+        textAlign: 'center', padding: '4px 0 2px',
+      }}>
+        {(event?.pre_reg_text || '').trim() || PRE_REG_DEFAULT}
+      </div>
+      {/* Кнопка НЕОБЯЗАТЕЛЬНА: у большинства событий на этом этапе вести
+          некуда, и пустая кнопка была бы хуже её отсутствия. */}
+      {!!(event?.pre_reg_btn_label || '').trim() && !!(event?.pre_reg_btn_url || '').trim() && (
+        <a
+          className="btn btn-primary"
+          href={event.pre_reg_btn_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: 14 }}
+        >
+          {event.pre_reg_btn_label}
+        </a>
+      )}
+    </div>
+  )
+
+  const cta = preReg ? preRegBlock : (
     <button
       className="btn btn-primary"
       style={isContest ? { fontWeight: 900, letterSpacing: 0.5 } : undefined}
@@ -82,8 +120,11 @@ export default function LandingTab({ event, onRegister }: Props) {
   // галочки, поведение не меняется — иначе у них кнопка внизу молча пропала бы.
   // ⚠️ Хук ВЫШЕ early-return (ветка конкурса) — иначе React #310.
   const { ref: descRef, isLong: descAutoLong } = useIsLongDescription(event?.description)
-  const descIsLong = event?.landing_cta_repeat === true
-    || (event?.landing_cta_repeat == null && descAutoLong)
+  // ⚠️ При закрытой регистрации дубль НЕ показываем: смысл второй кнопки —
+  // не дать дочитавшему остаться без действия, а здесь действия и нет.
+  // Повторённое дважды «скоро сообщим» выглядит как сбой вёрстки.
+  const descIsLong = !preReg && (event?.landing_cta_repeat === true
+    || (event?.landing_cta_repeat == null && descAutoLong))
 
   // ─── Контест: своя разметка ──────────────────────────────────────
   if (isContest) {

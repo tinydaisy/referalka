@@ -81,6 +81,14 @@ def build_key(
             raise ValueError(f"Неверный poster_type: {poster_type}")
         return f"{base}/events/{event_id}/posters/{poster_type}/{fname}"
 
+    # ⚠️ Афиша «до старта регистрации» (мигр. 345) кладётся рядом с обычными
+    # афишами события, но ОТДЕЛЬНОЙ папкой: так по ключу видно, что картинка
+    # временная, и её легко отличить при разборе хранилища.
+    if kind == "pre_reg_poster":
+        if not event_id:
+            raise ValueError("pre_reg_poster требует event_id")
+        return f"{base}/events/{event_id}/posters/pre_reg/{fname}"
+
     if kind == "certificate":
         if not event_id:
             raise ValueError("certificate требует event_id")
