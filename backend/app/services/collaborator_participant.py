@@ -59,16 +59,16 @@ async def ensure_contact_participant(
 ) -> bool:
     """То же самое, когда контакт уже известен (веб-самозапись)."""
     try:
-        await db.execute(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at)
-                 VALUES ($1, $2, TRUE, NOW())
-               ON CONFLICT (event_id, contact_id)
-               DO UPDATE SET is_registered = TRUE,
-                             registered_at = COALESCE(event_participants.registered_at, NOW())""",
-            event_id, contact_id,
+        # ⚠️ finalize=False — единственное место, где регистрация ставится БЕЗ
+        # писем и меню (см. шапку файла): карточку заводит организатор, пока
+        # набирает состав, человек о событии может ещё не знать.
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            db, event_id=event_id, contact_id=contact_id,
+            is_registered=True, finalize=False,
         )
-        # Гасим догрев «зарегистрируйтесь»: человек уже в составе события.
-        # Отдельным try — сбой здесь не должен отменять само участие.
+        # Догрев при этом гасим — он к письмам отношения не имеет.
+        # Отдельным try: сбой здесь не должен отменять само участие.
         try:
             from app.api.event_nurture import start_nurture_run_if_eligible
             await start_nurture_run_if_eligible(

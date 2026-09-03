@@ -208,14 +208,17 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                     "ON CONFLICT (room_id, contact_id) DO NOTHING", rid, c)
                 _pid = (pid or "").strip() or None
                 if _pid:
-                    # upsert: у нового зрителя (пришёл по вебинар-ссылке) участия может
-                    # ещё не быть — создаём с рефкодом; у существующего дополняем, только
-                    # если рефовод пуст (первый привёл — в приоритете, не перезатираем).
-                    await conn.execute(
-                        "INSERT INTO event_participants (event_id, contact_id, referrer_ref_code) "
-                        "VALUES ($1,$2,$3) ON CONFLICT (event_id, contact_id) "
-                        "DO UPDATE SET referrer_ref_code = COALESCE(NULLIF(event_participants.referrer_ref_code,''), EXCLUDED.referrer_ref_code)",
-                        ev["id"], c, _pid)
+                    # ⚠️ Реф-код РЕЗОЛВИМ, а не пишем сырым из адреса: у слитых
+                    # контактов старый код живёт в merged_ref_codes, и без
+                    # резолва привлечение не засчитывалось. Вебинар был
+                    # единственным местом, где этот шаг пропускали.
+                    from app.services.contact_merge import resolve_ref_code
+                    _ref, _ = await resolve_ref_code(
+                        conn, _pid, client_id=ev["client_id"])
+                    from app.services.event_participant import upsert_event_participant
+                    await upsert_event_participant(
+                        conn, event_id=ev["id"], contact_id=c,
+                        referrer_ref_code=(_ref or _pid), finalize=False)
             except Exception:
                 pass
 
@@ -826,11 +829,15 @@ async def register(slug: str, day: int, body: RegisterIn):
 
         # Зритель = участник события. Заводим/обновляем event_participants (там живёт
         # реф-код рефовода). pid → referrer_ref_code участия, если ещё не задан.
-        await conn.execute(
-            "INSERT INTO event_participants (event_id, contact_id, referrer_ref_code) "
-            "VALUES ($1,$2,$3) ON CONFLICT (event_id, contact_id) "
-            "DO UPDATE SET referrer_ref_code = COALESCE(NULLIF(event_participants.referrer_ref_code,''), EXCLUDED.referrer_ref_code)",
-            ev["id"], contact_id, (body.pid or None))
+        # ⚠️ Реф-код резолвим, а не пишем сырым (merged_ref_codes у слитых).
+        _ref = None
+        if body.pid:
+            from app.services.contact_merge import resolve_ref_code
+            _ref, _ = await resolve_ref_code(conn, body.pid, client_id=client_id)
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            conn, event_id=ev["id"], contact_id=contact_id,
+            referrer_ref_code=(_ref or body.pid or None), finalize=False)
         # Связка зритель × комната дня (без реф-кода — он в event_participants).
         await conn.execute(
             "INSERT INTO webinar_registrations (room_id, contact_id) VALUES ($1,$2) "
@@ -885,16 +892,10 @@ async def register_event(slug: str, day: int, body: RegEventIn):
             raise HTTPException(404, "Событие не найдено")
 
         # РЕГИСТРАЦИЯ сразу (контакты есть — форма не нужна)
-        await conn.execute(
-            "INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at) "
-            "VALUES ($1,$2,TRUE,NOW()) ON CONFLICT (event_id, contact_id) "
-            "DO UPDATE SET is_registered=TRUE, registered_at=COALESCE(event_participants.registered_at, NOW())",
-            target_event_id, contact_id)
-        from app.services.participant_registration import finalize_participant_registration
-        try:
-            await finalize_participant_registration(conn, event_id=target_event_id, contact_id=contact_id)
-        except Exception as e:
-            import logging; logging.getLogger(__name__).warning(f"reg-event finalize failed: {e}")
+        from app.services.event_participant import upsert_event_participant
+        await upsert_event_participant(
+            conn, event_id=target_event_id, contact_id=contact_id,
+            is_registered=True)
 
         # есть ли реальная (числовая) идентичность в боте клиента? Порядок TG→MAX→VK.
         ident = await conn.fetchrow(
