@@ -346,15 +346,25 @@ async def public_client_events(
             -- (видно в Mini App «Календарь»: «Ж.И.В.У.» без conf_days оказывалось
             -- ниже мероприятия с более поздним start_at).
             SELECT e.id, e.slug, e.title, e.description, e.module_slug,
-                   (SELECT url FROM event_posters
-                     WHERE event_id = e.id AND day IS NULL
-                     ORDER BY CASE orientation
-                                WHEN 'square'     THEN 1
-                                WHEN 'horizontal' THEN 2
-                                WHEN 'vertical'   THEN 3
-                                ELSE 4
-                              END, sort, id
-                     LIMIT 1) AS poster_url,
+                   -- ⚠️ Пока регистрация не открыта — в календаре тоже АФИША-
+                   -- ЗАГЛУШКА, а не боевая. Иначе человек видит в списке
+                   -- готовую афишу события, открывает — и попадает на другую
+                   -- картинку с «регистрация скоро»: выглядит как ошибка.
+                   -- Боевую афишу клиент готовит параллельно, и подменять её
+                   -- ради заглушки нельзя — потому и отдельная колонка.
+                   COALESCE(
+                     CASE WHEN COALESCE(e.registration_closed, FALSE)
+                          THEN NULLIF(e.pre_reg_poster_url, '') END,
+                     (SELECT url FROM event_posters
+                       WHERE event_id = e.id AND day IS NULL
+                       ORDER BY CASE orientation
+                                  WHEN 'square'     THEN 1
+                                  WHEN 'horizontal' THEN 2
+                                  WHEN 'vertical'   THEN 3
+                                  ELSE 4
+                                END, sort, id
+                       LIMIT 1)
+                   ) AS poster_url,
                    e.status,
                    COALESCE(
                      CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END,

@@ -77,15 +77,22 @@ WITH conf_dates AS (
    WHERE e.module_slug IN ('conference', 'turnir')
 )
 SELECT e.id, e.slug, e.title, e.module_slug,
-       (SELECT url FROM event_posters
-         WHERE event_id = e.id AND day IS NULL
-         ORDER BY CASE orientation
-                    WHEN 'square'     THEN 1
-                    WHEN 'horizontal' THEN 2
-                    WHEN 'vertical'   THEN 3
-                    ELSE 4
-                  END, sort, id
-         LIMIT 1) AS poster_url,
+       -- ⚠️ Регистрация не открыта → в списке тоже афиша-ЗАГЛУШКА. Иначе в
+       -- витрине готовая афиша, а по клику — другая картинка с «скоро»:
+       -- выглядит как ошибка. Боевую афишу клиент готовит параллельно.
+       COALESCE(
+         CASE WHEN COALESCE(e.registration_closed, FALSE)
+              THEN NULLIF(e.pre_reg_poster_url, '') END,
+         (SELECT url FROM event_posters
+           WHERE event_id = e.id AND day IS NULL
+           ORDER BY CASE orientation
+                      WHEN 'square'     THEN 1
+                      WHEN 'horizontal' THEN 2
+                      WHEN 'vertical'   THEN 3
+                      ELSE 4
+                    END, sort, id
+           LIMIT 1)
+       ) AS poster_url,
        e.status,
        -- Куда вести с карточки: способ регистрации + есть ли опубликованный
        -- лендинг. Раньше карточка жёстко вела на /event/{slug} (внутреннюю

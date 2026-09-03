@@ -158,8 +158,9 @@ export default function LandingTab({ event, onRegister }: Props) {
             </div>
           )}
 
-          {/* Кнопка-CTA НАД описанием — всегда показывается. */}
-          <div style={{ marginTop: 16 }}>{cta}</div>
+          {/* Кнопка-CTA НАД описанием — всегда показывается.
+              Кроме закрытой регистрации: там объявление уезжает вниз (см. ниже). */}
+          {!preReg && <div style={{ marginTop: 16 }}>{cta}</div>}
 
           {event?.description && (
             <>
@@ -173,6 +174,8 @@ export default function LandingTab({ event, onRegister }: Props) {
               {descIsLong && <div style={{ marginTop: 18 }}>{cta}</div>}
             </>
           )}
+
+          {preReg && <div style={{ marginTop: 22 }}>{cta}</div>}
         </div>
       </div>
     )
@@ -201,8 +204,12 @@ export default function LandingTab({ event, onRegister }: Props) {
           </div>
         )}
 
-        {/* Кнопка-CTA сразу под названием/датой — всегда показывается. */}
-        <div style={{ marginTop: 16 }}>{cta}</div>
+        {/* Кнопка-CTA сразу под названием/датой — всегда показывается.
+            ⚠️ КРОМЕ закрытой регистрации: там на её месте не действие, а
+            объявление «скоро откроем». Читать его до описания незачем —
+            человек ещё не знает, о чём событие. Поэтому блок-заглушка
+            уезжает ПОД описание, в конец страницы. */}
+        {!preReg && <div style={{ marginTop: 16 }}>{cta}</div>}
 
         {event?.description && (
           <>
@@ -216,6 +223,8 @@ export default function LandingTab({ event, onRegister }: Props) {
             {descIsLong && <div style={{ marginTop: 18 }}>{cta}</div>}
           </>
         )}
+
+        {preReg && <div style={{ marginTop: 22 }}>{cta}</div>}
       </div>
     </div>
   )
