@@ -15,8 +15,8 @@ import { api } from '@/lib/api'
 interface OrgRow {
   client_id: number
   name: string | null
+  /** Привёл = пришёл по его реф-коду И зарегистрировался (одно правило с рейтингом Хаба). */
   brought: number
-  registered: number
   coefficient: number | null
   is_me: boolean
 }
@@ -83,8 +83,7 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
             <thead>
               <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
                 <th className="text-left px-5 py-3 font-medium">Организатор</th>
-                <th className="text-right px-4 py-3 font-medium">Привёл</th>
-                <th className="text-right px-4 py-3 font-medium">Из них зарегистрировались</th>
+                <th className="text-right px-4 py-3 font-medium">Привёл (зарегистрировались)</th>
                 <th className="text-right px-5 py-3 font-medium">Win-Win</th>
               </tr>
             </thead>
@@ -96,14 +95,13 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
                     {r.is_me && <span className="ml-2 text-xs text-gray-400">— вы</span>}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-gray-900">{r.brought}</td>
-                  <td className="px-4 py-3 text-right text-gray-600">{r.registered}</td>
                   <td className={`px-5 py-3 text-right font-bold ${coefColor(r.coefficient)}`}>
                     {r.coefficient === null ? '—' : r.coefficient.toFixed(2)}
                   </td>
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400">Организаторов пока нет</td></tr>
+                <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400">Организаторов пока нет</td></tr>
               )}
             </tbody>
           </table>

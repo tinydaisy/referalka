@@ -19,7 +19,7 @@ from app.database import get_db
 from app.api.collab_hub import require_collab_hub
 # Win-Win коэффициент — ОДНА функция на отчёт в событии и карточку в Хабе,
 # иначе цифры в двух местах разойдутся.
-from app.services.collab_history import win_win_coefficient
+from app.services.collab_history import win_win_coefficient, brought_count_sql
 import asyncpg
 
 router = APIRouter(prefix="/collab", tags=["Коллаборации"],
@@ -689,10 +689,15 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
     только в момент завершения коллабы (`record_collab_history`), поэтому по ней
     отчёт строить нельзя — до финала она пуста.
 
-    «Привёл» — тот же критерий, что при записи истории: участник пришёл по
-    реф-коду контакта ЭТОГО клиента и дошёл до эфира (`link_clicked_at`).
-    Отдельно считаем зарегистрировавшихся — привести и довести до регистрации
-    это разные результаты.
+    «Привёл» — тот же критерий, что при записи истории ([collab_history.py]):
+    участник пришёл по реф-коду контакта ЭТОГО клиента и ЗАРЕГИСТРИРОВАЛСЯ.
+
+    ⚠️ Критерий обязан совпадать с `record_collab_history` — иначе отчёт по ходу
+    события покажет одно, а карточка в Хабе после завершения другое, и доверять
+    цифрам станет нельзя. Раньше здесь (как и там) стояло `link_clicked_at`,
+    то есть клик по кнопке «Смотреть стрим» в Mini App — а на эфир попадают из
+    бота, из канала, из письма, по прямой ссылке. Считаем по регистрациям
+    (решение владельца, 2026-09-03).
     """
     me = int(client["sub"])
     iam = await db.fetchval(
@@ -704,18 +709,7 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
     rows = await db.fetch(
         """SELECT o.client_id,
                   COALESCE(c.brand_name, c.name) AS name,
-                  (SELECT count(DISTINCT ep.id)
-                     FROM event_participants ep
-                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
-                    WHERE ep.event_id = $1
-                      AND ep.link_clicked_at IS NOT NULL
-                      AND rc.client_id = o.client_id) AS brought,
-                  (SELECT count(DISTINCT ep.id)
-                     FROM event_participants ep
-                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
-                    WHERE ep.event_id = $1
-                      AND ep.is_registered = TRUE
-                      AND rc.client_id = o.client_id) AS registered
+                  """ + brought_count_sql("o.client_id") + """ AS brought
              FROM event_owners o
              LEFT JOIN clients c ON c.id = o.client_id
             WHERE o.event_id = $1 AND o.status = 'accepted'

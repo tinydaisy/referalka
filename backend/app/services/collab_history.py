@@ -12,9 +12,18 @@
 
 Что пишем на КАЖДОГО организатора (event_owners.status='accepted'):
   - participants_total = всего участников события
-  - brought_live       = сколько живых он привёл = участники, кого привёл ЭТОТ
+  - brought_live       = сколько он привёл = участники, кого привёл ЭТОТ
     организатор (referrer_ref_code → contacts.ref_code → contacts.client_id = его id)
-    И кто дошёл до эфира (link_clicked_at IS NOT NULL)
+    И кто ЗАРЕГИСТРИРОВАЛСЯ (is_registered = TRUE)
+
+    ⚠️ Считаем по РЕГИСТРАЦИЯМ, а не по `link_clicked_at` (решение владельца,
+    2026-09-03). `link_clicked_at` ставится ТОЛЬКО при клике по кнопке «Смотреть
+    стрим» в Mini App, а на эфир люди попадают откуда угодно: из бота, из ссылки
+    в канале, из письма, по прямому адресу. Из-за этого у реальной коллабы
+    (событие 92, Нурия + Лилия, 12 участников) `brought_live` вышел 0 у ОБЕИХ,
+    Win-Win — NULL, и в карточке Хаба стояло «—». Регистрация — осознанное
+    действие человека и единственный признак привлечения, который не зависит
+    от того, каким путём он пришёл.
   - partner_client_id  = один из ДРУГИХ организаторов (для строки «с кем коллабился»)
 
 ⚠️ ПОКАЗАТЕЛЬ НА КАРТОЧКЕ — Win-Win КОЭФФИЦИЕНТ (2026-08-06), не процент.
@@ -24,6 +33,39 @@
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ⚠️⚠️ ЕДИНСТВЕННОЕ выражение «сколько привёл организатор коллабы».
+# Своих копий этого подсчёта НЕ писать: их уже было две (запись истории здесь и
+# живой отчёт в collab_events.py), и они разъезжались — отчёт по ходу события
+# показывал одно, карточка в Хабе после завершения другое.
+#
+# Критерий: участник пришёл по реф-коду контакта ЭТОГО клиента И зарегистрировался.
+# Подстановки: $1 = event_id, второй параметр — client_id организатора; его номер
+# задаётся аргументом, потому что в разных запросах он разный ($2 / o.client_id).
+#
+# ⚠️ Считаем по РЕГИСТРАЦИЯМ, а не по `link_clicked_at` (решение владельца,
+# 2026-09-03). `link_clicked_at` ставится ТОЛЬКО при клике по кнопке «Смотреть
+# стрим» в Mini App, а на эфир люди попадают откуда угодно: из бота, из ссылки в
+# канале, из письма, по прямому адресу. Из-за этого у реальной коллабы (событие
+# 92, Нурия + Лилия, 12 участников) `brought_live` вышел 0 у ОБЕИХ, Win-Win —
+# NULL, и в карточке Хаба стояло «—». Регистрация — осознанное действие и
+# единственный признак привлечения, не зависящий от пути, которым человек пришёл.
+BROUGHT_COUNT_SQL = """(SELECT count(DISTINCT ep.id)
+                          FROM event_participants ep
+                          JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                         WHERE ep.event_id = $1
+                           AND ep.is_registered = TRUE
+                           AND rc.client_id = {client})"""
+
+
+def brought_count_sql(client: str = "$2") -> str:
+    """SQL-выражение «сколько привёл организатор» — одно на все места.
+
+    `client` — как в конкретном запросе адресуется клиент-организатор:
+    номер подстановки (`$2`) или колонка внешнего запроса (`o.client_id`).
+    """
+    return BROUGHT_COUNT_SQL.format(client=client)
 
 
 def win_win_coefficient(mine: int, all_brought: list[int], organizers_count: int):
@@ -88,17 +130,10 @@ async def record_collab_history(db, event_id: int) -> int:
         # не посчитать.
         brought_by: dict[int, int] = {}
         for cid in owner_ids:
-            # Сколько ЖИВЫХ (дошли до эфира) привёл именно этот организатор:
-            # участник события, чей referrer_ref_code принадлежит контакту
-            # этого клиента (его реф-код / реф-код его коллаба), и link_clicked_at не пуст.
+            # Сколько привёл именно этот организатор — общее выражение,
+            # см. brought_count_sql выше. Своего SELECT здесь быть не должно.
             brought_by[cid] = await db.fetchval(
-                """SELECT count(DISTINCT ep.id)
-                     FROM event_participants ep
-                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
-                    WHERE ep.event_id = $1
-                      AND ep.link_clicked_at IS NOT NULL
-                      AND rc.client_id = $2""",
-                event_id, cid) or 0
+                "SELECT " + brought_count_sql("$2"), event_id, cid) or 0
 
         all_brought = list(brought_by.values())
         organizers_count = len(owner_ids)
