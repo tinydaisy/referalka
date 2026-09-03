@@ -54,7 +54,12 @@ const NAV_NOT_REG: NavItem[] = [
   { id: 'speakers',  label: 'Спикеры',    icon: 'speakers',  locked: true },
   { id: 'game',      label: 'Подарки',       icon: 'game',      locked: true },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
-  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem', locked: true },
+  // ⚠️ «О проекте» — БЕЗ ЗАМКА, всегда. Это визитка организатора: кто он,
+  // чем занимается, его каналы и продукты. Прятать её за регистрацией
+  // бессмысленно — именно по ней человек и решает, регистрироваться ли.
+  // Остальные вкладки закрыты потому, что там содержимое события; здесь
+  // содержимое ОБЩЕЕ и публичное, оно же открыто на витрине клиента.
+  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]
 const NAV_REGISTERED: NavItem[] = [
   { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
