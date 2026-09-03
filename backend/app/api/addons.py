@@ -302,8 +302,8 @@ async def create_addon_order(
                 email=client["email"] or None,
                 phone=client["phone"] or None,
                 fio=client["name"] or None,
-                redirect_url_ok="https://pluson.ru/dashboard/settings?tab=subscription&paid=1",
-                redirect_url_error="https://pluson.ru/dashboard/settings?tab=subscription&paid=0",
+                redirect_url_ok="https://pluson.ru/dashboard/subscription?paid=1",
+                redirect_url_error="https://pluson.ru/dashboard/subscription?paid=0",
             )
         except RuntimeError as e:
             await db.execute("UPDATE addon_orders SET status='failed', updated_at=NOW() WHERE id=$1", order_id)

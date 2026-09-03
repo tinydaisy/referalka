@@ -134,7 +134,7 @@ export default function PartnerProgramPage() {
               </div>
               <div className="flex gap-2 flex-wrap">
                 <a
-                  href="/dashboard/settings?tab=subscription"
+                  href="/dashboard/subscription"
                   className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2"
                 >
                   <Wallet size={14} /> Потратить на подписку

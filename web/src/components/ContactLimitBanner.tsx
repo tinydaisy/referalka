@@ -75,7 +75,7 @@ export default function ContactLimitBanner() {
                 В базе {used.toLocaleString('ru-RU')} контактов, поэтому тариф автоматически
                 сменился на подходящий. Доплачивать не нужно — оплаченные дни пересчитаны по
                 цене нового тарифа, поэтому оплаченный срок закончится раньше.{' '}
-                <Link href="/dashboard/settings?tab=subscription" className="underline font-medium">
+                <Link href="/dashboard/subscription" className="underline font-medium">
                   Посмотреть подписку
                 </Link>
               </div>

@@ -1706,7 +1706,7 @@ function ThemeColorsBlock({ profile, update, locked }: {
       {locked && (
         <div className="mb-4 text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
           🔒 Фирменный стиль Mini App входит в тариф <b>Экстра</b>.{' '}
-          <a href="/dashboard/settings?tab=subscription"
+          <a href="/dashboard/subscription"
              className="text-amber-700 underline hover:text-amber-800 font-medium">
             Посмотреть тарифы
           </a>

@@ -225,7 +225,7 @@ async def _notify_expiring_email(db) -> int:
                         f"на тариф «{r['tariff_name']}» в ПЛЮСОНе.\n\n"
                         f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y %H:%M')} МСК.\n\n"
                         f"Продлите подписку, чтобы рассылки и редактирование продолжали работать:\n"
-                        f"{settings.frontend_url}/dashboard/settings?tab=subscription\n\n"
+                        f"{settings.frontend_url}/dashboard/subscription\n\n"
                         f"— Команда ПЛЮСОН"
                     ),
                     unsubscribe_token=unsub_token,

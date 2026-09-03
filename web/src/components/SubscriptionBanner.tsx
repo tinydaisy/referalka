@@ -66,7 +66,7 @@ export default function SubscriptionBanner() {
         </div>
       </div>
       <Link
-        href="/dashboard/settings?tab=subscription"
+        href="/dashboard/subscription"
         className="shrink-0 px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors"
       >
         Продлить

@@ -53,7 +53,7 @@ def _message(module_title: str, days: int, expires_at, has_events: bool) -> str:
             "рассылки по спикерам и программе остановятся, а редактирование "
             "станет недоступно — данные при этом сохранятся.\n\n"
         )
-    text += "Продлить: /dashboard/settings?tab=subscription"
+    text += "Продлить: /dashboard/subscription"
     return text
 
 

@@ -567,9 +567,31 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
             "days_left":    days_until_expires(sub["expires_at"]),
             "is_active":    sub["status"] == "active" and days_until_expires(sub["expires_at"]) >= 0,
         }
+    # ⚠️ Купленные МОДУЛИ отдаём отдельно от тарифа: у каждого свой срок, и
+    # кончиться первым может любой. Значок в шапке показывал только тариф —
+    # человек с оплаченными Конференциями видел «до 12 марта» и не знал, что
+    # модуль сгорает через три дня.
+    addons = [
+        {
+            "slug":       r["slug"],
+            "name":       r["name"],
+            "expires_at": r["expires_at"].isoformat() if r["expires_at"] else None,
+            "days_left":  days_until_expires(r["expires_at"]),
+        }
+        for r in await db.fetch(
+            """SELECT f.slug, f.name, ca.expires_at
+                 FROM client_addons ca
+                 JOIN features f ON f.id = ca.feature_id
+                WHERE ca.client_id = $1 AND ca.status = 'active'
+                ORDER BY ca.expires_at""",
+            client_id,
+        )
+    ]
+
     out = dict(client)
     out["features"] = features
     out["subscription"] = subscription
+    out["addons"] = addons
     # ⚠️ Боты, уведённые в сторонний сервис: чужой вебхук забирает ВСЕ
     # сообщения, и у клиента молча отваливаются воронки, подарки, проверка
     # подписки и регистрация. Читаем СОХРАНЁННЫЙ результат фоновой проверки
