@@ -2019,21 +2019,34 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                 return InlineKeyboardButton(text=label, url=web_url)
             return InlineKeyboardButton(text=label, web_app=WebAppInfo(url=f"{base}{miniapp_path}"))
 
-        # Кнопки приветствия — из clients.start_buttons (до 5, типы events/owner/custom),
-        # с фолбэком на 2 дефолтные кнопки из старых полей.
-        from app.services.start_greeting import _resolve_buttons
+        # Кнопки приветствия — из clients.start_buttons (до 5), с фолбэком на
+        # 2 дефолтные кнопки из старых полей.
+        #
+        # ⚠️ Telegram зовёт _resolve_buttons НАПРЯМУЮ, минуя
+        # resolve_start_greeting, и это осознанно: здесь события открываются
+        # как Mini App (web_app), а общий резолвер отдаёт только обычный URL.
+        # Плата за обход — новые типы кнопок надо подключать И ТУТ. Так уже
+        # потерялась кнопка «Моя ссылка на ПЛЮСОН»: в настройках сохранялась,
+        # а в бот приходило две кнопки вместо трёх.
+        from app.services.start_greeting import _resolve_buttons, _plusson_ref_url
         # Веб-ссылки кнопок («Все события», «Об основателе») — публичные
         # страницы клиента, поэтому резолвим его домен.
         from app.services.client_domains import client_public_url
         pool = await get_pool()
         async with pool.acquire() as _db:
             greet_base = await client_public_url(_db, client_id)
+            # ⚠️ Ссылку на ПЛЮСОН готовим ЗДЕСЬ и передаём в резолвер: бот
+            # зовёт _resolve_buttons напрямую, минуя resolve_start_greeting,
+            # и без этого кнопка «Моя ссылка на ПЛЮСОН» молча отбрасывалась —
+            # в приветствии приходило две кнопки вместо трёх.
+            plusson_url = await _plusson_ref_url(_db, client_id, "telegram")
         btns = _resolve_buttons(
             client_id,
             client["start_buttons"],
             client["start_btn_events_label"],
             client["start_btn_owner_label"],
             greet_base,
+            plusson_url,
         )
         rows: list[list[InlineKeyboardButton]] = []
         for b in btns:
