@@ -196,49 +196,11 @@ async def register_participant(
                 pu_row["id"], event["client_id"],
             )
 
-    # Уже зарегистрирован?
-    existing = await db.fetchrow(
-        """SELECT ep.id, c.ref_code, ep.is_registered, ep.referrer_ref_code
-             FROM event_participants ep
-             JOIN contacts c ON c.id = ep.contact_id
-            WHERE ep.event_id = $1 AND ep.contact_id = $2""",
-        event["id"], contact_id
-    )
-    if existing:
-        # Запись есть, но человек был только «интересующимся» (например,
-        # event_start при открытии Mini App не дошёл до формы). Раз он
-        # снова прошёл форму — фиксируем как зарегистрированного.
-        # Заодно досчитываем реферера, если он ещё не проставлен и
-        # форма пришла с ref_code (event_start мог быть без pid).
-        upd_ref_code = None
-        upd_referrer_pid = None
-        if existing["referrer_ref_code"] is None and data.ref_code:
-            upd_ref_code, upd_referrer_contact_id = await resolve_ref_code(
-                db, data.ref_code, client_id=event["client_id"]
-            )
-            if upd_referrer_contact_id:
-                upd_referrer_pid = await db.fetchval(
-                    """SELECT id FROM event_participants
-                        WHERE contact_id = $1 AND event_id = $2 LIMIT 1""",
-                    upd_referrer_contact_id, event["id"]
-                )
-
-        if not existing["is_registered"] or upd_ref_code:
-            await db.execute(
-                """UPDATE event_participants
-                      SET is_registered = TRUE,
-                          referrer_ref_code = COALESCE(referrer_ref_code, $2),
-                          referrer_participant_id = COALESCE(referrer_participant_id, $3)
-                    WHERE id = $1""",
-                existing["id"], upd_ref_code, upd_referrer_pid
-            )
-        # Финализация: nurture-стоп + email re-opt-in + welcome-email.
-        # Единый идемпотентный хелпер (сам проверяет is_registered=TRUE).
-        from app.services.participant_registration import finalize_participant_registration
-        await finalize_participant_registration(
-            db, event_id=event["id"], contact_id=contact_id,
-        )
-        return {"participant": dict(existing), "is_new": False, **redirect}
+    # ⚠️ Ветки «уже есть» и «первый раз» СЛИТЫ в один вызов (2026-09-03).
+    # Раньше здесь был SELECT, а следом INSERT без ON CONFLICT: два
+    # одновременных сабмита формы оба не находили человека и оба его писали —
+    # второй падал с 500 прямо в форме. Разбирался и реф-код в двух местах
+    # по-разному. Теперь всё решает upsert_event_participant.
 
     # Резолв реферера: если передан ref_code (может быть legacy длинный из
     # старой ссылки в Salebot) — нормализуем в актуальный короткий через
@@ -278,41 +240,45 @@ async def register_participant(
     # Регистрация через форму = is_registered=true. Иначе человек так
     # и останется в статусе «интересовался» и будет получать форму
     # регистрации каждый раз при открытии Mini App.
-    participant = await db.fetchrow(
-        """INSERT INTO event_participants
-              (event_id, contact_id, referrer_participant_id, referrer_ref_code, is_registered)
-            VALUES ($1, $2, $3, $4, TRUE)
-         RETURNING id""",
-        event["id"], contact_id, referrer_participant_id, resolved_ref_code
+    # Финализация (стоп догрева, меню бота, письмо) — внутри, ровно один раз.
+    from app.services.event_participant import upsert_event_participant
+    participant_id, is_new, _became = await upsert_event_participant(
+        db, event_id=event["id"], contact_id=contact_id, is_registered=True,
+        referrer_ref_code=resolved_ref_code,
+        referrer_participant_id=referrer_participant_id,
     )
 
-    # Первая привязка человека к событию через форму «Хочу участвовать»
-    # (ветка existing уже обработана выше и вышла через return) → шлём
-    # организатору уведомление «Новый интерес» РОВНО ОДИН РАЗ.
-    try:
-        from app.services.external_landing import _notify_organizer_new_interest
-        await _notify_organizer_new_interest(
-            db,
-            client_id=event["client_id"],
-            event_id=event["id"],
-            contact_id=contact_id,
-            platform_slug=data.platform,
-            platform_user_id=str(data.tg_id),
-            referrer_contact_id=referrer_contact_id,
-        )
-    except Exception:
-        pass
+    # «Новый интерес» организатору — только при ПЕРВОМ появлении человека в
+    # событии. Раньше признаком служил выход по `return` из ветки «уже есть»;
+    # теперь ветка одна, и первичность отдаёт сама функция.
+    if is_new:
+        try:
+            from app.services.external_landing import _notify_organizer_new_interest
+            await _notify_organizer_new_interest(
+                db,
+                client_id=event["client_id"],
+                event_id=event["id"],
+                contact_id=contact_id,
+                platform_slug=data.platform,
+                platform_user_id=str(data.tg_id),
+                referrer_contact_id=referrer_contact_id,
+            )
+        except Exception:
+            pass
 
-    # Финализация регистрации (nurture-стоп + email re-opt-in + welcome-email).
-    # Единый хелпер, общий для всех путей регистрации (Mini App + webhooks).
-    from app.services.participant_registration import finalize_participant_registration
-    await finalize_participant_registration(
-        db, event_id=event["id"], contact_id=contact_id,
+    # ⚠️ Отдаём строку участия целиком, а не только id: прежняя ветка «уже
+    # зарегистрирован» возвращала все поля, и фронт мог на них опираться.
+    part_row = await db.fetchrow(
+        """SELECT ep.*, c.ref_code
+             FROM event_participants ep
+             JOIN contacts c ON c.id = ep.contact_id
+            WHERE ep.id = $1""",
+        participant_id,
     )
-
     return {
-        "participant": {"id": participant["id"], "ref_code": user_ref_code},
-        "is_new": True,
+        "participant": dict(part_row) if part_row
+                       else {"id": participant_id, "ref_code": user_ref_code},
+        "is_new": is_new,
         **redirect,
     }
 
