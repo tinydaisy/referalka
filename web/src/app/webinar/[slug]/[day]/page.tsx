@@ -869,6 +869,9 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
   const [consentPd, setConsentPd] = useState(false)
   const [consentMk, setConsentMk] = useState(false)
   const privacyUrl = clientId ? `${(typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru')}/c/${clientId}/privacy` : null
+  // Организатор включил хоть одно поле связи? Если нет — почту показываем сами:
+  // одного имени сервер не принимает, и человеку иначе нечего было бы ввести.
+  const needExtra = !!(rm.auth_require_email || rm.auth_require_phone || rm.auth_require_tg)
 
   async function send(extra: any = {}) {
     setBusy(true); setErr('')
@@ -892,6 +895,11 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
   async function submit() {
     // Имя обязательно ВСЕГДА — анонимов в эфире быть не должно.
     if (!f.name.trim()) return setErr('Укажите имя')
+    // ⚠️ Одного имени НЕ ХВАТАЕТ (2026-09-03): человека без единого способа
+    // связи в базу не пишем, и сервер такой запрос отклонит. Когда организатор
+    // не включил ни одного поля, почта всё равно показана — ей и заполняем.
+    if (!needExtra && !f.email.trim())
+      return setErr('Укажите email — иначе мы не сможем прислать вам запись')
     if (rm.auth_require_email && !f.email.trim()) return setErr('Укажите email')
     if (rm.auth_require_phone && !f.phone.trim()) return setErr('Укажите телефон')
     if (rm.auth_require_tg && !f.telegram_username.trim()) return setErr('Укажите ник в Telegram')
@@ -968,7 +976,7 @@ function AuthGate({ slug, day, rm, pid, utm, clientId, brand, title, poster, onA
               Имя показывается и обязательно ВСЕГДА. */}
           {field('name', 'Имя', true)}
           {!!rm.auth_require_phone && field('phone', 'Телефон', true)}
-          {!!rm.auth_require_email && field('email', 'Email', true)}
+          {(!!rm.auth_require_email || !needExtra) && field('email', 'Email', true)}
           {!!rm.auth_require_tg && field('telegram_username', 'Ник в Telegram', true)}
 
           <label className="flex items-start gap-2 text-xs text-white/70 mt-1 cursor-pointer">

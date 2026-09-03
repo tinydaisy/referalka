@@ -9,7 +9,7 @@
  * ⚠️ Ссылки на техподдержку здесь нет намеренно: это шаг оплаты, лишние
  * выходы с него уводят человека от покупки.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface Props {
   page: any
@@ -59,6 +59,9 @@ export default function OrderForm({
   const [offer, setOffer] = useState(false)
   const [mkt, setMkt] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Замок отправки. Не состояние: оно применяется к следующей перерисовке, а
+  // защита нужна прямо сейчас — между двумя нажатиями подряд.
+  const sending = useRef(false)
   const [error, setError] = useState('')
   // Нашлось несколько контактов (email одного, телефон другого) — просим
   // человека выбрать себя, как в авторизации вебинарной комнаты.
@@ -136,22 +139,32 @@ export default function OrderForm({
   }
 
   const submit = async (extra: any = {}) => {
+    // ⚠️ ЗАМОК ПОМИМО `busy` (2026-09-03). Состояние React применяется не
+    // мгновенно: два быстрых нажатия успевают войти сюда оба, пока кнопка ещё
+    // не перерисовалась заблокированной — так у Лилии вышло два контакта и два
+    // заказа по 10 000 ₽. Обычная переменная меняется сразу, до перерисовки.
+    if (sending.current) return
+    sending.current = true
     setError('')
-    if (!name.trim()) { setError('Укажите имя и фамилию'); return }
-    if (!email.trim()) { setError('Укажите email — на него придёт доступ'); return }
-    if (!phone.trim()) { setError('Укажите телефон'); return }
-    if (!tg.trim()) { setError('Укажите ник в Telegram — по нему добавим вас в чат'); return }
+    const unlock = () => { sending.current = false }
+    if (!name.trim()) { unlock(); setError('Укажите имя и фамилию'); return }
+    if (!email.trim()) { unlock(); setError('Укажите email — на него придёт доступ'); return }
+    if (!phone.trim()) { unlock(); setError('Укажите телефон'); return }
+    if (!tg.trim()) { unlock(); setError('Укажите ник в Telegram — по нему добавим вас в чат'); return }
     if (!pd) {
+      unlock()
       setError('Без согласия на обработку персональных данных оформить заказ нельзя')
       return
     }
     // ⚠️ Оферта — только у платного тарифа: у бесплатного покупки нет,
     // соглашаться не с чем.
     if (!isFree && offerUrl && !offer) {
+      unlock()
       setError('Примите условия оферты, чтобы продолжить')
       return
     }
     if (!mkt) {
+      unlock()
       setError('Без согласия на рассылки мы не сможем прислать вам доступ')
       return
     }
@@ -191,6 +204,7 @@ export default function OrderForm({
         setCandidates(data.candidates || [])
         setCanCreateNew(!!data.can_create_new)
         setBusy(false)
+        unlock()  // человек выбирает себя на экране «Это вы?» — отправит снова
         return
       }
 
@@ -209,6 +223,7 @@ export default function OrderForm({
     } catch (e: any) {
       setError(e?.message || 'Не удалось оформить заказ')
       setBusy(false)
+      unlock()
     }
   }
 

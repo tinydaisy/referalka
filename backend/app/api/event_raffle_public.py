@@ -87,15 +87,23 @@ async def _resolve_event_and_contact(conn: asyncpg.Connection, slug: str, user: 
     return ev["id"], client_id, contact_id
 
 
-async def _ensure_participant(conn: asyncpg.Connection, event_id: int, contact_id: int):
-    """Гарантирует наличие записи event_participants. Создаёт со статусом
-    is_registered=false если её ещё нет. live_at не трогает."""
-    await conn.execute(
-        """INSERT INTO event_participants (event_id, contact_id, is_registered)
-           VALUES ($1, $2, FALSE)
-           ON CONFLICT (event_id, contact_id) DO NOTHING""",
+async def _require_registered(conn: asyncpg.Connection, event_id: int, contact_id: int):
+    """Билеты выдаём ТОЛЬКО зарегистрированному участнику события.
+
+    ⚠️ Раньше здесь стоял INSERT: розыгрыш сам заводил участие со статусом
+    «интересовался». По логике приложения это лишнее — вкладка «Розыгрыш» в
+    Mini App закрыта замком до регистрации, и человек попасть сюда не может.
+    Но замок стоял ТОЛЬКО на экране: запрос мимо него сервер принимал и
+    заводил участника. Требование регистрации переносим на сервер, где ему и
+    место, а участие здесь не создаём вовсе.
+    """
+    ok = await conn.fetchval(
+        """SELECT is_registered FROM event_participants
+            WHERE event_id = $1 AND contact_id = $2""",
         event_id, contact_id,
     )
+    if not ok:
+        raise HTTPException(403, "Сначала зарегистрируйтесь на событие")
 
 
 async def _raffle_settings(conn: asyncpg.Connection, event_id: int) -> dict:
@@ -167,7 +175,7 @@ async def issue_free_ticket(slug: str, body: FreeTicketIn):
     async with pool.acquire() as conn:
         async with conn.transaction():
             event_id, _client_id, contact_id = await _resolve_event_and_contact(conn, slug, body)
-            await _ensure_participant(conn, event_id, contact_id)
+            await _require_registered(conn, event_id, contact_id)
 
             settings = await _raffle_settings(conn, event_id)
             if not settings["subscription_grants_starter_ticket"]:
@@ -218,7 +226,7 @@ async def submit_keyword(slug: str, body: KeywordIn):
     async with pool.acquire() as conn:
         async with conn.transaction():
             event_id, _client_id, contact_id = await _resolve_event_and_contact(conn, slug, body)
-            await _ensure_participant(conn, event_id, contact_id)
+            await _require_registered(conn, event_id, contact_id)
 
             kw_row = await conn.fetchrow(
                 """SELECT id, keyword FROM event_raffle_keywords

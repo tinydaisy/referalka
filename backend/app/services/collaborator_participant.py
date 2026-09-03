@@ -17,6 +17,13 @@
 событие», он о событии, возможно, ещё и не знает. Веб-самозапись шлёт своё
 письмо (с доступом в кабинет) сама.
 
+⚠️ Но ДОГРЕВ гасим (2026-09-03). Раньше «не слать письма» понималось как «не
+трогать вообще ничего» — и незавершённая воронка догрева оставалась висеть.
+Спикер помечен зарегистрированным и при этом продолжал получать письма
+«зарегистрируйтесь на событие», в состав которого его только что вписали.
+Погасить воронку и отправить письмо — разные вещи: первое обязательно, второе
+здесь не нужно.
+
 ⚠️ Идемпотентно: повторный вызов не плодит записей и не сбрасывает уже
 проставленное время регистрации.
 """
@@ -60,6 +67,16 @@ async def ensure_contact_participant(
                              registered_at = COALESCE(event_participants.registered_at, NOW())""",
             event_id, contact_id,
         )
+        # Гасим догрев «зарегистрируйтесь»: человек уже в составе события.
+        # Отдельным try — сбой здесь не должен отменять само участие.
+        try:
+            from app.api.event_nurture import start_nurture_run_if_eligible
+            await start_nurture_run_if_eligible(
+                db, event_id=event_id, contact_id=contact_id, is_registered=True)
+        except Exception as e:
+            logger.warning(
+                "nurture stop failed (event=%s contact=%s): %s",
+                event_id, contact_id, e)
         return True
     except Exception as e:
         logger.warning(
