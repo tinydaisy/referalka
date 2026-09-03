@@ -71,6 +71,17 @@ export async function req(path: string, options?: RequestInit) {
 }
 
 // ── Проверка подписки на каналы конференции ──
+// Разрешил ли человек писать ему в этом ВК-сообществе (по НАШЕЙ базе).
+// ⚠️ У VK Bridge такого метода нет — узнать можно только показав системное
+// окно. Поэтому спрашиваем себя: разрешение фиксируется событием
+// `message_allow`. Раньше вместо этого была отметка в localStorage, и после
+// смены телефона человек снова видел просьбу разрешить.
+export const vkMessagesAllowed = (
+  vkUserId: string | number, groupId?: number | null, clientId?: number | null,
+) =>
+  req(`/api/v1/vk/messages-allowed?vk_user_id=${encodeURIComponent(String(vkUserId))}`
+      + `&group_id=${groupId || 0}&client_id=${clientId || 0}`)
+
 export const checkConferenceSubscription = (eventId: number, tgId: number) =>
   req(`/api/v1/public/conference/${eventId}/check-subscription?tg_id=${tgId}`)
 

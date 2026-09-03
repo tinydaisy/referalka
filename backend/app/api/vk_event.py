@@ -883,6 +883,50 @@ async def vk_group_for_app(app_id: int):
     return {"group_id": row["group_id"] if row else None}
 
 
+@router.get("/vk/messages-allowed", summary="Разрешил ли человек писать ему в этом сообществе")
+async def vk_messages_allowed(vk_user_id: str, group_id: int = 0, client_id: int = 0):
+    """`{allowed: bool}` — есть ли у нас уже разрешение на личные сообщения.
+
+    ⚠️ ЗАЧЕМ. У VK Bridge НЕТ метода «а разрешил ли этот человек писать?» —
+    узнать можно, только показав окно. Поэтому раньше экран-объяснение
+    показывался по отметке в localStorage: сменил телефон или почистил кеш —
+    и человек, давно разрешивший сообщения, снова видел просьбу разрешить
+    (жалоба владельца, 03.09.2026).
+
+    Ответ смотрим В СВОЕЙ БАЗЕ: разрешение фиксируется событием `message_allow`
+    (см. handle_message_allow в bot/vk_main.py) как подписка на канал клиента.
+    База переживает и смену устройства, и очистку кеша.
+
+    ⚠️ Fail-open наоборот: сомневаемся — отвечаем `false`, то есть окно
+    ПОКАЖЕМ. Лишний раз объяснить не страшно; страшно молча не спросить
+    разрешения и потерять человека для рассылок.
+    """
+    pool = await get_pool()
+    if not pool or not str(vk_user_id).isdigit():
+        return {"allowed": False}
+    async with pool.acquire() as conn:
+        # Сообщество определяем по group_id (из launch params) либо по клиенту.
+        # ⚠️ Клиент берётся ЧЕРЕЗ КОНТАКТ (`contacts.client_id`): колонки
+        # platform_users.client_id больше нет (мигр. 327).
+        row = await conn.fetchrow(
+            """SELECT 1
+                 FROM platform_users pu
+                 JOIN contacts c ON c.id = pu.contact_id
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE pu.platform_slug = 'vk'
+                  AND pu.platform_user_id = $1
+                  AND ch.platform_slug = 'vk'
+                  AND puc.is_unsubscribed = FALSE
+                  AND ($2::int = 0 OR (ch.platform_meta->>'vk_group_id')::int = $2::int)
+                  AND ($3::int = 0 OR c.client_id = $3::int)
+                LIMIT 1""",
+            str(vk_user_id), int(group_id or 0), int(client_id or 0),
+        )
+    return {"allowed": bool(row)}
+
+
 @router.post("/vk/event")
 async def handle_vk_event(body: VkEventRequest):
     """Сигнал от VK Mini App при открытии. Валидирует подпись, регистрирует контакт."""

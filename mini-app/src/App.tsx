@@ -4,7 +4,7 @@ import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
-import VkPermissionsIntro, { vkIntroWasShown } from './components/VkPermissionsIntro'
+import VkPermissionsIntro from './components/VkPermissionsIntro'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
 
 /*
@@ -505,12 +505,11 @@ export default function App() {
   const [funnelEventTitle, setFunnelEventTitle] = useState<string>('')
   const [funnelPosterUrl, setFunnelPosterUrl] = useState<string>('')
   const [funnelGroupScreen, setFunnelGroupScreen] = useState<string>('')
-  // VK-only: экран-объяснение ПЕРЕД окнами разрешений ВКонтакте (см.
-  // VkPermissionsIntro — там же, почему он обязателен для модерации).
+  // VK-only: окно-объяснение перед системным запросом прав (см.
+  // VkPermissionsIntro — там же, почему оно обязательно для модерации).
+  // Висит ПОВЕРХ приложения; счётчика «перезапусти init» больше нет — окно
+  // ничего не обрывает, и перезапускать нечего.
   const [vkIntro, setVkIntro] = useState<boolean>(false)
-  // Счётчик-триггер: нажали «Продолжить» → меняется → эффект ниже проходит
-  // заново, уже без шлюза (отметка о показе к этому моменту записана).
-  const [vkIntroPassed, setVkIntroPassed] = useState<number>(0)
 
   useEffect(() => {
     (async () => {
@@ -530,29 +529,18 @@ export default function App() {
       // шесть одинаковых правок и почти гарантированный пропуск одной.
       // Поэтому шлюз один и стоит ДО всей маршрутизации: пока человек не
       // нажал «Продолжить», ни один запрос прав не уходит.
-      if (adapter.name === 'vk') {
-        const vkId = adapter.launchParams?.vk_user_id || ''
-        if (vkId && !vkIntroWasShown(vkId)) {
-          // ⚠️ Клиента и событие достаём ДО выхода: иначе на экране не будет ни
-          // логотипа, ни названия бренда — разбор startapp идёт ниже, а мы
-          // до него не доходим. Человек должен видеть, к кому он пришёл.
-          //
-          // ⚠️ Slug нужен, чтобы текст «зачем разрешать» отвечал типу события
-          // (у конференции — про спикеров, у конкурса — про голосование).
-          // Без него останется общая фраза про напоминание — не ошибка, но
-          // менее точная.
-          {
-            const sp0 = adapter.startParam
-            if (sp0 && (sp0.startsWith('ref') || sp0.startsWith('hub'))) {
-              const p0 = parseStartParam(sp0)
-              if (p0.clientId && !detectClientIdFromPath()) setClientId(p0.clientId)
-              if (p0.eventSlug) setEventSlug(p0.eventSlug)
-            }
-          }
-          setVkIntro(true)
-          setLoading(false)
-          return   // продолжим из onContinue — см. ниже
-        }
+      // ⚠️⚠️ ОКНО-ОБЪЯСНЕНИЕ БОЛЬШЕ НЕ ОБРЫВАЕТ ЗАПУСК.
+      // Раньше здесь стоял `return`: приложение не грузилось вовсе, пока
+      // человек не нажмёт «Продолжить», а потом init стартовал заново через
+      // счётчик. Отсюда мигание, двойная маршрутизация и «глючит».
+      // Хуже того — человек видел просьбу разрешить, ещё не увидев ни
+      // календаря, ни события, и модерация назвала это «до просмотра функций».
+      //
+      // Теперь приложение открывается как обычно, а окно всплывает поверх
+      // через паузу — см. VkPermissionsIntro (он сам решает, показываться ли,
+      // спросив базу «а не разрешал ли уже?»).
+      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id) {
+        setVkIntro(true)
       }
 
       const user = adapter.user
@@ -652,8 +640,10 @@ export default function App() {
       console.error('App init failed:', e)
       setLoading(false)
     })
-    // ⚠️ vkIntroPassed — не «данные», а сигнал «шлюз пройден, повтори запуск».
-  }, [vkIntroPassed])
+    // ⚠️ Запуск ОДИН РАЗ. Раньше здесь стоял vkIntroPassed — счётчик, который
+    // прогонял init заново после «Продолжить» на экране разрешений. Экран
+    // больше не обрывает запуск, повторять нечего.
+  }, [])
 
   // URL роутинг: popstate
   useEffect(() => {
@@ -746,25 +736,34 @@ export default function App() {
   const splash = typeof document !== 'undefined' ? document.getElementById('plusson-splash') : null
   if (splash) splash.remove()
 
-  // ⚠️ VK-only: объяснение ПЕРЕД окнами разрешений (правила Mini Apps п.1.1.2).
-  // Стоит ВЫШЕ всех остальных экранов: пока человек не нажал «Продолжить»,
-  // ни один запрос прав не ушёл (шлюз в useEffect выше прервал запуск).
-  if (vkIntro) {
-    return (
-      <VkPermissionsIntro
-        vkUserId={getPlatform().launchParams?.vk_user_id || ''}
-        clientId={effectiveClientId}
-        eventSlug={eventSlug}
-        onContinue={() => {
-          setVkIntro(false)
-          setLoading(true)
-          setVkIntroPassed(n => n + 1)   // перезапуск init, теперь без шлюза
-        }}
-      />
-    )
-  }
+  // ⚠️ VK-only: окно-объяснение ПЕРЕД системным запросом прав (п.1.1.2 правил
+  // Mini Apps). Висит ПОВЕРХ приложения и всплывает через паузу — человек
+  // сначала видит календарь или событие. Компонент сам решает, показываться ли
+  // (спрашивает базу «а не разрешал ли уже?»), поэтому здесь его рисуем всегда.
+  //
+  // ⚠️ Рисуется во ВСЕХ ветках ниже, а не только в одной: человек может попасть
+  // и на календарь, и сразу на событие. Возврата к прежнему `if (vkIntro)
+  // return <...>` быть не должно — именно он обрывал запуск приложения.
+  const vkPermModal = vkIntro ? (
+    <VkPermissionsIntro
+      vkUserId={getPlatform().launchParams?.vk_user_id || ''}
+      groupId={Number(getPlatform().launchParams?.vk_group_id || 0)}
+      clientId={effectiveClientId}
+      eventSlug={eventSlug}
+      onContinue={() => {
+        setVkIntro(false)
+        // Системное окно ВКонтакте. Приложение уже загружено — перезапускать
+        // init не нужно, поэтому никакого счётчика-«повтори запуск» здесь нет.
+        const a = getPlatform()
+        const gid = Number(a.launchParams?.vk_group_id || 0)
+        if (gid) { try { a.requestWriteAccess({ vkGroupId: gid }, () => {}) } catch { /* skip */ } }
+      }}
+    />
+  ) : null
 
-  // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
+  // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку).
+  // ⚠️ Окно-объяснение здесь НЕ показываем: на этом экране человека уже просят
+  // написать сообществу, и разрешение возникнет само, когда он это сделает.
   if (funnelStatus) {
     return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} kind={funnelKind}
                                eventTitle={funnelEventTitle} posterUrl={funnelPosterUrl}
@@ -792,6 +791,7 @@ export default function App() {
           onOpenEvent={openEvent}
         />
         {pendingOpen && <SpinnerOverlay />}
+        {vkPermModal}
       </>
     )
   }
@@ -801,6 +801,7 @@ export default function App() {
       <>
         <Hub clientId={effectiveClientId} tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
         {pendingOpen && <SpinnerOverlay />}
+        {vkPermModal}
       </>
     )
   }
@@ -808,6 +809,7 @@ export default function App() {
     <>
       <HubSelector tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
       {pendingOpen && <SpinnerOverlay />}
+      {vkPermModal}
     </>
   )
 }
