@@ -28,8 +28,12 @@ interface Channel {
   is_active: boolean
   is_system?: boolean   // системный канал iViSiON: ПЛЮСОНа (общий @pluson_bot и т.п.)
   is_test?: boolean     // в тестовом режиме админа (не выдан клиентам)
-  subscribers: number
+  subscribers: number       // получают ваши сообщения — база рассылки
   unsubscribed: number
+  /** Подписчики САМОГО сообщества ВКонтакте (цифра от площадки).
+   *  ⚠️ Не путать с `subscribers`: подписка на стену НЕ даёт права писать в
+   *  личку. null — спросить у ВКонтакте не удалось, цифру не показываем. */
+  community_members?: number | null
   created_at: string
   bot_token: string | null
 }
@@ -659,7 +663,23 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
           на компьютере — справа в ряд, как было. */}
       <div className="flex items-center justify-between gap-3 sm:gap-4 shrink-0">
       <div className="flex items-center gap-4 text-sm shrink-0">
-        <div className="flex items-center gap-1.5 text-green-600" title="Подписчики (ваши)">
+        {/* ⚠️ Подписчики СООБЩЕСТВА ВК — отдельная цифра, и стоит она ПЕРВОЙ,
+            потому что клиент ищет глазами именно её («у меня 184 подписчика»).
+            Это НЕ база рассылки: подписка на стену не даёт права писать в
+            личку. У Марго 184 в сообществе против 52 получающих сообщения —
+            без этой цифры кажется, что рассылка уходит всем подписчикам.
+            null = спросить у ВКонтакте не удалось → не рисуем вовсе, выдумывать
+            число нельзя. */}
+        {typeof ch.community_members === 'number' && (
+          <div
+            className="flex items-center gap-1.5 text-blue-500"
+            title="Подписаны на сообщество ВКонтакте. Это НЕ база рассылки: чтобы получать ваши сообщения, человек отдельно нажимает «Разрешить сообщения»."
+          >
+            <Megaphone size={14} />
+            <span>{ch.community_members.toLocaleString('ru')}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 text-green-600" title="Получают ваши сообщения — это и есть база рассылки">
           <Users size={14} />
           <span>{ch.subscribers.toLocaleString('ru')}</span>
         </div>

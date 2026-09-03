@@ -30,6 +30,64 @@ from app.services.channel_import import import_csv_to_channel
 router = APIRouter(prefix="/channels", tags=["Каналы"])
 
 
+# ─── Подписчики ВК-сообщества (цифра от самой площадки) ───────────────
+#
+# ⚠️ ЭТО НЕ ТО ЖЕ, ЧТО `subscribers` В КАРТОЧКЕ КАНАЛА. Две разные вещи, и
+# путать их дорого:
+#   • `subscribers`      — кому мы МОЖЕМ ПИСАТЬ: человек нажал «Разрешить
+#                          сообщения» (message_allow) и не отписался. Это и есть
+#                          база рассылки.
+#   • `community_members`— кто ПОДПИСАН НА СТЕНУ сообщества. Рассылку им слать
+#                          нельзя: подписка на сообщество ≠ разрешение писать
+#                          (см. докстринг handle_group_join в bot/vk_main.py).
+# На проде у клиента 1 это 184 против 52 — расхождение больше чем в три раза,
+# и без второй цифры клиент считает, что пишет всем подписчикам сообщества.
+#
+# ⚠️ Своя функция, а не `services/channel_audience.py`: та берёт group_id из
+# `clients.social_links` (сообщество ОСНОВАТЕЛЯ для карточки в Коллабораторной),
+# а здесь нужен group_id САМОГО КАНАЛА (`channels.platform_meta.vk_group_id`) и
+# его собственный токен. Источники разные — у клиента сообщество-визитка и
+# сообщество-бот вполне могут не совпадать.
+_VK_MEMBERS_CACHE: dict[int, tuple[float, int]] = {}
+_VK_MEMBERS_TTL = 600.0   # 10 минут: за это время число заметно не меняется,
+                          # а страницу «Каналы» открывают часто.
+
+
+async def _vk_community_members(channel_id: int, group_id: str, token: str) -> Optional[int]:
+    """Сколько человек подписано на ВК-сообщество канала. None — узнать не вышло.
+
+    ⚠️ None и 0 — РАЗНОЕ. None = «не смогли спросить» (нет токена, сеть, VK
+    ответил ошибкой) — тогда фронт цифру просто не рисует. 0 = «сообщество
+    правда пустое». Показать 0 вместо неизвестности значило бы соврать клиенту,
+    что подписчиков нет.
+    """
+    import time
+    hit = _VK_MEMBERS_CACHE.get(channel_id)
+    if hit and time.time() - hit[0] < _VK_MEMBERS_TTL:
+        return hit[1]
+
+    from app.services.vk_api import vk_call
+    try:
+        resp = await vk_call(
+            "groups.getById",
+            {"group_id": str(group_id).lstrip("-"), "fields": "members_count"},
+            token=token,
+        )
+        # v5.199 отдаёт {"groups": [...]}; более старые — просто список.
+        groups = resp.get("groups") if isinstance(resp, dict) else resp
+        if not groups:
+            return None
+        n = groups[0].get("members_count")
+        if n is None:
+            return None
+        _VK_MEMBERS_CACHE[channel_id] = (time.time(), int(n))
+        return int(n)
+    except Exception:
+        # Сбой ВКонтакте не должен ронять всю страницу каналов — там ещё
+        # Telegram, MAX и почта. Молча отдаём «не знаем».
+        return None
+
+
 async def _assert_can_use_custom_bot(db, client_id: int):
     """403 если фича 'channels' выключена в активной подписке клиента."""
     from app.services.features import client_has_feature
@@ -128,7 +186,11 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
                    ELSE NULL END AS vk_admin_user_name,
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                    THEN ch.platform_meta->>'vk_admin_user_screen'
-                   ELSE NULL END AS vk_admin_user_screen
+                   ELSE NULL END AS vk_admin_user_screen,
+              CASE WHEN ch.platform_slug = 'vk'
+                   THEN ch.platform_meta->>'vk_group_id'
+                   ELSE NULL END AS vk_group_id,
+              ch.bot_token AS _bot_token
              FROM channels ch
              JOIN client_channels cc ON cc.channel_id = ch.id
              JOIN platforms p ON p.slug = ch.platform_slug
@@ -136,7 +198,27 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
             ORDER BY p.sort_order, ch.is_system, ch.id""",
         client_id
     )
-    return {"items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+
+    # Подписчики ВК-сообществ — спрашиваем у самого ВКонтакте, параллельно по
+    # всем каналам сразу (у клиента их бывает несколько). Вызовы сетевые, к базе
+    # не обращаются — gather тут безопасен.
+    vk_items = [it for it in items
+                if it["platform_slug"] == "vk" and it.get("vk_group_id") and it.get("_bot_token")]
+    if vk_items:
+        counts = await asyncio.gather(
+            *[_vk_community_members(it["id"], it["vk_group_id"], it["_bot_token"]) for it in vk_items],
+            return_exceptions=True,
+        )
+        for it, n in zip(vk_items, counts):
+            it["community_members"] = n if isinstance(n, int) else None
+
+    # ⚠️ Токен наружу НЕ отдаём — он нужен был только для запроса выше.
+    for it in items:
+        it.pop("_bot_token", None)
+        it.setdefault("community_members", None)
+
+    return {"items": items}
 
 
 # ─── GET /telegram-health ─────────────────────────────────────────────
