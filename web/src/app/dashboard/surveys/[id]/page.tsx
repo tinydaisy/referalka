@@ -7,7 +7,7 @@
  * человека и по нему фильтруется база. Тип и варианты в этом случае берутся у
  * поля, чтобы накопленные значения не разъехались.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -37,7 +37,21 @@ const DARK = '#25455D'   // фирменный синий
 type SurveyTab = 'edit' | 'answers' | 'report' | 'dashboard'
 const SURVEY_TABS: readonly SurveyTab[] = ['edit', 'answers', 'report', 'dashboard']
 
+/**
+ * ⚠️ Обёртка в `Suspense` ОБЯЗАТЕЛЬНА: внутри страница читает вкладку из
+ * адреса (useUrlTab → useSearchParams), а без обёртки СБОРКА ПАДАЕТ ЦЕЛИКОМ —
+ * «useSearchParams() should be wrapped in a suspense boundary». Проверка
+ * типов такую ошибку не ловит, она вылезает только при сборке страницы.
+ */
 export default function SurveyPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-gray-400">Загружаем…</p>}>
+      <SurveyPageInner />
+    </Suspense>
+  )
+}
+
+function SurveyPageInner() {
   const { id } = useParams<{ id: string }>()
   const { isAssistant } = useMe()
   // ⚠️ Ответы и отчёт — РАЗНЫЕ вкладки (решение владельца): список
