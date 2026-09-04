@@ -428,7 +428,12 @@ async function sendVkEventStart(
   let groupId = Number(lp.vk_group_id || 0)
   if (!groupId && lp.vk_app_id) {
     try {
-      const r: any = await fetch(`/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+      // ⚠️ АДРЕС ОБЯЗАТЕЛЬНО ПОЛНЫЙ (VITE_API_URL). Здесь стоял относительный
+      // путь — запрос уходил на vk.com вместо нашего сервера, номер сообщества
+      // не приходил, и подписка молча не запрашивалась. Разрешение на ЛС при
+      // этом работало (адаптер берёт номер из launch params сам), поэтому со
+      // стороны выглядело как «просит только рассылку».
+      const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
         .then(x => x.ok ? x.json() : null)
       if (r?.group_id) groupId = Number(r.group_id)
     } catch { /* skip */ }
