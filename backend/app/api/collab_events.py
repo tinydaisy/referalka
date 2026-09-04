@@ -714,14 +714,28 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
                   -- Клиент видел итог и не понимал, откуда он берётся, —
                   -- пришли ли люди по ссылке или просто были в его базе.
                   --
-                  -- «По реф-коду» — перешёл по ссылке этого организатора
-                  -- (или ссылке его спикера: реф-код принадлежит контакту
-                  -- в его базе).
+                  -- «По реф-коду» — по ЛИЧНОЙ ссылке самого организатора
+                  -- (реф-код его собственного контакта — self_collaborator).
                   (SELECT count(*) FROM event_participants ep
                      JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
                                       OR rc.merged_ref_codes ? ep.referrer_ref_code
                     WHERE ep.event_id = $1 AND ep.is_registered
-                      AND rc.client_id = o.client_id) AS by_ref,
+                      AND rc.client_id = o.client_id
+                      AND rc.id = (SELECT col.contact_id FROM clients cc2
+                                     JOIN collaborators col ON col.id = cc2.self_collaborator_id
+                                    WHERE cc2.id = o.client_id)) AS by_ref,
+                  -- «От рефовода» — по ссылке КОГО-ТО ИЗ ЕГО БАЗЫ: спикера,
+                  -- партнёра, обычного участника. Считается организатору: это
+                  -- его человек привёл, работая с его аудиторией.
+                  (SELECT count(*) FROM event_participants ep
+                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                                      OR rc.merged_ref_codes ? ep.referrer_ref_code
+                    WHERE ep.event_id = $1 AND ep.is_registered
+                      AND rc.client_id = o.client_id
+                      AND rc.id IS DISTINCT FROM
+                          (SELECT col.contact_id FROM clients cc2
+                             JOIN collaborators col ON col.id = cc2.self_collaborator_id
+                            WHERE cc2.id = o.client_id)) AS by_speaker,
                   -- «Из базы, без ссылки» — контакт принадлежит этому
                   -- организатору, но реф-метки нет: человек зашёл сам —
                   -- из его бота, из календаря событий, по ссылке без метки.
@@ -740,13 +754,22 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
     participants_total = await db.fetchval(
         "SELECT count(*) FROM event_participants WHERE event_id=$1", event_id) or 0
 
-    brought_list = [int(r["brought"] or 0) for r in rows]
+    # ⚠️ ИТОГ ОРГАНИЗАТОРА = приведённые по ссылке + пришедшие сами из его базы
+    # (решение владельца, 04.09.2026). Раньше в рейтинг шли только пришедшие по
+    # реф-коду, и это занижало вклад: человек, зашедший из бота организатора или
+    # из его календаря, — тоже приведённая им аудитория, просто без метки.
+    # У кого не было реф-ссылок вовсе, вклад выходил нулевым при реальных людях.
+    #
+    # ⚠️ Пересечения нет: «по реф-коду» и «сами» разделены условием на реф-код
+    # (заполнен / пуст), один человек попадает ровно в одну колонку.
+    totals = [int(r["by_ref"] or 0) + int(r["by_speaker"] or 0) + int(r["self_came"] or 0)
+              for r in rows]
     organizers_count = len(rows)
     out = []
-    for r in rows:
+    for r, tot in zip(rows, totals):
         d = dict(r)
-        d["coefficient"] = win_win_coefficient(
-            int(r["brought"] or 0), brought_list, organizers_count)
+        d["total"] = tot
+        d["coefficient"] = win_win_coefficient(tot, totals, organizers_count)
         d["is_me"] = (r["client_id"] == me)
         out.append(d)
 
@@ -774,14 +797,20 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
             ORDER BY 6 DESC, 7 DESC, rc.name""",
         event_id)
 
+    by_ref_total = sum(int(r["by_ref"] or 0) + int(r["by_speaker"] or 0) for r in rows)
+    self_total = sum(int(r["self_came"] or 0) for r in rows)
     return {
         "organizers": out,
         "participants_total": participants_total,
-        "brought_total": sum(brought_list),
-        # Сколько участников пришло без реф-метки (зашли напрямую: из своего
-        # бота, из списка событий, по ссылке без pid). Их никто себе не
-        # засчитывает — показываем отдельно, чтобы цифры сходились.
-        "without_referrer": participants_total - sum(brought_list),
+        # ⚠️ «Привели организаторы» — теперь ИТОГ (ссылки + свои из базы), а не
+        # только пришедшие по ссылке: человек в любом случае пришёл через чей-то
+        # бот и попал в чью-то базу, вклад засчитывается этому организатору.
+        "brought_total": by_ref_total + self_total,
+        "by_ref_total": by_ref_total,
+        "self_total": self_total,
+        # Остаток: не зарегистрировавшиеся — они не в счёте ни у кого.
+        # (Считаем по регистрациям: открыл и ушёл — привлечения нет.)
+        "without_referrer": participants_total - by_ref_total - self_total,
         "referrers": [dict(r) for r in referrers],
     }
 

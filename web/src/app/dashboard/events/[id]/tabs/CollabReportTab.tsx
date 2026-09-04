@@ -15,12 +15,16 @@ import { api } from '@/lib/api'
 interface OrgRow {
   client_id: number
   name: string | null
-  /** Привёл = пришёл по его реф-коду И зарегистрировался (одно правило с рейтингом Хаба). */
+  /** Прежнее поле «привёл» — только по реф-кодам. Оставлено для совместимости. */
   brought: number
-  /** Из чего складывается: пришли по ссылке (это и есть `brought`)… */
+  /** По ЛИЧНОЙ ссылке организатора. */
   by_ref: number
-  /** …и пришли сами, будучи в его базе — в рейтинг НЕ идут. */
+  /** По ссылке кого-то из его базы: спикера, партнёра, участника. */
+  by_speaker: number
+  /** Без ссылки, но контакт в его базе: из бота, из календаря событий. */
   self_came: number
+  /** Итог: все трое. По нему и считается Win-Win. */
+  total: number
   coefficient: number | null
   is_me: boolean
 }
@@ -36,13 +40,10 @@ interface RefRow {
   clicked: number
 }
 
-/** Цвет коэффициента: 1.0 — норма (вровень с партнёрами), выше — молодец. */
-function coefColor(c: number | null): string {
-  if (c === null) return 'text-gray-400'
-  if (c >= 1.2) return 'text-green-700'
-  if (c >= 0.8) return 'text-gray-800'
-  return 'text-orange-600'
-}
+/** ⚠️ Win-Win — фирменный персиковый (#FFCFA4 на белом не читается, поэтому
+ *  берём тёмный янтарь того же семейства) и жирный: это главная цифра отчёта,
+ *  и в ряду серых чисел она должна выделяться сама, без отдельного блока. */
+const COEF_STYLE: React.CSSProperties = { color: '#B45309' }
 
 export default function CollabReportTab({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
@@ -84,42 +85,17 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-4">
           <div className="text-2xl font-bold text-gray-400">{withoutRef}</div>
-          <div className="text-xs text-gray-500 mt-1">Пришли без чьей-то ссылки</div>
+          {/* ⚠️ Раньше здесь было «пришли без чьей-то ссылки» — но такие люди
+              теперь засчитываются организатору, в чьей они базе. Остаток —
+              это не дошедшие до регистрации. */}
+          <div className="text-xs text-gray-500 mt-1">Не зарегистрировались</div>
         </div>
       </div>
 
-      {/* ⚠️ РЕЙТИНГ КАЖДОГО — КРУПНО И СВЕРХУ. Раньше Win-Win стоял последним
-          столбцом таблицы и терялся: главную цифру коллаборации приходилось
-          выискивать глазами. Карточка на организатора, коэффициент — самым
-          крупным шрифтом, своя карточка выделена. */}
-      {rows.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {rows.map(r => (
-            <div key={r.client_id}
-                 className={`rounded-xl border p-4 ${r.is_me
-                   ? 'bg-amber-50 border-amber-200'
-                   : 'bg-white border-gray-100'}`}>
-              <div className="text-xs text-gray-600 font-medium truncate"
-                   title={r.name || ''}>
-                {r.name || `Клиент #${r.client_id}`}
-                {r.is_me && <span className="ml-1.5 text-gray-400">— вы</span>}
-              </div>
-              <div className={`text-3xl font-bold mt-1.5 ${coefColor(r.coefficient)}`}>
-                {r.coefficient === null ? '—' : r.coefficient.toFixed(2)}
-              </div>
-              <div className="text-[11px] text-gray-500">Win-Win</div>
-              <div className="text-xs text-gray-600 mt-2.5 pt-2.5 border-t border-gray-200/70">
-                привёл <b className="text-gray-900">{r.brought}</b>
-                {r.self_came > 0 && (
-                  <span className="text-gray-400"> · сами из базы {r.self_came}</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Таблица организаторов */}
+      {/* Таблица организаторов.
+          ⚠️ Отдельных карточек с рейтингом сверху НЕ заводим: коэффициент уже
+          стоит столбцом в этой таблице, и дублировать ту же цифру рядом —
+          лишний экран. Вместо этого выделяем сам столбец. */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
           <Users size={17} className="text-gray-400" />
@@ -131,10 +107,11 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
             <thead>
               <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
                 <th className="text-left px-5 py-3 font-medium">Организатор</th>
-                {/* ⚠️ Разложено на слагаемые: раньше стоял один итог, и было
-                    непонятно, откуда он взялся. */}
+                {/* ⚠️ Три источника, откуда пришёл человек. Раньше стоял один
+                    итог, и было непонятно, из чего он сложился. */}
                 <th className="text-right px-4 py-3 font-medium">По реф-коду</th>
-                <th className="text-right px-4 py-3 font-medium">Сами из базы</th>
+                <th className="text-right px-4 py-3 font-medium">От рефовода</th>
+                <th className="text-right px-4 py-3 font-medium">Из базы</th>
                 <th className="text-right px-4 py-3 font-medium">Итого</th>
                 <th className="text-right px-5 py-3 font-medium">Win-Win</th>
               </tr>
@@ -146,25 +123,38 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
                     {r.name || `Клиент #${r.client_id}`}
                     {r.is_me && <span className="ml-2 text-xs text-gray-400">— вы</span>}
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-gray-900">{r.by_ref ?? r.brought}</td>
-                  <td className="px-4 py-3 text-right text-gray-400">{r.self_came ?? 0}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-gray-900">{r.brought}</td>
-                  <td className={`px-5 py-3 text-right font-bold ${coefColor(r.coefficient)}`}>
-                    {r.coefficient === null ? '—' : r.coefficient.toFixed(2)}
+                  <td className="px-4 py-3 text-right text-gray-700">{r.by_ref ?? 0}</td>
+                  <td className="px-4 py-3 text-right text-gray-700">{r.by_speaker ?? 0}</td>
+                  <td className="px-4 py-3 text-right text-gray-700">{r.self_came ?? 0}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                    {r.total ?? r.brought}
+                  </td>
+                  <td className="px-5 py-3 text-right font-bold text-base"
+                      style={r.coefficient === null ? undefined : COEF_STYLE}>
+                    {r.coefficient === null
+                      ? <span className="text-gray-300 font-normal">—</span>
+                      : r.coefficient.toFixed(2)}
                   </td>
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Организаторов пока нет</td></tr>
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Организаторов пока нет</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-3 bg-gray-50/70 border-t border-gray-100 text-xs text-gray-500">
-          ⚠️ В рейтинг идёт только столбец «По реф-коду» — то есть люди, пришедшие
-          по ссылке. «Сами из базы» — те, кто уже был в базе организатора и зашёл
-          без ссылки: из бота, из календаря событий. Приглашения не было, поэтому
-          в Win-Win они не считаются.
+        <div className="px-5 py-3 bg-gray-50/70 border-t border-gray-100 text-xs text-gray-500 space-y-1">
+          <p>
+            <b>По реф-коду</b> — по вашей личной ссылке. <b>От рефовода</b> — по
+            ссылке кого-то из вашей базы: спикера, партнёра, участника.
+            <b> Из базы</b> — зашёл без ссылки, но он уже ваш контакт: из вашего
+            бота или из календаря ваших событий.
+          </p>
+          <p>
+            Win-Win считается от <b>«Итого»</b>: человек в любом случае приходит
+            через чей-то бот и попадает в чью-то базу — это и есть приведённая
+            аудитория. Считаем зарегистрировавшихся: открыл и ушёл — не в счёт.
+          </p>
         </div>
       </div>
 
@@ -232,8 +222,9 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
             справедливая доля всегда 1.00.
           </p>
           <p className="text-gray-500">
-            «Привёл» — человек пришёл по вашей ссылке и <b>зарегистрировался</b>
-            на событие. Просто открыл и ушёл — не считается.
+            «Привёл» — человек пришёл через вас и <b>зарегистрировался</b> на
+            событие: по вашей ссылке, по ссылке вашего спикера или из вашей базы.
+            Просто открыл и ушёл — не считается.
             После завершения коллабы это значение попадёт в вашу карточку
             в Коллабораторной.
           </p>

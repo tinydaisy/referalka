@@ -74,16 +74,19 @@ function PlatformBadge({
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      className="inline-flex items-center gap-1 text-xs hover:underline"
+      className="inline-flex items-center gap-1 text-xs hover:underline min-w-0 max-w-full"
       style={{ color }}
+      title={label}
     >
       <span
-        className="inline-flex items-center justify-center w-4 h-4 rounded-sm text-[9px] font-bold text-white"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-sm text-[9px] font-bold text-white shrink-0"
         style={{ background: color }}
       >
         {letter}
       </span>
-      <span className="truncate max-w-[160px]">{label}</span>
+      {/* ⚠️ 120px, а не 160: в строке до трёх бейджей, и на 160 они вылезали
+          за колонку. Полный ник — в подсказке при наведении. */}
+      <span className="truncate max-w-[120px]">{label}</span>
     </a>
   )
 }
@@ -423,7 +426,13 @@ function ContactCard({
             ) : (
               <p className="truncate text-sm font-medium text-gray-900">{name}</p>
             )}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+            {/* ⚠️ `w-full min-w-0 overflow-hidden` обязательны: без них строка
+                ников распирает колонку изнутри. `flex-wrap` переносит бейджи,
+                но сам блок при этом растёт по содержимому — и длинный ник
+                (`@rendarevskaya_coach`) наезжал на соседнюю колонку «В чьей
+                базе». Одного `truncate` на бейдже мало: он ограничивает ник в
+                160px, а бейджей в строке до трёх. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 w-full min-w-0 overflow-hidden">
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(p.id)) }}

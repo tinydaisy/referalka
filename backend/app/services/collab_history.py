@@ -51,12 +51,29 @@ logger = logging.getLogger(__name__)
 # 92, Нурия + Лилия, 12 участников) `brought_live` вышел 0 у ОБЕИХ, Win-Win —
 # NULL, и в карточке Хаба стояло «—». Регистрация — осознанное действие и
 # единственный признак привлечения, не зависящий от пути, которым человек пришёл.
-BROUGHT_COUNT_SQL = """(SELECT count(DISTINCT ep.id)
+# ⚠️⚠️ ВКЛАД = ПРИШЕДШИЕ ПО ССЫЛКЕ + СВОИ ИЗ БАЗЫ (решение владельца, 04.09.2026).
+# Раньше считались ТОЛЬКО пришедшие по реф-коду — и вклад выходил заниженным, а у
+# организатора без реф-ссылок нулевым при живых людях. Но человек всегда приходит
+# через ЧЕЙ-ТО бот и попадает в ЧЬЮ-ТО базу: зашёл из бота организатора, из его
+# календаря событий или по ссылке без метки — это всё равно приведённая им
+# аудитория, просто без реф-кода. Считать её ничьей неверно.
+#
+# Две части, пересечься не могут (условие на реф-код: заполнен / пуст):
+#   1) реф-код принадлежит контакту ЭТОГО клиента — привёл он или его спикер;
+#   2) реф-кода нет вовсе, а сам контакт лежит в базе ЭТОГО клиента.
+BROUGHT_COUNT_SQL = """((SELECT count(DISTINCT ep.id)
                           FROM event_participants ep
                           JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
                          WHERE ep.event_id = $1
                            AND ep.is_registered = TRUE
-                           AND rc.client_id = {client})"""
+                           AND rc.client_id = {client})
+                        + (SELECT count(DISTINCT ep.id)
+                             FROM event_participants ep
+                             JOIN contacts oc ON oc.id = ep.contact_id
+                            WHERE ep.event_id = $1
+                              AND ep.is_registered = TRUE
+                              AND COALESCE(ep.referrer_ref_code, '') = ''
+                              AND oc.client_id = {client}))"""
 
 
 def brought_count_sql(client: str = "$2") -> str:
