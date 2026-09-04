@@ -885,22 +885,48 @@ async def vk_group_for_app(app_id: int):
 
 @router.get("/vk/messages-allowed", summary="Разрешил ли человек писать ему в этом сообществе")
 async def vk_messages_allowed(vk_user_id: str, group_id: int = 0, client_id: int = 0):
-    """`{allowed: bool}` — есть ли у нас уже разрешение на личные сообщения.
+    """`{allowed: bool}` — разрешил ли человек сообществу писать ему в личку.
 
-    ⚠️ ЗАЧЕМ. У VK Bridge НЕТ метода «а разрешил ли этот человек писать?» —
-    узнать можно, только показав окно. Поэтому раньше экран-объяснение
-    показывался по отметке в localStorage: сменил телефон или почистил кеш —
-    и человек, давно разрешивший сообщения, снова видел просьбу разрешить
-    (жалоба владельца, 03.09.2026).
+    ⚠️⚠️ СПРАШИВАЕМ У САМОГО ВКОНТАКТЕ — `messages.isMessagesFromGroupAllowed`.
+    Это единственный источник правды: право живёт на стороне VK, а не у нас.
 
-    Ответ смотрим В СВОЕЙ БАЗЕ: разрешение фиксируется событием `message_allow`
-    (см. handle_message_allow в bot/vk_main.py) как подписка на канал клиента.
-    База переживает и смену устройства, и очистку кеша.
+    ⚠️ Прежняя формулировка «у VK такого метода нет, смотрим свою базу» была
+    НЕВЕРНОЙ — метод есть и работает с токеном сообщества (проверено на проде
+    04.09.2026). Из-за неё показ окна решался нашей записью, а она расходится
+    с реальностью в обе стороны:
+      • человек отписался от рассылок в интерфейсе VK, но право писать не
+        отзывал — у нас «нет», у VK «есть»;
+      • право отозвано в настройках VK, а событие `message_deny` до нас не
+        дошло — у нас «есть», у VK «нет», и мы молча не просили разрешения.
 
-    ⚠️ Fail-open наоборот: сомневаемся — отвечаем `false`, то есть окно
-    ПОКАЖЕМ. Лишний раз объяснить не страшно; страшно молча не спросить
-    разрешения и потерять человека для рассылок.
+    База (`message_allow` → подписка на канал) остаётся ЗАПАСНЫМ вариантом:
+    сеть или VK не ответили — отвечаем по ней, чтобы не сорвать вход.
+
+    ⚠️ Сомневаемся — отвечаем `false`, то есть окно ПОКАЖЕМ. Лишний раз
+    объяснить не страшно; страшно молча не спросить разрешения и потерять
+    человека для рассылок.
     """
+    # 1) Настоящий ответ — у ВКонтакте.
+    if str(vk_user_id).isdigit() and int(group_id or 0) > 0:
+        try:
+            from app.services.channels import get_client_vk_token
+            from app.services.vk_api import vk_call
+            pool0 = await get_pool()
+            token = None
+            if pool0 and int(client_id or 0) > 0:
+                async with pool0.acquire() as c0:
+                    token = await get_client_vk_token(int(client_id), c0)
+            if token:
+                resp = await vk_call(
+                    "messages.isMessagesFromGroupAllowed",
+                    {"group_id": int(group_id), "user_id": int(vk_user_id)},
+                    token=token,
+                )
+                if isinstance(resp, dict) and "is_allowed" in resp:
+                    return {"allowed": bool(int(resp.get("is_allowed") or 0))}
+        except Exception:
+            # VK не ответил (сеть, лимиты, токен) — идём в базу ниже.
+            pass
     pool = await get_pool()
     if not pool or not str(vk_user_id).isdigit():
         return {"allowed": False}
