@@ -2865,7 +2865,24 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
 
     # Ссылка на политику. ⚠️ Чей бот — того и политика: в коллабе client_id уже
     # подменён на организатора, через которого пришёл человек (см. event_register_page).
+    #
+    # ⚠️ А вот СОГЛАСИЕ НА РАССЫЛКУ в коллабе — сразу ВСЕМ организаторам, и они
+    # названы поимённо. Контакт человека попадает в базу каждого из них, значит
+    # и писать ему вправе каждый; согласие «одному бренду» этого не покрывало.
+    # Формат «Имя (Бренд)» — человек знает организаторов и по имени, и по бренду.
     mkt_to = brand
+    _owners = event.get("_collab_owners") or []
+    if len(_owners) > 1:
+        _parts = []
+        for o in _owners:
+            _nm = (o.get("owner_name") or "").strip()
+            _br = (o.get("brand_name") or "").strip()
+            if _nm and _br and _nm != _br:
+                _parts.append(esc(f"{_nm} ({_br})"))
+            elif _nm or _br:
+                _parts.append(esc(_nm or _br))
+        if _parts:
+            mkt_to = "организаторов события: " + ", ".join(_parts)
     if client_id:
         # Политика — публичная страница клиента, значит и открываться должна
         # на его домене: человек согласия даёт ему, а не платформе.
@@ -3344,6 +3361,22 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
     # Домен того же клиента-оператора: рендер синхронный, поэтому базу кладём в ev.
     ev["_public_base"] = await client_public_url(db, ev.get("client_id"))
     poster_url = await _load_event_poster(db, ev["id"])
+
+    # ⚠️ КОЛЛАБА: согласие на рассылку человек даёт ВСЕМ организаторам, а не
+    # одному. Его контакт попадает в базу каждого из них
+    # (`share_contact_with_all_owners` при регистрации) — значит и писать ему
+    # вправе каждый. Раньше в тексте стоял один бренд, через который он зашёл:
+    # согласие получалось данным одному, а рассылки приходили от всех.
+    if ev.get("is_collab"):
+        ev["_collab_owners"] = [
+            dict(r) for r in await db.fetch(
+                """SELECT COALESCE(c.name, '') AS owner_name,
+                          COALESCE(c.brand_name, '') AS brand_name
+                     FROM event_owners eo JOIN clients c ON c.id = eo.client_id
+                    WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                    ORDER BY (eo.client_id = $2) DESC, eo.id""",
+                ev["id"], ev.get("client_id") or 0)
+        ]
 
     html_str = render_register_page(ev, client, poster_url, prefill=prefill,
                                     pid=pid)

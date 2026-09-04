@@ -30,7 +30,9 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
   // Человек пришёл через бота конкретного организатора (botClientId из `/c/{N}/tg/`),
   // в его базу и попадают данные — значит показываем ЕГО бренд и ссылку на ЕГО политику.
   // В обычном событии организатор один (владелец), и botClientId совпадает с ним.
-  const owners: { client_id: number; name: string; public_base?: string }[] = event?.collab_owners || []
+  // `owner_name` — имя основателя (в согласии показываем «Имя (Бренд)»).
+  const owners: { client_id: number; name: string; owner_name?: string; public_base?: string }[] =
+    event?.collab_owners || []
   const fromBot = botClientId ? owners.find(o => o.client_id === botClientId) : undefined
   const organizer: { client_id: number; name: string; public_base?: string } | undefined =
     fromBot
@@ -169,9 +171,20 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
                 <input type="checkbox" checked={consentMkt} onChange={e => setConsentMkt(e.target.checked)}
                        style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
                 <span>
-                  {/* Рассылки шлёт тот, чей бот: его база — его рассылки. */}
+                  {/* ⚠️ В КОЛЛАБЕ перечисляем ВСЕХ организаторов поимённо.
+                      Контакт человека попадает в базу каждого из них
+                      (share_contact_with_all_owners при регистрации), значит
+                      и писать ему вправе каждый. Раньше назывался один — тот,
+                      через чьего бота человек зашёл: согласие получалось
+                      данным одному, а письма приходили от всех.
+                      Вне коллабы организатор один, текст прежний. */}
                   Я согласен на получение информационных и маркетинговых рассылок от{' '}
-                  {organizer?.name || 'организатора'}.
+                  {owners.length > 1
+                    ? <>организаторов события: {owners.map(o => {
+                        const nm = o.owner_name?.trim()
+                        return nm && nm !== o.name ? `${nm} (${o.name})` : o.name
+                      }).join(', ')}</>
+                    : (organizer?.name || 'организатора')}.
                   Вы в любой момент можете отказаться от получения писем.
                 </span>
               </label>
