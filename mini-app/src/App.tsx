@@ -771,13 +771,37 @@ export default function App() {
       groupId={Number(getPlatform().launchParams?.vk_group_id || 0)}
       clientId={effectiveClientId}
       eventSlug={eventSlug}
-      onContinue={() => {
+      onContinue={async () => {
         setVkIntro(false)
-        // Системное окно ВКонтакте. Приложение уже загружено — перезапускать
+        // Системные окна ВКонтакте. Приложение уже загружено — перезапускать
         // init не нужно, поэтому никакого счётчика-«повтори запуск» здесь нет.
         const a = getPlatform()
-        const gid = Number(a.launchParams?.vk_group_id || 0)
-        if (gid) { try { a.requestWriteAccess({ vkGroupId: gid }, () => {}) } catch { /* skip */ } }
+        let gid = Number(a.launchParams?.vk_group_id || 0)
+        // ⚠️ При заходе по ПРЯМОЙ ссылке приложения (vk.com/app{id}#…) ВКонтакте
+        // vk_group_id НЕ передаёт — приложение открыто само по себе, а не из
+        // сообщества. Без добора номера у бэкенда здесь не открывалось ни одно
+        // окно вовсе (жалоба владельца 04.09.2026: «предлагает только рассылку»).
+        if (!gid && a.launchParams?.vk_app_id) {
+          try {
+            const r: any = await fetch(
+              `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
+            ).then(x => x.ok ? x.json() : null)
+            if (r?.group_id) gid = Number(r.group_id)
+          } catch { /* skip */ }
+        }
+        if (!gid) return
+        // 1) Разрешение на сообщения — ради него и показывалось окно-объяснение.
+        await new Promise<void>((resolve) => {
+          try { a.requestWriteAccess({ vkGroupId: gid }, () => resolve()) } catch { resolve() }
+        })
+        // 2) Подписка на сообщество — СРАЗУ ЗА разрешением (решение владельца
+        //    04.09.2026). ⚠️ Только когда человек пришёл ПО ССЫЛКЕ события или
+        //    лид-магнита: на голом открытии календаря подписку не просим, за
+        //    это сняли с публикации (п.1.1.2). `eventSlug` заполнен только у
+        //    ссылки события — по нему и различаем.
+        if (eventSlug && a.joinGroup) {
+          try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
+        }
       }}
     />
   ) : null
