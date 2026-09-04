@@ -825,6 +825,39 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
   groupScreen?: string;
 }) {
   const variant = kind || 'leadmagnet'
+  // ⚠️⚠️ ПОДПИСКА НА СООБЩЕСТВО ПРЕДЛАГАЕТСЯ ТОЛЬКО ЗДЕСЬ — И ТОЛЬКО КНОПКОЙ.
+  //
+  // Модерация ВКонтакте сняла приложение за автоокно подписки на входе
+  // (п.1.1.2: «запрашивает подписку до просмотра функций», 01.09.2026).
+  // Здесь запрещённого нет: человек пришёл ЗА ПОДАРКОМ, видит, что подписка —
+  // условие его получения, и жмёт сам. Это обмен, а не просьба «просто так».
+  //
+  // ⚠️ Отсюда три правила, нарушать которые нельзя:
+  //   1) НЕ вызывать joinGroup автоматически при открытии — только по клику;
+  //   2) рядом должно быть НАПИСАНО, зачем подписка (текст ниже);
+  //   3) отказ ничего не блокирует — кнопка «написать в сообщество» остаётся,
+  //      подарок человек получит и без подписки.
+  // Возвращать автозапрос «чтобы собрать больше подписчиков» = снова снятие.
+  const [joinState, setJoinState] = useState<'idle' | 'busy' | 'done'>('idle')
+  // Предлагаем только там, где подписка осмысленна как условие подарка.
+  // На экране спикера/партнёра человек решает свою задачу — там это шум.
+  const showJoin = (variant === 'leadmagnet' || variant === 'event') && !!groupId
+
+  function joinGroup() {
+    const a = getPlatform()
+    if (!a.joinGroup || !groupId) return
+    setJoinState('busy')
+    try {
+      a.joinGroup({ vkGroupId: groupId }, (ok: boolean) => {
+        // ⚠️ Отказ показываем как обычное «idle», без укоров: человек вправе
+        // не подписываться, подарок он всё равно получит.
+        setJoinState(ok ? 'done' : 'idle')
+      })
+    } catch {
+      setJoinState('idle')
+    }
+  }
+
   // Кнопка ведёт в чат с ПРЕДЗАПОЛНЕННЫМ словом «ПОЛУЧИТЬ» (vk.me/{handle}?text=):
   // человек нажимает «отправить» → VK гарантированно регистрирует разрешение на ЛС
   // (AllowMessages из Mini App ненадёжен), и бот сразу отвечает воронкой.
@@ -897,6 +930,42 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
               marginBottom: 12,
             }}>{BTN[variant]}</a>
           )}
+
+          {/* ⚠️ Подписка — ВТОРЫМ действием, после главной кнопки. Первое, зачем
+              человек пришёл, — получить подарок/информацию; подписка идёт
+              довеском и ничего не блокирует. Поменяете местами — экран
+              превратится в требование подписаться, а это уже претензия
+              модерации. */}
+          {showJoin && (
+            <div style={{ marginBottom: 16 }}>
+              {joinState === 'done' ? (
+                <div style={{ fontSize: 14, opacity: 0.85, padding: '10px 0' }}>
+                  ✓ Спасибо! Вы подписаны на сообщество
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, opacity: 0.75, lineHeight: 1.45, margin: '0 0 10px' }}>
+                    Подпишитесь на сообщество — там анонсы событий и новые подарки
+                  </div>
+                  <button
+                    onClick={joinGroup}
+                    disabled={joinState === 'busy'}
+                    style={{
+                      background: 'transparent',
+                      border: '1.5px solid rgba(var(--peach-rgb), 0.8)',
+                      color: 'var(--peach)',
+                      fontWeight: 700, padding: '11px 26px', borderRadius: 12,
+                      fontSize: 14, cursor: 'pointer',
+                      opacity: joinState === 'busy' ? 0.6 : 1,
+                    }}
+                  >
+                    {joinState === 'busy' ? 'Подписываем…' : 'Подписаться на сообщество'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div>
             <button onClick={close} style={{
               background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)',
