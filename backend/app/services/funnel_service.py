@@ -1385,14 +1385,47 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
             client_id, str(vk_id),
         )
         if cc_id and pu_id:
-            await db.execute(
-                """INSERT INTO platform_user_channels
-                       (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
-                   VALUES ($1, $2, FALSE, NOW())
-                   ON CONFLICT (platform_user_id, client_channel_id)
-                   DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
-                pu_id, cc_id,
+            # ⚠️⚠️ «Разрешил писать» СПРАШИВАЕМ У ВКОНТАКТЕ, а не выставляем по
+            # факту захода (исправлено 04.09.2026). Раньше здесь стояло глухое
+            # `is_unsubscribed=FALSE`: человек просто открыл ссылку воронки — и
+            # попадал в базу рассылки, ничего нам не разрешив. Отсюда база
+            # расходилась с реальностью, и сообщения уходили тем, кому ВК их
+            # всё равно не доставит.
+            #
+            # ⚠️ None («спросить не вышло») НЕ трактуем как «нельзя»: строку
+            # тогда просто не трогаем. Иначе сбой сети вычищал бы людей из
+            # базы рассылки.
+            from app.services.vk_api import is_messages_allowed
+            from app.services.channels import get_client_vk_token as _get_vk_token
+            vk_token = await _get_vk_token(client_id, db)
+            group_id_num = await db.fetchval(
+                """SELECT (ch.platform_meta->>'vk_group_id')::bigint
+                     FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.id = $1""",
+                cc_id,
             )
+            allowed = None
+            if vk_token and group_id_num:
+                allowed = await is_messages_allowed(int(group_id_num), int(vk_id), token=vk_token)
+            if allowed is True:
+                await db.execute(
+                    """INSERT INTO platform_user_channels
+                           (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
+                       VALUES ($1, $2, FALSE, NOW())
+                       ON CONFLICT (platform_user_id, client_channel_id)
+                       DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
+                    pu_id, cc_id,
+                )
+            elif allowed is False:
+                # Права нет — заводим строку отписанной, чтобы человек был
+                # известен, но в рассылку не попадал.
+                await db.execute(
+                    """INSERT INTO platform_user_channels
+                           (platform_user_id, client_channel_id, is_unsubscribed, unsubscribed_at)
+                       VALUES ($1, $2, TRUE, NOW())
+                       ON CONFLICT (platform_user_id, client_channel_id) DO NOTHING""",
+                    pu_id, cc_id,
+                )
     except Exception as e:
         log.warning("run_started_vk: register subscription failed: %s", e)
 

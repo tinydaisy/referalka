@@ -64,6 +64,13 @@ async def enable_long_poll(ctx: GroupCtx) -> None:
         "message_edit": 0,
         "message_event": 1,
         "message_typing_state": 0,
+        # ⚠️ Вступление и выход из сообщества. Обработчики (handle_group_join /
+        # handle_group_leave) были написаны давно, а события у ВКонтакте НЕ
+        # запрашивались — то есть до нас они не доходили вовсе, и подписчики
+        # сообщества в базе появлялись только побочно, через заходы в Mini App.
+        # Это ровно то, что в Telegram делает my_chat_member.
+        "group_join": 1,
+        "group_leave": 1,
         # message_read нужен для статистики прочтений рассылок — при открытии
         # юзером чата с сообществом VK кидает событие с last_message_id, по
         # которому мы помечаем broadcast_log.read_at для всех сообщений
@@ -1028,6 +1035,36 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             await vk_send_message(int(user_id), welcome_text, keyboard=keyboard, token=ctx.token)
     except Exception as e:
         logger.warning(f"VK welcome on message_allow failed for user={user_id}: {e}")
+
+
+async def handle_group_leave(event: dict, db, ctx: GroupCtx) -> None:
+    """group_leave: человек вышел из СООБЩЕСТВА (со стены).
+
+    ⚠️⚠️ РАЗРЕШЕНИЕ ПИСАТЬ НЕ ТРОГАЕМ. Выход из сообщества и запрет сообщений —
+    разные права ВКонтакте: человек может уйти со стены и продолжать получать
+    личные сообщения (и наоборот). Снимать здесь `is_unsubscribed` значит
+    молча выкинуть его из базы рассылки, хотя писать ему по-прежнему можно.
+    Отписку от сообщений ставит только `message_deny`.
+
+    Пишем факт в лог входов — по нему видно движение подписчиков сообщества,
+    как это делает handle_group_join при вступлении.
+    """
+    user_id = event.get("user_id")
+    if not user_id:
+        return
+    # self=1 — ушёл сам, self=0 — исключён администратором.
+    self_leave = event.get("self")
+    logger.info("VK group_leave group=%s user=%s self=%s", ctx.group_id, user_id, self_leave)
+    try:
+        from app.services.entry_link_log import log_entry_link
+        await log_entry_link(
+            db, platform="vk", platform_user_id=user_id, raw_param=None,
+            launch_params={"src": "group_leave", "group_id": ctx.group_id,
+                           "self": self_leave},
+        )
+    except Exception:
+        # Лог не должен ронять обработку события.
+        pass
 
 
 async def handle_message_deny(event: dict, db, ctx: GroupCtx) -> None:
@@ -2205,28 +2242,18 @@ async def handle_group_join(event: dict, db, ctx: GroupCtx) -> None:
         first_name=(user_info or {}).get("first_name") or None,
         last_name=(user_info or {}).get("last_name") or None,
     )
-    # Подписка на VK-канал клиента (тот же паттерн, что в handle_message_allow).
-    cc_id = await db.fetchval(
-        """SELECT cc.id FROM client_channels cc
-            WHERE cc.client_id = $1 AND cc.channel_id = $2 LIMIT 1""",
-        ctx.client_id, ctx.channel_id,
-    )
-    if cc_id:
-        pu_id = await db.fetchval(
-            """SELECT pu.id FROM platform_users pu
-                JOIN contacts c_own ON c_own.id = pu.contact_id
-                WHERE c_own.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
-            ctx.client_id, str(user_id),
-        )
-        if pu_id:
-            await db.execute(
-                """INSERT INTO platform_user_channels (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
-                   VALUES ($1, $2, FALSE, NOW())
-                   ON CONFLICT (platform_user_id, client_channel_id)
-                   DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
-                pu_id, cc_id,
-            )
-    logger.info("VK group_join: group=%s user=%s recorded", ctx.group_id, user_id)
+    # ⚠️⚠️ РАЗРЕШЕНИЕ ПИСАТЬ ЗДЕСЬ НЕ СТАВИМ (исправлено 04.09.2026).
+    # Раньше вступление в сообщество помечалось как `is_unsubscribed=FALSE`,
+    # то есть человек попадал в базу рассылки, ничего нам не разрешив. Это
+    # РАЗНЫЕ права ВКонтакте: подписка на стену ≠ право писать в личку.
+    # Отсюда база рассылки расходилась с реальностью, и сообщения уходили
+    # тем, кому ВК их всё равно не доставит.
+    #
+    # Флаг ставит ТОЛЬКО `message_allow` (и снимает `message_deny`) — как
+    # my_chat_member в Telegram. Контакт и идентичность выше по функции
+    # заводятся как и раньше: человек нам известен, просто писать ему нельзя.
+    logger.info("VK group_join: group=%s user=%s recorded (право писать НЕ выдаём)",
+                ctx.group_id, user_id)
 
 
 async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
@@ -2246,7 +2273,9 @@ async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
             await handle_message_read(obj, db, ctx)
         elif t == "group_join":
             await handle_group_join(obj, db, ctx)
-        # message_reply, group_leave — не обрабатываем пока
+        elif t == "group_leave":
+            await handle_group_leave(obj, db, ctx)
+        # message_reply — не обрабатываем пока
     except Exception as e:
         logger.exception(f"VK process_event group={ctx.group_id} type={t} failed: {e}")
 

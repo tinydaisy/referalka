@@ -459,6 +459,36 @@ async def send_message_with_media(
     return await send_message(user_vk_id, text, token=token, keyboard=keyboard, attachment=attachment)
 
 
+async def is_messages_allowed(group_id: int, vk_id: int, *, token: str | None = None) -> bool | None:
+    """Разрешил ли человек сообществу писать ему в личку. None — спросить не вышло.
+
+    ⚠️⚠️ ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ про это право: оно живёт на стороне
+    ВКонтакте, а не у нас. Своей записи в `platform_user_channels` доверять
+    нельзя — она расходится с реальностью в обе стороны (события `message_deny`
+    ВК доставляет ненадёжно, а раньше мы и сами помечали «разрешил» тех, кто
+    просто вступил в сообщество или зашёл по ссылке воронки).
+
+    ⚠️ НЕ ПУТАТЬ с `is_user_member_of_group`: подписка на стену и право писать
+    в личку — разные права. Человек бывает подписан и без права, и наоборот.
+
+    ⚠️ None ≠ False. Не смогли спросить (сеть, лимиты, нет токена) — вызывающий
+    сам решает, что делать; трактовать как «нельзя писать» и вычищать человека
+    из базы рассылки на этом основании нельзя.
+    """
+    try:
+        resp = await vk_call(
+            "messages.isMessagesFromGroupAllowed",
+            {"group_id": group_id, "user_id": vk_id},
+            token=token,
+        )
+        if isinstance(resp, dict) and "is_allowed" in resp:
+            return bool(int(resp.get("is_allowed") or 0))
+        return None
+    except Exception as e:
+        logger.warning(f"VK isMessagesFromGroupAllowed failed group={group_id} user={vk_id}: {e}")
+        return None
+
+
 async def is_user_member_of_group(group_id: int, vk_id: int, *, token: str | None = None) -> bool | None:
     """Проверить подписан ли пользователь на сообщество. Аналог Telegram getChatMember."""
     try:

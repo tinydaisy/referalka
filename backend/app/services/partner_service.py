@@ -410,14 +410,39 @@ async def run_started_partner_vk(run_id: int, vk_id: str, username: Optional[str
             client_id, str(vk_id),
         )
         if pu_id:
-            await db.execute(
-                """INSERT INTO platform_user_channels (platform_user_id, client_channel_id,
-                                                       is_unsubscribed, subscribed_at)
-                   VALUES ($1, $2, FALSE, NOW())
-                   ON CONFLICT (platform_user_id, client_channel_id)
-                   DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
-                pu_id, cc_id,
+            # ⚠️ «Разрешил писать» спрашиваем у ВКонтакте, а не выставляем по
+            # факту захода (см. is_messages_allowed): человек мог просто открыть
+            # партнёрскую ссылку, ничего не разрешив. None («спросить не вышло»)
+            # — строку не трогаем.
+            from app.services.vk_api import is_messages_allowed
+            from app.services.channels import get_client_vk_token as _get_vk_token
+            vk_token = await _get_vk_token(client_id, db)
+            group_id_num = await db.fetchval(
+                """SELECT (ch.platform_meta->>'vk_group_id')::bigint
+                     FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.id = $1""",
+                cc_id,
             )
+            allowed = None
+            if vk_token and group_id_num:
+                allowed = await is_messages_allowed(int(group_id_num), int(vk_id), token=vk_token)
+            if allowed is True:
+                await db.execute(
+                    """INSERT INTO platform_user_channels (platform_user_id, client_channel_id,
+                                                           is_unsubscribed, subscribed_at)
+                       VALUES ($1, $2, FALSE, NOW())
+                       ON CONFLICT (platform_user_id, client_channel_id)
+                       DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
+                    pu_id, cc_id,
+                )
+            elif allowed is False:
+                await db.execute(
+                    """INSERT INTO platform_user_channels (platform_user_id, client_channel_id,
+                                                           is_unsubscribed, unsubscribed_at)
+                       VALUES ($1, $2, TRUE, NOW())
+                       ON CONFLICT (platform_user_id, client_channel_id) DO NOTHING""",
+                    pu_id, cc_id,
+                )
 
     await db.execute(
         """UPDATE partner_runs
