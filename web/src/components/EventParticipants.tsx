@@ -397,8 +397,12 @@ function ContactCard({
         className="flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={() => setOpen(v => !v)}
       >
-        {/* Имя — главная колонка */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Имя — главная колонка.
+            ⚠️ `pr-3` обязателен: ники площадок (`@rendarevskaya_coach`) стоят в
+            строке с `flex-wrap` и упираются в самый край колонки — вплотную к
+            соседней «В чьей базе», текст читался как склеенный. Отступ даёт
+            зазор; `min-w-0` оставляем, иначе усечение не сработает. */}
+        <div className="flex items-center gap-3 flex-1 min-w-0 pr-3">
           <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-sm font-medium text-gray-500">
             {initial}
           </div>

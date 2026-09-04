@@ -709,7 +709,28 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
     rows = await db.fetch(
         """SELECT o.client_id,
                   COALESCE(c.brand_name, c.name) AS name,
-                  """ + brought_count_sql("o.client_id") + """ AS brought
+                  """ + brought_count_sql("o.client_id") + """ AS brought,
+                  -- ⚠️ ДЕТАЛИЗАЦИЯ: из чего складывается число «привёл».
+                  -- Клиент видел итог и не понимал, откуда он берётся, —
+                  -- пришли ли люди по ссылке или просто были в его базе.
+                  --
+                  -- «По реф-коду» — перешёл по ссылке этого организатора
+                  -- (или ссылке его спикера: реф-код принадлежит контакту
+                  -- в его базе).
+                  (SELECT count(*) FROM event_participants ep
+                     JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                                      OR rc.merged_ref_codes ? ep.referrer_ref_code
+                    WHERE ep.event_id = $1 AND ep.is_registered
+                      AND rc.client_id = o.client_id) AS by_ref,
+                  -- «Из базы, без ссылки» — контакт принадлежит этому
+                  -- организатору, но реф-метки нет: человек зашёл сам —
+                  -- из его бота, из календаря событий, по ссылке без метки.
+                  -- В рейтинг такие НЕ идут: приглашения не было.
+                  (SELECT count(*) FROM event_participants ep
+                     JOIN contacts oc ON oc.id = ep.contact_id
+                    WHERE ep.event_id = $1 AND ep.is_registered
+                      AND oc.client_id = o.client_id
+                      AND COALESCE(ep.referrer_ref_code, '') = '') AS self_came
              FROM event_owners o
              LEFT JOIN clients c ON c.id = o.client_id
             WHERE o.event_id = $1 AND o.status = 'accepted'
@@ -729,6 +750,30 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
         d["is_me"] = (r["client_id"] == me)
         out.append(d)
 
+    # ── Поимённый список рефоводов ─────────────────────────────────────
+    # ⚠️ Рефовод ≠ организатор: чаще всего это СПИКЕР или обычный участник,
+    # раздающий свою ссылку. Организатору важно видеть, кто именно приводит
+    # людей, — по одной итоговой цифре этого не понять.
+    # «Чья база» — клиент, которому принадлежит контакт рефовода: так видно,
+    # чьей команде засчитывается его работа.
+    referrers = await db.fetch(
+        """SELECT rc.id AS contact_id,
+                  rc.name,
+                  rc.ref_code,
+                  rc.client_id,
+                  COALESCE(cl.brand_name, cl.name) AS client_name,
+                  count(*) FILTER (WHERE ep.is_registered) AS brought,
+                  count(*) AS clicked
+             FROM event_participants ep
+             JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                              OR rc.merged_ref_codes ? ep.referrer_ref_code
+             LEFT JOIN clients cl ON cl.id = rc.client_id
+            WHERE ep.event_id = $1
+              AND COALESCE(ep.referrer_ref_code, '') <> ''
+            GROUP BY rc.id, rc.name, rc.ref_code, rc.client_id, cl.brand_name, cl.name
+            ORDER BY 6 DESC, 7 DESC, rc.name""",
+        event_id)
+
     return {
         "organizers": out,
         "participants_total": participants_total,
@@ -737,6 +782,7 @@ async def collab_attraction_report(event_id: int, client=Depends(get_current_cli
         # бота, из списка событий, по ссылке без pid). Их никто себе не
         # засчитывает — показываем отдельно, чтобы цифры сходились.
         "without_referrer": participants_total - sum(brought_list),
+        "referrers": [dict(r) for r in referrers],
     }
 
 
