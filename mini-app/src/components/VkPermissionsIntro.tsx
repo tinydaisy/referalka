@@ -29,7 +29,7 @@ import { getEventLanding, vkMessagesAllowed } from '../api'
 const STORAGE_PREFIX = 'vk_perm_intro_'
 
 /** Пауза перед показом: человек успевает увидеть, куда попал. */
-const SHOW_DELAY_MS = 3000
+const SHOW_DELAY_MS = 5000
 
 /**
  * Зачем разрешать — своими словами под каждый тип события.
