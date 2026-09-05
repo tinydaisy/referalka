@@ -1,11 +1,11 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { usePathname } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio } from 'lucide-react'
 import WebinarAnalytics from './WebinarAnalytics'
-import RecordingCutter from '@/components/webinar/RecordingCutter'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -1080,11 +1080,16 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
 
 // ─────────────────────────── записи эфира + обзор батлов ───────────────────────────
 function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
+  // ⚠️ Турнир открывается по /dashboard/tournaments, конференция по
+  // /dashboard/conferences — страница одна, определяем раздел по адресу.
+  // Жёсткий /conferences увёл бы турнир в чужой раздел.
+  const pathname = usePathname()
+  const basePath = pathname?.startsWith('/dashboard/tournaments')
+    ? '/dashboard/tournaments' : '/dashboard/conferences'
   const [recs, setRecs] = useState<any[]>([])
   const [battles, setBattles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [viewer, setViewer] = useState<any | null>(null)
-  const [cutter, setCutter] = useState<any | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1134,10 +1139,13 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                     <button onClick={() => setViewer(r)} className="btn-gold text-sm">▶ Смотреть</button>
                   )}
                   {r.status === 'ready' && r.url && (
-                    <button onClick={() => setCutter(r)}
-                            className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">
+                    // ⚠️ Отдельная СТРАНИЦА, не модалка: там плеер, таймлайн и
+                    // список кусков — работа на десятки минут, её нужно уметь
+                    // отложить, сохранить адрес и вернуться.
+                    <a href={`${basePath}/${eventId}/recordings/${r.id}?day=${day}`}
+                       className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">
                       ✂️ Нарезать
-                    </button>
+                    </a>
                   )}
                   {r.status === 'ready' && r.url && (
                     <a href={r.url} download className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">Скачать</a>
@@ -1180,10 +1188,6 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                          onClose={() => setViewer(null)} />
       )}
 
-      {cutter && (
-        <RecordingCutter eventId={eventId} day={day} rec={cutter}
-                         onClose={() => { setCutter(null); load() }} />
-      )}
     </div>
   )
 }
