@@ -449,6 +449,10 @@ async function sendVkEventStart(
     return
   }
 
+  // ⚠️ Отметка времени — по ней ветка открытия события (openEvent) гасит
+  // повторное окно в ближайшие 20 секунд. Именно ВРЕМЯ, а не «навсегда»:
+  // вечная отметка стояла раньше и гасила запрос насовсем.
+  ;(window as any).__vkPermsAt = Date.now()
   adapter.requestWriteAccess({ vkGroupId: groupId }, async () => {
     // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
     // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
@@ -804,6 +808,50 @@ export default function App() {
     setEventSlug(slug)
     setPendingOpen(false)
 
+    // ⚠️⚠️ ЧЕЛОВЕК ОТКРЫЛ СОБЫТИЕ — здесь и просим права.
+    //
+    // `sendVkEventStart` отрабатывает один раз при ЗАПУСКЕ приложения. Если
+    // ВКонтакте не передал ссылку (а он её часто не передаёт — проверено на
+    // проде 05.09.2026: пустые hash, bridge_ref, url_ref, href), приложение
+    // открывается на календаре, и событие человек открывает уже руками. К
+    // этому моменту та функция давно отработала — и права по ссылке события
+    // не запрашивались вовсе.
+    //
+    // ⚠️ На ГОЛОМ входе этот код не выполняется: он висит на ОТКРЫТИИ
+    // события. Так подписка и не попадает на путь модератора, за который
+    // сняли с публикации (п.1.1.2).
+    //
+    // ⚠️ Порядок как в рабочей версии b9faac81: подписка ВНУТРИ колбэка
+    // requestWriteAccess. Все другие сочетания за 05.09.2026 проверены и не
+    // работают — см. комментарий в sendVkEventStart.
+    if (getPlatformName() === 'vk') {
+      ;(async () => {
+        const a = getPlatform()
+        if (!a.launchParams?.vk_user_id) return
+        // Защита от повтора: запрос уже уходил недавно (например, из
+        // sendVkEventStart, когда ссылка всё-таки дошла).
+        const lastAsk = Number((window as any).__vkPermsAt || 0)
+        if (lastAsk && Date.now() - lastAsk < 20000) return
+        ;(window as any).__vkPermsAt = Date.now()
+        let gid = Number(a.launchParams?.vk_group_id || 0)
+        if (!gid && a.launchParams?.vk_app_id) {
+          try {
+            const r: any = await fetch(
+              `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
+            ).then(x => x.ok ? x.json() : null)
+            if (r?.group_id) gid = Number(r.group_id)
+          } catch { /* skip */ }
+        }
+        if (!gid) return
+        try {
+          a.requestWriteAccess({ vkGroupId: gid }, () => {
+            if (a.joinGroup) {
+              try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
+            }
+          })
+        } catch { /* skip */ }
+      })()
+    }
   }
 
   // Клиент, узнанный ИЗ КОНТАКТА в ссылке (веб-витрина: /event/{slug}?c=N).

@@ -496,6 +496,43 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     // сети `redirectToExternalLanding` уходит на запасной `landing_url`, и
     // человека унесло бы на сторонний сайт вопреки настройке.
     if (event.registration_closed) return
+    // ⚠️⚠️ ПРАВА ВКОНТАКТЕ ПРОСИМ ДО РЕДИРЕКТА НА ЛЕНДИНГ.
+    //
+    // Событие с режимом «лендинг» уводит webview на страницу регистрации —
+    // Mini App при этом закрывается, и показать системные окна ВК уже некому.
+    // Отсюда «по ссылке не приходит ни одного окна» при том, что событие
+    // открывается (жалоба владельца 05.09.2026: мелькает форма, потом лендинг).
+    //
+    // ⚠️ Отметка времени общая с App.tsx: если права уже спрашивали в
+    // последние 20 секунд, второй раз не показываем.
+    if (getPlatformName() === 'vk') {
+      const lastAsk = Number((window as any).__vkPermsAt || 0)
+      if (!lastAsk || Date.now() - lastAsk > 20000) {
+        ;(window as any).__vkPermsAt = Date.now()
+        ;(async () => {
+          const { getPlatform } = await import('../platform')
+          const a = getPlatform()
+          let gid = Number(a.launchParams?.vk_group_id || 0)
+          if (!gid && a.launchParams?.vk_app_id) {
+            try {
+              const r: any = await fetch(
+                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
+              ).then(x => x.ok ? x.json() : null)
+              if (r?.group_id) gid = Number(r.group_id)
+            } catch { /* skip */ }
+          }
+          if (!gid) return
+          // Порядок как в рабочей версии: подписка внутри колбэка разрешения.
+          try {
+            a.requestWriteAccess({ vkGroupId: gid }, () => {
+              if (a.joinGroup) {
+                try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
+              }
+            })
+          } catch { /* skip */ }
+        })()
+      }
+    }
     // ⚠️ Спрашиваем сервер ВСЕГДА, а не только при заполненном стороннем
     // адресе: способ регистрации может быть «Плюсоновский лендинг», у него
     // своего адреса в событии нет. Сервер вернёт пусто — остаёмся здесь.
