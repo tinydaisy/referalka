@@ -251,6 +251,22 @@ async def create_order(
     if referrer_contact_id and referrer_contact_id == contact_id:
         resolved_ref, referrer_contact_id = None, None
 
+    # Партнёрка: закрепление за партнёром (миграция 346).
+    #
+    # ⚠️⚠️ Событийное `referrer_ref_code` мы НЕ ТРОГАЕМ — там «кто привёл на
+    # это событие» (любой человек, на этом держатся подарки и зачёт). Партнёрка
+    # живёт в своём поле `contacts.partner_id` и о рефералке события не знает.
+    # Получателя вознаграждения по заказу события определяем в момент оплаты,
+    # по правилам режима (см. _accrue_partner_reward).
+    #
+    # ⚠️ Закрепление пишется в ОБОИХ режимах: иначе переключение кабинета на
+    # пассивный начиналось бы «с нуля».
+    if contact_id and resolved_ref:
+        from app.services.partner_binding import try_bind_by_ref_code
+        await try_bind_by_ref_code(
+            db, client_id=t["client_id"], contact_id=contact_id,
+            ref_code=resolved_ref)
+
     price = int(t["price"] or 0)
 
     # ── Бесплатный тариф: заказа нет, сразу регистрируем ─────────────────
@@ -759,8 +775,70 @@ async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) 
     except Exception as e:
         logger.warning("Номинации по заказу %s не выданы: %s", order_id, e)
 
+    # Партнёрское вознаграждение (миграция 348).
+    # ⚠️ Начисление рождается ИМЕННО ЗДЕСЬ, в момент подтверждения оплаты
+    # (решение № 27) — и больше нигде. Кода, который ходит по истории заказов
+    # и начисляет задним числом, не существует и существовать не должно.
+    # ⚠️ Получатель уже записан в participant.referrer_ref_code при создании
+    # заказа (там жила развилка по режиму выплат) — здесь только читаем.
+    await _accrue_partner_reward(db, order_id)
+
     logger.info("Заказ %s оплачен (%s)", order_id, provider)
     return {"ok": True, "paid": True}
+
+
+async def _accrue_partner_reward(db, order_id: int) -> None:
+    """Начисление партнёру по оплаченному тарифу события.
+
+    ⚠️⚠️ У события своего поля «кому платим» НЕТ — и заводить его не стали.
+    `event_participants.referrer_ref_code` хранит «КТО ПРИВЁЛ» (любой человек,
+    на этом держатся подарки и зачёт), а получателя вознаграждения решает
+    режим выплат. Поэтому здесь мы отдаём приведшего в `resolve_reward_recipient`
+    как ИСХОДНЫЕ ДАННЫЕ, а не как готового получателя:
+
+        пассивный → платим ЗАКРЕПЛЁННОМУ партнёру покупателя;
+        активный  → приведшему, и только если он партнёр.
+
+    Взять поле напрямую было бы ошибкой: в пассивном режиме деньги ушли бы
+    приведшему на это событие вместо закреплённого партнёра, а если в поле
+    лежит не-партнёр — начисления не возникло бы вовсе.
+
+    Своих исключений не бросаем: оплата принята, и сорвавшееся начисление не
+    должно превращаться в ошибку вебхука.
+    """
+    try:
+        from app.services.partner_accrual import (
+            accrue_for_order, resolve_reward_recipient,
+        )
+
+        row = await db.fetchrow(
+            """SELECT o.amount, o.tariff_id, o.contact_id,
+                      ep.referrer_ref_code,
+                      (SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = o.event_id AND eo.status = 'accepted'
+                        ORDER BY eo.id LIMIT 1) AS client_id
+                 FROM event_participant_tariffs o
+                 LEFT JOIN event_participants ep
+                        ON ep.event_id = o.event_id AND ep.contact_id = o.contact_id
+                WHERE o.id = $1""",
+            order_id,
+        )
+        if not row or not row["client_id"] or not row["contact_id"]:
+            return
+
+        recipient = await resolve_reward_recipient(
+            db, client_id=row["client_id"], buyer_contact_id=row["contact_id"],
+            referrer_ref_code=row["referrer_ref_code"],
+        )
+
+        await accrue_for_order(
+            db, client_id=row["client_id"], source_kind="event",
+            source_order_id=order_id, buyer_contact_id=row["contact_id"],
+            amount=row["amount"], tariff_id=row["tariff_id"],
+            recipient_ref_code=recipient,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Партнёрское начисление по заказу %s не создано: %s", order_id, e)
 
 
 @webhook_router.post("/leadpay", summary="Оплата тарифа события (LeadPay)")

@@ -145,6 +145,10 @@ class ProductPatch(BaseModel):
     # Категория кабинета. Явный null убирает продукт из категории — поэтому
     # применяется через model_fields_set, а не по «is not None».
     category_id: Optional[int] = None
+    # Участвует ли продукт в партнёрской программе (миграция 347).
+    # ⚠️ Только галочка — вознаграждение задаётся на тарифе или умолчанием
+    # кабинета (решение № 29).
+    partner_enabled: Optional[bool] = None
 
 
 class CategoryIn(BaseModel):
@@ -168,6 +172,10 @@ class TariffIn(BaseModel):
     sort_order: int = 0
     is_active: bool = True
     is_featured: bool = False
+    # Вознаграждение партнёру (миграция 347): 'percent' | 'fixed' | None.
+    # NULL = действует умолчание кабинета.
+    partner_reward_kind: Optional[str] = None
+    partner_reward_value: Optional[float] = None
 
 
 class TariffPatch(BaseModel):
@@ -184,6 +192,19 @@ class TariffPatch(BaseModel):
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
+    partner_reward_kind: Optional[str] = None
+    partner_reward_value: Optional[float] = None
+
+
+def _norm_partner_reward(kind, value):
+    """Вознаграждение партнёру — парой (см. event_tariffs._norm_partner_reward).
+
+    ⚠️ Правило одно на события и продукты, поэтому берём готовую функцию, а не
+    пишем вторую копию: разъедутся — у одного вида сущностей вознаграждение
+    начнёт считаться иначе, чем у другого.
+    """
+    from app.api.event_tariffs import _norm_partner_reward as _impl
+    return _impl(kind, value)
 
 
 def _norm_tariff_discount(kind: Optional[str], value: Optional[int]) -> tuple:
@@ -487,7 +508,7 @@ async def update_product(
     # ⚠️ model_fields_set, а не `is not None`: иначе нельзя очистить поле
     # (обложку, оферту, подзаголовок) — тот же паттерн, что в профиле клиента.
     for col in ("title", "subtitle", "description", "cover_url",
-                "offer_url", "sort_order"):
+                "offer_url", "sort_order", "partner_enabled"):
         if col in fs:
             put(col, getattr(data, col))
 
@@ -626,13 +647,15 @@ async def create_tariff(
         INSERT INTO product_tariffs
             (product_id, code, title, description, excluded_description,
              price, discount_kind, discount_value, pay_url, pay_product_id, order_hint,
-             sort_order, is_active, is_featured)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+             sort_order, is_active, is_featured,
+             partner_reward_kind, partner_reward_value)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
         RETURNING *
         """,
         product_id, code, data.title, data.description, data.excluded_description,
         data.price, d_kind, d_value, data.pay_url, data.pay_product_id, data.order_hint,
         sort_order, data.is_active, data.is_featured,
+        *_norm_partner_reward(data.partner_reward_kind, data.partner_reward_value),
     )
     return with_discount(row)
 
@@ -716,6 +739,16 @@ async def update_tariff(
         d_kind, d_value = _norm_tariff_discount(kind, value)
         put("discount_kind", d_kind)
         put("discount_value", d_value)
+
+    # Вознаграждение партнёру — тоже пара: половина не пройдёт CHECK.
+    if "partner_reward_kind" in fs or "partner_reward_value" in fs:
+        p_kind = (data.partner_reward_kind if "partner_reward_kind" in fs
+                  else cur["partner_reward_kind"])
+        p_val = (data.partner_reward_value if "partner_reward_value" in fs
+                 else cur["partner_reward_value"])
+        p_kind, p_val = _norm_partner_reward(p_kind, p_val)
+        put("partner_reward_kind", p_kind)
+        put("partner_reward_value", p_val)
 
     if not sets:
         return with_discount(cur)

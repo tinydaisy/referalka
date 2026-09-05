@@ -12,6 +12,7 @@ from app.middleware.assistant_permission_guard import assistant_permission_guard
 from app.middleware.email_verification_guard import email_verification_guard_middleware
 from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
+from app.api import partner_program, partner_public
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
 from app.api import webinar_public
@@ -187,6 +188,8 @@ app.include_router(event_landing_public.router)                                #
 app.include_router(client_payment_settings.router,  prefix="/api/v1")           # /api/v1/clients/me/payment-settings — своя платёжная система клиента (миграция 257)
 app.include_router(event_orders.router)                                         # /api/v1/public/event-orders — заказ тарифа события с лендинга
 app.include_router(event_orders.webhook_router)                                 # /api/v1/integrations/client-pay/leadpay — оплата тарифа пришла
+app.include_router(partner_program.router,          prefix="/api/v1")           # /api/v1/partner-program — раздел клиента «Моя партнёрка» (миграции 346-348)
+app.include_router(partner_public.router,           prefix="/api/v1")           # /api/v1/public/partner — кабинет партнёра клиента и регистрация
 app.include_router(event_page_html.router)                                     # GET /event/{slug} — простая серверная HTML-страница события (витрина + реф-кабинет)
 app.include_router(medialift_cabinet_html.router)                              # GET /medialift/me — веб-кабинет участника МедиаЛифта
 app.include_router(events_list_page.router)                                    # GET /o/{client_id} — серверная HTML-страница «Все события клиента» (как HubSelector Mini App)

@@ -610,20 +610,30 @@ export default function App() {
             alreadyAllowed = !!r?.allowed
           } catch { /* показываем окно */ }
         }
-        if (vkId && !alreadyAllowed && !vkIntroWasShown(vkId)) {
-          // ⚠️ Клиента достаём ДО выхода: иначе на экране не будет ни
-          // логотипа, ни названия бренда — разбор startapp идёт ниже, а мы
-          // до него не доходим. Человек должен видеть, к кому он пришёл.
-          if (!detectClientIdFromPath()) {
-            const sp0 = adapter.startParam
-            if (sp0 && (sp0.startsWith('ref') || sp0.startsWith('hub'))) {
-              const cid0 = parseStartParam(sp0).clientId
-              if (cid0) setClientId(cid0)
-            }
-          }
+        // ⚠️⚠️ ТОЛЬКО НА ГОЛОМ ВХОДЕ. Пришёл по ссылке события — окна не
+        // показываем: там человек видит лендинг и права запрашиваются сразу
+        // (решение владельца 05.09.2026).
+        //
+        // ⚠️ Различаем ПО АДРЕСУ СТРАНИЦЫ, а не по startParam: ВКонтакте при
+        // холодном открытии присылает пустую ссылку (проверено на проде), и
+        // условие по ней не срабатывает никогда. Путь `/vk/event/{slug}`
+        // ставит наша навигация — его ВК не трогает.
+        const onEventPage = !!parsePathSlug()
+        if (vkId && !alreadyAllowed && !onEventPage && !vkIntroWasShown(vkId)) {
+          // ⚠️⚠️ ОКНО НЕ ОБРЫВАЕТ ЗАПУСК (05.09.2026).
+          //
+          // Здесь стоял `return`: приложение не грузилось вовсе, пока человек
+          // не нажмёт кнопку. Из-за этого за окном была СЕРАЯ ПУСТОТА вместо
+          // календаря — человек видел просьбу разрешить, не понимая, куда
+          // попал. Модерация ВКонтакте называет это «до просмотра функций»
+          // (п.1.1.2), да и выглядит странно (жалоба владельца со скриншотом).
+          //
+          // Теперь приложение грузится как обычно, а окно всплывает ПОВЕРХ
+          // календаря через паузу — см. VkPermissionsIntro.
+          //
+          // ⚠️ Не возвращать сюда `return`: он же и создавал перезапуск init,
+          // на побочном эффекте которого раньше держались окна прав.
           setVkIntro(true)
-          setLoading(false)
-          return   // продолжим из onContinue — см. ниже
         }
       }
 
@@ -818,22 +828,42 @@ export default function App() {
   const splash = typeof document !== 'undefined' ? document.getElementById('plusson-splash') : null
   if (splash) splash.remove()
 
-  // ⚠️ VK-only: объяснение ПЕРЕД окнами разрешений (правила Mini Apps п.1.1.2).
-  // Стоит ВЫШЕ всех остальных экранов: пока человек не нажал «Продолжить»,
-  // ни один запрос прав не ушёл (шлюз в useEffect выше прервал запуск).
-  if (vkIntro) {
-    return (
-      <VkPermissionsIntro
-        vkUserId={getPlatform().launchParams?.vk_user_id || ''}
-        clientId={effectiveClientId}
-        onContinue={() => {
-          setVkIntro(false)
-          setLoading(true)
-          setVkIntroPassed(n => n + 1)   // перезапуск init, теперь без шлюза
-        }}
-      />
-    )
-  }
+  // ⚠️⚠️ VK-only: окно-объяснение ПЕРЕД системным запросом прав (п.1.1.2).
+  //
+  // Рисуется ПОВЕРХ приложения, а не вместо него: раньше здесь стоял
+  // `return <VkPermissionsIntro/>`, и за окном была серая пустота — человек
+  // видел просьбу разрешить, не понимая, куда попал. Модерация называет это
+  // «до просмотра функций».
+  //
+  // ⚠️ Не возвращать обратно к `if (vkIntro) return <...>`.
+  const vkPermModal = vkIntro ? (
+    <VkPermissionsIntro
+      vkUserId={getPlatform().launchParams?.vk_user_id || ''}
+      clientId={effectiveClientId}
+      onContinue={async () => {
+        setVkIntro(false)
+        // Системные окна ВКонтакте. Приложение уже загружено — перезапускать
+        // init не нужно, поэтому счётчика-«повтори запуск» здесь нет.
+        const a = getPlatform()
+        let gid = Number(a.launchParams?.vk_group_id || 0)
+        // При голом входе ВК номер сообщества не передаёт — добираем сами,
+        // иначе окно не откроется вовсе.
+        if (!gid && a.launchParams?.vk_app_id) {
+          try {
+            const r: any = await fetch(
+              `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
+            ).then(x => x.ok ? x.json() : null)
+            if (r?.group_id) gid = Number(r.group_id)
+          } catch { /* skip */ }
+        }
+        if (!gid) return
+        // ⚠️ Только разрешение на сообщения. Подписки здесь НЕТ: это голый
+        // вход, путь модератора, и просьба подписаться тут — причина снятия
+        // с публикации 01.09.2026 (п.1.1.2).
+        try { a.requestWriteAccess({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
+      }}
+    />
+  ) : null
 
   // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {
@@ -863,6 +893,7 @@ export default function App() {
           onOpenEvent={openEvent}
         />
         {pendingOpen && <SpinnerOverlay />}
+      {vkPermModal}
       </>
     )
   }
@@ -872,6 +903,7 @@ export default function App() {
       <>
         <Hub clientId={effectiveClientId} tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
         {pendingOpen && <SpinnerOverlay />}
+      {vkPermModal}
       </>
     )
   }
@@ -879,6 +911,7 @@ export default function App() {
     <>
       <HubSelector tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
       {pendingOpen && <SpinnerOverlay />}
+      {vkPermModal}
     </>
   )
 }

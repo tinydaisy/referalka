@@ -180,6 +180,11 @@ class UpdateEventRequest(BaseModel):
     # лендинг-конструктор, сторонний сайт) показывается страница-заглушка:
     # афиша до старта + описание + крупный текст + необязательная кнопка.
     registration_closed: Optional[bool] = None
+    # Участвует ли событие в партнёрской программе клиента (миграция 347).
+    # ⚠️ ТОЛЬКО галочка: процент задаётся на тарифе или умолчанием кабинета
+    # (решение № 29). Промежуточного уровня «процент на событии» нет — у
+    # разных тарифов одного события разная маржинальность.
+    partner_enabled: Optional[bool] = None
     pre_reg_text: Optional[str] = None
     pre_reg_btn_label: Optional[str] = None
     pre_reg_btn_url: Optional[str] = None
@@ -879,7 +884,7 @@ async def copy_event(
                   skip_contact_form, landing_cta_label, landing_cta_repeat, registration_mode,
                   person_wording,
                   registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
-                  pre_reg_poster_url)
+                  pre_reg_poster_url, partner_enabled)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
@@ -889,7 +894,7 @@ async def copy_event(
                        $19,$20,
                        $21,$22,
                        $23,$24,$25,$26,$27,
-                       $28,$29,$30,$31,$32)
+                       $28,$29,$30,$31,$32,$33)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -924,6 +929,11 @@ async def copy_event(
             src.get('pre_reg_btn_label'),
             src.get('pre_reg_btn_url'),
             src.get('pre_reg_poster_url'),
+            # ⚠️ Участие в партнёрке переносим: копию делают для следующего
+            # захода, и заново вспоминать про галочку клиент не обязан. На
+            # `registration_mode` этот же недосмотр уже ловили — копия молча
+            # уезжала на дефолт вместо настройки оригинала.
+            src.get('partner_enabled') or False,
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

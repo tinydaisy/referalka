@@ -650,6 +650,25 @@ export const api = {
   },
 
   // База оферт клиента (миграция 249). Гейт — фича offers.
+  // Своя партнёрская программа клиента (миграции 346–348).
+  // ⚠️ Не путать с api.referrals.* — там ПЛЮСОН платит клиенту кэшбэк,
+  // здесь клиент платит своим партнёрам сам.
+  partnerProgram: {
+    settings: () => request('/api/v1/partner-program/settings'),
+    saveSettings: (data: any) =>
+      request('/api/v1/partner-program/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+    partners: () => request('/api/v1/partner-program/partners'),
+    updatePartner: (id: number, data: any) =>
+      request(`/api/v1/partner-program/partners/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    // Отмечает выплату: закрывает начисления, накопленные НА МОМЕНТ нажатия.
+    payout: (id: number) =>
+      request(`/api/v1/partner-program/partners/${id}/payout`, { method: 'POST' }),
+    people: (id: number) => request(`/api/v1/partner-program/partners/${id}/people`),
+    sales: (partnerId?: number) =>
+      request(`/api/v1/partner-program/sales${partnerId ? `?partner_id=${partnerId}` : ''}`),
+    payouts: () => request('/api/v1/partner-program/payouts'),
+  },
+
   offers: {
     list: () => request('/api/v1/clients/me/offers'),
     get: (id: number) => request(`/api/v1/clients/me/offers/${id}`),

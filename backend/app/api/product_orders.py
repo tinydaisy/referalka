@@ -246,6 +246,29 @@ async def create_order(
         except Exception as e:
             logger.warning("Реф-код %s не разобран: %s", data.ref_code, e)
 
+    # Партнёрка: закрепление + получатель вознаграждения (миграции 346–348).
+    #
+    # ⚠️ Закрепление пишется В ОБОИХ режимах выплат. Даже в активном: иначе
+    # при переключении кабинета на пассивный у всех окажется пусто, и он
+    # включится «с нуля».
+    #
+    # ⚠️ Это НЕ то же, что first_referrer_contact_id выше. Там «кто привёл»
+    # (любой человек), здесь — «кому платим» (только партнёр).
+    partner_ref_code = None
+    if contact_id:
+        try:
+            from app.services.partner_binding import try_bind_by_ref_code
+            from app.services.partner_accrual import resolve_reward_recipient
+
+            await try_bind_by_ref_code(
+                db, client_id=client_id, contact_id=contact_id,
+                ref_code=data.ref_code)
+            partner_ref_code = await resolve_reward_recipient(
+                db, client_id=client_id, buyer_contact_id=contact_id,
+                referrer_ref_code=data.ref_code)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Партнёрка: получатель по продукту не определён: %s", e)
+
     price = t["price"] or 0
 
     # ── Бесплатный тариф: заказа нет, доступ сразу ──
@@ -264,12 +287,19 @@ async def create_order(
     # ── Платный: создаём заказ ──
     order_id = await db.fetchval(
         """INSERT INTO product_orders
-               (product_id, tariff_id, contact_id, status, source, amount)
-           VALUES ($1, $2, $3, 'unpaid', 'landing', $4)
+               (product_id, tariff_id, contact_id, status, source, amount,
+                referrer_ref_code)
+           VALUES ($1, $2, $3, 'unpaid', 'landing', $4, $5)
            ON CONFLICT (contact_id, tariff_id)
-           DO UPDATE SET ordered_at = NOW(), amount = EXCLUDED.amount
+           DO UPDATE SET ordered_at = NOW(), amount = EXCLUDED.amount,
+                         -- ⚠️ Получателя НЕ перетираем: заказ мог быть создан
+                         -- раньше по чужой ссылке, и подменять того, кому
+                         -- платить, повторным заходом нельзя (№ 13).
+                         referrer_ref_code =
+                             COALESCE(product_orders.referrer_ref_code,
+                                      EXCLUDED.referrer_ref_code)
            RETURNING id""",
-        product_id, t["id"], contact_id, price,
+        product_id, t["id"], contact_id, price, partner_ref_code,
     )
 
     client = dict(t)
@@ -376,7 +406,7 @@ async def mark_product_order_paid(db, order_id: int, provider: str,
     """
     order = await db.fetchrow(
         """SELECT o.id, o.status, o.product_id, o.tariff_id, o.contact_id,
-                  p.client_id
+                  o.amount, o.referrer_ref_code, p.client_id
              FROM product_orders o
              JOIN products p ON p.id = o.product_id
             WHERE o.id = $1""",
@@ -404,6 +434,24 @@ async def mark_product_order_paid(db, order_id: int, provider: str,
             db, order["client_id"], order["contact_id"],
             order["product_id"], order["tariff_id"],
         )
+
+    # Партнёрское вознаграждение (миграция 348).
+    # ⚠️ Только здесь, в момент подтверждения оплаты (№ 27). Получатель уже
+    # записан в product_orders.referrer_ref_code при создании заказа — там
+    # жила развилка по режиму выплат, здесь только читаем (№ 36).
+    # ⚠️ Смысл поля НЕ ТОТ, что у события: тут «кому платим» (только партнёр),
+    # а не «кто привёл».
+    try:
+        from app.services.partner_accrual import accrue_for_order
+        await accrue_for_order(
+            db, client_id=order["client_id"], source_kind="product",
+            source_order_id=order_id, buyer_contact_id=order["contact_id"],
+            amount=order["amount"], tariff_id=order["tariff_id"],
+            recipient_ref_code=order["referrer_ref_code"],
+        )
+    except Exception as e:
+        logger.warning("Партнёрское начисление по заказу продукта %s не создано: %s",
+                       order_id, e)
 
     logger.info("Заказ продукта %s оплачен (%s)", order_id, provider)
     return {"ok": True, "paid": True}

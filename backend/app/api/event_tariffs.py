@@ -89,6 +89,12 @@ class TariffIn(BaseModel):
     # уходит в карточку номинанта, и он отмечает номинации сам в кабинете.
     # NULL = тариф номинаций не открывает.
     nominations_grant: Optional[int] = None
+    # Вознаграждение партнёру (миграция 347): 'percent' | 'fixed' | None.
+    # NULL = действует умолчание кабинета (clients.partner_default_reward_*).
+    # ⚠️ Задаётся именно на ТАРИФЕ, а не на событии: у разных тарифов одного
+    # события разная маржинальность (решение № 29).
+    partner_reward_kind: Optional[str] = None
+    partner_reward_value: Optional[float] = None
 
 
 class TariffPatch(BaseModel):
@@ -116,11 +122,33 @@ class TariffPatch(BaseModel):
     bonus_line_auto: Optional[bool] = None
     # Сколько номинаций премии даёт тариф (миграция 328).
     nominations_grant: Optional[int] = None
+    # Вознаграждение партнёру (миграция 347). Пара полей, как скидка.
+    partner_reward_kind: Optional[str] = None
+    partner_reward_value: Optional[float] = None
 
 
 class TariffsReorder(BaseModel):
     """Порядок тарифов — как клиент расставил в кабинете, так и на лендинге."""
     ids: List[int]
+
+
+def _norm_partner_reward(kind, value):
+    """Пара «вид + размер» вознаграждения партнёру, или (None, None).
+
+    Мусор приводим к «не задано», а не роняем запрос: тогда действует
+    умолчание кабинета — тот же приём, что у скидки и раскладки кнопок.
+    """
+    if kind not in ("percent", "fixed"):
+        return None, None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None, None
+    if v <= 0:
+        return None, None
+    if kind == "percent" and v > 100:
+        return None, None
+    return kind, v
 
 
 def _norm_nominations_grant(value) -> Optional[int]:
@@ -265,6 +293,7 @@ async def list_tariffs(
                   t.sort_order, t.is_active, t.is_featured,
                   t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, t.bonus_trial, t.bonus_tariff_slug, t.bonus_line_auto,
                   t.nominations_grant,
+                  t.partner_reward_kind, t.partner_reward_value,
                   (SELECT name FROM features f WHERE f.id = t.bonus_feature_id) AS bonus_feature_name,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
                      WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
@@ -371,13 +400,15 @@ async def create_tariff(
                                      sort_order, is_active, is_featured,
                                      bonus_feature_id, bonus_days,
                                      bonus_trial, bonus_tariff_slug, bonus_line_auto,
-                                     nominations_grant)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+                                     nominations_grant,
+                                     partner_reward_kind, partner_reward_value)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
            RETURNING id, code, title, description, excluded_description, price,
                      discount_kind, discount_value, pay_url,
                      pay_product_id, order_hint, sort_order, is_active, is_featured,
                      bonus_feature_id, bonus_days, bonus_trial, bonus_tariff_slug,
-                     bonus_line_auto, nominations_grant""",
+                     bonus_line_auto, nominations_grant,
+                     partner_reward_kind, partner_reward_value""",
         event_id, code, data.title.strip(), data.description, data.excluded_description,
         data.price, d_kind, d_value,
         data.pay_url, data.pay_product_id, data.order_hint, sort_order,
@@ -385,6 +416,7 @@ async def create_tariff(
         b_trial, b_tariff,
         True if data.bonus_line_auto is None else bool(data.bonus_line_auto),
         _norm_nominations_grant(data.nominations_grant),
+        *_norm_partner_reward(data.partner_reward_kind, data.partner_reward_value),
     )
     return with_discount(row)
 
@@ -488,6 +520,18 @@ async def update_tariff(
     if "nominations_grant" in fields:
         fields["nominations_grant"] = _norm_nominations_grant(fields["nominations_grant"])
 
+    # Вознаграждение партнёру — ПАРА полей, как скидка. Прислали одно —
+    # дочитываем второе и пишем оба: половина пары (вид без размера) не
+    # пройдёт CHECK, и клиент получил бы невнятную ошибку базы.
+    if "partner_reward_kind" in fields or "partner_reward_value" in fields:
+        cur_p = await db.fetchrow(
+            "SELECT partner_reward_kind, partner_reward_value "
+            "FROM event_tariffs WHERE id = $1", tariff_id)
+        fields["partner_reward_kind"], fields["partner_reward_value"] = \
+            _norm_partner_reward(
+                fields.get("partner_reward_kind", cur_p["partner_reward_kind"]),
+                fields.get("partner_reward_value", cur_p["partner_reward_value"]))
+
     if not fields:
         return {"ok": True}
 
@@ -498,7 +542,8 @@ async def update_tariff(
          RETURNING id, code, title, description, excluded_description, price,
                    discount_kind, discount_value, pay_url,
                    pay_product_id, order_hint, sort_order, is_active, is_featured,
-                   bonus_feature_id, bonus_days, nominations_grant""",
+                   bonus_feature_id, bonus_days, nominations_grant,
+                   partner_reward_kind, partner_reward_value""",
         tariff_id, event_id, *fields.values(),
     )
     return with_discount(row)
