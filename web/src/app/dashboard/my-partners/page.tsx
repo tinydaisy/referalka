@@ -106,7 +106,9 @@ function SettingsTab() {
         partner_default_reward_kind: data.partner_default_reward_kind || null,
         partner_default_reward_value: data.partner_default_reward_value
           ? Number(data.partner_default_reward_value) : null,
-        partner_levels: Number(data.partner_levels) || 1,
+        // ⚠️ Ограничиваем здесь же: у колонки CHECK 1..10, и без обрезки
+        // ввод «50» возвращался ошибкой базы без объяснения.
+        partner_levels: Math.min(10, Math.max(1, Number(data.partner_levels) || 1)),
         partner_level_decay: data.partner_level_decay
           ? Number(data.partner_level_decay) : null,
         partner_payout_mode: data.partner_payout_mode || 'passive',

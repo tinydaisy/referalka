@@ -261,6 +261,11 @@ async def create_order(
     #
     # ⚠️ Закрепление пишется в ОБОИХ режимах: иначе переключение кабинета на
     # пассивный начиналось бы «с нуля».
+    #
+    # ⚠️ Дубль с `upsert_event_participant` (там закрепление стоит для ВСЕХ
+    # путей регистрации) — намеренный: здесь человек оформляет заказ, но
+    # участником ещё не стал, и до оплаты может не дойти. Функция
+    # идемпотентна, второй вызов ничего не меняет.
     if contact_id and resolved_ref:
         from app.services.partner_binding import try_bind_by_ref_code
         await try_bind_by_ref_code(
@@ -812,11 +817,19 @@ async def _accrue_partner_reward(db, order_id: int) -> None:
         )
 
         row = await db.fetchrow(
-            """SELECT o.amount, o.tariff_id, o.contact_id,
+            """SELECT o.amount, o.tariff_id, o.contact_id, o.event_id,
                       ep.referrer_ref_code,
+                      -- ⚠️ Владельца берём с учётом РОЛИ, а не «первого по id»:
+                      -- у коллаб-события в event_owners несколько принятых
+                      -- строк, и соорганизатор мог попасть туда раньше. Это
+                      -- канонический паттерн проекта (events.py:477).
+                      -- Ниже он всё равно уточняется по базе покупателя.
                       (SELECT eo.client_id FROM event_owners eo
                         WHERE eo.event_id = o.event_id AND eo.status = 'accepted'
-                        ORDER BY eo.id LIMIT 1) AS client_id
+                        ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
+                      -- Чей это покупатель на самом деле.
+                      (SELECT c.client_id FROM contacts c WHERE c.id = o.contact_id)
+                          AS buyer_client_id
                  FROM event_participant_tariffs o
                  LEFT JOIN event_participants ep
                         ON ep.event_id = o.event_id AND ep.contact_id = o.contact_id
@@ -826,13 +839,29 @@ async def _accrue_partner_reward(db, order_id: int) -> None:
         if not row or not row["client_id"] or not row["contact_id"]:
             return
 
+        # ⚠️⚠️ В КОЛЛАБЕ платит ТОТ, В ЧЬЕЙ БАЗЕ ЛЕЖИТ ПОКУПАТЕЛЬ, а не «первый
+        # владелец события». Суть коллаборации в том, что каждый организатор
+        # ведёт свою базу и своих партнёров: начисление в чужом кабинете — это
+        # чужие деньги и чужой партнёр, которого там может не быть вовсе.
+        # Проверяем, что база покупателя действительно участвует в событии,
+        # иначе остаёмся на владельце.
+        client_id = row["client_id"]
+        if row["buyer_client_id"] and row["buyer_client_id"] != client_id:
+            owns = await db.fetchval(
+                """SELECT 1 FROM event_owners
+                    WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
+                row["event_id"], row["buyer_client_id"],
+            )
+            if owns:
+                client_id = row["buyer_client_id"]
+
         recipient = await resolve_reward_recipient(
-            db, client_id=row["client_id"], buyer_contact_id=row["contact_id"],
+            db, client_id=client_id, buyer_contact_id=row["contact_id"],
             referrer_ref_code=row["referrer_ref_code"],
         )
 
         await accrue_for_order(
-            db, client_id=row["client_id"], source_kind="event",
+            db, client_id=client_id, source_kind="event",
             source_order_id=order_id, buyer_contact_id=row["contact_id"],
             amount=row["amount"], tariff_id=row["tariff_id"],
             recipient_ref_code=recipient,

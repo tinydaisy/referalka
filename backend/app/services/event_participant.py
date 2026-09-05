@@ -179,6 +179,32 @@ async def upsert_event_participant(
             # Аналитическое поле: его сбой не должен ломать регистрацию.
             logger.warning("first_referrer не записан (contact=%s): %s", contact_id, e)
 
+        # ⚠️⚠️ ПАРТНЁРСКОЕ ЗАКРЕПЛЕНИЕ — ЗДЕСЬ ЖЕ, и это принципиально.
+        # Через эту функцию идут ВСЕ пути регистрации на событие: Mini App,
+        # три бота, веб-форма, вебхуки. Если закреплять только в оформлении
+        # заказа (event_orders), то человек, пришедший по ссылке партнёра на
+        # БЕСПЛАТНОЕ событие или зарегистрировавшийся в боте, за партнёром не
+        # закреплялся бы — а именно такие ссылки (`/l/{slug}?pid=`) партнёру
+        # и выдаются в кабинете.
+        #
+        # ⚠️ Закрепление всё равно возникнет ТОЛЬКО если реф-код принадлежит
+        # зарегистрированному партнёру и место свободно — решает
+        # `try_bind_by_ref_code`. Обычная рефералка события (там любой
+        # участник) сюда не попадает.
+        try:
+            from app.services.partner_binding import try_bind_by_ref_code
+            client_id = await db.fetchval(
+                "SELECT client_id FROM contacts WHERE id = $1", contact_id)
+            if client_id:
+                await try_bind_by_ref_code(
+                    db, client_id=client_id, contact_id=contact_id,
+                    ref_code=referrer_ref_code)
+        except Exception as e:  # noqa: BLE001
+            # Fail-open: партнёрка — надстройка, её сбой не должен ломать
+            # регистрацию человека на событие.
+            logger.warning("Партнёрка: закрепление при регистрации не удалось "
+                           "(contact=%s): %s", contact_id, e)
+
     if became and finalize:
         try:
             from app.services.participant_registration import (

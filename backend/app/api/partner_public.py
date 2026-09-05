@@ -55,6 +55,20 @@ def _cors(response: Response) -> None:
     apply(response)
 
 
+async def _assert_partner_program(db, client_id: int) -> None:
+    """У этого кабинета вообще есть партнёрская программа?
+
+    ⚠️ Нужна именно здесь, в ПУБЛИЧНОМ роутере: `client_id` приходит от
+    браузера, и без проверки посторонний записался бы партнёром в чужой
+    кабинет, где раздела нет вовсе.
+    """
+    from app.services.features import client_has_feature
+
+    if not await client_has_feature(db, client_id, "partner_program"):
+        raise HTTPException(status_code=404,
+                            detail="Партнёрская программа недоступна.")
+
+
 async def _partner_row(db, client_id: int, contact_id: int) -> Optional[dict]:
     row = await db.fetchrow(
         """SELECT p.id, p.payout_mode, p.is_active, p.tax_status, p.accepted_at,
@@ -149,6 +163,13 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
     cid = await _client_by_host(db, request) or data.client_id
     if not cid:
         raise HTTPException(status_code=400, detail="Не удалось определить кабинет")
+
+    # ⚠️⚠️ ГЕЙТ ОБЯЗАТЕЛЕН, хотя эндпоинт публичный. `client_id` приходит телом
+    # запроса, и без проверки любой мог бы стать партнёром ЛЮБОГО кабинета —
+    # включая те, у которых партнёрской программы нет и владелец о ней не
+    # знает. Побочно это ещё и засорение чужой базы: регистрация создаёт
+    # контакт.
+    await _assert_partner_program(db, cid)
 
     if not data.accept:
         raise HTTPException(status_code=400,
@@ -320,13 +341,13 @@ async def partner_miniapp(
         return {"is_partner": False, "cabinet_url": cabinet_url}
 
     mode = await _effective_mode(db, client_id, partner)
-    totals = await db.fetchrow(
-        """SELECT COALESCE(SUM(amount) FILTER (WHERE payout_id IS NULL), 0) AS due,
-                  COUNT(*) AS sales
-             FROM partner_accruals WHERE partner_id = $1""",
-        partner["id"],
-    )
 
+    # ⚠️⚠️ ДЕНЕЖНЫЕ СУММЫ ЗДЕСЬ НЕ ОТДАЁМ. Этот эндпоинт опознаёт человека по
+    # `platform_user_id` из адреса, а подпись `initData` в проекте пока не
+    # проверяется нигде (тот же зазор описан в event_raffle_public). Значит,
+    # зная id партнёра, посторонний прочитал бы его заработок. Ссылки в этом
+    # смысле безобидны — они и так предназначены для распространения, а суммы
+    # видны в кабинете `/my`, где вход по коду на почту.
     ref = partner["ref_code"]
     base = await client_public_link(db, client_id, "")
 
@@ -357,8 +378,6 @@ async def partner_miniapp(
         "is_partner": True,
         "ref_code": ref,
         "payout_mode": mode,
-        "due": float(totals["due"]),
-        "sales_count": int(totals["sales"]),
         "items": items,
         "cabinet_url": cabinet_url,
     }

@@ -1,8 +1,9 @@
 /**
  * Вкладка «Партнёру» в Хабе (решения № 2, 3, 4).
  *
- * Показывает партнёру его ссылки и заработок, а не-партнёру — приглашение
- * в программу. Кому вкладка вообще видна, решает клиент настройкой
+ * Показывает партнёру его ссылки, а не-партнёру — приглашение в программу.
+ * Заработок здесь НЕ показывается — см. предупреждение ниже.
+ * Кому вкладка вообще видна, решает клиент настройкой
  * `partner_tab_visibility` (см. Hub).
  *
  * ⚠️ Сам кабинет партнёра живёт в вебе (`/my`, раздел «Партнёру»): там вход по
@@ -23,9 +24,6 @@ interface Props {
   clientId: number
   tgUser: any
 }
-
-const money = (v: any) =>
-  (Number(v) || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽'
 
 export default function PartnerTab({ clientId, tgUser }: Props) {
   const [data, setData] = useState<any>(null)
@@ -80,11 +78,10 @@ export default function PartnerTab({ clientId, tgUser }: Props) {
 
   return (
     <div style={{ padding: '16px 16px 24px' }}>
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <Stat label="К выплате" value={money(data.due)} />
-        <Stat label="Продаж" value={String(data.sales_count ?? 0)} />
-      </div>
-
+      {/* ⚠️ Суммы заработка здесь НЕ показываем: этот экран опознаёт человека
+          по id из адреса, без проверки подписи — по такому же запросу чужой
+          прочитал бы его доход. Деньги живут в кабинете, куда вход по коду
+          на почту (кнопка внизу). */}
       <div style={{
         background: '#f4f7fa', borderRadius: 12, padding: 12,
         fontSize: 13, color: '#5b6a78', marginBottom: 18, lineHeight: 1.45,
@@ -136,20 +133,6 @@ export default function PartnerTab({ clientId, tgUser }: Props) {
           Открыть полный кабинет
         </a>
       )}
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{
-      flex: 1, background: '#fff', borderRadius: 12, padding: 12,
-      boxShadow: '0 1px 3px rgba(16,32,48,.08)',
-    }}>
-      <div style={{ fontSize: 11, color: '#8a96a3', textTransform: 'uppercase' }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 18, fontWeight: 800, color: DARK }}>{value}</div>
     </div>
   )
 }

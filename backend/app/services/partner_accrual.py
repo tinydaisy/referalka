@@ -107,6 +107,32 @@ async def resolve_reward_recipient(
         return None
 
 
+async def _source_participates(db, source_kind: str, source_order_id: int) -> bool:
+    """Участвует ли событие/продукт этого заказа в партнёрской программе.
+
+    ⚠️ Спрашиваем у САМОГО ЗАКАЗА, а не у переданного тарифа: тариф мог быть
+    удалён, а заказ остаться — и тогда молчаливое «участвует» открыло бы
+    выплаты по сделке, которую клиент в программу не отдавал.
+    """
+    if source_kind == "event":
+        return bool(await db.fetchval(
+            """SELECT e.partner_enabled
+                 FROM event_participant_tariffs o
+                 JOIN events e ON e.id = o.event_id
+                WHERE o.id = $1""",
+            source_order_id,
+        ))
+    if source_kind == "product":
+        return bool(await db.fetchval(
+            """SELECT p.partner_enabled
+                 FROM product_orders o
+                 JOIN products p ON p.id = o.product_id
+                WHERE o.id = $1""",
+            source_order_id,
+        ))
+    return False
+
+
 async def _ref_code_of_partner(db, partner_id: int) -> Optional[str]:
     return await db.fetchval(
         """SELECT c.ref_code FROM client_partners p
@@ -205,6 +231,13 @@ async def _accrue(db, *, client_id: int, source_kind: str, source_order_id: int,
     if base <= 0:
         # Бесплатные тарифы вознаграждения не дают — платить не с чего,
         # там работают подарки.
+        return 0
+
+    # ⚠️⚠️ ГАЛОЧКА «УЧАСТВУЕТ В ПАРТНЁРКЕ» ПРОВЕРЯЕТСЯ ЗДЕСЬ (решение № 29).
+    # Без этой проверки она не значила бы ничего: клиент включил партнёрку на
+    # одном вебинаре, а платил бы со ВСЕХ своих событий и продуктов — деньги
+    # уходили бы по сделкам, которые он в программу не отдавал.
+    if not await _source_participates(db, source_kind, source_order_id):
         return 0
 
     partner = await find_partner_by_ref_code(

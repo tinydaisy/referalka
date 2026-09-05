@@ -236,7 +236,13 @@ async def create_order(
     # Кто привёл (?pid= в адресе страницы) — фиксируем у контакта.
     if data.ref_code:
         try:
-            ref = await resolve_ref_code(db, client_id, data.ref_code)
+            # ⚠️ Порядок аргументов: (db, ref_code, client_id) — раньше сюда
+            # передавали (db, client_id, ref_code), то есть int уходил в
+            # `WHERE ref_code = $1` при текстовой колонке. asyncpg кидал
+            # DataError, его глотал except ниже, и поле не писалось НИКОГДА.
+            # ⚠️ Функция возвращает ПАРУ (ref_code, contact_id) — раньше
+            # результат использовали как скаляр, и в запрос уехал бы кортеж.
+            _ref_code, ref = await resolve_ref_code(db, data.ref_code, client_id)
             if ref and ref != contact_id:
                 await db.execute(
                     "UPDATE contacts SET first_referrer_contact_id = "

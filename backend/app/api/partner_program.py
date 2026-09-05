@@ -83,10 +83,32 @@ async def update_settings(data: SettingsIn, user=Depends(get_current_client),
 
     if "partner_payout_mode" in fs and data.partner_payout_mode not in ("active", "passive"):
         raise HTTPException(status_code=400, detail="Режим выплат: active или passive.")
-    if "partner_default_reward_kind" in fs and data.partner_default_reward_kind:
-        if data.partner_default_reward_kind not in ("percent", "fixed"):
+
+    # ⚠️ Число уровней проверяем ЗДЕСЬ, иначе запрос упирается в CHECK базы и
+    # клиент видит 500 «не удалось сохранить» без единого объяснения.
+    if "partner_levels" in fs and data.partner_levels is not None:
+        if not (1 <= int(data.partner_levels) <= 10):
             raise HTTPException(status_code=400,
-                                detail="Вид вознаграждения: percent или fixed.")
+                                detail="Уровней вознаграждения: от 1 до 10.")
+
+    # ⚠️ Пара «вид + размер» нормализуется ТЕМ ЖЕ хелпером, что у тарифов —
+    # правило одно, второй копии быть не должно. Мусор (процент больше 100,
+    # ноль, пустое значение при заданном виде) приводится к «не задано», а не
+    # роняет запрос: у CHECK в базе на такие пары нет понятного текста ошибки.
+    if "partner_default_reward_kind" in fs or "partner_default_reward_value" in fs:
+        from app.api.event_tariffs import _norm_partner_reward
+        cur = await db.fetchrow(
+            "SELECT partner_default_reward_kind AS k, partner_default_reward_value AS v "
+            "FROM clients WHERE id = $1", int(user["sub"]))
+        kind = (data.partner_default_reward_kind
+                if "partner_default_reward_kind" in fs else (cur["k"] if cur else None))
+        value = (data.partner_default_reward_value
+                 if "partner_default_reward_value" in fs else (cur["v"] if cur else None))
+        norm_kind, norm_value = _norm_partner_reward(kind, value)
+        data.partner_default_reward_kind = norm_kind
+        data.partner_default_reward_value = norm_value
+        # Пишем ОБА поля: половина пары в базе не пройдёт CHECK.
+        fs = set(fs) | {"partner_default_reward_kind", "partner_default_reward_value"}
 
     sets, args = [], []
     # ⚠️ Через model_fields_set, а не `is not None`: Pydantic не различает
@@ -105,13 +127,9 @@ async def update_settings(data: SettingsIn, user=Depends(get_current_client),
     if not sets:
         return {"ok": True}
 
-    # Пара «вид + значение» пишется целиком: половина пары в базе — это
-    # «непонятно, рубли или проценты» (CHECK такую строку не пропустит).
-    if ("partner_default_reward_kind" in fs) != ("partner_default_reward_value" in fs):
-        raise HTTPException(
-            status_code=400,
-            detail="Вид и размер вознаграждения задаются вместе.")
-
+    # ⚠️ Отдельной проверки парности здесь больше нет: нормализация выше
+    # всегда добавляет в запись ОБА поля пары, так что половина пары до базы
+    # не доходит физически.
     await db.execute(
         f"UPDATE clients SET {', '.join(sets)} WHERE id = $1", client_id, *args)
     return {"ok": True}
