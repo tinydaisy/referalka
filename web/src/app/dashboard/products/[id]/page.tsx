@@ -365,6 +365,19 @@ function MainTab({ product, readOnly, publicBase, onChanged }: {
 /* ─────────────────────────────── Тарифы ─────────────────────────────────── */
 
 function TariffsTab({ productId, readOnly }: { productId: number; readOnly: boolean }) {
+  // Участие продукта в партнёрке (миграция 347).
+  // ⚠️ Без галочки начисления НЕ создаются — проверка стоит в самом
+  // начислении. Колонка с DEFAULT FALSE и без способа включить = мёртвая
+  // партнёрка, поэтому галочка обязана быть в интерфейсе.
+  const { me } = useMe()
+  const hasPartnerProgram = (me?.features || []).includes('partner_program')
+  const [partnerOn, setPartnerOn] = useState(false)
+  const [savingPartner, setSavingPartner] = useState(false)
+  useEffect(() => {
+    api.products.get(productId)
+      .then((p: any) => setPartnerOn(!!p?.partner_enabled))
+      .catch(() => {})
+  }, [productId])
   const [list, setList] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
