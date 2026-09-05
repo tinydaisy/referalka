@@ -413,26 +413,45 @@ async function sendVkEventStart(
   let groupId = Number(lp.vk_group_id || 0)
   if (!groupId && lp.vk_app_id) {
     try {
-      const r: any = await fetch(`/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+      // ⚠️ АДРЕС ОБЯЗАТЕЛЬНО ПОЛНЫЙ (VITE_API_URL). Здесь был относительный
+      // путь — запрос уходил на vk.com вместо нашего сервера, номер сообщества
+      // не приходил, и подписка молча не запрашивалась. Разрешение на ЛС при
+      // этом работало (адаптер берёт номер из launch params сам), поэтому со
+      // стороны выглядело как «просит только рассылку».
+      const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
         .then(x => x.ok ? x.json() : null)
       if (r?.group_id) groupId = Number(r.group_id)
     } catch { /* skip */ }
   }
 
-  adapter.requestWriteAccess({ vkGroupId: groupId }, async () => {
-    // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
-    // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
-    // зафиксирует подписавшегося в базе.
-    if (adapter.joinGroup) {
-      try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
-    }
-    // Регистрируем контакт по VK-аккаунту (имя + vk_id). Email/телефон у VK
-    // НЕ запрашиваем: VKWebAppGetEmail/GetPhoneNumber = «избыточные права»,
-    // из-за которых модерация VK отклоняла приложение (2026-07). Для воронок
-    // и рефералки email/телефон из VK не нужны — контакт создаётся по vk_id.
-    await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
-      parsed.clientId, parsed.utmSource, parsed.initialTab, null, null, parsed.contactId)
+  // ⚠️⚠️ ПОДПИСКА НЕ ВНУТРИ КОЛБЭКА РАЗРЕШЕНИЯ.
+  //
+  // Раньше joinGroup стоял внутри `requestWriteAccess(..., () => {...})`. Если
+  // право на сообщения у человека УЖЕ есть, ВКонтакте своё окно не показывает
+  // и колбэк может не прийти вовсе — подписка тогда не запрашивалась, и со
+  // стороны это выглядело как «подписка исчезла».
+  //
+  // Теперь ждём ответ не дольше 8 секунд и в любом случае идём дальше.
+  await new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => { if (!done) { done = true; resolve() } }
+    setTimeout(finish, 8000)
+    try { adapter.requestWriteAccess({ vkGroupId: groupId }, finish) } catch { finish() }
   })
+
+  // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
+  // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
+  // зафиксирует подписавшегося в базе.
+  if (adapter.joinGroup && groupId) {
+    try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
+  }
+
+  // Регистрируем контакт по VK-аккаунту (имя + vk_id). Email/телефон у VK
+  // НЕ запрашиваем: VKWebAppGetEmail/GetPhoneNumber = «избыточные права»,
+  // из-за которых модерация VK отклоняла приложение (2026-07). Для воронок
+  // и рефералки email/телефон из VK не нужны — контакт создаётся по vk_id.
+  await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
+    parsed.clientId, parsed.utmSource, parsed.initialTab, null, null, parsed.contactId)
 }
 
 async function sendVkEvent(
