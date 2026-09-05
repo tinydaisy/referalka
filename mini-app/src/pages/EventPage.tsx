@@ -505,38 +505,52 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     //
     // ⚠️ Отметка времени общая с App.tsx: если права уже спрашивали в
     // последние 20 секунд, второй раз не показываем.
-    if (getPlatformName() === 'vk') {
-      const lastAsk = Number((window as any).__vkPermsAt || 0)
-      if (!lastAsk || Date.now() - lastAsk > 20000) {
-        ;(window as any).__vkPermsAt = Date.now()
-        ;(async () => {
-          const { getPlatform } = await import('../platform')
-          const a = getPlatform()
-          let gid = Number(a.launchParams?.vk_group_id || 0)
-          if (!gid && a.launchParams?.vk_app_id) {
-            try {
-              const r: any = await fetch(
-                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
-              ).then(x => x.ok ? x.json() : null)
-              if (r?.group_id) gid = Number(r.group_id)
-            } catch { /* skip */ }
-          }
-          if (!gid) return
-          // Порядок как в рабочей версии: подписка внутри колбэка разрешения.
+    // ⚠️⚠️ РЕДИРЕКТ ЖДЁТ ОТВЕТА НА ОКНА. Диагностика на проде 05.09.2026
+    // показала: вызов окон происходит (`perms:call`, номер сообщества есть),
+    // но человек их не видит — редирект на лендинг уводит webview раньше, чем
+    // ВКонтакте успевает их нарисовать.
+    //
+    // Поэтому сначала окна, ответ, и только потом редирект.
+    //
+    // ⚠️ Отсечки «уже спрашивали недавно» тут быть НЕ должно: запрос из
+    // App.tsx уходит в те же секунды и блокировал бы этот — а он главный,
+    // потому что держит редирект.
+    ;(async () => {
+      if (getPlatformName() === 'vk') {
+        const { getPlatform } = await import('../platform')
+        const a = getPlatform()
+        let gid = Number(a.launchParams?.vk_group_id || 0)
+        if (!gid && a.launchParams?.vk_app_id) {
           try {
-            a.requestWriteAccess({ vkGroupId: gid }, () => {
-              if (a.joinGroup) {
-                try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
-              }
-            })
+            const r: any = await fetch(
+              `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
+            ).then(x => x.ok ? x.json() : null)
+            if (r?.group_id) gid = Number(r.group_id)
           } catch { /* skip */ }
-        })()
+        }
+        if (gid) {
+          ;(window as any).__vkPermsAt = Date.now()
+          // Порядок как в рабочей версии: подписка внутри колбэка разрешения.
+          // ⚠️ Страховка 45 с — если ВК не ответит, редирект всё равно уйдёт.
+          await new Promise<void>((resolve) => {
+            let done = false
+            const finish = () => { if (!done) { done = true; resolve() } }
+            setTimeout(finish, 45000)
+            try {
+              a.requestWriteAccess({ vkGroupId: gid }, () => {
+                if (a.joinGroup) {
+                  try { a.joinGroup({ vkGroupId: gid }, () => finish()) } catch { finish() }
+                } else finish()
+              })
+            } catch { finish() }
+          })
+        }
       }
-    }
-    // ⚠️ Спрашиваем сервер ВСЕГДА, а не только при заполненном стороннем
-    // адресе: способ регистрации может быть «Плюсоновский лендинг», у него
-    // своего адреса в событии нет. Сервер вернёт пусто — остаёмся здесь.
-    redirectToExternalLanding((event.landing_url || '').trim())
+      // ⚠️ Спрашиваем сервер ВСЕГДА, а не только при заполненном стороннем
+      // адресе: способ регистрации может быть «Плюсоновский лендинг», у него
+      // своего адреса в событии нет. Сервер вернёт пусто — остаёмся здесь.
+      redirectToExternalLanding((event.landing_url || '').trim())
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event, loading, registered, ended, regFromLanding, noLanding])
 
