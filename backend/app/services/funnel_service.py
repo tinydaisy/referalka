@@ -995,6 +995,33 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
     await notify_organizer_all_channels(client_id, text, db)
 
 
+async def _bind_partner_for_run(db, client_id: int, contact_id: int,
+                                referrer_contact_id) -> None:
+    """Партнёрское закрепление по забегу воронки (миграции 346-348).
+
+    ⚠️ `funnel_runs.referrer_contact_id` — это «КТО ПРИВЁЛ» (любой человек,
+    в том числе не партнёр). Закрепление возникает, только если приведший —
+    ЗАРЕГИСТРИРОВАННЫЙ партнёр и место свободно; иначе не делаем ничего.
+
+    ⚠️ Закрепление ведётся в ОБОИХ режимах выплат: иначе при переключении
+    кабинета на пассивный у всех окажется пусто, и он включится «с нуля».
+
+    Fail-open: партнёрка — надстройка, её сбой не должен ломать выдачу подарка.
+    """
+    if not contact_id or not referrer_contact_id:
+        return
+    try:
+        ref_code = await db.fetchval(
+            "SELECT ref_code FROM contacts WHERE id = $1", referrer_contact_id)
+        if not ref_code:
+            return
+        from app.services.partner_binding import try_bind_by_ref_code
+        await try_bind_by_ref_code(
+            db, client_id=client_id, contact_id=contact_id, ref_code=ref_code)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Партнёрка: закрепление по воронке не удалось: %s", e)
+
+
 async def run_started(run_id: int, tg_id: str, username: Optional[str],
                       first_name: Optional[str], last_name: Optional[str],
                       db, bot_id: Optional[int] = None) -> None:
@@ -1179,6 +1206,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
             WHERE id = $3""",
         contact_id, str(tg_id), run_id
     )
+
+    await _bind_partner_for_run(db, client_id, contact_id, run["referrer_contact_id"])
 
     # Уведомление организатору — только при первом переходе landed → started
     if is_new_started:
@@ -1413,6 +1442,8 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
             WHERE id = $3""",
         contact_id, str(vk_id), run_id
     )
+
+    await _bind_partner_for_run(db, client_id, contact_id, run["referrer_contact_id"])
 
     if is_new_started:
         await _send_organizer_notification(client_id, run_id, db)
@@ -1709,6 +1740,8 @@ async def run_started_max(run_id: int, max_user_id: str, username: Optional[str]
             WHERE id = $3""",
         contact_id, str(max_user_id), run_id
     )
+
+    await _bind_partner_for_run(db, client_id, contact_id, run["referrer_contact_id"])
 
     if is_new_started:
         await _send_organizer_notification(client_id, run_id, db)

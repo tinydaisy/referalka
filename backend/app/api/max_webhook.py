@@ -1043,6 +1043,59 @@ async def _handle_max_merge(
         )
 
 
+async def _handle_max_product_link(
+    payload: str, user_id: int, chat_id: int, bot_token: str,
+    client_id_override: int | None,
+    first_name: str, last_name: str, username: str,
+) -> bool:
+    """`?start=pr_<slug>` в MAX — карточка продукта с кнопкой «СМОТРЕТЬ».
+
+    Возвращает True, если ответили. Логика разбора и текста — общая с TG и VK
+    (`product_deeplink`), здесь только доставка средствами MAX.
+    """
+    from ..services.product_deeplink import (
+        parse_product_payload, resolve_product_for_bot,
+        build_product_message, bind_partner_from_product_link,
+    )
+    from ..services.contact_merge import upsert_contact_with_identity
+
+    parsed = parse_product_payload(payload)
+    if not parsed:
+        return False
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        product = await resolve_product_for_bot(
+            conn, slug=parsed["slug"], client_id=client_id_override)
+        if not product:
+            return False
+        client_id = client_id_override or product["client_id"]
+
+        contact_id = None
+        try:
+            contact_id, _pu, _new = await upsert_contact_with_identity(
+                conn, client_id=client_id, platform_slug="max",
+                platform_user_id=str(user_id),
+                username=username or None,
+                first_name=first_name or None, last_name=last_name or None,
+                utm_source=parsed.get("utm_source"),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX pr_: контакт не резолвлен: {e}")
+
+        await bind_partner_from_product_link(
+            conn, client_id=client_id, contact_id=contact_id, pid=parsed.get("pid"))
+
+        msg = await build_product_message(conn, product, pid=parsed.get("pid"))
+
+    # ⚠️ MAX разбирает inline-HTML только при parse_mode='html'; блочные теги
+    # чистит `html_to_telegram`. У нас в тексте только <b> — он проходит.
+    btn = tg_inline_to_max_keyboard([[{"text": msg["button"], "url": msg["url"]}]])
+    await max_send_message(chat_id, msg["text"], token=bot_token,
+                           buttons=btn, parse_mode="html")
+    return True
+
+
 async def _process_start(
     *,
     user_id: int,
@@ -1340,6 +1393,22 @@ async def _process_start(
         except Exception as e:  # noqa: BLE001
             logger.exception(f"MAX lead-magnet funnel handler failed: {e}")
         return
+
+    # Продукт: `?start=pr_<slug>[_pid<код>]` (решение № 24) — тот же формат,
+    # что в TG и VK. Бот называет продукт и даёт кнопку «СМОТРЕТЬ».
+    #
+    # ⚠️ Ветка обязана быть в КАЖДОМ боте: показывать ссылку там, где разбора
+    # нет, — значит молча терять реф-код. Именно так уже терялся `ref<код>`
+    # ПЛЮСОНа в MAX, пока ветку не дописали.
+    if payload and payload.startswith("pr_"):
+        try:
+            if await _handle_max_product_link(
+                payload, user_id, chat_id, bot_token, client_id_override,
+                first_name, last_name, username,
+            ):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"MAX product pr_ handler failed: {e}")
 
     # Парсим payload: ref_pg{slug}_pid{partner_id}_src{utm}_tab{tab}_reg
     parsed = parse_startapp_ref_payload(payload) if payload else {

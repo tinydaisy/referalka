@@ -213,7 +213,8 @@ function Materials({ token }: { token: string }) {
           <div className="space-y-2">
             {items.map((it: any) => (
               <LinkCard key={`${title}-${it.id}`}
-                        title={it.title || it.name} link={it.link} />
+                        title={it.title || it.name} link={it.link}
+                        platformLinks={it.platform_links} />
             ))}
           </div>
         </div>
@@ -222,7 +223,29 @@ function Materials({ token }: { token: string }) {
   )
 }
 
-function LinkCard({ title, link }: { title: string; link: string }) {
+const PLATFORM_LABEL: Record<string, string> = {
+  telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX',
+}
+
+function LinkCard({ title, link, platformLinks }: {
+  title: string; link: string; platformLinks?: Record<string, string>
+}) {
+  // Ссылки по площадкам показываем только те, что реально пришли с бэкенда:
+  // там они строятся лишь для подключённых ботов, где написан разбор метки.
+  const platforms = Object.entries(platformLinks || {}).filter(([, v]) => !!v)
+
+  return (
+    <div className="rounded-xl bg-white p-3 shadow-sm">
+      <div className="mb-2 font-medium text-gray-900">{title}</div>
+      <Row label="Ссылка на сайт" link={link} />
+      {platforms.map(([p, url]) => (
+        <Row key={p} label={PLATFORM_LABEL[p] || p} link={url} />
+      ))}
+    </div>
+  )
+}
+
+function Row({ label, link }: { label: string; link: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -232,8 +255,8 @@ function LinkCard({ title, link }: { title: string; link: string }) {
     } catch { /* буфер недоступен — ссылка всё равно видна и выделяется */ }
   }
   return (
-    <div className="rounded-xl bg-white p-3 shadow-sm">
-      <div className="mb-1 font-medium text-gray-900">{title}</div>
+    <div className="mb-1.5 last:mb-0">
+      <div className="mb-0.5 text-[11px] text-gray-400">{label}</div>
       <div className="flex items-center gap-2">
         <input
           readOnly value={link}

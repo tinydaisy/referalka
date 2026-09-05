@@ -382,12 +382,33 @@ async def partner_materials(response: Response, sess: dict = Depends(_session),
     def _link(path: str) -> str:
         return public_url_for(base, f"{path}?pid={ref}")
 
+    # Площадочные ссылки — в бота клиента с меткой и реф-кодом партнёра.
+    # ⚠️ Показываем ТОЛЬКО те площадки, где у клиента есть свой бот и где
+    # написан разбор метки: ссылка без разбора хуже её отсутствия — реф-код
+    # молча теряется, и человек ни за кем не закрепляется.
+    from app.services.share_links import build_funnel_landing_links
+
+    async def _platform_links(kind: str, slug: str) -> dict:
+        try:
+            return await build_funnel_landing_links(
+                db, client_id=cid, slug=slug, kind=kind, pid=ref)
+        except Exception:  # noqa: BLE001
+            return {}
+
     return {
         "ref_code": ref,
         "events": [{**dict(e), "link": _link(f"/l/{e['slug']}"),
                     "start_at": e["start_at"]} for e in events],
-        "products": [{**dict(p), "link": _link(f"/pr/{p['slug']}")} for p in products],
-        "lead_magnets": [{**dict(m), "link": _link(f"/m/{m['slug']}")} for m in magnets],
+        "products": [
+            {**dict(p), "link": _link(f"/pr/{p['slug']}"),
+             "platform_links": await _platform_links("pr", p["slug"])}
+            for p in products
+        ],
+        "lead_magnets": [
+            {**dict(m), "link": _link(f"/m/{m['slug']}"),
+             "platform_links": await _platform_links("m", m["slug"])}
+            for m in magnets
+        ],
     }
 
 

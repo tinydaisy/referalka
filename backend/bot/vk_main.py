@@ -157,6 +157,21 @@ def _extract_plusson_ref_code(message_or_event: dict) -> str | None:
     return None
 
 
+def _extract_product_payload(message_or_event: dict) -> dict | None:
+    """Ищет `ref=pr_<slug>[_pid<код>]` — ссылка на продукт (решение № 24).
+
+    ⚠️ Метка СТРОКОВАЯ, поэтому идёт мимо `_extract_ref_with_prefix` (тот
+    вытаскивает int-метки вроде `fnl_`/`evchat_`). Разбор — общий с TG и MAX,
+    свой парсер здесь не пишем: разъедется.
+    """
+    from app.services.product_deeplink import parse_product_payload
+    for s in _ref_candidates(message_or_event):
+        parsed = parse_product_payload(s)
+        if parsed:
+            return parsed
+    return None
+
+
 def _extract_funnel_run_id(message_or_event: dict) -> int | None:
     """Ищет `ref=fnl_<int>` — воронка лид-магнита."""
     return _extract_ref_with_prefix(message_or_event, "fnl_")
@@ -295,6 +310,53 @@ async def _vk_handle_evreg(payload: str, vk_user_id: int, username: str | None,
         await handle_vk_event_menu_back(eid, int(vk_user_id), db, ctx)
     except Exception as e:
         logger.warning(f"VK evreg failed (event={eid}): {e}")
+    return True
+
+
+async def _vk_handle_product_link(parsed: dict, vk_user_id: int,
+                                  username: str | None, first_name: str | None,
+                                  last_name: str | None, db, ctx) -> bool:
+    """Вход по ссылке продукта в ВК: `vk.me/{group}?ref=pr_<slug>`.
+
+    Зеркало TG- и MAX-веток. Возвращает True, если ответили.
+
+    ⚠️ Внешняя ссылка идёт НАСТОЯЩЕЙ кнопкой: проверено живой отправкой —
+    VK принимает и показывает open_link на чужой домен (прежнее правило
+    «класть ссылку в текст» неверно).
+    """
+    from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
+    from app.services.contact_merge import upsert_contact_with_identity
+    from app.services.product_deeplink import (
+        resolve_product_for_bot, build_product_message,
+        bind_partner_from_product_link,
+    )
+
+    product = await resolve_product_for_bot(
+        db, slug=parsed["slug"], client_id=ctx.client_id)
+    if not product:
+        return False
+    client_id = ctx.client_id or product["client_id"]
+
+    contact_id = None
+    try:
+        contact_id, _pu, _new = await upsert_contact_with_identity(
+            db, client_id=client_id, platform_slug="vk",
+            platform_user_id=str(vk_user_id),
+            username=username or None,
+            first_name=first_name or None, last_name=last_name or None,
+            utm_source=parsed.get("utm_source"),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK pr_: контакт не резолвлен: %s", e)
+
+    await bind_partner_from_product_link(
+        db, client_id=client_id, contact_id=contact_id, pid=parsed.get("pid"))
+
+    msg = await build_product_message(db, product, pid=parsed.get("pid"))
+    # ⚠️ VK не разбирает HTML — срезаем теги, иначе человек увидит <b> текстом.
+    text = msg["text"].replace("<b>", "").replace("</b>", "")
+    kb = tg_inline_to_vk_keyboard([[{"text": msg["button"], "url": msg["url"]}]])
+    await _vk_send(vk_user_id, text, token=ctx.token, keyboard=kb)
     return True
 
 
@@ -865,6 +927,18 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:  # noqa: BLE001
             logger.warning("VK plusson ref (message_allow) failed: %s", e)
+
+    # Ссылка на продукт: ref=pr_<slug> (решение № 24).
+    # ⚠️ Метка строковая, поэтому проверяем её рядом с реф-кодом ПЛЮСОНа —
+    # до разбора int-меток событий.
+    _prod = _extract_product_payload(event)
+    if _prod:
+        try:
+            if await _vk_handle_product_link(
+                _prod, int(user_id), None, None, None, db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK pr_ (message_allow) failed: %s", e)
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>.
     # Ведём сразу на «вступить в чат» — проверка подписки + выдача чат-ссылок.
@@ -1805,6 +1879,17 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:  # noqa: BLE001
             logger.warning("VK plusson ref (message_new) failed: %s", e)
+
+    # Ссылка на продукт: ref=pr_<slug> (решение № 24). Как и реф-код ПЛЮСОНа,
+    # метка строковая — разбираем её до int-меток событий.
+    _prod_new = _extract_product_payload(event_obj)
+    if _prod_new:
+        try:
+            if await _vk_handle_product_link(
+                _prod_new, int(from_id), None, None, None, db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK pr_ (message_new) failed: %s", e)
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>
     # (если человек уже разрешил ЛС, ref приходит в message_new). Ведём сразу

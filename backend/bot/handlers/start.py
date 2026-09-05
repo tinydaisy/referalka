@@ -351,6 +351,21 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Продукт: `/start pr_<slug>[_pid<код>][_src<utm>]` (решение № 24).
+    # Раньше у продукта была только веб-ссылка — партнёру нечего было дать в
+    # мессенджере. Бот здоровается, называет продукт и даёт кнопку «СМОТРЕТЬ».
+    #
+    # ⚠️ Ветка обязана существовать в боте КАЖДОЙ площадки: ссылка без разбора
+    # хуже её отсутствия — реф-код молча теряется, и человек ни за кем не
+    # закрепляется.
+    if args.startswith("pr_"):
+        try:
+            if await _start_product_link(message, args):
+                return
+            # Продукт не найден — молча падаем дальше на приветствие.
+        except Exception as e:
+            log.exception("product pr_ handler failed: %s", e)
+
     # Регистрация партнёра — прямые ссылки (миграция 105, рефакторинг 24.05.2026):
     #   prtc_<client_id>   — корневая ссылка клиента (без рефовода)
     #   prtp_<contact_id>  — личная ссылка партнёра (рефовод = этот контакт)
@@ -1882,6 +1897,78 @@ async def _start_lead_magnet_funnel(message: Message, kind: str, slug: str,
             bot_id=bot_id,
         )
         return True
+
+
+async def _start_product_link(message: Message, payload: str) -> bool:
+    """`/start pr_<slug>` — приветствие продукта + кнопка «СМОТРЕТЬ».
+
+    Возвращает True, если ответили; False — если продукт не найден (тогда
+    сработает обычное приветствие бота).
+
+    ⚠️ Контакт заводим ЗДЕСЬ же: человек пришёл в бота, значит опознан по
+    аккаунту площадки — это самый надёжный момент, чтобы закрепить его за
+    партнёром. Ждать оформления заказа нельзя: он может купить через неделю
+    с другого устройства, и `pid` к тому моменту потеряется.
+    """
+    user = message.from_user
+    if not user:
+        return False
+
+    from app.services.product_deeplink import (
+        parse_product_payload, resolve_product_for_bot,
+        build_product_message, bind_partner_from_product_link,
+    )
+
+    parsed = parse_product_payload(payload)
+    if not parsed:
+        return False
+
+    pool = await get_pool()
+    bot_id = message.bot.id if message.bot else None
+    async with pool.acquire() as db:
+        client_id = await _client_id_by_bot(db, bot_id)
+        product = await resolve_product_for_bot(
+            db, slug=parsed["slug"], client_id=client_id)
+        if not product:
+            return False
+
+        # Клиент по боту мог не резолвиться (системный бот) — тогда берём
+        # владельца самого продукта, иначе контакт уедет не в ту базу.
+        client_id = client_id or product["client_id"]
+
+        contact_id = None
+        try:
+            from app.services.contact_merge import upsert_contact_with_identity
+            contact_id, _pu, _new = await upsert_contact_with_identity(
+                db, client_id=client_id, platform_slug="telegram",
+                platform_user_id=str(user.id),
+                username=user.username or None,
+                first_name=user.first_name or None,
+                last_name=user.last_name or None,
+                utm_source=parsed.get("utm_source"),
+            )
+        except Exception as e:
+            log.warning("pr_: контакт не резолвлен: %s", e)
+
+        await bind_partner_from_product_link(
+            db, client_id=client_id, contact_id=contact_id, pid=parsed.get("pid"))
+
+        msg = await build_product_message(db, product, pid=parsed.get("pid"))
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=msg["button"], url=msg["url"])
+    ]])
+    if msg.get("photo"):
+        try:
+            await message.answer_photo(msg["photo"], caption=msg["text"],
+                                       parse_mode="HTML", reply_markup=kb)
+            return True
+        except Exception:
+            # Обложка не открылась (битая ссылка, чужой домен) — не повод
+            # терять сообщение целиком: шлём текстом.
+            pass
+    await message.answer(msg["text"], parse_mode="HTML", reply_markup=kb)
+    return True
 
 
 async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:

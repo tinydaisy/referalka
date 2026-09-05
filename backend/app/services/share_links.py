@@ -495,6 +495,8 @@ async def build_funnel_landing_links(
     slug: str,
     kind: str = "m",
     base_url: str = "https://pluson.ru",
+    # Реф-код партнёра — едет в метке, как у событий (решение № 24).
+    pid: Optional[str] = None,
 ) -> dict[str, str]:
     """Возвращает {platform → deeplink} для landing воронки лид-магнита/пакета.
 
@@ -511,9 +513,11 @@ async def build_funnel_landing_links(
     собственный канал на этой платформе. Системные каналы ПЛЮСОНа
     (@pluson_bot и т.п.) больше не используются как fallback.
     """
-    if kind not in ("m", "p"):
-        raise ValueError(f"kind must be 'm' or 'p', got {kind!r}")
+    if kind not in ("m", "p", "pr"):
+        raise ValueError(f"kind must be 'm', 'p' or 'pr', got {kind!r}")
     payload = f"{kind}_{slug}"
+    if pid:
+        payload = f"{payload}_pid{pid}"
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 
@@ -522,10 +526,18 @@ async def build_funnel_landing_links(
         result["telegram"] = f"https://{TG_DOMAIN}/{handles['telegram'].lstrip('@')}?start={payload}"
 
     # VK: только собственное сообщество клиента (его vk_app_id)
+    #
+    # ⚠️ У продукта (`pr`) ссылка ведёт В СООБЩЕСТВО, а не в Mini App: разбор
+    # метки `pr_` написан в БОТЕ (vk_main), а не во фронте Mini App. Дать
+    # ссылку на Mini App значило бы отправить человека туда, где метку никто
+    # не читает, — реф-код молча потерялся бы.
     if handles.get("vk"):
-        vk_app_id = await get_client_vk_app_id(db, client_id)
-        if vk_app_id:
-            result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
+        if kind == "pr":
+            result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"
+        else:
+            vk_app_id = await get_client_vk_app_id(db, client_id)
+            if vk_app_id:
+                result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
 
     # MAX: только собственный MAX-бот клиента
     if handles.get("max"):
