@@ -91,6 +91,12 @@ export default function RecordingCutPage() {
   // Окно «покажите момент» — для записей, у которых система не знает начала эфира.
   const [askAnchor, setAskAnchor] = useState(false)
   const [anchorTime, setAnchorTime] = useState('')
+  // Перетаскивание метки по таймлайну.
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const barRef = useRef<HTMLDivElement>(null)
+  // ⚠️ После перетаскивания браузер шлёт click по полосе — без этого флага
+  // видео перематывалось бы туда, где отпустили мышь.
+  const justDragged = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   // На какой секунде ФАЙЛА начался эфир: плеер живёт в секундах файла,
@@ -129,6 +135,48 @@ export default function RecordingCutPage() {
     v.currentTime = Math.max(0, sec + offset)
     v.play().catch(() => {})
   }
+
+  /**
+   * Перетаскивание метки по таймлайну.
+   *
+   * ⚠️ Слушаем на ВСЁМ окне, а не на самой метке: если тянуть быстро, курсор
+   * убегает за пределы палочки, и события на ней перестают приходить —
+   * перетаскивание «залипает» на полпути.
+   *
+   * ⚠️ Хук объявлен ДО early-return по loading — иначе React ругается на разное
+   * число хуков между отрисовками (правило проекта).
+   */
+  useEffect(() => {
+    if (dragIdx === null) return
+    const move = (e: MouseEvent) => {
+      const box = barRef.current?.getBoundingClientRect()
+      if (!box) return
+      const ratio = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width))
+      const sec = Math.round(ratio * liveDur)
+      setCuts(prev => {
+        const c = prev[dragIdx]
+        if (!c || c.start_sec === sec) return prev
+        // ⚠️ Порядок НЕ пересортировываем на лету: индекс перетаскиваемой метки
+        // тогда менялся бы прямо под мышью, и она перескакивала бы на соседнюю.
+        // Сортировка — один раз, когда отпустят.
+        const next = [...prev]
+        next[dragIdx] = { ...c, start_sec: sec }
+        return next
+      })
+      setDirty(true)
+    }
+    const up = () => {
+      justDragged.current = true
+      setDragIdx(null)
+      setCuts(prev => [...prev].sort((a, b) => a.start_sec - b.start_sec))
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+  }, [dragIdx, liveDur])
 
   /** Текущая секунда ЭФИРА (плеер отдаёт секунду файла). */
   const curLive = Math.max(0, cur - offset)
@@ -285,9 +333,16 @@ export default function RecordingCutPage() {
         )}
       </div>
 
-      {/* Таймлайн */}
-      <div className="relative h-14 rounded-xl bg-gray-100 border overflow-hidden cursor-pointer"
+      {/* Таймлайн. ⚠️ Метки ТЯНУТСЯ мышью — это первое, что человек пробует
+          сделать, увидев палочку на полосе. Двигать только цифрами в поле ниже
+          неочевидно: выглядит как «сломалось». */}
+      <div ref={barRef}
+           className="relative h-14 rounded-xl bg-gray-100 border overflow-hidden select-none"
+           style={{ cursor: dragIdx !== null ? 'grabbing' : 'pointer' }}
            onClick={e => {
+             // Клик по полосе — перемотка. Но не сразу после перетаскивания:
+             // браузер шлёт click следом за mouseup, и видео прыгало бы.
+             if (justDragged.current) { justDragged.current = false; return }
              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
              seekLive(((e.clientX - box.left) / box.width) * liveDur)
            }}>
@@ -296,16 +351,30 @@ export default function RecordingCutPage() {
           const end = next ? next.start_sec : liveDur
           const left = (c.start_sec / liveDur) * 100
           const w = Math.max(0.4, ((end - c.start_sec) / liveDur) * 100)
+          const locked = c.status === 'ready' || c.status === 'processing'
           return (
             <div key={c.id ?? `n${i}`} style={{ left: `${left}%`, width: `${w}%` }}
-                 className={`absolute inset-y-0 border-r-2 ${
+                 className={`absolute inset-y-0 border-l-2 ${
                    c.status === 'ready' ? 'bg-emerald-100 border-emerald-500'
                    : c.status === 'processing' ? 'bg-amber-100 border-amber-500'
                    : c.status === 'failed' ? 'bg-red-100 border-red-500'
-                   : 'bg-[#FFCFA4]/40 border-[#25455D]'}`}>
-              <span className="absolute top-1 left-1.5 text-[11px] text-[#25455D] truncate max-w-[95%]">
+                   : 'bg-[#FFCFA4]/40 border-[#25455D]'} ${dragIdx === i ? 'z-20' : ''}`}>
+              <span className="absolute top-1 left-2 text-[11px] text-[#25455D] truncate max-w-[92%] pointer-events-none">
                 {c.title}
               </span>
+              {/* Ручка на левой границе — за неё и тянут.
+                  ⚠️ Шире самой линии (12px): в двухпиксельную полоску мышью не
+                  попасть. Нарезанные куски не двигаем — их файлы уже готовы. */}
+              {!locked && (
+                <div
+                  onMouseDown={e => { e.stopPropagation(); setDragIdx(i) }}
+                  title="Потяните, чтобы сдвинуть метку"
+                  className="absolute -left-1.5 inset-y-0 w-3 cursor-grab active:cursor-grabbing
+                             flex items-start justify-center"
+                >
+                  <span className="mt-0.5 w-2.5 h-2.5 rounded-full bg-[#25455D] shadow" />
+                </div>
+              )}
             </div>
           )
         })}
@@ -470,6 +539,7 @@ export default function RecordingCutPage() {
       </div>
 
       <p className="mt-5 text-xs text-gray-500 leading-relaxed">
+        Метку можно тянуть мышью за кружок на полосе или вписать время в поле рядом с названием.
         Кусок идёт до следующей метки — отдельно задавать конец не нужно.
         Перерывы не вырезаются: пауза после выступления попадает в кусок этого же спикера.
         Исходная запись остаётся на месте, её можно удалить отдельно.
