@@ -521,6 +521,10 @@ function TariffRow({ productId, tariff, readOnly, onChanged, onMove, canUp, canD
 function TariffForm({ productId, tariff, onClose, onSaved }: {
   productId: number; tariff?: any; onClose: () => void; onSaved: () => void
 }) {
+  // Поле «Вознаграждение партнёру» показываем только при подключённой
+  // партнёрской программе — иначе это непонятное поле, которое ничего не делает.
+  const { me } = useMe()
+  const hasPartnerProgram = (me?.features || []).includes('partner_program')
   const [code, setCode] = useState(tariff?.code || '')
   const [title, setTitle] = useState(tariff?.title || '')
   const [description, setDescription] = useState(tariff?.description || '')
@@ -531,6 +535,12 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
   const [discountKind, setDiscountKind] = useState<'percent' | 'amount'>(tariff?.discount_kind || 'percent')
   const [discountValue, setDiscountValue] = useState<string>(
     tariff?.discount_value != null ? String(tariff.discount_value) : '')
+  // Вознаграждение партнёру (миграция 347). Пусто = действует умолчание
+  // из «Моя партнёрка» → «Настройки».
+  const [rewardKind, setRewardKind] = useState<'percent' | 'fixed'>(
+    tariff?.partner_reward_kind || 'percent')
+  const [rewardValue, setRewardValue] = useState<string>(
+    tariff?.partner_reward_value != null ? String(tariff.partner_reward_value) : '')
   const [payProductId, setPayProductId] = useState(tariff?.pay_product_id || '')
   const [payUrl, setPayUrl] = useState(tariff?.pay_url || '')
   const [isActive, setIsActive] = useState(tariff?.is_active ?? true)
@@ -550,6 +560,17 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
     return p + v
   })()
 
+  // Сколько получит партнёр — подсказка под полем: «10%» само по себе
+  // ничего не говорит, а «1 900 ₽» говорит.
+  const rewardPreview = (() => {
+    const p = parseInt(price, 10)
+    const v = parseFloat(rewardValue)
+    if (!Number.isFinite(v) || v <= 0) return null
+    if (rewardKind === 'fixed') return `${v.toLocaleString('ru-RU')} ₽`
+    if (!Number.isFinite(p) || p <= 0) return null
+    return `${Math.round((p * v) / 100).toLocaleString('ru-RU')} ₽`
+  })()
+
   const save = async () => {
     if (!title.trim() || !code.trim()) return
     setSaving(true)
@@ -567,6 +588,10 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
         pay_url: payUrl.trim() || null,
         is_active: isActive,
         is_featured: isFeatured,
+        // Пустой размер = своего вознаграждения нет, действует умолчание
+        // кабинета. Пара пишется целиком — половина не пройдёт проверку.
+        partner_reward_kind: rewardValue.trim() ? rewardKind : null,
+        partner_reward_value: rewardValue.trim() ? Number(rewardValue) : null,
       }
       if (tariff) await api.products.updateTariff(productId, tariff.id, data)
       else await api.products.createTariff(productId, data)
@@ -655,6 +680,36 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
           <p className="mt-1 text-xs text-gray-400">Нужен только для LeadPay</p>
         </div>
+
+        {/* Вознаграждение партнёру за продажу этого тарифа (миграция 347).
+            ⚠️ Показываем только при подключённой партнёрке: у остальных это
+            непонятное поле в форме, которое ничего не делает. */}
+        {hasPartnerProgram && (
+          <div>
+            <label className="mb-1 block text-sm text-gray-600">
+              Вознаграждение партнёру
+            </label>
+            <div className="flex gap-2">
+              <select value={rewardKind}
+                      onChange={e => setRewardKind(e.target.value as 'percent' | 'fixed')}
+                      style={{ flex: '0 0 5rem' }}
+                      className="rounded-lg border border-gray-300 px-2 py-2 text-sm">
+                <option value="percent">%</option>
+                <option value="fixed">₽</option>
+              </select>
+              <input value={rewardValue}
+                     onChange={e => setRewardValue(e.target.value.replace(/[^0-9.]/g, ''))}
+                     inputMode="decimal"
+                     placeholder={rewardKind === 'percent' ? '10' : '3000'}
+                     style={{ flex: '1 1 auto', minWidth: 0 }}
+                     className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <p className="mt-1 text-xs text-gray-400">
+              Пусто — действует значение из раздела «Моя партнёрка».
+              {rewardPreview && ` Партнёр получит ${rewardPreview}`}
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-sm text-gray-600">Своя ссылка на оплату</label>

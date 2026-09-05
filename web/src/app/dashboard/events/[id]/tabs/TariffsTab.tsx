@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
+import { useMe } from '@/hooks/useMe'
 import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown, Search, Check, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
@@ -72,6 +73,10 @@ const emptyForm = {
   discount_kind: 'percent' as 'percent' | 'amount', discount_value: '',
   // Сколько номинаций премии открывает тариф (миграция 328). Пусто = нисколько.
   nominations_grant: '',
+  // Вознаграждение партнёру (миграция 347). Пусто = действует умолчание
+  // из раздела «Моя партнёрка».
+  partner_reward_kind: 'percent' as 'percent' | 'fixed',
+  partner_reward_value: '',
 }
 
 /** Цена до скидки — только для подсказки в форме. Боевое значение считает
@@ -97,6 +102,10 @@ export default function TariffsTab({
   subTab?: 'tariffs' | 'orders'
   hideSubNav?: boolean
 }) {
+  // Поле «Вознаграждение партнёру» показываем только при подключённой
+  // партнёрской программе (миграция 347).
+  const { me } = useMe()
+  const hasPartnerProgram = (me?.features || []).includes('partner_program')
   const [items, setItems] = useState<Tariff[]>([])
   const [loading, setLoading] = useState(true)
   // Оферта события: документ из раздела «Оферты» (главный способ) либо ссылка
@@ -201,6 +210,8 @@ export default function TariffsTab({
       bonus_trial: !!t.bonus_trial,
       bonus_tariff_slug: t.bonus_tariff_slug || 'trial',
       bonus_line_auto: t.bonus_line_auto !== false,
+      partner_reward_kind: (t.partner_reward_kind || 'percent') as 'percent' | 'fixed',
+      partner_reward_value: t.partner_reward_value != null ? String(t.partner_reward_value) : '',
       discount_kind: (t.discount_kind || 'percent') as 'percent' | 'amount',
       discount_value: t.discount_value != null ? String(t.discount_value) : '',
       nominations_grant: t.nominations_grant != null ? String(t.nominations_grant) : '',
@@ -225,6 +236,10 @@ export default function TariffsTab({
       // осталось половины пары.
       discount_kind: form.discount_value.trim() ? form.discount_kind : null,
       discount_value: form.discount_value.trim() ? parseInt(form.discount_value.trim(), 10) : null,
+      // Пара пишется целиком: половина не пройдёт проверку в базе.
+      partner_reward_kind: form.partner_reward_value.trim() ? form.partner_reward_kind : null,
+      partner_reward_value: form.partner_reward_value.trim()
+        ? Number(form.partner_reward_value.trim()) : null,
       pay_url: form.pay_url.trim() || null,
       is_active: form.is_active,
       is_featured: form.is_featured,
@@ -535,6 +550,49 @@ export default function TariffsTab({
                 )
               })()}
             </Field>
+            {/* Вознаграждение партнёру за продажу этого тарифа (миграция 347).
+                ⚠️ Только при подключённой партнёрке: остальным это поле
+                ничего не даёт и лишь загромождает форму. */}
+            {hasPartnerProgram && (
+              <Field label="Вознаграждение партнёру"
+                     hint="Пусто — действует значение из раздела «Моя партнёрка»">
+                <div className="flex gap-2">
+                  <select value={form.partner_reward_kind}
+                          onChange={e => setForm({ ...form,
+                            partner_reward_kind: e.target.value as 'percent' | 'fixed' })}
+                          className="input-tar"
+                          style={{ flex: '0 0 5rem' }}>
+                    <option value="percent">%</option>
+                    <option value="fixed">₽</option>
+                  </select>
+                  <input value={form.partner_reward_value}
+                         onChange={e => setForm({ ...form,
+                           partner_reward_value: e.target.value.replace(/[^0-9.]/g, '') })}
+                         className="input-tar"
+                         style={{ flex: '1 1 auto', minWidth: 0 }}
+                         placeholder={form.partner_reward_kind === 'percent' ? '10' : '3000'}
+                         inputMode="decimal" />
+                </div>
+                {/* «10%» само по себе ничего не говорит — показываем сумму. */}
+                {(() => {
+                  const p = parseInt(form.price, 10)
+                  const v = parseFloat(form.partner_reward_value)
+                  if (!Number.isFinite(v) || v <= 0) return null
+                  const sum = form.partner_reward_kind === 'fixed'
+                    ? v
+                    : (Number.isFinite(p) && p > 0 ? Math.round((p * v) / 100) : null)
+                  if (sum == null) return null
+                  return (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Партнёр получит{' '}
+                      <span className="font-semibold text-gray-900">
+                        {sum.toLocaleString('ru-RU')} ₽
+                      </span>{' '}с каждой продажи
+                    </div>
+                  )
+                })()}
+              </Field>
+            )}
             <Field label="Что входит" hint="По пункту в строке — на лендинге станут галочками">
               <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
                         rows={4} className="input-tar resize-none" />
