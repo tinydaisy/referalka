@@ -58,7 +58,7 @@ export default function PartnerProgramHelpPage() {
         <div className="space-y-3">
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="font-medium text-gray-900 mb-1">
-              Закреплённому партнёру — со всех покупок человека
+              Пассивный — закреплённому партнёру со всех покупок человека
             </div>
             <p className="text-sm text-gray-600">
               Партнёр привёл человека один раз, и дальше получает со всех его
@@ -68,7 +68,7 @@ export default function PartnerProgramHelpPage() {
           </div>
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="font-medium text-gray-900 mb-1">
-              Тому, кто привёл на эту покупку
+              Активный — тому, кто привёл на эту покупку
             </div>
             <p className="text-sm text-gray-600">
               Платите за конкретную рекомендацию. Если человек потом придёт
@@ -78,8 +78,8 @@ export default function PartnerProgramHelpPage() {
           </div>
         </div>
         <Warn title="Уровни — только в первом режиме">
-          Несколько уровней вознаграждения работают только в первом режиме.
-          Во втором на покупке записан один человек — строить цепочку не из чего.
+          Несколько уровней вознаграждения работают только в пассивном режиме.
+          В активном на покупке записан один человек — строить цепочку не из чего.
         </Warn>
       </Step>
 
@@ -185,7 +185,7 @@ export default function PartnerProgramHelpPage() {
                   Пришёл сам, без чьей-либо ссылки
                 </td>
                 <td className="py-2 pr-3">
-                  закреплённому партнёру — в первом режиме; никому — во втором
+                  закреплённому партнёру — в пассивном; никому — в активном
                 </td>
                 <td className="py-2">никому</td>
               </tr>
