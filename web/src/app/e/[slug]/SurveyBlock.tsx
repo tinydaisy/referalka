@@ -7,13 +7,13 @@
  * («Форма»), либо по одному с прогрессом («Квиз»).
  *
  * ⚠️⚠️ ЭТО НЕ ВТОРАЯ СИСТЕМА АНКЕТ. Вопросы, приём ответов, обработка и
- * уведомления — те же самые: отправка идёт в `/public/surveys/{slug}/submit`,
- * ровно как со страницы `/f/{slug}`. Разница целиком в вёрстке. Своего приёма
+ * уведомления — те же самые: отправка идёт в /public/surveys/{slug}/submit,
+ * ровно как со страницы /f/{slug}. Разница целиком в вёрстке. Своего приёма
  * ответов здесь быть не должно — он разъедется с публичной анкетой.
  *
  * ⚠️ ЗАЯВКА НИЧЕГО НЕ ОТКРЫВАЕТ. Ни кабинета, ни материалов, ни доступа к
  * продукту — только контакт в базе клиента и уведомление ему. Нулевого заказа
- * тоже не создаём: `product_orders` привязан к тарифу, а смысл блока как раз в
+ * тоже не создаём: product_orders привязан к тарифу, а смысл блока как раз в
  * том, что тарифов на странице нет.
  *
  * ⚠️ Экран «Это вы?» обязателен: почта могла совпасть с одним контактом, а
@@ -194,13 +194,13 @@ export default function SurveyBlock({
     )
   }
 
-  /* ⚠️ В КВИЗЕ КОНТАКТЫ — ОТДЕЛЬНЫЙ ПОСЛЕДНИЙ ШАГ, а не довесок к последнему
-     вопросу. Иначе на одном экране оказываются и вопрос, и три поля с
-     согласием: шаг перестаёт быть «одним вопросом», ради чего квиз и нужен.
-
-     Шагов всего `total + 1` (вопросы + экран контактов). Незнакомому человеку
-     этот экран нужен; пришедшего по ссылке мы уже знаем — ему лишний пустой
-     шаг не показываем, и последний вопрос сразу становится финальным. */
+  // ⚠️ В КВИЗЕ КОНТАКТЫ — ОТДЕЛЬНЫЙ ПОСЛЕДНИЙ ШАГ, а не довесок к последнему
+  // вопросу. Иначе на одном экране оказываются и вопрос, и три поля с
+  // согласием: шаг перестаёт быть «одним вопросом», ради чего квиз и нужен.
+  //
+  // Шагов всего на один больше числа вопросов (вопросы + экран контактов).
+  // Незнакомому человеку этот экран нужен; пришедшего по ссылке мы уже знаем —
+  // ему лишний пустой шаг не показываем, и последний вопрос сразу финальный.
   const contactStep = isQuiz && !known ? total : -1
   const onContactStep = isQuiz && step === contactStep
   const shown = isQuiz
@@ -220,7 +220,7 @@ export default function SurveyBlock({
       )}
 
       {/* Прогресс квиза: человеку важно видеть, сколько осталось.
-          ⚠️ Шагов `total + 1`, если контакты спрашиваем отдельным экраном —
+          ⚠️ Шагов на один больше, если контакты спрашиваем отдельным экраном —
           иначе на нём было бы «Шаг 4 из 3». */}
       {isQuiz && steps > 1 && (
         <div className="mb-4">
@@ -240,7 +240,7 @@ export default function SurveyBlock({
           <SurveyQuestion key={q.id} q={q}
             value={answers[String(q.id)]}
             onChange={(v: any) => setAnswer(q.id, v)}
-            radius={radius} />
+            radius={radius} accent={accentColor} />
         ))}
 
         {/* Контакты — ОТДЕЛЬНЫМ последним шагом в квизе, внизу формы в
@@ -271,16 +271,26 @@ export default function SurveyBlock({
         )}
 
         {/* ⚠️ Согласие на обработку ПД обязательно у любой формы сбора данных
-            (правило проекта). Без галочки бэкенд ответит 422. */}
+            (правило проекта). Без галочки бэкенд ответит 422.
+
+            ⚠️ shrink-0 у галочки и minWidth:0 у текста ОБЯЗАТЕЛЬНЫ: без них
+            flex ужимает строку по содержимому и текст обрывается на последнем
+            слове. Это общая ловушка flex, а не особенность этой формы. */}
         {lastStep && (
-          <label className="flex cursor-pointer items-start gap-2 text-xs opacity-80">
+          <label className="flex cursor-pointer items-start gap-2.5 text-xs opacity-80">
             <input type="checkbox" checked={pd} onChange={e => setPd(e.target.checked)}
-              className="mt-0.5 h-4 w-4" />
-            <span>
+              style={{ accentColor }}
+              className="mt-0.5 h-4 w-4 shrink-0" />
+            <span style={{ minWidth: 0 }} className="leading-snug">
               Согласен на обработку персональных данных
               {privacyUrl && (
-                <> — <a href={privacyUrl} target="_blank" rel="noreferrer"
-                  className="underline">политика</a></>
+                <>
+                  {' — '}
+                  <a href={privacyUrl} target="_blank" rel="noreferrer"
+                    style={{ color: accentColor }} className="underline">
+                    политика конфиденциальности
+                  </a>
+                </>
               )}
             </span>
           </label>
@@ -330,7 +340,7 @@ export default function SurveyBlock({
    анкеты (`/f/{slug}`): человек, заполнявший её там, не должен встретить
    здесь другие правила.
    ───────────────────────────────────────────────────────────────────────── */
-function SurveyQuestion({ q, value, onChange, radius }: any) {
+function SurveyQuestion({ q, value, onChange, radius, accent }: any) {
   const opts: string[] = Array.isArray(q.options) ? q.options : []
 
   const wrap = (children: any) => (
@@ -352,21 +362,15 @@ function SurveyQuestion({ q, value, onChange, radius }: any) {
     const multi = q.kind === 'multiselect'
     const arr: string[] = Array.isArray(value) ? value : []
     return wrap(
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         {opts.map(o => {
           const on = multi ? arr.includes(o) : value === o
           return (
-            <button key={o} type="button" style={{ borderRadius: radius }}
+            <Choice key={o} label={o} checked={on} multi={multi}
+              accent={accent} radius={radius}
               onClick={() => onChange(multi
                 ? (on ? arr.filter(x => x !== o) : [...arr, o])
-                : o)}
-              className={`flex w-full items-center gap-2 border p-2.5 text-left text-sm ${
-                on ? 'border-current bg-current/15 font-medium'
-                   : 'border-current/20 hover:bg-current/5'}`}>
-              <span className={`inline-block h-4 w-4 shrink-0 border border-current/50 ${
-                multi ? 'rounded' : 'rounded-full'} ${on ? 'bg-current' : ''}`} />
-              <span>{o}</span>
-            </button>
+                : o)} />
           )
         })}
       </div>
@@ -374,16 +378,15 @@ function SurveyQuestion({ q, value, onChange, radius }: any) {
   }
 
   if (q.kind === 'bool') {
+    // ⚠️ РАДИОКНОПКИ, а не две плашки. Плашки подсвечивались полупрозрачной
+    // заливкой bg-current/15: на тёмном фоне лендинга разница между
+    // выбранным и невыбранным почти не читалась — человек нажимал и думал,
+    // что не сработало. Кружок с точкой виден однозначно.
     return wrap(
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-1.5">
         {['Да', 'Нет'].map(o => (
-          <button key={o} type="button" onClick={() => onChange(o)}
-            style={{ borderRadius: radius }}
-            className={`flex-1 border p-2.5 text-sm ${
-              value === o ? 'border-current bg-current/15 font-medium'
-                          : 'border-current/20 hover:bg-current/5'}`}>
-            {o}
-          </button>
+          <Choice key={o} label={o} checked={value === o} multi={false}
+            accent={accent} radius={radius} onClick={() => onChange(o)} />
         ))}
       </div>
     )
@@ -395,12 +398,18 @@ function SurveyQuestion({ q, value, onChange, radius }: any) {
     return wrap(
       <div className="flex flex-wrap gap-1.5">
         {Array.from({ length: max - min + 1 }, (_, i) => min + i).map(n => (
+          /* ⚠️ Выбранное число — заливка акцентом. Здесь она уместна (в
+             отличие от вариантов ответа): цифра короткая, а её цвет
+             подменяется на тёмный, так что контраст сохраняется. */
           <button key={n} type="button" onClick={() => onChange(String(n))}
-            style={{ borderRadius: radius }}
+            style={String(value) === String(n)
+              ? { borderRadius: radius, background: accent, borderColor: accent,
+                  color: '#1a2b38' }
+              : { borderRadius: radius }}
             className={`h-10 w-10 border text-sm ${
               String(value) === String(n)
-                ? 'border-current bg-current/15 font-medium'
-                : 'border-current/20 hover:bg-current/5'}`}>
+                ? 'font-semibold'
+                : 'border-current/25 opacity-80 hover:bg-current/5'}`}>
             {n}
           </button>
         ))}
@@ -419,6 +428,45 @@ function SurveyQuestion({ q, value, onChange, radius }: any) {
     <input className={box} style={{ borderRadius: radius }}
       type={q.kind === 'number' ? 'number' : q.kind === 'date' ? 'date' : 'text'}
       value={value || ''} onChange={e => onChange(e.target.value)} />
+  )
+}
+
+/**
+ * Вариант ответа: радиокнопка (один выбор) или галочка (несколько).
+ *
+ * ⚠️ Отметка красится АКЦЕНТНЫМ ЦВЕТОМ ТЕМЫ («Цвет иконок и кнопок» в стилях
+ * лендингов, по умолчанию персиковый). Раньше выбранный вариант отличался
+ * только полупрозрачной заливкой bg-current/15 — на тёмном фоне она почти
+ * не видна, и человек не понимал, засчитался ли его выбор.
+ *
+ * ⚠️ Заливкой акцент НЕ делаем, только кружок и рамка: сплошной персиковый
+ * фон под тёмным текстом читается плохо (то же правило, что у карточек
+ * лендинга — металлик только в рамке).
+ */
+function Choice({ label, checked, multi, accent, radius, onClick }: any) {
+  return (
+    <button type="button" onClick={onClick}
+      style={{
+        borderRadius: radius,
+        borderColor: checked ? accent : 'currentColor',
+        // Невыбранные рамки приглушаем, чтобы выбранный вариант выделялся.
+        opacity: checked ? 1 : 0.75,
+      }}
+      className="flex w-full items-center gap-2.5 border p-2.5 text-left text-sm hover:bg-current/5">
+      <span
+        style={{
+          borderColor: accent,
+          borderRadius: multi ? 4 : 999,
+        }}
+        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center border-2">
+        {checked && (
+          <span
+            style={{ background: accent, borderRadius: multi ? 2 : 999 }}
+            className={multi ? 'h-2.5 w-2.5' : 'h-2.5 w-2.5'} />
+        )}
+      </span>
+      <span className={checked ? 'font-medium' : ''}>{label}</span>
+    </button>
   )
 }
 
