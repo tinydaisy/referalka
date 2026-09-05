@@ -132,7 +132,11 @@ function SettingsTab() {
   // ⚠️ Адрес `/become-partner/`, а НЕ `/partner/{id}`: тот занят старым
   // прокси регистрации партнёров во внешней системе клиента (миграция 105) —
   // nginx уводит его в FastAPI, и наша страница там не открылась бы.
-  const inviteUrl = me?.id ? `${publicBase}/become-partner/${me.id}` : ''
+  // Бэкенд отдаёт готовый адрес и площадочные ссылки (только для ботов, где
+  // разбор метки написан). Своих ссылок здесь не собираем.
+  const inviteUrl = data.invite_url
+    || (me?.id ? `${publicBase}/become-partner/${me.id}` : '')
+  const platformLinks: Record<string, string> = data.invite_platform_links || {}
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -166,6 +170,22 @@ function SettingsTab() {
             Открыть
           </a>
         </div>
+        {/* Ссылки через мессенджеры: человек попадает в вашего бота, где он
+            уже опознан аккаунтом — почту вводить не нужно. Показываем только
+            подключённые площадки. */}
+        {Object.keys(platformLinks).length > 0 && (
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <div className="text-sm font-medium text-slate-700 mb-2">
+              Через мессенджеры
+            </div>
+            <div className="space-y-2">
+              {Object.entries(platformLinks).map(([p, url]) => (
+                <InviteRow key={p} label={PLATFORM_LABEL[p] || p} link={url} />
+              ))}
+            </div>
+          </div>
+        )}
+
         <Note>
           Партнёром может стать любой человек — покупать что-то для этого не
           нужно. Если он уже есть в вашей базе, второй карточки не появится:
@@ -411,6 +431,37 @@ function SalesTab() {
 }
 
 /* ─── Мелочи ────────────────────────────────────────────────────────────── */
+
+const PLATFORM_LABEL: Record<string, string> = {
+  telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX',
+}
+
+/** Строка со ссылкой и кнопкой «копировать» — как в блоке веб-адреса. */
+function InviteRow({ label, link }: { label: string; link: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-slate-500 shrink-0" style={{ width: '5.5rem' }}>
+        {label}
+      </span>
+      <input
+        readOnly value={link}
+        onFocus={e => e.currentTarget.select()}
+        className="flex-1 min-w-0 border border-slate-200 bg-slate-50 rounded-lg px-3 py-1.5 text-xs text-slate-600"
+      />
+      <button
+        onClick={() => {
+          navigator.clipboard?.writeText(link)
+            .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+            .catch(() => {})
+        }}
+        className="btn-primary shrink-0 text-xs px-3 py-1.5"
+      >
+        {copied ? 'Готово' : 'Копировать'}
+      </button>
+    </div>
+  )
+}
 
 function Card({ title, children }: { title: string; children: any }) {
   return (

@@ -304,6 +304,26 @@ def pick_signup_link(links: dict[str, str], platform: str, web_url: str = "") ->
     return "\n".join(f"{PLATFORM_LABEL.get(p, p)}: {url}" for p, url in rest)
 
 
+def build_partner_invite_links(handles: dict[str, str | None], client_id: int) -> dict[str, str]:
+    """Ссылки «стать партнёром» по площадкам — метка `bpr_{client_id}`.
+
+    ⚠️ Показывать ссылку можно ТОЛЬКО там, где написан разбор метки (сейчас
+    все три бота). Ссылка без разбора хуже её отсутствия: человек нажимает и
+    попадает в общее приветствие, не понимая, что произошло.
+
+    Нет своего бота на площадке → пустая строка: системные боты в share-ссылках
+    не используются нигде в проекте.
+    """
+    tg = (handles.get("telegram") or "").lstrip('@')
+    vk = (handles.get("vk") or "").lstrip('@')
+    mx = (handles.get("max") or "").lstrip('@')
+    return {
+        "telegram": f"https://{TG_DOMAIN}/{tg}?start=bpr_{client_id}" if tg else "",
+        "vk": f"https://vk.me/{vk}?ref=bpr_{client_id}" if vk else "",
+        "max": f"https://max.ru/{mx}?start=bpr_{client_id}" if mx else "",
+    }
+
+
 def build_support_command_links(handles: dict[str, str | None], event_id: int) -> dict[str, str]:
     """Deeplink-ссылки «Тех.поддержка» по площадкам: клик → бот вызывает команду
     support (сообщение со всеми каналами связи клиента-владельца события).

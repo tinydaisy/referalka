@@ -366,6 +366,16 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("product pr_ handler failed: %s", e)
 
+    # Приглашение в СВОЮ партнёрскую программу клиента: `/start bpr_<client_id>`.
+    # ⚠️ Не путать с `prtc_`/`prtp_` ниже — те про регистрацию во ВНЕШНЕЙ
+    # системе клиента (GetCourse). Здесь партнёрка самого ПЛЮСОНа у клиента.
+    if args.startswith("bpr_"):
+        try:
+            if await _start_partner_invite(message, args):
+                return
+        except Exception as e:
+            log.exception("partner invite bpr_ handler failed: %s", e)
+
     # Регистрация партнёра — прямые ссылки (миграция 105, рефакторинг 24.05.2026):
     #   prtc_<client_id>   — корневая ссылка клиента (без рефовода)
     #   prtp_<contact_id>  — личная ссылка партнёра (рефовод = этот контакт)
@@ -1967,6 +1977,57 @@ async def _start_product_link(message: Message, payload: str) -> bool:
             # Обложка не открылась (битая ссылка, чужой домен) — не повод
             # терять сообщение целиком: шлём текстом.
             pass
+    await message.answer(msg["text"], parse_mode="HTML", reply_markup=kb)
+    return True
+
+
+async def _start_partner_invite(message: Message, payload: str) -> bool:
+    """`/start bpr_<client_id>` — приглашение в партнёрскую программу клиента.
+
+    ⚠️ Партнёром здесь НЕ делаем: нужен акцепт оферты и налоговый статус,
+    а юридически значимое согласие нельзя собирать кнопкой в мессенджере —
+    человек должен видеть текст. Бот показывает приглашение и ведёт на
+    страницу; контакт передаётся в ссылке, чтобы там не спрашивали почту
+    заново (иначе рождается второй контакт).
+    """
+    user = message.from_user
+    if not user:
+        return False
+
+    from app.services.partner_invite import (
+        parse_invite_payload, build_invite_message,
+        already_partner, build_cabinet_message,
+    )
+
+    client_id = parse_invite_payload(payload)
+    if not client_id:
+        return False
+
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        contact_id = None
+        try:
+            from app.services.contact_merge import upsert_contact_with_identity
+            contact_id, _pu, _new = await upsert_contact_with_identity(
+                db, client_id=client_id, platform_slug="telegram",
+                platform_user_id=str(user.id),
+                username=user.username or None,
+                first_name=user.first_name or None,
+                last_name=user.last_name or None,
+            )
+        except Exception as e:
+            log.warning("bpr_: контакт не резолвлен: %s", e)
+
+        if await already_partner(db, client_id, contact_id):
+            msg = await build_cabinet_message(db, client_id)
+        else:
+            msg = await build_invite_message(db, client_id, contact_id=contact_id)
+        if not msg:
+            return False
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=msg["button"], url=msg["url"])
+    ]])
     await message.answer(msg["text"], parse_mode="HTML", reply_markup=kb)
     return True
 

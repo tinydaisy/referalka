@@ -70,8 +70,26 @@ async def get_settings(user=Depends(get_current_client),
         int(user["sub"]),
     )
     data = dict(row) if row else {}
-    data["has_feature"] = await client_has_feature(
-        db, int(user["sub"]), "partner_program")
+    cid = int(user["sub"])
+    data["has_feature"] = await client_has_feature(db, cid, "partner_program")
+
+    # Ссылки «стать партнёром»: веб + площадки, где у клиента есть свой бот.
+    # ⚠️ Площадочные ведут в БОТА с меткой `bpr_`, а не на веб-страницу: там
+    # человек уже опознан аккаунтом, и его не надо просить вводить почту —
+    # именно ввод другой почты рождает второй контакт.
+    from app.services.client_domains import client_public_link
+    from app.services.share_links import (
+        build_partner_invite_links, get_client_bot_handles,
+    )
+
+    data["invite_url"] = await client_public_link(db, cid, f"/become-partner/{cid}")
+    try:
+        handles = await get_client_bot_handles(db, cid)
+        data["invite_platform_links"] = {
+            k: v for k, v in build_partner_invite_links(handles, cid).items() if v
+        }
+    except Exception:  # noqa: BLE001 — ссылки не критичны для настроек
+        data["invite_platform_links"] = {}
     return data
 
 

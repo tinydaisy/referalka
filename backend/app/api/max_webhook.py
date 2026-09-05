@@ -1043,6 +1043,47 @@ async def _handle_max_merge(
         )
 
 
+async def _handle_max_partner_invite(
+    payload: str, user_id: int, chat_id: int, bot_token: str,
+    client_id_override: int | None,
+    first_name: str, last_name: str, username: str,
+) -> bool:
+    """`?start=bpr_<client_id>` в MAX — приглашение в партнёрскую программу."""
+    from ..services.partner_invite import (
+        parse_invite_payload, build_invite_message,
+        already_partner, build_cabinet_message,
+    )
+    from ..services.contact_merge import upsert_contact_with_identity
+
+    client_id = parse_invite_payload(payload)
+    if not client_id:
+        return False
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        contact_id = None
+        try:
+            contact_id, _pu, _new = await upsert_contact_with_identity(
+                conn, client_id=client_id, platform_slug="max",
+                platform_user_id=str(user_id), username=username or None,
+                first_name=first_name or None, last_name=last_name or None,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX bpr_: контакт не резолвлен: {e}")
+
+        if await already_partner(conn, client_id, contact_id):
+            msg = await build_cabinet_message(conn, client_id)
+        else:
+            msg = await build_invite_message(conn, client_id, contact_id=contact_id)
+        if not msg:
+            return False
+
+    btn = tg_inline_to_max_keyboard([[{"text": msg["button"], "url": msg["url"]}]])
+    await max_send_message(chat_id, msg["text"], token=bot_token,
+                           buttons=btn, parse_mode="html")
+    return True
+
+
 async def _handle_max_product_link(
     payload: str, user_id: int, chat_id: int, bot_token: str,
     client_id_override: int | None,
@@ -1393,6 +1434,17 @@ async def _process_start(
         except Exception as e:  # noqa: BLE001
             logger.exception(f"MAX lead-magnet funnel handler failed: {e}")
         return
+
+    # Приглашение в партнёрскую программу клиента: `?start=bpr_<client_id>`.
+    if payload and payload.startswith("bpr_"):
+        try:
+            if await _handle_max_partner_invite(
+                payload, user_id, chat_id, bot_token, client_id_override,
+                first_name, last_name, username,
+            ):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"MAX partner invite bpr_ failed: {e}")
 
     # Продукт: `?start=pr_<slug>[_pid<код>]` (решение № 24) — тот же формат,
     # что в TG и VK. Бот называет продукт и даёт кнопку «СМОТРЕТЬ».

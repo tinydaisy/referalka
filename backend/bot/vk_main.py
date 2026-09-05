@@ -157,6 +157,20 @@ def _extract_plusson_ref_code(message_or_event: dict) -> str | None:
     return None
 
 
+def _extract_partner_invite(message_or_event: dict) -> int | None:
+    """Ищет `ref=bpr_<client_id>` — приглашение в партнёрскую программу.
+
+    ⚠️ Метка строковая, поэтому разбирается тут, а не через
+    `_extract_ref_with_prefix` (тот вытаскивает int-метки вроде `fnl_`).
+    """
+    from app.services.partner_invite import parse_invite_payload
+    for s in _ref_candidates(message_or_event):
+        cid = parse_invite_payload(s)
+        if cid:
+            return cid
+    return None
+
+
 def _extract_product_payload(message_or_event: dict) -> dict | None:
     """Ищет `ref=pr_<slug>[_pid<код>]` — ссылка на продукт (решение № 24).
 
@@ -310,6 +324,46 @@ async def _vk_handle_evreg(payload: str, vk_user_id: int, username: str | None,
         await handle_vk_event_menu_back(eid, int(vk_user_id), db, ctx)
     except Exception as e:
         logger.warning(f"VK evreg failed (event={eid}): {e}")
+    return True
+
+
+async def _vk_handle_partner_invite(client_id_from_ref: int, vk_user_id: int,
+                                    username: str | None, first_name: str | None,
+                                    last_name: str | None, db, ctx) -> bool:
+    """`vk.me/{group}?ref=bpr_<client_id>` — приглашение в партнёрку."""
+    from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
+    from app.services.contact_merge import upsert_contact_with_identity
+    from app.services.partner_invite import (
+        build_invite_message, already_partner, build_cabinet_message,
+    )
+
+    # ⚠️ Клиент берётся у СООБЩЕСТВА, а не из метки: метку можно прислать
+    # любую, а человек пишет в конкретный бот — его база и решает.
+    client_id = ctx.client_id or client_id_from_ref
+    if not client_id:
+        return False
+
+    contact_id = None
+    try:
+        contact_id, _pu, _new = await upsert_contact_with_identity(
+            db, client_id=client_id, platform_slug="vk",
+            platform_user_id=str(vk_user_id), username=username or None,
+            first_name=first_name or None, last_name=last_name or None,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK bpr_: контакт не резолвлен: %s", e)
+
+    if await already_partner(db, client_id, contact_id):
+        msg = await build_cabinet_message(db, client_id)
+    else:
+        msg = await build_invite_message(db, client_id, contact_id=contact_id)
+    if not msg:
+        return False
+
+    # ⚠️ VK не разбирает HTML — срезаем теги, иначе человек увидит <b> текстом.
+    text = msg["text"].replace("<b>", "").replace("</b>", "")
+    kb = tg_inline_to_vk_keyboard([[{"text": msg["button"], "url": msg["url"]}]])
+    await _vk_send(vk_user_id, text, token=ctx.token, keyboard=kb)
     return True
 
 
@@ -931,6 +985,15 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
     # Ссылка на продукт: ref=pr_<slug> (решение № 24).
     # ⚠️ Метка строковая, поэтому проверяем её рядом с реф-кодом ПЛЮСОНа —
     # до разбора int-меток событий.
+    _inv = _extract_partner_invite(event)
+    if _inv:
+        try:
+            if await _vk_handle_partner_invite(
+                _inv, int(user_id), None, None, None, db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK bpr_ (message_allow) failed: %s", e)
+
     _prod = _extract_product_payload(event)
     if _prod:
         try:
@@ -1882,6 +1945,15 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
 
     # Ссылка на продукт: ref=pr_<slug> (решение № 24). Как и реф-код ПЛЮСОНа,
     # метка строковая — разбираем её до int-меток событий.
+    _inv_new = _extract_partner_invite(event_obj)
+    if _inv_new:
+        try:
+            if await _vk_handle_partner_invite(
+                _inv_new, int(from_id), None, None, None, db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK bpr_ (message_new) failed: %s", e)
+
     _prod_new = _extract_product_payload(event_obj)
     if _prod_new:
         try:
