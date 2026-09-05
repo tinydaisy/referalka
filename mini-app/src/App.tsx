@@ -555,66 +555,6 @@ export default function App() {
       // шесть одинаковых правок и почти гарантированный пропуск одной.
       // Поэтому шлюз один и стоит ДО всей маршрутизации: пока человек не
       // нажал «Продолжить», ни один запрос прав не уходит.
-      // ⚠️⚠️ ПРАВА ПО ССЫЛКЕ — В САМОМ НАЧАЛЕ, ДО ПОКАЗА ПРИЛОЖЕНИЯ.
-      //
-      // Так было изначально и так работало. Если просить позже, событие с
-      // режимом «лендинг» успевает увести webview на страницу регистрации —
-      // Mini App закрывается, и системные окна ВКонтакте показывать уже
-      // некому (жалоба владельца 05.09.2026: мелькает форма, потом лендинг,
-      // окон нет).
-      //
-      // ⚠️ ТОЛЬКО ДЛЯ ССЫЛОК события и лид-магнита. На ГОЛОМ входе прав здесь
-      // не просим — там работает окно-объяснение, и подписки нет: это путь
-      // модератора, за неё сняли с публикации (п.1.1.2, 01.09.2026).
-      //
-      // ⚠️ Порядок как в рабочей версии b9faac81: подписка ВНУТРИ колбэка
-      // requestWriteAccess. Другие сочетания за 05.09.2026 проверены — не
-      // работают.
-      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id) {
-        const spLink = adapter.startParam || ''
-        const byLink = spLink.startsWith('ref_pg') || spLink.startsWith('pg')
-          || spLink.startsWith('evl_') || spLink.startsWith('m_')
-          || spLink.startsWith('p_') || spLink.startsWith('fnl_')
-        if (byLink) {
-          let gid0 = Number(adapter.launchParams?.vk_group_id || 0)
-          if (!gid0 && adapter.launchParams?.vk_app_id) {
-            try {
-              const g0: any = await fetch(
-                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${adapter.launchParams.vk_app_id}`
-              ).then(x => x.ok ? x.json() : null)
-              if (g0?.group_id) gid0 = Number(g0.group_id)
-            } catch { /* skip */ }
-          }
-          if (gid0) {
-            ;(window as any).__vkPermsAt = Date.now()
-            // ⚠️⚠️ ЖДЁМ ОТВЕТА — приложение не грузится, пока человек не
-            // ответит на окна. Так было в рабочей версии: сначала окна, потом
-            // приложение. Без ожидания загрузка идёт параллельно, окна
-            // перекрываются экраном, и человек не успевает нажать (жалоба
-            // владельца 05.09.2026).
-            //
-            // ⚠️ Страховка 45 секунд — на случай, если ВКонтакте не ответит
-            // вовсе: приложение не должно висеть навсегда.
-            await new Promise<void>((resolve) => {
-              let done = false
-              const finish = () => { if (!done) { done = true; resolve() } }
-              setTimeout(finish, 45000)
-              try {
-                adapter.requestWriteAccess({ vkGroupId: gid0 }, () => {
-                  // Подписка — внутри колбэка разрешения (рабочая версия
-                  // b9faac81). Её колбэк и закрывает ожидание.
-                  if (adapter.joinGroup) {
-                    try {
-                      adapter.joinGroup({ vkGroupId: gid0 }, () => finish())
-                    } catch { finish() }
-                  } else finish()
-                })
-              } catch { finish() }
-            })
-          }
-        }
-      }
-
       // ⚠️⚠️ ЭКРАН ПОКАЗЫВАЕТСЯ НА ЛЮБОМ ВХОДЕ, и разделять их не пытаться.
       //
       // Здесь стояло условие «только на голом входе» (по startParam). Оно не
@@ -761,9 +701,19 @@ export default function App() {
       // ссылки, без pushState), а при переходе внутри приложения ссылки уже
       // нет. По одному источнику условие не срабатывало, и по ссылке не
       // приходило ни одного окна (жалоба владельца 05.09.2026).
+      // ⚠️⚠️ ПРИЗНАК «ПРИШЁЛ ПО ССЫЛКЕ» — НАЛИЧИЕ startParam, и только оно.
+      //
+      // Раньше здесь стояло `parsed.eventSlug || parsePathSlug()` — оба
+      // источника при заходе по ссылке ПУСТЫ (ВКонтакте часто не передаёт
+      // ссылку, а адрес ещё корневой), поэтому условие не срабатывало и права
+      // не запрашивались вовсе.
+      //
+      // Голый вход отличается тем, что startParam там пуст ВСЕГДА — этого
+      // достаточно: подписку на голом входе не просим, за неё сняли с
+      // публикации (п.1.1.2, 01.09.2026).
       if (adapter.name === 'vk') {
-        const inEvent = !!parsed.eventSlug || !!parsePathSlug()
-        sendVkEventStart(adapter, user, parsed, { askPerms: inEvent })
+        const byLink = !!(adapter.startParam || '').trim()
+        sendVkEventStart(adapter, user, parsed, { askPerms: byLink })
       }
 
       setTgUser(prev => prev || (user || MOCK_USER))
