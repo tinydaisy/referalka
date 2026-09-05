@@ -1597,6 +1597,10 @@ function BlockBody(props: any) {
             : null}
           btnStyle={btnStyle}
           radius={radius}
+          /* Акцентный цвет темы клиента («Цвет иконок и кнопок» в стилях
+             лендингов, по умолчанию персиковый). Им красится второстепенная
+             кнопка «Назад» — чтобы она была фирменной, а не серой. */
+          accentColor={iconColor}
           privacyUrl={sv.privacy_url}
           forPdf={forPdf}
           pageUrl={pageUrl}

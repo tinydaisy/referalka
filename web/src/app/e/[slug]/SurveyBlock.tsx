@@ -32,6 +32,8 @@ interface Props {
   /** Оформление лендинга: кнопка блока должна выглядеть как соседние. */
   btnStyle?: any
   radius?: number
+  /** Акцентный цвет темы клиента — им красится кнопка «Назад». */
+  accentColor?: string
   privacyUrl?: string | null
   /** Печать в PDF: форму не показываем — заполнить её на бумаге нельзя. */
   forPdf?: boolean
@@ -40,7 +42,7 @@ interface Props {
 
 export default function SurveyBlock({
   survey, view, contactId, btnStyle, radius = 12,
-  privacyUrl, forPdf = false, pageUrl = '',
+  accentColor = '#FFCFA4', privacyUrl, forPdf = false, pageUrl = '',
 }: Props) {
   const questions: any[] = Array.isArray(survey?.questions) ? survey.questions : []
 
@@ -192,8 +194,24 @@ export default function SurveyBlock({
     )
   }
 
-  const shown = isQuiz ? questions.slice(step, step + 1) : questions
-  const lastStep = !isQuiz || step >= total - 1
+  /* ⚠️ В КВИЗЕ КОНТАКТЫ — ОТДЕЛЬНЫЙ ПОСЛЕДНИЙ ШАГ, а не довесок к последнему
+     вопросу. Иначе на одном экране оказываются и вопрос, и три поля с
+     согласием: шаг перестаёт быть «одним вопросом», ради чего квиз и нужен.
+
+     Шагов всего `total + 1` (вопросы + экран контактов). Незнакомому человеку
+     этот экран нужен; пришедшего по ссылке мы уже знаем — ему лишний пустой
+     шаг не показываем, и последний вопрос сразу становится финальным. */
+  const contactStep = isQuiz && !known ? total : -1
+  const onContactStep = isQuiz && step === contactStep
+  const shown = isQuiz
+    ? (onContactStep ? [] : questions.slice(step, step + 1))
+    : questions
+  // Финальный экран: в форме — всегда, в квизе — экран контактов, а если
+  // контакты не нужны, последний вопрос.
+  const lastStep = !isQuiz
+    || (contactStep >= 0 ? onContactStep : step >= total - 1)
+  // Сколько всего шагов показываем в прогрессе.
+  const steps = contactStep >= 0 ? total + 1 : total
 
   return (
     <div className="mx-auto max-w-xl">
@@ -201,16 +219,18 @@ export default function SurveyBlock({
         <p className="mb-4 opacity-80">{survey.intro}</p>
       )}
 
-      {/* Прогресс квиза: человеку важно видеть, сколько осталось. */}
-      {isQuiz && total > 1 && (
+      {/* Прогресс квиза: человеку важно видеть, сколько осталось.
+          ⚠️ Шагов `total + 1`, если контакты спрашиваем отдельным экраном —
+          иначе на нём было бы «Шаг 4 из 3». */}
+      {isQuiz && steps > 1 && (
         <div className="mb-4">
           <div className="mb-1 flex justify-between text-xs opacity-70">
-            <span>Шаг {Math.min(step + 1, total)} из {total}</span>
-            <span>{Math.round(((step) / total) * 100)}%</span>
+            <span>Шаг {Math.min(step + 1, steps)} из {steps}</span>
+            <span>{Math.round((step / steps) * 100)}%</span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-current/15">
             <div className="h-full rounded-full transition-all"
-              style={{ width: `${(step / total) * 100}%`, background: 'currentColor' }} />
+              style={{ width: `${(step / steps) * 100}%`, background: 'currentColor' }} />
           </div>
         </div>
       )}
@@ -223,11 +243,24 @@ export default function SurveyBlock({
             radius={radius} />
         ))}
 
-        {/* Контакты — на последнем шаге квиза либо внизу формы.
+        {/* Контакты — ОТДЕЛЬНЫМ последним шагом в квизе, внизу формы в
+            обычном виде.
             ⚠️ Спрашиваем только у незнакомого: пришедшему по ссылке из бота
             подставит бэкенд, и повторный ввод выглядел бы недоверием. */}
         {lastStep && !known && (
-          <div className="space-y-3 border-t border-current/15 pt-4">
+          <div className={onContactStep
+            ? 'space-y-3'
+            : 'space-y-3 border-t border-current/15 pt-4'}>
+            {/* На своём экране блок нуждается в заголовке — иначе после
+                вопросов человек видит три безымянных поля. */}
+            {onContactStep && (
+              <div className="mb-1">
+                <p className="text-base font-semibold">Куда прислать ответ</p>
+                <p className="mt-1 text-sm opacity-70">
+                  Остался последний шаг — оставьте контакты, и мы свяжемся с вами.
+                </p>
+              </div>
+            )}
             <Fld label="Как вас зовут" value={contact.name} radius={radius}
               onChange={(v: string) => setContact(p => ({ ...p, name: v }))} />
             <Fld label="Почта" type="email" value={contact.email} radius={radius}
@@ -257,9 +290,16 @@ export default function SurveyBlock({
 
         <div className="flex gap-2">
           {isQuiz && step > 0 && (
+            {/* ⚠️ «Назад» — второстепенное действие, поэтому не заливка, а
+                РАМКА акцентным цветом темы: главной на экране остаётся
+                «Дальше». Серая рамка выглядела чужой на фирменной странице. */}
             <button type="button" onClick={() => { setError(''); setStep(s => s - 1) }}
-              style={{ borderRadius: radius }}
-              className="border border-current/25 px-4 py-3 text-sm">
+              style={{
+                borderRadius: radius,
+                borderColor: accentColor,
+                color: accentColor,
+              }}
+              className="border px-4 py-3 text-sm font-medium">
               Назад
             </button>
           )}
