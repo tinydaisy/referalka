@@ -23,6 +23,10 @@ interface Tariff {
   discount_value?: number | null
   old_price?: number | null
   discount_percent?: number | null
+  // Вознаграждение партнёру (миграция 347). NULL = действует умолчание
+  // из раздела «Моя партнёрка».
+  partner_reward_kind?: 'percent' | 'fixed' | null
+  partner_reward_value?: number | null
   pay_url: string | null
   sort_order: number
   is_active: boolean
