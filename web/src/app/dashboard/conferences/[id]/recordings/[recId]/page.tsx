@@ -28,6 +28,10 @@ import { Spinner } from '@/components/Spinner'
 
 type Cut = {
   id?: number
+  /** ⚠️ Свой ключ для React, живёт только в браузере. У меток из раскладки по
+   *  программе id ещё нет, а индекс и время меняются при перетаскивании —
+   *  элемент пересоздавался бы под мышью и терял захват. */
+  _k?: number
   start_sec: number
   end_sec?: number | null
   title: string
@@ -60,6 +64,10 @@ const parseTime = (v: string): number | null => {
   if (nums.length === 3) return nums[0] * 3600 + nums[1] * 60 + nums[2]
   return null
 }
+
+/** Выдаёт уникальные номера новым меткам — источник значения Cut._k. */
+let _keySeq = 1
+const newKey = () => _keySeq++
 
 const fmtSize = (b?: number | null) =>
   !b ? '' : b > 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} ГБ` : `${Math.round(b / 1024 ** 2)} МБ`
@@ -106,7 +114,10 @@ export default function RecordingCutPage() {
   const liveDur = Math.max(1, (meta?.duration_sec || 0) - offset)
 
   const load = () => api.webinar.cuts(eventId, day, recordingId)
-    .then((r: any) => { setCuts(r.cuts || []); setMeta(r.recording); setDirty(false) })
+    .then((r: any) => {
+      setCuts((r.cuts || []).map((c: Cut) => ({ ...c, _k: newKey() })))
+      setMeta(r.recording); setDirty(false)
+    })
     .catch(() => {})
     .finally(() => setLoading(false))
 
@@ -184,7 +195,7 @@ export default function RecordingCutPage() {
   const addMark = (sec: number) => {
     const s = Math.max(0, Math.round(sec))
     if (cuts.some(c => Math.abs(c.start_sec - s) < 2)) return   // метка уже тут
-    setCuts([...cuts, { start_sec: s, title: 'Новый кусок' }]
+    setCuts([...cuts, { _k: newKey(), start_sec: s, title: 'Новый кусок' }]
       .sort((a, b) => a.start_sec - b.start_sec))
     setDirty(true)
   }
@@ -226,7 +237,8 @@ export default function RecordingCutPage() {
       if (!marks.length) { alert('В программе этого дня нет слотов со временем.'); return }
       // Готовые куски не трогаем — их файлы могли уже уйти спикерам.
       const keep = cuts.filter(c => c.status === 'ready')
-      setCuts([...keep, ...marks].sort((a, b) => a.start_sec - b.start_sec))
+      setCuts([...keep, ...marks.map(m => ({ ...m, _k: newKey() }))]
+        .sort((a, b) => a.start_sec - b.start_sec))
       setDirty(true)
       setAskAnchor(false)
     } catch (e: any) {
@@ -250,7 +262,8 @@ export default function RecordingCutPage() {
           start_sec: c.start_sec, title: c.title,
           speaker_ec_id: c.speaker_ec_id ?? null, session_id: c.session_id ?? null,
         })))
-      setCuts(r.cuts || []); setMeta(r.recording); setDirty(false)
+      setCuts((r.cuts || []).map((c: Cut) => ({ ...c, _k: newKey() })))
+      setMeta(r.recording); setDirty(false)
     } catch (e: any) {
       alert(e?.message || 'Не получилось сохранить')
     } finally { setBusy('') }
@@ -336,8 +349,11 @@ export default function RecordingCutPage() {
       {/* Таймлайн. ⚠️ Метки ТЯНУТСЯ мышью — это первое, что человек пробует
           сделать, увидев палочку на полосе. Двигать только цифрами в поле ниже
           неочевидно: выглядит как «сломалось». */}
+      {/* ⚠️ Полоса высокая и с полем сверху (pt-3): палки-ручки выступают ЗА её
+          верхний край, поэтому overflow-hidden тут нельзя — он бы их срезал.
+          Скругление держим на внутреннем слое. */}
       <div ref={barRef}
-           className="relative h-14 rounded-xl bg-gray-100 border overflow-hidden select-none"
+           className="relative h-24 pt-3 select-none"
            style={{ cursor: dragIdx !== null ? 'grabbing' : 'pointer' }}
            onClick={e => {
              // Клик по полосе — перемотка. Но не сразу после перетаскивания:
@@ -346,39 +362,55 @@ export default function RecordingCutPage() {
              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
              seekLive(((e.clientX - box.left) / box.width) * liveDur)
            }}>
+        <div className="absolute left-0 right-0 bottom-0 top-3 rounded-xl bg-gray-100 border" />
         {cuts.map((c, i) => {
           const next = cuts[i + 1]
           const end = next ? next.start_sec : liveDur
           const left = (c.start_sec / liveDur) * 100
           const w = Math.max(0.4, ((end - c.start_sec) / liveDur) * 100)
           const locked = c.status === 'ready' || c.status === 'processing'
+          const dragging = dragIdx === i
           return (
-            <div key={c.id ?? `n${i}`} style={{ left: `${left}%`, width: `${w}%` }}
-                 className={`absolute inset-y-0 border-l-2 ${
-                   c.status === 'ready' ? 'bg-emerald-100 border-emerald-500'
-                   : c.status === 'processing' ? 'bg-amber-100 border-amber-500'
-                   : c.status === 'failed' ? 'bg-red-100 border-red-500'
-                   : 'bg-[#FFCFA4]/40 border-[#25455D]'} ${dragIdx === i ? 'z-20' : ''}`}>
-              <span className="absolute top-1 left-2 text-[11px] text-[#25455D] truncate max-w-[92%] pointer-events-none">
+            // ⚠️ Ключ включает start_sec, а не только индекс: у меток из
+            // раскладки по программе своего id нет, и при пересортировке React
+            // переиспользовал не тот элемент — перетаскивание рвалось.
+            <div key={c._k ?? c.id ?? i}
+                 style={{ left: `${left}%`, width: `${w}%` }}
+                 className={`absolute bottom-0 top-3 ${
+                   c.status === 'ready' ? 'bg-emerald-100'
+                   : c.status === 'processing' ? 'bg-amber-100'
+                   : c.status === 'failed' ? 'bg-red-100'
+                   : 'bg-[#FFCFA4]/40'} ${dragging ? 'z-30' : ''}`}>
+              <span className="absolute top-1 left-2.5 text-[11px] text-[#25455D] truncate max-w-[92%] pointer-events-none">
                 {c.title}
               </span>
-              {/* Ручка на левой границе — за неё и тянут.
-                  ⚠️ Шире самой линии (12px): в двухпиксельную полоску мышью не
-                  попасть. Нарезанные куски не двигаем — их файлы уже готовы. */}
-              {!locked && (
-                <div
-                  onMouseDown={e => { e.stopPropagation(); setDragIdx(i) }}
-                  title="Потяните, чтобы сдвинуть метку"
-                  className="absolute -left-1.5 inset-y-0 w-3 cursor-grab active:cursor-grabbing
-                             flex items-start justify-center"
-                >
-                  <span className="mt-0.5 w-2.5 h-2.5 rounded-full bg-[#25455D] shadow" />
-                </div>
-              )}
+
+              {/* Вертикальная палка-граница + ручка сверху.
+                  ⚠️ Палка выше полосы и с кружком на конце — иначе не видно, что
+                  её можно схватить. Область захвата 16px: в двухпиксельную
+                  линию мышью не попасть.
+                  Нарезанные куски не двигаем — их файлы уже готовы. */}
+              <div
+                onMouseDown={locked ? undefined : e => { e.stopPropagation(); setDragIdx(i) }}
+                title={locked ? 'Кусок уже нарезан — метку не сдвинуть'
+                              : 'Потяните, чтобы сдвинуть метку'}
+                className={`absolute -left-2 -top-3 bottom-0 w-4 flex flex-col items-center
+                            ${locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+              >
+                <span className={`w-3.5 h-3.5 rounded-full shrink-0 shadow-sm border-2 border-white ${
+                  locked ? 'bg-gray-400'
+                  : dragging ? 'bg-[#FFCFA4] ring-2 ring-[#25455D]'
+                  : 'bg-[#25455D]'}`} />
+                <span className={`w-0.5 flex-1 ${
+                  c.status === 'ready' ? 'bg-emerald-500'
+                  : c.status === 'processing' ? 'bg-amber-500'
+                  : c.status === 'failed' ? 'bg-red-500'
+                  : 'bg-[#25455D]'}`} />
+              </div>
             </div>
           )
         })}
-        <div className="absolute inset-y-0 w-0.5 bg-red-600 pointer-events-none"
+        <div className="absolute bottom-0 top-3 w-0.5 bg-red-600 pointer-events-none z-10"
              style={{ left: `${Math.min(100, (curLive / liveDur) * 100)}%` }} />
       </div>
       <div className="flex justify-between text-[11px] text-gray-400 mt-1 mb-4">
@@ -494,7 +526,7 @@ export default function RecordingCutPage() {
           const next = cuts[i + 1]
           const end = next ? next.start_sec : liveDur
           return (
-            <div key={c.id ?? `n${i}`}
+            <div key={c._k ?? c.id ?? i}
                  className="flex flex-wrap items-center gap-2 border rounded-xl p-2.5 bg-white">
               <button onClick={() => seekLive(c.start_sec)}
                       className="px-2 py-1 rounded-md bg-gray-100 text-sm tabular-nums text-[#25455D] shrink-0"
