@@ -4,7 +4,7 @@ import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
-import VkPermissionsIntro from './components/VkPermissionsIntro'
+import VkPermissionsIntro, { vkIntroWasShown } from './components/VkPermissionsIntro'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
 
 /*
@@ -124,23 +124,11 @@ async function handleVkFunnelIfNeeded(
           if (g?.group_id) gid = Number(g.group_id)
         } catch (_) {}
       }
-      // Разрешение на ЛС: без него человек, ушедший не зарегистрировавшись
-      // (а таких ~40%), недостижим для догрева вовсе.
+      // Разрешение на ЛС + подписка на сообщество (как у m_/p_).
       await new Promise<void>((resolve) => {
         if (!gid) return resolve()
         adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
       })
-      // ⚠️⚠️ ПОДПИСКА НА СООБЩЕСТВО — ТОЛЬКО ПО ССЫЛКЕ СОБЫТИЯ (решение
-      // владельца 04.09.2026), и это ОСОЗНАННЫЙ РИСК, а не недосмотр.
-      //
-      // Модерация ВКонтакте сняла приложение именно за автозапрос подписки
-      // (п.1.1.2: «запрашивает подписку до просмотра функций», 01.09.2026).
-      // Владелец предупреждён и решил вернуть его на входах ПО ССЫЛКАМ:
-      // человек пришёл на конкретное событие, там подписка уместна, а таких
-      // ссылок модератор в приложении не увидит.
-      //
-      // ⚠️ При ГОЛОМ открытии приложения (календарь) подписку не просим —
-      // ровно это и вызвало отклонение. Туда joinGroup не возвращать.
       if (adapter.joinGroup && gid) {
         try { adapter.joinGroup({ vkGroupId: gid }, () => {}) } catch (_) {}
       }
@@ -198,10 +186,7 @@ async function handleVkFunnelIfNeeded(
         if (!gid) return resolve()
         adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
       })
-      // ⚠️ Подписка на сообщество — как и на ссылке события (решение владельца
-      // 04.09.2026, см. комментарий выше про риск модерации). Человек пришёл
-      // за подарком по конкретной ссылке; подписка тут читается как условие
-      // обмена. При голом открытии приложения её по-прежнему нет.
+      // Подписка на само сообщество (стену) — отдельное действие от AllowMessages.
       if (adapter.joinGroup && gid) {
         try { adapter.joinGroup({ vkGroupId: gid }, () => {}) } catch (_) {}
       }
@@ -428,36 +413,26 @@ async function sendVkEventStart(
   let groupId = Number(lp.vk_group_id || 0)
   if (!groupId && lp.vk_app_id) {
     try {
-      // ⚠️ АДРЕС ОБЯЗАТЕЛЬНО ПОЛНЫЙ (VITE_API_URL). Здесь стоял относительный
-      // путь — запрос уходил на vk.com вместо нашего сервера, номер сообщества
-      // не приходил, и подписка молча не запрашивалась. Разрешение на ЛС при
-      // этом работало (адаптер берёт номер из launch params сам), поэтому со
-      // стороны выглядело как «просит только рассылку».
-      const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+      const r: any = await fetch(`/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
         .then(x => x.ok ? x.json() : null)
       if (r?.group_id) groupId = Number(r.group_id)
     } catch { /* skip */ }
   }
 
-  // ⚠️⚠️ ОКНА РАЗРЕШЕНИЙ ЗДЕСЬ БОЛЬШЕ НЕ ПОКАЗЫВАЕМ — их показывает
-  // VkPermissionsIntro (окно-объяснение, всплывает через 5 секунд).
-  //
-  // Раньше здесь стоял свой `requestWriteAccess`, и он ДРАЛСЯ с тем, что
-  // вызывает окно-объяснение: ВКонтакте на второй одновременный запрос
-  // отвечает отказом, и подписка, стоявшая в колбэке, не выполнялась вовсе
-  // (жалоба владельца 04.09.2026: «по ссылке события подписки нет»).
-  //
-  // ⚠️ Не возвращать сюда ни requestWriteAccess, ни joinGroup: два источника
-  // одних и тех же окон гасят друг друга, и поймать это по коду трудно —
-  // внешне выглядит как «окно просто не пришло».
-  ;(async () => {
+  adapter.requestWriteAccess({ vkGroupId: groupId }, async () => {
+    // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
+    // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
+    // зафиксирует подписавшегося в базе.
+    if (adapter.joinGroup) {
+      try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
+    }
     // Регистрируем контакт по VK-аккаунту (имя + vk_id). Email/телефон у VK
     // НЕ запрашиваем: VKWebAppGetEmail/GetPhoneNumber = «избыточные права»,
     // из-за которых модерация VK отклоняла приложение (2026-07). Для воронок
     // и рефералки email/телефон из VK не нужны — контакт создаётся по vk_id.
     await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
       parsed.clientId, parsed.utmSource, parsed.initialTab, null, null, parsed.contactId)
-  })()
+  })
 }
 
 async function sendVkEvent(
@@ -521,11 +496,12 @@ export default function App() {
   const [funnelEventTitle, setFunnelEventTitle] = useState<string>('')
   const [funnelPosterUrl, setFunnelPosterUrl] = useState<string>('')
   const [funnelGroupScreen, setFunnelGroupScreen] = useState<string>('')
-  // VK-only: окно-объяснение перед системным запросом прав (см.
-  // VkPermissionsIntro — там же, почему оно обязательно для модерации).
-  // Висит ПОВЕРХ приложения; счётчика «перезапусти init» больше нет — окно
-  // ничего не обрывает, и перезапускать нечего.
+  // VK-only: экран-объяснение ПЕРЕД окнами разрешений ВКонтакте (см.
+  // VkPermissionsIntro — там же, почему он обязателен для модерации).
   const [vkIntro, setVkIntro] = useState<boolean>(false)
+  // Счётчик-триггер: нажали «Продолжить» → меняется → эффект ниже проходит
+  // заново, уже без шлюза (отметка о показе к этому моменту записана).
+  const [vkIntroPassed, setVkIntroPassed] = useState<number>(0)
 
   useEffect(() => {
     (async () => {
@@ -545,81 +521,23 @@ export default function App() {
       // шесть одинаковых правок и почти гарантированный пропуск одной.
       // Поэтому шлюз один и стоит ДО всей маршрутизации: пока человек не
       // нажал «Продолжить», ни один запрос прав не уходит.
-      // ⚠️⚠️ ОКНО-ОБЪЯСНЕНИЕ БОЛЬШЕ НЕ ОБРЫВАЕТ ЗАПУСК.
-      // Раньше здесь стоял `return`: приложение не грузилось вовсе, пока
-      // человек не нажмёт «Продолжить», а потом init стартовал заново через
-      // счётчик. Отсюда мигание, двойная маршрутизация и «глючит».
-      // Хуже того — человек видел просьбу разрешить, ещё не увидев ни
-      // календаря, ни события, и модерация назвала это «до просмотра функций».
-      //
-      // Теперь приложение открывается как обычно, а окно всплывает поверх
-      // через паузу — см. VkPermissionsIntro (он сам решает, показываться ли,
-      // спросив базу «а не разрешал ли уже?»).
-      // ⚠️ ТОЛЬКО там, где окна прав больше никто не показывает.
-      // Ветки воронок (`evl_`, `m_`/`p_`, `spkinv_`, `prt_`) запрашивают права
-      // сами, в своём порядке, и показывают собственный экран-заглушку. Если
-      // окно-объяснение всплывёт и там, ДВА одновременных запроса `AllowMessages`
-      // погасят друг друга: ВКонтакте отвечает отказом на второй, и подписка,
-      // идущая следом, не выполняется вовсе (жалоба 04.09.2026 — «по ссылке
-      // события подписки нет»). Внешне это выглядит как «окно не пришло», по
-      // коду не видно.
-      const spNow = adapter.startParam || ''
-      const ownFlow = spNow.startsWith('evl_') || spNow.startsWith('m_')
-        || spNow.startsWith('p_') || spNow.startsWith('fnl_')
-        || spNow.startsWith('spkinv_') || spNow.startsWith('prt')
-      // ⚠️⚠️ ДВА РАЗНЫХ СЦЕНАРИЯ — не путать (решение владельца 04.09.2026):
-      //
-      //   ГОЛЫЙ ВХОД в приложение (без ссылки) → наш экран-объяснение, потом
-      //   по кнопке одно окно: разрешение на сообщения. Подписки НЕТ — ровно
-      //   за неё сняли с публикации (п.1.1.2, 01.09.2026). Это тот путь,
-      //   которым идёт модератор.
-      //
-      //   ПО ССЫЛКЕ СОБЫТИЯ (`ref_pg`) → без нашего экрана, сразу два
-      //   системных окна подряд: сообщения, затем подписка на сообщество.
-      //   Человек уже видит лендинг события — что происходит, ему понятно.
-      //
-      // ⚠️ Экран-объяснение с голого входа НЕ УБИРАТЬ: п.1.1.2 требует
-      // объяснить назначение права до системного окна, и за отсутствие такого
-      // экрана приложение уже отклоняли (18.06.2026).
-      // ⚠️⚠️ ПРОВЕРЯЕМ И АДРЕС СТРАНИЦЫ, НЕ ТОЛЬКО startParam.
-      //
-      // ВКонтакте при холодном открытии ЧАСТО НЕ ПЕРЕДАЁТ хэш ссылки: в
-      // диагностике прода при заходе по `#ref_pgivision9` пришли пустыми и
-      // hash, и bridge_ref, и url_ref (проверено 05.09.2026). Само событие при
-      // этом открывается — slug берётся из адреса страницы (`parsePathSlug`).
-      //
-      // Пока условие смотрело только на startParam, оно не срабатывало никогда,
-      // и по ссылке события не приходило НИ ОДНОГО окна. Не сводить обратно к
-      // одному источнику.
-      const fromEventLink = spNow.startsWith('ref_pg') || spNow.startsWith('pg')
-        || !!parsePathSlug()
-      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id && !ownFlow && !fromEventLink) {
-        setVkIntro(true)
-      }
-      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id && !ownFlow && fromEventLink) {
-        setTimeout(async () => {
-          const a = getPlatform()
-          let gid = Number(a.launchParams?.vk_group_id || 0)
-          // При заходе по прямой ссылке приложения ВКонтакте номер сообщества
-          // не передаёт — доспрашиваем у бэкенда, иначе окон не будет вовсе.
-          if (!gid && a.launchParams?.vk_app_id) {
-            try {
-              const r: any = await fetch(
-                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
-              ).then(x => x.ok ? x.json() : null)
-              if (r?.group_id) gid = Number(r.group_id)
-            } catch { /* skip */ }
+      if (adapter.name === 'vk') {
+        const vkId = adapter.launchParams?.vk_user_id || ''
+        if (vkId && !vkIntroWasShown(vkId)) {
+          // ⚠️ Клиента достаём ДО выхода: иначе на экране не будет ни
+          // логотипа, ни названия бренда — разбор startapp идёт ниже, а мы
+          // до него не доходим. Человек должен видеть, к кому он пришёл.
+          if (!detectClientIdFromPath()) {
+            const sp0 = adapter.startParam
+            if (sp0 && (sp0.startsWith('ref') || sp0.startsWith('hub'))) {
+              const cid0 = parseStartParam(sp0).clientId
+              if (cid0) setClientId(cid0)
+            }
           }
-          if (!gid) return
-          // 1) Разрешение на сообщения.
-          await new Promise<void>((resolve) => {
-            try { a.requestWriteAccess({ vkGroupId: gid }, () => resolve()) } catch { resolve() }
-          })
-          // 2) Подписка на сообщество — сразу следом.
-          if (fromEventLink && a.joinGroup) {
-            try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
-          }
-        }, 5000)
+          setVkIntro(true)
+          setLoading(false)
+          return   // продолжим из onContinue — см. ниже
+        }
       }
 
       const user = adapter.user
@@ -719,10 +637,8 @@ export default function App() {
       console.error('App init failed:', e)
       setLoading(false)
     })
-    // ⚠️ Запуск ОДИН РАЗ. Раньше здесь стоял vkIntroPassed — счётчик, который
-    // прогонял init заново после «Продолжить» на экране разрешений. Экран
-    // больше не обрывает запуск, повторять нечего.
-  }, [])
+    // ⚠️ vkIntroPassed — не «данные», а сигнал «шлюз пройден, повтори запуск».
+  }, [vkIntroPassed])
 
   // URL роутинг: popstate
   useEffect(() => {
@@ -815,60 +731,24 @@ export default function App() {
   const splash = typeof document !== 'undefined' ? document.getElementById('plusson-splash') : null
   if (splash) splash.remove()
 
-  // ⚠️ VK-only: окно-объяснение ПЕРЕД системным запросом прав (п.1.1.2 правил
-  // Mini Apps). Висит ПОВЕРХ приложения и всплывает через паузу — человек
-  // сначала видит календарь или событие. Компонент сам решает, показываться ли
-  // (спрашивает базу «а не разрешал ли уже?»), поэтому здесь его рисуем всегда.
-  //
-  // ⚠️ Рисуется во ВСЕХ ветках ниже, а не только в одной: человек может попасть
-  // и на календарь, и сразу на событие. Возврата к прежнему `if (vkIntro)
-  // return <...>` быть не должно — именно он обрывал запуск приложения.
-  const vkPermModal = vkIntro ? (
-    <VkPermissionsIntro
-      vkUserId={getPlatform().launchParams?.vk_user_id || ''}
-      groupId={Number(getPlatform().launchParams?.vk_group_id || 0)}
-      clientId={effectiveClientId}
-      eventSlug={eventSlug}
-      onContinue={async () => {
-        setVkIntro(false)
-        // Системные окна ВКонтакте. Приложение уже загружено — перезапускать
-        // init не нужно, поэтому никакого счётчика-«повтори запуск» здесь нет.
-        const a = getPlatform()
-        let gid = Number(a.launchParams?.vk_group_id || 0)
-        // ⚠️ При заходе по ПРЯМОЙ ссылке приложения (vk.com/app{id}#…) ВКонтакте
-        // vk_group_id НЕ передаёт — приложение открыто само по себе, а не из
-        // сообщества. Без добора номера у бэкенда здесь не открывалось ни одно
-        // окно вовсе (жалоба владельца 04.09.2026: «предлагает только рассылку»).
-        if (!gid && a.launchParams?.vk_app_id) {
-          try {
-            const r: any = await fetch(
-              `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
-            ).then(x => x.ok ? x.json() : null)
-            if (r?.group_id) gid = Number(r.group_id)
-          } catch { /* skip */ }
-        }
-        if (!gid) return
-        // 1) Разрешение на сообщения — ради него и показывалось окно-объяснение.
-        await new Promise<void>((resolve) => {
-          try { a.requestWriteAccess({ vkGroupId: gid }, () => resolve()) } catch { resolve() }
-        })
-        // ⚠️⚠️ ПОДПИСКИ ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО.
-        //
-        // Это окно показывается ТОЛЬКО при голом входе в приложение — то есть
-        // ровно на том пути, которым идёт модератор. Просьба подписаться на
-        // сообщество здесь и есть причина снятия с публикации 01.09.2026
-        // («запрашивает подписку до просмотра функций», п.1.1.2).
-        //
-        // Подписка живёт в другом месте — на входе ПО ССЫЛКЕ события, там она
-        // идёт сразу за разрешением и без этого окна (см. `fromEventLink` в
-        // блоке запуска выше).
-      }}
-    />
-  ) : null
+  // ⚠️ VK-only: объяснение ПЕРЕД окнами разрешений (правила Mini Apps п.1.1.2).
+  // Стоит ВЫШЕ всех остальных экранов: пока человек не нажал «Продолжить»,
+  // ни один запрос прав не ушёл (шлюз в useEffect выше прервал запуск).
+  if (vkIntro) {
+    return (
+      <VkPermissionsIntro
+        vkUserId={getPlatform().launchParams?.vk_user_id || ''}
+        clientId={effectiveClientId}
+        onContinue={() => {
+          setVkIntro(false)
+          setLoading(true)
+          setVkIntroPassed(n => n + 1)   // перезапуск init, теперь без шлюза
+        }}
+      />
+    )
+  }
 
-  // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку).
-  // ⚠️ Окно-объяснение здесь НЕ показываем: на этом экране человека уже просят
-  // написать сообществу, и разрешение возникнет само, когда он это сделает.
+  // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {
     return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} kind={funnelKind}
                                eventTitle={funnelEventTitle} posterUrl={funnelPosterUrl}
@@ -896,7 +776,6 @@ export default function App() {
           onOpenEvent={openEvent}
         />
         {pendingOpen && <SpinnerOverlay />}
-        {vkPermModal}
       </>
     )
   }
@@ -906,7 +785,6 @@ export default function App() {
       <>
         <Hub clientId={effectiveClientId} tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
         {pendingOpen && <SpinnerOverlay />}
-        {vkPermModal}
       </>
     )
   }
@@ -914,7 +792,6 @@ export default function App() {
     <>
       <HubSelector tgUser={tgUser} onOpenEvent={openEvent} initialTab={initialTab} />
       {pendingOpen && <SpinnerOverlay />}
-      {vkPermModal}
     </>
   )
 }
@@ -930,34 +807,6 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
   groupScreen?: string;
 }) {
   const variant = kind || 'leadmagnet'
-  // Кнопка «Подписаться на сообщество» — ВТОРОЙ шанс, а не единственный.
-  //
-  // На входе по ссылке (события или лид-магнита) окно подписки уже показано
-  // автоматически. Но человек мог его закрыть, а VK показывает такое окно
-  // один раз за сеанс — без кнопки подписаться ему больше нечем.
-  //
-  // ⚠️ Кнопка ничего не блокирует: подарок и информация выдаются и без
-  // подписки. Делать её условием выдачи нельзя.
-  const [joinState, setJoinState] = useState<'idle' | 'busy' | 'done'>('idle')
-  // Предлагаем только там, где подписка осмысленна как условие подарка.
-  // На экране спикера/партнёра человек решает свою задачу — там это шум.
-  const showJoin = (variant === 'leadmagnet' || variant === 'event') && !!groupId
-
-  function joinGroup() {
-    const a = getPlatform()
-    if (!a.joinGroup || !groupId) return
-    setJoinState('busy')
-    try {
-      a.joinGroup({ vkGroupId: groupId }, (ok: boolean) => {
-        // ⚠️ Отказ показываем как обычное «idle», без укоров: человек вправе
-        // не подписываться, подарок он всё равно получит.
-        setJoinState(ok ? 'done' : 'idle')
-      })
-    } catch {
-      setJoinState('idle')
-    }
-  }
-
   // Кнопка ведёт в чат с ПРЕДЗАПОЛНЕННЫМ словом «ПОЛУЧИТЬ» (vk.me/{handle}?text=):
   // человек нажимает «отправить» → VK гарантированно регистрирует разрешение на ЛС
   // (AllowMessages из Mini App ненадёжен), и бот сразу отвечает воронкой.
@@ -1030,42 +879,6 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
               marginBottom: 12,
             }}>{BTN[variant]}</a>
           )}
-
-          {/* ⚠️ Подписка — ВТОРЫМ действием, после главной кнопки. Первое, зачем
-              человек пришёл, — получить подарок/информацию; подписка идёт
-              довеском и ничего не блокирует. Поменяете местами — экран
-              превратится в требование подписаться, а это уже претензия
-              модерации. */}
-          {showJoin && (
-            <div style={{ marginBottom: 16 }}>
-              {joinState === 'done' ? (
-                <div style={{ fontSize: 14, opacity: 0.85, padding: '10px 0' }}>
-                  ✓ Спасибо! Вы подписаны на сообщество
-                </div>
-              ) : (
-                <>
-                  <div style={{ fontSize: 13, opacity: 0.75, lineHeight: 1.45, margin: '0 0 10px' }}>
-                    Подпишитесь на сообщество — там анонсы событий и новые подарки
-                  </div>
-                  <button
-                    onClick={joinGroup}
-                    disabled={joinState === 'busy'}
-                    style={{
-                      background: 'transparent',
-                      border: '1.5px solid rgba(var(--peach-rgb), 0.8)',
-                      color: 'var(--peach)',
-                      fontWeight: 700, padding: '11px 26px', borderRadius: 12,
-                      fontSize: 14, cursor: 'pointer',
-                      opacity: joinState === 'busy' ? 0.6 : 1,
-                    }}
-                  >
-                    {joinState === 'busy' ? 'Подписываем…' : 'Подписаться на сообщество'}
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
           <div>
             <button onClick={close} style={{
               background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)',
