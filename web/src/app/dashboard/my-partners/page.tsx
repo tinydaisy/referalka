@@ -92,8 +92,12 @@ function MyPartnersPage() {
 /* ─── Настройки ─────────────────────────────────────────────────────────── */
 
 function SettingsTab() {
+  // ⚠️ Ссылку строим от ДОМЕНА КЛИЕНТА (publicBase), а не от pluson.ru: он
+  // раздаёт её своей аудитории, и наш домен там ни при чём.
+  const { me, publicBase } = useMe()
   const [data, setData] = useState<any>(null)
   const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     api.partnerProgram.settings().then(setData).catch(() => setData({}))
@@ -125,8 +129,50 @@ function SettingsTab() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   const isPassive = (data.partner_payout_mode || 'passive') === 'passive'
 
+  // ⚠️ Адрес `/become-partner/`, а НЕ `/partner/{id}`: тот занят старым
+  // прокси регистрации партнёров во внешней системе клиента (миграция 105) —
+  // nginx уводит его в FastAPI, и наша страница там не открылась бы.
+  const inviteUrl = me?.id ? `${publicBase}/become-partner/${me.id}` : ''
+
   return (
     <div className="space-y-6 max-w-2xl">
+      {/* Ссылка на регистрацию — то, за чем в раздел приходят чаще всего:
+          без неё партнёров неоткуда взять. Раньше стать партнёром можно было
+          только войдя в кабинет /my по коду на почту — человеку «с улицы»
+          дать было нечего. */}
+      <Card title="Ссылка для будущих партнёров">
+        <p className="text-sm text-slate-600 mb-3">
+          Отправьте её тем, кого зовёте в партнёры. Человек примет условия,
+          укажет налоговый статус — и получит свои ссылки в личном кабинете.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            readOnly value={inviteUrl}
+            onFocus={e => e.currentTarget.select()}
+            className="flex-1 min-w-0 border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-600"
+          />
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(inviteUrl)
+                .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+                .catch(() => {})
+            }}
+            className="btn-primary shrink-0 text-sm"
+          >
+            {copied ? 'Скопировано' : 'Копировать'}
+          </button>
+          <a href={inviteUrl} target="_blank" rel="noreferrer"
+             className="shrink-0 text-sm text-slate-500 hover:text-slate-700 underline">
+            Открыть
+          </a>
+        </div>
+        <Note>
+          Партнёром может стать любой человек — покупать что-то для этого не
+          нужно. Если он уже есть в вашей базе, второй карточки не появится:
+          мы узнаём его по почте и телефону.
+        </Note>
+      </Card>
+
       {/* Режим выплат — главная настройка, от неё зависит вся механика */}
       <Card title="Кому платить вознаграждение">
         <div className="space-y-2">
