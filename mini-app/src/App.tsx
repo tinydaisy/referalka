@@ -567,8 +567,48 @@ export default function App() {
       const ownFlow = spNow.startsWith('evl_') || spNow.startsWith('m_')
         || spNow.startsWith('p_') || spNow.startsWith('fnl_')
         || spNow.startsWith('spkinv_') || spNow.startsWith('prt')
-      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id && !ownFlow) {
+      // ⚠️⚠️ ДВА РАЗНЫХ СЦЕНАРИЯ — не путать (решение владельца 04.09.2026):
+      //
+      //   ГОЛЫЙ ВХОД в приложение (без ссылки) → наш экран-объяснение, потом
+      //   по кнопке одно окно: разрешение на сообщения. Подписки НЕТ — ровно
+      //   за неё сняли с публикации (п.1.1.2, 01.09.2026). Это тот путь,
+      //   которым идёт модератор.
+      //
+      //   ПО ССЫЛКЕ СОБЫТИЯ (`ref_pg`) → без нашего экрана, сразу два
+      //   системных окна подряд: сообщения, затем подписка на сообщество.
+      //   Человек уже видит лендинг события — что происходит, ему понятно.
+      //
+      // ⚠️ Экран-объяснение с голого входа НЕ УБИРАТЬ: п.1.1.2 требует
+      // объяснить назначение права до системного окна, и за отсутствие такого
+      // экрана приложение уже отклоняли (18.06.2026).
+      const fromEventLink = spNow.startsWith('ref_pg') || spNow.startsWith('pg')
+      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id && !ownFlow && !fromEventLink) {
         setVkIntro(true)
+      }
+      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id && !ownFlow && fromEventLink) {
+        setTimeout(async () => {
+          const a = getPlatform()
+          let gid = Number(a.launchParams?.vk_group_id || 0)
+          // При заходе по прямой ссылке приложения ВКонтакте номер сообщества
+          // не передаёт — доспрашиваем у бэкенда, иначе окон не будет вовсе.
+          if (!gid && a.launchParams?.vk_app_id) {
+            try {
+              const r: any = await fetch(
+                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${a.launchParams.vk_app_id}`
+              ).then(x => x.ok ? x.json() : null)
+              if (r?.group_id) gid = Number(r.group_id)
+            } catch { /* skip */ }
+          }
+          if (!gid) return
+          // 1) Разрешение на сообщения.
+          await new Promise<void>((resolve) => {
+            try { a.requestWriteAccess({ vkGroupId: gid }, () => resolve()) } catch { resolve() }
+          })
+          // 2) Подписка на сообщество — сразу следом.
+          if (fromEventLink && a.joinGroup) {
+            try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
+          }
+        }, 5000)
       }
 
       const user = adapter.user
@@ -801,22 +841,16 @@ export default function App() {
         await new Promise<void>((resolve) => {
           try { a.requestWriteAccess({ vkGroupId: gid }, () => resolve()) } catch { resolve() }
         })
-        // 2) Подписка на сообщество — СРАЗУ ЗА разрешением (решение владельца
-        //    04.09.2026). ⚠️ Только когда человек пришёл ПО ССЫЛКЕ события: на
-        //    голом открытии календаря подписку не просим, за это сняли с
-        //    публикации (п.1.1.2).
+        // ⚠️⚠️ ПОДПИСКИ ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО.
         //
-        // ⚠️ Пришёл ли по ссылке — смотрим ПРЯМО В ССЫЛКЕ (`startParam`), а не
-        // по состоянию `eventSlug`: то живёт в React и к моменту нажатия может
-        // быть ещё пустым (маршрутизация идёт своим чередом). Из-за этого
-        // подписка молча не запрашивалась, хотя человек зашёл по ссылке
-        // события (жалоба владельца 04.09.2026).
-        const spLink = a.startParam || ''
-        const fromEventLink = spLink.startsWith('pg') || spLink.startsWith('ref_pg')
-          || spLink.startsWith('evl_') || !!eventSlug
-        if (fromEventLink && a.joinGroup) {
-          try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
-        }
+        // Это окно показывается ТОЛЬКО при голом входе в приложение — то есть
+        // ровно на том пути, которым идёт модератор. Просьба подписаться на
+        // сообщество здесь и есть причина снятия с публикации 01.09.2026
+        // («запрашивает подписку до просмотра функций», п.1.1.2).
+        //
+        // Подписка живёт в другом месте — на входе ПО ССЫЛКЕ события, там она
+        // идёт сразу за разрешением и без этого окна (см. `fromEventLink` в
+        // блоке запуска выше).
       }}
     />
   ) : null
