@@ -555,6 +555,49 @@ export default function App() {
       // шесть одинаковых правок и почти гарантированный пропуск одной.
       // Поэтому шлюз один и стоит ДО всей маршрутизации: пока человек не
       // нажал «Продолжить», ни один запрос прав не уходит.
+      // ⚠️⚠️ ПРАВА ПО ССЫЛКЕ — В САМОМ НАЧАЛЕ, ДО ПОКАЗА ПРИЛОЖЕНИЯ.
+      //
+      // Так было изначально и так работало. Если просить позже, событие с
+      // режимом «лендинг» успевает увести webview на страницу регистрации —
+      // Mini App закрывается, и системные окна ВКонтакте показывать уже
+      // некому (жалоба владельца 05.09.2026: мелькает форма, потом лендинг,
+      // окон нет).
+      //
+      // ⚠️ ТОЛЬКО ДЛЯ ССЫЛОК события и лид-магнита. На ГОЛОМ входе прав здесь
+      // не просим — там работает окно-объяснение, и подписки нет: это путь
+      // модератора, за неё сняли с публикации (п.1.1.2, 01.09.2026).
+      //
+      // ⚠️ Порядок как в рабочей версии b9faac81: подписка ВНУТРИ колбэка
+      // requestWriteAccess. Другие сочетания за 05.09.2026 проверены — не
+      // работают.
+      if (adapter.name === 'vk' && adapter.launchParams?.vk_user_id) {
+        const spLink = adapter.startParam || ''
+        const byLink = spLink.startsWith('ref_pg') || spLink.startsWith('pg')
+          || spLink.startsWith('evl_') || spLink.startsWith('m_')
+          || spLink.startsWith('p_') || spLink.startsWith('fnl_')
+        if (byLink) {
+          let gid0 = Number(adapter.launchParams?.vk_group_id || 0)
+          if (!gid0 && adapter.launchParams?.vk_app_id) {
+            try {
+              const g0: any = await fetch(
+                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${adapter.launchParams.vk_app_id}`
+              ).then(x => x.ok ? x.json() : null)
+              if (g0?.group_id) gid0 = Number(g0.group_id)
+            } catch { /* skip */ }
+          }
+          if (gid0) {
+            ;(window as any).__vkPermsAt = Date.now()
+            try {
+              adapter.requestWriteAccess({ vkGroupId: gid0 }, () => {
+                if (adapter.joinGroup) {
+                  try { adapter.joinGroup({ vkGroupId: gid0 }, () => {}) } catch { /* skip */ }
+                }
+              })
+            } catch { /* skip */ }
+          }
+        }
+      }
+
       // ⚠️⚠️ ЭКРАН ПОКАЗЫВАЕТСЯ НА ЛЮБОМ ВХОДЕ, и разделять их не пытаться.
       //
       // Здесь стояло условие «только на голом входе» (по startParam). Оно не
