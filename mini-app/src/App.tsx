@@ -715,8 +715,15 @@ export default function App() {
       //
       // Теперь на голом входе права просит ТОЛЬКО кнопка окна-объяснения, а
       // на входе по ссылке события — эта функция, как и раньше.
+      // ⚠️ «Человек внутри события» = событие пришло В ССЫЛКЕ (parsed.eventSlug)
+      // ЛИБО открыто по адресу страницы (parsePathSlug). Оба источника нужны:
+      // при заходе по ссылке адрес ещё корневой (событие ставится из разбора
+      // ссылки, без pushState), а при переходе внутри приложения ссылки уже
+      // нет. По одному источнику условие не срабатывало, и по ссылке не
+      // приходило ни одного окна (жалоба владельца 05.09.2026).
       if (adapter.name === 'vk') {
-        sendVkEventStart(adapter, user, parsed, { askPerms: !!parsePathSlug() })
+        const inEvent = !!parsed.eventSlug || !!parsePathSlug()
+        sendVkEventStart(adapter, user, parsed, { askPerms: inEvent })
       }
 
       setTgUser(prev => prev || (user || MOCK_USER))
