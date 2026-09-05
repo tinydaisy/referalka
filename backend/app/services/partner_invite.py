@@ -27,6 +27,51 @@ logger = logging.getLogger(__name__)
 
 PREFIX = "bpr_"
 
+# Подпись ссылки из бота. ⚠️ Без неё показать человеку ЕГО ПОЧТУ нельзя:
+# номер контакта виден в адресе и подбирается перебором, то есть по чужому
+# номеру утекли бы чужие данные. Токен доказывает, что ссылку выдал наш бот
+# конкретному человеку — а он в боте уже опознан аккаунтом площадки.
+_INVITE_AUD = "partner-invite"
+_INVITE_TTL_DAYS = 30
+
+
+def make_invite_token(client_id: int, contact_id: int) -> str:
+    """Подпись «этому человеку ссылку выдал бот этого клиента»."""
+    import jwt
+    from datetime import datetime, timedelta, timezone
+    from app.config import settings
+
+    return jwt.encode(
+        {
+            "aud": _INVITE_AUD,
+            "cl_id": int(client_id),
+            "ct_id": int(contact_id),
+            "exp": datetime.now(timezone.utc) + timedelta(days=_INVITE_TTL_DAYS),
+        },
+        settings.jwt_secret, algorithm="HS256",
+    )
+
+
+def invite_contact_id(token: Optional[str], client_id: int) -> Optional[int]:
+    """contact_id из подписи, если она наша и для ЭТОГО кабинета. Иначе None.
+
+    ⚠️ Мусорный или чужой токен = None, а не исключение: человек с битой
+    ссылкой должен просто увидеть обычную форму, а не ошибку.
+    """
+    if not token:
+        return None
+    try:
+        import jwt
+        from app.config import settings
+
+        data = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"],
+                          audience=_INVITE_AUD)
+        if int(data["cl_id"]) != int(client_id):
+            return None
+        return int(data["ct_id"])
+    except Exception:  # noqa: BLE001
+        return None
+
 
 def parse_invite_payload(payload: str) -> Optional[int]:
     """`bpr_<client_id>` → client_id. Не наша метка → None."""
@@ -65,7 +110,12 @@ async def build_invite_message(db, client_id: int, *,
 
     url = await client_public_link(db, client_id, f"/become-partner/{client_id}")
     if contact_id:
-        url = f"{url}{'&' if '?' in url else '?'}c={contact_id}"
+        # ⚠️ Кладём ПОДПИСЬ, а не голый номер: по ней страница покажет человеку
+        # его настоящую почту («не помню, под какой регистрировалась»), и при
+        # этом чужие данные по подобранному номеру не утекут.
+        token = make_invite_token(client_id, contact_id)
+        sep = '&' if '?' in url else '?'
+        url = f"{url}{sep}c={contact_id}&t={token}"
 
     text = (
         f"<b>Партнёрская программа{f' «{brand}»' if brand else ''}</b>\n\n"

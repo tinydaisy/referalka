@@ -40,8 +40,11 @@ export default function BecomePartnerPage() {
   const [error, setError] = useState('')
   const [done, setDone] = useState<any>(null)
 
-  const contactId = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('c') : null
+  const sp = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search) : null
+  const contactId = sp?.get('c') || null
+  // Подпись от бота: по ней покажем человеку ЕГО настоящую почту.
+  const inviteToken = sp?.get('t') || null
 
   useEffect(() => {
     if (!clientId) return
@@ -55,12 +58,13 @@ export default function BecomePartnerPage() {
     // маски достаточно: он узнаёт свои данные и просто подтверждает.
     if (contactId) {
       fetch(`${apiBase}/api/v1/public/partner/prefill`
-            + `?client_id=${clientId}&c=${encodeURIComponent(contactId)}`)
+            + `?client_id=${clientId}&c=${encodeURIComponent(contactId)}`
+            + (inviteToken ? `&t=${encodeURIComponent(inviteToken)}` : ''))
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d?.known) { setKnown(d); setName(d.name || '') } })
         .catch(() => {})
     }
-  }, [clientId, contactId])
+  }, [clientId, contactId, inviteToken])
 
   const submit = async () => {
     setBusy(true); setError('')
@@ -123,10 +127,16 @@ export default function BecomePartnerPage() {
              рождает второй контакт, из-за которого потом теряются приведённые
              и начисления. Показываем, кого узнали, — и всё. */
           <div className="rounded-xl bg-gray-50 p-3 text-sm text-gray-600">
-            Мы вас узнали:{' '}
-            <b>{known.email_masked || known.phone_masked || 'ваш контакт'}</b>
+            {/* ⚠️ Пришёл из бота (есть подпись) — показываем ПОЛНУЮ почту:
+                человек чаще всего не помнит, под какой он зарегистрирован,
+                и маска ему ничем не помогает. Без подписи — только маска. */}
+            Вы регистрировались с этой почтой:
+            <div className="mt-1 font-semibold text-gray-900 break-all">
+              {known.email || known.email_masked
+                || known.phone || known.phone_masked || 'ваш контакт'}
+            </div>
             <div className="mt-1 text-xs text-gray-400">
-              Вводить почту заново не нужно.
+              Вводить её заново не нужно — под ней и будет ваш кабинет.
             </div>
           </div>
         ) : (

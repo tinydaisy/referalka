@@ -132,17 +132,22 @@ async def partner_offer(request: Request, response: Response,
 @router.get("/prefill", summary="Что мы уже знаем о человеке")
 async def partner_prefill(response: Response, request: Request,
                           client_id: Optional[int] = None, c: Optional[int] = None,
+                          t: Optional[str] = None,
                           db: asyncpg.Connection = Depends(get_db)):
-    """Данные для предзаполнения формы регистрации — по `?c={contact_id}`.
+    """Данные для предзаполнения формы регистрации.
 
-    ⚠️⚠️ ОТДАЁМ ТОЛЬКО ЗАМАСКИРОВАННОЕ (`p***a@mail.ru`). Номер контакта виден
-    в адресе, его можно подобрать перебором — раскрывать по нему чужую почту и
-    телефон нельзя. Человеку маски достаточно: он узнаёт свои данные и просто
-    подтверждает, а на сервер уходит сам `contact_id`.
+    ⚠️⚠️ ПОЛНУЮ ПОЧТУ ПОКАЗЫВАЕМ ТОЛЬКО ПО ПОДПИСИ (`?t=`), которую выдал наш
+    бот. Причина простая: человек не помнит, под какой почтой он у клиента
+    зарегистрирован, — и маска `p***a@mail.ru` ему не помогает, она отвечает
+    «не скажу». В боте он уже опознан аккаунтом площадки, значит показать его
+    собственную почту безопасно.
 
-    Зачем вообще: из бота человек попадает сюда уже опознанным. Если заставить
-    его вводить почту заново, он впишет другую — и родится ВТОРОЙ контакт, из-за
-    которого потом теряются приведённые и начисления (правило № 25).
+    ⚠️ БЕЗ подписи — только маска: номер контакта виден в адресе и подбирается
+    перебором, так что по чужому номеру утекли бы чужие данные.
+
+    Зачем вообще: из бота человек попадает сюда уже опознанным. Заставь его
+    вводить почту заново — он впишет другую, и родится ВТОРОЙ контакт, из-за
+    которого теряются приведённые и начисления (правило № 25).
     """
     _cors(response)
     cid = await _client_by_host(db, request) or client_id
@@ -163,9 +168,17 @@ async def partner_prefill(response: Response, request: Request,
     if not row:
         return {"known": False}
 
+    # Подпись от бота → человек опознан площадкой, можно показать его почту.
+    from app.services.partner_invite import invite_contact_id
+    verified = invite_contact_id(t, cid) == int(c)
+
     return {
         "known": True,
+        "verified": verified,
         "name": row["name"] or "",
+        # Полная почта — только по подписи; иначе маска.
+        "email": row["email"] if verified else None,
+        "phone": row["phone"] if verified else None,
         "email_masked": mask_email(row["email"]),
         "phone_masked": mask_phone(row["phone"]),
         "has_email": bool(row["email"]),
