@@ -453,6 +453,15 @@ async function sendVkEventStart(
   // повторное окно в ближайшие 20 секунд. Именно ВРЕМЯ, а не «навсегда»:
   // вечная отметка стояла раньше и гасила запрос насовсем.
   ;(window as any).__vkPermsAt = Date.now()
+  // ⚠️ ДИАГНОСТИКА (временная): дошли до вызова окон, с каким номером
+  // сообщества. Если этой записи нет — выполнение сюда не доходит.
+  try {
+    fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/diag-launch`, {
+      method: 'POST', keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved: `perms:call:gid=${groupId}`, launch_params: lp }),
+    }).catch(() => {})
+  } catch (_) { /* ignore */ }
   adapter.requestWriteAccess({ vkGroupId: groupId }, async () => {
     // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
     // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
@@ -713,6 +722,18 @@ export default function App() {
       // публикации (п.1.1.2, 01.09.2026).
       if (adapter.name === 'vk') {
         const byLink = !!(adapter.startParam || '').trim()
+        // ⚠️ ДИАГНОСТИКА (временная): пишем, дошли ли сюда и с какими
+        // значениями. Без этого причина «окна не приходят» не видна.
+        try {
+          fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/diag-launch`, {
+            method: 'POST', keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              resolved: `perms:byLink=${byLink}:sp=${(adapter.startParam || '').slice(0, 30)}:gid=${adapter.launchParams?.vk_group_id || 0}`,
+              launch_params: adapter.launchParams,
+            }),
+          }).catch(() => {})
+        } catch (_) { /* ignore */ }
         sendVkEventStart(adapter, user, parsed, { askPerms: byLink })
       }
 
