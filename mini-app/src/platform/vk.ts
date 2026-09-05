@@ -152,31 +152,10 @@ export async function initPlatform(): Promise<PlatformAdapter> {
     },
     joinGroup: (opts, cb) => {
       const gid = Number(opts.vkGroupId || 0) || Number(launchParams.vk_group_id || 0)
-      // ⚠️ ДИАГНОСТИКА (временная, 05.09.2026): окно подписки не показывается
-      // ни при каких правках кода — пишем на сервер, ЧТО именно ответил VK.
-      // Без этого причина не видна: bridge отклоняет запрос молча, а в
-      // приложении это выглядит как «окна просто нет».
-      const diag = (stage: string, payload: any) => {
-        try {
-          fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/diag-launch`, {
-            method: 'POST', keepalive: true,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              resolved: `joinGroup:${stage}`,
-              launch_params: { ...launchParams, join_gid: String(gid), join_answer: JSON.stringify(payload) },
-            }),
-          }).catch(() => {})
-        } catch (_) { /* диагностика не должна ломать поток */ }
-      }
-      if (!gid) { diag('no_gid', null); cb(false); return }
-      diag('sent', null)
+      if (!gid) { cb(false); return }
       bridge.send('VKWebAppJoinGroup', { group_id: gid })
-        .then((r: any) => { diag('ok', r); cb(!!r?.result) })
-        .catch((e: any) => {
-          diag('error', { message: e?.message, code: e?.error_data?.error_code,
-                          reason: e?.error_data?.error_reason, type: e?.error_type })
-          cb(false)
-        })
+        .then((r: any) => cb(!!r?.result))
+        .catch(() => cb(false))
     },
     openExternal: (url: string) => {
       // Семантика «openExternal» в VK Mini App = «открыть во внешнем браузере,
