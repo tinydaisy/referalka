@@ -61,7 +61,15 @@ export default function BecomePartnerPage() {
             + `?client_id=${clientId}&c=${encodeURIComponent(contactId)}`
             + (inviteToken ? `&t=${encodeURIComponent(inviteToken)}` : ''))
         .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d?.known) { setKnown(d); setName(d.name || '') } })
+        .then(d => {
+          if (!d?.known) return
+          setKnown(d)
+          setName(d.name || '')
+          // ⚠️ Подставляем только настоящие значения (они приходят по подписи
+          // от бота). Маску в поле класть нельзя — человек отправит «p***a».
+          if (d.email) setEmail(d.email)
+          if (d.phone) setPhone(d.phone)
+        })
         .catch(() => {})
     }
   }, [clientId, contactId, inviteToken])
@@ -122,30 +130,18 @@ export default function BecomePartnerPage() {
 
       <div className="space-y-3">
         <Input label="Имя" value={name} onChange={setName} placeholder="Как к вам обращаться" />
-        {known ? (
-          /* ⚠️ Почту НЕ даём менять (правило № 25): именно ввод другой почты
-             рождает второй контакт, из-за которого потом теряются приведённые
-             и начисления. Показываем, кого узнали, — и всё. */
-          <div className="rounded-xl bg-gray-50 p-3 text-sm text-gray-600">
-            {/* ⚠️ Пришёл из бота (есть подпись) — показываем ПОЛНУЮ почту:
-                человек чаще всего не помнит, под какой он зарегистрирован,
-                и маска ему ничем не помогает. Без подписи — только маска. */}
-            Вы регистрировались с этой почтой:
-            <div className="mt-1 font-semibold text-gray-900 break-all">
-              {known.email || known.email_masked
-                || known.phone || known.phone_masked || 'ваш контакт'}
-            </div>
-            <div className="mt-1 text-xs text-gray-400">
-              Вводить её заново не нужно — под ней и будет ваш кабинет.
-            </div>
-          </div>
-        ) : (
-          <>
-            <Input label="Почта" value={email} onChange={setEmail} type="email"
-                   placeholder="Для входа в кабинет и связи" />
-            <Input label="Телефон" value={phone} onChange={setPhone}
-                   placeholder="Необязательно" />
-          </>
+        {/* ⚠️ ОДНА ФОРМА, поля ВСЕГДА. Раньше известному человеку поля
+            прятались — и тот, у кого почты в базе нет (а таких много: пришёл
+            из бота по нику), не мог ввести её вовсе и упирался в тупик.
+            Известные данные просто подставлены. */}
+        <Input label="Почта" value={email} onChange={setEmail} type="email"
+               placeholder="Для входа в кабинет" />
+        <Input label="Телефон" value={phone} onChange={setPhone}
+               placeholder="Если удобнее по телефону" />
+        {known?.verified && (known.email || known.phone) && (
+          <p className="-mt-1 text-xs text-gray-500">
+            Подставили то, что знаем о вас — можно оставить как есть.
+          </p>
         )}
 
         <div>
@@ -185,7 +181,7 @@ export default function BecomePartnerPage() {
 
         <button onClick={submit}
                 disabled={busy || !accept || !tax
-                          || (!known && !email.trim() && !phone.trim())}
+                          || (!email.trim() && !phone.trim())}
                 className="btn-gold w-full">
           {busy ? 'Отправляем…' : 'Стать партнёром'}
         </button>

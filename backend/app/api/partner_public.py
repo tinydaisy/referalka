@@ -268,6 +268,36 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
     if not contact_id:
         raise HTTPException(status_code=400, detail="Не удалось определить контакт")
 
+    # ⚠️⚠️ ДОПИСЫВАЕМ ПОЧТУ И ТЕЛЕФОН ОПОЗНАННОМУ ЧЕЛОВЕКУ. У пришедшего из
+    # бота почты в базе часто НЕТ вовсе (он known только по нику площадки) —
+    # без этой записи он останется без неё и не сможет войти в кабинет: вход
+    # идёт по коду на почту. Именно этот тупик и ловится жалобой «у аккаунта
+    # почты нет, а вы просите ввести почту от заказа».
+    #
+    # ⚠️ Только В ПУСТОЕ: заменять уже известную почту нельзя (правило № 25) —
+    # подмена рождает расхождение между тем, что знает клиент, и тем, под чем
+    # человек входит.
+    new_email = (data.email or "").strip().lower() or None
+    new_phone = (data.phone or "").strip() or None
+
+    if new_email:
+        try:
+            from app.services.contact_merge import sync_email_identity_and_subscription
+            await sync_email_identity_and_subscription(
+                db, client_id=cid, contact_id=contact_id, email=new_email)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Партнёрка: почта не записана контакту %s: %s", contact_id, e)
+
+    if new_phone:
+        try:
+            # ⚠️ Телефон пишем ТОЛЬКО через set_contact_phone: рядом обязан
+            # обновляться phone_normalized, по нему ищутся дубли.
+            from app.services.contact_merge import set_contact_phone
+            await set_contact_phone(db, contact_id=contact_id, phone=new_phone,
+                                    only_if_empty=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Партнёрка: телефон не записан контакту %s: %s", contact_id, e)
+
     existing = await _partner_row(db, cid, contact_id)
     if existing:
         return {"ok": True, "already": True, "partner_id": existing["id"],
