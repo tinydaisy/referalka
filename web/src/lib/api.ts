@@ -1792,8 +1792,18 @@ export const api = {
     // нарезка записи по спикерам
     cuts: (eventId: number, day: number, recId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts`),
-    programMarks: (eventId: number, day: number, recId: number, shiftSec = 0) =>
-      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/program-marks?shift_sec=${shiftSec}`),
+    // anchorSec/anchorTime — ручная точка отсчёта: «в этой секунде записи идёт
+    // такое-то время программы». Нужна записям, у которых момент начала эфира
+    // системе неизвестен (сделаны до появления учёта смещения).
+    programMarks: (eventId: number, day: number, recId: number,
+                   shiftSec = 0, anchorSec?: number, anchorTime?: string) => {
+      const q = new URLSearchParams({ shift_sec: String(shiftSec) })
+      if (anchorTime) {
+        q.set('anchor_sec', String(anchorSec ?? 0))
+        q.set('anchor_time', anchorTime)
+      }
+      return request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/program-marks?${q}`)
+    },
     saveCuts: (eventId: number, day: number, recId: number, cuts: any[]) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts`,
               { method: 'PUT', body: JSON.stringify({ cuts }) }),

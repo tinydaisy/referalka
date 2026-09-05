@@ -648,27 +648,46 @@ async def list_cuts(event_id: int, day_number: int, recording_id: int,
             summary="Раскладка меток по программе дня (черновик, не сохраняет)")
 async def program_marks(event_id: int, day_number: int, recording_id: int,
                         shift_sec: int = Query(0, description="сдвинуть всё на N секунд"),
+                        anchor_sec: Optional[int] = Query(
+                            None, description="секунда записи, где начинается anchor_time"),
+                        anchor_time: Optional[str] = Query(
+                            None, description='время программы "HH:MM" в этой секунде'),
                         client=Depends(get_current_client), db=Depends(get_db)):
     """Что предложить клиенту, если он нажмёт «Расставить по программе дня».
 
     ⚠️ Ничего не сохраняет — только считает. Клиент сначала смотрит, поправляет
     и лишь потом сохраняет: молча переписать уже расставленные метки нельзя.
 
-    Арифметика: секунда эфира = (время слота) − (время нажатия «Начать эфир»).
-    Оба слагаемых известны: слот из conf_sessions.start_time, момент старта из
-    webinar_sessions.started_at.
+    Арифметика: секунда записи = (время слота) − (время нуля записи).
+
+    ⚠️ ДВА способа узнать «время нуля», и второй обязателен. Обычно это
+    `webinar_sessions.started_at` — момент нажатия «Начать эфир». Но у записей,
+    сделанных до появления учёта смещения, его сопоставить не с чем: сегменты
+    удалены, и на какой секунде файла этот момент — неизвестно.
+
+    Тогда точку задаёт человек: он видит на видео, где началось нужное место
+    (`anchor_sec`), и говорит, какое это время по программе (`anchor_time`).
+    Дальше раскладка считается ТОЧНО ТАК ЖЕ. Без этого раскладка была бы
+    недоступна навсегда — а данных для неё хватает, не хватало только точки
+    отсчёта, которую человек прекрасно видит глазами.
     """
     await ws.assert_event_owner(db, event_id, _cid(client))
     rec = await _recording_or_404(db, event_id, day_number, recording_id)
 
-    # ⚠️ Время старта эфира берём из СЕССИИ этой записи, а не «последней» —
-    # эфир за день могли запускать несколько раз, и у каждого запуска своё
-    # начало. Взять чужое значило бы сдвинуть всю раскладку.
-    started = await db.fetchval(
-        "SELECT s.started_at FROM webinar_sessions s "
-        "  JOIN webinar_recordings r ON r.session_id = s.id WHERE r.id=$1", recording_id)
-    if not started:
-        raise HTTPException(400, "У записи нет времени начала эфира — расставьте метки вручную")
+    manual_anchor = _hhmm_to_sec(anchor_time) if anchor_time else None
+    if manual_anchor is None:
+        # ⚠️ Время старта эфира берём из СЕССИИ этой записи, а не «последней» —
+        # эфир за день могли запускать несколько раз, и у каждого запуска своё
+        # начало. Взять чужое значило бы сдвинуть всю раскладку.
+        started = await db.fetchval(
+            "SELECT s.started_at FROM webinar_sessions s "
+            "  JOIN webinar_recordings r ON r.session_id = s.id WHERE r.id=$1", recording_id)
+        if not started:
+            raise HTTPException(
+                400, "У записи нет времени начала эфира — покажите на видео любой момент "
+                     "и укажите, какое это время по программе")
+    else:
+        started = None
 
     day = await db.fetchrow(
         "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2", event_id, day_number)
@@ -687,21 +706,32 @@ async def program_marks(event_id: int, day_number: int, recording_id: int,
     if not rows:
         raise HTTPException(400, "В программе этого дня нет слотов со временем")
 
-    # Момент «Начать эфир» в секундах от полуночи МСК того дня.
-    from app.services.webinar_service import MSK
-    started_msk = started.astimezone(MSK)
-    start_of_day_sec = started_msk.hour * 3600 + started_msk.minute * 60 + started_msk.second
+    # Какому времени программы соответствует НУЛЕВАЯ секунда записи (в секундах
+    # от полуночи МСК). Дальше вычитание одинаково для обоих способов.
+    if manual_anchor is not None:
+        # Человек показал: «в секунде anchor_sec записи идёт anchor_time по
+        # программе». Значит ноль записи — это anchor_time минус эта секунда.
+        start_of_day_sec = manual_anchor - int(anchor_sec or 0)
+    else:
+        from app.services.webinar_service import MSK
+        started_msk = started.astimezone(MSK)
+        start_of_day_sec = started_msk.hour * 3600 + started_msk.minute * 60 + started_msk.second
 
     marks = []
     for r in rows:
         slot_sec = _hhmm_to_sec(r["start_time"])
         if slot_sec is None:
             continue
-        # ⚠️ Слот раньше начала эфира прижимаем к нулю, а не выбрасываем:
-        # открытие часто объявляют уже после нажатия «Начать эфир», и потерять
-        # первый кусок значило бы потерять начало записи.
+        # ⚠️ Слот раньше нуля прижимаем к нулю, а не выбрасываем: открытие часто
+        # объявляют уже после нажатия «Начать эфир», и потерять первый кусок
+        # значило бы потерять начало записи.
         sec = max(0, slot_sec - start_of_day_sec + int(shift_sec or 0))
-        if rec["duration_sec"] and sec >= int(rec["duration_sec"]):
+        # ⚠️ Отсекаем по длительности ЭФИРА, а не файла: у автоматического
+        # способа первые live_offset_sec секунд файла — это подготовка до «Начать
+        # эфир», и метки отсчитываются уже от её конца. При ручной точке
+        # смещение неизвестно и равно нулю — там эфир и файл совпадают.
+        live_len = int(rec["duration_sec"] or 0) - int(rec["live_offset_sec"] or 0)
+        if live_len > 0 and sec >= live_len:
             continue          # слот за пределами записи — эфир кончился раньше
         title = (r["topic"] or r["title"] or "").strip() or "Без названия"
         if r["speaker_name"]:

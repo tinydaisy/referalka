@@ -88,6 +88,9 @@ export default function RecordingCutPage() {
   const [dirty, setDirty] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
   const [videoError, setVideoError] = useState(false)
+  // Окно «покажите момент» — для записей, у которых система не знает начала эфира.
+  const [askAnchor, setAskAnchor] = useState(false)
+  const [anchorTime, setAnchorTime] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
 
   // На какой секунде ФАЙЛА начался эфир: плеер живёт в секундах файла,
@@ -154,21 +157,30 @@ export default function RecordingCutPage() {
     setCuts(cuts.filter((_, j) => j !== i)); setDirty(true)
   }
 
-  const fromProgram = async () => {
-    if (!hasOffset) {
-      alert('У этой записи неизвестно, на какой секунде начался эфир — расставьте метки вручную.')
-      return
-    }
+  /**
+   * Разложить по программе.
+   *
+   * ⚠️ Раскладке нужна ОДНА вещь — точка отсчёта: какому времени программы
+   * соответствует какая секунда записи. Обычно её знает система (момент
+   * «Начать эфир»). Если не знает — её показывает человек: перематывает на
+   * начало любого известного места и говорит, какое это время по программе.
+   * Дальше расчёт одинаковый. Раньше во втором случае был тупик «ставьте
+   * вручную», хотя данных хватало.
+   */
+  const fromProgram = async (anchorSec?: number, anchorTime?: string) => {
+    if (!hasOffset && !anchorTime) { setAskAnchor(true); return }
     if (cuts.length && !confirm('Метки будут заменены раскладкой по программе. Продолжить?')) return
     setBusy('Считаю по программе…')
     try {
-      const r: any = await api.webinar.programMarks(eventId, day, recordingId, 0)
+      const r: any = await api.webinar.programMarks(
+        eventId, day, recordingId, 0, anchorSec, anchorTime)
       const marks: Cut[] = (r.marks || [])
       if (!marks.length) { alert('В программе этого дня нет слотов со временем.'); return }
       // Готовые куски не трогаем — их файлы могли уже уйти спикерам.
       const keep = cuts.filter(c => c.status === 'ready')
       setCuts([...keep, ...marks].sort((a, b) => a.start_sec - b.start_sec))
       setDirty(true)
+      setAskAnchor(false)
     } catch (e: any) {
       alert(e?.message || 'Не получилось разложить по программе')
     } finally { setBusy('') }
@@ -310,7 +322,9 @@ export default function RecordingCutPage() {
         <button onClick={() => addMark(curLive)} className="btn-gold text-sm flex items-center gap-1.5">
           <Scissors size={15} /> Поставить метку здесь ({mmss(curLive)})
         </button>
-        <button onClick={fromProgram} disabled={!!busy}
+        {/* ⚠️ Именно стрелка, а не onClick={fromProgram}: иначе в первый
+            параметр прилетит объект события клика вместо секунды. */}
+        <button onClick={() => fromProgram()} disabled={!!busy}
                 className="btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50">
           <ListOrdered size={15} /> Расставить по программе дня
         </button>
@@ -335,10 +349,53 @@ export default function RecordingCutPage() {
       </div>
       {busy && <div className="text-sm text-gray-500 mb-3">{busy}</div>}
 
-      {!hasOffset && (
+      {/* ⚠️ У записей, сделанных до появления учёта смещения, момент начала
+          эфира системе неизвестен. Это НЕ повод отбирать раскладку: данных для
+          неё хватает, не хватает только точки отсчёта — а её человек видит
+          глазами. Раньше здесь был тупик «ставьте вручную». */}
+      {!hasOffset && !askAnchor && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 mb-4">
-          У этой записи неизвестно, на какой секунде начался эфир (старая запись).
-          Раскладка по программе недоступна — ставьте метки вручную по видео.
+          У этой записи система не знает, на какой секунде начался эфир (старая запись).
+          Покажите это сами — перемотайте видео на начало любого места из программы
+          и нажмите «Расставить по программе дня»: остальное разложится само.
+        </div>
+      )}
+
+      {askAnchor && (
+        <div className="rounded-xl bg-white border-2 border-[#25455D] p-4 mb-4">
+          <div className="font-semibold text-[#25455D] mb-1">Покажите одну точку</div>
+          <p className="text-sm text-gray-600 mb-3">
+            Перемотайте видео на начало любого места, время которого знаете по программе
+            (обычно это открытие или первый спикер), и впишите это время. От него
+            разложатся все остальные метки.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-500">Сейчас на видео</span>
+            <span className="px-2 py-1 rounded-md bg-gray-100 text-sm tabular-nums text-[#25455D]">
+              {mmss(curLive)}
+            </span>
+            <span className="text-sm text-gray-500">— это по программе</span>
+            <input
+              value={anchorTime}
+              onChange={e => setAnchorTime(e.target.value)}
+              placeholder="11:00"
+              className="w-24 px-2 py-1 border rounded-md text-sm tabular-nums"
+            />
+            <span className="text-sm text-gray-500">МСК</span>
+            <div className="flex-1" />
+            <button onClick={() => setAskAnchor(false)}
+                    className="px-3 py-1.5 rounded-lg border text-sm text-gray-600">Отмена</button>
+            <button
+              onClick={() => {
+                const t = anchorTime.trim()
+                if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(t)) {
+                  alert('Впишите время в формате ЧЧ:ММ — например 11:00'); return
+                }
+                fromProgram(Math.round(curLive), t.length === 4 ? '0' + t : t)
+              }}
+              disabled={!!busy}
+              className="btn-gold text-sm disabled:opacity-50">Разложить</button>
+          </div>
         </div>
       )}
 
@@ -356,10 +413,11 @@ export default function RecordingCutPage() {
               </>
             ) : (
               <>
-                <div className="font-medium text-[#25455D] mb-1">Ставьте метки вручную</div>
-                У этой записи неизвестен момент начала эфира, поэтому по программе
-                разложить нельзя. Перематывайте видео к началу каждого выступления
-                и нажимайте «Поставить метку здесь».
+                <div className="font-medium text-[#25455D] mb-1">Нажмите «Расставить по программе дня»</div>
+                У этой записи система не знает момент начала эфира, поэтому спросит
+                одну точку: перемотайте видео на начало любого места из программы
+                и впишите его время. Дальше метки разложатся сами. Можно и вручную —
+                кнопкой «Поставить метку здесь».
               </>
             )}
           </div>
