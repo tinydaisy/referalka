@@ -9,10 +9,10 @@
  *
  * Три раздела: Рекламные материалы, Мои продажи, Мои люди.
  *
- * ⚠️ «Мои продажи» есть ВСЕГДА, «Мои люди» — только когда там реально есть
- * кого показать (№ 40). В активном режиме закреплённые, не ставшие
- * партнёрами, дохода не приносят: показать их — значит пообещать
- * несуществующее. Решает бэкенд полем show_people.
+ * ⚠️ «Мои люди» — это НЕ ТОЛЬКО купившие. Показываем и тех, кто пришёл по
+ * ссылке и ещё ничего не купил: именно с ними партнёру и работать. У каждого
+ * — кнопки «написать» в его мессенджеры, чтобы не искать человека вручную.
+ * Раздел появляется, когда есть кого показать (поле show_people с бэкенда).
  *
  * ⚠️ Ноль не объясняем (№ 31): пустой кабинет — просто пусто.
  */
@@ -52,6 +52,7 @@ export default function PartnerCabinet({ token }: { token: string }) {
     ['materials', 'Что рекомендовать'],
     ['sales', 'Мои продажи'],
     ...(me.show_people ? [['people', 'Мои люди'] as [Tab, string]] : []),
+
   ]
 
   return (
@@ -311,8 +312,13 @@ function Sales({ token }: { token: string }) {
 
 /* ─── Люди ───────────────────────────────────────────────────────────────── */
 
+const PLATFORM_NAME: Record<string, string> = {
+  telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX',
+}
+
 function People({ token }: { token: string }) {
   const [items, setItems] = useState<any[] | null>(null)
+  const [only, setOnly] = useState<'all' | 'warm'>('all')
 
   useEffect(() => {
     get('/me/people', token).then(d => setItems(d.people || [])).catch(() => setItems([]))
@@ -321,34 +327,73 @@ function People({ token }: { token: string }) {
   if (!items) return <p className="text-sm text-gray-400">Загружаем…</p>
   if (!items.length) return <p className="text-sm text-gray-500">Пока никого.</p>
 
+  // ⚠️ «Интересовались» — те, кто пришёл по ссылке, но ещё не купил. Это и есть
+  // работа партнёра: с ними можно связаться и довести до покупки. Раньше их не
+  // было видно вовсе — показывались только состоявшиеся продажи.
+  const warm = items.filter(p => !p.bought)
+  const list = only === 'warm' ? warm : items
+
   return (
-    <div className="space-y-2">
-      {items.map(p => (
-        <div key={p.id} className="rounded-xl bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="font-medium text-gray-900">
-                {p.name || 'Без имени'}
-                {p.is_partner && (
-                  <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
-                    партнёр
-                  </span>
+    <div>
+      {warm.length > 0 && (
+        <div className="mb-3 flex gap-1 text-sm">
+          <button onClick={() => setOnly('all')}
+                  className={`rounded-lg px-3 py-1.5 ${only === 'all'
+                    ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 shadow-sm'}`}>
+            Все · {items.length}
+          </button>
+          <button onClick={() => setOnly('warm')}
+                  className={`rounded-lg px-3 py-1.5 ${only === 'warm'
+                    ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 shadow-sm'}`}>
+            Интересовались · {warm.length}
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {list.map(p => (
+          <div key={p.id} className="rounded-xl bg-white p-3 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-gray-900">
+                  {p.name || 'Без имени'}
+                  {p.is_partner && (
+                    <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+                      партнёр
+                    </span>
+                  )}
+                </div>
+                {/* ⚠️ Партнёр видит про своих людей ВСЁ (№ 10) — он их привёл. */}
+                <div className="break-all text-xs text-gray-500">
+                  {[p.email, p.phone].filter(Boolean).join(' · ') || '—'}
+                </div>
+                <div className="text-xs text-gray-400">с {dt(p.came_at)}</div>
+              </div>
+              <div className="text-right">
+                {p.bought ? (
+                  <div className="text-sm text-gray-600">
+                    купил на {money(p.spent)}
+                  </div>
+                ) : (
+                  <div className="text-xs text-amber-700">интересовался</div>
                 )}
               </div>
-              {/* ⚠️ Партнёр видит про своих людей ВСЁ (№ 10) — он их привёл. */}
-              <div className="break-all text-xs text-gray-500">
-                {[p.email, p.phone].filter(Boolean).join(' · ') || '—'}
-              </div>
-              <div className="text-xs text-gray-400">с {dt(p.partner_bound_at)}</div>
             </div>
-            {Number(p.spent) > 0 && (
-              <div className="text-right text-sm text-gray-600">
-                купил на {money(p.spent)}
+
+            {/* Кнопки «написать» — партнёр не должен искать человека вручную. */}
+            {Object.keys(p.links || {}).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5 border-t border-gray-100 pt-2">
+                {Object.entries(p.links).map(([platform, url]) => (
+                  <a key={platform} href={url as string} target="_blank" rel="noreferrer"
+                     className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200">
+                    Написать в {PLATFORM_NAME[platform] || platform}
+                  </a>
+                ))}
               </div>
             )}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }

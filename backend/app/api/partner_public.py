@@ -415,13 +415,29 @@ async def partner_me(response: Response, sess: dict = Depends(_session),
     # ожидание. Ставших партнёрами показываем в обоих режимах: с их продаж
     # реально идёт второй уровень, и не видя их, партнёр не поймёт, откуда
     # пришли деньги.
+    #
+    # ⚠️ Считаем ПО ТЕМ ЖЕ ТРЁМ ИСТОЧНИКАМ, что и сам список: закрепление,
+    # переход на событие по реф-коду и заход за подарком. Раньше здесь были
+    # только закреплённые — и у партнёра, к которому люди приходили по ссылкам,
+    # но не закреплялись, раздел не показывался вовсе, хотя показать было что.
     people_count = await db.fetchval(
-        """SELECT COUNT(*) FROM contacts c
-            WHERE c.partner_id = $1
-              AND ($2 = 'passive' OR EXISTS (
-                    SELECT 1 FROM client_partners p2
-                     WHERE p2.contact_id = c.id AND p2.client_id = $3))""",
-        partner["id"], mode, cid) or 0
+        """SELECT COUNT(DISTINCT id) FROM (
+               SELECT c.id FROM contacts c WHERE c.partner_id = $1
+               UNION
+               SELECT ep.contact_id FROM event_participants ep
+                 JOIN contacts rc ON rc.id = $3
+                WHERE ep.referrer_ref_code IS NOT NULL
+                  AND (ep.referrer_ref_code = rc.ref_code
+                       OR rc.merged_ref_codes ? ep.referrer_ref_code)
+               UNION
+               SELECT fr.contact_id FROM funnel_runs fr
+                WHERE fr.referrer_contact_id = $3 AND fr.contact_id IS NOT NULL
+           ) x
+           WHERE id <> $3
+             AND EXISTS (SELECT 1 FROM contacts c2
+                          WHERE c2.id = x.id AND c2.client_id = $2
+                            AND c2.merged_into IS NULL)""",
+        partner["id"], cid, partner["contact_id"]) or 0
 
     return {
         "is_partner": True,
@@ -435,7 +451,10 @@ async def partner_me(response: Response, sess: dict = Depends(_session),
         "total": float(totals["total"]),
         "sales_count": int(totals["sales"]),
         "people_count": int(people_count),
-        "show_people": bool(people_count) or mode == "passive",
+        # ⚠️ Показываем, КОГДА ЕСТЬ КОГО показать. Прежнее «или пассивный
+        # режим» открывало пустой раздел, а в активном прятало его при живых
+        # людях, пришедших по ссылке.
+        "show_people": bool(people_count),
     }
 
 
@@ -571,23 +590,96 @@ async def partner_people(response: Response, sess: dict = Depends(_session),
         raise HTTPException(status_code=403, detail="Вы ещё не партнёр")
 
     mode = await _effective_mode(db, cid, partner)
+
+    # ⚠️⚠️ ПОКАЗЫВАЕМ И ТЕХ, КТО ЕЩЁ НИЧЕГО НЕ КУПИЛ (решение владельца).
+    # Раньше здесь были только закреплённые с покупками — то есть партнёр видел
+    # лишь состоявшиеся продажи и не знал, кто интересовался. А именно эти люди
+    # и есть его работа: с ними можно связаться и довести до покупки.
+    #
+    # Три источника «человек пришёл по моей ссылке» (у каждого свой смысл, и ни
+    # один не покрывает остальные):
+    #   • contacts.partner_id            — закреплён за партнёром;
+    #   • event_participants             — открыл событие по его реф-коду;
+    #   • funnel_runs                    — пришёл за подарком по его ссылке.
+    #
+    # ⚠️ Реф-код учитываем вместе с `merged_ref_codes`: после объединения
+    # контактов старый код продолжает ходить по чужим постам, и терять из-за
+    # этого приведённых нельзя.
     rows = await db.fetch(
-        """SELECT c.id, c.name, c.phone, c.partner_bound_at,
-                  (SELECT pu.platform_user_id FROM platform_users pu
-                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
-                    ORDER BY pu.id LIMIT 1) AS email,
-                  EXISTS (SELECT 1 FROM client_partners p2
-                           WHERE p2.contact_id = c.id AND p2.client_id = $2) AS is_partner,
-                  COALESCE((SELECT SUM(a.base_amount) FROM partner_accruals a
-                             WHERE a.buyer_contact_id = c.id AND a.partner_id = $1), 0) AS spent
-             FROM contacts c
-            WHERE c.partner_id = $1
-              AND ($3 = 'passive' OR EXISTS (
-                    SELECT 1 FROM client_partners p3
-                     WHERE p3.contact_id = c.id AND p3.client_id = $2))
-            ORDER BY c.partner_bound_at DESC NULLS LAST
-            LIMIT 500""",
-        partner["id"], cid, mode,
+        """
+        WITH mine AS (
+            -- Закреплённые за партнёром
+            SELECT c.id, c.partner_bound_at AS came_at, TRUE AS bound
+              FROM contacts c
+             WHERE c.partner_id = $1
+            UNION
+            -- Пришли на событие по его реф-коду
+            -- ⚠️ `created_at` у участника НЕТ; берём самую раннюю известную
+            -- отметку. Все могут быть пустыми — человек просто открыл событие
+            -- и не зарегистрировался, а это и есть «интересовался».
+            SELECT ep.contact_id,
+                   MIN(LEAST(ep.registered_at, ep.activated_at,
+                             ep.link_clicked_at)), FALSE
+              FROM event_participants ep
+              JOIN contacts rc ON rc.id = $3
+             WHERE ep.referrer_ref_code IS NOT NULL
+               AND (ep.referrer_ref_code = rc.ref_code
+                    OR rc.merged_ref_codes ? ep.referrer_ref_code)
+             GROUP BY ep.contact_id
+            UNION
+            -- Пришли за подарком по его ссылке
+            SELECT fr.contact_id, MIN(fr.landed_at), FALSE
+              FROM funnel_runs fr
+             WHERE fr.referrer_contact_id = $3 AND fr.contact_id IS NOT NULL
+             GROUP BY fr.contact_id
+        )
+        SELECT c.id, c.name, c.phone,
+               MIN(m.came_at) AS came_at,
+               bool_or(m.bound) AS is_bound,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                 ORDER BY pu.id LIMIT 1) AS email,
+               EXISTS (SELECT 1 FROM client_partners p2
+                        WHERE p2.contact_id = c.id AND p2.client_id = $2) AS is_partner,
+               -- Сколько человек ЗАПЛАТИЛ по продажам этого партнёра.
+               -- 0 = интересовался, но не купил.
+               COALESCE((SELECT SUM(a.base_amount) FROM partner_accruals a
+                          WHERE a.buyer_contact_id = c.id AND a.partner_id = $1), 0) AS spent,
+               -- Контакты на площадках — чтобы партнёр мог написать человеку.
+               (SELECT json_agg(json_build_object(
+                          'platform', pu2.platform_slug,
+                          'user_id', pu2.platform_user_id,
+                          'username', pu2.username))
+                  FROM platform_users pu2
+                 WHERE pu2.contact_id = c.id
+                   AND pu2.platform_slug IN ('telegram', 'vk', 'max')) AS identities
+          FROM mine m
+          JOIN contacts c ON c.id = m.id
+         WHERE c.client_id = $2 AND c.merged_into IS NULL
+           AND c.id <> $3
+         GROUP BY c.id, c.name, c.phone
+         ORDER BY MIN(m.came_at) DESC NULLS LAST
+         LIMIT 500""",
+        partner["id"], cid, partner["contact_id"],
     )
+
     from app.api.partner_program import _row
-    return {"people": [_row(r) for r in rows], "payout_mode": mode}
+    from app.services.profile_links import profile_url
+
+    people = []
+    for r in rows:
+        item = _row(r)
+        # Готовые ссылки «написать человеку» — партнёр не должен собирать их
+        # руками из ника. Строим общим хелпером, свой формат не выдумываем.
+        links = {}
+        for ident in (item.pop("identities", None) or []):
+            url = profile_url(ident.get("platform"),
+                              user_id=ident.get("user_id"),
+                              username=ident.get("username"))
+            if url:
+                links[ident["platform"]] = url
+        item["links"] = links
+        item["bought"] = float(item.get("spent") or 0) > 0
+        people.append(item)
+
+    return {"people": people, "payout_mode": mode}
