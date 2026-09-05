@@ -4,7 +4,7 @@ import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
-import VkPermissionsIntro, { vkIntroWasShown } from './components/VkPermissionsIntro'
+import VkPermissionsIntro from './components/VkPermissionsIntro'
 import { vkMessagesAllowed } from './api'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
 
@@ -607,7 +607,17 @@ export default function App() {
         // событие внутри приложения), и окно-объяснение переставало
         // показываться вовсе (жалоба владельца 05.09.2026).
         const byLink = !!(adapter.startParam || '').trim()
-        if (vkId && !alreadyAllowed && !byLink && !vkIntroWasShown(vkId)) {
+        // ⚠️⚠️ ОТМЕТКУ «УЖЕ ПОКАЗЫВАЛИ» НЕ ПРОВЕРЯЕМ (06.09.2026).
+        //
+        // Здесь стояло `!vkIntroWasShown(vkId)`. Отметка живёт весь сеанс
+        // приложения ВКонтакте: показали один раз — и до перезапуска самого
+        // приложения ВК окно больше не появлялось. Владелец открывала Mini App
+        // подряд и не видела окна вовсе.
+        //
+        // Проверять её незачем: выше мы уже спросили у ВКонтакте, есть ли
+        // право (`alreadyAllowed`). Есть — окно не нужно; нет — надо спросить,
+        // сколько бы раз мы ни показывали его раньше.
+        if (vkId && !alreadyAllowed && !byLink) {
           // ⚠️⚠️ ОКНО НЕ ОБРЫВАЕТ ЗАПУСК (05.09.2026).
           //
           // Здесь стоял `return`: приложение не грузилось вовсе, пока человек
