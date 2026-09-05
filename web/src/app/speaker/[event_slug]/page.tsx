@@ -267,6 +267,12 @@ type SpeakerMaterials = {
   speaker_poster_url: string | null
   event_video_url: string | null
   speaker_video_url: string | null
+  /** Записи ЕГО выступлений из эфира — организатор нарезал запись по спикерам. */
+  my_recordings?: {
+    id: number; title: string; url: string
+    duration_sec: number | null; size_bytes: number | null
+    day_number: number | null; day_title: string | null
+  }[]
   announcement_texts: { id: number; content: string; sort: number }[]
   ref_links: { telegram?: string; vk?: string; max?: string }
   /** Ссылка на форму регистрации прямо на сайте, с реф-кодом спикера.
@@ -2423,6 +2429,41 @@ function MaterialsTab({
                 </div>
               )
             })}
+        </div>
+      )}
+
+      {/* Записи выступлений — организатор нарезал запись эфира по спикерам.
+          ⚠️ Выше видео-анонсов: это результат работы спикера, за ним и приходят. */}
+      {!!(materials.my_recordings || []).length && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Записи ваших выступлений</div>
+          <div style={subCss}>
+            Ваша часть эфира — можно посмотреть здесь или скачать и выложить у себя.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {(materials.my_recordings || []).map(v => (
+              <div key={v.id}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#25455D', marginBottom: 6 }}>
+                  {v.title}
+                  {v.day_title && (
+                    <span style={{ fontWeight: 400, color: '#9aaab8' }}> · {v.day_title}</span>
+                  )}
+                  {v.duration_sec ? (
+                    <span style={{ fontWeight: 400, color: '#9aaab8' }}>
+                      {' · '}{Math.max(1, Math.round(v.duration_sec / 60))} мин
+                    </span>
+                  ) : null}
+                </div>
+                <video src={v.url} controls preload="metadata"
+                       style={{ width: '100%', borderRadius: 12, background: '#000', display: 'block' }} />
+                <a href={v.url} download
+                   style={{ display: 'inline-block', marginTop: 8, fontSize: 13,
+                            color: '#25455D', textDecoration: 'underline' }}>
+                  Скачать запись
+                </a>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

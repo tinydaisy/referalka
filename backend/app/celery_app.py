@@ -8,7 +8,7 @@ celery = Celery(
     backend=settings.redis_url,
     include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
-        "app.tasks.webinar_chunks", "app.tasks.webinar_stuck",
+        "app.tasks.webinar_chunks", "app.tasks.webinar_stuck", "app.tasks.webinar_cut",
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check"]
 )
 

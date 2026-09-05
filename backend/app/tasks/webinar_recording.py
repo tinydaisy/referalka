@@ -23,6 +23,10 @@ import asyncpg
 from app.celery_app import celery
 from app.config import settings
 from app.services import r2_storage
+# ⚠️ Разбор времени из имени сегмента — ОДНА функция на оба места. Своей копии
+# тут быть не должно: формат задаёт recordPath в mediamtx.yml, и разъехавшиеся
+# копии дали бы разное смещение эфира в записи и в списке кусков.
+from app.tasks.webinar_chunks import _seg_started_at
 
 _log = logging.getLogger(__name__)
 
@@ -111,6 +115,10 @@ async def _run(session_id: int):
             await _mark_failed(conn, rec_id, "нет сегментов записи")
             return
 
+        # На какой секунде склеенного файла начался ЭФИР (нажали «Начать эфир»).
+        # Считается до склейки: нужен первый сегмент, а после неё их уже нет.
+        live_offset = _live_offset_sec(segs, sess["started_at"])
+
         tmp_out = tempfile.mktemp(suffix=".mp4")
         try:
             # склейка сегментов (concat demuxer)
@@ -134,10 +142,16 @@ async def _run(session_id: int):
             url = await r2_storage.upload_file(tmp_out, key, "video/mp4")
 
             duration = _probe_duration(tmp_out)
+            # ⚠️ Смещение не может быть больше самой записи: если «Начать эфир»
+            # нажали после конца потока (переоткрыли комнату, поток к тому
+            # моменту оборвался) — считаем смещение неизвестным, иначе плеер
+            # стартовал бы за концом файла и показывал чёрный экран.
+            if live_offset is not None and duration and live_offset >= duration:
+                live_offset = None
             await conn.execute(
                 "UPDATE webinar_recordings SET status='ready', url=$1, r2_key=$2, "
-                "size_bytes=$3, duration_sec=$4 WHERE id=$5",
-                url, key, size, duration, rec_id)
+                "size_bytes=$3, duration_sec=$4, live_offset_sec=$6 WHERE id=$5",
+                url, key, size, duration, rec_id, live_offset)
 
             # ⚠️ Учёт в квоте клиента. Раньше запись эфира заливалась в R2 мимо
             # client_files — гигабайты лежали в бакете, а счётчик их не видел.
@@ -177,6 +191,35 @@ async def _run(session_id: int):
             await conn.close()
         except Exception:
             pass
+
+
+def _live_offset_sec(segs: list[str], started_at) -> int | None:
+    """На какой секунде склеенного файла нажали «Начать эфир».
+
+    ⚠️ Зачем вообще. MediaMTX пишет поток С МОМЕНТА ПОДКЛЮЧЕНИЯ видеокодера, а
+    эфир для зрителей начинается позже — когда ведущий нажал «Начать эфир»
+    (webinar_sessions.started_at). Между ними проверка звука, «слышно меня» и
+    ожидание опоздавших: от пяти минут до получаса. Без этого числа нулевая
+    секунда записи не совпадает с нулём программы, и авторасстановка меток по
+    расписанию уехала бы ровно на эту величину.
+
+    ⚠️ Точка отсчёта — время ПЕРВОГО сегмента из имени файла (его пишет сам
+    MediaMTX в UTC). Время создания файла на диске не годится: у докачанных из
+    хранилища кусков оно равно моменту скачивания.
+
+    None (а не 0) = посчитать не удалось: нет started_at, имя сегмента чужого
+    формата, или эфир начался раньше записи. Ноль означал бы «эфир с первого
+    кадра» — неправда, и метки уехали бы молча.
+    """
+    if not started_at or not segs:
+        return None
+    first = _seg_started_at(os.path.basename(segs[0]))
+    if not first:
+        return None
+    delta = int((started_at - first).total_seconds())
+    # Отрицательное — «Начать эфир» раньше первого сегмента. Так бывает, когда
+    # ранние куски уже удалены уборщиком: настоящее начало записи неизвестно.
+    return delta if delta >= 0 else None
 
 
 def _probe_duration(path: str) -> int | None:

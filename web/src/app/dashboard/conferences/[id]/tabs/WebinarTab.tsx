@@ -5,6 +5,7 @@ import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio } from 'lucide-react'
 import WebinarAnalytics from './WebinarAnalytics'
+import RecordingCutter from '@/components/webinar/RecordingCutter'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -1083,6 +1084,7 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
   const [battles, setBattles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [viewer, setViewer] = useState<any | null>(null)
+  const [cutter, setCutter] = useState<any | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1124,11 +1126,18 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                   <div className="text-xs text-gray-500">
                     {r.status === 'ready' ? `${fmtDur(r.duration_sec)} · ${fmtSize(r.size_bytes)}`
                       : r.status === 'processing' ? '⏳ обрабатывается…' : '⚠️ ошибка обработки'}
+                    {r.cuts_count ? ` · нарезано на ${r.cuts_count}` : ''}
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {r.status === 'ready' && r.url && (
                     <button onClick={() => setViewer(r)} className="btn-gold text-sm">▶ Смотреть</button>
+                  )}
+                  {r.status === 'ready' && r.url && (
+                    <button onClick={() => setCutter(r)}
+                            className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">
+                      ✂️ Нарезать
+                    </button>
                   )}
                   {r.status === 'ready' && r.url && (
                     <a href={r.url} download className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">Скачать</a>
@@ -1169,6 +1178,11 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
       {viewer && (
         <RecordingViewer eventId={eventId} day={day} rec={viewer}
                          onClose={() => setViewer(null)} />
+      )}
+
+      {cutter && (
+        <RecordingCutter eventId={eventId} day={day} rec={cutter}
+                         onClose={() => { setCutter(null); load() }} />
       )}
     </div>
   )

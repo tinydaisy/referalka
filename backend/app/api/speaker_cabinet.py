@@ -1157,6 +1157,22 @@ async def get_me_materials(
         if "max" in platforms and handles.get("max"):
             partner_link["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
 
+    # Записи ЕГО выступлений (миграция 349) — куски, нарезанные организатором
+    # из записи эфира. ⚠️ Отбор по speaker_ec_id: спикер видит СВОИ выступления,
+    # а не весь эфир. Только status='ready' — недорезанный кусок отдавать нечего.
+    my_recordings = await db.fetch(
+        """SELECT cut.id, cut.title, cut.url, cut.duration_sec, cut.size_bytes,
+                  cd.day_number, COALESCE(NULLIF(cd.title,''), 'День ' || cd.day_number::text) AS day_title
+             FROM webinar_recording_cuts cut
+             JOIN webinar_recordings rec ON rec.id = cut.recording_id
+             JOIN webinar_rooms wr       ON wr.id = rec.room_id
+        LEFT JOIN conf_days cd           ON cd.event_id = wr.event_id AND cd.day_number = wr.day_number
+            WHERE cut.speaker_ec_id = $1 AND wr.event_id = $2
+              AND cut.status = 'ready' AND cut.url IS NOT NULL
+            ORDER BY wr.day_number, cut.start_sec""",
+        se_id, e_id,
+    )
+
     # Словарь подстановок для плейсхолдеров {link}/{event}/{date}/{brand}.
     # {link} = ref_links.telegram || .vk || .max (берём первый доступный).
     link_default = ref_links.get("telegram") or ref_links.get("vk") or ref_links.get("max") or ""
@@ -1186,6 +1202,8 @@ async def get_me_materials(
         "announcement_posters": [dict(r) for r in announcement_posters],
         "event_video_url":    base.get("event_video_url"),
         "speaker_video_url":  base.get("speaker_video_url"),
+        # Записи ЕГО выступлений из эфира — смотреть и скачивать.
+        "my_recordings":      [dict(r) for r in my_recordings],
         "announcement_texts": [dict(r) for r in texts],
         "ref_links":    ref_links,
         # ⚠️ ВЕБ-ССЫЛКА БЕЗ МЕССЕНДЖЕРА (2026-08-28). Часть аудитории спикера не

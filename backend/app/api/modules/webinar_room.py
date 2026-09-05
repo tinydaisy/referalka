@@ -538,9 +538,15 @@ async def viewers(event_id: int, day_number: int, session_id: Optional[int] = Qu
 async def recordings(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
     await ws.assert_event_owner(db, event_id, _cid(client))
     rid = await _room_id(db, event_id, day_number)
+    # ⚠️ live_offset_sec — на какой секунде файла нажали «Начать эфир». Нужен
+    # редактору нарезки: до него в записи лежит проверка звука, и без этого
+    # числа автораскладка меток по программе уехала бы на всю подготовку.
+    # NULL = посчитать не удалось (старая запись) → метки только руками.
     rows = await db.fetch(
-        "SELECT id, session_id, url, status, duration_sec, size_bytes, started_at, ended_at, created_at "
-        "FROM webinar_recordings WHERE room_id=$1 ORDER BY created_at DESC", rid)
+        "SELECT id, session_id, url, status, duration_sec, size_bytes, started_at, ended_at, "
+        "       created_at, live_offset_sec, "
+        "       (SELECT count(*) FROM webinar_recording_cuts c WHERE c.recording_id = r.id) AS cuts_count "
+        "FROM webinar_recordings r WHERE room_id=$1 ORDER BY created_at DESC", rid)
     return {"recordings": [dict(r) for r in rows]}
 
 
@@ -561,6 +567,262 @@ async def session_chat(event_id: int, day_number: int, session_id: int,
         " WHERE m.room_id=$1 AND m.session_id=$2 "
         " ORDER BY m.at", rid, session_id)
     return {"messages": [dict(r) for r in rows]}
+
+
+# ─────────────────────────── нарезка записи по спикерам ───────────────────────────
+# ⚠️ Эфир пишется одним файлом: сначала настройка звука до «Начать эфир», потом
+# открытие, потом выступления подряд. Целиком это никому не отдать — спикеру
+# нужно СВОЁ выступление. Клиент расставляет границы (по программе дня одной
+# кнопкой) и жмёт «Нарезать».
+#
+# ⚠️ Одна палочка = одна граница: кусок начинается там, где кончился предыдущий,
+# перерывы не вырезаются (решение владельца). Поэтому конец куска НЕ хранится
+# отдельно, а берётся из начала следующего.
+
+class CutIn(BaseModel):
+    id: Optional[int] = None          # существующий кусок — иначе создаём
+    start_sec: int
+    title: str
+    speaker_ec_id: Optional[int] = None
+    session_id: Optional[int] = None
+
+
+class CutsSave(BaseModel):
+    cuts: List[CutIn]
+
+
+async def _recording_or_404(db, event_id: int, day_number: int, recording_id: int) -> dict:
+    """Запись этой комнаты. ⚠️ Проверяем принадлежность КОМНАТЕ, а не только id:
+    иначе по чужому номеру можно было бы читать и резать чужие эфиры."""
+    rid = await _room_id(db, event_id, day_number)
+    row = await db.fetchrow(
+        "SELECT id, room_id, status, duration_sec, live_offset_sec, url "
+        "  FROM webinar_recordings WHERE id=$1 AND room_id=$2", recording_id, rid)
+    if not row:
+        raise HTTPException(404, "Запись не найдена")
+    return dict(row)
+
+
+def _hhmm_to_sec(v: Optional[str]) -> Optional[int]:
+    """"HH:MM" → секунды от полуночи. Время программы хранится строкой (см. правило
+    «Время программы — строки HH:MM»), поэтому разбираем вручную."""
+    if not v or not isinstance(v, str):
+        return None
+    m = re.match(r"^([01]\d|2[0-3]):([0-5]\d)", v.strip())
+    if not m:
+        return None
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60
+
+
+async def _cuts_payload(db, rec: dict, recording_id: int) -> dict:
+    """Ответ со списком кусков. ⚠️ Отдельной функцией, а не вызовом эндпоинта:
+    у эндпоинта параметры через Depends, и звать его как обычную функцию —
+    ловушка (добавили параметр — сломалось молча)."""
+    rows = await db.fetch(
+        "SELECT c.id, c.start_sec, c.end_sec, c.title, c.speaker_ec_id, c.session_id, "
+        "       c.sort_order, c.status, c.url, c.duration_sec, c.size_bytes, c.error, "
+        "       cl.name AS speaker_name "
+        "  FROM webinar_recording_cuts c "
+        "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
+        "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
+        " WHERE c.recording_id=$1 ORDER BY c.sort_order, c.start_sec", recording_id)
+    return {
+        "recording": {
+            "id": rec["id"], "url": rec["url"], "status": rec["status"],
+            "duration_sec": rec["duration_sec"],
+            "live_offset_sec": rec["live_offset_sec"],
+        },
+        "cuts": [dict(r) for r in rows],
+    }
+
+
+@router.get("/{day_number}/recordings/{recording_id}/cuts", summary="Куски записи")
+async def list_cuts(event_id: int, day_number: int, recording_id: int,
+                    client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rec = await _recording_or_404(db, event_id, day_number, recording_id)
+    return await _cuts_payload(db, rec, recording_id)
+
+
+@router.get("/{day_number}/recordings/{recording_id}/program-marks",
+            summary="Раскладка меток по программе дня (черновик, не сохраняет)")
+async def program_marks(event_id: int, day_number: int, recording_id: int,
+                        shift_sec: int = Query(0, description="сдвинуть всё на N секунд"),
+                        client=Depends(get_current_client), db=Depends(get_db)):
+    """Что предложить клиенту, если он нажмёт «Расставить по программе дня».
+
+    ⚠️ Ничего не сохраняет — только считает. Клиент сначала смотрит, поправляет
+    и лишь потом сохраняет: молча переписать уже расставленные метки нельзя.
+
+    Арифметика: секунда эфира = (время слота) − (время нажатия «Начать эфир»).
+    Оба слагаемых известны: слот из conf_sessions.start_time, момент старта из
+    webinar_sessions.started_at.
+    """
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rec = await _recording_or_404(db, event_id, day_number, recording_id)
+
+    # ⚠️ Время старта эфира берём из СЕССИИ этой записи, а не «последней» —
+    # эфир за день могли запускать несколько раз, и у каждого запуска своё
+    # начало. Взять чужое значило бы сдвинуть всю раскладку.
+    started = await db.fetchval(
+        "SELECT s.started_at FROM webinar_sessions s "
+        "  JOIN webinar_recordings r ON r.session_id = s.id WHERE r.id=$1", recording_id)
+    if not started:
+        raise HTTPException(400, "У записи нет времени начала эфира — расставьте метки вручную")
+
+    day = await db.fetchrow(
+        "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2", event_id, day_number)
+    if not day or not day["day_date"]:
+        raise HTTPException(400, "У этого дня нет даты в программе — расставьте метки вручную")
+
+    rows = await db.fetch(
+        "SELECT s.id, s.start_time, s.title, s.speaker_id, "
+        "       COALESCE(cst.topic, s.title) AS topic, cl.name AS speaker_name "
+        "  FROM conf_sessions s "
+        "  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id "
+        "  LEFT JOIN event_collaborators ec ON ec.id = s.speaker_id "
+        "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
+        " WHERE s.event_id=$1 AND s.day=$2 AND s.start_time IS NOT NULL "
+        " ORDER BY s.start_time, s.sort_order", event_id, day_number)
+    if not rows:
+        raise HTTPException(400, "В программе этого дня нет слотов со временем")
+
+    # Момент «Начать эфир» в секундах от полуночи МСК того дня.
+    from app.services.webinar_service import MSK
+    started_msk = started.astimezone(MSK)
+    start_of_day_sec = started_msk.hour * 3600 + started_msk.minute * 60 + started_msk.second
+
+    marks = []
+    for r in rows:
+        slot_sec = _hhmm_to_sec(r["start_time"])
+        if slot_sec is None:
+            continue
+        # ⚠️ Слот раньше начала эфира прижимаем к нулю, а не выбрасываем:
+        # открытие часто объявляют уже после нажатия «Начать эфир», и потерять
+        # первый кусок значило бы потерять начало записи.
+        sec = max(0, slot_sec - start_of_day_sec + int(shift_sec or 0))
+        if rec["duration_sec"] and sec >= int(rec["duration_sec"]):
+            continue          # слот за пределами записи — эфир кончился раньше
+        title = (r["topic"] or r["title"] or "").strip() or "Без названия"
+        if r["speaker_name"]:
+            title = f"{r['speaker_name']} — {title}"
+        marks.append({
+            "start_sec": sec,
+            "title": title[:200],
+            "speaker_ec_id": r["speaker_id"],
+            "session_id": r["id"],
+        })
+    # ⚠️ Дедуп по секунде: два слота в одну минуту (параллельные залы) дали бы
+    # кусок нулевой длины, а ffmpeg на нём падает.
+    seen, out = set(), []
+    for m in sorted(marks, key=lambda x: x["start_sec"]):
+        if m["start_sec"] in seen:
+            continue
+        seen.add(m["start_sec"])
+        out.append(m)
+    return {"marks": out}
+
+
+@router.put("/{day_number}/recordings/{recording_id}/cuts", summary="Сохранить метки")
+async def save_cuts(event_id: int, day_number: int, recording_id: int, data: CutsSave,
+                    client=Depends(get_current_client), db=Depends(get_db)):
+    """Полная замена набора меток.
+
+    ⚠️ Конец куска НЕ приходит от клиента — он считается из начала следующего
+    (одна палочка = одна граница). Так граница физически не может разъехаться
+    между двумя соседними кусками.
+
+    ⚠️ Уже нарезанные куски (status='ready') не трогаем: их файлы могли уже
+    уйти спикерам. Меняются только черновики.
+    """
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rec = await _recording_or_404(db, event_id, day_number, recording_id)
+
+    # ⚠️ Дедуп по секунде: две метки в одну секунду дали бы кусок нулевой длины
+    # (ffmpeg на нём падает) и наложение соседей друг на друга.
+    items, _seen = [], set()
+    for c in sorted([c for c in data.cuts if c.start_sec is not None and c.start_sec >= 0],
+                    key=lambda c: c.start_sec):
+        s = int(c.start_sec)
+        if s in _seen:
+            continue
+        _seen.add(s)
+        items.append(c)
+
+    # ⚠️ Границы считаем по ВСЕМ меткам записи, включая уже нарезанные: конец
+    # черновика может упираться в готовый кусок. Считать только по черновикам —
+    # значит наложить один кусок на другой и выдать спикеру чужое выступление.
+    ready = await db.fetch(
+        "SELECT start_sec FROM webinar_recording_cuts "
+        " WHERE recording_id=$1 AND status='ready'", recording_id)
+    ready_starts = {int(r["start_sec"]) for r in ready}
+    # Метка ровно на нарезанном куске — это он же, второй раз его не заводим.
+    items = [c for c in items if int(c.start_sec) not in ready_starts]
+    boundaries = sorted(ready_starts | {int(c.start_sec) for c in items})
+
+    def _next_after(sec: int) -> Optional[int]:
+        for b in boundaries:
+            if b > sec:
+                return b
+        return None
+
+    async with db.transaction():
+        await db.execute(
+            "DELETE FROM webinar_recording_cuts WHERE recording_id=$1 AND status <> 'ready'",
+            recording_id)
+        for i, c in enumerate(items):
+            start = int(c.start_sec)
+            nxt = _next_after(start)
+            await db.execute(
+                "INSERT INTO webinar_recording_cuts "
+                " (recording_id, start_sec, end_sec, title, speaker_ec_id, session_id, sort_order) "
+                " VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                recording_id, start, nxt,
+                (c.title or "Без названия").strip()[:200] or "Без названия",
+                c.speaker_ec_id, c.session_id, i * 10)
+    return await _cuts_payload(db, rec, recording_id)
+
+
+@router.post("/{day_number}/recordings/{recording_id}/cut", summary="Нарезать")
+async def run_cut(event_id: int, day_number: int, recording_id: int,
+                  client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    rec = await _recording_or_404(db, event_id, day_number, recording_id)
+    if rec["status"] != "ready":
+        raise HTTPException(400, "Запись ещё обрабатывается — подождите")
+    pending = await db.fetchval(
+        "SELECT count(*) FROM webinar_recording_cuts "
+        " WHERE recording_id=$1 AND status IN ('draft','failed')", recording_id)
+    if not pending:
+        raise HTTPException(400, "Нечего резать — сначала расставьте метки")
+    from app.tasks.webinar_cut import cut_recording
+    cut_recording.delay(recording_id)
+    return {"ok": True, "queued": pending}
+
+
+@router.delete("/{day_number}/recordings/{recording_id}/cuts/{cut_id}", summary="Удалить кусок")
+async def delete_cut(event_id: int, day_number: int, recording_id: int, cut_id: int,
+                     client=Depends(get_current_client), db=Depends(get_db)):
+    """⚠️ Удаляем и файл в хранилище — иначе он остаётся невидимым мусором и
+    висит в квоте клиента."""
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    await _recording_or_404(db, event_id, day_number, recording_id)
+    row = await db.fetchrow(
+        "SELECT r2_key FROM webinar_recording_cuts WHERE id=$1 AND recording_id=$2",
+        cut_id, recording_id)
+    if not row:
+        raise HTTPException(404, "Кусок не найден")
+    if row["r2_key"]:
+        try:
+            from app.services import r2_storage
+            await r2_storage.delete_object(row["r2_key"])
+            await db.execute("DELETE FROM client_files WHERE r2_key=$1", row["r2_key"])
+        except Exception:
+            pass          # файл мог быть уже удалён — строку всё равно снимаем
+    await db.execute("DELETE FROM webinar_recording_cuts WHERE id=$1", cut_id)
+    return {"ok": True}
 
 
 # ─────────────────────────── автовебинар ───────────────────────────

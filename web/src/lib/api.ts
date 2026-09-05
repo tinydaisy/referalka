@@ -1789,6 +1789,19 @@ export const api = {
     recordings: (eventId: number, day: number) => request(`/api/v1/events/${eventId}/webinar/${day}/recordings`),
     deleteRecording: (eventId: number, day: number, recId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}`, { method: 'DELETE' }),
+    // нарезка записи по спикерам
+    cuts: (eventId: number, day: number, recId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts`),
+    programMarks: (eventId: number, day: number, recId: number, shiftSec = 0) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/program-marks?shift_sec=${shiftSec}`),
+    saveCuts: (eventId: number, day: number, recId: number, cuts: any[]) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts`,
+              { method: 'PUT', body: JSON.stringify({ cuts }) }),
+    runCut: (eventId: number, day: number, recId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cut`, { method: 'POST' }),
+    deleteCut: (eventId: number, day: number, recId: number, cutId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts/${cutId}`,
+              { method: 'DELETE' }),
     // обзор батлов события
     allBattles: (eventId: number) => request(`/api/v1/events/${eventId}/webinar/battles/all`),
     // реферальный отчёт: кто сколько привёл на вебинар
