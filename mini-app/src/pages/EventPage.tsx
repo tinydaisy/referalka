@@ -416,10 +416,21 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const navItemsEnded = participant
     ? filterByEnabled(NAV_ENDED)
     : filterByEnabled(NAV_ENDED).filter(n => n.id !== 'game')
+  // Вкладка «Подарки» открыта незарегистрированным, если клиент так настроил
+  // (миграция 350). Реф-ссылка есть у каждого контакта, поэтому человек может
+  // рекомендовать событие, ещё не решив, идёт ли сам.
+  // ⚠️ Открывается ВКЛАДКА, а не подарки: сами подарки за пороги остаются под
+  // замком внутри неё — иначе человек решит, что подарок уже его.
+  const giftsOpenToGuests = !!event?.gifts_open_to_guests
+  const unlockGifts = (items: NavItem[]) =>
+    giftsOpenToGuests
+      ? items.map(n => (n.id === 'game' ? { ...n, locked: false } : n))
+      : items
+
   let navItems = state === 'not_registered'
                      // Один набор на все площадки: в вебе и в приложении
                      // незарегистрированный видит одинаковые вкладки с замками.
-                     ? filterByEnabled(NAV_NOT_REG)
+                     ? unlockGifts(filterByEnabled(NAV_NOT_REG))
                  : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
   // Прямая ссылка на карточку спикера — вкладка «Спикеры» доступна как витрина,

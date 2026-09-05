@@ -404,6 +404,14 @@ function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: s
 type GiftMode = 'registered' | 'visited' | 'clicked_link'
 
 function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
+  // ⚠️ Галочка «показывать вкладку незарегистрированным» живёт в `events`, а не
+  // в настройках реф-программы, — поэтому грузится отдельным запросом.
+  const [giftsOpen, setGiftsOpen] = useState(false)
+  useEffect(() => {
+    api.events.get(eventId)
+      .then((ev: any) => setGiftsOpen(!!ev?.gifts_open_to_guests))
+      .catch(() => { /* поле новое: старый бэк его не отдаёт — молчим */ })
+  }, [eventId])
   const [mode, setMode] = useState<GiftMode | null>(null)
   const [enabled, setEnabled] = useState<boolean>(false)
   const [viaFunnel, setViaFunnel] = useState<boolean>(false)
@@ -526,6 +534,34 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
               Выкл — при получении подарка человек сразу получает ссылку на материал.
               Вкл — подарок ведёт на воронку лид-магнита (проверка подписки на канал
               + напоминание), а не сразу на файл.
+            </div>
+          </div>
+        </label>
+      </div>
+
+      {/* Показывать вкладку «Подарки» незарегистрированным (миграция 350).
+          ⚠️ Открывается ССЫЛКА И МАТЕРИАЛЫ, а сами подарки за пороги остаются
+          под замком до регистрации — иначе человек решит, что подарок уже его. */}
+      <div className="mt-4 pt-3 border-t border-amber-200">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="checkbox" className="mt-1" disabled={saving}
+                 checked={giftsOpen}
+                 onChange={async e => {
+                   const next = e.target.checked
+                   setSaving(true); setErr(null)
+                   try {
+                     await api.events.update(eventId, { gifts_open_to_guests: next })
+                     setGiftsOpen(next)
+                     setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500)
+                   } catch (e: any) { setErr(e.message || 'Ошибка сохранения') }
+                   finally { setSaving(false) }
+                 }} />
+          <div>
+            <div className="text-sm font-medium">Показывать раздел незарегистрированным</div>
+            <div className="text-xs text-gray-500">
+              Человек сможет звать друзей, ещё не зарегистрировавшись сам: ему видны
+              ссылка и рекламные материалы. Сами подарки за приглашённых остаются
+              под замком до регистрации.
             </div>
           </div>
         </label>

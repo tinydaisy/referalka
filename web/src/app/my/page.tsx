@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import CabinetBrand, { type Brand } from '@/components/products/CabinetBrand'
+import PartnerCabinet from './PartnerCabinet'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 const TOKEN_KEY = 'product_cabinet_token'
@@ -54,7 +55,10 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
   const requestCode = async () => {
     setBusy(true); setError('')
     try {
-      const res = await fetch(`${apiBase}/api/v1/public/product-cabinet/request-code`, {
+      // ⚠️ Партнёрский эндпоинт, а не product-cabinet: тот шлёт код только
+      // тому, кто ЧТО-ТО КУПИЛ, а партнёр может не купить ничего — он продаёт.
+      // Кабинет один на обоих (№ 30), значит и вход должен пускать обоих.
+      const res = await fetch(`${apiBase}/api/v1/public/partner/request-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), client_id: clientId() }),
@@ -141,6 +145,8 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
   const [brand, setBrand] = useState<Brand | null>(null)
   const [loading, setLoading] = useState(true)
   const [expired, setExpired] = useState(false)
+  // Партнёрка — раздел ТОГО ЖЕ кабинета (решение № 30), а не отдельный вход.
+  const [tab, setTab] = useState<'materials' | 'partner'>('materials')
 
   useEffect(() => {
     (async () => {
@@ -180,12 +186,33 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
       <CabinetBrand brand={brand} />
       <div className="mx-auto max-w-3xl px-4 py-10">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">Мои материалы</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Мой кабинет</h1>
           <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-700">
             Выйти
           </button>
         </div>
 
+        <div className="mb-6 flex gap-1 border-b border-gray-200">
+          {([['materials', 'Мои материалы'], ['partner', 'Партнёру']] as const).map(
+            ([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium ${
+                  tab === key
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+        </div>
+
+        {tab === 'partner' && <PartnerCabinet token={token} />}
+
+        {tab === 'materials' && (
+        <>
         {!list.length && (
           <p className="text-sm text-gray-500">
             Здесь появится всё, к чему у вас открыт доступ.
@@ -215,6 +242,8 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
             </Link>
           ))}
         </div>
+        </>
+        )}
       </div>
     </div>
   )

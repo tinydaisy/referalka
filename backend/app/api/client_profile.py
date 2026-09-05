@@ -909,6 +909,9 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    -- и должен узнать о закрытой регистрации до этого прыжка.
                    e.registration_closed, e.pre_reg_text,
                    e.pre_reg_btn_label, e.pre_reg_btn_url, e.pre_reg_poster_url,
+                   -- Открыта ли вкладка «Подарки» незарегистрированным (мигр. 350).
+                   -- Решает фронт: у него навигация и замки.
+                   e.gifts_open_to_guests,
                    e.is_collab,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,

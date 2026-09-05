@@ -185,6 +185,9 @@ class UpdateEventRequest(BaseModel):
     # (решение № 29). Промежуточного уровня «процент на событии» нет — у
     # разных тарифов одного события разная маржинальность.
     partner_enabled: Optional[bool] = None
+    # Показывать вкладку «Подарки» незарегистрированным (миграция 350).
+    # Ссылка и материалы — всем, сами подарки за пороги остаются под замком.
+    gifts_open_to_guests: Optional[bool] = None
     pre_reg_text: Optional[str] = None
     pre_reg_btn_label: Optional[str] = None
     pre_reg_btn_url: Optional[str] = None
@@ -884,7 +887,7 @@ async def copy_event(
                   skip_contact_form, landing_cta_label, landing_cta_repeat, registration_mode,
                   person_wording,
                   registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
-                  pre_reg_poster_url, partner_enabled)
+                  pre_reg_poster_url, partner_enabled, gifts_open_to_guests)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
@@ -894,7 +897,7 @@ async def copy_event(
                        $19,$20,
                        $21,$22,
                        $23,$24,$25,$26,$27,
-                       $28,$29,$30,$31,$32,$33)
+                       $28,$29,$30,$31,$32,$33,$34)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -934,6 +937,7 @@ async def copy_event(
             # `registration_mode` этот же недосмотр уже ловили — копия молча
             # уезжала на дефолт вместо настройки оригинала.
             src.get('partner_enabled') or False,
+            src.get('gifts_open_to_guests') or False,
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

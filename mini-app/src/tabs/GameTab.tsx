@@ -284,6 +284,25 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
 
   // ──────────── view: gifts (окно «Подарки») ────────────
   if (view === 'gifts') {
+    // ⚠️ Вкладка может быть открыта незарегистрированному (миграция 350), но
+    // САМИ ПОДАРКИ — нет. Ссылка и рекламные материалы ему доступны, подарки
+    // за пороги — после регистрации. Показать их значило бы пообещать то, чего
+    // человек ещё не получит: он решит, что подарок уже его, и обидится.
+    if (!participant?.is_registered) {
+      return (
+        <div className="fade-in" style={{ padding: '24px 16px', textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
+          <div style={{ fontWeight: 700, color: DARK, marginBottom: 6 }}>
+            Подарки — после регистрации
+          </div>
+          <div style={{ color: '#8a96a3', fontSize: 14, lineHeight: 1.5 }}>
+            Зарегистрируйтесь на событие, чтобы получать подарки за приглашённых
+            друзей. Приглашать можно уже сейчас — ссылка и материалы во вкладках
+            «Материалы» и «Поделиться».
+          </div>
+        </div>
+      )
+    }
     const got = sortedGifts.filter(g => giftCountValue >= g.points_cost)
     const locked = sortedGifts.filter(g => giftCountValue < g.points_cost)
     // Текст про правило подсчёта зависит от gift_count_mode и типа события.
