@@ -277,6 +277,93 @@ async def partner_request_code(data: CodeIn, request: Request, response: Respons
 
 # ─── Кабинет ──────────────────────────────────────────────────────────────────
 
+@router.get("/miniapp", summary="Витрина партнёра в Mini App")
+async def partner_miniapp(
+    response: Response,
+    client_id: int,
+    platform: str = "telegram",
+    platform_user_id: str = "",
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Данные вкладки «Партнёру» внутри Mini App (решение № 2).
+
+    ⚠️ Входа по коду здесь НЕТ и он не нужен: человек опознан площадкой —
+    Mini App открывается из его аккаунта. Требовать код на почту в мессенджере
+    значило бы выгнать человека из приложения ради того, что мы и так знаем.
+
+    ⚠️ Отдаём ТОЛЬКО ссылки и суммы. Регистрация партнёром (оферта + налоговый
+    статус) остаётся в вебе: это осознанный юридический шаг, и собирать его
+    во всплывающем окне мессенджера неправильно.
+    """
+    _cors(response)
+    if not platform_user_id:
+        return {"is_partner": False}
+
+    from app.services.client_domains import client_public_link, public_url_for
+
+    contact_id = await db.fetchval(
+        """SELECT pu.contact_id FROM platform_users pu
+             JOIN contacts c ON c.id = pu.contact_id
+            WHERE c.client_id = $1 AND pu.platform_slug = $2
+              AND pu.platform_user_id = $3
+            LIMIT 1""",
+        client_id, platform, str(platform_user_id),
+    )
+
+    cabinet_url = await client_public_link(db, client_id, "/my")
+
+    if not contact_id:
+        return {"is_partner": False, "cabinet_url": cabinet_url}
+
+    partner = await _partner_row(db, client_id, contact_id)
+    if not partner or not partner["is_active"]:
+        return {"is_partner": False, "cabinet_url": cabinet_url}
+
+    mode = await _effective_mode(db, client_id, partner)
+    totals = await db.fetchrow(
+        """SELECT COALESCE(SUM(amount) FILTER (WHERE payout_id IS NULL), 0) AS due,
+                  COUNT(*) AS sales
+             FROM partner_accruals WHERE partner_id = $1""",
+        partner["id"],
+    )
+
+    ref = partner["ref_code"]
+    base = await client_public_link(db, client_id, "")
+
+    events = await db.fetch(
+        """SELECT e.id, e.title, e.slug
+             FROM events e
+             JOIN event_owners eo ON eo.event_id = e.id AND eo.status = 'accepted'
+            WHERE eo.client_id = $1 AND e.partner_enabled = TRUE
+              AND e.status IN ('published', 'ended')
+            ORDER BY e.start_at DESC NULLS LAST LIMIT 50""",
+        client_id,
+    )
+    products = await db.fetch(
+        """SELECT id, title, slug FROM products
+            WHERE client_id = $1 AND partner_enabled = TRUE AND status <> 'archived'
+            ORDER BY title LIMIT 50""",
+        client_id,
+    )
+
+    items = (
+        [{"kind": "event", "id": e["id"], "title": e["title"],
+          "link": public_url_for(base, f"/l/{e['slug']}?pid={ref}")} for e in events]
+        + [{"kind": "product", "id": p["id"], "title": p["title"],
+            "link": public_url_for(base, f"/pr/{p['slug']}?pid={ref}")} for p in products]
+    )
+
+    return {
+        "is_partner": True,
+        "ref_code": ref,
+        "payout_mode": mode,
+        "due": float(totals["due"]),
+        "sales_count": int(totals["sales"]),
+        "items": items,
+        "cabinet_url": cabinet_url,
+    }
+
+
 @router.get("/me", summary="Партнёр: сводка")
 async def partner_me(response: Response, sess: dict = Depends(_session),
                      db: asyncpg.Connection = Depends(get_db)):

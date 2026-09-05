@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
+import PartnerTab from '../tabs/PartnerTab'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
-import { getClientProfile, getClientEvents } from '../api'
+import { getClientProfile, getClientEvents, getPartnerMiniApp } from '../api'
+import { getPlatformName } from '../platform'
 import { applyTheme } from '../utils/theme'
 
 interface Props {
@@ -18,6 +20,7 @@ const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 
 const CALENDAR_TAB: NavItem = { id: 'calendar',  label: 'Календарь',   icon: 'calendar'  }
 const ECOSYSTEM_TAB: NavItem = { id: 'ecosystem', label: 'О проекте',  icon: 'ecosystem' }
+const PARTNER_TAB: NavItem = { id: 'partner',   label: 'Партнёру',   icon: 'game' }
 
 const PEACH = 'var(--peach)'
 
@@ -26,6 +29,9 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
   // null — ещё считаем (есть активные / есть любые события); решает видимость «Календаря»
   const [eventsState, setEventsState] = useState<{ hasActive: boolean; hasAny: boolean } | null>(null)
   const tgId = tgUser?.id ? Number(tgUser.id) : undefined
+  // null — ещё не знаем (запрос не завершён); решает видимость вкладки «Партнёру»
+  // в режиме 'partners'.
+  const [isPartner, setIsPartner] = useState<boolean | null>(null)
 
   useEffect(() => {
     getClientProfile(clientId).then((p: any) => {
@@ -40,6 +46,17 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
     }).catch(() => setEventsState({ hasActive: true, hasAny: true }))  // ошибка — не прячем
   }, [clientId, tgId])
 
+  // Партнёр ли этот человек — нужно только в режиме 'partners', чтобы не
+  // показывать вкладку тем, для кого клиент её закрыл.
+  // ⚠️ Спрашиваем один раз и только при заданной площадочной идентичности:
+  // без неё бэкенд всё равно ответит «не партнёр».
+  useEffect(() => {
+    if (!tgUser?.id) { setIsPartner(false); return }
+    getPartnerMiniApp(clientId, getPlatformName(), String(tgUser.id))
+      .then((r: any) => setIsPartner(!!r?.is_partner))
+      .catch(() => setIsPartner(false))
+  }, [clientId, tgUser?.id])
+
   // Видимость вкладки «Календарь» по настройке клиента + наличию событий.
   // Пока события не посчитаны — показываем (не мигаем скрытием).
   const vis = profile?.events_tab_visibility || 'always'
@@ -51,11 +68,31 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
   const ecoTab: NavItem = profile?.tab_label_ecosystem
     ? { ...ECOSYSTEM_TAB, label: profile.tab_label_ecosystem }
     : ECOSYSTEM_TAB
-  const NAV: NavItem[] = showCalendar ? [CALENDAR_TAB, ecoTab] : [ecoTab]
+  // Вкладка «Партнёру» (миграция 351): 'off' — нет вовсе, 'partners' — только
+  // партнёрам, 'all' — всем (тогда внутри приглашение в программу).
+  // ⚠️ При 'partners' вкладку показываем, только когда бэкенд подтвердил, что
+  // человек партнёр: иначе он ткнёт в раздел и упрётся в приглашение, которое
+  // клиент как раз просил не показывать.
+  const partnerVis = profile?.partner_tab_visibility || 'off'
+  const showPartner = partnerVis === 'all'
+    || (partnerVis === 'partners' && isPartner === true)
+  const partnerTab: NavItem = profile?.tab_label_partner
+    ? { ...PARTNER_TAB, label: profile.tab_label_partner }
+    : PARTNER_TAB
+
+  const NAV: NavItem[] = [
+    ...(showCalendar ? [CALENDAR_TAB] : []),
+    ecoTab,
+    ...(showPartner ? [partnerTab] : []),
+  ]
   const VALID_TABS = new Set(NAV.map(n => n.id))
   const defaultTab = showCalendar ? 'calendar' : 'ecosystem'
 
-  const [tab, setTab] = useState(initialTab && (initialTab === 'calendar' || initialTab === 'ecosystem') ? initialTab : 'calendar')
+  // ⚠️ 'partner' тоже принимаем: без него deeplink `_tabpartner` молча
+  // открывал бы «Календарь», и ссылка на партнёрский раздел не работала бы.
+  const [tab, setTab] = useState(
+    initialTab && ['calendar', 'ecosystem', 'partner'].includes(initialTab)
+      ? initialTab : 'calendar')
   // если активная вкладка стала недоступной (скрыли календарь) — переключаемся
   useEffect(() => {
     if (!VALID_TABS.has(tab)) setTab(defaultTab)
@@ -140,6 +177,7 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
       <div className="page">
         {tab === 'calendar'  && <CalendarTab  clientId={clientId} tgId={tgId} onOpenEvent={onOpenEvent} />}
         {tab === 'ecosystem' && <EcosystemTab clientId={clientId} />}
+        {tab === 'partner'   && <PartnerTab   clientId={clientId} tgUser={tgUser} />}
       </div>
 
       <BottomNav items={NAV} active={tab} onTab={setTab} />

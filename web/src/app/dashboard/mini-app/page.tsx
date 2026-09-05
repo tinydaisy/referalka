@@ -98,6 +98,9 @@ interface Profile {
   tab_label_speakers?: string | null
   tab_label_game?: string | null
   tab_label_ecosystem?: string | null
+  // Вкладка «Партнёру» (миграции 347, 351)
+  tab_label_partner?: string | null
+  partner_tab_visibility?: string | null
   /** Применять свои цвета в Mini App и веб-версии (мигр. 331). */
   miniapp_use_brand_theme?: boolean | null
   /** Свои цвета Mini App (мигр. 333): три цвета + углы + скругление. */
@@ -149,6 +152,7 @@ const DEFAULT_TAB_LABELS = {
   tab_label_speakers:  'Спикеры',
   tab_label_game:      'Подарки',
   tab_label_ecosystem: 'О проекте',
+  tab_label_partner:   'Партнёру',
 } as const
 
 /**
@@ -254,6 +258,8 @@ function MiniAppSettings() {
         tab_label_speakers:  p.tab_label_speakers  || DEFAULT_TAB_LABELS.tab_label_speakers,
         tab_label_game:      p.tab_label_game      || DEFAULT_TAB_LABELS.tab_label_game,
         tab_label_ecosystem: p.tab_label_ecosystem || DEFAULT_TAB_LABELS.tab_label_ecosystem,
+        tab_label_partner:   p.tab_label_partner   || DEFAULT_TAB_LABELS.tab_label_partner,
+        partner_tab_visibility: p.partner_tab_visibility || 'off',
       })
     }).catch(() => {})
     loadOfferings()
@@ -424,6 +430,8 @@ function MiniAppSettings() {
         tab_label_speakers:     profile.tab_label_speakers  || '',
         tab_label_game:         profile.tab_label_game      || '',
         tab_label_ecosystem:    profile.tab_label_ecosystem || '',
+        tab_label_partner:      profile.tab_label_partner   || '',
+        partner_tab_visibility: profile.partner_tab_visibility || 'off',
         // Галочка «фирменные цвета в Mini App». Шлём явным bool: снятая
         // галочка — это false, а не «поле не прислали».
         // ⚠️ Без фичи всегда false, иначе у клиента, ушедшего с Экстра, весь
@@ -1254,6 +1262,29 @@ function MiniAppSettings() {
                 value={profile.tab_label_ecosystem || ''}
                 onChange={e => update('tab_label_ecosystem', e.target.value)}
                 placeholder="О проекте"
+                maxLength={20}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+              />
+            </Field>
+
+            {/* Вкладка «Партнёру» (миграция 351). ⚠️ По умолчанию выключена:
+                партнёрская программа есть не у всех, и пустой раздел выглядел
+                бы поломкой. */}
+            <Field label="Партнёру"
+                   hint="Раздел, где партнёр видит свои ссылки и вознаграждение.">
+              <select
+                value={profile.partner_tab_visibility || 'off'}
+                onChange={e => update('partner_tab_visibility', e.target.value)}
+                className="w-full mb-2 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+              >
+                <option value="off">Не показывать</option>
+                <option value="partners">Только партнёрам</option>
+                <option value="all">Всем — вкладка приглашает в программу</option>
+              </select>
+              <input
+                value={profile.tab_label_partner || ''}
+                onChange={e => update('tab_label_partner', e.target.value)}
+                placeholder="Партнёру"
                 maxLength={20}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
               />

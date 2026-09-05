@@ -222,6 +222,14 @@ export const verifyCode = (eventId: number, code: string, participantId: number)
 export const getClientProfile = (clientId: number) =>
   req(`/api/v1/public/clients/${clientId}/profile`)
 
+// Партнёрская программа клиента: витрина внутри Mini App (миграции 346-351).
+// Человек опознан по аккаунту площадки, поэтому вход по коду здесь не нужен —
+// в отличие от веб-кабинета /my.
+export const getPartnerMiniApp = (clientId: number, platform: string, userId: string) =>
+  req(`/api/v1/public/partner/miniapp?client_id=${clientId}`
+      + `&platform=${encodeURIComponent(platform)}`
+      + `&platform_user_id=${encodeURIComponent(userId)}`)
+
 export const getClientOfferings = (clientId: number) =>
   req(`/api/v1/public/clients/${clientId}/offerings`)
 

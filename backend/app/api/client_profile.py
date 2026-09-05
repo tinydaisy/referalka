@@ -171,7 +171,7 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
         """SELECT id, name, telegram_username,
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
-                  bio, social_links, events_tab_visibility,
+                  bio, social_links, events_tab_visibility, partner_tab_visibility, tab_label_partner,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
                   -- ⚠️ Фирменные цвета нужны Хабу и экрану разрешений в VK
                   -- Mini App: он показывается ДО загрузки события, и без них
@@ -1255,6 +1255,9 @@ class ProfileUpdate(BaseModel):
     start_package_id:     Optional[int] = None
     # Видимость вкладки «События»: 'always' | 'active' | 'any'
     events_tab_visibility: Optional[str] = None
+    # Вкладка «Партнёру» в Mini App (миграции 347, 351).
+    partner_tab_visibility: Optional[str] = None
+    tab_label_partner: Optional[str] = None
     # Кастомные названия вкладок Mini App (пусто = дефолт из фронта)
     tab_label_program:   Optional[str] = None
     tab_label_speakers:  Optional[str] = None
@@ -1293,7 +1296,7 @@ async def get_my_profile(
                   start_buttons,
                   start_mode, start_event_id,
                   start_lead_magnet_id, start_package_id,
-                  events_tab_visibility,
+                  events_tab_visibility, partner_tab_visibility, tab_label_partner,
                   speaker_page_slug,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
                   miniapp_use_brand_theme,
@@ -1417,14 +1420,21 @@ async def update_my_profile(
                 and _cur_modes.get("link_mode_telegram") != "miniapp"):
             await _guard_tg_miniapp()
         add(col, val)
+    if data.partner_tab_visibility is not None:
+        if data.partner_tab_visibility not in ("off", "partners", "all"):
+            raise HTTPException(status_code=400,
+                                detail="partner_tab_visibility: off | partners | all")
     if data.events_tab_visibility is not None:
         if data.events_tab_visibility not in ("always", "active", "any"):
             raise HTTPException(status_code=400, detail="events_tab_visibility должен быть 'always', 'active' или 'any'")
         add("events_tab_visibility", data.events_tab_visibility)
+    if data.partner_tab_visibility is not None:
+        add("partner_tab_visibility", data.partner_tab_visibility)
     # Названия вкладок Mini App — пустая строка очищает до дефолта (None).
     # Паттерн model_fields_set: ключ есть в JSON (даже null/"") → применяем; нет → не трогаем.
     _fs = data.model_fields_set
-    for _lbl in ("tab_label_program", "tab_label_speakers", "tab_label_game", "tab_label_ecosystem"):
+    for _lbl in ("tab_label_program", "tab_label_speakers", "tab_label_game",
+                 "tab_label_ecosystem", "tab_label_partner"):
         if _lbl in _fs:
             _val = (getattr(data, _lbl) or "").strip()
             add(_lbl, _val or None)

@@ -163,6 +163,16 @@ async def try_bind_by_ref_code(
         bound, holder_id = await bind_contact_to_partner(
             db, contact_id=contact_id, partner_id=partner["id"])
 
+        # Место было занято другим — говорим об этом ПАРТНЁРУ, который привёл
+        # (решение № 35). ⚠️ Про ЗАКРЕПЛЕНИЕ, а не про деньги, и сразу, а не
+        # после покупки: партнёр должен узнать в момент перехода, а не найти
+        # сюрприз в отчёте через месяц.
+        if not bound and holder_id and holder_id != partner["id"]:
+            from app.services.partner_notify import notify_binding_taken
+            await notify_binding_taken(
+                db, client_id=client_id, partner_id=partner["id"],
+                contact_id=contact_id)
+
         return {
             "bound": bound,
             "partner_id": partner["id"],
