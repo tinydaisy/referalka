@@ -458,8 +458,23 @@ async function sendVkEventStart(
   // одинаковых окна подряд: одно отсюда, другое оттуда.
   if (askPerms && !(window as any).__vkPermsAsked) {
     ;(window as any).__vkPermsAsked = true
+    // ⚠️⚠️ СТРАХОВКА ПО ВРЕМЕНИ ОБЯЗАТЕЛЬНА (30 с).
+    //
+    // VK Bridge НЕ ВСЕГДА вызывает колбэк: если человек закрыл окно свайпом
+    // (а не кнопкой «Разрешить»/«Запретить»), ответа не приходит вовсе — и
+    // ожидание висит вечно. Второе окно, подписка на сообщество, тогда не
+    // показывается никогда (жалоба владельца 05.09.2026: «разрешение пришло,
+    // подписка нет»).
+    //
+    // ⚠️ 30 секунд, а не 5-8: человек читает окно, и короткий таймаут
+    // выстреливал бы, пока оно ещё открыто, — тогда VK отбросит второе окно
+    // как наложение. Лучше подождать дольше, чем потерять запрос.
     await new Promise<void>((resolve) => {
-      try { adapter.requestWriteAccess({ vkGroupId: groupId }, () => resolve()) } catch { resolve() }
+      let done = false
+      const finish = () => { if (!done) { done = true; resolve() } }
+      const t = setTimeout(finish, 30000)
+      const ok = () => { clearTimeout(t); finish() }
+      try { adapter.requestWriteAccess({ vkGroupId: groupId }, ok) } catch { ok() }
     })
     // ⚠️ Пауза между окнами обязательна: VK не успевает закрыть первое, и второе
     // теряется. Полсекунды хватает, человек её не замечает.
@@ -858,8 +873,14 @@ export default function App() {
         }
         if (!gid) return
         // 1) Разрешение на сообщения.
+        // ⚠️ Со страховкой 30 с — VK Bridge не вызывает колбэк, если окно
+        // закрыли свайпом, и подписка следом не показалась бы никогда.
         await new Promise<void>((resolve) => {
-          try { a.requestWriteAccess({ vkGroupId: gid }, () => resolve()) } catch { resolve() }
+          let done = false
+          const finish = () => { if (!done) { done = true; resolve() } }
+          const t = setTimeout(finish, 30000)
+          const ok = () => { clearTimeout(t); finish() }
+          try { a.requestWriteAccess({ vkGroupId: gid }, ok) } catch { ok() }
         })
         // ⚠️ Пауза: ВК показывает строго одно системное окно за раз и молча
         // отбрасывает второе, если первое ещё открыто.
