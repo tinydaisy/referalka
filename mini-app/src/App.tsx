@@ -5,6 +5,7 @@ import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
 import VkPermissionsIntro, { vkIntroWasShown } from './components/VkPermissionsIntro'
+import { vkMessagesAllowed } from './api'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
 
 /*
@@ -585,7 +586,31 @@ export default function App() {
       // окна) — за его отсутствие приложение уже отклоняли 18.06.2026.
       if (adapter.name === 'vk') {
         const vkId = adapter.launchParams?.vk_user_id || ''
-        if (vkId && !vkIntroWasShown(vkId)) {
+        // ⚠️ Спрашиваем у ВКонтакте, есть ли уже право писать: если есть —
+        // окно не нужно, ВК и своего не покажет. Проверка ЗДЕСЬ, а не внутри
+        // компонента: показ окна обрывает запуск приложения, и решать надо
+        // до того, как оно прервётся.
+        //
+        // ⚠️ Ошибку глушим и окно ПОКАЗЫВАЕМ: лишний раз объяснить не страшно,
+        // страшно молча не спросить разрешения и потерять человека.
+        let alreadyAllowed = false
+        if (vkId) {
+          try {
+            // ⚠️ Номер сообщества добираем у бэкенда: при голом входе ВК его
+            // не передаёт, а без него проверить право у ВК нечем — ответ
+            // придёт по нашей базе, то есть менее точный.
+            let gidNow = Number(adapter.launchParams?.vk_group_id || 0)
+            if (!gidNow && adapter.launchParams?.vk_app_id) {
+              const g: any = await fetch(
+                `${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${adapter.launchParams.vk_app_id}`
+              ).then(x => x.ok ? x.json() : null)
+              if (g?.group_id) gidNow = Number(g.group_id)
+            }
+            const r: any = await vkMessagesAllowed(vkId, gidNow, detectClientIdFromPath())
+            alreadyAllowed = !!r?.allowed
+          } catch { /* показываем окно */ }
+        }
+        if (vkId && !alreadyAllowed && !vkIntroWasShown(vkId)) {
           // ⚠️ Клиента достаём ДО выхода: иначе на экране не будет ни
           // логотипа, ни названия бренда — разбор startapp идёт ниже, а мы
           // до него не доходим. Человек должен видеть, к кому он пришёл.

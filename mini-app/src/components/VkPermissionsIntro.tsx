@@ -35,11 +35,27 @@ const STORAGE_PREFIX = 'vk_perm_intro_'
 // проверки разошлись бы порогом яркости, и один и тот же фон считался бы
 // тёмным на этом экране и светлым на остальных.
 
-/** Показывали ли уже этому человеку экран на этом устройстве. */
+/** Показывали ли уже этому человеку экран В ЭТОМ СЕАНСЕ.
+ *
+ * ⚠️⚠️ ОТМЕТКА ЖИВЁТ ОДИН СЕАНС (`sessionStorage`), а НЕ вечно.
+ *
+ * Раньше это был `localStorage`: показали один раз — и экран не появлялся
+ * больше НИКОГДА, даже после того как человек отозвал право у ВКонтакте. Он
+ * открывал приложение и не видел ни объяснения, ни системного окна вовсе
+ * (жалоба владельца 05.09.2026, ловилась несколько раз подряд).
+ *
+ * Смысл отметки — не спрашивать по второму разу в одном заходе. Между
+ * заходами решает реальное состояние: право уже выдано → окно и так не
+ * покажется (проверка `vkMessagesAllowed` ниже), отозвано → спросить надо
+ * снова.
+ *
+ * ⚠️ Не возвращать localStorage: отметка переживёт отзыв права, и человек
+ * останется без единственного способа его выдать.
+ */
 export function vkIntroWasShown(vkUserId: string | number): boolean {
   if (!vkUserId) return false
   try {
-    return localStorage.getItem(`${STORAGE_PREFIX}${vkUserId}`) === '1'
+    return sessionStorage.getItem(`${STORAGE_PREFIX}${vkUserId}`) === '1'
   } catch {
     // Приватный режим / запрет хранилища — не повод ломать вход.
     // Покажем экран лишний раз, это безопаснее пустого окна.
@@ -48,7 +64,7 @@ export function vkIntroWasShown(vkUserId: string | number): boolean {
 }
 
 function markShown(vkUserId: string | number) {
-  try { localStorage.setItem(`${STORAGE_PREFIX}${vkUserId}`, '1') } catch { /* см. выше */ }
+  try { sessionStorage.setItem(`${STORAGE_PREFIX}${vkUserId}`, '1') } catch { /* см. выше */ }
 }
 
 export default function VkPermissionsIntro({
