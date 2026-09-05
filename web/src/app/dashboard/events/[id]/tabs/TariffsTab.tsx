@@ -110,6 +110,10 @@ export default function TariffsTab({
   // партнёрской программе (миграция 347).
   const { me } = useMe()
   const hasPartnerProgram = (me?.features || []).includes('partner_program')
+  // Участие события в партнёрке — читаем из самого события, пишем PATCH'ем.
+  const [partnerOn, setPartnerOn] = useState<boolean>(!!event?.partner_enabled)
+  const [savingPartner, setSavingPartner] = useState(false)
+  useEffect(() => { setPartnerOn(!!event?.partner_enabled) }, [event?.partner_enabled])
   const [items, setItems] = useState<Tariff[]>([])
   const [loading, setLoading] = useState(true)
   // Оферта события: документ из раздела «Оферты» (главный способ) либо ссылка
@@ -319,6 +323,39 @@ export default function TariffsTab({
 
       {subTab === 'tariffs' && (
     <div className="space-y-6">
+      {/* Участие события в партнёрской программе (миграция 347).
+          ⚠️ Без этой галочки начисления НЕ создаются вовсе — проверка стоит
+          в самом начислении. Поэтому она обязана быть в интерфейсе: колонка
+          с DEFAULT FALSE и никакого способа её включить = мёртвая партнёрка. */}
+      {hasPartnerProgram && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-5">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" className="mt-1" disabled={savingPartner}
+                   checked={partnerOn}
+                   onChange={async e => {
+                     const next = e.target.checked
+                     setSavingPartner(true)
+                     try {
+                       await api.events.update(eventId, { partner_enabled: next })
+                       setPartnerOn(next)
+                     } catch (err: any) {
+                       alert(err?.message || 'Не удалось сохранить')
+                     } finally { setSavingPartner(false) }
+                   }} />
+            <div>
+              <div className="text-sm font-medium text-gray-800">
+                Участвует в партнёрской программе
+              </div>
+              <div className="text-xs text-gray-500">
+                Партнёры смогут рекомендовать это событие и получать
+                вознаграждение с оплат. Размер задаётся у тарифа или
+                в разделе «Моя партнёрка».
+              </div>
+            </div>
+          </label>
+        </div>
+      )}
+
       {/* Оферта события */}
       <div className="bg-white rounded-2xl border border-gray-200 p-5">
         <div className="flex items-center gap-2 mb-1">

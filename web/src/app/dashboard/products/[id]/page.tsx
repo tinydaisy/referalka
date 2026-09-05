@@ -397,6 +397,35 @@ function TariffsTab({ productId, readOnly }: { productId: number; readOnly: bool
 
   return (
     <div className="max-w-3xl">
+      {hasPartnerProgram && (
+        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" className="mt-1" disabled={savingPartner || readOnly}
+                   checked={partnerOn}
+                   onChange={async e => {
+                     const next = e.target.checked
+                     setSavingPartner(true)
+                     try {
+                       await api.products.update(productId, { partner_enabled: next })
+                       setPartnerOn(next)
+                     } catch (err: any) {
+                       alert(err?.message || 'Не удалось сохранить')
+                     } finally { setSavingPartner(false) }
+                   }} />
+            <div>
+              <div className="text-sm font-medium text-gray-800">
+                Участвует в партнёрской программе
+              </div>
+              <div className="text-xs text-gray-500">
+                Партнёры смогут рекомендовать этот продукт и получать
+                вознаграждение с оплат. Размер задаётся у тарифа или
+                в разделе «Моя партнёрка».
+              </div>
+            </div>
+          </label>
+        </div>
+      )}
+
       <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
         Оплата идёт через платёжную систему, подключённую в Настройках — отдельно
         для продуктов настраивать ничего не нужно. Тариф без цены (или с нулём)
