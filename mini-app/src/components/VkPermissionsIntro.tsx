@@ -96,69 +96,74 @@ export default function VkPermissionsIntro({
   const fg = isDarkColor(bg) ? '#ffffff' : 'var(--dark)'
 
   return (
+    // ⚠️⚠️ КОМПАКТНОЕ ОКНО СНИЗУ, а не экран во весь рост (05.09.2026).
+    //
+    // Раньше это была страница на всю высоту со списком из трёх пунктов —
+    // она закрывала приложение целиком, и человек упирался в просьбу
+    // разрешить, ещё не увидев, куда попал. Модерация ВКонтакте называет это
+    // «до просмотра функций» (п.1.1.2). Теперь под окном видно приложение.
+    //
+    // ⚠️ Затемнение БЕЗ onClick: окно закрывается только кнопкой. Клик мимо
+    // выглядел бы как отказ, которого человек не имел в виду (правило проекта
+    // про модалки-формы).
     <div
       style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        // ⚠️ Содержимое прижато к НИЗУ (justifyContent: flex-end): сверху
-        // остаётся свободное поле, куда ВКонтакте кладёт крестик и «…».
-        justifyContent: 'flex-end',
-        padding: '0 24px 40px',
-        boxSizing: 'border-box',
-        // Фирменный фон клиента, пока не загрузился — общий фон приложения.
-        background: bg || 'var(--bg, #ffffff)',
+        position: 'fixed', inset: 0, zIndex: 9000,
+        background: 'rgba(10, 21, 32, 0.55)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        padding: 16,
         fontFamily: 'Roboto, sans-serif',
       }}
     >
-      <div style={{ marginBottom: 28, textAlign: 'center', minHeight: 56 }}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 430,
+          background: bg || '#fff',
+          borderRadius: 20,
+          padding: '20px 20px 16px',
+          boxShadow: '0 -8px 40px rgba(0,0,0,0.25)',
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* Логотип клиента — мелкий, в строку с текстом по центру: человек
+            должен понимать, к кому пришёл, но ради этого окно не растим. */}
         {logo ? (
           <img
             src={logo}
             alt=""
-            style={{ maxWidth: 160, maxHeight: 56, width: 'auto', height: 'auto', objectFit: 'contain' }}
+            style={{
+              display: 'block', margin: '0 auto 12px',
+              maxWidth: 110, maxHeight: 34, width: 'auto', height: 'auto',
+              objectFit: 'contain',
+            }}
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
         ) : brand ? (
-          <div style={{ fontSize: 20, fontWeight: 700, color: fg, letterSpacing: 0.3 }}>
-            {brand}
-          </div>
+          <div style={{
+            fontSize: 14, fontWeight: 700, color: fg, textAlign: 'center',
+            marginBottom: 10, letterSpacing: 0.3,
+          }}>{brand}</div>
         ) : null}
+
+        {/* ⚠️ ОДНА ФРАЗА, без списка. Про подписку на сообщество здесь не
+            пишем — на голом входе её не просят (за это сняли с публикации,
+            п.1.1.2). Про имя и фото тоже: VKWebAppGetUserInfo отдаёт их без
+            окна, предупреждать не о чем. */}
+        <p style={{
+          fontSize: 15, lineHeight: 1.45, color: fg, fontWeight: 600,
+          margin: '0 0 14px', textAlign: 'center',
+        }}>
+          Разрешите отправку сообщений — чтобы регистрироваться на события
+          и получать напоминания и подарки
+        </p>
+
+        {/* ⚠️ Оба класса: .btn — размеры и поведение, .btn-gold — фирменный цвет.
+            Свой style={{background}} тут нельзя (правило проекта). */}
+        <button onClick={handleContinue} className="btn btn-gold" style={{ width: '100%' }}>
+          Хорошо
+        </button>
       </div>
-
-      <p style={{ fontSize: 16, lineHeight: 1.5, color: fg, margin: '0 0 18px' }}>
-        Чтобы регистрироваться на события, получать напоминания или подарки — разрешите:
-      </p>
-
-      <ul style={{ margin: '0 0 32px', padding: 0, listStyle: 'none' }}>
-        {['доступ к имени и фото', 'отправку вам сообщений', 'подписку на сообщество'].map(item => (
-          <li
-            key={item}
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-              fontSize: 15,
-              lineHeight: 1.45,
-              color: fg,
-              marginBottom: 10,
-            }}
-          >
-            <span style={{
-              flex: '0 0 auto',
-              width: 6, height: 6, borderRadius: '50%',
-              background: fg, marginTop: 8,
-            }} />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-
-      {/* ⚠️ Оба класса: .btn — размеры и поведение, .btn-gold — фирменный цвет.
-          Свой style={{background}} тут нельзя (правило проекта). */}
-      <button onClick={handleContinue} className="btn btn-gold">
-        Продолжить
-      </button>
     </div>
   )
 }
