@@ -83,6 +83,7 @@ const ARTICLES: Record<string, React.ComponentType> = {
   'max-bot': dynamic(() => import('../../dashboard/help/max-bot/page'), { loading: Loading }),
   'max-setup': dynamic(() => import('../../dashboard/help/max-setup/page'), { loading: Loading }),
   'miniapp-deeplinks': dynamic(() => import('../../dashboard/help/miniapp-deeplinks/page'), { loading: Loading }),
+  'partner-program': dynamic(() => import('../../dashboard/help/partner-program/page'), { loading: Loading }),
   'seo-basics': dynamic(() => import('../../dashboard/help/seo-basics/page'), { loading: Loading }),
   'tariff-buyers': dynamic(() => import('../../dashboard/help/tariff-buyers/page'), { loading: Loading }),
   'tournament-task-control': dynamic(() => import('../../dashboard/help/tournament-task-control/page'), { loading: Loading }),

@@ -148,6 +148,37 @@ async def upsert_event_participant(
     was = (not is_new) and bool(row["was_registered"])
     became = bool(row["now_registered"]) and not was
 
+    # «Кто первым привёл человека в базу» (contacts.first_referrer_contact_id).
+    #
+    # ⚠️ Поле почти перестало заполняться с мая 2026: его писали только воронки
+    # лид-магнитов, вебинар и заказ продукта, а единая точка входа человека —
+    # нет. Из 22 485 контактов заполнено 3754. Пишем здесь, потому что это
+    # единственное место, через которое проходят ВСЕ пути регистрации.
+    #
+    # ⚠️ Пишем ТОЛЬКО В ПУСТОЕ (COALESCE) — «первый» на то и первый: перезапись
+    # означала бы, что поле хранит последнего, а на нём завязаны партнёрские
+    # ссылки спикеров.
+    #
+    # ⚠️ К партнёрской программе отношения НЕ имеет: там своё поле
+    # (contacts.partner_id) и свои правила. Это поле — для аналитики.
+    if referrer_ref_code and contact_id:
+        try:
+            from app.services.contact_merge import resolve_ref_code
+            _ref, referrer_contact_id = await resolve_ref_code(
+                db, referrer_ref_code, None)
+            if referrer_contact_id and referrer_contact_id != contact_id:
+                await db.execute(
+                    """UPDATE contacts
+                          SET first_referrer_contact_id =
+                                  COALESCE(first_referrer_contact_id, $2),
+                              first_referred_at = COALESCE(first_referred_at, NOW())
+                        WHERE id = $1""",
+                    contact_id, referrer_contact_id,
+                )
+        except Exception as e:  # noqa: BLE001
+            # Аналитическое поле: его сбой не должен ломать регистрацию.
+            logger.warning("first_referrer не записан (contact=%s): %s", contact_id, e)
+
     if became and finalize:
         try:
             from app.services.participant_registration import (
