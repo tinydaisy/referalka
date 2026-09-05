@@ -7,13 +7,13 @@
  * («Форма»), либо по одному с прогрессом («Квиз»).
  *
  * ⚠️⚠️ ЭТО НЕ ВТОРАЯ СИСТЕМА АНКЕТ. Вопросы, приём ответов, обработка и
- * уведомления — те же самые: отправка идёт в /public/surveys/{slug}/submit,
- * ровно как со страницы /f/{slug}. Разница целиком в вёрстке. Своего приёма
+ * уведомления — те же самые: отправка идёт в `/public/surveys/{slug}/submit`,
+ * ровно как со страницы `/f/{slug}`. Разница целиком в вёрстке. Своего приёма
  * ответов здесь быть не должно — он разъедется с публичной анкетой.
  *
  * ⚠️ ЗАЯВКА НИЧЕГО НЕ ОТКРЫВАЕТ. Ни кабинета, ни материалов, ни доступа к
  * продукту — только контакт в базе клиента и уведомление ему. Нулевого заказа
- * тоже не создаём: product_orders привязан к тарифу, а смысл блока как раз в
+ * тоже не создаём: `product_orders` привязан к тарифу, а смысл блока как раз в
  * том, что тарифов на странице нет.
  *
  * ⚠️ Экран «Это вы?» обязателен: почта могла совпасть с одним контактом, а
@@ -32,7 +32,7 @@ interface Props {
   /** Оформление лендинга: кнопка блока должна выглядеть как соседние. */
   btnStyle?: any
   radius?: number
-  /** Акцентный цвет темы клиента — им красится кнопка «Назад». */
+  /** Акцентный цвет темы («Цвет иконок и кнопок» в стилях лендингов). */
   accentColor?: string
   privacyUrl?: string | null
   /** Печать в PDF: форму не показываем — заполнить её на бумаге нельзя. */
@@ -195,22 +195,17 @@ export default function SurveyBlock({
   }
 
   // ⚠️ В КВИЗЕ КОНТАКТЫ — ОТДЕЛЬНЫЙ ПОСЛЕДНИЙ ШАГ, а не довесок к последнему
-  // вопросу. Иначе на одном экране оказываются и вопрос, и три поля с
-  // согласием: шаг перестаёт быть «одним вопросом», ради чего квиз и нужен.
-  //
-  // Шагов всего на один больше числа вопросов (вопросы + экран контактов).
-  // Незнакомому человеку этот экран нужен; пришедшего по ссылке мы уже знаем —
-  // ему лишний пустой шаг не показываем, и последний вопрос сразу финальный.
+  // вопросу: иначе на одном экране и вопрос, и три поля с согласием, и шаг
+  // перестаёт быть «одним вопросом», ради чего квиз и нужен.
+  // Пришедшему по ссылке этот экран не показываем — его данные мы знаем.
   const contactStep = isQuiz && !known ? total : -1
   const onContactStep = isQuiz && step === contactStep
-  const shown = isQuiz
-    ? (onContactStep ? [] : questions.slice(step, step + 1))
-    : questions
-  // Финальный экран: в форме — всегда, в квизе — экран контактов, а если
-  // контакты не нужны, последний вопрос.
+  const shown = isQuiz && onContactStep
+    ? []
+    : (isQuiz ? questions.slice(step, step + 1) : questions)
   const lastStep = !isQuiz
     || (contactStep >= 0 ? onContactStep : step >= total - 1)
-  // Сколько всего шагов показываем в прогрессе.
+  // Шагов на один больше, если контакты спрашиваем отдельным экраном.
   const steps = contactStep >= 0 ? total + 1 : total
 
   return (
@@ -219,9 +214,7 @@ export default function SurveyBlock({
         <p className="mb-4 opacity-80">{survey.intro}</p>
       )}
 
-      {/* Прогресс квиза: человеку важно видеть, сколько осталось.
-          ⚠️ Шагов на один больше, если контакты спрашиваем отдельным экраном —
-          иначе на нём было бы «Шаг 4 из 3». */}
+      {/* Прогресс квиза: человеку важно видеть, сколько осталось. */}
       {isQuiz && steps > 1 && (
         <div className="mb-4">
           <div className="mb-1 flex justify-between text-xs opacity-70">
@@ -230,7 +223,7 @@ export default function SurveyBlock({
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-current/15">
             <div className="h-full rounded-full transition-all"
-              style={{ width: `${(step / steps) * 100}%`, background: 'currentColor' }} />
+              style={{ width: `${(step / steps) * 100}%`, background: accentColor }} />
           </div>
         </div>
       )}
@@ -243,16 +236,11 @@ export default function SurveyBlock({
             radius={radius} accent={accentColor} />
         ))}
 
-        {/* Контакты — ОТДЕЛЬНЫМ последним шагом в квизе, внизу формы в
-            обычном виде.
+        {/* Контакты — на последнем шаге квиза либо внизу формы.
             ⚠️ Спрашиваем только у незнакомого: пришедшему по ссылке из бота
             подставит бэкенд, и повторный ввод выглядел бы недоверием. */}
         {lastStep && !known && (
-          <div className={onContactStep
-            ? 'space-y-3'
-            : 'space-y-3 border-t border-current/15 pt-4'}>
-            {/* На своём экране блок нуждается в заголовке — иначе после
-                вопросов человек видит три безымянных поля. */}
+          <div className={onContactStep ? 'space-y-3' : 'space-y-3 border-t border-current/15 pt-4'}>
             {onContactStep && (
               <div className="mb-1">
                 <p className="text-base font-semibold">Куда прислать ответ</p>
@@ -271,11 +259,7 @@ export default function SurveyBlock({
         )}
 
         {/* ⚠️ Согласие на обработку ПД обязательно у любой формы сбора данных
-            (правило проекта). Без галочки бэкенд ответит 422.
-
-            ⚠️ shrink-0 у галочки и minWidth:0 у текста ОБЯЗАТЕЛЬНЫ: без них
-            flex ужимает строку по содержимому и текст обрывается на последнем
-            слове. Это общая ловушка flex, а не особенность этой формы. */}
+            (правило проекта). Без галочки бэкенд ответит 422. */}
         {lastStep && (
           <label className="flex cursor-pointer items-start gap-2.5 text-xs opacity-80">
             <input type="checkbox" checked={pd} onChange={e => setPd(e.target.checked)}
@@ -285,7 +269,7 @@ export default function SurveyBlock({
               Согласен на обработку персональных данных
               {privacyUrl && (
                 <>
-                  {' — '}
+                  {' \u2014 '}
                   <a href={privacyUrl} target="_blank" rel="noreferrer"
                     style={{ color: accentColor }} className="underline">
                     политика конфиденциальности
@@ -300,15 +284,8 @@ export default function SurveyBlock({
 
         <div className="flex gap-2">
           {isQuiz && step > 0 && (
-            {/* ⚠️ «Назад» — второстепенное действие, поэтому не заливка, а
-                РАМКА акцентным цветом темы: главной на экране остаётся
-                «Дальше». Серая рамка выглядела чужой на фирменной странице. */}
             <button type="button" onClick={() => { setError(''); setStep(s => s - 1) }}
-              style={{
-                borderRadius: radius,
-                borderColor: accentColor,
-                color: accentColor,
-              }}
+              style={{ borderRadius: radius, borderColor: accentColor, color: accentColor }}
               className="border px-4 py-3 text-sm font-medium">
               Назад
             </button>
@@ -378,10 +355,6 @@ function SurveyQuestion({ q, value, onChange, radius, accent }: any) {
   }
 
   if (q.kind === 'bool') {
-    // ⚠️ РАДИОКНОПКИ, а не две плашки. Плашки подсвечивались полупрозрачной
-    // заливкой bg-current/15: на тёмном фоне лендинга разница между
-    // выбранным и невыбранным почти не читалась — человек нажимал и думал,
-    // что не сработало. Кружок с точкой виден однозначно.
     return wrap(
       <div className="flex flex-col gap-1.5">
         {['Да', 'Нет'].map(o => (
@@ -398,18 +371,12 @@ function SurveyQuestion({ q, value, onChange, radius, accent }: any) {
     return wrap(
       <div className="flex flex-wrap gap-1.5">
         {Array.from({ length: max - min + 1 }, (_, i) => min + i).map(n => (
-          /* ⚠️ Выбранное число — заливка акцентом. Здесь она уместна (в
-             отличие от вариантов ответа): цифра короткая, а её цвет
-             подменяется на тёмный, так что контраст сохраняется. */
           <button key={n} type="button" onClick={() => onChange(String(n))}
-            style={String(value) === String(n)
-              ? { borderRadius: radius, background: accent, borderColor: accent,
-                  color: '#1a2b38' }
-              : { borderRadius: radius }}
+            style={{ borderRadius: radius }}
             className={`h-10 w-10 border text-sm ${
               String(value) === String(n)
-                ? 'font-semibold'
-                : 'border-current/25 opacity-80 hover:bg-current/5'}`}>
+                ? 'border-current bg-current/15 font-medium'
+                : 'border-current/20 hover:bg-current/5'}`}>
             {n}
           </button>
         ))}
@@ -431,38 +398,17 @@ function SurveyQuestion({ q, value, onChange, radius, accent }: any) {
   )
 }
 
-/**
- * Вариант ответа: радиокнопка (один выбор) или галочка (несколько).
- *
- * ⚠️ Отметка красится АКЦЕНТНЫМ ЦВЕТОМ ТЕМЫ («Цвет иконок и кнопок» в стилях
- * лендингов, по умолчанию персиковый). Раньше выбранный вариант отличался
- * только полупрозрачной заливкой bg-current/15 — на тёмном фоне она почти
- * не видна, и человек не понимал, засчитался ли его выбор.
- *
- * ⚠️ Заливкой акцент НЕ делаем, только кружок и рамка: сплошной персиковый
- * фон под тёмным текстом читается плохо (то же правило, что у карточек
- * лендинга — металлик только в рамке).
- */
 function Choice({ label, checked, multi, accent, radius, onClick }: any) {
   return (
     <button type="button" onClick={onClick}
-      style={{
-        borderRadius: radius,
-        borderColor: checked ? accent : 'currentColor',
-        // Невыбранные рамки приглушаем, чтобы выбранный вариант выделялся.
-        opacity: checked ? 1 : 0.75,
-      }}
+      style={{ borderRadius: radius, borderColor: checked ? accent : 'currentColor',
+               opacity: checked ? 1 : 0.75 }}
       className="flex w-full items-center gap-2.5 border p-2.5 text-left text-sm hover:bg-current/5">
-      <span
-        style={{
-          borderColor: accent,
-          borderRadius: multi ? 4 : 999,
-        }}
+      <span style={{ borderColor: accent, borderRadius: multi ? 4 : 999 }}
         className="flex h-[18px] w-[18px] shrink-0 items-center justify-center border-2">
         {checked && (
-          <span
-            style={{ background: accent, borderRadius: multi ? 2 : 999 }}
-            className={multi ? 'h-2.5 w-2.5' : 'h-2.5 w-2.5'} />
+          <span style={{ background: accent, borderRadius: multi ? 2 : 999 }}
+            className="h-2.5 w-2.5" />
         )}
       </span>
       <span className={checked ? 'font-medium' : ''}>{label}</span>

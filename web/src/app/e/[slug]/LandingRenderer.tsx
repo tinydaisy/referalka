@@ -1589,6 +1589,11 @@ function BlockBody(props: any) {
       const sv = (content.surveys || {})[String(block.id)]
       if (!sv) return null
       return (
+        /* ⚠️ Форма лежит в КАРТОЧКЕ с тем же фоном и рамкой, что у тарифов
+           (`cardStyle` — общий стиль карточек страницы). Без неё поля висели
+           прямо на фоне лендинга: на тёмной странице границы полей почти не
+           читались, и блок выглядел чужим среди остальных секций. */
+        <div className="mx-auto max-w-xl p-5 sm:p-7" style={cardStyle}>
         <SurveyBlock
           survey={sv}
           view={block.survey_view}
@@ -1605,6 +1610,7 @@ function BlockBody(props: any) {
           forPdf={forPdf}
           pageUrl={pageUrl}
         />
+        </div>
       )
     }
 
