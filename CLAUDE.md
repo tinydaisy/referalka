@@ -450,6 +450,10 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **Публичная регистрация партнёром гейтится по фиче** (`_assert_partner_program`): `client_id` приходит телом запроса, и без проверки посторонний записался бы партнёром в любой кабинет и засорил чужую базу контактом.
 
+⚠️⚠️ **«Мои люди» — это НЕ только купившие.** Партнёр видит и тех, кто пришёл по его ссылке и **ничего не купил**: именно с ними ему и работать. Список собирается из ТРЁХ источников, и ни один не покрывает остальные — закрепление (`contacts.partner_id`), переход на событие по реф-коду (`event_participants.referrer_ref_code`), заход за подарком (`funnel_runs.referrer_contact_id`). У каждого человека — готовые кнопки «написать» в его мессенджеры (ссылки строит общий [profile_links.py](backend/app/services/profile_links.py), свой формат не выдумывать). Показывать только покупателей — значит скрыть от партнёра его же работу.
+
+⚠️ **Счётчик `show_people` считается ПО ТЕМ ЖЕ трём источникам**, что и список. Сузишь его до закреплённых — раздел исчезнет у партнёра, к которому люди приходили по ссылкам без закрепления, хотя показать есть что.
+
 ⚠️ **Вкладка Mini App НЕ отдаёт денежные суммы** — она опознаёт человека по `platform_user_id` из адреса, а подпись `initData` в проекте нигде не проверяется (тот же зазор описан в `event_raffle_public.py`). Ссылки отдавать можно — они и так для распространения; деньги смотрят в `/my`, где вход по коду на почту.
 
 **API:** клиент `/api/v1/partner-program/*` ([partner_program.py](backend/app/api/partner_program.py)), партнёр `/api/v1/public/partner/*` ([partner_public.py](backend/app/api/partner_public.py)). Фронт — [/dashboard/my-partners](web/src/app/dashboard/my-partners/page.tsx) (раздел «Моя партнёрка» под «Аналитикой»), [PartnerCabinet.tsx](web/src/app/my/PartnerCabinet.tsx), [PartnerTab.tsx](mini-app/src/tabs/PartnerTab.tsx). Инструкция — [/dashboard/help/partner-program](web/src/app/dashboard/help/partner-program/page.tsx).
