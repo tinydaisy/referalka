@@ -549,7 +549,7 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 ⚠️ **В PDF форма не печатается** — вместо неё ссылка на живую страницу: заполнить поля на бумаге нельзя, мёртвый блок полей в файле бессмысленен.
 
-⚠️ **Блок гейтится фичей `surveys`** (та же, что раздел «Анкеты»): без неё выбирать было бы не из чего, и клиент упёрся бы в пустой список без объяснения. В `PRODUCT_STANDARD` блока **нет намеренно** — он в `REPEATABLE`, а список добавления это `REPEATABLE` + недостающие стандартные; попав в оба, он показался бы дважды.
+⚠️ **Своего замка у блока НЕТ и быть не должно** — он есть у всех продуктов и событий. Блок ничего не даёт сам по себе, а лишь показывает уже созданную анкету: доступ решается в разделе «Анкеты», а нет ни одной — в блоке нечего выбрать, и секция не рисуется. Второй замок поверх этого только прятал бы секцию у тех, у кого анкеты есть. В `PRODUCT_STANDARD` блока **нет намеренно** — он в `REPEATABLE`, а список добавления это `REPEATABLE` + недостающие стандартные; попав в оба, он показался бы дважды.
 
 **Файлы:** [landing_survey.py](backend/app/services/landing_survey.py), [SurveyBlock.tsx](web/src/app/e/%5Bslug%5D/SurveyBlock.tsx), правки в [event_landing.py](backend/app/api/event_landing.py), [product_landing.py](backend/app/api/product_landing.py), обоих `*_landing_public.py`, [blockMeta.ts](web/src/components/landing/blockMeta.ts), [BlockCard.tsx](web/src/components/landing/BlockCard.tsx), [LandingRenderer.tsx](web/src/app/e/%5Bslug%5D/LandingRenderer.tsx) и обеих вкладок «Лендинг».
 
