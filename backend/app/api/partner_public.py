@@ -129,8 +129,53 @@ async def partner_offer(request: Request, response: Response,
     }
 
 
+@router.get("/prefill", summary="Что мы уже знаем о человеке")
+async def partner_prefill(response: Response, request: Request,
+                          client_id: Optional[int] = None, c: Optional[int] = None,
+                          db: asyncpg.Connection = Depends(get_db)):
+    """Данные для предзаполнения формы регистрации — по `?c={contact_id}`.
+
+    ⚠️⚠️ ОТДАЁМ ТОЛЬКО ЗАМАСКИРОВАННОЕ (`p***a@mail.ru`). Номер контакта виден
+    в адресе, его можно подобрать перебором — раскрывать по нему чужую почту и
+    телефон нельзя. Человеку маски достаточно: он узнаёт свои данные и просто
+    подтверждает, а на сервер уходит сам `contact_id`.
+
+    Зачем вообще: из бота человек попадает сюда уже опознанным. Если заставить
+    его вводить почту заново, он впишет другую — и родится ВТОРОЙ контакт, из-за
+    которого потом теряются приведённые и начисления (правило № 25).
+    """
+    _cors(response)
+    cid = await _client_by_host(db, request) or client_id
+    if not cid or not c:
+        return {"known": False}
+
+    from app.services.contact_merge import mask_email, mask_phone
+
+    row = await db.fetchrow(
+        """SELECT c.id, c.name, c.phone,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                    ORDER BY pu.id LIMIT 1) AS email
+             FROM contacts c
+            WHERE c.id = $1 AND c.client_id = $2 AND c.merged_into IS NULL""",
+        c, cid,
+    )
+    if not row:
+        return {"known": False}
+
+    return {
+        "known": True,
+        "name": row["name"] or "",
+        "email_masked": mask_email(row["email"]),
+        "phone_masked": mask_phone(row["phone"]),
+        "has_email": bool(row["email"]),
+    }
+
+
 class RegisterIn(BaseModel):
     client_id: Optional[int] = None
+    # Номер контакта из ссылки бота (`?c=`) — человек уже опознан площадкой.
+    contact_id: Optional[int] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     name: Optional[str] = None
@@ -186,6 +231,14 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
                 contact_id = sess["contact_id"]
         except HTTPException:
             contact_id = None
+
+    # Пришёл из бота: номер контакта в ссылке. ⚠️ Обязательно сверяем
+    # принадлежность кабинету — номер виден в адресе и подбирается перебором.
+    if not contact_id and data.contact_id:
+        contact_id = await db.fetchval(
+            "SELECT id FROM contacts WHERE id = $1 AND client_id = $2 "
+            "AND merged_into IS NULL",
+            data.contact_id, cid)
 
     if not contact_id:
         from app.services.contact_merge import find_or_create_contact

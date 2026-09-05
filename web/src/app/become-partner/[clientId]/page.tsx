@@ -28,6 +28,9 @@ export default function BecomePartnerPage() {
   const clientId = Number(params?.clientId)
 
   const [offer, setOffer] = useState<any>(null)
+  // Пришёл из бота — в адресе номер его контакта. Тогда почту и телефон
+  // спрашивать не нужно: он уже опознан площадкой.
+  const [known, setKnown] = useState<any>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -37,13 +40,27 @@ export default function BecomePartnerPage() {
   const [error, setError] = useState('')
   const [done, setDone] = useState<any>(null)
 
+  const contactId = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('c') : null
+
   useEffect(() => {
     if (!clientId) return
     fetch(`${apiBase}/api/v1/public/partner/offer?client_id=${clientId}`)
       .then(r => r.ok ? r.json() : null)
       .then(setOffer)
       .catch(() => setOffer(null))
-  }, [clientId])
+
+    // ⚠️ Данные приходят ЗАМАСКИРОВАННЫМИ — номер контакта виден в адресе и
+    // подбирается перебором, раскрывать по нему чужую почту нельзя. Человеку
+    // маски достаточно: он узнаёт свои данные и просто подтверждает.
+    if (contactId) {
+      fetch(`${apiBase}/api/v1/public/partner/prefill`
+            + `?client_id=${clientId}&c=${encodeURIComponent(contactId)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.known) { setKnown(d); setName(d.name || '') } })
+        .catch(() => {})
+    }
+  }, [clientId, contactId])
 
   const submit = async () => {
     setBusy(true); setError('')
@@ -53,6 +70,7 @@ export default function BecomePartnerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           client_id: clientId,
+          contact_id: contactId ? Number(contactId) : null,
           name: name.trim() || null,
           email: email.trim().toLowerCase() || null,
           phone: phone.trim() || null,
@@ -100,10 +118,25 @@ export default function BecomePartnerPage() {
 
       <div className="space-y-3">
         <Input label="Имя" value={name} onChange={setName} placeholder="Как к вам обращаться" />
-        <Input label="Почта" value={email} onChange={setEmail} type="email"
-               placeholder="Для входа в кабинет и связи" />
-        <Input label="Телефон" value={phone} onChange={setPhone}
-               placeholder="Необязательно" />
+        {known ? (
+          /* ⚠️ Почту НЕ даём менять (правило № 25): именно ввод другой почты
+             рождает второй контакт, из-за которого потом теряются приведённые
+             и начисления. Показываем, кого узнали, — и всё. */
+          <div className="rounded-xl bg-gray-50 p-3 text-sm text-gray-600">
+            Мы вас узнали:{' '}
+            <b>{known.email_masked || known.phone_masked || 'ваш контакт'}</b>
+            <div className="mt-1 text-xs text-gray-400">
+              Вводить почту заново не нужно.
+            </div>
+          </div>
+        ) : (
+          <>
+            <Input label="Почта" value={email} onChange={setEmail} type="email"
+                   placeholder="Для входа в кабинет и связи" />
+            <Input label="Телефон" value={phone} onChange={setPhone}
+                   placeholder="Необязательно" />
+          </>
+        )}
 
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -141,7 +174,8 @@ export default function BecomePartnerPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <button onClick={submit}
-                disabled={busy || !accept || !tax || (!email.trim() && !phone.trim())}
+                disabled={busy || !accept || !tax
+                          || (!known && !email.trim() && !phone.trim())}
                 className="btn-gold w-full">
           {busy ? 'Отправляем…' : 'Стать партнёром'}
         </button>
