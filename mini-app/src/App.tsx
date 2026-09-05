@@ -412,7 +412,11 @@ async function sendVkEventStart(
   adapter: PlatformAdapter,
   user: any,
   parsed: ReturnType<typeof parseStartParam>,
+  /** ⚠️ Просить ли права здесь. На голом входе — НЕТ: там их просит кнопка
+   *  окна-объяснения, иначе человек получает два одинаковых запроса подряд. */
+  opts?: { askPerms?: boolean },
 ) {
+  const askPerms = opts?.askPerms !== false
   if (adapter.name !== 'vk') return
   const lp = adapter.launchParams
   if (!lp.vk_user_id) return
@@ -449,12 +453,14 @@ async function sendVkEventStart(
   // секунд, и таймаут выстреливал ровно тогда, когда окно ещё открыто.
   // Поэтому ждём ответ адаптера без ограничения — колбэк приходит и при
   // отказе, и когда права уже есть (bridge отвечает сразу).
-  await new Promise<void>((resolve) => {
-    try { adapter.requestWriteAccess({ vkGroupId: groupId }, () => resolve()) } catch { resolve() }
-  })
-  // ⚠️ Пауза между окнами обязательна: VK не успевает закрыть первое, и второе
-  // теряется. Полсекунды хватает, человек её не замечает.
-  await new Promise<void>((r) => setTimeout(r, 500))
+  if (askPerms) {
+    await new Promise<void>((resolve) => {
+      try { adapter.requestWriteAccess({ vkGroupId: groupId }, () => resolve()) } catch { resolve() }
+    })
+    // ⚠️ Пауза между окнами обязательна: VK не успевает закрыть первое, и второе
+    // теряется. Полсекунды хватает, человек её не замечает.
+    await new Promise<void>((r) => setTimeout(r, 500))
+  }
 
   // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
   // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
@@ -704,8 +710,18 @@ export default function App() {
 
       // VK event_start — диалог write_access → /vk/event → опционально GetEmail/GetPhone.
       // TG event_start — выполняется inline-скриптом в index_tg.html ДО React (в user-gesture).
+      //
+      // ⚠️⚠️ НА ГОЛОМ ВХОДЕ ПРАВА ЗДЕСЬ НЕ ПРОСИМ (`askPerms: false`).
+      //
+      // Эта функция вызывается при ЛЮБОМ открытии Mini App и просила
+      // разрешение сама — раньше нашего окна-объяснения. Человек видел: окно
+      // ВК «разрешить писать» → закрыл → наше объяснение → снова окно ВК.
+      // Два одинаковых запроса подряд (жалоба владельца 05.09.2026).
+      //
+      // Теперь на голом входе права просит ТОЛЬКО кнопка окна-объяснения, а
+      // на входе по ссылке события — эта функция, как и раньше.
       if (adapter.name === 'vk') {
-        sendVkEventStart(adapter, user, parsed)
+        sendVkEventStart(adapter, user, parsed, { askPerms: !!parsePathSlug() })
       }
 
       setTgUser(prev => prev || (user || MOCK_USER))
