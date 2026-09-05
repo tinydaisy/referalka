@@ -494,16 +494,36 @@ async function sendVkEventStart(
   // запрос насовсем, если ветка открытия события успевала первой.
   if (askPerms) {
     ;(window as any).__vkPermsAt = Date.now()
-    await new Promise<void>((resolve) => {
+    // ⚠️⚠️ ПОРЯДОК: СНАЧАЛА ПОДПИСКА, ПОТОМ СООБЩЕНИЯ (решение владельца
+    // 05.09.2026). Так надёжнее, и вот почему.
+    //
+    // Колбэк `requestWriteAccess` срабатывает ТОЛЬКО когда право на сообщения
+    // уже есть (ВК тогда окна не показывает и отвечает сразу). Если права нет,
+    // ВК показывает окно и колбэк после нажатия НЕ зовёт — то есть всё, что
+    // стояло за ним, терялось. Именно так пропадала подписка.
+    //
+    // Первым же окном подписка показывается ВСЕГДА — ждать нечего.
+    // Разрешение на сообщения идёт следом, из её колбэка; у `joinGroup`
+    // колбэк отрабатывает в обоих случаях.
+    //
+    // ⚠️ Не менять порядок обратно: за окном разрешения второй запрос
+    // теряется.
+    let writeAsked = false
+    const askWrite = () => {
+      if (writeAsked) return
+      writeAsked = true
+      try { adapter.requestWriteAccess({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
+    }
+    if (adapter.joinGroup && groupId) {
       try {
-        adapter.requestWriteAccess({ vkGroupId: groupId }, () => {
-          if (adapter.joinGroup && groupId) {
-            try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
-          }
-          resolve()
-        })
-      } catch { resolve() }
-    })
+        adapter.joinGroup({ vkGroupId: groupId }, () => askWrite())
+      } catch { askWrite() }
+      // ⚠️ Страховка: если колбэк подписки не придёт, разрешение всё равно
+      // спросим — через 15 секунд, когда окно подписки уже закрыто.
+      setTimeout(askWrite, 15000)
+    } else {
+      askWrite()
+    }
   }
 
   // Регистрируем контакт по VK-аккаунту (имя + vk_id). Email/телефон у VK
@@ -891,13 +911,21 @@ export default function App() {
         // вызывает колбэк, когда первое окно закрыто, и тут же можно показать
         // второе. Пауза по таймеру вместо колбэка промахивается мимо этого
         // момента, и VK молча отбрасывает второе окно.
-        try {
-          a.requestWriteAccess({ vkGroupId: gid }, () => {
-            if (a.joinGroup) {
-              try { a.joinGroup({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
-            }
-          })
-        } catch { /* skip */ }
+        // ⚠️ СНАЧАЛА ПОДПИСКА, ПОТОМ СООБЩЕНИЯ — тот же порядок, что в
+        // sendVkEventStart. Колбэк `requestWriteAccess` не приходит, когда ВК
+        // реально показывает окно, поэтому за ним второй запрос терялся.
+        let writeAsked = false
+        const askWrite = () => {
+          if (writeAsked) return
+          writeAsked = true
+          try { a.requestWriteAccess({ vkGroupId: gid }, () => {}) } catch { /* skip */ }
+        }
+        if (a.joinGroup) {
+          try { a.joinGroup({ vkGroupId: gid }, () => askWrite()) } catch { askWrite() }
+          setTimeout(askWrite, 15000)
+        } else {
+          askWrite()
+        }
       })()
     }
   }
