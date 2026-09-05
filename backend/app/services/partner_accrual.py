@@ -82,7 +82,14 @@ async def resolve_reward_recipient(
             return None
 
         if mode == "passive":
-            if binding and binding["is_active"]:
+            if binding:
+                # ⚠️ Закрепление ЕСТЬ — платим только ему и никому больше.
+                # Партнёр отключён → не платим ВООБЩЕ, а не «тогда приведшему»:
+                # закрепление не перебивается (№ 13), и клиент отключает
+                # партнёра, чтобы перестать платить, а не чтобы деньги ушли
+                # другому человеку.
+                if not binding["is_active"]:
+                    return None
                 return await _ref_code_of_partner(db, binding["id"])
             # Закрепления нет, но привёл партнёр — он и становится
             # закреплённым (это делает partner_binding), ему и платим.
