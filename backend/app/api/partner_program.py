@@ -206,6 +206,15 @@ async def mark_payout(partner_id: int, user=Depends(get_current_client),
     """
     client_id = await _assert_write(db, user)
 
+    # ⚠️ Партнёр обязан принадлежать ЭТОМУ кабинету. Без проверки запрос с
+    # чужим id отвечал бы «ок, выплачивать нечего» — то есть подтверждал бы
+    # существование чужих партнёров.
+    own = await db.fetchval(
+        "SELECT 1 FROM client_partners WHERE id = $1 AND client_id = $2",
+        partner_id, client_id)
+    if not own:
+        raise HTTPException(status_code=404, detail="Партнёр не найден")
+
     async with db.transaction():
         rows = await db.fetch(
             """SELECT id, amount FROM partner_accruals
