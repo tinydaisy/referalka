@@ -531,11 +531,15 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         if (gid) {
           ;(window as any).__vkPermsAt = Date.now()
           // Порядок как в рабочей версии: подписка внутри колбэка разрешения.
-          // ⚠️ Страховка 45 с — если ВК не ответит, редирект всё равно уйдёт.
+          //
+          // ⚠️ Страховка 8 секунд, а НЕ 45. С 45 человек висел на странице
+          // события с кнопкой «Зарегистрироваться» почти минуту, если ВК не
+          // отвечал (жалоба владельца 05.09.2026). Восьми хватает, чтобы окна
+          // успели показаться, а зависание было незаметным.
           await new Promise<void>((resolve) => {
             let done = false
             const finish = () => { if (!done) { done = true; resolve() } }
-            setTimeout(finish, 45000)
+            setTimeout(finish, 8000)
             try {
               a.requestWriteAccess({ vkGroupId: gid }, () => {
                 if (a.joinGroup) {
