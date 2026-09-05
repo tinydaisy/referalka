@@ -68,6 +68,7 @@ export default function LandingTab({ eventId, event }: Props) {
   // тарифом, тогда список просто пустой.
   const [tariffs, setTariffs] = useState<any[]>([])
   const [offers, setOffers] = useState<any[]>([])
+  const [surveys, setSurveys] = useState<any[]>([])
 
   // Отложенное сохранение: пока клиент печатает — копим правки, шлём одним PATCH.
   const timers = useRef<Record<string, any>>({})
@@ -99,6 +100,11 @@ export default function LandingTab({ eventId, event }: Props) {
     api.offers.list()
       .then(r => setOffers(r.items || []))
       .catch(() => {})
+    // Анкеты — для блока «Анкета / Заявка».
+    // ⚠️ `GET /surveys` отдаёт ГОЛЫЙ МАССИВ, не объект со списком.
+    api.surveys.list()
+      .then((r: any) => setSurveys(Array.isArray(r) ? r : []))
+      .catch(() => {})
   }, [eventId])
 
   const page = useMemo(() => pages.find(p => p.kind === kind), [pages, kind])
@@ -110,8 +116,14 @@ export default function LandingTab({ eventId, event }: Props) {
   // — только те, которых на странице сейчас нет (их можно по одной штуке).
   const addableKinds = useMemo(() => {
     const present = new Set<string>((page?.blocks || []).map((b: any) => b.kind))
-    return [...REPEATABLE, ...STANDARD.filter(k => !present.has(k))]
-  }, [page])
+    const all = [...REPEATABLE, ...STANDARD.filter(k => !present.has(k))]
+    // ⚠️ У СОВМЕСТНОГО события блока «Анкета / Заявка» нет: лендинг общий, а
+    // базы контактов у организаторов разные — заявка ушла бы в базу того, кто
+    // поставил форму, и человек, пришедший по ссылке партнёра, стал бы чужим
+    // контактом. Бэкенд отвечает на такое создание 400; здесь просто не
+    // предлагаем, чтобы клиент не упирался в отказ.
+    return event?.is_collab ? all.filter(k => k !== 'survey') : all
+  }, [page, event?.is_collab])
 
   /* ── правка настроек страницы ─────────────────────────────────────────── */
   // ⚠️ Накопительное сохранение. Раньше в setTimeout уходил ТОЛЬКО последний
@@ -841,6 +853,8 @@ export default function LandingTab({ eventId, event }: Props) {
               pageBlocks={page.blocks}
               tariffs={tariffs}
               offers={offers}
+              surveys={surveys}
+              isCollab={!!event?.is_collab}
               onPatch={patch => patchBlock(b.id, patch)}
               onRemove={() => removeBlock(b.id)}
               onDragStart={() => setDragId(b.id)}

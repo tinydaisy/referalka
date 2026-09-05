@@ -47,6 +47,7 @@ export default function ProductLandingTab({ productId, product, readOnly = false
   const [dragId, setDragId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [tariffs, setTariffs] = useState<any[]>([])
+  const [surveys, setSurveys] = useState<any[]>([])
   const [fonts, setFonts] = useState<any[]>([])
   const [showStyle, setShowStyle] = useState(false)
 
@@ -75,6 +76,15 @@ export default function ProductLandingTab({ productId, product, readOnly = false
       .then((r: any) => setTariffs(r.tariffs || []))
       .catch(() => {})
   }, [productId])
+
+  // Анкеты — для блока «Анкета / Заявка». Молча: на тарифе без фичи `surveys`
+  // запрос отдаст 403, и блок всё равно закрыт замком.
+  // ⚠️ `GET /surveys` отдаёт ГОЛЫЙ МАССИВ, не объект со списком.
+  useEffect(() => {
+    api.surveys.list()
+      .then((r: any) => setSurveys(Array.isArray(r) ? r : []))
+      .catch(() => {})
+  }, [])
 
   const current = pages[kind]
   const page = current?.page
@@ -358,6 +368,7 @@ export default function ProductLandingTab({ productId, product, readOnly = false
             pageBlocks={blocks}
             tariffs={tariffs}
             offers={[]}
+            surveys={surveys}
           />
         ))}
       </div>

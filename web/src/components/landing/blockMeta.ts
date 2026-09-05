@@ -13,7 +13,7 @@ export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'process' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
-  | 'product_content'
+  | 'product_content' | 'survey'
   | 'el_button' | 'el_heading' | 'el_text' | 'el_image'
 
 export interface BlockMeta {
@@ -23,7 +23,7 @@ export interface BlockMeta {
   live?: boolean
   repeatable?: boolean
   /** Какие поля показывать в редакторе блока. */
-  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'audience_cards' | 'numbers' | 'seats' | 'gallery' | 'steps'>
+  fields: Array<'title' | 'subtitle' | 'body' | 'button' | 'list' | 'cards' | 'audience_cards' | 'numbers' | 'seats' | 'gallery' | 'steps' | 'survey'>
 }
 
 export const BLOCK_META: Record<BlockKind, BlockMeta> = {
@@ -141,6 +141,20 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     live: true,
     fields: ['title', 'subtitle', 'button'],
   },
+  survey: {
+    kind: 'survey',
+    label: 'Анкета / Заявка',
+    hint: 'Ваша анкета прямо на странице: человек оставляет заявку, она '
+        + 'приходит в «Анкеты» — там же обработка, уведомления и выгрузка. '
+        + 'Можно поставить вместе с тарифами или вместо них — если продаёте '
+        + 'не ценой, а разговором. Вопросы показываются все сразу или по '
+        + 'одному, квизом.',
+    live: true,
+    // Одну и ту же форму часто ставят и в середине страницы, и в конце —
+    // чтобы до неё не листать.
+    repeatable: true,
+    fields: ['title', 'subtitle', 'survey'],
+  },
   gallery: {
     kind: 'gallery',
     label: 'Галерея / Отзывы',
@@ -206,11 +220,17 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
 // только у продуктов; в наборах события его нет.
 export const PRODUCT_STANDARD: BlockKind[] = [
   'hero', 'audience', 'benefits', 'values', 'numbers', 'difference',
+  // ⚠️ `survey` здесь НЕТ намеренно: он в REPEATABLE, а список добавления —
+  // это REPEATABLE + недостающие стандартные. Попав в оба, он показался бы
+  // в выпадающем списке дважды.
   'product_content', 'organizer', 'mission', 'tariffs', 'support', 'footer',
 ]
 
 export const REPEATABLE: BlockKind[] = [
   'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
+  // Анкету ставят и в середине длинной страницы, и в конце — чтобы до формы
+  // не пришлось листать обратно.
+  'survey',
 ]
 
 /** Стандартные секции — по одной на страницу.
@@ -272,4 +292,8 @@ export const BLOCK_FEATURE: Partial<Record<BlockKind, { anyOf: string[] }>> = {
   partners: { anyOf: ['conference'] },
   // Платные тарифы мероприятия — возможность старшего тарифа.
   tariffs:  { anyOf: ['event_tariffs'] },
+  // ⚠️ Блок анкеты гейтим той же фичей, что и сам раздел «Анкеты»: без него
+  // секцию некому наполнить — выбирать было бы не из чего, и клиент упёрся бы
+  // в пустой список без объяснения.
+  survey:   { anyOf: ['surveys'] },
 }

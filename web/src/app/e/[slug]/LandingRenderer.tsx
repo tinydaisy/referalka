@@ -15,6 +15,7 @@ import { CardIcon } from '@/components/landing/icons'
 // Видео целиком рендерит LazyVideo — embedUrl/isFileVideo нужны только внутри него.
 import LazyVideo from '@/components/LazyVideo'
 import SafeHtml from '@/components/SafeHtml'
+import SurveyBlock from './SurveyBlock'
 
 interface Props {
   data: any
@@ -1577,6 +1578,32 @@ function BlockBody(props: any) {
     }
 
     /* ── Тарифы ────────────────────────────────────────────────────────── */
+    /* ── Анкета / Заявка ───────────────────────────────────────────────
+       Форма прямо на странице. Нужна, когда продают не тарифом, а разговором:
+       человек оставляет заявку, она падает в «Анкеты» кабинета.
+
+       ⚠️ Анкета приходит с бэкенда вместе со страницей (`content.surveys`) —
+       вторым запросом форма моргала бы пустым местом при загрузке.
+       Не выбрана или выключена — секцию не рисуем вовсе. */
+    case 'survey': {
+      const sv = (content.surveys || {})[String(block.id)]
+      if (!sv) return null
+      return (
+        <SurveyBlock
+          survey={sv}
+          view={block.survey_view}
+          contactId={typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search).get('c')
+            : null}
+          btnStyle={btnStyle}
+          radius={radius}
+          privacyUrl={sv.privacy_url}
+          forPdf={forPdf}
+          pageUrl={pageUrl}
+        />
+      )
+    }
+
     case 'tariffs': {
       const t = content.tariffs || { items: [] }
       return (

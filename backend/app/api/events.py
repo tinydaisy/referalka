@@ -1169,11 +1169,21 @@ async def copy_event(
                                       # Ссылки на тарифы/оферты старого события
                                       # не переносим — там чужие номера.
                                       'featured_tariff_id')]
+                bvals = dict(blk)
+                # ⚠️ Анкету блока переносим, только если она СВОЯ. Копировать
+                # можно и коллаб-событие, где анкету поставил партнёр: с его
+                # `survey_id` заявки уходили бы в чужую базу, а уведомления —
+                # партнёру, о людях, которых он не звал.
+                if bvals.get('survey_id') and not await db.fetchval(
+                    "SELECT 1 FROM surveys WHERE id = $1 AND client_id = $2",
+                    bvals['survey_id'], client_id,
+                ):
+                    bvals['survey_id'] = None
                 bph = ",".join(f"${i+2}" for i in range(len(bcols)))
                 await db.execute(
                     f"INSERT INTO event_landing_blocks (page_id, {','.join(bcols)}) "
                     f"VALUES ($1, {bph})",
-                    new_page_id, *[blk[c] for c in bcols],
+                    new_page_id, *[bvals[c] for c in bcols],
                 )
 
         # ── Вебинарные комнаты и продающие блоки ──────────────────────────

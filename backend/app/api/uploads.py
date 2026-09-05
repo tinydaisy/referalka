@@ -496,7 +496,10 @@ async def storage_files(
         'text': 'текстовый блок', 'speakers': 'спикеры', 'program': 'программа',
         'tariffs': 'тарифы', 'organizer': 'организатор', 'gifts': 'подарки',
         'seats': 'места', 'support': 'поддержка', 'footer': 'подвал',
-        'product_content': 'состав продукта',
+        'product_content': 'состав продукта', 'survey': 'анкета',
+        'partners': 'партнёры',
+        'el_heading': 'заголовок', 'el_text': 'текст',
+        'el_button': 'кнопка', 'el_image': 'изображение',
     }
     landing_use: dict = {}
     for r in await db.fetch(

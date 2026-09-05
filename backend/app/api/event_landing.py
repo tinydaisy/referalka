@@ -59,6 +59,9 @@ DEFAULT_MAIN_BLOCKS: list[dict] = [
     {"kind": "mission",    "is_active": False},
     {"kind": "organizer",  "is_active": True},
     {"kind": "tariffs",    "is_active": True},
+    # Анкета прямо на странице: заявка, отбор, сбор вопросов. Выключена —
+    # включают, когда продают не тарифом, а разговором.
+    {"kind": "survey",     "is_active": False},
     {"kind": "support",    "is_active": True},
     {"kind": "footer",     "is_active": True},
 ]
@@ -71,15 +74,22 @@ DEFAULT_POST_PAY_BLOCKS: list[dict] = [
 
 # Блоки, которые сами тянут данные события — руками у них правится только
 # заголовок и оформление, содержимое приходит из базы.
+# ⚠️ `survey` здесь же: вопросы, варианты и кнопка приходят ИЗ САМОЙ АНКЕТЫ.
+# В блоке правится только заголовок секции, оформление и вид показа — иначе
+# текст вопроса пришлось бы держать в двух местах и он бы разъехался.
 LIVE_KINDS = {"speakers", "partners", "program", "tariffs", "organizer",
-              "gifts", "seats", "support", "footer"}
+              "gifts", "seats", "support", "footer", "survey"}
 
 # `text` и `gallery` можно добавлять по кнопке сколько угодно раз — их нет
 # в дефолтном наборе (gallery там есть, но выключенный) или он единичный.
 VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "partners", "el_button", "el_heading", "el_text", "el_image"}
 
 # Блоки, которых на странице может быть много (кнопка «Добавить секцию»).
-REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text", "el_image"}
+# ⚠️ `survey` повторяемый: анкет у клиента несколько, и на длинной странице
+# одну и ту же форму ставят и в середине, и в конце — чтобы не искать её
+# прокруткой.
+REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text",
+                    "el_image", "survey"}
 
 
 # ⚠️ Списки полей вынесены в константы: их переиспользует конструктор
@@ -121,6 +131,42 @@ def normalize_block_button(field: str, val):
     return val
 
 
+def normalize_block_survey(field: str, val):
+    """Настройки блока «Анкета» — общая проверка для события и продукта.
+
+    ⚠️ Как и у кнопки: значение сверяем в коде, а не CHECK-ом в БД, чтобы новый
+    вид показа добавлялся без миграции. Мусор приводим к 'form' — блок при этом
+    покажет анкету обычным списком, а не отдаст клиенту ошибку.
+
+    ⚠️ Зовётся из ОБЕИХ точек записи (у продукта своя ветка UPDATE) — иначе
+    туда прошло бы любое значение, и страница получила бы неизвестный режим.
+    """
+    if field == "survey_view" and val is not None:
+        return val if val in ("form", "quiz") else "form"
+    if field == "survey_id" and val is not None:
+        # 0 приходит от селектора как «не выбрана» — это NULL, а не анкета №0.
+        return int(val) or None
+    return val
+
+
+async def assert_survey_owned(db, client_id: int, survey_id: int | None) -> None:
+    """Анкета блока обязана принадлежать этому кабинету.
+
+    ⚠️ Без проверки, зная чужой id, можно было бы поставить себе на лендинг
+    ЧУЖУЮ анкету: заявки уходили бы постороннему клиенту в базу, а его
+    уведомления — о людях, которых он не звал. `survey_id` приходит из
+    браузера, поэтому доверять ему нельзя.
+    """
+    if not survey_id:
+        return
+    ok = await db.fetchval(
+        "SELECT 1 FROM surveys WHERE id = $1 AND client_id = $2",
+        survey_id, client_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Анкета не найдена")
+
+
 BLOCK_PATCH_FIELDS: tuple = (
         "admin_name", "title", "subtitle", "body", "button_label", "button_url", "is_active",
         "layout", "image_url", "image_position", "image_width", "split_ratio", "pad_y",
@@ -132,6 +178,8 @@ BLOCK_PATCH_FIELDS: tuple = (
         "overline", "overline_size", "hero_align",
         "featured_glow",
         "btn_width", "btn_align",
+        # Блок «Анкета»: какая анкета и как показана (списком / по шагам).
+        "survey_id", "survey_view",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -284,6 +332,9 @@ class BlockPatch(BaseModel):
     # Кнопка в карточке тарифа: во всю ширину или по тексту, и куда прижата.
     btn_width: Optional[str] = None
     btn_align: Optional[str] = None
+    # Блок «Анкета»: какую анкету показываем и каким видом.
+    survey_id: Optional[int] = None
+    survey_view: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
@@ -646,6 +697,20 @@ async def create_block(
     if data.kind not in VALID_KINDS:
         raise HTTPException(status_code=400, detail=f"Неизвестный тип блока: {data.kind}")
 
+    # ⚠️⚠️ У КОЛЛАБ-СОБЫТИЯ БЛОКА «АНКЕТА» НЕТ (решение владельца). Лендинг там
+    # общий, а базы у организаторов РАЗНЫЕ: заявка с общей страницы упала бы в
+    # базу того, кто поставил форму, — человек, пришедший по ссылке партнёра,
+    # стал бы контактом другого организатора, и уведомление ушло бы не тому.
+    # Договориться, «чья форма», нечем: организаторы равноправны.
+    if data.kind == "survey" and await db.fetchval(
+        "SELECT is_collab FROM events WHERE id = $1", event_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="В совместном событии блок «Анкета / Заявка» недоступен: "
+                   "лендинг общий, а базы контактов у организаторов разные.",
+        )
+
     last = await db.fetchval(
         "SELECT COALESCE(MAX(sort_order), 0) FROM event_landing_blocks WHERE page_id = $1",
         page_id,
@@ -684,6 +749,8 @@ async def patch_block(
     block_kind = owns["kind"]
 
     fs = data.model_fields_set
+    if "survey_id" in fs:
+        await assert_survey_owned(db, client_id, data.survey_id)
     sets, vals = [], []
     for field in BLOCK_PATCH_FIELDS:
         if field not in fs:
@@ -734,6 +801,7 @@ async def patch_block(
         if field == "featured_glow" and val is not None:
             val = max(0, min(90, int(val)))
         val = normalize_block_button(field, val)
+        val = normalize_block_survey(field, val)
         if field == "icon_size" and val is not None:
             val = max(24, min(200, int(val)))
         if field in ("card_img_radius_x", "card_img_radius_y") and val is not None:
@@ -1082,6 +1150,8 @@ async def landing_copy_from(
     ⚠️ Что НЕ переносим:
       • адрес страницы (`slug`) и факт публикации — у события свои;
       • `featured_tariff_id` у блоков — там номера тарифов ДОНОРА;
+      • ЧУЖУЮ анкету в блоке «Анкета» (`survey_id` другого кабинета) — иначе
+        заявки собирались бы в базу постороннего клиента;
       • заказы и оплаты — они принадлежат людям, а не событию.
     Живые блоки (спикеры, программа, организатор) копию контента не хранят —
     подтянут данные уже нового события сами.
@@ -1129,11 +1199,23 @@ async def landing_copy_from(
                 bcols = [k for k in dict(blk).keys()
                          if k not in ("id", "page_id", "created_at", "updated_at",
                                       "featured_tariff_id")]
+                vals_by_col = dict(blk)
+                # ⚠️ Анкету донора переносим ТОЛЬКО если она принадлежит этому
+                # же кабинету. В коллабе донором бывает общее событие, где
+                # анкету поставил партнёр: скопировав её id, клиент собирал бы
+                # заявки в ЧУЖУЮ базу, а партнёр получал уведомления о людях,
+                # которых не звал. Чужая — оставляем блок с пустым выбором,
+                # он просто не рисуется, пока клиент не выберет свою.
+                if vals_by_col.get("survey_id") and not await db.fetchval(
+                    "SELECT 1 FROM surveys WHERE id = $1 AND client_id = $2",
+                    vals_by_col["survey_id"], client_id,
+                ):
+                    vals_by_col["survey_id"] = None
                 bph = ",".join(f"${i + 2}" for i in range(len(bcols)))
                 await db.execute(
                     f"INSERT INTO event_landing_blocks (page_id, {','.join(bcols)}) "
                     f"VALUES ($1, {bph})",
-                    dst_page["id"], *[blk[c] for c in bcols],
+                    dst_page["id"], *[vals_by_col[c] for c in bcols],
                 )
                 copied_blocks += 1
 

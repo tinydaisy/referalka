@@ -35,11 +35,16 @@ interface Props {
   tariffs?: any[]
   /** Оферты клиента — для ссылки в подвале. */
   offers?: any[]
+  /** Анкеты кабинета — чтобы выбрать, какую показать в блоке «Анкета». */
+  surveys?: any[]
+  /** Совместное событие: блок «Анкета / Заявка» там не работает. */
+  isCollab?: boolean
 }
 
 export default function BlockCard({
   block, eventId, onPatch, onRemove,
   onDragStart, onDragOver, onDrop, isDragging, pageBlocks, tariffs, offers,
+  surveys, isCollab = false,
   // ⚠️ Куда грузить картинки. По умолчанию — как было у события; у продукта
   // события нет, и `landing_media` там упал бы с «требует event_id».
   uploadKind = 'landing_media',
@@ -380,6 +385,90 @@ export default function BlockCard({
               )}
 
 
+              {/* ── Анкета на странице ────────────────────────────────────
+                  Заявка — это анкета из двух-трёх вопросов. Отдельной формы
+                  заявок нет намеренно: у анкет уже есть обработка, счётчик
+                  необработанных, уведомления и выгрузка. */}
+              {/* ⚠️ Событие могло стать совместным ПОСЛЕ того, как блок уже
+                  добавили. Прятать его нельзя — клиент не поймёт, куда делась
+                  настроенная секция, и не сможет её удалить. Поэтому он виден,
+                  но честно объясняет, почему не показывается людям. */}
+              {has('survey') && isCollab && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm font-medium text-amber-900">
+                    В совместном событии эта секция не показывается
+                  </p>
+                  <p className="mt-1 text-xs text-amber-800">
+                    Лендинг у совместного события общий, а базы контактов у
+                    организаторов разные: заявка попала бы в базу того, кто
+                    поставил форму, — даже если человек пришёл по ссылке
+                    партнёра. Секцию можно удалить, на странице её нет.
+                  </p>
+                </div>
+              )}
+
+              {has('survey') && !isCollab && (
+                <Field label="Какая анкета">
+                  <select
+                    value={block.survey_id ?? ''}
+                    onChange={e => onPatch({
+                      survey_id: e.target.value ? Number(e.target.value) : null,
+                    })}
+                    className="input bg-white"
+                  >
+                    <option value="">— выберите анкету —</option>
+                    {(surveys || []).map((s: any) => (
+                      <option key={s.id} value={s.id}>{s.title}</option>
+                    ))}
+                  </select>
+
+                  {/* ⚠️ Пустой список — это не поломка, а «анкет ещё нет».
+                      Без этой подсказки клиент видит пустой выпадающий список
+                      и не понимает, что делать. */}
+                  {!(surveys || []).length && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      У вас пока нет анкет. Создайте её в разделе{' '}
+                      <a href="/dashboard/surveys" target="_blank"
+                         className="underline">Анкеты</a> — для заявки хватит
+                      двух вопросов: имя и как связаться.
+                    </p>
+                  )}
+
+                  {!!block.survey_id && (
+                    <div className="mt-3">
+                      <label className="mb-1 block text-sm font-medium text-gray-700">
+                        Как показывать
+                      </label>
+                      <div className="flex gap-2">
+                        {[
+                          { v: 'form', t: 'Все вопросы сразу' },
+                          { v: 'quiz', t: 'По одному, квизом' },
+                        ].map(o => (
+                          <button key={o.v} type="button"
+                            onClick={() => onPatch({ survey_view: o.v })}
+                            className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+                              (block.survey_view || 'form') === o.v
+                                ? 'border-[#25455D] bg-[#25455D] text-white'
+                                : 'border-gray-300 bg-white text-gray-700'
+                            }`}
+                          >{o.t}</button>
+                        ))}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Квизом человек отвечает шаг за шагом и видит прогресс —
+                        длинную анкету так заполняют охотнее. Вопросы и ответы
+                        одни и те же, меняется только показ.
+                      </p>
+                    </div>
+                  )}
+
+                  <p className="mt-2 text-xs text-gray-500">
+                    Заявки придут в раздел «Анкеты» → «Ответы». Оплата и доступ
+                    при этом не выдаются — человек просто оставляет контакты.
+                  </p>
+                </Field>
+              )}
+
               {/* Какой тариф подсветить — выбирается здесь, а не в разделе «Тарифы». */}
               {block.kind === 'tariffs' && (
                 <Field label="Выделить тариф">
@@ -507,6 +596,11 @@ export default function BlockCard({
                             : block.button_url.startsWith('#lp-') ? block.button_url
                             : 'custom'
                         }
+                        /* ⚠️ У повторяемых секций (анкета, текст, галерея) на
+                           странице бывает несколько блоков ОДНОГО вида, и
+                           якорь `#lp-{kind}` уводит всегда к первому из них.
+                           Поэтому для них берётся `#lp-b{id}` — уникальный
+                           якорь конкретного блока, он есть у каждой секции. */
                         onChange={e => {
                           const v = e.target.value
                           onPatch({ button_url: v === 'register' ? null : v === 'custom' ? ' ' : v })
@@ -515,7 +609,9 @@ export default function BlockCard({
                       >
                         <option value="register">На регистрацию</option>
                         {(pageBlocks || []).map((b: any) => (
-                          <option key={b.id} value={`#lp-${b.kind}`}>
+                          <option key={b.id}
+                            value={metaFor(b.kind).repeatable
+                              ? `#lp-b${b.id}` : `#lp-${b.kind}`}>
                             К секции «{b.admin_name || metaFor(b.kind).label}»
                           </option>
                         ))}

@@ -56,6 +56,11 @@ DEFAULT_PRODUCT_BLOCKS: list[dict] = [
     {"kind": "gallery",         "is_active": False},
     {"kind": "mission",         "is_active": False},
     {"kind": "tariffs",         "is_active": True},
+    # ⚠️ Анкета — САМОСТОЯТЕЛЬНАЯ секция, с тарифами никак не связана: её
+    # включают и вместе с ними (тарифы + «остались вопросы — оставьте заявку»),
+    # и без них (услуга «под задачу», где цены нет и продают разговором).
+    # Выключена по умолчанию, как и другие необязательные секции.
+    {"kind": "survey",          "is_active": False},
     {"kind": "support",         "is_active": True},
     {"kind": "footer",          "is_active": True},
 ]
@@ -67,14 +72,18 @@ DEFAULT_PRODUCT_POST_PAY: list[dict] = [
 ]
 
 # Блоки, которые сами тянут данные — руками правится только заголовок и вид.
-LIVE_KINDS_PRODUCT = {"product_content", "tariffs", "organizer", "support", "footer"}
+# ⚠️ `survey` живой: вопросы и кнопка приходят из самой анкеты, в блоке
+# правится только заголовок секции, оформление и вид показа.
+LIVE_KINDS_PRODUCT = {"product_content", "tariffs", "organizer", "support",
+                      "footer", "survey"}
 
 VALID_KINDS_PRODUCT = (
     {b["kind"] for b in DEFAULT_PRODUCT_BLOCKS}
     | {"text", "gallery", "el_button", "el_heading", "el_text", "el_image"}
 )
 
-REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text", "el_image"}
+REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text",
+                    "el_image", "survey"}
 
 
 def _ser_product_block(r: asyncpg.Record) -> dict:
@@ -334,15 +343,25 @@ async def update_block(
     if not ok:
         raise HTTPException(status_code=404, detail="Секция не найдена")
 
-    from app.api.event_landing import BLOCK_PATCH_FIELDS, normalize_block_button
+    from app.api.event_landing import (
+        BLOCK_PATCH_FIELDS, normalize_block_button, normalize_block_survey,
+        assert_survey_owned,
+    )
 
     fs = data.model_fields_set
+    # ⚠️ Анкета блока обязана принадлежать этому кабинету — id приходит из
+    # браузера. Иначе на свой лендинг ставится чужая анкета, и заявки уходят
+    # постороннему клиенту.
+    if "survey_id" in fs:
+        await assert_survey_owned(db, int(user["sub"]), data.survey_id)
+
     sets, vals = [], []
     for field in BLOCK_PATCH_FIELDS:
         if field in fs:
             # ⚠️ Та же проверка значений, что у события: своя ветка UPDATE без
             # неё приняла бы любую строку в настройки оформления.
-            vals.append(normalize_block_button(field, getattr(data, field)))
+            val = normalize_block_button(field, getattr(data, field))
+            vals.append(normalize_block_survey(field, val))
             sets.append(f"{field} = ${len(vals)}")
 
     # ⚠️ `items` НЕТ в BLOCK_PATCH_FIELDS (там только скалярные настройки) —

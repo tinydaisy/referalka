@@ -124,6 +124,14 @@ async def get_product_landing(
 
     data: dict = {}
 
+    # ── Анкета прямо на странице ──
+    # ⚠️ Общая точка сбора с лендингом события — рендерер один, и собирать
+    # анкеты каждой странице по-своему нельзя: разъедутся.
+    if "survey" in kinds:
+        from app.services.landing_survey import collect_landing_surveys
+        data["surveys"] = await collect_landing_surveys(
+            db, blocks, product["client_id"])
+
     # ── Состав продукта ──
     if "product_content" in kinds:
         sections = await db.fetch(
