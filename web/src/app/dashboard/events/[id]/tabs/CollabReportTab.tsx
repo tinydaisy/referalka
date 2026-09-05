@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Users, TrendingUp, Info } from 'lucide-react'
+import { Users, TrendingUp, Info, HelpCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 
 /** Отчёт по привлечению в КОЛЛАБ-событии: кто из организаторов сколько привёл.
@@ -53,6 +53,8 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
   const [broughtTotal, setBroughtTotal] = useState(0)
   const [withoutRef, setWithoutRef] = useState(0)
   const [err, setErr] = useState('')
+  // Формула Win-Win — раскрывается по значку «?» у заголовка столбца.
+  const [showFormula, setShowFormula] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -81,7 +83,7 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-4">
           <div className="text-2xl font-bold text-gray-900">{broughtTotal}</div>
-          <div className="text-xs text-gray-500 mt-1">Привели организаторы</div>
+          <div className="text-xs text-gray-500 mt-1">Зарегистрировались</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-4">
           <div className="text-2xl font-bold text-gray-400">{withoutRef}</div>
@@ -99,7 +101,14 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
           <Users size={17} className="text-gray-400" />
-          <h3 className="font-semibold text-gray-800">Кто сколько привёл</h3>
+          {/* ⚠️ «От кого сколько ЗАРЕГИСТРИРОВАЛОСЬ», а не «кто сколько привёл»:
+              в счёт идут только дошедшие до регистрации. Прежний заголовок
+              обещал одно, а таблица показывала другое — человек видел «привёл 1»
+              там, где в базе организатора четыре участника, и считал это
+              ошибкой. */}
+          <h3 className="font-semibold text-gray-800">
+            От кого сколько зарегистрировалось
+          </h3>
         </div>
 
         <div className="overflow-x-auto">
@@ -113,7 +122,17 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
                 <th className="text-right px-4 py-3 font-medium">От рефовода</th>
                 <th className="text-right px-4 py-3 font-medium">Из базы</th>
                 <th className="text-right px-4 py-3 font-medium">Итого</th>
-                <th className="text-right px-5 py-3 font-medium">Win-Win</th>
+                {/* ⚠️ Формула — по значку «?», а не текстом рядом: она нужна
+                    один раз, чтобы понять цифру, и не должна каждый раз
+                    занимать место в шапке. */}
+                <th className="text-right px-5 py-3 font-medium">
+                  <button type="button" onClick={() => setShowFormula(v => !v)}
+                          className="inline-flex items-center gap-1 hover:text-gray-700"
+                          title="Как считается Win-Win">
+                    Win-Win
+                    <HelpCircle size={13} className={showFormula ? 'text-gray-700' : 'text-gray-400'} />
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -143,6 +162,45 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
             </tbody>
           </table>
         </div>
+        {/* Расшифровка Win-Win — по клику на «?» в шапке столбца.
+            ⚠️ Считаем на ЖИВЫХ числах этого события: абстрактная формула
+            «моё ÷ среднее» не отвечает на вопрос «почему у меня именно 3.00». */}
+        {showFormula && (
+          <div className="px-5 py-4 border-t border-gray-100 bg-amber-50/50 text-sm text-gray-700 space-y-2">
+            <p className="font-semibold text-gray-900">Как считается Win-Win</p>
+            <p className="font-mono text-xs bg-white border border-amber-200 rounded-lg px-3 py-2">
+              коэффициент = мои приведённые ÷ (все приведённые ÷ число организаторов)
+            </p>
+            <p>Проще: <b>моё число ÷ среднее по организаторам</b>.</p>
+            {rows.length > 0 && (
+              <p className="text-gray-600">
+                Сейчас в этом событии: всего приведённых <b>{rows.reduce((s, r) => s + (r.total ?? 0), 0)}</b>,
+                организаторов <b>{rows.length}</b>, значит среднее —{' '}
+                <b>{(rows.reduce((s, r) => s + (r.total ?? 0), 0) / rows.length).toFixed(2)}</b>.
+                {(() => {
+                  const me = rows.find(r => r.is_me)
+                  const avg = rows.reduce((s, r) => s + (r.total ?? 0), 0) / rows.length
+                  if (!me || !avg) return null
+                  return <> У вас {me.total} ÷ {avg.toFixed(2)} = <b>{(me.total / avg).toFixed(2)}</b>.</>
+                })()}
+              </p>
+            )}
+            <div className="pt-1 space-y-1 text-gray-600">
+              <p><b>1.00</b> — сработали вровень с партнёрами, справедливая доля.</p>
+              <p><b>Больше 1</b> — вытянули коллабу на себе. <b>Меньше 1</b> — есть куда расти.</p>
+              <p>Число партнёров на коэффициент не влияет: вдвоём или вчетвером поровну — всегда 1.00.</p>
+              <p className="text-gray-500">
+                ⚠️ Проценты не используем: при них вдвоём поровну давало 50%, а
+                вчетвером — 25%, то есть за большее число партнёров наказывало.
+              </p>
+              <p className="text-gray-500">
+                ⚠️ На малых числах коэффициент скачет: один человек против нулей
+                у партнёров даст 3.00. Показатель осмыслен, когда людей десятки.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="px-5 py-3 bg-gray-50/70 border-t border-gray-100 text-xs text-gray-500 space-y-1">
           <p>
             <b>По реф-коду</b> — по вашей личной ссылке. <b>От рефовода</b> — по
@@ -151,9 +209,14 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
             бота или из календаря ваших событий.
           </p>
           <p>
+            ⚠️ Во всех столбцах — <b>только зарегистрировавшиеся</b>. Человек
+            зашёл, но регистрацию не завершил — он в плитке «Не зарегистрировались»
+            сверху и ни в один столбец не попадает.
+          </p>
+          <p>
             Win-Win считается от <b>«Итого»</b>: человек в любом случае приходит
             через чей-то бот и попадает в чью-то базу — это и есть приведённая
-            аудитория. Считаем зарегистрировавшихся: открыл и ушёл — не в счёт.
+            аудитория.
           </p>
         </div>
       </div>
@@ -165,7 +228,11 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
             <TrendingUp size={17} className="text-gray-400" />
-            <h3 className="font-semibold text-gray-800">Кто приводил людей</h3>
+            {/* Здесь как раз видно обе цифры — сколько перешло и сколько
+                дошло до регистрации, поэтому «приводил» уместно. */}
+            <h3 className="font-semibold text-gray-800">
+              Кто раздавал ссылки
+            </h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -207,26 +274,17 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
         </div>
       )}
 
-      {/* Пояснение принципа — без него цифра 1.0 читается непонятно */}
+      {/* ⚠️ Формула Win-Win переехала под значок «?» в шапке столбца — здесь
+          её больше нет, иначе одно и то же объяснение стояло бы дважды. */}
       <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4 flex gap-3">
         <Info size={17} className="text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-sm text-gray-700 space-y-1.5">
+        <div className="text-sm text-gray-700">
           <p>
-            <b>Win-Win</b> показывает, как вы сработали относительно партнёров:
-            ваши приведённые делятся на среднее по организаторам.
-          </p>
-          <p>
-            <b>1.00</b> — привели столько же, сколько в среднем каждый.
-            Больше единицы — вытянули коллабу на себе, меньше — есть куда расти.
-            Число партнёров на коэффициент не влияет: вдвоём или вчетвером —
-            справедливая доля всегда 1.00.
-          </p>
-          <p className="text-gray-500">
             «Привёл» — человек пришёл через вас и <b>зарегистрировался</b> на
             событие: по вашей ссылке, по ссылке вашего спикера или из вашей базы.
             Просто открыл и ушёл — не считается.
             После завершения коллабы это значение попадёт в вашу карточку
-            в Коллабораторной.
+            в Коллабораторной. Как считается Win-Win — по значку «?» в таблице.
           </p>
         </div>
       </div>
