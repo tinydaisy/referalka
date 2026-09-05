@@ -587,13 +587,30 @@ export default function App() {
           }
           if (gid0) {
             ;(window as any).__vkPermsAt = Date.now()
-            try {
-              adapter.requestWriteAccess({ vkGroupId: gid0 }, () => {
-                if (adapter.joinGroup) {
-                  try { adapter.joinGroup({ vkGroupId: gid0 }, () => {}) } catch { /* skip */ }
-                }
-              })
-            } catch { /* skip */ }
+            // ⚠️⚠️ ЖДЁМ ОТВЕТА — приложение не грузится, пока человек не
+            // ответит на окна. Так было в рабочей версии: сначала окна, потом
+            // приложение. Без ожидания загрузка идёт параллельно, окна
+            // перекрываются экраном, и человек не успевает нажать (жалоба
+            // владельца 05.09.2026).
+            //
+            // ⚠️ Страховка 45 секунд — на случай, если ВКонтакте не ответит
+            // вовсе: приложение не должно висеть навсегда.
+            await new Promise<void>((resolve) => {
+              let done = false
+              const finish = () => { if (!done) { done = true; resolve() } }
+              setTimeout(finish, 45000)
+              try {
+                adapter.requestWriteAccess({ vkGroupId: gid0 }, () => {
+                  // Подписка — внутри колбэка разрешения (рабочая версия
+                  // b9faac81). Её колбэк и закрывает ожидание.
+                  if (adapter.joinGroup) {
+                    try {
+                      adapter.joinGroup({ vkGroupId: gid0 }, () => finish())
+                    } catch { finish() }
+                  } else finish()
+                })
+              } catch { finish() }
+            })
           }
         }
       }
