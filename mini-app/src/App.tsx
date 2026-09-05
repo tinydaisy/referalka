@@ -4,7 +4,7 @@ import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
-import VkPermissionsIntro from './components/VkPermissionsIntro'
+import VkPermissionsIntro, { vkIntroWasShown } from './components/VkPermissionsIntro'
 import { vkMessagesAllowed } from './api'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
 
@@ -606,7 +606,17 @@ export default function App() {
         // НЕЛЬЗЯ: на голом входе он тоже бывает непустым (человек открыл
         // событие внутри приложения), и окно-объяснение переставало
         // показываться вовсе (жалоба владельца 05.09.2026).
-        const byLink = !!(adapter.startParam || '').trim()
+        // ⚠️⚠️ УСЛОВИЕ ДОСЛОВНО ИЗ РАБОЧЕЙ ВЕРСИИ (коммит bc675fcc) — там
+        // владелец подтвердила, что голый вход работает.
+        //
+        // ⚠️ `onEventPage` (адрес страницы), а НЕ startParam: при заходе по
+        // ССЫЛКЕ адрес корневой, но событие открывается — и `eventSlug`
+        // проставляется, из-за чего страница становится `/vk/event/{slug}`.
+        // Именно это и отсекало окно на входах по ссылке.
+        //
+        // ⚠️ `vkIntroWasShown` вернул: без него окно всплывало повторно.
+        const onEventPage = !!parsePathSlug()
+        const byLink = onEventPage || !!(adapter.startParam || '').trim()
         // ⚠️⚠️ ОТМЕТКУ «УЖЕ ПОКАЗЫВАЛИ» НЕ ПРОВЕРЯЕМ (06.09.2026).
         //
         // Здесь стояло `!vkIntroWasShown(vkId)`. Отметка живёт весь сеанс
@@ -629,7 +639,7 @@ export default function App() {
             }),
           }).catch(() => {})
         } catch (_) { /* ignore */ }
-        if (vkId && !alreadyAllowed && !byLink) {
+        if (vkId && !alreadyAllowed && !byLink && !vkIntroWasShown(vkId)) {
           // ⚠️⚠️ ОКНО НЕ ОБРЫВАЕТ ЗАПУСК (05.09.2026).
           //
           // Здесь стоял `return`: приложение не грузилось вовсе, пока человек
