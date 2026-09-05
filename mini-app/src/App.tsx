@@ -617,6 +617,18 @@ export default function App() {
         // Проверять её незачем: выше мы уже спросили у ВКонтакте, есть ли
         // право (`alreadyAllowed`). Есть — окно не нужно; нет — надо спросить,
         // сколько бы раз мы ни показывали его раньше.
+        // ⚠️ ДИАГНОСТИКА (временная): почему окно не показывается на голом
+        // входе. Пишем значения всех трёх условий.
+        try {
+          fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/diag-launch`, {
+            method: 'POST', keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              resolved: `intro:vkId=${!!vkId}:allowed=${alreadyAllowed}:byLink=${byLink}:sp=${(adapter.startParam || '').slice(0, 25)}`,
+              launch_params: adapter.launchParams,
+            }),
+          }).catch(() => {})
+        } catch (_) { /* ignore */ }
         if (vkId && !alreadyAllowed && !byLink) {
           // ⚠️⚠️ ОКНО НЕ ОБРЫВАЕТ ЗАПУСК (05.09.2026).
           //
