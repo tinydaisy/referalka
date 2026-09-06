@@ -22,6 +22,10 @@ from app.database import get_db
 from app.config import settings
 from app.services.features import client_has_feature
 from app.services import webinar_service as ws
+# ⚠️ Имя человека склеиваем ТОЛЬКО этим хелпером: `name` — это ИМЯ, фамилия
+# лежит отдельно (миграция 302). Здесь список для поиска глазами, поэтому
+# порядок «Фамилия Имя» — правило проекта.
+from app.services.person_name import SEARCH_NAME_SQL
 
 router = APIRouter(prefix="/events/{event_id}/webinar", tags=["Вебинарная комната"])
 internal_router = APIRouter(prefix="/internal/webinar", tags=["Вебинар — внутренний хук"])
@@ -630,19 +634,36 @@ async def _cuts_payload(db, rec: dict, recording_id: int) -> dict:
     rows = await db.fetch(
         "SELECT c.id, c.start_sec, c.end_sec, c.title, c.speaker_ec_id, c.session_id, "
         "       c.sort_order, c.status, c.url, c.duration_sec, c.size_bytes, c.error, "
-        "       cl.name AS speaker_name, LEFT(cs.start_time, 5) AS program_time "
+        "       " + SEARCH_NAME_SQL("cl") + " AS speaker_name, LEFT(cs.start_time, 5) AS program_time "
         "  FROM webinar_recording_cuts c "
         "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
         "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
         "  LEFT JOIN conf_sessions cs ON cs.id = c.session_id "
         " WHERE c.recording_id=$1 ORDER BY c.sort_order, c.start_sec", recording_id)
+    # ⚠️ У меток, разложенных до 06.09.2026, имя было ВКЛЕЕНО в название
+    # («Светлана — Выставка…»). Теперь имя отдаётся отдельным полем, и без этой
+    # чистки оно задвоилось бы в строке. Режем только точное совпадение начала —
+    # тему, которая случайно начинается так же, не тронем.
+    # ⚠️ Сверяем и по ПОЛНОМУ имени, и по каждому слову отдельно: старые метки
+    # склеивались с одним лишь именем («Светлана — …»), а speaker_name теперь
+    # «Фамилия Имя». По полному совпадению такая строка не нашлась бы.
+    cuts = []
+    for r in rows:
+        d = dict(r)
+        nm, t = (d.get("speaker_name") or "").strip(), (d.get("title") or "")
+        if nm:
+            for variant in [nm, *nm.split()]:
+                if t.startswith(f"{variant} — "):
+                    d["title"] = t[len(variant) + 3:]
+                    break
+        cuts.append(d)
     return {
         "recording": {
             "id": rec["id"], "url": rec["url"], "status": rec["status"],
             "duration_sec": rec["duration_sec"],
             "live_offset_sec": rec["live_offset_sec"],
         },
-        "cuts": [dict(r) for r in rows],
+        "cuts": cuts,
     }
 
 
@@ -706,7 +727,7 @@ async def program_marks(event_id: int, day_number: int, recording_id: int,
 
     rows = await db.fetch(
         "SELECT s.id, s.start_time, s.title, s.speaker_id, "
-        "       COALESCE(cst.topic, s.title) AS topic, cl.name AS speaker_name "
+        "       COALESCE(cst.topic, s.title) AS topic, " + SEARCH_NAME_SQL("cl") + " AS speaker_name "
         "  FROM conf_sessions s "
         "  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id "
         "  LEFT JOIN event_collaborators ec ON ec.id = s.speaker_id "
@@ -743,12 +764,14 @@ async def program_marks(event_id: int, day_number: int, recording_id: int,
         live_len = int(rec["duration_sec"] or 0) - int(rec["live_offset_sec"] or 0)
         if live_len > 0 and sec >= live_len:
             continue          # слот за пределами записи — эфир кончился раньше
-        title = (r["topic"] or r["title"] or "").strip() or "Без названия"
-        if r["speaker_name"]:
-            title = f"{r['speaker_name']} — {title}"
+        topic = (r["topic"] or r["title"] or "").strip() or "Без названия"
+        # ⚠️ Имя и тему НЕ склеиваем: на полосе нужна только фамилия с именем
+        # (тему там всё равно не прочесть — колонка узкая), а в списке снизу —
+        # и то и другое. Склеенная строка не даёт показать их по-разному.
         marks.append({
             "start_sec": sec,
-            "title": title[:200],
+            "title": topic[:200],
+            "speaker_name": r["speaker_name"],
             "speaker_ec_id": r["speaker_id"],
             "session_id": r["id"],
             # ⚠️ Время слота по расписанию — показываем рядом с меткой. Человек

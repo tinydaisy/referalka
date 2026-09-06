@@ -489,8 +489,11 @@ export default function RecordingCutPage() {
                    : c.status === 'processing' ? 'bg-amber-100'
                    : c.status === 'failed' ? 'bg-red-100'
                    : 'bg-[#FFCFA4]/40'} ${active ? 'z-30' : ''}`}>
-              <span className="absolute top-1 left-2.5 text-[11px] text-[#25455D] truncate max-w-[92%]">
-                {c.title}
+              {/* ⚠️ На полосе — ТОЛЬКО имя (решение владельца). Тему тут всё
+                  равно не прочесть: колонка узкая, а строк много. Полное
+                  название с темой — в списке снизу. */}
+              <span className="absolute top-1 left-2.5 text-[11px] font-medium text-[#25455D] truncate max-w-[92%]">
+                {c.speaker_name || c.title}
               </span>
 
               {/* Вертикальная палка-граница с кружком сверху. Кружок нужен,
@@ -675,10 +678,20 @@ export default function RecordingCutPage() {
                   {c.program_time} МСК
                 </span>
               )}
+              {/* ⚠️ Фамилия и имя — ОТДЕЛЬНО и первыми: по ним ищут строку
+                  глазами. Порядок «Фамилия Имя» задаёт бэкенд (правило проекта:
+                  для поиска — фамилия вперёд, для показа — имя). */}
+              {c.speaker_name && (
+                <span className="text-sm font-medium text-[#25455D] shrink-0 max-w-[220px] truncate"
+                      title={c.speaker_name}>
+                  {c.speaker_name}
+                </span>
+              )}
               <input
                 value={c.title}
                 onChange={e => patch(i, { title: e.target.value })}
                 disabled={c.status === 'ready'}
+                title="Тема выступления"
                 className="flex-1 px-2 py-1 border rounded-md text-sm disabled:bg-gray-50"
                 style={{ minWidth: 0 }}
               />
