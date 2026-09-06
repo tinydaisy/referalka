@@ -41,13 +41,56 @@ export default function FrozenContent({ children }: { children: React.ReactNode 
   const open = ALWAYS_OPEN.some(p => pathname.startsWith(p))
   if (!subFrozen || open) return <>{children}</>
 
+  // ⚠️ ЗАГОЛОВОК РАЗДЕЛА НЕ ЗАМЫЛИВАЕМ (решение владельца): человек должен
+  // понимать, где он находится. Размытая шапка выглядит как сломанная
+  // страница, а не как «раздел закрыт».
+  //
+  // ⚠️ `filter: none` у потомка НЕ отменяет фильтр родителя — CSS применяет
+  // фильтр ко всему поддереву как к единому слою. Поэтому размытие вешается
+  // НЕ на контейнер, а на каждый элемент содержимого ОТДЕЛЬНО, и заголовок
+  // из этого набора исключается селектором.
+  //
+  // ⚠️ Селектором, а не правкой каждой страницы: разделов два десятка, шапки у
+  // всех свои, и обходить их по одному значит забыть половину — ровно на этом
+  // уже спотыкались.
   return (
-    <div
-      aria-hidden
-      className="select-none"
-      style={{ filter: 'blur(3px)', pointerEvents: 'none', opacity: 0.75 }}
-    >
-      {children}
+    <div className="frozen-wrap">
+      <style jsx global>{`
+        /* Размываем всё содержимое поэлементно… */
+        .frozen-wrap > * > * {
+          filter: blur(3px);
+          opacity: 0.75;
+          pointer-events: none;
+          user-select: none;
+        }
+        /* …кроме заголовка раздела и ПОДМЕНЮ (вкладки внутри раздела):
+           человек должен видеть, где он и какие вкладки есть.
+           :has() поддерживают все актуальные браузеры (Safari 15.4+,
+           Chrome 105+); где не поддержан — эти блоки просто останутся
+           размытыми, страница не ломается. */
+        .frozen-wrap > * > *:has(> h1),
+        .frozen-wrap > * > h1,
+        .frozen-wrap > * > h1 + p,
+        .frozen-wrap > * > .border-b {
+          filter: none;
+          opacity: 1;
+          user-select: auto;
+        }
+        /* ⚠️ Но кликать в них нельзя: раздел закрыт, и работающая вкладка
+           внутри замороженного раздела вводит в заблуждение. Кнопки в шапке
+           («Создать» и подобные) остаются размытыми — они ведут к действию,
+           которое всё равно запрещено на сервере. */
+        .frozen-wrap > * > *:has(> h1) a,
+        .frozen-wrap > * > *:has(> h1) button {
+          filter: blur(3px);
+          opacity: 0.75;
+          pointer-events: none;
+        }
+        .frozen-wrap > * > .border-b {
+          pointer-events: none;
+        }
+      `}</style>
+      <div aria-hidden>{children}</div>
     </div>
   )
 }
