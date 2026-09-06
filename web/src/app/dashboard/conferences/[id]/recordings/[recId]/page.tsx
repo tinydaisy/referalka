@@ -72,6 +72,15 @@ const parseTime = (v: string): number | null => {
 let _keySeq = 1
 const newKey = () => _keySeq++
 
+/** «1 кусок / 2 куска / 5 кусков» — без него текст выглядит машинным. */
+const plural = (n: number, one: string, few: string, many: string) => {
+  const a = Math.abs(n) % 100, b = a % 10
+  if (a > 10 && a < 20) return many
+  if (b > 1 && b < 5) return few
+  if (b === 1) return one
+  return many
+}
+
 const fmtSize = (b?: number | null) =>
   !b ? '' : b > 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} ГБ` : `${Math.round(b / 1024 ** 2)} МБ`
 
@@ -112,6 +121,11 @@ export default function RecordingCutPage() {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   // Тянут красный курсор плеера.
   const [scrubbing, setScrubbing] = useState(false)
+  // ⚠️ Нарезка идёт на сервере минутами, и раньше об этом не говорилось ничего:
+  // полосы молча меняли цвет, и было непонятно, работает оно или сломалось.
+  // Здесь держим, что резка шла, чтобы сказать «готово», когда она закончится.
+  const [wasCutting, setWasCutting] = useState(false)
+  const [doneMsg, setDoneMsg] = useState('')
   const dragStartX = useRef(0)
   const barRef = useRef<HTMLDivElement>(null)
   // ⚠️ После перетаскивания браузер шлёт click по полосе — без этого флага
@@ -135,12 +149,29 @@ export default function RecordingCutPage() {
 
   useEffect(() => { load() }, [eventId, day, recordingId])
 
-  // Пока идёт нарезка — перечитываем, чтобы были видны готовые куски.
+  // ⚠️ Состояние нарезки считаем ПО ДАННЫМ ИЗ БАЗЫ, а не по памяти браузера:
+  // человек обновляет страницу, уходит и возвращается, открывает с телефона —
+  // и всюду должен видеть одно и то же.
   const anyProcessing = cuts.some(c => c.status === 'processing')
+  const readyCount = cuts.filter(c => c.status === 'ready').length
+  const failedCount = cuts.filter(c => c.status === 'failed').length
+
+  // Пока идёт нарезка — перечитываем, чтобы готовые куски появлялись сами.
   useEffect(() => {
     if (!anyProcessing) return
     const t = setInterval(load, 5000)
     return () => clearInterval(t)
+  }, [anyProcessing])
+
+  // Нарезка закончилась, пока человек смотрел на страницу — говорим об этом
+  // словами, а не молчаливой сменой цвета полос.
+  useEffect(() => {
+    if (anyProcessing) { setWasCutting(true); setDoneMsg(''); return }
+    if (!wasCutting) return
+    setWasCutting(false)
+    setDoneMsg(failedCount
+      ? `Нарезка закончилась: готово ${readyCount}, не получилось ${failedCount}.`
+      : `Готово — запись нарезана на ${readyCount} ${plural(readyCount, 'кусок', 'куска', 'кусков')}. Скачать можно в списке ниже.`)
   }, [anyProcessing])
 
   // ⚠️ Предупреждаем о несохранённых метках: расставить их — работа на десятки
@@ -362,8 +393,12 @@ export default function RecordingCutPage() {
 
   const runCut = async () => {
     if (dirty) { alert('Сначала сохраните метки.'); return }
-    if (!confirm('Нарезать запись на куски? Исходник останется на месте.')) return
-    setBusy('Ставлю в очередь…')
+    const n = cuts.filter(c => c.status !== 'ready').length
+    if (!confirm(
+      `Нарезать запись на ${n} ${plural(n, 'кусок', 'куска', 'кусков')}?\n\n` +
+      'Нарезка идёт на сервере несколько минут. Страницу можно закрыть — работа не прервётся, ' +
+      'а результат появится здесь же.\n\nИсходная запись останется на месте.')) return
+    setBusy('Запускаю нарезку…')
     try {
       await api.webinar.runCut(eventId, day, recordingId)
       await load()
@@ -581,12 +616,67 @@ export default function RecordingCutPage() {
                 className="px-4 py-1.5 rounded-lg border text-sm flex items-center gap-1.5 disabled:opacity-40">
           <Save size={15} /> Сохранить
         </button>
-        <button onClick={runCut} disabled={!!busy || dirty || !cuts.some(c => c.status !== 'ready')}
+        {/* ⚠️ Пока идёт нарезка — кнопка ЗАБЛОКИРОВАНА, и это считается по
+            статусу в базе (`anyProcessing`), а не по памяти браузера: обновил
+            страницу — кнопка снова была активна, и второе нажатие отвечало
+            «нечего резать», как будто что-то сломалось. */}
+        <button onClick={runCut}
+                disabled={!!busy || dirty || anyProcessing || !cuts.some(c => c.status === 'draft' || c.status === 'failed')}
+                title={anyProcessing ? 'Нарезка уже идёт' : undefined}
                 className="btn-gold text-sm flex items-center gap-1.5 disabled:opacity-40">
-          <Scissors size={15} /> Нарезать
+          <Scissors size={15} /> {anyProcessing ? 'Нарезаю…' : 'Нарезать'}
         </button>
       </div>
       {busy && <div className="text-sm text-gray-500 mb-3">{busy}</div>}
+
+      {/* ⚠️⚠️ ПЛАШКА СОСТОЯНИЯ — главное, чего не хватало. Нарезка идёт на
+          сервере минутами, а на экране менялся только цвет полосок: понять,
+          работает оно или сломалось, было нельзя. Считается по данным из базы,
+          поэтому переживает обновление страницы и виден с другого устройства. */}
+      {anyProcessing && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 mb-4">
+          <div className="flex items-center gap-2 font-medium text-amber-900">
+            <span className="w-4 h-4 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin shrink-0" />
+            Нарезка идёт — готово {readyCount} из {cuts.length}
+          </div>
+          <p className="text-sm text-amber-800 mt-1.5 leading-relaxed">
+            Сервер режет запись, это занимает несколько минут. Страницу можно закрыть —
+            работа не прервётся. Готовые куски появляются здесь сами, обновлять ничего не нужно.
+          </p>
+          <div className="mt-2.5 h-1.5 rounded-full bg-amber-200 overflow-hidden">
+            <div className="h-full bg-amber-600 transition-all"
+                 style={{ width: `${Math.round((readyCount / Math.max(1, cuts.length)) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Нарезка закончилась, пока человек смотрел на страницу. */}
+      {doneMsg && !anyProcessing && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 mb-4
+                        flex items-start gap-2 text-sm text-emerald-900">
+          <span className="flex-1">{doneMsg}</span>
+          <button onClick={() => setDoneMsg('')}
+                  className="text-emerald-700/60 hover:text-emerald-900 shrink-0">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
+      {/* Всё нарезано — чтобы зелёные полосы не приходилось расшифровывать. */}
+      {!anyProcessing && !doneMsg && cuts.length > 0 && readyCount === cuts.length && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 mb-4 text-sm text-emerald-900">
+          Запись нарезана на {cuts.length} {plural(cuts.length, 'кусок', 'куска', 'кусков')} —
+          зелёные полосы на таймлайне. Каждый можно скачать в списке ниже; спикеры видят свои
+          выступления у себя в кабинете.
+        </div>
+      )}
+
+      {failedCount > 0 && !anyProcessing && (
+        <div className="rounded-xl bg-red-50 border border-red-200 p-3 mb-4 text-sm text-red-900">
+          Не получилось нарезать {failedCount} {plural(failedCount, 'кусок', 'куска', 'кусков')} —
+          они отмечены красным в списке. Нажмите «Нарезать» ещё раз: система попробует только их.
+        </div>
+      )}
 
       {/* ⚠️ У записей, сделанных до появления учёта смещения, момент начала
           эфира системе неизвестен. Это НЕ повод отбирать раскладку: данных для

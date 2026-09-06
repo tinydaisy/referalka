@@ -1104,6 +1104,17 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
   }, [eventId, day])
 
   useEffect(() => { load() }, [load])
+
+  // ⚠️ Пока сервер режет запись — перечитываем список, чтобы «Нарезка идёт»
+  // сама сменилась на «Нарезана на N». Иначе человек сидит на неменяющемся
+  // экране и не понимает, закончилось оно или зависло.
+  const cutting = recs.some((r: any) => (r.cuts_processing || 0) > 0)
+  useEffect(() => {
+    if (!cutting) return
+    const t = setInterval(load, 8000)
+    return () => clearInterval(t)
+  }, [cutting, load])
+
   if (loading) return <Spinner />
 
   async function remove(id: number) {
@@ -1131,8 +1142,25 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                   <div className="text-xs text-gray-500">
                     {r.status === 'ready' ? `${fmtDur(r.duration_sec)} · ${fmtSize(r.size_bytes)}`
                       : r.status === 'processing' ? '⏳ обрабатывается…' : '⚠️ ошибка обработки'}
-                    {r.cuts_count ? ` · нарезано на ${r.cuts_count}` : ''}
                   </div>
+                  {/* ⚠️ Состояние нарезки — словами и здесь тоже: человек
+                      смотрит в список, а не только на страницу нарезки.
+                      Раньше строка писала «нарезано на 8», когда готов был один
+                      кусок, а семь ещё резались. */}
+                  {r.cuts_processing > 0 ? (
+                    <div className="text-xs text-amber-700 mt-0.5 flex items-center gap-1.5">
+                      <span className="w-3 h-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin shrink-0" />
+                      Нарезка идёт — готово {r.cuts_ready} из {r.cuts_count}
+                    </div>
+                  ) : r.cuts_ready > 0 ? (
+                    <div className="text-xs text-emerald-700 mt-0.5">
+                      Нарезана на {r.cuts_ready} — куски внутри
+                    </div>
+                  ) : r.cuts_count > 0 ? (
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Метки расставлены ({r.cuts_count}), нарезка не запущена
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {r.status === 'ready' && r.url && (
@@ -1144,7 +1172,8 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                     // отложить, сохранить адрес и вернуться.
                     <a href={`${basePath}/${eventId}/recordings/${r.id}?day=${day}`}
                        className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">
-                      ✂️ Нарезать
+                      {r.cuts_processing > 0 ? '✂️ Нарезка идёт'
+                        : r.cuts_ready > 0 ? '✂️ Куски' : '✂️ Нарезать'}
                     </a>
                   )}
                   {r.status === 'ready' && r.url && (

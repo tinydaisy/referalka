@@ -552,10 +552,16 @@ async def recordings(event_id: int, day_number: int, client=Depends(get_current_
     # редактору нарезки: до него в записи лежит проверка звука, и без этого
     # числа автораскладка меток по программе уехала бы на всю подготовку.
     # NULL = посчитать не удалось (старая запись) → метки только руками.
+    # ⚠️ Счётчики РАЗДЕЛЬНЫЕ. Одно общее число врало, пока идёт нарезка: список
+    # писал «нарезано на 8», когда готов был один кусок, а семь ещё резались.
     rows = await db.fetch(
         "SELECT id, session_id, url, status, duration_sec, size_bytes, started_at, ended_at, "
         "       created_at, live_offset_sec, "
-        "       (SELECT count(*) FROM webinar_recording_cuts c WHERE c.recording_id = r.id) AS cuts_count "
+        "       (SELECT count(*) FROM webinar_recording_cuts c WHERE c.recording_id = r.id) AS cuts_count, "
+        "       (SELECT count(*) FROM webinar_recording_cuts c WHERE c.recording_id = r.id "
+        "          AND c.status='ready') AS cuts_ready, "
+        "       (SELECT count(*) FROM webinar_recording_cuts c WHERE c.recording_id = r.id "
+        "          AND c.status='processing') AS cuts_processing "
         "FROM webinar_recordings r WHERE room_id=$1 ORDER BY created_at DESC", rid)
     return {"recordings": [dict(r) for r in rows]}
 

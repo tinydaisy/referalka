@@ -76,6 +76,7 @@ const ARTICLES: Record<string, React.ComponentType> = {
   'event-setup': dynamic(() => import('../../dashboard/help/event-setup/page'), { loading: Loading }),
   'event-tariffs': dynamic(() => import('../../dashboard/help/event-tariffs/page'), { loading: Loading }),
   'event-webinar': dynamic(() => import('../../dashboard/help/event-webinar/page'), { loading: Loading }),
+  'recording-cuts': dynamic(() => import('../../dashboard/help/recording-cuts/page'), { loading: Loading }),
   'event-welcome': dynamic(() => import('../../dashboard/help/event-welcome/page'), { loading: Loading }),
   'getting-started': dynamic(() => import('../../dashboard/help/getting-started/page'), { loading: Loading }),
   'lead-magnet-survey': dynamic(() => import('../../dashboard/help/lead-magnet-survey/page'), { loading: Loading }),
