@@ -18,6 +18,7 @@
 import Link from 'next/link'
 import { Lock } from 'lucide-react'
 import { useFeatureCatalog, tariffListText } from './FeatureLock'
+import { useMe } from '@/hooks/useMe'
 
 /**
  * Заголовок плашки по фиче: «Оферты — в тарифе Профи и Экстра».
@@ -54,7 +55,12 @@ export function LockedOverlayIf({
   href?: string
   cta?: string
 }) {
-  if (!locked) return <>{children}</>
+  // ⚠️ Когда подписка истекла, весь кабинет уже замылен макетом
+  // (FrozenContent). Второй слой поверх давал ДВОЙНОЕ размытие — нечитаемым
+  // становилось даже объяснение и заголовок раздела (поймано на «Анкетах»).
+  // В этом случае молчим: плашка макета уже всё сказала.
+  const { subFrozen } = useMe()
+  if (!locked || subFrozen) return <>{children}</>
   return <LockedOverlay {...rest}>{children}</LockedOverlay>
 }
 
