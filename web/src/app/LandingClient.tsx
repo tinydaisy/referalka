@@ -371,9 +371,12 @@ function ModuleCard({ m, registerHref }: { m: Feature; registerHref: string }) {
             </span>
             <span className="text-sm text-gray-400">/ мес</span>
           </div>
+          {/* ⚠️ Процент СЧИТАЕМ из цен, а не пишем числом: захардкоженное
+              «−20%» переживёт правку цены и начнёт врать. */}
           {m.price_6mo && m.price_6mo < (m.price_monthly || 0) && (
             <p className="text-xs text-emerald-600 font-medium">
-              {m.price_6mo.toLocaleString('ru-RU')} ₽/мес при оплате за 6 мес (−20%)
+              {m.price_6mo.toLocaleString('ru-RU')} ₽/мес при оплате за 6 мес
+              {' '}(−{Math.round((1 - m.price_6mo / (m.price_monthly || 1)) * 100)}%)
             </p>
           )}
         </>

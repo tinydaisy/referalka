@@ -26,6 +26,7 @@ from app.services.bonuses import (
     debit_bonus_for_payment,
 )
 from app.services.share_links import TG_DOMAIN
+from app.services import tariff_periods
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +302,9 @@ async def create_withdrawal_request(
 
 class PayWithBonusRequest(BaseModel):
     tariff_slug: str
+    # ⚠️ Тот же набор периодов, что у оплаты картой (1/6/12, миграция 359):
+    # иначе бонусами нельзя было бы купить год со скидкой, хотя картой — можно.
+    months: int = 1
 
 
 @pay_router.post("/pay-with-bonus", summary="Оплатить подписку бонусами (100% покрытие)")
@@ -312,6 +316,14 @@ async def pay_with_bonus(
     """Если бонусов хватает на полную цену тарифа — списываем баланс и
     продлеваем подписку без Prodamus. Частичная оплата (бонус+карта) НЕ
     поддерживается (требует динамической цены в Prodamus, которой нет).
+
+    ⚠️ Период (1/6/12 мес) считает та же точка, что и оплата картой —
+    services/tariff_periods.py. Карточка LeadPay здесь не нужна: деньги не
+    ходят наружу, поэтому провайдер передаётся как 'bonus'.
+
+    ⚠️ Правило «только вся сумма целиком» сохранено, но при нехватке бонусов на
+    длинный срок предлагаем срок КОРОЧЕ, а не просто отказываем: у человека
+    может хватать на месяц, и молчать об этом незачем.
     """
     if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Оплата подписки доступна только владельцу кабинета")
@@ -319,7 +331,7 @@ async def pay_with_bonus(
     client_id = int(user["sub"])
 
     tariff = await db.fetchrow(
-        """SELECT id, slug, name, price, default_duration_days
+        """SELECT id, slug, name, price, price_6mo, price_12mo, default_duration_days
              FROM tariffs WHERE slug = $1 AND is_active = TRUE""",
         data.tariff_slug,
     )
@@ -328,25 +340,40 @@ async def pay_with_bonus(
     if float(tariff["price"]) <= 0:
         raise HTTPException(status_code=400, detail="Бесплатный тариф не требует оплаты")
 
-    amount_kopecks = int(round(float(tariff["price"]) * 100))
+    try:
+        period = tariff_periods.assert_payable(tariff, data.months, "bonus")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    months = period["months"]
+    amount_kopecks = period["total_kopecks"]
     balance = await get_balance(db, client_id)
     if balance < amount_kopecks:
+        # Подсказываем самый длинный срок, который бонусами уже закрывается.
+        affordable = tariff_periods.affordable_months(tariff, balance, "bonus")
+        hint = (
+            f" Бонусов хватает на {affordable} мес.— выберите этот срок."
+            if affordable and affordable != months else ""
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"Недостаточно бонусов. На балансе {balance / 100:.0f}₽, нужно {amount_kopecks / 100:.0f}₽",
+            detail=(
+                f"Недостаточно бонусов. На балансе {balance / 100:.0f} ₽, "
+                f"нужно {amount_kopecks / 100:.0f} ₽ за {months} мес.{hint}"
+            ),
         )
 
-    duration_days = int(tariff["default_duration_days"] or 30)
+    duration_days = int(tariff["default_duration_days"] or 30) * max(months, 1)
 
     async with db.transaction():
         # 1) Создаём subscription_order со 100% покрытием бонусами
         order_id = await db.fetchval(
             """INSERT INTO subscription_orders
                  (client_id, tariff_id, amount_total_kopecks, amount_paid_card_kopecks,
-                  amount_paid_bonus_kopecks, status, paid_at)
-               VALUES ($1, $2, $3, 0, $3, 'paid', NOW())
+                  amount_paid_bonus_kopecks, status, paid_at, months)
+               VALUES ($1, $2, $3, 0, $3, 'paid', NOW(), $4)
                RETURNING id""",
-            client_id, tariff["id"], amount_kopecks,
+            client_id, tariff["id"], amount_kopecks, months,
         )
 
         # 2) Списываем бонусы

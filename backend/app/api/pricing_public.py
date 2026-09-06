@@ -9,6 +9,7 @@ read-only публичных данных.
 """
 from fastapi import APIRouter, Depends
 from app.database import get_db
+from app.services import tariff_periods
 import asyncpg
 
 router = APIRouter(prefix="/api/v1/public", tags=["Публичные данные лендинга"])
@@ -23,10 +24,16 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
     (обычно не показывают, потому что регистрация = автоматический trial).
     """
     rows = await db.fetch(
-        """SELECT t.id, t.slug, t.name, t.price, t.default_duration_days,
+        # ⚠️ price_6mo / price_12mo — цена ЗА МЕСЯЦ при оплате за 6 и 12 месяцев
+        # (миграция 359). Сам процент скидки НЕ хранится: его считает
+        # tariff_periods из этих цен, поэтому подпись «−20%» физически не может
+        # разойтись с суммой к оплате.
+        """SELECT t.id, t.slug, t.name, t.price, t.price_6mo, t.price_12mo,
+                  t.default_duration_days,
                   t.contact_limit, t.broadcasts_daily_limit,
                   t.prodamus_payment_url,
                   (t.leadpay_product_id IS NOT NULL AND t.leadpay_product_id <> '') AS leadpay_product_id,
+                  t.leadpay_product_id_6mo, t.leadpay_product_id_12mo,
                   t.promo_banner_text, t.promo_old_price,
                   t.is_active, t.bullet_points,
                   ARRAY(SELECT f.slug FROM tariff_features tf
@@ -47,6 +54,15 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
                 d["bullet_points"] = json.loads(bp)
             except Exception:
                 d["bullet_points"] = []
+        # Готовые периоды с итогами и скидками — фронт ничего не вычисляет сам.
+        # Провайдер leadpay: только у него заведены карточки на длинные сроки.
+        d["periods"] = tariff_periods.periods_for(r, "leadpay") or [
+            tariff_periods.period_of(r, 1, "prodamus")
+        ]
+        # Внутренние идентификаторы карточек наружу не отдаём — они не нужны
+        # фронту (сумму выбирает LeadPay по карточке) и это лишняя утечка.
+        d.pop("leadpay_product_id_6mo", None)
+        d.pop("leadpay_product_id_12mo", None)
         out.append(d)
     return {"tariffs": out}
 

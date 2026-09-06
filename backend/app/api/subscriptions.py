@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.auth import get_current_client as get_current_user, get_current_admin
 from app.services.assistant_access import assistant_is_restricted
+from app.services import tariff_periods
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ router = APIRouter(prefix="/subscriptions", tags=["Подписка клиент
 class CreateOrderRequest(BaseModel):
     tariff_slug: str  # 'start' | 'pro' | 'vip'
     provider: str = "prodamus"  # 'prodamus' | 'leadpay'
+    # ⚠️ Сколько месяцев оплачиваем: 1, 6 или 12 (миграция 359). Мусор приводится
+    # к 1 месяцу, а не роняет оплату — см. tariff_periods.normalize_months.
+    months: int = 1
 
 
 @router.post("/order", summary="Создать заказ на оплату подписки")
@@ -57,6 +61,11 @@ async def create_order(
     provider='prodamus' — приклеиваем order_id к готовой Prodamus-ссылке.
     provider='leadpay'  — создаём ссылку через LeadPay getLink (product_id из tariffs).
     Цена и duration берутся из tariffs в момент создания заказа.
+
+    ⚠️ Период (1/6/12 мес) считает ОДНА точка — services/tariff_periods.py.
+    У каждого периода СВОЯ карточка LeadPay: сумма лежит в ней, мы её не шлём.
+    Число месяцев пишется в заказ — по нему вебхук решает, на сколько продлить;
+    без этого оплата за год давала бы 30 дней.
     """
     if await assistant_is_restricted(user):
         raise HTTPException(status_code=403, detail="Оплата подписки доступна только владельцу кабинета")
@@ -68,8 +77,9 @@ async def create_order(
     client_id = int(user["sub"])
 
     tariff = await db.fetchrow(
-        """SELECT id, slug, name, price, default_duration_days,
-                  prodamus_payment_url, leadpay_product_id, is_active
+        """SELECT id, slug, name, price, price_6mo, price_12mo, default_duration_days,
+                  prodamus_payment_url, leadpay_product_id,
+                  leadpay_product_id_6mo, leadpay_product_id_12mo, is_active
              FROM tariffs WHERE slug = $1""",
         data.tariff_slug,
     )
@@ -81,10 +91,14 @@ async def create_order(
         raise HTTPException(status_code=400, detail="Бесплатный тариф не оплачивается")
     if provider == "prodamus" and not tariff["prodamus_payment_url"]:
         raise HTTPException(status_code=400, detail="Для этого тарифа не настроена ссылка оплаты Prodamus")
-    if provider == "leadpay" and not tariff["leadpay_product_id"]:
-        raise HTTPException(status_code=400, detail="Для этого тарифа не настроена карточка LeadPay (product_id)")
 
-    amount_kopecks = int(round(float(tariff["price"]) * 100))
+    try:
+        period = tariff_periods.assert_payable(tariff, data.months, provider)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    months = period["months"]
+    amount_kopecks = period["total_kopecks"]
 
     client = await db.fetchrow(
         "SELECT email, phone, name FROM clients WHERE id = $1",
@@ -93,10 +107,10 @@ async def create_order(
 
     order_id = await db.fetchval(
         """INSERT INTO subscription_orders
-             (client_id, tariff_id, amount_total_kopecks, status, payment_provider)
-           VALUES ($1, $2, $3, 'created', $4)
+             (client_id, tariff_id, amount_total_kopecks, status, payment_provider, months)
+           VALUES ($1, $2, $3, 'created', $4, $5)
            RETURNING id""",
-        client_id, tariff["id"], amount_kopecks, provider,
+        client_id, tariff["id"], amount_kopecks, provider, months,
     )
 
     if provider == "leadpay":
@@ -106,7 +120,7 @@ async def create_order(
         try:
             payment_url = await leadpay.create_payment_link(
                 order_id=order_id,
-                product_id=tariff["leadpay_product_id"],
+                product_id=period["leadpay_product_id"],
                 notification_url=f"{base}/api/v1/integrations/leadpay/webhook",
                 email=client["email"] or None,
                 phone=client["phone"] or None,
@@ -134,7 +148,12 @@ async def create_order(
     return {
         "order_id": order_id,
         "payment_url": payment_url,
-        "amount_rub": float(tariff["price"]),
+        # ⚠️ Итог за ВЕСЬ период, а не цена месяца: человек увидит эту сумму
+        # в платёжке, и расхождение читалось бы как обман.
+        "amount_rub": amount_kopecks / 100,
+        "month_price_rub": period["month_price"],
+        "months": months,
+        "discount_percent": period["discount_percent"],
         "tariff_name": tariff["name"],
         "provider": provider,
     }
@@ -168,6 +187,7 @@ async def list_orders(
     client_id = int(user["sub"])
     rows = await db.fetch(
         """SELECT so.id, so.status, so.amount_total_kopecks, so.amount_paid_card_kopecks,
+                  so.months,
                   so.paid_at, so.created_at, t.slug AS tariff_slug, t.name AS tariff_name
              FROM subscription_orders so
              JOIN tariffs t ON t.id = so.tariff_id
@@ -327,13 +347,23 @@ async def _apply_paid_subscription_order(
     payment_type: Optional[str] = None,
 ) -> dict:
     """order — строка subscription_orders + join tariffs (id, client_id, tariff_id,
-    status, default_duration_days, tariff_slug). Идемпотентность: если уже paid —
-    возвращает already_paid. Иначе помечает оплаченным и выдаёт подписку."""
+    status, months, default_duration_days, tariff_slug). Идемпотентность: если уже
+    paid — возвращает already_paid. Иначе помечает оплаченным и выдаёт подписку.
+
+    ⚠️ Срок = `default_duration_days` × число ОПЛАЧЕННЫХ месяцев из заказа
+    (`subscription_orders.months`, миграция 359). Без множителя оплата за год
+    (19 104 ₽) давала бы 30 дней — деньги списаны, доступа нет.
+
+    ⚠️ Месяцы берутся ИЗ ЗАКАЗА, а не из тарифа: цена и период зафиксированы в
+    момент покупки, и правка тарифа задним числом не должна менять уже
+    оплаченный срок.
+    """
     order_id = order["id"]
     if order["status"] == "paid":
         return {"ok": True, "already_paid": True}
 
-    duration_days = int(order["default_duration_days"] or 30)
+    months = int(order["months"] or 1) if "months" in order else 1
+    duration_days = int(order["default_duration_days"] or 30) * max(months, 1)
 
     async with db.transaction():
         await db.execute(
@@ -454,7 +484,8 @@ async def prodamus_webhook(
         return {"ok": True, "ignored": "order_id is not an integer"}
 
     order = await db.fetchrow(
-        """SELECT so.id, so.client_id, so.tariff_id, so.status, t.default_duration_days, t.slug AS tariff_slug
+        """SELECT so.id, so.client_id, so.tariff_id, so.status, so.months,
+                  t.default_duration_days, t.slug AS tariff_slug
              FROM subscription_orders so
              JOIN tariffs t ON t.id = so.tariff_id
             WHERE so.id = $1""",
@@ -534,7 +565,7 @@ async def leadpay_webhook(
         return {"ok": True, "ignored": "order_id is not an integer"}
 
     order = await db.fetchrow(
-        """SELECT so.id, so.client_id, so.tariff_id, so.status,
+        """SELECT so.id, so.client_id, so.tariff_id, so.status, so.months,
                   t.default_duration_days, t.slug AS tariff_slug
              FROM subscription_orders so
              JOIN tariffs t ON t.id = so.tariff_id

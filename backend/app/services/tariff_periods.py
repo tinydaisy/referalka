@@ -99,13 +99,20 @@ def period_of(tariff, months: int, provider: str) -> dict:
     """Всё о выбранном периоде разом: цена, итог, карточка, скидка, продаётся ли.
 
     `payable` — можно ли оплатить период этим провайдером ПРЯМО СЕЙЧАС.
+
+    ⚠️ Провайдер `bonus` (оплата бонусами) карточку LeadPay не требует — деньги
+    наружу не уходят. Приравнять его к Продамусу нельзя: тогда бонусами
+    нельзя было бы купить год, хотя картой — можно.
     """
     months = normalize_months(months)
     price = month_price(tariff, months)
     lp = leadpay_product_id(tariff, months)
-    payable = price is not None and (
-        bool(lp) if provider == "leadpay" else months == 1
-    )
+    if provider == "leadpay":
+        payable = price is not None and bool(lp)
+    elif provider == "bonus":
+        payable = price is not None
+    else:  # prodamus и всё остальное — только помесячно
+        payable = price is not None and months == 1
     return {
         "months": months,
         "month_price": float(price) if price is not None else None,
@@ -114,6 +121,33 @@ def period_of(tariff, months: int, provider: str) -> dict:
         "leadpay_product_id": lp,
         "payable": payable,
     }
+
+
+def periods_for(tariff, provider: str) -> list:
+    """Все продаваемые периоды тарифа — для витрины кабинета.
+
+    Отдаёт только те, что реально можно оплатить: период без цены или без
+    карточки в списке не показывается, иначе клиент упрётся в отказ уже после
+    выбора срока.
+    """
+    return [
+        p for p in (period_of(tariff, m, provider) for m in ALLOWED_MONTHS)
+        if p["payable"]
+    ]
+
+
+def affordable_months(tariff, balance_kopecks: int, provider: str):
+    """Самый ДЛИННЫЙ период, который влезает в указанную сумму. None — никакой.
+
+    Нужен подсказке при нехватке бонусов: правило «оплата только целиком»
+    остаётся, но человеку называем срок, который ему уже доступен.
+    """
+    best = None
+    for p in periods_for(tariff, provider):
+        total = p["total_kopecks"]
+        if total is not None and total <= balance_kopecks:
+            best = p["months"]
+    return best
 
 
 def assert_payable(tariff, months: int, provider: str) -> dict:

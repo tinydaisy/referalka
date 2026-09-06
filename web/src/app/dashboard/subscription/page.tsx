@@ -12,6 +12,9 @@ export default function SubscriptionPage() {
   // Слаги, которые не показываем в карточке тарифа (доступ при этом есть).
   const [hiddenFeatures, setHiddenFeatures] = useState<Set<string>>(new Set())
   const [selectedSlug, setSelectedSlug] = useState<string>('')
+  // Выбранный срок оплаты — ОДИН на все карточки: сравнивать тарифы можно
+  // только в одинаковом сроке, иначе рядом стоят «1990 ₽» и «19 104 ₽».
+  const [months, setMonths] = useState(1)
   const [bonusBalance, setBonusBalance] = useState(0)
   const [paidBanner, setPaidBanner] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -70,15 +73,32 @@ export default function SubscriptionPage() {
     ? new Date(sub.expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
     : '—'
 
+  // Период тарифа по выбранному сроку. Всё считает бэкенд (services/tariff_periods.py)
+  // и отдаёт готовым в `periods` — здесь ничего не вычисляем, иначе подпись
+  // «−20%» однажды разойдётся с суммой, которую человек реально платит.
+  function periodOf(t: any, m: number) {
+    const list = t?.periods || []
+    return list.find((p: any) => p.months === m) || list.find((p: any) => p.months === 1) || null
+  }
+
+  // Сроки, которые есть хотя бы у одного тарифа — из них строим переключатель.
+  const availableMonths: number[] = Array.from(
+    new Set<number>(tariffs.flatMap((t: any) => (t.periods || []).map((p: any) => Number(p.months))))
+  ).sort((a, b) => a - b)
+
   async function pay(slug: string, tariff: any) {
     if (!slug) return
+    const period = periodOf(tariff, months)
     setSelectedSlug(slug)
     setLoading(true)
     setError('')
     try {
       // Провайдер: LeadPay если у тарифа настроена карточка, иначе Prodamus.
+      // ⚠️ Длинные сроки бывают только у LeadPay — у Продамуса нет готовых
+      // ссылок на такие суммы, поэтому при нём срок всегда 1 месяц.
       const provider = tariff?.leadpay_product_id ? 'leadpay' : 'prodamus'
-      const res = await api.subscriptions.createOrder(slug, provider)
+      const payMonths = provider === 'leadpay' ? (period?.months || 1) : 1
+      const res = await api.subscriptions.createOrder(slug, provider, payMonths)
       if (res?.payment_url) window.location.href = res.payment_url
       else { setError('Не удалось создать заказ'); setLoading(false) }
     } catch (e: any) {
@@ -86,13 +106,14 @@ export default function SubscriptionPage() {
     }
   }
 
-  async function payWithBonus(slug: string, priceKopecks: number) {
+  async function payWithBonus(slug: string, priceKopecks: number, payMonths: number) {
     if (!slug || bonusBalance < priceKopecks || priceKopecks <= 0) return
-    if (!confirm(`Списать ${(priceKopecks / 100).toLocaleString('ru-RU')} ₽ с бонусного баланса?`)) return
+    const forWhat = payMonths > 1 ? ` за ${payMonths} мес.` : ''
+    if (!confirm(`Списать ${(priceKopecks / 100).toLocaleString('ru-RU')} ₽ с бонусного баланса${forWhat}?`)) return
     setSelectedSlug(slug)
     setBonusLoading(true); setError('')
     try {
-      await api.subscriptions.payWithBonus(slug)
+      await api.subscriptions.payWithBonus(slug, payMonths)
       setPaidBanner(true)
       setBonusBalance(b => b - priceKopecks)
       setTimeout(() => window.location.reload(), 1500)
@@ -199,10 +220,59 @@ export default function SubscriptionPage() {
             </div>
           )}
 
+          {/* Переключатель срока оплаты. Показываем, только если длинные сроки
+              вообще настроены — иначе одинокая кнопка «1 месяц» бессмысленна. */}
+          {availableMonths.length > 1 && (
+            <div className="mb-4">
+              <div className="inline-flex flex-wrap gap-1 rounded-xl bg-gray-100 p-1">
+                {availableMonths.map(m => {
+                  const active = months === m
+                  // Скидку берём у любого тарифа, где этот срок есть: она
+                  // одинакова у всех (−12% / −20%), но НЕ хардкодим её здесь —
+                  // цифра приходит с бэка вместе с ценой.
+                  const pct = tariffs.map(t => periodOf(t, m)?.discount_percent || 0)
+                    .find(p => p > 0) || 0
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => setMonths(m)}
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                        active ? 'bg-white text-[#25455D] shadow-sm' : 'text-gray-500 hover:text-[#25455D]'
+                      }`}
+                    >
+                      {m === 1 ? '1 месяц' : `${m} мес.`}
+                      {pct > 0 && (
+                        <span className={`ml-1.5 text-[11px] font-bold ${active ? 'text-emerald-600' : 'text-emerald-500'}`}>
+                          −{pct}%
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              {months > 1 && (
+                <div className="mt-1.5 text-xs text-gray-500">
+                  Оплата сразу за {months} мес. — дешевле, чем платить помесячно.
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {tariffs.map(t => {
               const isCurrent = me?.subscription?.tariff_slug === t.slug
-              const priceKopecks = Math.round(Number(t.price) * 100)
+              // ⚠️ Всё о цене — из периода, посчитанного бэкендом. Своей
+              // арифметики тут нет: сумма в кнопке обязана совпадать с суммой
+              // в платёжке до копейки.
+              const period = periodOf(t, months)
+              const payMonths = period?.months || 1
+              // Период у тарифа не настроен (напр. только Продамус) — показываем
+              // месячную цену и честно предупреждаем под кнопкой.
+              const noLongPeriod = months > 1 && payMonths !== months
+              const monthPrice = Number(period?.month_price ?? t.price)
+              const priceKopecks = period?.total_kopecks ?? Math.round(Number(t.price) * 100)
+              const totalRub = priceKopecks / 100
+              const discount = period?.discount_percent || 0
               const busy = selectedSlug === t.slug && (loading || bonusLoading)
               const canBonus = bonusBalance >= priceKopecks && priceKopecks > 0
               return (
@@ -218,8 +288,25 @@ export default function SubscriptionPage() {
                     </div>
                   )}
                   <div className="font-semibold text-gray-900">{t.name}</div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    {t.promo_old_price && Number(t.promo_old_price) > Number(t.price) ? (
+                  {/* ⚠️ Крупно — цена ЗА МЕСЯЦ, под ней итог за весь срок.
+                      Наоборот нельзя: рядом с «1990 ₽» соседняя карточка с
+                      «19 104 ₽» читается как в десять раз дороже, хотя это
+                      тот же тариф на год и месяц там ДЕШЕВЛЕ. */}
+                  <div className="mt-1 flex items-baseline gap-2 flex-wrap">
+                    {payMonths > 1 ? (
+                      <>
+                        <span className="text-sm line-through text-gray-400">
+                          {Number(t.price).toLocaleString('ru-RU')} ₽
+                        </span>
+                        <span className="text-xl font-bold text-[#25455D]">
+                          {monthPrice.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
+                        </span>
+                        <span className="text-[11px] text-gray-500">/мес</span>
+                        {discount > 0 && (
+                          <span className="text-[11px] font-bold text-emerald-600">−{discount}%</span>
+                        )}
+                      </>
+                    ) : t.promo_old_price && Number(t.promo_old_price) > Number(t.price) ? (
                       <>
                         <span className="text-sm line-through text-gray-400">{Number(t.promo_old_price).toLocaleString('ru-RU')} ₽</span>
                         <span className="text-xl font-bold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
@@ -228,7 +315,11 @@ export default function SubscriptionPage() {
                       <span className="text-xl font-bold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
                     )}
                   </div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">за {t.default_duration_days} дн.</div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">
+                    {payMonths > 1
+                      ? `${totalRub.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽ за ${payMonths} мес. одним платежом`
+                      : `за ${t.default_duration_days} дн.`}
+                  </div>
 
                   <div className="space-y-1 mt-3 text-xs text-gray-600 flex-1">
                     {/* ⚠️ Пустой лимит = БЕЗЛИМИТ (см. contact_limits.py) — без этой
@@ -265,13 +356,19 @@ export default function SubscriptionPage() {
                   >
                     {busy && loading
                       ? <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
-                      : isCurrent
-                        ? `Продлить за ${Number(t.price).toLocaleString('ru-RU')} ₽`
-                        : `Оплатить ${Number(t.price).toLocaleString('ru-RU')} ₽`}
+                      : `${isCurrent ? 'Продлить' : 'Оплатить'} ${totalRub.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽${payMonths > 1 ? ` за ${payMonths} мес.` : ''}`}
                   </button>
+                  {/* ⚠️ Молча подставить месяц вместо выбранного года нельзя —
+                      человек нажал бы «Оплатить» в полной уверенности, что
+                      берёт год со скидкой. */}
+                  {noLongPeriod && (
+                    <div className="mt-1.5 text-[11px] text-amber-700">
+                      Для этого тарифа оплата за {months} мес. не настроена — спишется за 1 месяц.
+                    </div>
+                  )}
                   {canBonus && (
                     <button
-                      onClick={() => payWithBonus(t.slug, priceKopecks)}
+                      onClick={() => payWithBonus(t.slug, priceKopecks, payMonths)}
                       disabled={busy}
                       className="w-full mt-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
                     >
@@ -482,7 +579,12 @@ function SubscriptionHistoryBlock() {
           return (
             <div key={o.id} className="flex items-center justify-between text-sm py-2 border-b border-gray-50 last:border-0">
               <div>
-                <div className="font-medium text-gray-800">{o.tariff_name}</div>
+                {/* Срок в истории обязателен: без него две оплаты одного
+                    тарифа на разные суммы выглядят как ошибка списания. */}
+                <div className="font-medium text-gray-800">
+                  {o.tariff_name}
+                  {o.months > 1 && <span className="text-gray-500 font-normal"> · {o.months} мес.</span>}
+                </div>
                 <div className="text-xs text-gray-400">
                   {new Date(o.created_at).toLocaleString('ru-RU', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
                 </div>
