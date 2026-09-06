@@ -124,7 +124,15 @@ export default function ChannelsPage() {
       ])
       setMe(meRes)
       setChannels(chs.items || [])
-      setPlatforms(pls.items || [])
+      // ⚠️ Instagram прячем без фичи `instagram_funnel` — иначе клиент выберет
+      // площадку в списке и упрётся в 403 вместо объяснения. Фильтр стоит в
+      // ОДНОЙ точке (при записи в состояние), поэтому форма подхватывает сама.
+      const feats: string[] = meRes?.features || []
+      setPlatforms(
+        (pls.items || []).filter((p: Platform) =>
+          p.slug !== 'instagram' || feats.includes('instagram_funnel'),
+        ),
+      )
     } catch (e) {
       console.error(e)
     } finally {
@@ -1785,6 +1793,10 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
           {/* WhatsApp — привязка по QR прямо в форме (нет токена/handle). */}
           {!channel && platformSlug === 'whatsapp' ? (
             <WhatsAppConnectInline onClose={onClose} />
+          ) : /* Instagram — вход через Facebook, токен выдаёт Meta.
+                 Ни токена, ни handle руками не вводят: обычная форма не подходит. */
+          !channel && platformSlug === 'instagram' ? (
+            <InstagramConnectInline />
           ) : /* VK подключается отдельным мастером — у обычной формы нет нужных полей
               (Access Token, App ID, Secure Key, ID сообщества). Перебрасываем туда. */
           !channel && platformSlug === 'vk' ? (
@@ -1876,7 +1888,7 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
           {/* Главный канал — переключение через явное действие с подтверждением.
               Без простой галочки, чтобы случайно не переключить воронку.
               Для VK при создании прячем — там отдельный мастер. */}
-          {!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp') ? null : !channel ? (
+          {!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp' || platformSlug === 'instagram') ? null : !channel ? (
             // Создание нового канала — обычная галочка
             <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50">
               <input
@@ -1977,9 +1989,9 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
 
         <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
-            {(!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp')) ? 'Закрыть' : 'Отмена'}
+            {(!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp' || platformSlug === 'instagram')) ? 'Закрыть' : 'Отмена'}
           </button>
-          {!(!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp')) && (
+          {!(!channel && (platformSlug === 'vk' || platformSlug === 'whatsapp' || platformSlug === 'instagram')) && (
             <button
               onClick={submit}
               disabled={saving}
@@ -2174,10 +2186,16 @@ const ID_COLUMN: Record<string, string> = {
 // Как называть площадку и ник в текстах ДЛЯ КЛИЕНТА. «telegram_id» и
 // «никнейм» он видит в шапке файла, а на экране должен читать человеческие
 // слова — и уж точно не слово «Telegram», когда грузит базу ВКонтакте.
-const PLATFORM_WORDS: Record<string, { title: string; nick: string }> = {
-  telegram: { title: 'Telegram',   nick: 'ников' },
-  vk:       { title: 'ВКонтакте',  nick: 'коротких адресов' },
-  max:      { title: 'MAX',        nick: 'ников' },
+//
+// ⚠️ `unit` — как называть саму точку доставки. Слово «канал» пришло из БД
+// (там боты, сообщества и почта лежат в одной таблице `channels`) и вылезло
+// на экран как есть: клиент читал «подписано на канал» и не понимал, речь про
+// бот, куда он грузит базу, или про его личный Telegram-канал. Пишем «бот» /
+// «сообщество» и рядом название — тогда двусмысленности нет.
+const PLATFORM_WORDS: Record<string, { title: string; nick: string; unit: string }> = {
+  telegram: { title: 'Telegram',   nick: 'ников',             unit: 'бот' },
+  vk:       { title: 'ВКонтакте',  nick: 'коротких адресов',  unit: 'сообщество' },
+  max:      { title: 'MAX',        nick: 'ников',             unit: 'бот' },
 }
 
 function csvTemplate(idCol: string) {
@@ -2538,6 +2556,7 @@ function ImportCsvModal({ channel, onClose, onDone }: {
             <ImportResultView
               result={result}
               platformSlug={channel.platform_slug}
+              channelName={channel.display_name}
               onDownloadReport={downloadReport}
               onClose={onDone}
             />
@@ -2548,14 +2567,19 @@ function ImportCsvModal({ channel, onClose, onDone }: {
   )
 }
 
-function ImportResultView({ result, platformSlug, onDownloadReport, onClose }: {
+function ImportResultView({ result, platformSlug, channelName, onDownloadReport, onClose }: {
   result: ImportResult
   platformSlug: string
+  channelName: string
   onDownloadReport: () => void
   onClose: () => void
 }) {
   const s = result.stats
-  const words = PLATFORM_WORDS[platformSlug] || { title: 'площадки', nick: 'ников' }
+  const words = PLATFORM_WORDS[platformSlug] || { title: 'площадки', nick: 'ников', unit: 'канал' }
+  // Название точки доставки прямо в подписи: «подписано на канал» клиент читал
+  // как «на мой личный Telegram-канал» и не понимал, добавились ли люди в бот,
+  // куда он только что грузил базу.
+  const where = `«${channelName}»`
   const hasIssues = s.skipped_no_tgid + s.skipped_invalid_tgid + s.duplicates_in_file + s.mismatches + (s.tg_clash_skipped || 0) > 0
 
   return (
@@ -2585,10 +2609,10 @@ function ImportResultView({ result, platformSlug, onDownloadReport, onClose }: {
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Новых людей добавлено" value={s.created_contacts} color="#25455D" />
-        <StatCard label="Уже были в вашей базе" value={s.matched_by_tg_id} color="#25455D" />
+        <StatCard label={`Уже были у вас — добавлены еще и в этот ${words.unit}`} value={s.matched_by_tg_id} color="#25455D" />
         <StatCard label="Узнали по почте или телефону" value={s.merged_by_email_phone} color="#7c3aed" />
-        <StatCard label="Подписано на канал" value={s.subscribed} color="#16a34a" />
-        <StatCard label="Отписано от канала" value={s.unsubscribed} color="#9ca3af" />
+        <StatCard label={`Подписано на ${where}`} unit="человек" value={s.subscribed} color="#16a34a" />
+        <StatCard label={`Отписано от ${where}`} unit="человек" value={s.unsubscribed} color="#9ca3af" />
         {((s as any).usernames_resolved > 0 || (s as any).usernames_already_known > 0) && (
           <StatCard label={`Узнали ${words.nick} у ${words.title}`} value={(s as any).usernames_resolved || 0} color="#25455D" />
         )}
@@ -2649,11 +2673,14 @@ function ImportResultView({ result, platformSlug, onDownloadReport, onClose }: {
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color, unit }: { label: string; value: number; color: string; unit?: string }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
       <div className="text-xs text-gray-500 mb-1">{label}</div>
-      <div className="text-2xl font-bold" style={{ color }}>{value.toLocaleString('ru')}</div>
+      <div className="text-2xl font-bold" style={{ color }}>
+        {value.toLocaleString('ru')}
+        {unit && <span className="text-sm font-medium text-gray-500 ml-1.5">{unit}</span>}
+      </div>
     </div>
   )
 }
@@ -2747,6 +2774,151 @@ function WhatsAppConnectInline({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-2 text-gray-600 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" /> Готовим QR-код… ({state})
         </div>
+      )}
+    </div>
+  )
+}
+
+
+// Подключение Instagram: вход через Facebook → выбор страницы → готово.
+//
+// ⚠️ Ни токена, ни ника руками не вводят — их выдаёт Meta после входа.
+// Поэтому обычная форма канала здесь не используется.
+//
+// ⚠️ Шаг выбора страницы отдельный и обязательный: страниц у человека бывает
+// несколько, и с рабочим Instagram связана не обязательно первая. Молча взять
+// первую — значит подключить не тот аккаунт, и воронка не увидит комментарии.
+function InstagramConnectInline() {
+  const [busy, setBusy] = useState(false)
+  const [accounts, setAccounts] = useState<any[] | null>(null)
+  const [pickKey, setPickKey] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+
+  // Возврат из Facebook приходит параметрами адреса: ig_pick — что выбрать,
+  // ig_error — понятная человеку причина отказа.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    const e = p.get('ig_error')
+    const k = p.get('ig_pick')
+    if (e) setErr(e)
+    if (k) {
+      setPickKey(k)
+      api.channels.instagramPending(k)
+        .then((r: any) => setAccounts(r.accounts || []))
+        .catch((x: any) => setErr(x?.message || 'Подключение устарело, начните заново'))
+    }
+    if (e || k) {
+      // чистим адрес, чтобы обновление страницы не повторяло тот же экран
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  const start = async () => {
+    setBusy(true); setErr(null)
+    try {
+      const r: any = await api.channels.instagramOauthUrl()
+      window.location.href = r.oauth_url
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось начать подключение')
+      setBusy(false)
+    }
+  }
+
+  const connect = async (page_id: string) => {
+    if (!pickKey) return
+    setBusy(true); setErr(null)
+    try {
+      const r: any = await api.channels.instagramConnect(pickKey, page_id)
+      setDone(r.username ? '@' + r.username : 'Аккаунт подключён')
+      setAccounts(null)
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось подключить аккаунт')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-semibold text-emerald-800">Instagram подключён — {done}</p>
+        <p className="text-xs text-emerald-700 mt-1">
+          Обновите страницу, чтобы увидеть карточку аккаунта в списке каналов.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+      {err && (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
+        </div>
+      )}
+
+      {accounts ? (
+        <>
+          <p className="text-sm font-semibold text-gray-900 mb-1">Выберите аккаунт</p>
+          <p className="text-xs text-gray-500 mb-3">
+            Мы нашли эти аккаунты Instagram среди ваших страниц Facebook.
+          </p>
+          {accounts.length === 0 ? (
+            <p className="text-sm text-gray-600">Подходящих аккаунтов не нашлось.</p>
+          ) : (
+            <div className="space-y-2">
+              {accounts.map((a) => (
+                <button
+                  key={a.page_id}
+                  onClick={() => connect(a.page_id)}
+                  disabled={busy}
+                  className="w-full flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-gray-300 disabled:opacity-50"
+                >
+                  {a.avatar
+                    ? <img src={a.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                    : <div className="w-10 h-10 rounded-full bg-gray-100" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-gray-900 truncate">
+                      @{a.username || a.name || 'аккаунт'}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {a.followers != null ? `${a.followers} подписчиков · ` : ''}
+                      страница «{a.page_name}»
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-gray-700 mb-3">
+            Instagram подключается входом через Facebook — токен выдаёт сама Meta,
+            вводить ничего не нужно.
+          </p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 mb-3">
+            <p className="text-xs text-amber-900 font-semibold mb-1">Что нужно до подключения</p>
+            <ul className="text-xs text-amber-900 space-y-1 list-disc pl-4">
+              <li>аккаунт Instagram — профессиональный (Бизнес или Автор);</li>
+              <li>он связан со страницей Facebook, где вы администратор;</li>
+              <li>включён VPN — окно Facebook в России не открывается.</li>
+            </ul>
+          </div>
+          <button
+            onClick={start}
+            disabled={busy}
+            className="btn-gold w-full disabled:opacity-50"
+          >
+            {busy ? 'Открываем Facebook…' : 'Подключить Instagram'}
+          </button>
+          <p className="text-[11px] text-gray-400 mt-2">
+            Платформа получит доступ только к комментариям и переписке этого аккаунта.
+            Отозвать можно в любой момент: Facebook → Настройки → «Приложения и сайты».
+          </p>
+        </>
       )}
     </div>
   )

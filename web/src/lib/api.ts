@@ -921,6 +921,19 @@ export const api = {
     whatsappChats: () => request('/api/v1/channels/whatsapp/chats'),
     whatsappLogout: () =>
       request('/api/v1/channels/whatsapp/logout', { method: 'POST' }),
+    // Instagram: вход через Facebook → выбор страницы → подключение аккаунта.
+    // ⚠️ Шаг выбора страницы отдельный: страниц у человека бывает несколько, и
+    // с рабочим Instagram связана не обязательно первая.
+    instagramOauthUrl: () => request('/api/v1/channels/instagram/oauth-url'),
+    instagramPending: (key: string) =>
+      request(`/api/v1/channels/instagram/pending/${key}`),
+    instagramConnect: (key: string, page_id: string) =>
+      request('/api/v1/channels/instagram/connect', {
+        method: 'POST',
+        body: JSON.stringify({ key, page_id }),
+      }),
+    instagramCheck: (channel_id: number) =>
+      request(`/api/v1/channels/instagram/${channel_id}/check`, { method: 'POST' }),
     vkOauthUrl: (channel_id: number) =>
       request(`/api/v1/channels/vk/oauth-url?channel_id=${channel_id}`),
     vkDeleteAdminToken: (channel_id: number) =>

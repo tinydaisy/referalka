@@ -1564,3 +1564,384 @@ async def whatsapp_logout(client=Depends(get_current_client), db=Depends(get_db)
             # чат-записи этой платформы больше не отправятся (канал ушёл)
             await db.execute("DELETE FROM channels WHERE id = $1", channel["id"])
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instagram — подключение аккаунта (первый этап фичи «воронка Instagram»)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Поток:
+#   1. GET  /instagram/oauth-url    → ссылка на вход через Facebook (клиент открывает)
+#   2. Facebook → GET /instagram/oauth-callback?code=&state=
+#   3. Callback: code → короткий токен → ДЛИННЫЙ (60 дней) → список страниц
+#   4. Показываем страницы: у какой есть связанный Instagram
+#   5. POST /instagram/connect {page_id} → создаём канал
+#
+# ⚠️ Шаг 4 отдельный, а не «берём первую страницу»: страниц у человека бывает
+# несколько, и с рабочим Instagram связана не обязательно первая. Молча выбрать
+# не ту — значит подключить не тот аккаунт, и воронка не увидит комментарии.
+#
+# ⚠️ Гейт — фича `instagram_funnel` (пока только admin), а НЕ `channels`:
+# Instagram не продаётся вместе с обычными ботами.
+
+_IG_STATE_AUD = "instagram-oauth"
+
+
+async def _assert_instagram_feature(db, client_id: int):
+    from app.services.features import client_has_feature
+    if not await client_has_feature(db, client_id, "instagram_funnel"):
+        raise HTTPException(
+            status_code=403,
+            detail="Подключение Instagram доступно не на вашем тарифе.",
+        )
+
+
+def _ig_make_state(client_id: int) -> str:
+    """Подписанный state.
+
+    ⚠️ Хранить state в канале, как у ВКонтакте, нельзя — Instagram-канала на
+    момент начала подключения ещё НЕ СУЩЕСТВУЕТ, класть некуда. Поэтому
+    подписанный токен: он же переносит client_id в callback, куда браузер
+    приходит уже без заголовка авторизации.
+
+    ⚠️ Своя аудитория `instagram-oauth` — иначе обычным токеном кабинета можно
+    было бы дойти до callback и привязать чужую страницу.
+    """
+    import jwt as _jwt
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    return _jwt.encode(
+        {
+            "aud": _IG_STATE_AUD,
+            "cl_id": int(client_id),
+            "exp": _dt.now(_tz.utc) + _td(minutes=15),
+        },
+        settings.jwt_secret,
+        algorithm="HS256",
+    )
+
+
+def _ig_read_state(state: str) -> int:
+    """state → client_id. Бросает 400, если подделан или протух."""
+    import jwt as _jwt
+    try:
+        payload = _jwt.decode(
+            state, settings.jwt_secret, algorithms=["HS256"], audience=_IG_STATE_AUD
+        )
+        return int(payload["cl_id"])
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Ссылка подключения устарела. Начните подключение заново.",
+        )
+
+
+@router.get("/instagram/oauth-url", summary="Ссылка входа через Facebook")
+async def instagram_oauth_url(
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    from app.services import instagram_api as ig
+
+    client_id = int(client["sub"])
+    await _assert_instagram_feature(db, client_id)
+
+    if not ig.is_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="Подключение Instagram ещё не настроено на стороне платформы. Напишите нам.",
+        )
+    return {"oauth_url": ig.oauth_url(_ig_make_state(client_id))}
+
+
+@router.get("/instagram/oauth-callback", include_in_schema=False)
+async def instagram_oauth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    db=Depends(get_db),
+):
+    """Возврат из Facebook.
+
+    Отдаёт РЕДИРЕКТ обратно в кабинет: человек пришёл сюда браузером, JSON он
+    читать не станет. Результат передаём параметрами адреса, страница «Каналы»
+    их разбирает и показывает следующий шаг — выбор страницы.
+    """
+    from fastapi.responses import RedirectResponse
+    from app.services import instagram_api as ig
+    import json as _json
+    import time as _time
+    import urllib.parse as _up
+
+    back = f"{settings.frontend_url.rstrip('/')}/dashboard/channels"
+
+    if error:
+        # Человек нажал «Отмена» в окне Facebook — это не поломка.
+        msg = error_description or "Подключение отменено"
+        return RedirectResponse(f"{back}?ig_error={_up.quote(msg)}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(f"{back}?ig_error={_up.quote('Facebook не передал код подключения')}", status_code=302)
+
+    client_id = _ig_read_state(state)
+
+    try:
+        short = await ig.exchange_code(code)
+        long_token, expires_in = await ig.exchange_long_lived(short)
+        pages = await ig.list_pages(long_token)
+    except ig.InstagramApiError as e:
+        return RedirectResponse(f"{back}?ig_error={_up.quote(e.user_message)}", status_code=302)
+
+    if not pages:
+        return RedirectResponse(
+            f"{back}?ig_error=" + _up.quote(
+                "У вашего аккаунта Facebook нет страниц. Instagram подключается через страницу — "
+                "создайте её в приложении Instagram: Настройки → Учётный аккаунт → Страница Facebook."
+            ),
+            status_code=302,
+        )
+
+    # По каждой странице выясняем, есть ли связанный Instagram.
+    #
+    # ⚠️ Ошибку по ОДНОЙ странице глушим: у человека бывают чужие страницы, где
+    # прав меньше. Сорвать всё подключение из-за посторонней страницы нельзя.
+    found: list[dict] = []
+    for p in pages:
+        pid, ptoken = str(p.get("id") or ""), p.get("access_token") or ""
+        if not pid or not ptoken:
+            continue
+        try:
+            acc = await ig.instagram_account_of_page(pid, ptoken)
+        except ig.InstagramApiError:
+            continue
+        if acc:
+            found.append({
+                "page_id": pid,
+                "page_name": p.get("name") or "",
+                "page_token": ptoken,
+                "ig_user_id": str(acc.get("id")),
+                "username": acc.get("username") or "",
+                "name": acc.get("name") or "",
+                "followers": acc.get("followers_count"),
+                "avatar": acc.get("profile_picture_url") or "",
+            })
+
+    if not found:
+        return RedirectResponse(
+            f"{back}?ig_error=" + _up.quote(
+                "Ни к одной из ваших страниц Facebook не привязан Instagram. "
+                "Проверьте в приложении Instagram: Настройки → Учётный аккаунт → Центр аккаунтов."
+            ),
+            status_code=302,
+        )
+
+    # Кандидатов кладём во ВРЕМЕННУЮ запись, а в адрес — только ключ.
+    #
+    # ⚠️⚠️ Токены страниц в адресную строку класть НЕЛЬЗЯ: они осядут в истории
+    # браузера, в логах nginx и в реферере. Поэтому в URL уходит одноразовый
+    # ключ, а сами токены живут в БД 15 минут.
+    key = _secrets.token_urlsafe(16)
+    await db.execute(
+        """INSERT INTO channels (platform_slug, display_name, handle, is_system, platform_meta)
+           VALUES ('instagram', $1, NULL, FALSE, $2::jsonb)""",
+        f"__pending__{key}",
+        _json.dumps({
+            "pending_key": key,
+            "pending_client_id": client_id,
+            "pending_exp": int(_time.time()) + 900,
+            "pending_pages": found,
+        }),
+    )
+    return RedirectResponse(f"{back}?ig_pick={key}", status_code=302)
+
+
+@router.get("/instagram/pending/{key}", summary="Что выбрать после входа через Facebook")
+async def instagram_pending(
+    key: str,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Список аккаунтов, найденных при подключении. Токены наружу не отдаём."""
+    import json as _json
+    import time as _time
+
+    client_id = int(client["sub"])
+    await _assert_instagram_feature(db, client_id)
+
+    row = await db.fetchrow(
+        "SELECT id, platform_meta FROM channels WHERE display_name = $1 AND platform_slug = 'instagram'",
+        f"__pending__{key}",
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Подключение устарело. Начните заново.")
+
+    meta = row["platform_meta"] or {}
+    if isinstance(meta, str):
+        meta = _json.loads(meta)
+    if int(meta.get("pending_client_id") or 0) != client_id:
+        raise HTTPException(status_code=403, detail="Это подключение начато в другом кабинете")
+    if int(meta.get("pending_exp") or 0) < int(_time.time()):
+        await db.execute("DELETE FROM channels WHERE id = $1", row["id"])
+        raise HTTPException(status_code=400, detail="Подключение устарело. Начните заново.")
+
+    return {
+        "accounts": [
+            {k: p.get(k) for k in ("page_id", "page_name", "ig_user_id", "username", "name", "followers", "avatar")}
+            for p in (meta.get("pending_pages") or [])
+        ]
+    }
+
+
+class InstagramConnectRequest(BaseModel):
+    key: str
+    page_id: str
+
+
+@router.post("/instagram/connect", summary="Подключить выбранный аккаунт Instagram")
+async def instagram_connect(
+    data: InstagramConnectRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    import json as _json
+    import time as _time
+
+    client_id = int(client["sub"])
+    await _assert_instagram_feature(db, client_id)
+
+    row = await db.fetchrow(
+        "SELECT id, platform_meta FROM channels WHERE display_name = $1 AND platform_slug = 'instagram'",
+        f"__pending__{data.key}",
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Подключение устарело. Начните заново.")
+    meta = row["platform_meta"] or {}
+    if isinstance(meta, str):
+        meta = _json.loads(meta)
+    if int(meta.get("pending_client_id") or 0) != client_id:
+        raise HTTPException(status_code=403, detail="Это подключение начато в другом кабинете")
+    if int(meta.get("pending_exp") or 0) < int(_time.time()):
+        await db.execute("DELETE FROM channels WHERE id = $1", row["id"])
+        raise HTTPException(status_code=400, detail="Подключение устарело. Начните заново.")
+
+    chosen = next((p for p in (meta.get("pending_pages") or [])
+                   if str(p.get("page_id")) == str(data.page_id)), None)
+    if not chosen:
+        raise HTTPException(status_code=400, detail="Такой страницы нет в этом подключении")
+
+    # ⚠️ Один аккаунт Instagram — один канал. Повторное подключение того же
+    # аккаунта ОБНОВЛЯЕТ токен, а не плодит вторую карточку: иначе после
+    # переподключения (истёк токен, сменился пароль) у клиента копились бы
+    # дубли, и было бы непонятно, какой из них живой.
+    async with db.transaction():
+        existing = await db.fetchrow(
+            """SELECT ch.id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE cc.client_id = $1 AND ch.platform_slug = 'instagram'
+                  AND ch.platform_meta->>'ig_user_id' = $2""",
+            client_id, str(chosen["ig_user_id"]),
+        )
+        new_meta = _json.dumps({
+            "ig_user_id": str(chosen["ig_user_id"]),
+            "page_id": str(chosen["page_id"]),
+            "page_name": chosen.get("page_name") or "",
+            "avatar": chosen.get("avatar") or "",
+            "followers": chosen.get("followers"),
+            "token_expires_at": int(_time.time()) + 60 * 24 * 3600,
+            "connected_at": int(_time.time()),
+        })
+        if existing:
+            channel_id = existing["id"]
+            await db.execute(
+                """UPDATE channels
+                      SET display_name = $1, handle = $2, bot_token = $3,
+                          platform_meta = $4::jsonb, updated_at = now()
+                    WHERE id = $5""",
+                chosen.get("name") or chosen.get("username") or "Instagram",
+                chosen.get("username") or None,
+                chosen["page_token"], new_meta, channel_id,
+            )
+        else:
+            channel_id = await db.fetchval(
+                """INSERT INTO channels (platform_slug, display_name, handle, bot_token,
+                                         is_system, platform_meta)
+                   VALUES ('instagram', $1, $2, $3, FALSE, $4::jsonb)
+                   RETURNING id""",
+                chosen.get("name") or chosen.get("username") or "Instagram",
+                chosen.get("username") or None,
+                chosen["page_token"], new_meta,
+            )
+            await db.execute(
+                """INSERT INTO client_channels (client_id, channel_id, is_active)
+                   VALUES ($1, $2, TRUE)
+                   ON CONFLICT (client_id, channel_id) DO NOTHING""",
+                client_id, channel_id,
+            )
+        # временная запись больше не нужна — в ней лежат токены страниц
+        await db.execute("DELETE FROM channels WHERE id = $1", row["id"])
+
+    return {
+        "ok": True,
+        "channel_id": channel_id,
+        "username": chosen.get("username"),
+    }
+
+
+@router.post("/instagram/{channel_id}/check", summary="Проверить связь с Instagram")
+async def instagram_check(
+    channel_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Живой запрос в Meta — работает ли подключение прямо сейчас.
+
+    ⚠️ Проверяем ПО СЕТИ, а не по сроку в базе: доступ могли отозвать в
+    настройках Facebook, и запись у нас осталась бы свежей, пока человек
+    не столкнулся бы с молча замолчавшей воронкой.
+    """
+    from app.services import instagram_api as ig
+    import json as _json
+
+    client_id = int(client["sub"])
+    await _assert_instagram_feature(db, client_id)
+
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.bot_token, ch.platform_meta
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2 AND ch.platform_slug = 'instagram'""",
+        channel_id, client_id,
+    )
+    if not ch:
+        raise HTTPException(status_code=404, detail="Аккаунт Instagram не найден")
+
+    meta = ch["platform_meta"] or {}
+    if isinstance(meta, str):
+        meta = _json.loads(meta)
+    ig_user_id = str(meta.get("ig_user_id") or "")
+    token = ch["bot_token"] or ""
+    if not ig_user_id or not token:
+        return {"ok": False, "message": "Подключение неполное — подключите аккаунт заново."}
+
+    try:
+        info = await ig.account_info(ig_user_id, token)
+    except ig.InstagramApiError as e:
+        return {"ok": False, "message": e.user_message}
+
+    # Освежаем то, что могло измениться со времени подключения.
+    meta["followers"] = info.get("followers_count")
+    await db.execute(
+        """UPDATE channels SET handle = $1, display_name = $2,
+                  platform_meta = $3::jsonb, updated_at = now()
+            WHERE id = $4""",
+        info.get("username") or None,
+        info.get("name") or "Instagram",
+        _json.dumps(meta), channel_id,
+    )
+    return {
+        "ok": True,
+        "username": info.get("username"),
+        "name": info.get("name"),
+        "followers": info.get("followers_count"),
+        "media_count": info.get("media_count"),
+    }
