@@ -45,7 +45,7 @@ router = APIRouter(prefix="/subscriptions", tags=["Подписка клиент
 class CreateOrderRequest(BaseModel):
     tariff_slug: str  # 'start' | 'pro' | 'vip'
     provider: str = "prodamus"  # 'prodamus' | 'leadpay'
-    # ⚠️ Сколько месяцев оплачиваем: 1, 6 или 12 (миграция 359). Мусор приводится
+    # ⚠️ Сколько месяцев оплачиваем: 1, 6 или 12 (миграция 360). Мусор приводится
     # к 1 месяцу, а не роняет оплату — см. tariff_periods.normalize_months.
     months: int = 1
 
@@ -351,7 +351,7 @@ async def _apply_paid_subscription_order(
     paid — возвращает already_paid. Иначе помечает оплаченным и выдаёт подписку.
 
     ⚠️ Срок = `default_duration_days` × число ОПЛАЧЕННЫХ месяцев из заказа
-    (`subscription_orders.months`, миграция 359). Без множителя оплата за год
+    (`subscription_orders.months`, миграция 360). Без множителя оплата за год
     (19 104 ₽) давала бы 30 дней — деньги списаны, доступа нет.
 
     ⚠️ Месяцы берутся ИЗ ЗАКАЗА, а не из тарифа: цена и период зафиксированы в

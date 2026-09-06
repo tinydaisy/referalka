@@ -25,7 +25,7 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
     """
     rows = await db.fetch(
         # ⚠️ price_6mo / price_12mo — цена ЗА МЕСЯЦ при оплате за 6 и 12 месяцев
-        # (миграция 359). Сам процент скидки НЕ хранится: его считает
+        # (миграция 360). Сам процент скидки НЕ хранится: его считает
         # tariff_periods из этих цен, поэтому подпись «−20%» физически не может
         # разойтись с суммой к оплате.
         """SELECT t.id, t.slug, t.name, t.price, t.price_6mo, t.price_12mo,

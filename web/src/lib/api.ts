@@ -1662,7 +1662,7 @@ export const api = {
     features: () => request('/api/v1/public/features'),
   },
   subscriptions: {
-    // months — 1, 6 или 12 (миграция 359). Длинные сроки только через LeadPay:
+    // months — 1, 6 или 12 (миграция 360). Длинные сроки только через LeadPay:
     // у Продамуса нет готовых ссылок на такие суммы.
     createOrder: (tariff_slug: string, provider: 'prodamus' | 'leadpay' = 'prodamus', months = 1) =>
       request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug, provider, months }) }),
