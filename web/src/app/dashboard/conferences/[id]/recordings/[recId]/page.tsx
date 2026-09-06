@@ -416,8 +416,6 @@ export default function RecordingCutPage() {
     </div>
   )
 
-  const readyCount = cuts.filter(c => c.status === 'ready').length
-
   return (
     <div className="max-w-5xl pb-10">
       {/* Шапка */}
