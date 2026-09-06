@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, Loader2, Image as ImageIcon, Video, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import { LockedOverlayIf } from '@/components/LockedOverlay'
 
 type Kind = 'photo' | 'video'
 
@@ -129,16 +130,12 @@ export default function TestimonialsPage() {
     } catch (e: any) { alert(e?.message || 'Не удалось сохранить') }
   }
 
-  if (!hasFeature && !loading) {
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-gray-600">
-        Раздел «Отзывы и кейсы» недоступен на вашем тарифе.
-      </div>
-    )
-  }
+  // ⚠️ Раздел не подменяем заглушкой: отзывы видно замыленными, чтобы человек
+  // видел, что его база на месте. Запрет на запись — на сервере.
+  const locked = !hasFeature && !loading
 
   return (
-    <div>
+    <LockedOverlayIf locked={locked} feature="testimonials"><div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Отзывы и кейсы</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -311,6 +308,6 @@ export default function TestimonialsPage() {
           ))}
         </div>
       )}
-    </div>
+    </div></LockedOverlayIf>
   )
 }

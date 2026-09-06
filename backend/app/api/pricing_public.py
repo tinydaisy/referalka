@@ -81,11 +81,24 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
         # (миграция 353). Фильтровать сам `feature_slugs` в /public/tariffs нельзя:
         # по нему фронт ещё и проверяет наличие возможности (BroadcastChatsTab
         # ищет тариф с broadcast_chats) — спрятанная строка исчезла бы из проверок.
-        """SELECT slug, name, description, sort, hidden_in_card,
-                  is_addon, price_monthly, price_6mo, min_tariff_slug,
-                  promo_old_monthly, promo_old_6mo,
-                  tagline, bullet_points, coming_soon, leadpay_bundle_pro_product_id
-             FROM features ORDER BY sort, slug"""
+        # ⚠️ tariff_names — В КАКИЕ ТАРИФЫ ВХОДИТ фича, считается ИЗ БАЗЫ.
+        # Нужно замку в кабинете: он пишет «Оферты — в тарифах Профи и Экстра»,
+        # а не расплывчатое «на платном тарифе». Перенесли фичу в админке в
+        # другой тариф — текст поменялся сам, без правок кода.
+        #
+        # ⚠️ Только `is_active` тарифы: «Стандарт» скрыт с продажи, звать в него
+        # людей нельзя. Триал не исключаем — он показывает, что возможность
+        # можно пощупать бесплатно.
+        """SELECT f.slug, f.name, f.description, f.sort, f.hidden_in_card,
+                  f.is_addon, f.price_monthly, f.price_6mo, f.min_tariff_slug,
+                  f.promo_old_monthly, f.promo_old_6mo,
+                  f.tagline, f.bullet_points, f.coming_soon,
+                  f.leadpay_bundle_pro_product_id,
+                  ARRAY(SELECT t.name FROM tariff_features tf
+                          JOIN tariffs t ON t.id = tf.tariff_id
+                         WHERE tf.feature_id = f.id AND t.is_active
+                         ORDER BY t.price) AS tariff_names
+             FROM features f ORDER BY f.sort, f.slug"""
     )
     pro_price = int(await db.fetchval("SELECT price FROM tariffs WHERE slug='pro'") or 0)
     out = []

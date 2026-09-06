@@ -1,6 +1,6 @@
 'use client'
 
-import FeatureLock from '@/components/FeatureLock'
+import { LockedOverlayIf } from '@/components/LockedOverlay'
 
 /**
  * Раздел «Оферты» (миграция 249).
@@ -71,23 +71,13 @@ export default function OffersPage() {
     catch (e: any) { alert(e?.message || 'Не удалось удалить') }
   }
 
-  if (!hasFeature && !loading) {
-    return (
-      <div className="max-w-2xl space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Оферты</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            Документ с условиями участия: показывается галочкой при оплате
-            платного тарифа события.
-          </p>
-        </div>
-        <FeatureLock anyOf={['offers']} />
-      </div>
-    )
-  }
+  // ⚠️ Раздел НЕ подменяем замком: у человека уже могут быть оферты, и пустая
+  // страница читается как «всё удалили». Содержимое остаётся видимым, но
+  // замылено и некликабельно (решение владельца). Запрет — на сервере.
+  const locked = !hasFeature && !loading
 
   return (
-    <div>
+    <LockedOverlayIf locked={locked} feature="offers"><div>
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Оферты</h1>
@@ -244,6 +234,6 @@ export default function OffersPage() {
           </div>
         </div>
       )}
-    </div>
+    </div></LockedOverlayIf>
   )
 }

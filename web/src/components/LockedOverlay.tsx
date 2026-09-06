@@ -17,20 +17,65 @@
  */
 import Link from 'next/link'
 import { Lock } from 'lucide-react'
+import { useFeatureCatalog, tariffListText } from './FeatureLock'
 
-export default function LockedOverlay({
-  children,
-  title = 'Подписка истекла — раздел закрыт',
-  hint = 'Данные на месте: продлите подписку, и всё сразу заработает.',
-  href = '/dashboard/subscription#tariffs',
-  cta = 'Продлить подписку',
+/**
+ * Заголовок плашки по фиче: «Оферты — в тарифе Профи и Экстра».
+ *
+ * ⚠️ Названия возможности и тарифов берутся ИЗ БАЗЫ (`/public/features`), а не
+ * пишутся в коде. Перенесли фичу в другой тариф в админке — текст поменялся
+ * сам, править страницы не надо (требование владельца).
+ */
+function useLockTitle(feature?: string, fallback?: string) {
+  const catalog = useFeatureCatalog()
+  if (!feature) return fallback || 'Раздел закрыт'
+  const f = catalog.find(x => x.slug === feature)
+  if (!f) return fallback || 'Раздел закрыт'
+  if (f.is_addon) return `«${f.name}» — отдельный модуль`
+  const tariffs = tariffListText(f.tariff_names || [])
+  return tariffs ? `«${f.name}» — в тарифе ${tariffs}` : `«${f.name}» — на платном тарифе`
+}
+
+/**
+ * Обёртка «замыливаем, только если закрыто».
+ *
+ * ⚠️ Нужна, чтобы правка страницы была в две строки и нельзя было забыть
+ * ветку «доступно»: раньше каждая страница writing свой ранний `return` с
+ * замком — и содержимое в этой ветке просто не рисовалось.
+ */
+export function LockedOverlayIf({
+  locked, children, ...rest
 }: {
+  locked: boolean
   children: React.ReactNode
+  feature?: string
   title?: string
   hint?: string
   href?: string
   cta?: string
 }) {
+  if (!locked) return <>{children}</>
+  return <LockedOverlay {...rest}>{children}</LockedOverlay>
+}
+
+export default function LockedOverlay({
+  children,
+  feature,
+  title,
+  hint = 'Данные на месте — ничего не удалено. Подключите тариф, и всё сразу заработает.',
+  href = '/dashboard/subscription#tariffs',
+  cta = 'Оформить подписку',
+}: {
+  children: React.ReactNode
+  /** Слаг фичи — название раздела и тарифы подставятся из базы. */
+  feature?: string
+  title?: string
+  hint?: string
+  href?: string
+  cta?: string
+}) {
+  const autoTitle = useLockTitle(feature, title)
+  const head = title || autoTitle
   return (
     <div className="relative">
       {/* Плашка НАД содержимым и не замылена — иначе объяснение нечитаемо
@@ -38,7 +83,7 @@ export default function LockedOverlay({
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
         <Lock className="h-5 w-5 shrink-0 text-amber-600" />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-bold text-gray-900">{title}</div>
+          <div className="text-sm font-bold text-gray-900">{head}</div>
           <div className="mt-0.5 text-xs text-gray-700">{hint}</div>
         </div>
         <Link

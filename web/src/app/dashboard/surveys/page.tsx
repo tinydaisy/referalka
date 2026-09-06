@@ -13,8 +13,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
-import LockedOverlay from '@/components/LockedOverlay'
-import FeatureLock from '@/components/FeatureLock'
+import { LockedOverlayIf } from '@/components/LockedOverlay'
 import {
   Plus, Trash2, Copy, Check, BarChart3, Settings2, ClipboardList, X, ExternalLink,
 } from 'lucide-react'
@@ -86,12 +85,7 @@ export default function SurveysPage() {
         Соберите анкету, отправьте ссылку — и смотрите, кто и как ответил.
         Тем, кто уже есть в базе, не придётся вписывать имя и контакты заново.
       </p>
-      {locked
-        ? <LockedOverlay
-            title="Анкеты — на платном тарифе"
-            hint="Ваши анкеты и заявки на месте. Подключите тариф, чтобы снова ими пользоваться."
-          >{body}</LockedOverlay>
-        : body}
+      <LockedOverlayIf locked={locked} feature="surveys">{body}</LockedOverlayIf>
     </div>
   )
 }

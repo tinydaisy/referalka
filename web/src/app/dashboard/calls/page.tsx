@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
-import FeatureLock from '@/components/FeatureLock'
+import { LockedOverlayIf } from '@/components/LockedOverlay'
 import BroadcastTagPicker from '@/components/BroadcastTagPicker'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -102,19 +102,14 @@ function CallsInner() {
     try { await api.calls.remove(c.id); load() } catch (e: any) { alert(e.message) }
   }
 
-  if (me && !hasFeature) {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">Автообзвоны</h1>
-        <FeatureLock anyOf={['calls']} />
-      </div>
-    )
-  }
+  // ⚠️ Раздел не подменяем замком: содержимое видно замыленным,
+  // чтобы человек видел, что данные на месте. Запрет — на сервере.
+  const locked = Boolean(me) && !hasFeature
 
   const notConfigured = settings && !settings.is_configured
 
   return (
-    <div className="p-6 max-w-6xl">
+    <LockedOverlayIf locked={locked} feature="calls">    <div className="p-6 max-w-6xl">
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -548,5 +543,6 @@ function Stat({ label, value, tone }: { label: string; value: any; tone?: string
       </div>
       <div className="text-xs text-gray-500 mt-0.5">{label}</div>
     </div>
+  </LockedOverlayIf>
   )
 }

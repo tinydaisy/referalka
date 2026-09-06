@@ -78,8 +78,20 @@ export function useMe() {
   // остаётся на platformBase: там смена домена сломала бы приём данных.
   const publicBase = me?.public_base || me?.platform_base || 'https://pluson.ru'
   const platformBase = me?.platform_base || 'https://pluson.ru'
+
+  // ⚠️ Подписка кончилась — кабинет ЗАМОРОЖЕН: разделы видны, но работать в них
+  // нельзя (запрет стоит на сервере, subscription_guard). Здесь только признак
+  // для показа: по нему разделы засериваются, а не прячутся.
+  //
+  // ⚠️ Пока `me` не загружен — считаем, что всё в порядке: иначе на каждой
+  // странице на долю секунды мигала бы плашка «подписка истекла».
+  const subFrozen = Boolean(me) && me?.subscription
+    ? !me.subscription.is_active
+    : false
+
   return {
     me, isAssistant, isOwner, isAnyAssistant, isFullAssistant, isOrdersAssistant,
+    subFrozen,
     publicBase, platformBase,
     publicHost: hostOf(publicBase),
     platformHost: hostOf(platformBase),

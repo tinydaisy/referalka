@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
-import FeatureLock from '@/components/FeatureLock'
+import { LockedOverlayIf } from '@/components/LockedOverlay'
 import { Plus, Trash2, Package, Library, X, FileText, FolderTree } from 'lucide-react'
 import MaterialEditor from '@/components/products/MaterialEditor'
 
@@ -31,21 +31,12 @@ export default function ProductsPage() {
   // ⚠️ Гейт по фиче, не по тарифу. Замок нужен на САМОЙ странице: пункт меню
   // не мешает открыть раздел по прямой ссылке (правило проекта).
   const hasFeature = (me?.features || []).includes('products')
-  if (me && !hasFeature) {
-    return (
-      <div className="max-w-3xl">
-        <h1 className="mb-1 text-2xl font-bold text-gray-900">Продукты и услуги</h1>
-        <p className="mb-6 text-sm text-gray-500">
-          Продавайте то, что не привязано к событию: наставничество, мастер-класс,
-          консультацию. У каждого свой лендинг, тарифы и материалы для клиента.
-        </p>
-        <FeatureLock anyOf={['products']} />
-      </div>
-    )
-  }
+  // ⚠️ Раздел не подменяем замком: содержимое видно замыленным,
+  // чтобы человек видел, что данные на месте. Запрет — на сервере.
+  const locked = Boolean(me) && !hasFeature
 
   return (
-    <div className="max-w-5xl">
+    <LockedOverlayIf locked={locked} feature="products">    <div className="max-w-5xl">
       <h1 className="mb-1 text-2xl font-bold text-gray-900">Продукты и услуги</h1>
       <p className="mb-6 text-sm text-gray-500">
         То, что продаётся вне событий. У каждого продукта своя страница, тарифы
@@ -522,5 +513,6 @@ function MaterialForm({ material, onClose, onSaved }: {
         </div>
       </div>
     </div>
+  </LockedOverlayIf>
   )
 }

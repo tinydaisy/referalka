@@ -160,29 +160,10 @@ export default function LeadMagnetsPage() {
         )}
       </div>
 
-      {hijackedBot && (
-        <div className="mb-6 rounded-xl border border-red-300 bg-red-50 p-4 flex items-start gap-3">
-          <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={20} />
-          <div className="flex-1 text-sm">
-            <div className="font-semibold text-red-900 mb-1">
-              Воронки не работают — вашего бота перехватил другой сервис
-            </div>
-            <div className="text-red-800">
-              Telegram сейчас отдаёт все сообщения бота{' '}
-              {hijackedBot.handle && <span className="font-mono font-semibold">{hijackedBot.handle}</span>}{' '}
-              сюда: <span className="font-mono font-semibold">{hijackedBot.host || 'сторонний сервис'}</span>.
-              Пока это так, люди жмут по ссылке лид-магнита, но бот им не отвечает — и счётчики стоят на нуле.
-              Так бывает, если бота подключали в другом конструкторе (LeadConverter, Salebot, BotHelp).
-            </div>
-            <a
-              href="/dashboard/channels"
-              className="inline-flex items-center gap-1 mt-2 text-sm font-semibold underline text-red-900 hover:text-red-700"
-            >
-              Забрать бота в ПЛЮСОН →
-            </a>
-          </div>
-        </div>
-      )}
+      {/* ⚠️ Плашку «бота перехватил другой сервис» ЗДЕСЬ НЕ ДУБЛИРУЕМ.
+          Она уже рисуется на каждой странице кабинета общим BrokenBotsBanner
+          (DashboardLayout) — получались два одинаковых красных окна подряд
+          про одного и того же бота, и раздел выглядел сломанным. */}
 
       {tgChannels !== null && tgChannels.length === 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
