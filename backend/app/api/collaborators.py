@@ -170,6 +170,10 @@ class CollaboratorCreate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
+    # ⚠️ Вырезка на прозрачном фоне (миграция 362) — ЗАГОТОВКА для афиш, а не
+    # готовая картинка. Живёт отдельно от библиотеки афиш: там макеты, здесь
+    # исходный человек без фона.
+    cutout_photo_url: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters
     # (CRUD `/api/v1/collaborators/{id}/posters`).
     photo_folder_url: Optional[str] = None
@@ -206,6 +210,8 @@ class CollaboratorUpdate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
+    # Вырезка на прозрачном фоне (миграция 362) — заготовка для афиш.
+    cutout_photo_url: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
@@ -260,6 +266,7 @@ _COLLAB_SELECT = """
     c.id, btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.last_name,'')||' '||COALESCE(c.name,'') END) AS name, c.name AS first_name, c.last_name,
     c.title, c.achievements,
     c.photo_url,
+    c.cutout_photo_url,
     (SELECT url FROM collaborator_posters cp
        WHERE cp.collaborator_id = c.id
        ORDER BY cp.sort_order, cp.id
@@ -745,6 +752,10 @@ async def update_collaborator(
     # профиля клиента через model_fields_set).
     if "last_name" in data.model_fields_set and not data.last_name:
         updates_full["last_name"] = None
+    # ⚠️ Вырезку надо уметь СНЯТЬ: фильтр `v is not None` выше выбрасывает
+    # пустую строку, и снятое фото возвращалось бы обратно при сохранении.
+    if "cutout_photo_url" in data.model_fields_set and not data.cutout_photo_url:
+        updates_full["cutout_photo_url"] = None
     # Личные идентичности TG/VK/MAX живут в platform_users (миграция 107),
     # а не в collaborators. Отделяем их из updates_full, чтобы не пытаться
     # UPDATE collaborators SET personal_vk_id = ... (колонок таких нет).

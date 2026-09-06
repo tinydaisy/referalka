@@ -126,6 +126,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         title: form.title,
         achievements,
         photo_url: form.photo_url,
+        cutout_photo_url: form.cutout_photo_url ?? '',
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
         video_url: form.video_url || null,
@@ -205,6 +206,55 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             </div>
           )
         })()}
+      </div>
+
+      {/* Вырезка на прозрачном фоне (миграция 362).
+          ⚠️ Это ЗАГОТОВКА для афиш, а не готовая картинка — потому и отдельно
+          от «Фото для сайта» и от библиотеки афиш. Стоит выше остального:
+          макеты собираются из неё, и искать её среди полей формы неудобно.
+          ⚠️ Шахматка под картинкой — чтобы прозрачность было ВИДНО: на белом
+          фоне вырезка и обычное фото с белой заливкой выглядят одинаково, и
+          подменённый JPEG обнаружился бы только в готовой афише. */}
+      <div className="mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h2 className="font-semibold text-gray-900 mb-1">Фото на прозрачном фоне</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Вырезка человека без фона — из неё собираются афиши. Нужен <b>PNG</b> с
+          прозрачностью: JPEG её не хранит, и вместо фигуры в афишу попадёт белый
+          прямоугольник. Клетка под картинкой — это фон страницы, он виден сквозь
+          прозрачные места.
+        </p>
+        <div className="cutout-checker rounded-xl">
+          <FileUploader
+            mode="single"
+            kind="speaker_cutout"
+            collaboratorId={collaboratorId}
+            value={form.cutout_photo_url || null}
+            onChange={u => {
+              setForm((f: any) => ({ ...f, cutout_photo_url: u || '' }))
+              // ⚠️ Сохраняем СРАЗУ: блок стоит выше формы и её кнопки
+              // «Сохранить». Человек загрузил вырезку, увидел её на месте и
+              // ушёл со страницы — без этого файл остался бы в хранилище,
+              // а поле в базе пустым.
+              api.collaborators.update(collaboratorId, { cutout_photo_url: u || '' })
+                 .catch((e: any) => setError(e?.message || 'Не удалось сохранить фото'))
+            }}
+            accept="image/png,image/webp"
+            aspectClass="aspect-square"
+            emptyText="Перетащите сюда PNG без фона"
+            buttonLabel="Загрузить"
+          />
+        </div>
+        <style jsx>{`
+          .cutout-checker {
+            background-image:
+              linear-gradient(45deg, #eceff2 25%, transparent 25%),
+              linear-gradient(-45deg, #eceff2 25%, transparent 25%),
+              linear-gradient(45deg, transparent 75%, #eceff2 75%),
+              linear-gradient(-45deg, transparent 75%, #eceff2 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+          }
+        `}</style>
       </div>
 
       {/* Привязка к контакту в общей базе — коллаб = расширение контакта (миграция 086) */}

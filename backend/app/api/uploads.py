@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 # ошибки — файл просто уходит в хранилище несжатым.
 IMAGE_UPLOAD_KINDS = {
     "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
+    "speaker_cutout",
     "speaker_poster",
     "brand_photo", "brand_logo", "owner_photo", "speaker_gallery", "funnel_media", "broadcast_photo",
     "broadcast_video",
@@ -124,7 +125,7 @@ async def upload_file(
         await _check_event_belongs(event_id, client_id, db)
     if kind == "event_poster" and poster_type not in ("horizontal", "vertical", "square"):
         raise HTTPException(400, detail="event_poster требует poster_type=horizontal|vertical|square")
-    if kind in ("speaker_photo", "speaker_poster", "speaker_video"):
+    if kind in ("speaker_photo", "speaker_cutout", "speaker_poster", "speaker_video"):
         if not collaborator_id:
             raise HTTPException(400, detail=f"{kind} требует collaborator_id")
         await _check_collaborator_belongs(collaborator_id, client_id, db)
@@ -375,6 +376,7 @@ _KIND_LABEL = {
     "referral_video": "Видео для друзей",
     "certificate": "Сертификат",
     "speaker_photo": "Фото спикера",
+    "speaker_cutout": "Фото спикера на прозрачном фоне",
     "speaker_poster": "Афиша спикера",
     "speaker_video": "Видео спикера",
     "landing_media": "Картинка лендинга",
@@ -412,6 +414,7 @@ _KIND_TAB = {
     "landing_media": "landing",
     "landing_bg": "landing",
     "speaker_photo": "speakers",
+    "speaker_cutout": "speakers",
     "speaker_poster": "speakers",
     "speaker_video": "speakers",
 }
@@ -574,6 +577,12 @@ async def storage_files(
         m = _re.search(r"/events/(\d+)/", key)
         if m:
             return None, int(m.group(1)), None
+        # ⚠️ Вырезка проверяется ДО общего правила: её ключ тоже лежит в
+        # /speakers/{id}/, и без этой ветки она попала бы в «Фото спикера» —
+        # в разборе хранилища было бы не видно, что за место занято.
+        m = _re.search(r"/(?:speakers|collaborators)/(\d+)/cutout/", key)
+        if m:
+            return "speaker_cutout", None, int(m.group(1))
         m = _re.search(r"/(?:speakers|collaborators)/(\d+)/", key)
         if m:
             return "speaker_photo", None, int(m.group(1))
@@ -744,7 +753,7 @@ async def storage_files(
             "is_video": (r["content_type"] or "").startswith("video/")
                         or (r["url"] or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v")),
             "is_image": (r["content_type"] or "").startswith("image/")
-                        or kind in ("event_poster", "speaker_photo", "brand_logo",
+                        or kind in ("event_poster", "speaker_photo", "speaker_cutout", "brand_logo",
                                     "owner_photo", "brand_photo", "speaker_gallery", "landing_media",
                                     "landing_bg", "product_media", "survey_media")
                         and not (r["url"] or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v")),

@@ -117,6 +117,13 @@ def build_key(
             raise ValueError("speaker_poster требует collaborator_id")
         return f"{base}/speakers/{collaborator_id}/posters/{fname}"
 
+    # Вырезка на прозрачном фоне (миграция 362) — своя папка, чтобы её не
+    # путали с обычным фото и с макетами афиш при разборе хранилища.
+    if kind == "speaker_cutout":
+        if not collaborator_id:
+            raise ValueError("speaker_cutout требует collaborator_id")
+        return f"{base}/speakers/{collaborator_id}/cutout/{fname}"
+
     if kind in ("brand_photo", "brand_logo", "owner_photo"):
         return f"{base}/profile/{kind}/{fname}"
 
