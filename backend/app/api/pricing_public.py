@@ -61,7 +61,11 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
     отражается в UI без правок кода.
     """
     rows = await db.fetch(
-        """SELECT slug, name, description, sort,
+        # ⚠️ hidden_in_card — прятать строку в карточке тарифа, НЕ отбирая доступ
+        # (миграция 353). Фильтровать сам `feature_slugs` в /public/tariffs нельзя:
+        # по нему фронт ещё и проверяет наличие возможности (BroadcastChatsTab
+        # ищет тариф с broadcast_chats) — спрятанная строка исчезла бы из проверок.
+        """SELECT slug, name, description, sort, hidden_in_card,
                   is_addon, price_monthly, price_6mo, min_tariff_slug,
                   promo_old_monthly, promo_old_6mo,
                   tagline, bullet_points, coming_soon, leadpay_bundle_pro_product_id

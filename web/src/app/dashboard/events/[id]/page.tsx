@@ -43,11 +43,11 @@ export default function EventPage() {
   const isVip = (me?.features || []).includes('event_tariffs')
   const hasLanding = (me?.features || []).includes('event_landing')
   const hasAnalyticsDashboard = (me?.features || []).includes('analytics_dashboard')
-  // Вебинарные комнаты — по фиче webinar_room (своя комната) или webinar_link
-  // (ссылка на сторонний). У события без программы комната одна: бэкенд
-  // отдаёт виртуальный «день 1».
+  // Вебинарные комнаты — по фиче webinar_room. У события без программы комната
+  // одна: бэкенд отдаёт виртуальный «день 1».
+  // ⚠️ Фича webinar_link («только ссылка») удалена миграцией 354 — она была у тех
+  // же тарифов, что и webinar_room, и не решала ничего.
   const hasWebinar = (me?.features || []).includes('webinar_room')
-    || (me?.features || []).includes('webinar_link')
   // Несколько организаторов у событий — по фиче event_organizers (vip + admin).
   const hasEventOrganizers = (me?.features || []).includes('event_organizers')
 

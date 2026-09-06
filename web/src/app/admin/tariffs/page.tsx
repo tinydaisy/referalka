@@ -10,7 +10,7 @@ interface Tariff {
   slug: string
   name: string
   price: number
-  contact_limit: number
+  contact_limit: number | null   // NULL = безлимит
   broadcasts_daily_limit: number | null
   default_duration_days: number
   feature_slugs: string[]
@@ -84,7 +84,9 @@ export default function AdminTariffsPage() {
             <div className="space-y-2 mt-4 text-sm text-gray-600">
               <div className="flex items-center gap-2">
                 <span className="text-green-500">✓</span>
-                До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал
+                {t.contact_limit
+                  ? `До ${t.contact_limit.toLocaleString('ru-RU')} контактов на канал`
+                  : 'Неограниченное количество контактов'}
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-green-500">✓</span>

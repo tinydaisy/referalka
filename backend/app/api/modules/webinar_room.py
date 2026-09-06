@@ -1,7 +1,7 @@
 """Вебинарная комната — клиентский API (дашборд организатора) + внутренний stream-хук.
 
 Миграция 221. Комната на ДЕНЬ события (webinar_rooms по event_id+day_number).
-Гейт: фича webinar_room (Экстра) — своя комната; webinar_link (Профи) — только ссылка.
+Гейт: фича webinar_room. (Уровень «только ссылка» — webinar_link — удалён миграцией 354.)
 
 Роутеры:
 - router          — /api/v1/events/{event_id}/webinar/...  (клиент, JWT)
@@ -29,14 +29,20 @@ internal_router = APIRouter(prefix="/internal/webinar", tags=["Вебинар �
 
 # ─────────────────────────── гейт ───────────────────────────
 async def _assert_webinar_feature(db, client_id: int, *, need_room: bool = True) -> str:
-    """Возвращает уровень: 'room' (Экстра) или 'link' (Профи). 403 если ничего нет."""
+    """Возвращает 'room'. 403, если фичи `webinar_room` нет.
+
+    ⚠️ Второго уровня 'link' («только ссылка на чужую комнату», фича
+    `webinar_link`) больше нет — удалён миграцией 354. Он был привязан к тем же
+    тарифам, что и `webinar_room`, а комната проверяется первой: ветка не
+    срабатывала ни разу. Параметр `need_room` оставлен, чтобы не править
+    десяток вызовов, но на решение он больше не влияет.
+    """
     if await client_has_feature(db, client_id, "webinar_room"):
         return "room"
-    if not need_room and await client_has_feature(db, client_id, "webinar_link"):
-        return "link"
     raise HTTPException(
         status_code=403,
-        detail="Вебинарная комната доступна на тарифе Экстра. На Профи — только ссылка на стороннюю комнату.",
+        detail="Вебинарная комната доступна на платном тарифе. "
+               "Подключить его можно в разделе «Подписка».",
     )
 
 

@@ -9,6 +9,8 @@ export default function SubscriptionPage() {
   const [tariffs, setTariffs] = useState<any[]>([])
   const [promotions, setPromotions] = useState<any[]>([])
   const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({})
+  // Слаги, которые не показываем в карточке тарифа (доступ при этом есть).
+  const [hiddenFeatures, setHiddenFeatures] = useState<Set<string>>(new Set())
   const [selectedSlug, setSelectedSlug] = useState<string>('')
   const [bonusBalance, setBonusBalance] = useState(0)
   const [paidBanner, setPaidBanner] = useState(false)
@@ -26,9 +28,17 @@ export default function SubscriptionPage() {
     }).catch(() => {})
     api.publicData.activePromotions().then((r: any) => setPromotions(r.promotions || [])).catch(() => {})
     api.publicData.features().then((r: any) => {
+      // ⚠️ Скрытые (features.hidden_in_card) в карточку не попадают, но доступ у
+      // клиента остаётся — см. миграцию 353. Поэтому прячем ЗДЕСЬ, при показе, а
+      // не вырезаем из feature_slugs: по ним фронт ещё и проверяет возможности.
       const map: Record<string, string> = {}
-      for (const f of (r.features || [])) map[f.slug] = f.name
+      const hidden: string[] = []
+      for (const f of (r.features || [])) {
+        map[f.slug] = f.name
+        if (f.hidden_in_card) hidden.push(f.slug)
+      }
       setFeatureLabels(map)
+      setHiddenFeatures(new Set(hidden))
     }).catch(() => {})
     api.referrals.me().then((r: any) => setBonusBalance(r.balance_kopecks || 0)).catch(() => {})
 
@@ -221,9 +231,14 @@ export default function SubscriptionPage() {
                   <div className="text-[11px] text-gray-400 mt-0.5">за {t.default_duration_days} дн.</div>
 
                   <div className="space-y-1 mt-3 text-xs text-gray-600 flex-1">
-                    <div>До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал</div>
+                    {/* ⚠️ Пустой лимит = БЕЗЛИМИТ (см. contact_limits.py) — без этой
+                        ветки у Экстра печаталось «До  контактов на канал» с дырой
+                        вместо числа. Так же устроена соседняя строка про рассылки. */}
+                    <div>{t.contact_limit
+                      ? `До ${t.contact_limit.toLocaleString('ru-RU')} контактов на канал`
+                      : 'Неограниченное количество контактов'}</div>
                     <div>{t.broadcasts_daily_limit ? `${t.broadcasts_daily_limit.toLocaleString('ru-RU')} рассылок/сутки` : 'Безлимит рассылок'}</div>
-                    {(t.feature_slugs || []).map((slug: string) => (
+                    {(t.feature_slugs || []).filter((slug: string) => !hiddenFeatures.has(slug)).map((slug: string) => (
                       <div key={slug}>· {featureLabels[slug] || slug}</div>
                     ))}
                   </div>

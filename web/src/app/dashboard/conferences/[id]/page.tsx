@@ -59,11 +59,11 @@ export default function ConferencePage() {
   const { me } = useMe()
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
-  // Раздел «Вебинары» — по фиче webinar_room (Экстра, своя комната) или webinar_link (Профи, ссылка).
+  // Раздел «Вебинары» — по фиче webinar_room (webinar_link удалён миграцией 354).
   // Конструктор лендинга — по фиче event_landing (миграция 240).
   const hasLanding = (me?.features || []).includes('event_landing')
   const hasAnalyticsDashboard = (me?.features || []).includes('analytics_dashboard')
-  const hasWebinar = (me?.features || []).includes('webinar_room') || (me?.features || []).includes('webinar_link')
+  const hasWebinar = (me?.features || []).includes('webinar_room')
   // ⚠️ Модуль события. Без него — только просмотр: данные видны, но менять
   // и запускать ничего нельзя (2026-08-10). Фича зависит от типа: турнир
   // открывается по 'tournaments', конференция по 'conference' — путать их
@@ -162,7 +162,7 @@ export default function ConferencePage() {
         { id: 'tariff_orders' as Tab, label: 'Заказы' },
       ],
     }] : []),
-    // «Вебинары» — по фиче webinar_room/webinar_link. Внутри WebinarTab своя
+    // «Вебинары» — по фиче webinar_room. Внутри WebinarTab своя
     // навигация по дням события (табы дней, как этапы турнира).
     ...(hasWebinar ? [{
       key: 'webinar_grp' as GroupKey, label: 'Вебинары',

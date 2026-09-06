@@ -102,12 +102,13 @@ export default function BroadcastChatsTab() {
   const [editing, setEditing] = useState<BroadcastChat | null>(null)
   // Тариф с фичей broadcast_chats (для апсейл-заглушки) — подтягиваем динамически.
   const [upsellTariff, setUpsellTariff] = useState<{ name: string; price: number } | null>(null)
-  // Уровень доступа с бэка: 'unlimited' (безлимит, Экстра) | 'one' (1/площадка, Профи) | null.
-  const [accessLevel, setAccessLevel] = useState<'unlimited' | 'one' | null>(null)
+  // Уровень доступа с бэка: 'unlimited' (доступ есть, число чатов не ограничено) | null.
+  // ⚠️ Уровень 'one' (по одному чату на площадку) удалён миграцией 353 — он не
+  // срабатывал ни у одного клиента, а в интерфейсе обещал ограничение, которого нет.
+  const [accessLevel, setAccessLevel] = useState<'unlimited' | null>(null)
 
   // Доступ к разделу — любая из двух фич (по одному / безлимит).
   const hasFeature = (me?.features || []).includes('broadcast_chats')
-                  || (me?.features || []).includes('broadcast_chats_one')
 
   const load = async () => {
     setLoading(true)
@@ -137,8 +138,7 @@ export default function BroadcastChatsTab() {
       // на площадку или безлимит) — чтобы показать минимальную цену входа.
       const candidates = list.filter(x =>
         (x.slug !== 'admin') &&
-        ((x.feature_slugs || x.features || []).includes('broadcast_chats') ||
-         (x.feature_slugs || x.features || []).includes('broadcast_chats_one'))
+        (x.feature_slugs || x.features || []).includes('broadcast_chats')
       ).sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0))
       const t = candidates[0]
       if (t) setUpsellTariff({ name: t.name, price: Number(t.price) || 0 })
@@ -201,10 +201,10 @@ export default function BroadcastChatsTab() {
     .map(p => ({ platform: p, items: chats.filter(c => c.platform === p) }))
     .filter(g => g.items.length > 0)
 
-  // Площадки, где уже есть хотя бы один чат (для лимита уровня 'one').
+  // Площадки, где уже есть хотя бы один чат.
   const usedPlatforms = new Set<Platform>(chats.map(c => c.platform))
-  // На уровне 'one' все три площадки заняты → добавить больше нельзя (нужен безлимит).
-  const allPlatformsUsed = accessLevel === 'one' && (['telegram', 'vk', 'max'] as const).every(p => usedPlatforms.has(p))
+  // Ограничения по числу чатов больше нет — кнопка «Добавить» доступна всегда.
+  const allPlatformsUsed = false
 
   // Кнопка «Добавить чат» — общая (используется в empty-state и под списком).
   const AddBtn = ({ full }: { full?: boolean }) => {
@@ -246,12 +246,6 @@ export default function BroadcastChatsTab() {
         Потом в рассылке поставьте галочку <b>«Отправлять в общие чаты»</b> — и она уйдёт ещё и в них.
       </div>
 
-      {accessLevel === 'one' && (
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3 text-xs text-blue-900">
-          На вашем тарифе <b>Профи</b> — по одному чату на каждую площадку (Telegram, VK, MAX).
-          Чтобы добавлять чаты без ограничений — тариф <b>Экстра</b>.
-        </div>
-      )}
 
 
       {chats.length === 0 ? (
@@ -408,14 +402,14 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
 
 /* ─────── Модалка добавления ─────── */
 function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
-  accessLevel: 'unlimited' | 'one' | null
+  accessLevel: 'unlimited' | null
   usedPlatforms: Set<Platform>
   onClose: () => void
   onSaved: () => void
 }) {
-  // На уровне 'one' площадка залочена, если на ней уже есть чат.
-  const isLocked = (p: Platform) => accessLevel === 'one' && usedPlatforms.has(p)
-  // Стартовая площадка — первая НЕзалоченная (для уровня 'one'); иначе telegram.
+  // Замков по площадкам больше нет: чатов можно добавлять сколько угодно.
+  const isLocked = (_p: Platform) => false
+  // Стартовая площадка.
   const firstFree = (['telegram', 'vk', 'max'] as const).find(p => !isLocked(p)) || 'telegram'
   const [platform, setPlatform] = useState<Platform>(firstFree)
   const [url, setUrl] = useState('')
@@ -587,13 +581,6 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
                 )
               })}
             </div>
-            {accessLevel === 'one' && (
-              <p className="text-[11px] text-gray-500 mt-1.5">
-                <Lock size={11} className="inline -mt-0.5 mr-0.5" />
-                Площадки с замком уже заняты — на тарифе Профи по одному чату на площадку.
-                Безлимит — на тарифе Экстра.
-              </p>
-            )}
           </div>
 
           {/* WhatsApp — выбор чатов из привязанного аккаунта (ID вручную не вписать) */}

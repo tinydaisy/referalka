@@ -3,7 +3,8 @@
 
 Выносит «доп. чаты для отправки» с уровня события на уровень КЛИЕНТА: единая
 база, в которую дополнительно льются рассылки (общие и событийные). Гейт по
-фиче `broadcast_chats` (только тариф Экстра 2990 + admin).
+фиче `broadcast_chats` — она есть у trial, pro, vip и admin, число чатов не
+ограничено (сверено с прод-базой 06.09.2026).
 
 Endpoints (/api/v1/clients/me/broadcast-chats):
   GET    /                — список чатов клиента
@@ -29,26 +30,31 @@ from app.services.social_links import telegram_api_id, vk_screen_name_from_link
 router = APIRouter(prefix="/clients/me/broadcast-chats", tags=["Чаты для рассылок"])
 
 
-# ── Гейт по фиче (два уровня) ──
-#   broadcast_chats      — БЕЗЛИМИТ чатов (тариф Экстра 2990 + admin)
-#   broadcast_chats_one  — ПО ОДНОМУ чату на площадку (тариф Профи 1990)
+# ── Гейт по фиче ──
+#   broadcast_chats — доступ к разделу, число чатов НЕ ограничено.
+#
+# ⚠️ Второго уровня «по одному чату на площадку» (фича `broadcast_chats_one`)
+# больше нет — удалён миграцией 353. Задумывался как «Профи по одному, Экстра
+# безлимит», но по факту ОБЕ фичи были привязаны к trial+pro+vip, а безлимит
+# проверялся первым: уровень 'one' не срабатывал ни у кого, зато в карточке
+# тарифа висела строка «Чаты для рассылок (по одному)», противоречившая
+# соседней «Чаты и группы для рассылок». Вернуть ограничение = завести фичу
+# заново И убрать безлимит у нужных тарифов, иначе повторится то же самое.
 async def _access_level(db, client_id: int) -> Optional[str]:
-    """Уровень доступа клиента к разделу: 'unlimited' | 'one' | None (нет доступа)."""
+    """'unlimited' — доступ есть (без ограничения по числу), None — нет доступа."""
     if await client_has_feature(db, client_id, "broadcast_chats"):
         return "unlimited"
-    if await client_has_feature(db, client_id, "broadcast_chats_one"):
-        return "one"
     return None
 
 
 async def _assert_feature(db, client_id: int) -> str:
-    """Проверить доступ к разделу. Возвращает уровень ('unlimited'|'one'). 403 если нет."""
+    """Проверить доступ к разделу. 403 если фичи нет."""
     level = await _access_level(db, client_id)
     if level is None:
         raise HTTPException(
             status_code=403,
-            detail="Чаты для рассылок доступны на тарифе Профи (по одному на площадку) "
-                   "или Экстра (без ограничений). Перейдите на него в разделе «Подписка».",
+            detail="Чаты для рассылок доступны на платном тарифе. "
+                   "Перейдите на него в разделе «Подписка».",
         )
     return level
 
@@ -91,7 +97,7 @@ async def list_chats(
             ORDER BY platform, id""",
         client_id,
     )
-    # access_level: 'unlimited' (безлимит чатов) | 'one' (1 на площадку) | null (нет доступа).
+    # access_level: 'unlimited' (доступ есть, число чатов не ограничено) | null (нет доступа).
     # Фронт по нему решает, какие площадки залочить замком в модалке «Добавить чат».
     level = await _access_level(db, client_id)
     return {"chats": [dict(r) for r in rows], "access_level": level}
@@ -187,7 +193,7 @@ async def add_chat(
     db: asyncpg.Connection = Depends(get_db),
 ):
     client_id = int(client["sub"])
-    level = await _assert_feature(db, client_id)
+    await _assert_feature(db, client_id)
     platform = (data.platform or "").lower()
     if platform not in ("telegram", "vk", "max", "whatsapp"):
         raise HTTPException(status_code=400, detail="platform должен быть telegram | vk | max | whatsapp")
@@ -215,21 +221,8 @@ async def add_chat(
                    "чат не появится ни в меню бота, ни в письмах, ни в рассылках.",
         )
 
-    # Уровень 'one' (тариф Профи) — по одному чату на площадку. Разрешаем только если
-    # на этой площадке ещё НЕТ чата, либо это апдейт того же chat_id (тот же чат).
-    if level == "one":
-        existing = await db.fetchval(
-            """SELECT chat_id FROM client_broadcast_chats
-                WHERE client_id = $1 AND platform = $2 LIMIT 1""",
-            client_id, platform,
-        )
-        if existing is not None and str(existing) != chat_id:
-            plat_label = {"telegram": "Telegram", "vk": "VK", "max": "MAX", "whatsapp": "WhatsApp"}.get(platform, platform)
-            raise HTTPException(
-                status_code=403,
-                detail=f"На тарифе Профи можно добавить только один чат для площадки {plat_label}. "
-                       "Неограниченное число чатов доступно на тарифе Экстра.",
-            )
+    # ⚠️ Ограничения «один чат на площадку» больше нет (миграция 353) — оно не
+    # действовало ни у одного клиента, см. комментарий у `_access_level`.
     try:
         row = await db.fetchrow(
             """INSERT INTO client_broadcast_chats

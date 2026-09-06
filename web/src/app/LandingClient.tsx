@@ -11,7 +11,7 @@ interface Tariff {
   name: string
   price: number
   default_duration_days: number
-  contact_limit: number
+  contact_limit: number | null   // NULL = безлимит
   broadcasts_daily_limit: number | null
   prodamus_payment_url: string | null
   promo_banner_text: string | null
