@@ -30,6 +30,9 @@ import asyncpg
 from app.celery_app import celery
 from app.config import settings
 from app.services import r2_storage
+# ⚠️ Развилка «своё хранилище или служебное» — ОДНА функция на весь проект:
+# копии в задаче и в API успели бы разъехаться.
+from app.services.client_storage import storage_for
 
 _log = logging.getLogger(__name__)
 
@@ -92,7 +95,7 @@ async def _run(recording_id: int):
             "UPDATE webinar_recording_cuts SET status='processing', error=NULL, "
             " updated_at=now() WHERE id = ANY($1::int[])", [c["id"] for c in cuts])
 
-        client, bucket, public_base = await _storage_for(conn, rec["client_id"])
+        client, bucket, public_base = await storage_for(conn, rec["client_id"])
 
         # Скачиваем исходник ОДИН раз на все куски: он весит гигабайты, и качать
         # его заново под каждое выступление — это часы сети на ровном месте.
@@ -194,32 +197,6 @@ async def _cut_one(conn, rec, cut, src_path, offset, client, bucket, public_base
                 os.unlink(tmp_out)
             except Exception:
                 pass
-
-
-async def _storage_for(conn, client_id):
-    """Клиент S3, бакет и публичный адрес ТОГО хранилища, где лежит запись.
-
-    ⚠️ У клиента может быть СВОЁ хранилище — тогда скачивание из служебного
-    вернёт 404. Та же развилка, что в compress_recording.
-    """
-    own = await conn.fetchrow(
-        """SELECT storage_endpoint, storage_region, storage_bucket,
-                  storage_access_key, storage_secret_key, storage_public_url
-             FROM clients WHERE id = $1 AND storage_provider IS NOT NULL""",
-        client_id)
-    if not own:
-        return (r2_storage.get_r2_client(), settings.cf_r2_bucket_name,
-                settings.cf_r2_public_url)
-    import boto3
-    from botocore.client import Config as _Cfg
-    cl = boto3.client(
-        "s3", endpoint_url=own["storage_endpoint"],
-        aws_access_key_id=own["storage_access_key"],
-        aws_secret_access_key=own["storage_secret_key"],
-        region_name=own["storage_region"] or "ru-central-1",
-        config=_Cfg(signature_version="s3v4"))
-    base = (own["storage_public_url"] or "").rstrip("/")
-    return cl, own["storage_bucket"], base
 
 
 def _probe_duration(path: str) -> int | None:

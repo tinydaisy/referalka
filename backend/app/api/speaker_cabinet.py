@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional, List
+import re
 import asyncpg
 import jwt
 
@@ -1277,6 +1278,45 @@ async def get_me_gift_stats(
     оба от дня первого выступления. Логика и оговорки — в сервисе.
     """
     return await speaker_lead_magnet_stats(db, int(session["se_id"]))
+
+
+@router.get("/me/recordings/{cut_id}/download",
+            summary="Ссылка на скачивание своей нарезки")
+async def download_my_recording(
+    cut_id: int,
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Ссылка, по которой браузер СОХРАНЯЕТ файл, а не открывает проигрыватель.
+
+    ⚠️ Прямая ссылка на хранилище отдаёт `Content-Type: video/mp4` без
+    `Content-Disposition`, и браузер обязан показать видео. Атрибут `download`
+    у ссылки не помогает — он действует только на своём домене. Поэтому
+    подписываем ссылку с пометкой «это вложение».
+
+    ⚠️ Нарезка сверяется со СПИКЕРОМ сессии (`speaker_ec_id`): иначе по чужому
+    номеру можно было бы скачать выступление другого человека.
+    """
+    row = await db.fetchrow(
+        """SELECT cut.r2_key, cut.title, wr.event_id
+             FROM webinar_recording_cuts cut
+             JOIN webinar_recordings rec ON rec.id = cut.recording_id
+             JOIN webinar_rooms wr       ON wr.id = rec.room_id
+            WHERE cut.id = $1 AND cut.speaker_ec_id = $2
+              AND cut.status = 'ready' AND cut.r2_key IS NOT NULL""",
+        cut_id, int(session["se_id"]))
+    if not row:
+        raise HTTPException(404, "Запись не найдена")
+
+    from app.services.client_storage import storage_for
+    client_id = await db.fetchval(
+        "SELECT eo.client_id FROM event_owners eo "
+        " WHERE eo.event_id=$1 AND eo.status='accepted' "
+        " ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1", row["event_id"])
+    cl, bucket, _ = await storage_for(db, client_id)
+    name = re.sub(r'[\\/:*?"<>|\r\n\t]+', ' ', row["title"] or "").strip()[:120] or "Выступление"
+    return {"url": r2_storage.download_url(row["r2_key"], f"{name}.mp4",
+                                           client=cl, bucket=bucket)}
 
 
 @router.get("/me/my-broadcasts", summary="Рассылки, где фигурирует этот спикер (в этом событии)")

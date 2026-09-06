@@ -277,6 +277,42 @@ async def object_exists(url: str) -> bool:
         return "404" not in str(e) and "NoSuchKey" not in str(e) and "Not Found" not in str(e)
 
 
+def download_url(key: str, filename: str, *, client=None, bucket: str | None = None,
+                 expires: int = 3600) -> str:
+    """Ссылка, по которой браузер СКАЧИВАЕТ файл, а не открывает его.
+
+    ⚠️ Зачем. У объекта в хранилище стоит `Content-Type: video/mp4` и НЕТ
+    `Content-Disposition` — браузер обязан показать видео, а не сохранить.
+    Атрибут `download` у ссылки тут не помогает: он действует только на файлы
+    со своего домена, а хранилище — чужой. Человек жал «Скачать» и попадал на
+    страницу с проигрывателем.
+
+    Здесь подписываем временную ссылку и просим хранилище отдать файл как
+    вложение с понятным именем — тогда сохранение начинается сразу.
+
+    ⚠️ Имя файла уходит ДВАЖДЫ: обычным `filename=` (латиница, для старых
+    программ) и `filename*=UTF-8''…` по RFC 5987 — иначе кириллица в имени
+    превращается в мусор.
+    """
+    from urllib.parse import quote
+
+    cl = client or get_r2_client()
+    bkt = bucket or settings.cf_r2_bucket_name
+    safe = quote(filename)
+    # ASCII-запасное имя: кириллица в обычном filename= ломает часть клиентов.
+    ascii_name = filename.encode("ascii", "ignore").decode() or "download.mp4"
+    return cl.generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": bkt,
+            "Key": key,
+            "ResponseContentDisposition":
+                f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{safe}',
+        },
+        ExpiresIn=expires,
+    )
+
+
 async def delete_object(key: str) -> None:
     """Удаляет объект из R2."""
     client = get_r2_client()

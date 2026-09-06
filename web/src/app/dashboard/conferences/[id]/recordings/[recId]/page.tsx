@@ -391,6 +391,71 @@ export default function RecordingCutPage() {
     } finally { setBusy('') }
   }
 
+  /**
+   * Скачивание файла.
+   *
+   * ⚠️ Ссылку на сохранение выдаёт СЕРВЕР (подписанная, с заголовком «это
+   * вложение»). Прямая ссылка на хранилище открывает видео в браузере, а
+   * атрибут `download` у ссылки на чужой домен не действует — именно поэтому
+   * «Скачать» раньше показывало проигрыватель вместо загрузки.
+   */
+  const startDownload = (url: string) => {
+    const a = document.createElement('a')
+    a.href = url
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
+  const downloadSource = async () => {
+    setBusy('Готовлю файл…')
+    try {
+      const r: any = await api.webinar.downloadRecordingUrl(eventId, day, recordingId)
+      startDownload(r.url)
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скачать')
+    } finally { setBusy('') }
+  }
+
+  const downloadCut = async (c: Cut) => {
+    if (!c.id) return
+    setBusy('Готовлю файл…')
+    try {
+      const r: any = await api.webinar.downloadCutUrl(eventId, day, recordingId, c.id)
+      startDownload(r.url)
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скачать')
+    } finally { setBusy('') }
+  }
+
+  /**
+   * Скачать все нарезки сразу.
+   *
+   * ⚠️ Архива НЕТ (решение владельца): собирать зип из гигабайтов долго, а
+   * человеку потом ещё распаковывать. Скачиваем файлы по одному — они просто
+   * складываются в папку загрузок.
+   *
+   * ⚠️ Между файлами пауза: браузер отменяет загрузки, запущенные пачкой в
+   * одну секунду, — доезжает одна-две вместо восьми.
+   */
+  const downloadAll = async () => {
+    setBusy('Готовлю файлы…')
+    try {
+      const r: any = await api.webinar.downloadAllCuts(eventId, day, recordingId)
+      const files = r.files || []
+      if (!files.length) { alert('Готовых нарезок пока нет'); return }
+      for (let i = 0; i < files.length; i++) {
+        setBusy(`Скачиваю ${i + 1} из ${files.length}…`)
+        startDownload(files[i].url)
+        await new Promise(res => setTimeout(res, 900))
+      }
+      setDoneMsg(`Скачивание запущено — ${files.length} ${plural(files.length, 'файл', 'файла', 'файлов')} в папке загрузок. Браузер мог спросить разрешение на несколько файлов.`)
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скачать')
+    } finally { setBusy('') }
+  }
+
   const runCut = async () => {
     if (dirty) { alert('Сначала сохраните метки.'); return }
     const n = cuts.filter(c => c.status !== 'ready').length
@@ -432,6 +497,13 @@ export default function RecordingCutPage() {
             {readyCount > 0 && ` · нарезано ${readyCount}`}
           </p>
         </div>
+        {/* ⚠️ «Скачать» и «смотреть» — РАЗНЫЕ действия. Ссылку на сохранение
+            выдаёт сервер: прямая ссылка на хранилище открывает проигрыватель. */}
+        <button onClick={downloadSource} disabled={!!busy}
+                className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                title="Сохранить исходный файл эфира на компьютер">
+          <Download size={15} /> Скачать запись
+        </button>
       </div>
 
       {/* Видео.
@@ -475,9 +547,12 @@ export default function RecordingCutPage() {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2
                           bg-black/85 text-white text-sm px-6 text-center">
             <div>Браузер не смог открыть запись.</div>
-            <a href={meta.url} download className="underline text-white/80 text-xs">
+            {/* ⚠️ Именно кнопка, а не ссылка с `download`: атрибут не работает
+                на чужом домене хранилища и просто открыл бы видео заново. */}
+            <button onClick={downloadSource} disabled={!!busy}
+                    className="underline text-white/80 text-xs disabled:opacity-50">
               Скачать файл ({fmtSize(meta.size_bytes)})
-            </a>
+            </button>
           </div>
         )}
       </div>
@@ -664,8 +739,24 @@ export default function RecordingCutPage() {
       {!anyProcessing && !doneMsg && cuts.length > 0 && readyCount === cuts.length && (
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 mb-4 text-sm text-emerald-900">
           Запись нарезана на {cuts.length} {plural(cuts.length, 'нарезку', 'нарезки', 'нарезок')} —
-          зелёные полосы на таймлайне. Каждый можно скачать в списке ниже; спикеры видят свои
+          зелёные полосы на таймлайне. Каждую можно скачать в списке ниже; спикеры видят свои
           выступления у себя в кабинете.
+        </div>
+      )}
+
+      {/* ⚠️ «Скачать все» — БЕЗ архива (решение владельца): зип из гигабайтов
+          собирается долго, а человеку потом ещё распаковывать. Файлы уходят по
+          одному прямо в папку загрузок. */}
+      {readyCount > 0 && !anyProcessing && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <button onClick={downloadAll} disabled={!!busy}
+                  className="btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50">
+            <Download size={15} /> Скачать все нарезки ({readyCount})
+          </button>
+          <span className="text-xs text-gray-500">
+            Файлы скачиваются по одному в папку загрузок, без архива.
+            Браузер может спросить разрешение на несколько файлов — разрешите.
+          </span>
         </div>
       )}
 
@@ -804,11 +895,23 @@ export default function RecordingCutPage() {
               <span className="text-xs text-gray-400 tabular-nums shrink-0">
                 {mmss(Math.max(0, end - c.start_sec))}
               </span>
+              {/* ⚠️ Скачивание и просмотр — РАЗНЫЕ кнопки. Раньше «Скачать»
+                  вело прямо в хранилище, и браузер открывал видео вместо
+                  сохранения: у файла нет заголовка «это загрузка», а атрибут
+                  `download` на чужом домене не действует. Теперь ссылку на
+                  сохранение выдаёт сервер. */}
               {c.status === 'ready' && c.url && (
-                <a href={c.url} download
-                   className="px-2 py-1 rounded-md border text-xs text-gray-600 shrink-0 flex items-center gap-1">
-                  <Download size={13} />{c.size_bytes ? fmtSize(c.size_bytes) : 'Скачать'}
-                </a>
+                <>
+                  <button onClick={() => seekLive(c.start_sec)}
+                          className="px-2 py-1 rounded-md border text-xs text-gray-600 shrink-0"
+                          title="Посмотреть здесь, в плеере выше">Смотреть</button>
+                  <button onClick={() => downloadCut(c)} disabled={!!busy}
+                          className="px-2 py-1 rounded-md border text-xs text-gray-600 shrink-0
+                                     flex items-center gap-1 disabled:opacity-40"
+                          title="Сохранить файл на компьютер">
+                    <Download size={13} />{c.size_bytes ? fmtSize(c.size_bytes) : 'Скачать'}
+                  </button>
+                </>
               )}
               {c.status === 'processing' && <span className="text-xs text-amber-600 shrink-0">режется…</span>}
               {c.status === 'failed' && (

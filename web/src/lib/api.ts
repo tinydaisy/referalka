@@ -1863,6 +1863,15 @@ export const api = {
               { method: 'PUT', body: JSON.stringify({ cuts }) }),
     runCut: (eventId: number, day: number, recId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cut`, { method: 'POST' }),
+    // ⚠️ Скачивание идёт по ПОДПИСАННОЙ ссылке с сервера: прямая ссылка на
+    // хранилище открывает видео вместо сохранения (нет Content-Disposition,
+    // а `download` на чужом домене не действует).
+    downloadRecordingUrl: (eventId: number, day: number, recId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/download`),
+    downloadCutUrl: (eventId: number, day: number, recId: number, cutId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts/${cutId}/download`),
+    downloadAllCuts: (eventId: number, day: number, recId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts/download-all`),
     deleteCut: (eventId: number, day: number, recId: number, cutId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts/${cutId}`,
               { method: 'DELETE' }),

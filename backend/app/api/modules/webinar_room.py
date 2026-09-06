@@ -612,7 +612,7 @@ async def _recording_or_404(db, event_id: int, day_number: int, recording_id: in
     иначе по чужому номеру можно было бы читать и резать чужие эфиры."""
     rid = await _room_id(db, event_id, day_number)
     row = await db.fetchrow(
-        "SELECT id, room_id, status, duration_sec, live_offset_sec, url "
+        "SELECT id, room_id, status, duration_sec, live_offset_sec, url, r2_key "
         "  FROM webinar_recordings WHERE id=$1 AND room_id=$2", recording_id, rid)
     if not row:
         raise HTTPException(404, "Запись не найдена")
@@ -896,6 +896,101 @@ async def delete_cut(event_id: int, day_number: int, recording_id: int, cut_id: 
             pass          # файл мог быть уже удалён — строку всё равно снимаем
     await db.execute("DELETE FROM webinar_recording_cuts WHERE id=$1", cut_id)
     return {"ok": True}
+
+
+# ─────────────────────────── ссылки на СКАЧИВАНИЕ ───────────────────────────
+# ⚠️⚠️ Обычная ссылка на файл в хранилище НЕ скачивает, а ОТКРЫВАЕТ видео:
+# у объекта стоит `Content-Type: video/mp4` и нет `Content-Disposition`.
+# Атрибут `download` у ссылки тут бессилен — он работает только для файлов со
+# своего домена, а хранилище чужое. Человек жал «Скачать» и попадал на страницу
+# с проигрывателем.
+#
+# Поэтому отдаём ПОДПИСАННУЮ ссылку, в которой хранилищу сказано отдать файл
+# вложением и с понятным именем. Скачивание начинается сразу.
+
+def _safe_filename(name: str, fallback: str) -> str:
+    """Имя файла для сохранения: без символов, запрещённых в файловой системе."""
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]+', ' ', (name or '')).strip()
+    s = re.sub(r'\s{2,}', ' ', s)[:120].strip(' .')
+    return f"{s or fallback}.mp4"
+
+
+async def _client_of_event(db, event_id: int) -> Optional[int]:
+    return await db.fetchval(
+        "SELECT eo.client_id FROM event_owners eo "
+        " WHERE eo.event_id=$1 AND eo.status='accepted' "
+        " ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1", event_id)
+
+
+@router.get("/{day_number}/recordings/{recording_id}/download",
+            summary="Ссылка на скачивание целой записи")
+async def download_recording(event_id: int, day_number: int, recording_id: int,
+                             client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rec = await _recording_or_404(db, event_id, day_number, recording_id)
+    if not rec.get("r2_key"):
+        raise HTTPException(400, "У записи нет файла")
+    from app.services.client_storage import storage_for
+    from app.services import r2_storage
+    cl, bucket, _ = await storage_for(db, await _client_of_event(db, event_id))
+    title = await db.fetchval("SELECT title FROM events WHERE id=$1", event_id) or "Запись"
+    name = _safe_filename(f"{title} — день {day_number}", "Запись эфира")
+    return {"url": r2_storage.download_url(rec["r2_key"], name, client=cl, bucket=bucket)}
+
+
+# ⚠️ ПОРЯДОК ВАЖЕН: «download-all» объявлен ДО «{cut_id}/download» —
+# иначе тот перехватит слово «download-all» как номер нарезки и вернёт 422.
+@router.get("/{day_number}/recordings/{recording_id}/cuts/download-all",
+            summary="Ссылки на скачивание ВСЕХ нарезок")
+async def download_all_cuts(event_id: int, day_number: int, recording_id: int,
+                            client=Depends(get_current_client), db=Depends(get_db)):
+    """⚠️ Архива НЕТ (решение владельца): собирать зип из гигабайтов на сервере
+    долго и тяжело, а человеку потом ещё распаковывать. Отдаём список ссылок —
+    браузер скачивает файлы по одному, сразу в папку загрузок."""
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    await _recording_or_404(db, event_id, day_number, recording_id)
+    rows = await db.fetch(
+        "SELECT c.r2_key, c.title, cl.name AS speaker_name, cl.last_name "
+        "  FROM webinar_recording_cuts c "
+        "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
+        "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
+        " WHERE c.recording_id=$1 AND c.status='ready' AND c.r2_key IS NOT NULL "
+        " ORDER BY c.sort_order, c.start_sec", recording_id)
+    if not rows:
+        raise HTTPException(400, "Готовых нарезок пока нет")
+    from app.services.client_storage import storage_for
+    from app.services import r2_storage
+    cl, bucket, _ = await storage_for(db, await _client_of_event(db, event_id))
+    files = []
+    for r in rows:
+        who = " ".join(x for x in [r["last_name"], r["speaker_name"]] if x).strip()
+        name = _safe_filename(f"{who} — {r['title']}" if who else r["title"], "Нарезка")
+        files.append({"name": name,
+                      "url": r2_storage.download_url(r["r2_key"], name, client=cl, bucket=bucket)})
+    return {"files": files}
+
+
+@router.get("/{day_number}/recordings/{recording_id}/cuts/{cut_id}/download",
+            summary="Ссылка на скачивание одной нарезки")
+async def download_cut(event_id: int, day_number: int, recording_id: int, cut_id: int,
+                       client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    await _recording_or_404(db, event_id, day_number, recording_id)
+    row = await db.fetchrow(
+        "SELECT c.r2_key, c.title, cl.name AS speaker_name, cl.last_name "
+        "  FROM webinar_recording_cuts c "
+        "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
+        "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
+        " WHERE c.id=$1 AND c.recording_id=$2", cut_id, recording_id)
+    if not row or not row["r2_key"]:
+        raise HTTPException(404, "Нарезка не найдена или ещё не готова")
+    # Имя файла — «Фамилия Имя — Тема»: человек ищет скачанное глазами.
+    who = " ".join(x for x in [row["last_name"], row["speaker_name"]] if x).strip()
+    name = _safe_filename(f"{who} — {row['title']}" if who else row["title"], "Нарезка")
+    from app.services.client_storage import storage_for
+    from app.services import r2_storage
+    cl, bucket, _ = await storage_for(db, await _client_of_event(db, event_id))
+    return {"url": r2_storage.download_url(row["r2_key"], name, client=cl, bucket=bucket)}
 
 
 # ─────────────────────────── автовебинар ───────────────────────────

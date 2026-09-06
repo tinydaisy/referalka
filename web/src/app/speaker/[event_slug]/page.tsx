@@ -1062,6 +1062,7 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'materials' && (
           <MaterialsTab
             materials={materials}
+            token={token}
             refCopied={refCopied}
             setRefCopied={setRefCopied}
             setLightbox={setLightbox}
@@ -2131,13 +2132,36 @@ function ProfilePreviewBar({ me, token }: { me: any; token: string }) {
 }
 
 function MaterialsTab({
-  materials, refCopied, setRefCopied, setLightbox,
+  materials, token, refCopied, setRefCopied, setLightbox,
 }: {
   materials: SpeakerMaterials | null
+  token: string | null
   refCopied: string
   setRefCopied: (s: string) => void
   setLightbox: (s: string | null) => void
 }) {
+  /**
+   * Скачать своё выступление.
+   *
+   * ⚠️ Ссылку на сохранение выдаёт СЕРВЕР. Прямая ссылка на хранилище
+   * открывает проигрыватель, а атрибут `download` на чужом домене не
+   * действует — «Скачать» показывало то же видео, что и выше.
+   */
+  const downloadCut = async (cutId: number) => {
+    if (!token) return
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/recordings/${cutId}/download`,
+                            { headers: { Authorization: `Bearer ${token}` } })
+      const d = await r.json()
+      if (!r.ok || !d.url) throw new Error(d.detail || 'Не получилось скачать')
+      const a = document.createElement('a')
+      a.href = d.url; a.rel = 'noopener'
+      document.body.appendChild(a); a.click(); a.remove()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скачать')
+    }
+  }
+
   if (!materials) {
     return <div style={{ fontSize: 13, color: '#7a8c9c', padding: 20 }}>Загружаем материалы…</div>
   }
@@ -2456,11 +2480,13 @@ function MaterialsTab({
                 </div>
                 <video src={v.url} controls preload="metadata"
                        style={{ width: '100%', borderRadius: 12, background: '#000', display: 'block' }} />
-                <a href={v.url} download
-                   style={{ display: 'inline-block', marginTop: 8, fontSize: 13,
-                            color: '#25455D', textDecoration: 'underline' }}>
+                <button onClick={() => downloadCut(v.id)}
+                        style={{ display: 'inline-block', marginTop: 8, fontSize: 13,
+                                 color: '#25455D', textDecoration: 'underline',
+                                 background: 'none', border: 'none', padding: 0,
+                                 cursor: 'pointer' }}>
                   Скачать запись
-                </a>
+                </button>
               </div>
             ))}
           </div>

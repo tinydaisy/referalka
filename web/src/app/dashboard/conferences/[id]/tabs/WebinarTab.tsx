@@ -1090,6 +1090,26 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
   const [battles, setBattles] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [viewer, setViewer] = useState<any | null>(null)
+  const [dlBusy, setDlBusy] = useState(false)
+
+  /**
+   * Скачать запись целиком.
+   *
+   * ⚠️ Ссылку на сохранение выдаёт СЕРВЕР (подписанная, с пометкой «это
+   * вложение»). Прямая ссылка на хранилище открывает проигрыватель, а атрибут
+   * `download` на чужом домене не действует — «Скачать» показывало видео.
+   */
+  const downloadRecording = async (recId: number) => {
+    setDlBusy(true)
+    try {
+      const r: any = await api.webinar.downloadRecordingUrl(eventId, day, recId)
+      const a = document.createElement('a')
+      a.href = r.url; a.rel = 'noopener'
+      document.body.appendChild(a); a.click(); a.remove()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скачать')
+    } finally { setDlBusy(false) }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1177,7 +1197,10 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                     </a>
                   )}
                   {r.status === 'ready' && r.url && (
-                    <a href={r.url} download className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">Скачать</a>
+                    <button onClick={() => downloadRecording(r.id)} disabled={dlBusy}
+                            className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D] disabled:opacity-50">
+                      {dlBusy ? 'Готовлю…' : 'Скачать'}
+                    </button>
                   )}
                   <button onClick={() => remove(r.id)} className="px-3 py-1.5 rounded-lg border text-sm text-gray-500 hover:text-red-500">Удалить</button>
                 </div>
