@@ -109,7 +109,8 @@ function CallsInner() {
   const notConfigured = settings && !settings.is_configured
 
   return (
-    <LockedOverlayIf locked={locked} feature="calls">    <div className="p-6 max-w-6xl">
+    <LockedOverlayIf locked={locked} feature="calls">
+    <div className="p-6 max-w-6xl">
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -245,7 +246,7 @@ function CallsInner() {
         />
       )}
       {logFor && <LogModal campaign={logFor} onClose={() => setLogFor(null)} />}
-    </div>
+    </div></LockedOverlayIf>
   )
 }
 
@@ -543,6 +544,5 @@ function Stat({ label, value, tone }: { label: string; value: any; tone?: string
       </div>
       <div className="text-xs text-gray-500 mt-0.5">{label}</div>
     </div>
-  </LockedOverlayIf>
   )
 }

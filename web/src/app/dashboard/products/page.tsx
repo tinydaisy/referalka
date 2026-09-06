@@ -36,7 +36,8 @@ export default function ProductsPage() {
   const locked = Boolean(me) && !hasFeature
 
   return (
-    <LockedOverlayIf locked={locked} feature="products">    <div className="max-w-5xl">
+    <LockedOverlayIf locked={locked} feature="products">
+    <div className="max-w-5xl">
       <h1 className="mb-1 text-2xl font-bold text-gray-900">Продукты и услуги</h1>
       <p className="mb-6 text-sm text-gray-500">
         То, что продаётся вне событий. У каждого продукта своя страница, тарифы
@@ -65,7 +66,7 @@ export default function ProductsPage() {
       {tab === 'products'
         ? <ProductsTab readOnly={isAssistant} />
         : <MaterialsTab readOnly={isAssistant} />}
-    </div>
+    </div></LockedOverlayIf>
   )
 }
 
@@ -513,6 +514,5 @@ function MaterialForm({ material, onClose, onSaved }: {
         </div>
       </div>
     </div>
-  </LockedOverlayIf>
   )
 }
