@@ -14,7 +14,11 @@ export default function SubscriptionPage() {
   const [selectedSlug, setSelectedSlug] = useState<string>('')
   // Выбранный срок оплаты — ОДИН на все карточки: сравнивать тарифы можно
   // только в одинаковом сроке, иначе рядом стоят «1990 ₽» и «19 104 ₽».
-  const [months, setMonths] = useState(1)
+  //
+  // ⚠️ По умолчанию 12 месяцев — самый выгодный срок. Человек сразу видит
+  // лучшую цену и экономию, а не месячную цену, от которой длинные сроки
+  // выглядят дороже.
+  const [months, setMonths] = useState(12)
   const [bonusBalance, setBonusBalance] = useState(0)
   const [paidBanner, setPaidBanner] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -85,6 +89,24 @@ export default function SubscriptionPage() {
   const availableMonths: number[] = Array.from(
     new Set<number>(tariffs.flatMap((t: any) => (t.periods || []).map((p: any) => Number(p.months))))
   ).sort((a, b) => a - b)
+
+  // ⚠️ Страховка на дефолт: если 12 месяцев вообще не настроены (длинные сроки
+  // выключили в базе), переключатель остался бы на несуществующем сроке и
+  // подсветилась бы пустота. Тогда берём самый длинный из доступных.
+  useEffect(() => {
+    if (availableMonths.length && !availableMonths.includes(months)) {
+      setMonths(availableMonths[availableMonths.length - 1])
+    }
+  }, [availableMonths.join(','), months])
+
+  // Скидка и рублёвая экономия выбранного срока — для подписи над карточками.
+  // Считаем из тех же периодов, что и цены: своей арифметики скидки нет.
+  const maxDiscount = Math.max(0, ...tariffs.map(t => periodOf(t, months)?.discount_percent || 0))
+  const maxSavingRub = Math.max(0, ...tariffs.map(t => {
+    const p = periodOf(t, months)
+    if (!p || p.months < 2) return 0
+    return Number(t.price) * p.months - (p.total_kopecks || 0) / 100
+  }))
 
   async function pay(slug: string, tariff: any) {
     if (!slug) return
@@ -236,13 +258,20 @@ export default function SubscriptionPage() {
                     <button
                       key={m}
                       onClick={() => setMonths(m)}
-                      className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                        active ? 'bg-white text-[#25455D] shadow-sm' : 'text-gray-500 hover:text-[#25455D]'
+                      // ⚠️ Активный срок — фирменный персик на тёмном тексте.
+                      // Белым на светло-сером он читался как «ничего не выбрано».
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
+                        active
+                          ? 'bg-[#FFCFA4] text-[#25455D] shadow-sm'
+                          : 'text-gray-600 hover:text-[#25455D] hover:bg-white/70'
                       }`}
                     >
                       {m === 1 ? '1 месяц' : `${m} мес.`}
                       {pct > 0 && (
-                        <span className={`ml-1.5 text-[11px] font-bold ${active ? 'text-emerald-600' : 'text-emerald-500'}`}>
+                        // ⚠️ На персике зелёный не читается — берём тёмный
+                        // фирменный. Вне выделения зелёный уместен: он тянет
+                        // взгляд к выгодным срокам.
+                        <span className={`ml-1.5 text-xs font-bold ${active ? 'text-[#25455D]' : 'text-emerald-600'}`}>
                           −{pct}%
                         </span>
                       )}
@@ -251,8 +280,9 @@ export default function SubscriptionPage() {
                 })}
               </div>
               {months > 1 && (
-                <div className="mt-1.5 text-xs text-gray-500">
-                  Оплата сразу за {months} мес. — дешевле, чем платить помесячно.
+                <div className="mt-2 text-sm font-semibold text-emerald-700">
+                  Выгода {maxDiscount}% — платите сразу за {months} мес. и экономите
+                  {maxSavingRub > 0 ? ` до ${maxSavingRub.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽` : ''}
                 </div>
               )}
             </div>
@@ -295,33 +325,43 @@ export default function SubscriptionPage() {
                   <div className="mt-1 flex items-baseline gap-2 flex-wrap">
                     {payMonths > 1 ? (
                       <>
-                        <span className="text-sm line-through text-gray-400">
+                        {/* Зачёркнутая старая цена — КРАСНАЯ и жирная: серая
+                            терялась и выгода не читалась вовсе. */}
+                        <span className="text-base font-bold line-through text-red-500">
                           {Number(t.price).toLocaleString('ru-RU')} ₽
                         </span>
-                        <span className="text-xl font-bold text-[#25455D]">
+                        <span className="text-2xl font-extrabold text-[#25455D]">
                           {monthPrice.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
                         </span>
-                        <span className="text-[11px] text-gray-500">/мес</span>
+                        <span className="text-xs font-semibold text-gray-600">/мес</span>
                         {discount > 0 && (
-                          <span className="text-[11px] font-bold text-emerald-600">−{discount}%</span>
+                          <span className="text-xs font-extrabold text-white bg-emerald-600 rounded px-1.5 py-0.5">
+                            −{discount}%
+                          </span>
                         )}
                       </>
                     ) : t.promo_old_price && Number(t.promo_old_price) > Number(t.price) ? (
                       <>
-                        <span className="text-sm line-through text-gray-400">{Number(t.promo_old_price).toLocaleString('ru-RU')} ₽</span>
-                        <span className="text-xl font-bold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
+                        <span className="text-base font-bold line-through text-red-500">{Number(t.promo_old_price).toLocaleString('ru-RU')} ₽</span>
+                        <span className="text-2xl font-extrabold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
                       </>
                     ) : (
-                      <span className="text-xl font-bold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
+                      <span className="text-2xl font-extrabold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
                     )}
                   </div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">
+                  {/* ⚠️ Полная стоимость за срок — ЖИРНО и тёмным. Это ключевая
+                      цифра: именно её человек заплатит, и по ней он понимает,
+                      что берёт год, а не месяц. Бледно-серым она читалась как
+                      сноска и терялась. */}
+                  <div className={`mt-1 ${payMonths > 1 ? 'text-sm font-bold text-[#25455D]' : 'text-[11px] text-gray-400'}`}>
                     {payMonths > 1
-                      ? `${totalRub.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽ за ${payMonths} мес. одним платежом`
+                      ? `${totalRub.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽ за ${payMonths} мес. одним платежом`
                       : `за ${t.default_duration_days} дн.`}
                   </div>
 
-                  <div className="space-y-1 mt-3 text-xs text-gray-600 flex-1">
+                  {/* Список возможностей — темнее серого: на белой карточке
+                      светло-серый мелкий текст почти не читается. */}
+                  <div className="space-y-1 mt-3 text-xs text-gray-700 flex-1">
                     {/* ⚠️ Пустой лимит = БЕЗЛИМИТ (см. contact_limits.py) — без этой
                         ветки у Экстра печаталось «До  контактов на канал» с дырой
                         вместо числа. Так же устроена соседняя строка про рассылки. */}
@@ -336,8 +376,10 @@ export default function SubscriptionPage() {
 
                   {/* ⚠️ На ТЕКУЩЕМ тарифе это ПРОДЛЕНИЕ, а не покупка: слово
                       «Оплатить» на уже оплаченном тарифе читается как «вы не
-                      оплатили» и путает. Золотую кнопку-призыв тоже убираем —
-                      призывать покупать то, что уже есть, незачем. */}
+                      оплатили» и путает. Меняем только надпись — кнопка
+                      остаётся персиковой (решение владельца): бледная кнопка
+                      продления терялась ровно там, где подписка уже истекла и
+                      продлить нужнее всего. */}
                   {/* ⚠️ На своём тарифе пишем не только «ваш», но и СРОК: из ряда
                       одинаковых карточек иначе не понять, оплачено ли ещё. */}
                   {isCurrent && (
@@ -352,11 +394,11 @@ export default function SubscriptionPage() {
                   <button
                     onClick={() => pay(t.slug, t)}
                     disabled={busy}
-                    className={`w-full ${isCurrent ? 'mt-2 border border-[#25455D]/30 text-[#25455D] hover:bg-blue-50' : 'btn-gold mt-4'} px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5`}
+                    className={`w-full btn-gold ${isCurrent ? 'mt-2' : 'mt-4'} px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5`}
                   >
                     {busy && loading
                       ? <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
-                      : `${isCurrent ? 'Продлить' : 'Оплатить'} ${totalRub.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽${payMonths > 1 ? ` за ${payMonths} мес.` : ''}`}
+                      : `${isCurrent ? 'Продлить' : 'Оплатить'} ${totalRub.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽${payMonths > 1 ? ` за ${payMonths} мес.` : ''}`}
                   </button>
                   {/* ⚠️ Молча подставить месяц вместо выбранного года нельзя —
                       человек нажал бы «Оплатить» в полной уверенности, что
