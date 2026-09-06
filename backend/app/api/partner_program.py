@@ -278,6 +278,62 @@ async def mark_payout(partner_id: int, user=Depends(get_current_client),
     return {"ok": True, "paid": len(ids), "amount": float(total), "payout_id": payout_id}
 
 
+@router.get("/partners/{partner_id}/network", summary="Сеть партнёра по уровням")
+async def partner_network(partner_id: int, user=Depends(get_current_client),
+                          db: asyncpg.Connection = Depends(get_db)):
+    """Партнёры ПОД этим партнёром, по уровням.
+
+    ⚠️ Клиент должен видеть то же, что видит сам партнёр: кто под кем стоит и
+    сколько с этого идёт. Иначе разговор «почему мне столько начислено» вести
+    не с чем.
+
+    Дерево строится рекурсией по `contacts.partner_id` — тем же полем, по
+    которому считается вознаграждение уровней (решение № 44).
+    """
+    client_id = int(user["sub"])
+
+    own = await db.fetchval(
+        "SELECT 1 FROM client_partners WHERE id = $1 AND client_id = $2",
+        partner_id, client_id)
+    if not own:
+        raise HTTPException(status_code=404, detail="Партнёр не найден")
+
+    max_levels = await db.fetchval(
+        "SELECT COALESCE(partner_levels, 1) FROM clients WHERE id = $1", client_id) or 1
+
+    rows = await db.fetch(
+        """
+        WITH RECURSIVE tree AS (
+            SELECT p.id, p.contact_id, 1 AS level
+              FROM client_partners p
+              JOIN contacts c ON c.id = p.contact_id
+             WHERE p.client_id = $2 AND c.partner_id = $1
+            UNION ALL
+            SELECT p2.id, p2.contact_id, t.level + 1
+              FROM tree t
+              JOIN contacts c2 ON c2.partner_id = t.id
+              JOIN client_partners p2 ON p2.contact_id = c2.id AND p2.client_id = $2
+             WHERE t.level < $3
+        )
+        SELECT t.level, t.id AS partner_id, c.name, c.phone,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                 ORDER BY pu.id LIMIT 1) AS email,
+               p.accepted_at, p.is_active,
+               COALESCE((SELECT SUM(a.base_amount) FROM partner_accruals a
+                          WHERE a.partner_id = t.id AND a.level = 1), 0) AS turnover,
+               COALESCE((SELECT SUM(a.amount) FROM partner_accruals a
+                          WHERE a.partner_id = t.id AND a.payout_id IS NULL), 0) AS due
+          FROM tree t
+          JOIN client_partners p ON p.id = t.id
+          JOIN contacts c ON c.id = t.contact_id
+         ORDER BY t.level, p.accepted_at DESC
+         LIMIT 500""",
+        partner_id, client_id, int(max_levels),
+    )
+    return {"levels": int(max_levels), "network": [_row(r) for r in rows]}
+
+
 @router.get("/partners/{partner_id}/people", summary="Кто закреплён за партнёром")
 async def partner_people(partner_id: int, user=Depends(get_current_client),
                          db: asyncpg.Connection = Depends(get_db)):

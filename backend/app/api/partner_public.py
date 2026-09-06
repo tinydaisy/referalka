@@ -707,6 +707,78 @@ async def partner_sales(response: Response, sess: dict = Depends(_session),
     return {"sales": [_row(r) for r in rows]}
 
 
+@router.get("/me/network", summary="Моя сеть по уровням")
+async def partner_network(response: Response, sess: dict = Depends(_session),
+                          db: asyncpg.Connection = Depends(get_db)):
+    """Партнёры ПОД партнёром, разложенные по уровням.
+
+    ⚠️ Это НЕ «мои люди». «Люди» — те, кого партнёр привёл сам (покупатели и
+    просто интересовавшиеся). «Сеть» — партнёры, которые пришли по его ссылке
+    и сами продают: с их продаж идёт вознаграждение второго уровня. Смешивать
+    нельзя, это разные списки и разные деньги.
+
+    ⚠️ Дерево строится рекурсией по ОДНОМУ полю `contacts.partner_id` — партнёр
+    это тоже контакт (решение № 44). Отдельной таблицы связей нет.
+
+    ⚠️ Глубина ограничена настройкой кабинета (`clients.partner_levels`): дальше
+    вознаграждение всё равно не начисляется, и показывать эти уровни значило бы
+    обещать доход, которого не будет.
+    """
+    _cors(response)
+    cid, contact_id = sess["client_id"], sess["contact_id"]
+    partner = await _partner_row(db, cid, contact_id)
+    if not partner:
+        raise HTTPException(status_code=403, detail="Вы ещё не партнёр")
+
+    max_levels = await db.fetchval(
+        "SELECT COALESCE(partner_levels, 1) FROM clients WHERE id = $1", cid) or 1
+    mode = await _effective_mode(db, cid, partner)
+
+    rows = await db.fetch(
+        """
+        WITH RECURSIVE tree AS (
+            -- 1-й уровень: партнёры, закреплённые лично за мной
+            SELECT p.id, p.contact_id, 1 AS level
+              FROM client_partners p
+              JOIN contacts c ON c.id = p.contact_id
+             WHERE p.client_id = $2 AND c.partner_id = $1
+            UNION ALL
+            -- Дальше вверх по тому же полю: партнёры моих партнёров
+            SELECT p2.id, p2.contact_id, t.level + 1
+              FROM tree t
+              JOIN contacts c2 ON c2.partner_id = t.id
+              JOIN client_partners p2 ON p2.contact_id = c2.id AND p2.client_id = $2
+             WHERE t.level < $3
+        )
+        SELECT t.level, t.id AS partner_id, c.name, c.phone,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                 ORDER BY pu.id LIMIT 1) AS email,
+               p.accepted_at, p.is_active,
+               -- Сколько принёс ЭТОТ партнёр (оборот его продаж).
+               COALESCE((SELECT SUM(a.base_amount) FROM partner_accruals a
+                          WHERE a.partner_id = t.id AND a.level = 1), 0) AS turnover,
+               -- Сколько с него получил Я — начисления моего уровня по его продажам.
+               COALESCE((SELECT SUM(a2.amount) FROM partner_accruals a2
+                          WHERE a2.partner_id = $1 AND a2.level = t.level + 1), 0)
+                   AS my_income
+          FROM tree t
+          JOIN client_partners p ON p.id = t.id
+          JOIN contacts c ON c.id = t.contact_id
+         ORDER BY t.level, p.accepted_at DESC
+         LIMIT 500""",
+        partner["id"], cid, int(max_levels),
+    )
+
+    from app.api.partner_program import _row
+    people = [_row(r) for r in rows]
+    return {
+        "levels": int(max_levels),
+        "payout_mode": mode,
+        "network": people,
+    }
+
+
 @router.get("/me/people", summary="Мои люди")
 async def partner_people(response: Response, sess: dict = Depends(_session),
                          db: asyncpg.Connection = Depends(get_db)):

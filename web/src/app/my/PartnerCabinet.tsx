@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 
-type Tab = 'materials' | 'sales' | 'people'
+type Tab = 'materials' | 'sales' | 'people' | 'network'
 
 const money = (v: any) =>
   (Number(v) || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽'
@@ -94,6 +94,7 @@ export default function PartnerCabinet({ token }: { token: string }) {
       {tab === 'materials' && <Materials token={token} />}
       {tab === 'sales' && <Sales token={token} />}
       {tab === 'people' && <People token={token} />}
+      {tab === 'network' && <Network token={token} />}
     </div>
   )
 }
@@ -311,6 +312,84 @@ function Sales({ token }: { token: string }) {
 }
 
 /* ─── Люди ───────────────────────────────────────────────────────────────── */
+
+/* ─── Сеть по уровням ────────────────────────────────────────────────────── */
+
+function Network({ token }: { token: string }) {
+  const [data, setData] = useState<any>(null)
+  const [level, setLevel] = useState(1)
+
+  useEffect(() => {
+    get('/me/network', token).then(setData).catch(() => setData({ network: [] }))
+  }, [token])
+
+  if (!data) return <p className="text-sm text-gray-400">Загружаем…</p>
+
+  const all: any[] = data.network || []
+  const levels = Math.max(1, Number(data.levels) || 1)
+  const rows = all.filter(p => p.level === level)
+
+  return (
+    <div>
+      <div className="mb-3 rounded-xl bg-white p-3 text-xs text-gray-600 shadow-sm">
+        Здесь партнёры, которые пришли по вашей ссылке и сами продают.
+        С их продаж вам идёт вознаграждение следующего уровня.
+      </div>
+
+      {levels > 1 && (
+        <div className="mb-3 flex gap-1 text-sm">
+          {Array.from({ length: levels }, (_, i) => i + 1).map(n => (
+            <button key={n} onClick={() => setLevel(n)}
+                    className={`rounded-lg px-3 py-1.5 ${level === n
+                      ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 shadow-sm'}`}>
+              {n}-й уровень · {all.filter(p => p.level === n).length}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!rows.length ? (
+        <p className="text-sm text-gray-500">
+          {level === 1
+            ? 'Пока никто из приведённых не стал партнёром.'
+            : `На ${level}-м уровне пока никого.`}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map(p => (
+            <div key={p.partner_id} className="rounded-xl bg-white p-3 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium text-gray-900">
+                    {p.name || 'Без имени'}
+                    {!p.is_active && (
+                      <span className="ml-2 text-xs text-gray-400">отключён</span>
+                    )}
+                  </div>
+                  <div className="break-all text-xs text-gray-500">
+                    {[p.email, p.phone].filter(Boolean).join(' · ') || '—'}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    партнёр с {dt(p.accepted_at)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-gray-400">продал на</div>
+                  <div className="font-semibold text-gray-900">{money(p.turnover)}</div>
+                  {Number(p.my_income) > 0 && (
+                    <div className="text-xs text-emerald-600">
+                      вам с него {money(p.my_income)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const PLATFORM_NAME: Record<string, string> = {
   telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX',
