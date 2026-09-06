@@ -110,6 +110,8 @@ export default function RecordingCutPage() {
   // Метка под курсором — подсвечиваем её и меняем курсор на «руку», чтобы было
   // видно, что схватится именно она.
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  // Тянут красный курсор плеера.
+  const [scrubbing, setScrubbing] = useState(false)
   const dragStartX = useRef(0)
   const barRef = useRef<HTMLDivElement>(null)
   // ⚠️ После перетаскивания браузер шлёт click по полосе — без этого флага
@@ -165,6 +167,36 @@ export default function RecordingCutPage() {
     v.currentTime = Math.max(0, sec + offset)
     v.play().catch(() => {})
   }
+
+  /**
+   * Перетаскивание КРАСНОГО КУРСОРА — перемотка живьём.
+   *
+   * ⚠️ Картинку меняем ПРЯМО ВО ВРЕМЯ движения, а не когда отпустят: смысл в
+   * том, чтобы искать глазами нужный момент, а для этого надо видеть, куда попал.
+   *
+   * ⚠️ Ставим currentTime напрямую, минуя seekLive: тот включает колесо
+   * «Перематываю…», и при движении оно мигало бы на каждый пиксель. Плеер сам
+   * покажет кадры по ходу.
+   */
+  useEffect(() => {
+    if (!scrubbing) return
+    const move = (e: MouseEvent) => {
+      const box = barRef.current?.getBoundingClientRect()
+      const v = videoRef.current
+      if (!box || !v) return
+      const ratio = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width))
+      const sec = ratio * liveDur
+      v.currentTime = Math.max(0, sec + offset)
+      setCur(v.currentTime)
+    }
+    const up = () => { justDragged.current = true; setScrubbing(false) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+  }, [scrubbing, liveDur, offset])
 
   /**
    * Какую метку схватить, если нажали в секунде `sec`.
@@ -289,14 +321,6 @@ export default function RecordingCutPage() {
     } catch (e: any) {
       alert(e?.message || 'Не получилось разложить по программе')
     } finally { setBusy('') }
-  }
-
-  /** Сдвинуть ВСЕ метки — эфир начался позже объявленного. */
-  const shiftAll = (deltaSec: number) => {
-    setCuts(cuts.map(c => c.status === 'ready' ? c
-      : { ...c, start_sec: Math.max(0, c.start_sec + deltaSec) })
-      .sort((a, b) => a.start_sec - b.start_sec))
-    setDirty(true)
   }
 
   const save = async () => {
@@ -488,8 +512,19 @@ export default function RecordingCutPage() {
             </div>
           )
         })}
-        <div className="absolute bottom-0 top-3 w-0.5 bg-red-600 pointer-events-none z-10"
-             style={{ left: `${Math.min(100, (curLive / liveDur) * 100)}%` }} />
+        {/* Курсор плеера. ⚠️ Тоже тянется — это первое, что пробуют сделать с
+            красной полоской. Кружки сверху и снизу показывают, что за неё можно
+            взяться. Перемотка идёт ЖИВЬЁМ во время движения: смотреть, куда
+            попал, нужно сразу, а не после того как отпустил. */}
+        <div className={`absolute bottom-0 -top-3 w-6 -ml-3 z-20 flex flex-col items-center
+                         ${scrubbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+             style={{ left: `${Math.min(100, (curLive / liveDur) * 100)}%` }}
+             title="Потяните, чтобы перемотать"
+             onMouseDown={e => { e.stopPropagation(); e.preventDefault(); setScrubbing(true) }}>
+          <span className="w-3.5 h-3.5 rounded-full bg-red-600 shrink-0 shadow-sm border-2 border-white" />
+          <span className="w-0.5 flex-1 bg-red-600" />
+          <span className="w-3.5 h-3.5 rounded-full bg-red-600 shrink-0 shadow-sm border-2 border-white -mb-1.5" />
+        </div>
       </div>
       <div className="flex justify-between text-[11px] text-gray-400 mt-1 mb-4">
         <span>0:00</span><span className="tabular-nums text-[#25455D]">{mmss(curLive)}</span>
@@ -507,14 +542,10 @@ export default function RecordingCutPage() {
                 className="btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50">
           <ListOrdered size={15} /> Расставить по программе дня
         </button>
-        {cuts.length > 0 && (
-          <>
-            <button onClick={() => shiftAll(-60)}
-                    className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">−1 мин всем</button>
-            <button onClick={() => shiftAll(60)}
-                    className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">+1 мин всем</button>
-          </>
-        )}
+        {/* ⚠️ Кнопки «±1 мин всем» убраны (решение владельца): вслепую двигать
+            все метки разом бессмысленно — всё равно надо смотреть глазами, куда
+            попал. Порядок работы другой: красным курсором нашли момент на видео,
+            убедились — и перенесли туда нужную метку кнопкой «сюда» в её строке. */}
         <div className="flex-1" />
         {dirty && <span className="text-xs text-amber-600">есть несохранённые изменения</span>}
         <button onClick={save} disabled={!dirty || !!busy}
@@ -587,8 +618,8 @@ export default function RecordingCutPage() {
                 <div className="font-medium text-[#25455D] mb-1">Нажмите «Расставить по программе дня»</div>
                 Искать ничего не нужно: момент начала эфира известен, а времена
                 выступлений берутся из программы — метки встанут сами, вместе с открытием.
-                Дальше посмотрите видео и поправьте то, что не совпало: если уехало
-                всё сразу (поговорили дольше, чем планировали), двигайте кнопками «±1 мин всем».
+                Дальше проверьте по видео: красной полосой найдите начало выступления и,
+                если метка встала не туда, перенесите её кнопкой «↓ сюда» в её строке.
               </>
             ) : (
               <>
@@ -612,6 +643,18 @@ export default function RecordingCutPage() {
               <button onClick={() => seekLive(c.start_sec)}
                       className="p-1.5 rounded-md bg-gray-100 text-[#25455D] shrink-0"
                       title="Перемотать сюда">▶</button>
+              {/* ⚠️ Главное действие рабочего порядка: красным курсором нашли на
+                  видео нужный момент, убедились глазами — и переносите метку
+                  ровно туда. Точнее, чем тянуть мышью по трёхчасовой полосе, где
+                  один пиксель это секунд десять. */}
+              {c.status !== 'ready' && (
+                <button onClick={() => patch(i, { start_sec: Math.round(curLive) })}
+                        className="px-2 py-1 rounded-md border border-[#25455D] text-[#25455D] text-xs shrink-0
+                                   hover:bg-[#25455D] hover:text-white transition-colors"
+                        title={`Перенести эту метку на ${mmss(curLive)} — туда, где сейчас красная полоса`}>
+                  ↓ сюда
+                </button>
+              )}
               <input
                 defaultValue={mmss(c.start_sec)} key={`t${c._k ?? c.id ?? i}-${c.start_sec}`}
                 onBlur={e => {
@@ -662,8 +705,9 @@ export default function RecordingCutPage() {
       </div>
 
       <p className="mt-5 text-xs text-gray-500 leading-relaxed">
-        Метку двигают мышью: нажмите на полосе рядом с ней и ведите — прицеливаться не нужно.
-        Можно и вписать время в поле слева от названия; серым рядом — время по программе дня.
+        Красную полосу тяните, чтобы найти нужный момент — картинка меняется на ходу. Нашли — нажмите
+        «↓ сюда» в строке метки, и она встанет ровно туда. Метку можно и тянуть по полосе мышью
+        или вписать время в поле слева от названия; серым рядом — время по программе дня.
         Кусок идёт до следующей метки — отдельно задавать конец не нужно.
         Перерывы не вырезаются: пауза после выступления попадает в кусок этого же спикера.
         Исходная запись остаётся на месте, её можно удалить отдельно.
