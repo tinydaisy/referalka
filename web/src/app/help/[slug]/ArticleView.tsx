@@ -81,6 +81,7 @@ const ARTICLES: Record<string, React.ComponentType> = {
   'getting-started': dynamic(() => import('../../dashboard/help/getting-started/page'), { loading: Loading }),
   'lead-magnet-survey': dynamic(() => import('../../dashboard/help/lead-magnet-survey/page'), { loading: Loading }),
   'survey-processing': dynamic(() => import('../../dashboard/help/survey-processing/page'), { loading: Loading }),
+  'instagram-setup': dynamic(() => import('../../dashboard/help/instagram-setup/page'), { loading: Loading }),
   'max-bot': dynamic(() => import('../../dashboard/help/max-bot/page'), { loading: Loading }),
   'max-setup': dynamic(() => import('../../dashboard/help/max-setup/page'), { loading: Loading }),
   'miniapp-deeplinks': dynamic(() => import('../../dashboard/help/miniapp-deeplinks/page'), { loading: Loading }),
