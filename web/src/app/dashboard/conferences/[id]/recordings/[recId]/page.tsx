@@ -169,6 +169,28 @@ export default function RecordingCutPage() {
   }
 
   /**
+   * Красная полоса едет за видео, пока оно играет.
+   *
+   * ⚠️ Одного onTimeUpdate мало: браузер шлёт его ~4 раза в секунду и не
+   * гарантирует регулярность — полоса дёргается и отстаёт. Обновляем на каждом
+   * кадре отрисовки, пока идёт воспроизведение.
+   *
+   * ⚠️ Во время перетаскивания курсора НЕ трогаем: там позицию задаёт мышь, и
+   * два источника дрались бы за одно значение.
+   */
+  useEffect(() => {
+    if (!videoReady || scrubbing) return
+    let raf = 0
+    const tick = () => {
+      const v = videoRef.current
+      if (v && !v.paused && !v.seeking) setCur(v.currentTime)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [videoReady, scrubbing])
+
+  /**
    * Перетаскивание КРАСНОГО КУРСОРА — перемотка живьём.
    *
    * ⚠️ Картинку меняем ПРЯМО ВО ВРЕМЯ движения, а не когда отпустят: смысл в
