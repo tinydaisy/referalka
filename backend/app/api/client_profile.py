@@ -1186,11 +1186,20 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
     # Раньше Mini App смотрел на ТИП события (только conference/turnir), и у
     # коллабы вкладки не было вовсе: карточки организаторов есть, а открыть их
     # нельзя — имена внизу программы не вели никуда.
-    d["has_people"] = bool(await db.fetchval(
-        """SELECT 1 FROM event_collaborators
-            WHERE event_id = $1 AND is_visible = TRUE LIMIT 1""",
-        row["id"],
-    ))
+    #
+    # ⚠️ У ОБЫЧНОГО МЕРОПРИЯТИЯ ОДНИ ОРГАНИЗАТОРЫ ЗА «ЛЮДЕЙ» НЕ СЧИТАЮТСЯ.
+    # «Спикеры» — вкладка про выступающих. На простом эфире, где ведёт сам
+    # клиент, карточки организаторов заводят технически (или они приезжают
+    # автобэкфиллом состава) — и вкладка появлялась не в тему: человек
+    # открывает «Спикеры» и видит там организатора.
+    #
+    # ⚠️ Исключение — КОЛЛАБА и конференция/турнир: там организаторы как раз
+    # и есть выступающие (ради этого `has_people` и делали), вкладку оставляем.
+    _people_sql = """SELECT 1 FROM event_collaborators
+                      WHERE event_id = $1 AND is_visible = TRUE"""
+    if not row["is_collab"] and row["module_slug"] not in ("conference", "turnir"):
+        _people_sql += " AND role <> 'organizer'"
+    d["has_people"] = bool(await db.fetchval(_people_sql + " LIMIT 1", row["id"]))
 
     return d
 
