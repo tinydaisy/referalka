@@ -3,7 +3,7 @@
 /**
  * Нарезка записи эфира по спикерам — ОТДЕЛЬНАЯ СТРАНИЦА.
  *
- * ⚠️ Именно страница, а не модалка: здесь плеер, таймлайн и список кусков —
+ * ⚠️ Именно страница, а не модалка: здесь плеер, таймлайн и список нарезок —
  * работы на десятки минут. В модалке тесно, её не свернуть, адрес не сохранить
  * и вернуться потом некуда.
  *
@@ -11,8 +11,8 @@
  * «Начать эфир», потом открытие, потом выступления подряд. Целиком это никому
  * не отдать — спикеру нужно СВОЁ выступление.
  *
- * ⚠️ Одна палочка = одна граница (решение владельца): кусок начинается там, где
- * кончился предыдущий, перерывы не вырезаются. Конец куска здесь не задаётся —
+ * ⚠️ Одна палочка = одна граница (решение владельца): нарезка начинается там, где
+ * кончилась предыдущая, перерывы не вырезаются. Конец здесь не задаётся —
  * его считает бэкенд из начала следующего.
  *
  * ⚠️ Секунды на таймлайне — ОТ НАЧАЛА ЭФИРА, а не от начала файла: так их видит
@@ -72,7 +72,7 @@ const parseTime = (v: string): number | null => {
 let _keySeq = 1
 const newKey = () => _keySeq++
 
-/** «1 кусок / 2 куска / 5 кусков» — без него текст выглядит машинным. */
+/** «1 нарезка / 2 нарезки / 5 нарезок» — без него текст выглядит машинным. */
 const plural = (n: number, one: string, few: string, many: string) => {
   const a = Math.abs(n) % 100, b = a % 10
   if (a > 10 && a < 20) return many
@@ -156,7 +156,7 @@ export default function RecordingCutPage() {
   const readyCount = cuts.filter(c => c.status === 'ready').length
   const failedCount = cuts.filter(c => c.status === 'failed').length
 
-  // Пока идёт нарезка — перечитываем, чтобы готовые куски появлялись сами.
+  // Пока идёт резка — перечитываем, чтобы готовые нарезки появлялись сами.
   useEffect(() => {
     if (!anyProcessing) return
     const t = setInterval(load, 5000)
@@ -171,7 +171,7 @@ export default function RecordingCutPage() {
     setWasCutting(false)
     setDoneMsg(failedCount
       ? `Нарезка закончилась: готово ${readyCount}, не получилось ${failedCount}.`
-      : `Готово — запись нарезана на ${readyCount} ${plural(readyCount, 'кусок', 'куска', 'кусков')}. Скачать можно в списке ниже.`)
+      : `Готово — запись нарезана на ${readyCount} ${plural(readyCount, 'нарезка', 'нарезки', 'нарезок')}. Скачать можно в списке ниже.`)
   }, [anyProcessing])
 
   // ⚠️ Предупреждаем о несохранённых метках: расставить их — работа на десятки
@@ -187,7 +187,7 @@ export default function RecordingCutPage() {
    * Перемотать плеер на секунду ЭФИРА.
    *
    * ⚠️ В трёхчасовом файле перемотка идёт секунды: браузер докачивает нужный
-   * кусок. Без индикатора экран не меняется вовсе, и кажется, что нажатие не
+   * фрагмент. Без индикатора экран не меняется вовсе, и кажется, что нажатие не
    * сработало. Гасим по событиям самого плеера (`seeked`/`canplay`), а не по
    * таймеру — только они знают, когда картинка реально доехала.
    */
@@ -259,7 +259,7 @@ export default function RecordingCutPage() {
    * двухпиксельной палке превращался в перемотку, и было непонятно, куда
    * целиться.
    *
-   * Нарезанные куски пропускаем — их файлы уже готовы, двигать нечего.
+   * Готовые нарезки пропускаем — их файлы уже готовы, двигать нечего.
    * null = рядом ничего нет, значит это обычная перемотка.
    */
   const nearestDraggable = (sec: number, barWidth: number): number | null => {
@@ -325,7 +325,7 @@ export default function RecordingCutPage() {
   const addMark = (sec: number) => {
     const s = Math.max(0, Math.round(sec))
     if (cuts.some(c => Math.abs(c.start_sec - s) < 2)) return   // метка уже тут
-    setCuts([...cuts, { _k: newKey(), start_sec: s, title: 'Новый кусок' }]
+    setCuts([...cuts, { _k: newKey(), start_sec: s, title: 'Новая нарезка' }]
       .sort((a, b) => a.start_sec - b.start_sec))
     setDirty(true)
   }
@@ -339,7 +339,7 @@ export default function RecordingCutPage() {
   const removeAt = async (i: number) => {
     const c = cuts[i]
     if (c.id && c.status === 'ready') {
-      if (!confirm(`Удалить готовый кусок «${c.title}»? Файл будет удалён.`)) return
+      if (!confirm(`Удалить готовую нарезку «${c.title}»? Файл будет удалён.`)) return
       await api.webinar.deleteCut(eventId, day, recordingId, c.id).catch(() => {})
       return load()
     }
@@ -365,7 +365,7 @@ export default function RecordingCutPage() {
         eventId, day, recordingId, 0, anchorSec, anchorTime)
       const marks: Cut[] = (r.marks || [])
       if (!marks.length) { alert('В программе этого дня нет слотов со временем.'); return }
-      // Готовые куски не трогаем — их файлы могли уже уйти спикерам.
+      // Готовые нарезки не трогаем — их файлы могли уже уйти спикерам.
       const keep = cuts.filter(c => c.status === 'ready')
       setCuts([...keep, ...marks.map(m => ({ ...m, _k: newKey() }))]
         .sort((a, b) => a.start_sec - b.start_sec))
@@ -395,7 +395,7 @@ export default function RecordingCutPage() {
     if (dirty) { alert('Сначала сохраните метки.'); return }
     const n = cuts.filter(c => c.status !== 'ready').length
     if (!confirm(
-      `Нарезать запись на ${n} ${plural(n, 'кусок', 'куска', 'кусков')}?\n\n` +
+      `Нарезать запись на ${n} ${plural(n, 'нарезку', 'нарезки', 'нарезок')}?\n\n` +
       'Нарезка идёт на сервере несколько минут. Страницу можно закрыть — работа не прервётся, ' +
       'а результат появится здесь же.\n\nИсходная запись останется на месте.')) return
     setBusy('Запускаю нарезку…')
@@ -535,7 +535,7 @@ export default function RecordingCutPage() {
             // раскладки по программе своего id нет, и при пересортировке React
             // переиспользовал не тот элемент — перетаскивание рвалось.
             // ⚠️ pointer-events-none у всего блока: нажатия ловит САМА полоса,
-            // она же решает, какую метку схватить. Иначе кусок перехватывал бы
+            // она же решает, какую метку схватить. Иначе полоса перехватывала бы
             // событие и захват снова зависел бы от попадания.
             <div key={c._k ?? c.id ?? i}
                  style={{ left: `${left}%`, width: `${w}%` }}
@@ -639,7 +639,7 @@ export default function RecordingCutPage() {
           </div>
           <p className="text-sm text-amber-800 mt-1.5 leading-relaxed">
             Сервер режет запись, это занимает несколько минут. Страницу можно закрыть —
-            работа не прервётся. Готовые куски появляются здесь сами, обновлять ничего не нужно.
+            работа не прервётся. Готовые нарезки появляются здесь сами, обновлять ничего не нужно.
           </p>
           <div className="mt-2.5 h-1.5 rounded-full bg-amber-200 overflow-hidden">
             <div className="h-full bg-amber-600 transition-all"
@@ -663,7 +663,7 @@ export default function RecordingCutPage() {
       {/* Всё нарезано — чтобы зелёные полосы не приходилось расшифровывать. */}
       {!anyProcessing && !doneMsg && cuts.length > 0 && readyCount === cuts.length && (
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 mb-4 text-sm text-emerald-900">
-          Запись нарезана на {cuts.length} {plural(cuts.length, 'кусок', 'куска', 'кусков')} —
+          Запись нарезана на {cuts.length} {plural(cuts.length, 'нарезку', 'нарезки', 'нарезок')} —
           зелёные полосы на таймлайне. Каждый можно скачать в списке ниже; спикеры видят свои
           выступления у себя в кабинете.
         </div>
@@ -671,7 +671,7 @@ export default function RecordingCutPage() {
 
       {failedCount > 0 && !anyProcessing && (
         <div className="rounded-xl bg-red-50 border border-red-200 p-3 mb-4 text-sm text-red-900">
-          Не получилось нарезать {failedCount} {plural(failedCount, 'кусок', 'куска', 'кусков')} —
+          Не получилось нарезать {failedCount} {plural(failedCount, 'нарезку', 'нарезки', 'нарезок')} —
           они отмечены красным в списке. Нажмите «Нарезать» ещё раз: система попробует только их.
         </div>
       )}
@@ -726,7 +726,7 @@ export default function RecordingCutPage() {
         </div>
       )}
 
-      {/* Список кусков */}
+      {/* Список нарезок */}
       <div className="space-y-2">
         {!cuts.length ? (
           <div className="py-4 text-sm text-gray-500 leading-relaxed">
@@ -826,8 +826,8 @@ export default function RecordingCutPage() {
       <p className="mt-5 text-xs text-gray-500 leading-relaxed">
         Красную полосу тяните, чтобы найти нужный момент — картинка меняется на ходу. Метку двигают мышью по полосе или вписывают время в поле слева от названия;
         серым рядом — время по программе дня.
-        Кусок идёт до следующей метки — отдельно задавать конец не нужно.
-        Перерывы не вырезаются: пауза после выступления попадает в кусок этого же спикера.
+        Нарезка идёт до следующей метки — отдельно задавать конец не нужно.
+        Перерывы не вырезаются: пауза после выступления попадает в нарезку этого же спикера.
         Исходная запись остаётся на месте, её можно удалить отдельно.
       </p>
     </div>

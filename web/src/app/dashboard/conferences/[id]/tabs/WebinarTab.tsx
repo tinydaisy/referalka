@@ -1146,7 +1146,7 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                   {/* ⚠️ Состояние нарезки — словами и здесь тоже: человек
                       смотрит в список, а не только на страницу нарезки.
                       Раньше строка писала «нарезано на 8», когда готов был один
-                      кусок, а семь ещё резались. */}
+                      нарезка, а семь ещё резались. */}
                   {r.cuts_processing > 0 ? (
                     <div className="text-xs text-amber-700 mt-0.5 flex items-center gap-1.5">
                       <span className="w-3 h-3 border-2 border-amber-300 border-t-amber-700 rounded-full animate-spin shrink-0" />
@@ -1154,7 +1154,7 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                     </div>
                   ) : r.cuts_ready > 0 ? (
                     <div className="text-xs text-emerald-700 mt-0.5">
-                      Нарезана на {r.cuts_ready} — куски внутри
+                      Нарезана на {r.cuts_ready} — нарезки внутри
                     </div>
                   ) : r.cuts_count > 0 ? (
                     <div className="text-xs text-gray-500 mt-0.5">
@@ -1168,12 +1168,12 @@ function RecordsTab({ eventId, day }: { eventId: number; day: number }) {
                   )}
                   {r.status === 'ready' && r.url && (
                     // ⚠️ Отдельная СТРАНИЦА, не модалка: там плеер, таймлайн и
-                    // список кусков — работа на десятки минут, её нужно уметь
+                    // список нарезок — работа на десятки минут, её нужно уметь
                     // отложить, сохранить адрес и вернуться.
                     <a href={`${basePath}/${eventId}/recordings/${r.id}?day=${day}`}
                        className="px-3 py-1.5 rounded-lg border text-sm text-gray-600 hover:text-[#25455D]">
                       {r.cuts_processing > 0 ? '✂️ Нарезка идёт'
-                        : r.cuts_ready > 0 ? '✂️ Куски' : '✂️ Нарезать'}
+                        : r.cuts_ready > 0 ? '✂️ Нарезки' : '✂️ Нарезать'}
                     </a>
                   )}
                   {r.status === 'ready' && r.url && (
