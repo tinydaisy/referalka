@@ -43,6 +43,9 @@ type Cut = {
   size_bytes?: number | null
   error?: string | null
   speaker_name?: string | null
+  /** Время слота по расписанию ("11:00") — подпись для сверки с программой.
+   *  Приходит с сервера через session_id, копией не хранится. */
+  program_time?: string | null
 }
 
 const mmss = (s: number) => {
@@ -96,11 +99,18 @@ export default function RecordingCutPage() {
   const [dirty, setDirty] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
   const [videoError, setVideoError] = useState(false)
+  // ⚠️ Идёт перемотка. В большом файле она занимает секунды, и без индикатора
+  // кажется, что нажатие не сработало.
+  const [seeking, setSeeking] = useState(false)
   // Окно «покажите момент» — для записей, у которых система не знает начала эфира.
   const [askAnchor, setAskAnchor] = useState(false)
   const [anchorTime, setAnchorTime] = useState('')
   // Перетаскивание метки по таймлайну.
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  // Метка под курсором — подсвечиваем её и меняем курсор на «руку», чтобы было
+  // видно, что схватится именно она.
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const dragStartX = useRef(0)
   const barRef = useRef<HTMLDivElement>(null)
   // ⚠️ После перетаскивания браузер шлёт click по полосе — без этого флага
   // видео перематывалось бы туда, где отпустили мышь.
@@ -140,11 +150,43 @@ export default function RecordingCutPage() {
     return () => window.removeEventListener('beforeunload', h)
   }, [dirty])
 
+  /**
+   * Перемотать плеер на секунду ЭФИРА.
+   *
+   * ⚠️ В трёхчасовом файле перемотка идёт секунды: браузер докачивает нужный
+   * кусок. Без индикатора экран не меняется вовсе, и кажется, что нажатие не
+   * сработало. Гасим по событиям самого плеера (`seeked`/`canplay`), а не по
+   * таймеру — только они знают, когда картинка реально доехала.
+   */
   const seekLive = (sec: number) => {
     const v = videoRef.current
     if (!v) return
+    setSeeking(true)
     v.currentTime = Math.max(0, sec + offset)
     v.play().catch(() => {})
+  }
+
+  /**
+   * Какую метку схватить, если нажали в секунде `sec`.
+   *
+   * ⚠️ Ищем БЛИЖАЙШУЮ в пределах ~20 пикселей, а не ту, в чью тонкую линию
+   * попали. Иначе получается «иногда хватается, иногда нет»: промах по
+   * двухпиксельной палке превращался в перемотку, и было непонятно, куда
+   * целиться.
+   *
+   * Нарезанные куски пропускаем — их файлы уже готовы, двигать нечего.
+   * null = рядом ничего нет, значит это обычная перемотка.
+   */
+  const nearestDraggable = (sec: number, barWidth: number): number | null => {
+    const tolerance = (20 / Math.max(1, barWidth)) * liveDur   // 20px в секундах
+    let best: number | null = null
+    let bestDist = Infinity
+    cuts.forEach((c, i) => {
+      if (c.status === 'ready' || c.status === 'processing') return
+      const d = Math.abs(c.start_sec - sec)
+      if (d < bestDist && d <= tolerance) { bestDist = d; best = i }
+    })
+    return best
   }
 
   /**
@@ -176,8 +218,11 @@ export default function RecordingCutPage() {
       })
       setDirty(true)
     }
-    const up = () => {
-      justDragged.current = true
+    const up = (e: MouseEvent) => {
+      // ⚠️ Гасим последующий click ТОЛЬКО если мышь реально ехала. Нажали на
+      // метку и отпустили не двигая — это обычный клик, и видео должно
+      // перемотаться туда, как везде на полосе.
+      justDragged.current = Math.abs(e.clientX - dragStartX.current) > 3
       setDragIdx(null)
       setCuts(prev => [...prev].sort((a, b) => a.start_sec - b.start_sec))
     }
@@ -322,6 +367,11 @@ export default function RecordingCutPage() {
                  if (offset > 0 && videoRef.current) videoRef.current.currentTime = offset
                }}
                onError={() => setVideoError(true)}
+               onSeeking={() => setSeeking(true)}
+               onSeeked={() => setSeeking(false)}
+               onCanPlay={() => setSeeking(false)}
+               onWaiting={() => setSeeking(true)}
+               onPlaying={() => setSeeking(false)}
                onTimeUpdate={e => setCur((e.target as HTMLVideoElement).currentTime)}
                className="w-full max-h-[55vh] mx-auto block" />
         {!videoReady && !videoError && (
@@ -333,6 +383,13 @@ export default function RecordingCutPage() {
               Файл {fmtSize(meta.size_bytes)} — первый запуск занимает до минуты.
               Метки можно расставлять, не дожидаясь видео.
             </div>
+          </div>
+        )}
+        {seeking && videoReady && !videoError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2
+                          bg-black/40 text-white text-sm pointer-events-none">
+            <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <div className="text-xs text-white/80">Перематываю…</div>
           </div>
         )}
         {videoError && (
@@ -352,12 +409,35 @@ export default function RecordingCutPage() {
       {/* ⚠️ Полоса высокая и с полем сверху (pt-3): палки-ручки выступают ЗА её
           верхний край, поэтому overflow-hidden тут нельзя — он бы их срезал.
           Скругление держим на внутреннем слое. */}
+      {/* ⚠️ Захват метки решает ВСЯ ПОЛОСА, а не тонкая ручка на палке.
+          Раньше надо было попасть в узкую зону, а промах превращался в
+          перемотку — со стороны это «иногда хватается, иногда нет», и
+          непонятно, куда целиться. Теперь: нажали рядом с палкой и повели —
+          она поехала. Просто клик (без движения) по-прежнему перематывает. */}
       <div ref={barRef}
            className="relative h-24 pt-3 select-none"
-           style={{ cursor: dragIdx !== null ? 'grabbing' : 'pointer' }}
+           style={{ cursor: dragIdx !== null ? 'grabbing' : (hoverIdx !== null ? 'grab' : 'pointer') }}
+           onMouseDown={e => {
+             const box = barRef.current?.getBoundingClientRect()
+             if (!box) return
+             const sec = ((e.clientX - box.left) / box.width) * liveDur
+             const i = nearestDraggable(sec, box.width)
+             if (i === null) return          // рядом нет метки — оставляем перемотку
+             e.preventDefault()              // иначе браузер начнёт выделять текст
+             dragStartX.current = e.clientX
+             setDragIdx(i)
+           }}
+           onMouseMove={e => {
+             if (dragIdx !== null) return
+             const box = barRef.current?.getBoundingClientRect()
+             if (!box) return
+             const sec = ((e.clientX - box.left) / box.width) * liveDur
+             setHoverIdx(nearestDraggable(sec, box.width))
+           }}
+           onMouseLeave={() => setHoverIdx(null)}
            onClick={e => {
-             // Клик по полосе — перемотка. Но не сразу после перетаскивания:
-             // браузер шлёт click следом за mouseup, и видео прыгало бы.
+             // Клик по полосе — перемотка. Но не после перетаскивания: браузер
+             // шлёт click следом за mouseup, и видео прыгало бы.
              if (justDragged.current) { justDragged.current = false; return }
              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
              seekLive(((e.clientX - box.left) / box.width) * liveDur)
@@ -370,38 +450,36 @@ export default function RecordingCutPage() {
           const w = Math.max(0.4, ((end - c.start_sec) / liveDur) * 100)
           const locked = c.status === 'ready' || c.status === 'processing'
           const dragging = dragIdx === i
+          const active = dragging || hoverIdx === i     // подсветка «схватится эта»
           return (
-            // ⚠️ Ключ включает start_sec, а не только индекс: у меток из
+            // ⚠️ Ключ — собственный номер метки (_k), а не индекс: у меток из
             // раскладки по программе своего id нет, и при пересортировке React
             // переиспользовал не тот элемент — перетаскивание рвалось.
+            // ⚠️ pointer-events-none у всего блока: нажатия ловит САМА полоса,
+            // она же решает, какую метку схватить. Иначе кусок перехватывал бы
+            // событие и захват снова зависел бы от попадания.
             <div key={c._k ?? c.id ?? i}
                  style={{ left: `${left}%`, width: `${w}%` }}
-                 className={`absolute bottom-0 top-3 ${
+                 className={`absolute bottom-0 top-3 pointer-events-none ${
                    c.status === 'ready' ? 'bg-emerald-100'
                    : c.status === 'processing' ? 'bg-amber-100'
                    : c.status === 'failed' ? 'bg-red-100'
-                   : 'bg-[#FFCFA4]/40'} ${dragging ? 'z-30' : ''}`}>
-              <span className="absolute top-1 left-2.5 text-[11px] text-[#25455D] truncate max-w-[92%] pointer-events-none">
+                   : 'bg-[#FFCFA4]/40'} ${active ? 'z-30' : ''}`}>
+              <span className="absolute top-1 left-2.5 text-[11px] text-[#25455D] truncate max-w-[92%]">
                 {c.title}
               </span>
 
-              {/* Вертикальная палка-граница + ручка сверху.
-                  ⚠️ Палка выше полосы и с кружком на конце — иначе не видно, что
-                  её можно схватить. Область захвата 16px: в двухпиксельную
-                  линию мышью не попасть.
-                  Нарезанные куски не двигаем — их файлы уже готовы. */}
-              <div
-                onMouseDown={locked ? undefined : e => { e.stopPropagation(); setDragIdx(i) }}
-                title={locked ? 'Кусок уже нарезан — метку не сдвинуть'
-                              : 'Потяните, чтобы сдвинуть метку'}
-                className={`absolute -left-2 -top-3 bottom-0 w-4 flex flex-col items-center
-                            ${locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
-              >
-                <span className={`w-3.5 h-3.5 rounded-full shrink-0 shadow-sm border-2 border-white ${
+              {/* Вертикальная палка-граница с кружком сверху. Кружок нужен,
+                  чтобы было видно, что метку можно тянуть; подсветка — чтобы
+                  было понятно, какая именно схватится. */}
+              <div className="absolute -left-1 -top-3 bottom-0 w-2 flex flex-col items-center">
+                <span className={`rounded-full shrink-0 shadow-sm border-2 border-white transition-all ${
+                  active ? 'w-4 h-4' : 'w-3.5 h-3.5'} ${
                   locked ? 'bg-gray-400'
                   : dragging ? 'bg-[#FFCFA4] ring-2 ring-[#25455D]'
+                  : active ? 'bg-[#25455D] ring-2 ring-[#FFCFA4]'
                   : 'bg-[#25455D]'}`} />
-                <span className={`w-0.5 flex-1 ${
+                <span className={`flex-1 ${active && !locked ? 'w-1' : 'w-0.5'} ${
                   c.status === 'ready' ? 'bg-emerald-500'
                   : c.status === 'processing' ? 'bg-amber-500'
                   : c.status === 'failed' ? 'bg-red-500'
@@ -528,19 +606,32 @@ export default function RecordingCutPage() {
           return (
             <div key={c._k ?? c.id ?? i}
                  className="flex flex-wrap items-center gap-2 border rounded-xl p-2.5 bg-white">
+              {/* ⚠️ Было ДВА поля с одним и тем же числом — кнопка перемотки и
+                  поле правки. Выглядело как задвоение, и непонятно, зачем оба.
+                  Теперь одно поле (его же можно править) + отдельная кнопка «▶». */}
               <button onClick={() => seekLive(c.start_sec)}
-                      className="px-2 py-1 rounded-md bg-gray-100 text-sm tabular-nums text-[#25455D] shrink-0"
-                      title="Перемотать сюда">▶ {mmss(c.start_sec)}</button>
+                      className="p-1.5 rounded-md bg-gray-100 text-[#25455D] shrink-0"
+                      title="Перемотать сюда">▶</button>
               <input
-                defaultValue={mmss(c.start_sec)} key={`t${c.id ?? i}-${c.start_sec}`}
+                defaultValue={mmss(c.start_sec)} key={`t${c._k ?? c.id ?? i}-${c.start_sec}`}
                 onBlur={e => {
                   const v = parseTime(e.target.value)
                   if (v === null) { e.target.value = mmss(c.start_sec); return }
                   patch(i, { start_sec: v })
                 }}
                 disabled={c.status === 'ready'}
+                title="Время на записи"
                 className="w-24 px-2 py-1 border rounded-md text-sm tabular-nums disabled:bg-gray-50"
               />
+              {/* ⚠️ Время по ПРОГРАММЕ — не то же, что время на записи. Человек
+                  держит в голове расписание («Светлана в 11:00»), и без этой
+                  подписи не может проверить, туда ли встала метка. */}
+              {c.program_time && (
+                <span className="text-xs text-gray-400 tabular-nums shrink-0"
+                      title="Время по программе дня">
+                  {c.program_time} МСК
+                </span>
+              )}
               <input
                 value={c.title}
                 onChange={e => patch(i, { title: e.target.value })}
@@ -571,7 +662,8 @@ export default function RecordingCutPage() {
       </div>
 
       <p className="mt-5 text-xs text-gray-500 leading-relaxed">
-        Метку можно тянуть мышью за кружок на полосе или вписать время в поле рядом с названием.
+        Метку двигают мышью: нажмите на полосе рядом с ней и ведите — прицеливаться не нужно.
+        Можно и вписать время в поле слева от названия; серым рядом — время по программе дня.
         Кусок идёт до следующей метки — отдельно задавать конец не нужно.
         Перерывы не вырезаются: пауза после выступления попадает в кусок этого же спикера.
         Исходная запись остаётся на месте, её можно удалить отдельно.

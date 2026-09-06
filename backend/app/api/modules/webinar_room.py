@@ -624,13 +624,17 @@ async def _cuts_payload(db, rec: dict, recording_id: int) -> dict:
     """Ответ со списком кусков. ⚠️ Отдельной функцией, а не вызовом эндпоинта:
     у эндпоинта параметры через Depends, и звать его как обычную функцию —
     ловушка (добавили параметр — сломалось молча)."""
+    # ⚠️ program_time берём ЧЕРЕЗ session_id из самой программы, а не копией в
+    # метке: поправили тайминг в расписании — подпись обновилась. Копия
+    # разъехалась бы с программой и врала бы при сверке.
     rows = await db.fetch(
         "SELECT c.id, c.start_sec, c.end_sec, c.title, c.speaker_ec_id, c.session_id, "
         "       c.sort_order, c.status, c.url, c.duration_sec, c.size_bytes, c.error, "
-        "       cl.name AS speaker_name "
+        "       cl.name AS speaker_name, LEFT(cs.start_time, 5) AS program_time "
         "  FROM webinar_recording_cuts c "
         "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
         "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
+        "  LEFT JOIN conf_sessions cs ON cs.id = c.session_id "
         " WHERE c.recording_id=$1 ORDER BY c.sort_order, c.start_sec", recording_id)
     return {
         "recording": {
@@ -747,6 +751,10 @@ async def program_marks(event_id: int, day_number: int, recording_id: int,
             "title": title[:200],
             "speaker_ec_id": r["speaker_id"],
             "session_id": r["id"],
+            # ⚠️ Время слота по расписанию — показываем рядом с меткой. Человек
+            # держит в голове программу («Светлана в 11:00»), а не минуты видео,
+            # и без этой подписи не может сверить, туда ли встала метка.
+            "program_time": (r["start_time"] or "")[:5],
         })
     # ⚠️ Дедуп по секунде: два слота в одну минуту (параллельные залы) дали бы
     # кусок нулевой длины, а ffmpeg на нём падает.
