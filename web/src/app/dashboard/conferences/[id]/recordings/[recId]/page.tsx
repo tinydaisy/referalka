@@ -439,7 +439,7 @@ export default function RecordingCutPage() {
           непонятно, куда целиться. Теперь: нажали рядом с палкой и повели —
           она поехала. Просто клик (без движения) по-прежнему перематывает. */}
       <div ref={barRef}
-           className="relative h-24 pt-3 select-none"
+           className="relative h-28 pt-3 pb-3 select-none"
            style={{ cursor: dragIdx !== null ? 'grabbing' : (hoverIdx !== null ? 'grab' : 'pointer') }}
            onMouseDown={e => {
              const box = barRef.current?.getBoundingClientRect()
@@ -466,7 +466,7 @@ export default function RecordingCutPage() {
              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
              seekLive(((e.clientX - box.left) / box.width) * liveDur)
            }}>
-        <div className="absolute left-0 right-0 bottom-0 top-3 rounded-xl bg-gray-100 border" />
+        <div className="absolute left-0 right-0 bottom-3 top-3 rounded-xl bg-gray-100 border" />
         {cuts.map((c, i) => {
           const next = cuts[i + 1]
           const end = next ? next.start_sec : liveDur
@@ -484,7 +484,7 @@ export default function RecordingCutPage() {
             // событие и захват снова зависел бы от попадания.
             <div key={c._k ?? c.id ?? i}
                  style={{ left: `${left}%`, width: `${w}%` }}
-                 className={`absolute bottom-0 top-3 pointer-events-none ${
+                 className={`absolute bottom-3 top-3 pointer-events-none ${
                    c.status === 'ready' ? 'bg-emerald-100'
                    : c.status === 'processing' ? 'bg-amber-100'
                    : c.status === 'failed' ? 'bg-red-100'
@@ -519,6 +519,10 @@ export default function RecordingCutPage() {
             красной полоской. Кружки сверху и снизу показывают, что за неё можно
             взяться. Перемотка идёт ЖИВЬЁМ во время движения: смотреть, куда
             попал, нужно сразу, а не после того как отпустил. */}
+        {/* ⚠️ Курсор выходит за полосу и СВЕРХУ, и СНИЗУ (-top-3 сверху, bottom-0
+            при полосе до bottom-3):
+            кружки должны быть видны целиком с обеих сторон, а не упираться в
+            край. У родителя поэтому нет overflow-hidden. */}
         <div className={`absolute bottom-0 -top-3 w-6 -ml-3 z-20 flex flex-col items-center
                          ${scrubbing ? 'cursor-grabbing' : 'cursor-grab'}`}
              style={{ left: `${Math.min(100, (curLive / liveDur) * 100)}%` }}
@@ -526,10 +530,10 @@ export default function RecordingCutPage() {
              onMouseDown={e => { e.stopPropagation(); e.preventDefault(); setScrubbing(true) }}>
           <span className="w-3.5 h-3.5 rounded-full bg-red-600 shrink-0 shadow-sm border-2 border-white" />
           <span className="w-0.5 flex-1 bg-red-600" />
-          <span className="w-3.5 h-3.5 rounded-full bg-red-600 shrink-0 shadow-sm border-2 border-white -mb-1.5" />
+          <span className="w-3.5 h-3.5 rounded-full bg-red-600 shrink-0 shadow-sm border-2 border-white" />
         </div>
       </div>
-      <div className="flex justify-between text-[11px] text-gray-400 mt-1 mb-4">
+      <div className="flex justify-between text-[11px] text-gray-400 mt-2 mb-4">
         <span>0:00</span><span className="tabular-nums text-[#25455D]">{mmss(curLive)}</span>
         <span>{mmss(liveDur)}</span>
       </div>
