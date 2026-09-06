@@ -1201,6 +1201,29 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         _people_sql += " AND role <> 'organizer'"
     d["has_people"] = bool(await db.fetchval(_people_sql + " LIMIT 1", row["id"]))
 
+    # ⚠️⚠️ ТАРИФЫ — ЧТОБЫ КНОПКА УЧАСТИЯ НЕ ВЕЛА НА ФОРМУ ПРИ ПЛАТНОМ ВХОДЕ.
+    # Кнопка «Хочу» — это ПЕРЕХОД, и куда вести, решает способ регистрации:
+    # сторонний лендинг → туда, наш лендинг → туда, простая форма → форма.
+    # Но у события бывают тарифы, и тогда за кнопкой должен быть ВЫБОР ТАРИФА,
+    # а форма открывается уже после него. Иначе человек «регистрируется»
+    # бесплатно там, где участие продаётся (прод: событие 8, тариф 5000 ₽).
+    #
+    # ⚠️ Отдаём вместе с событием, а не отдельным запросом: витрина рисует
+    # кнопку сразу, и второй круг за тарифами дал бы мигание.
+    d["tariffs"] = []
+    try:
+        from app.services.tariff_discount import with_discount
+        _trs = await db.fetch(
+            """SELECT id, title, description, price,
+                      discount_kind, discount_value
+                 FROM event_tariffs
+                WHERE event_id = $1 AND is_active
+                ORDER BY sort_order, id""",
+            row["id"])
+        d["tariffs"] = [with_discount(t) for t in _trs]
+    except Exception:
+        pass          # тарифы не должны ронять страницу события
+
     return d
 
 

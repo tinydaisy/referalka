@@ -12,6 +12,7 @@ import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
 import MediaLiftTab from '../tabs/MediaLiftTab'
 import RegistrationFlow from '../components/RegistrationFlow'
+import TariffPicker from '../components/TariffPicker'
 import WelcomePage from '../components/WelcomePage'
 import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed, checkRegistrationGate } from '../api'
 import { getPlatformName, getPlatform } from '../platform'
@@ -111,6 +112,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const [tab, setTabState] = useState<string>('landing')
   const [pendingSpeakerHighlight, setPendingSpeakerHighlight] = useState<number | null>(speakerEcId ?? null)
   const [showReg, setShowReg] = useState(false)
+  // Выбор тарифа — открывается по кнопке участия при способе «простая форма»,
+  // когда у события заданы тарифы (форма идёт после выбора).
+  const [showTariffs, setShowTariffs] = useState(false)
   const [prefill, setPrefill] = useState<{ name?: string; email?: string; phone?: string } | null>(null)
   const [autoRegToast, setAutoRegToast] = useState<{ email: string; phone: string } | null>(null)
   // Счётчик «свежести»: увеличивается при переключении вкладок и заставляет
@@ -392,6 +396,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const hasSpeakersTab = event?.has_people !== undefined
     ? !!event.has_people
     : ['conference', 'turnir'].includes(event?.module_slug)
+
+  // Тарифы события — от них зависит, что открывает кнопка участия при способе
+  // регистрации «простая форма»: выбор тарифа или сразу форму.
+  const tariffs: any[] = Array.isArray(event?.tariffs) ? event.tariffs : []
 
   // Кастомные названия вкладок из настроек клиента (пусто → дефолт из константы NAV_*).
   const tabLabels: Record<string, string | undefined> = {
@@ -701,6 +709,12 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       }
     }
 
+    // ⚠️ Способ регистрации — «простая форма», и у события ЕСТЬ ТАРИФЫ:
+    // вместо формы показываем выбор варианта участия, форма откроется уже
+    // после выбора бесплатного (платный уходит на оплату). Иначе человек
+    // записывался бесплатно на событие, где вход продаётся.
+    if (tariffs.length > 0) { setShowTariffs(true); return }
+
     // Клиент в дашборде включил «Регистрировать без ввода контактных данных»:
     // регистрируем по tg_id без формы, имя из Telegram, email/phone пустые.
     if (event?.skip_contact_form && tgUser?.id) {
@@ -939,6 +953,18 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       </div>
 
       <BottomNav items={navItems} active={tab} onTab={setTab} />
+
+      {showTariffs && (
+        <TariffPicker
+          event={event}
+          tariffs={tariffs}
+          partnerId={partnerId}
+          utmSource={utmSource}
+          contactId={contactId}
+          onClose={() => setShowTariffs(false)}
+          onFree={() => { setShowTariffs(false); setShowReg(true) }}
+        />
+      )}
 
       {showReg && (
         <RegistrationFlow
