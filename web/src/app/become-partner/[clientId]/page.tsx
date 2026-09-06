@@ -112,7 +112,7 @@ export default function BecomePartnerPage() {
             Ваши ссылки и статистика — в личном кабинете. Вход по коду,
             который придёт на почту.
           </p>
-          <a href="/my" className="btn-gold inline-block">Открыть кабинет</a>
+          <a href={`/my?client_id=${clientId}`} className="btn-gold inline-block">Открыть кабинет</a>
         </div>
       </Shell>
     )
@@ -138,11 +138,18 @@ export default function BecomePartnerPage() {
                placeholder="Для входа в кабинет" />
         <Input label="Телефон" value={phone} onChange={setPhone}
                placeholder="Если удобнее по телефону" />
-        {known?.verified && (known.email || known.phone) && (
+        {known?.verified && (known.email || known.phone) ? (
           <p className="-mt-1 text-xs text-gray-500">
             Подставили то, что знаем о вас — можно оставить как есть.
           </p>
-        )}
+        ) : known ? (
+          /* ⚠️ Говорим ПРЯМО, что данных нет. Раньше человек с аккаунтом без
+             почты не понимал, чего от него хотят, и упирался в тупик. */
+          <p className="-mt-1 text-xs text-amber-700">
+            У вас ещё нет почты и телефона в нашей базе — укажите хотя бы одно.
+            На почту придёт код для входа в кабинет партнёра.
+          </p>
+        ) : null}
 
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -186,7 +193,7 @@ export default function BecomePartnerPage() {
           {busy ? 'Отправляем…' : 'Стать партнёром'}
         </button>
         <p className="text-center text-xs text-gray-400">
-          Уже партнёр? <a href="/my" className="underline">Войти в кабинет</a>
+          Уже партнёр? <a href={`/my?client_id=${clientId}`} className="underline">Войти в кабинет</a>
         </p>
       </div>
     </Shell>

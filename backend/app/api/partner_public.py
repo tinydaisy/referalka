@@ -268,6 +268,28 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
     if not contact_id:
         raise HTTPException(status_code=400, detail="Не удалось определить контакт")
 
+    # ⚠️⚠️ БЕЗ СПОСОБА СВЯЗИ ПАРТНЁРА НЕ СОЗДАЁМ — даже если человек опознан.
+    # Раньше проверка стояла только в ветке «контакт не найден»: пришедший из
+    # бота регистрировался с ПУСТЫМИ почтой и телефоном, а потом не мог войти
+    # в кабинет (вход по коду на почту) и получить выплату. Ровно так и вышло
+    # у первого живого партнёра.
+    have_email = bool((data.email or "").strip())
+    have_phone = bool((data.phone or "").strip())
+    if not have_email and not have_phone:
+        known = await db.fetchrow(
+            """SELECT c.phone,
+                      (SELECT pu.platform_user_id FROM platform_users pu
+                        WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                        ORDER BY pu.id LIMIT 1) AS email
+                 FROM contacts c WHERE c.id = $1""",
+            contact_id,
+        )
+        if not (known and (known["email"] or known["phone"])):
+            raise HTTPException(
+                status_code=400,
+                detail="У вас ещё нет почты и телефона — укажите хотя бы одно: "
+                       "на почту приходит код входа в кабинет.")
+
     # ⚠️⚠️ ДОПИСЫВАЕМ ПОЧТУ И ТЕЛЕФОН ОПОЗНАННОМУ ЧЕЛОВЕКУ. У пришедшего из
     # бота почты в базе часто НЕТ вовсе (он known только по нику площадки) —
     # без этой записи он останется без неё и не сможет войти в кабинет: вход
@@ -279,6 +301,25 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
     # человек входит.
     new_email = (data.email or "").strip().lower() or None
     new_phone = (data.phone or "").strip() or None
+
+    # ⚠️ Почта уже принадлежит ДРУГОМУ человеку — говорим это прямо. Молча
+    # привязать нельзя (у почты уникальность в пределах кабинета: вставка
+    # упадёт непонятной ошибкой базы), а промолчать — значит оставить человека
+    # гадать, почему «не получилось».
+    if new_email:
+        busy_by = await db.fetchval(
+            """SELECT pu.contact_id FROM platform_users pu
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE c.client_id = $1 AND pu.platform_slug = 'email'
+                  AND lower(pu.platform_user_id) = $2 AND c.merged_into IS NULL
+                LIMIT 1""",
+            cid, new_email,
+        )
+        if busy_by and int(busy_by) != int(contact_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Эта почта уже занята другим аккаунтом. Укажите другую "
+                       "или войдите под ней в кабинет.")
 
     if new_email:
         try:

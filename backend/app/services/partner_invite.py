@@ -141,7 +141,10 @@ async def build_cabinet_message(db, client_id: int) -> dict:
     """Приглашение для того, кто УЖЕ партнёр: ведём в кабинет, а не по кругу."""
     from app.services.client_domains import client_public_link
 
-    url = await client_public_link(db, client_id, "/my")
+    # ⚠️ Номер кабинета ОБЯЗАТЕЛЕН в ссылке. На общем домене `pluson.ru/my`
+    # определить клиента нечем, и вход отвечал «Не удалось определить кабинет»
+    # — человек упирался в тупик, не понимая, при чём тут кабинет.
+    url = await client_public_link(db, client_id, f"/my?client_id={client_id}")
     return {
         "text": ("<b>Вы уже партнёр</b>\n\n"
                  "Ваши ссылки, продажи и приведённые люди — в личном кабинете."),
