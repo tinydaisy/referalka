@@ -1213,9 +1213,12 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
     d["tariffs"] = []
     try:
         from app.services.tariff_discount import with_discount
+        # ⚠️ `excluded_description` («что НЕ входит») и `order_hint`
+        # («подсказка при оплате») клиент заполняет в кабинете — без них
+        # карточка тарифа и форма заказа неполные.
         _trs = await db.fetch(
-            """SELECT id, title, description, price,
-                      discount_kind, discount_value
+            """SELECT id, title, description, excluded_description,
+                      order_hint, price, discount_kind, discount_value
                  FROM event_tariffs
                 WHERE event_id = $1 AND is_active
                 ORDER BY sort_order, id""",
@@ -1223,6 +1226,35 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         d["tariffs"] = [with_discount(t) for t in _trs]
     except Exception:
         pass          # тарифы не должны ронять страницу события
+
+    # ⚠️ Оферта и политика ПД — для галочек согласия в форме заказа ВНУТРИ
+    # Mini App. Уводить человека из мессенджера на веб-страницу заказа нельзя:
+    # Mini App живёт в Mini App. Политика — на домене того клиента, в чью базу
+    # уходят данные (в коллабе у каждого свой), поэтому берём готовый
+    # `client_public_base`, посчитанный выше.
+    d["offer_url"] = None
+    d["privacy_url"] = None
+    try:
+        _off = await db.fetchval(
+            """SELECT COALESCE(NULLIF(o.external_url, ''),
+                               $2 || '/o/' || o.slug)
+                 FROM events e JOIN client_offers o ON o.id = e.offer_id
+                WHERE e.id = $1""",
+            row["id"], (d.get("client_public_base") or "").rstrip("/"))
+        d["offer_url"] = _off
+    except Exception:
+        pass
+    try:
+        _has_policy = await db.fetchval(
+            """SELECT (privacy_policy_published_at IS NOT NULL
+                       AND COALESCE(privacy_policy_text, '') <> '')
+                 FROM clients WHERE id = $1""",
+            d.get("client_id"))
+        if _has_policy:
+            _base = (d.get("client_public_base") or "").rstrip("/")
+            d["privacy_url"] = f"{_base}/c/{int(d['client_id'])}/privacy"
+    except Exception:
+        pass
 
     return d
 

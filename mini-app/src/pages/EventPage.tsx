@@ -958,11 +958,13 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         <TariffPicker
           event={event}
           tariffs={tariffs}
+          tgUser={tgUser}
           partnerId={partnerId}
           utmSource={utmSource}
           contactId={contactId}
+          prefill={prefill}
           onClose={() => setShowTariffs(false)}
-          onFree={() => { setShowTariffs(false); setShowReg(true) }}
+          onDone={(p) => { setShowTariffs(false); handleRegistered(p) }}
         />
       )}
 
