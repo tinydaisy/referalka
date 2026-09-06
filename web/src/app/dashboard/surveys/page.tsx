@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import LockedOverlay from '@/components/LockedOverlay'
 import FeatureLock from '@/components/FeatureLock'
 import {
   Plus, Trash2, Copy, Check, BarChart3, Settings2, ClipboardList, X, ExternalLink,
@@ -36,27 +37,15 @@ export default function SurveysPage() {
   // Замок нужен на САМОЙ странице: пункт меню не мешает открыть раздел
   // по прямой ссылке (правило проекта, найдено на кабинете Виктории).
   const hasFeature = (me?.features || []).includes('surveys')
-  if (me && !hasFeature) {
-    return (
-      <div className="max-w-3xl">
-        <h1 className="mb-1 text-2xl font-bold text-gray-900">Анкеты</h1>
-        <p className="mb-6 text-sm text-gray-500">
-          Соберите анкету, отправьте ссылку — и смотрите, кто и как ответил.
-          Ответы попадают в карточку человека и фильтруют базу.
-        </p>
-        <FeatureLock anyOf={['surveys']} />
-      </div>
-    )
-  }
 
-  return (
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Анкеты</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Соберите анкету, отправьте ссылку — и смотрите, кто и как ответил.
-        Тем, кто уже есть в базе, не придётся вписывать имя и контакты заново.
-      </p>
+  // ⚠️ Раздел НЕ подменяем замком целиком (решение владельца): у человека уже
+  // могут быть анкеты и заявки, и пустая страница читается как «всё удалили».
+  // Показываем содержимое замыленным — видно, что данные на месте, — а поверх
+  // объяснение и путь к оплате. Запрет на запись стоит на сервере.
+  const locked = Boolean(me) && !hasFeature
 
+  const body = (
+    <>
       <div className="mb-6 flex gap-2 border-b border-gray-200">
         {([
           ['surveys', 'Анкеты', ClipboardList],
@@ -87,6 +76,22 @@ export default function SurveysPage() {
 
       {tab === 'surveys' ? <SurveysTab readOnly={isAssistant} />
                          : <FieldsTab readOnly={isAssistant} />}
+    </>
+  )
+
+  return (
+    <div className="max-w-5xl">
+      <h1 className="text-2xl font-bold text-gray-900 mb-1">Анкеты</h1>
+      <p className="text-sm text-gray-500 mb-6">
+        Соберите анкету, отправьте ссылку — и смотрите, кто и как ответил.
+        Тем, кто уже есть в базе, не придётся вписывать имя и контакты заново.
+      </p>
+      {locked
+        ? <LockedOverlay
+            title="Анкеты — на платном тарифе"
+            hint="Ваши анкеты и заявки на месте. Подключите тариф, чтобы снова ими пользоваться."
+          >{body}</LockedOverlay>
+        : body}
     </div>
   )
 }

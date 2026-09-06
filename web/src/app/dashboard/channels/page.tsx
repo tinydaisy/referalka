@@ -9,6 +9,7 @@ import {
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
 import QrLinkButton from '@/components/QrLinkButton'
+import LockedOverlay from '@/components/LockedOverlay'
 
 interface Platform {
   slug: string
@@ -308,6 +309,17 @@ function NonVipView({ channels, onUpgrade }: { channels: Channel[]; onUpgrade: (
   // с тем, что по API доступно клиенту. Редактировать/удалять их нельзя
   // (это видно по плашке «Системный» внутри ChannelCard).
   const systemChannels = channels.filter(c => c.is_system)
+
+  // ⚠️⚠️ СВОИ БОТЫ ПОКАЗЫВАЕМ ВСЕГДА, даже когда тариф кончился (решение
+  // владельца). Раньше они отфильтровывались вместе со всем не-системным, и
+  // человек видел пустой раздел с рекламой «подключите бота» — при том, что
+  // его боты подключены, настроены и в базе лежат с десятком тысяч
+  // подписчиков. Это читается как «у меня всё удалили», а не как «тариф
+  // истёк»: ровно так и вышло на кабинете Виктории.
+  //
+  // Показываем замыленными и некликабельными: видно, что всё живо, но
+  // пользоваться нельзя, пока не продлена подписка.
+  const ownChannels = channels.filter(c => !c.is_system)
   return (
     <div className="space-y-4">
       {systemChannels.length > 0 ? (
@@ -324,6 +336,25 @@ function NonVipView({ channels, onUpgrade }: { channels: Channel[]; onUpgrade: (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-sm text-gray-500">
           Общие каналы сервиса пока не подключены к вашему кабинету.
         </div>
+      )}
+
+      {ownChannels.length > 0 && (
+        <LockedOverlay
+          title="Ваши боты подключены, но сейчас не работают"
+          hint="Данные и подписчики на месте — ничего не удалено. Продлите подписку, и боты снова заработают."
+        >
+          <div className="space-y-4">
+            {ownChannels.map(ch => (
+              <ChannelCard
+                key={ch.id}
+                channel={ch}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                onImport={() => {}}
+              />
+            ))}
+          </div>
+        </LockedOverlay>
       )}
 
       <div

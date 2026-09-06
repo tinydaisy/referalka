@@ -200,7 +200,7 @@ export default function Sidebar() {
         // ⚠️ Доступ — по СВОЕЙ фиче 'tournaments' (модуль-аддон), не по 'conference'.
         { href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy, locked: !hasTournaments },
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
-        ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
+        { href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote, locked: !hasContests },
         // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),
         // поэтому ведём сразу внутрь его карточки.
         ...(isSystemService ? [{ href: '/dashboard/medialift', label: 'МедиаЛифт', icon: Radio }] : []),
@@ -210,17 +210,20 @@ export default function Sidebar() {
       label: 'Учёт ресурсов',
       items: [
         { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
-        // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
-        ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
+        // ⚠️ Пункты НЕ ВЫРЕЗАЕМ, а показываем с замком (решение владельца):
+        // исчезнувший раздел читается как «такого в продукте нет», человек не
+        // знает, что возможность существует и её можно подключить. Так уже
+        // было с «Лендингом» — клиент решил, что раздел пропал.
+        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users, locked: !hasEventOrganizers },
         // Продукты/услуги вне событий: наставничество, мастер-класс, консультация.
-        ...(hasProducts ? [{ href: '/dashboard/products', label: 'Продукты и услуги', icon: Package }] : []),
+        { href: '/dashboard/products', label: 'Продукты и услуги', icon: Package, locked: !hasProducts },
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Анкеты + доп. поля контакта (миграция 280) — фича `surveys` (Экстра).
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».
         // Без фичи страница покажет замок с объяснением и ссылкой на тариф.
         { href: '/dashboard/surveys', label: 'Анкеты', icon: ClipboardList },
         // Отзывы/кейсы и оферты — по своим фичам (миграция 249).
-        ...(hasTestimonials ? [{ href: '/dashboard/testimonials', label: 'Отзывы и кейсы', icon: MessageSquareQuote }] : []),
+        { href: '/dashboard/testimonials', label: 'Отзывы и кейсы', icon: MessageSquareQuote, locked: !hasTestimonials },
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».
         // Без фичи страница покажет замок с объяснением и ссылкой на тариф.
         { href: '/dashboard/offers', label: 'Оферты', icon: FileText },

@@ -75,9 +75,17 @@ export default function FeatureLock({
   const allAddons = anyOf.length > 0 && anyOf.every(
     s => catalog.find(f => f.slug === s)?.is_addon
   )
-  const kindWord = allAddons
-    ? (names.length > 1 ? 'модулях' : 'модуле')
-    : 'тарифе'
+
+  // ⚠️ НЕ писать «Доступно в тарифе „Анкеты“» — таких тарифов нет. «Анкеты» и
+  // «Оферты» это НАЗВАНИЯ ВОЗМОЖНОСТЕЙ, а тарифы называются Профи и Экстра.
+  // Подстановка названия фичи в слово «тариф» придумывала несуществующие
+  // тарифы, и человек искал их в прайсе. Модуль — другое дело: «Конференции»
+  // и «Премии/Турниры» реально продаются под своими именами.
+  const title = allAddons
+    ? `Доступно в ${names.length > 1 ? 'модулях' : 'модуле'} ${what}`
+    : names.length
+      ? `${what} — на платном тарифе`
+      : 'Доступно на платном тарифе'
 
   // ⚠️ Ведём на СТРАНИЦУ подписки (отдельный пункт меню), а не во вкладку
   // настроек — там подписки нет. И сразу к нужному блоку: модули покупаются
@@ -98,7 +106,7 @@ export default function FeatureLock({
         className={`inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-brand ${className}`}
       >
         <Lock className="h-3.5 w-3.5 shrink-0" />
-        <span>Доступно в {kindWord} {what} — подключить</span>
+        <span>{title} — подключить</span>
       </Link>
     )
   }
@@ -111,7 +119,7 @@ export default function FeatureLock({
       <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
       <div className="min-w-0">
         <div className="text-sm font-medium text-gray-900">
-          Доступно в {kindWord} {what}
+          {title}
         </div>
         <div className="mt-0.5 text-xs text-gray-600">
           Нажмите, чтобы подключить и открыть этот раздел.

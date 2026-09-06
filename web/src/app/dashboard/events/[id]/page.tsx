@@ -16,6 +16,7 @@ import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import ChangeEventTypeButton from '@/components/ChangeEventTypeButton'
 import { useMe } from '@/hooks/useMe'
+import FeatureLock from '@/components/FeatureLock'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 import WebinarTab from '@/app/dashboard/conferences/[id]/tabs/WebinarTab'
 // Программа и отчёт по привлечению — те же компоненты, что у конференции.
@@ -76,7 +77,10 @@ export default function EventPage() {
   // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь).
   // Группировка вкладок в разделы: Настройки / Люди / Платежи / Рассылки.
   type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments' | 'webinar_grp'
-  const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
+  // ⚠️ `locked` — вкладка ВИДНА, но закрыта. Раньше недоступные вкладки просто
+  // вырезались, и раздел выглядел пропавшим: клиент решил, что «Лендинга» в
+  // продукте нет вовсе. Показываем с замком и объяснением, что подключить.
+  const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string; locked?: boolean }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
       tabs: [
@@ -90,7 +94,7 @@ export default function EventPage() {
         // У КОЛЛАБ-события скрыт: страница собирается для одного организатора.
         // Лендинг доступен и коллаб-событию: у коллабы такая же продающая
         // страница, как у обычного события — прятать её было незачем.
-        ...(hasLanding ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
+        { key: 'landing' as TabKey, label: 'Лендинг', locked: !hasLanding },
         // ⚠️ Вебинар вынесен ОТДЕЛЬНЫМ разделом первого уровня (как в
         // конференции) — внутри «Настроек» его не найти.
         { key: 'referral', label: 'Реф-программа' },
@@ -222,9 +226,16 @@ export default function EventPage() {
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
         {activeGroup.tabs.map(tb => (
           <EventTabBtn key={tb.key} active={activeTab === tb.key}
-            onClick={() => setActiveTab(tb.key)} label={tb.label} />
+            onClick={() => setActiveTab(tb.key)}
+            label={tb.locked ? `🔒 ${tb.label}` : tb.label} />
         ))}
       </div>
+
+      {/* Вкладка закрыта тарифом: показываем замок вместо содержимого — так
+          видно, что раздел существует, и понятно, что подключить. */}
+      {activeGroup.tabs.find(tb => tb.key === activeTab)?.locked && (
+        <FeatureLock anyOf={activeTab === 'landing' ? ['event_landing'] : []} />
+      )}
 
       {/* Tab content */}
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
