@@ -318,8 +318,14 @@ export default function SubscriptionPage() {
               return (
                 <div
                   key={t.id}
-                  className={`flex flex-col rounded-xl border p-4 ${
-                    isCurrent ? 'border-[#25455D] ring-2 ring-[#25455D]/20 bg-blue-50/30' : 'border-gray-200'
+                  // ⚠️ Рамка ВИДИМАЯ у обеих карточек. Была border-gray-200 —
+                  // почти белая: на широких карточках «Профи» сливался с фоном
+                  // страницы и выглядел как кусок пустоты рядом с обведённой
+                  // «Экстра». Текущий тариф по-прежнему выделен темнее.
+                  className={`flex flex-col rounded-xl border-2 p-5 bg-white shadow-sm ${
+                    isCurrent
+                      ? 'border-[#25455D] ring-2 ring-[#25455D]/15'
+                      : 'border-gray-300'
                   }`}
                 >
                   {t.promo_banner_text && (
