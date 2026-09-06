@@ -461,7 +461,7 @@ export default function RecordingCutPage() {
           непонятно, куда целиться. Теперь: нажали рядом с палкой и повели —
           она поехала. Просто клик (без движения) по-прежнему перематывает. */}
       <div ref={barRef}
-           className="relative h-28 pt-3 pb-3 select-none"
+           className="relative h-28 pt-3 pb-5 select-none"
            style={{ cursor: dragIdx !== null ? 'grabbing' : (hoverIdx !== null ? 'grab' : 'pointer') }}
            onMouseDown={e => {
              const box = barRef.current?.getBoundingClientRect()
@@ -545,7 +545,7 @@ export default function RecordingCutPage() {
             при полосе до bottom-3):
             кружки должны быть видны целиком с обеих сторон, а не упираться в
             край. У родителя поэтому нет overflow-hidden. */}
-        <div className={`absolute bottom-0 -top-3 w-6 -ml-3 z-20 flex flex-col items-center
+        <div className={`absolute -bottom-1 -top-3 w-6 -ml-3 z-20 flex flex-col items-center
                          ${scrubbing ? 'cursor-grabbing' : 'cursor-grab'}`}
              style={{ left: `${Math.min(100, (curLive / liveDur) * 100)}%` }}
              title="Потяните, чтобы перемотать"
