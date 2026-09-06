@@ -323,8 +323,14 @@ export default function LandingSettingsBlock({
               placeholder="Хочу участвовать"
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
             />
-            <p className="text-xs text-gray-400 mt-1.5">
+            {/* ⚠️ Кнопка показывается, ТОЛЬКО когда у события нет тарифов.
+                Есть тарифы — вместо неё человек выбирает тариф карточками
+                (иначе он «регистрировался» бесплатно в обход платного). */}
+            <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
               Главная кнопка события. Пусто — будет «Хочу участвовать».
+              <br />
+              Показывается, когда у события нет тарифов. Если тарифы есть —
+              вместо кнопки человек выбирает тариф.
             </p>
 
             {/* ⚠️ Кнопка дублируется ПОД описанием, а не заменяет верхнюю:

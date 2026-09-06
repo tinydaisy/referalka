@@ -427,6 +427,24 @@ async def _load_event_poster(db, event_id):
     )
 
 
+async def _load_event_tariffs(db, event_id):
+    """Активные тарифы события — для простой формы регистрации.
+
+    ⚠️ Скидку считает общий `with_discount`, а не этот запрос: точек отдачи
+    тарифа наружу девять, и посчитанная на месте цена разошлась бы с лендингом.
+    """
+    rows = await db.fetch(
+        """SELECT id, title, description, price, discount_kind, discount_value,
+                  pay_url
+             FROM event_tariffs
+            WHERE event_id = $1 AND is_active
+            ORDER BY sort_order, id""",
+        event_id,
+    )
+    from app.services.tariff_discount import with_discount
+    return [with_discount(r) for r in rows]
+
+
 async def _load_venue(db, client_id):
     """Профиль клиента (бренд + основатель) + продукты — для вкладки «О площадке»
     (повторяет EcosystemTab + OwnerPage Mini App)."""
@@ -2863,6 +2881,49 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
         poster_html = (f'<div class="poster" style="background:center/cover '
                        f'url(\'{esc(poster_url)}\')"></div>')
 
+    # ── Тарифы ──────────────────────────────────────────────────────────────
+    # ⚠️ Есть тарифы — вместо кнопки «Зарегистрироваться» человек ВЫБИРАЕТ
+    # тариф. Платный ведёт на готовую страницу заказа `/e/{slug}/order/{id}`
+    # (там оплата, «Это вы?» и приём данных) — второго механизма оплаты не
+    # заводим. Бесплатный регистрирует прямо здесь, как раньше кнопка.
+    tariffs = event.get("_tariffs") or []
+    tariffs_block = ""
+    if tariffs:
+        cards = []
+        for t in tariffs:
+            price = int(t["price"] or 0)
+            is_free = price <= 0
+            price_txt = ("Бесплатно" if is_free
+                         else f"{price:,}".replace(",", " ") + " ₽")
+            old = t.get("old_price")
+            old_html = ""
+            if not is_free and old:
+                old_html = (f'<span class="t-old">'
+                            f'{f"{int(old):,}".replace(",", " ")} ₽</span>')
+            pct = t.get("discount_percent")
+            badge = f'<span class="t-badge">−{int(pct)}%</span>' if (not is_free and pct) else ""
+            desc = (t.get("description") or "").strip()
+            desc_html = f'<div class="t-desc">{esc(desc)}</div>' if desc else ""
+            action = "Записаться" if is_free else "Оформить"
+            cards.append(
+                f'<div class="tariff" data-tid="{int(t["id"])}" '
+                f'data-free="{"1" if is_free else "0"}">'
+                f'<div class="t-top"><div class="t-title">{esc(t["title"] or "")}</div>'
+                f'<div class="t-price">{price_txt}{old_html}{badge}</div></div>'
+                f'{desc_html}'
+                f'<button class="t-btn" type="button" data-tid="{int(t["id"])}" '
+                f'data-free="{"1" if is_free else "0"}">{action}</button>'
+                f'</div>'
+            )
+        # У бесплатного тарифа форма та же, что была у кнопки, — поэтому
+        # заголовок общий, а поля показываются после выбора тарифа.
+        tariffs_block = (
+            '<div class="tariffs" id="tariffs-box">'
+            '<p class="t-lead">Выберите вариант участия</p>'
+            + "".join(cards) +
+            '</div>'
+        )
+
     # Ссылка на политику. ⚠️ Чей бот — того и политика: в коллабе client_id уже
     # подменён на организатора, через которого пришёл человек (см. event_register_page).
     #
@@ -2951,7 +3012,7 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
   .sup-row a {{ color:#b86b00; text-decoration:underline; }}
   .sup-hint {{ font-size:12.5px; color:#6b7c8e; margin:12px 0 0; line-height:1.5; text-align:center; }}
   .sup-hint a {{ color:#b86b00; text-decoration:underline; font-weight:600; }}
-  .step2 {{ display:none; }}
+  .step2, .step-tariffs {{ display:none; }}
   .ok-box {{ text-align:center; padding:30px 10px; }}
   .ok-box .tick {{ font-size:56px; margin-bottom:10px; }}
   .ok-box h2 {{ color:#25455D; margin:0; }}
@@ -2971,6 +3032,28 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
   .btn-ghost {{ width:100%; padding:13px 16px; border:1.5px solid #dde4ea; border-radius:12px;
     background:#fff; color:#41566a; font-size:14px; font-weight:700; cursor:pointer;
     font-family:inherit; margin-top:4px; }}
+  /* Тарифы — выбор варианта участия вместо кнопки «Зарегистрироваться» */
+  .t-lead {{ font-size:13px; color:#6b7c8e; line-height:1.45; margin:0 0 14px; }}
+  .tariff {{ border:1.5px solid #dde4ea; border-radius:14px; padding:14px;
+    margin-bottom:12px; background:#fdfdfe; }}
+  .t-top {{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }}
+  .t-title {{ font-size:15px; font-weight:800; color:#25455D; }}
+  .t-price {{ font-size:15px; font-weight:800; color:#25455D; white-space:nowrap; }}
+  .t-old {{ margin-left:7px; font-size:12.5px; font-weight:600; color:#9aa8b5; text-decoration:line-through; }}
+  .t-badge {{ margin-left:7px; font-size:11.5px; font-weight:800; color:#25455D;
+    background:#FFCFA4; border-radius:6px; padding:2px 6px; vertical-align:middle; }}
+  .t-desc {{ margin-top:8px; font-size:13px; line-height:1.5; color:#5c6f80; white-space:pre-wrap; }}
+  .t-btn {{ width:100%; margin-top:12px; padding:12px 14px; border:none; border-radius:11px;
+    font-size:14.5px; font-weight:800; cursor:pointer; font-family:inherit;
+    background:linear-gradient(135deg,#FFCFA4,#f5b97e); color:#25455D;
+    box-shadow:0 2px 8px rgba(255,207,164,.4); }}
+  .t-btn:disabled {{ opacity:.6; cursor:default; }}
+  /* Выбранный бесплатный тариф — заголовок над формой с полями */
+  .picked {{ display:none; background:#f2f7fb; border:1px solid #d8e5ef; border-radius:12px;
+    padding:11px 13px; margin-bottom:14px; font-size:13.5px; color:#25455D; }}
+  .picked b {{ font-weight:800; }}
+  .picked button {{ background:none; border:none; color:#b86b00; text-decoration:underline;
+    font-size:12.5px; cursor:pointer; padding:0; margin-top:5px; font-family:inherit; display:block; }}
   /* Экран «Это вы?» — данные замаскированы */
   .cand {{ width:100%; text-align:left; background:#fff; border:1.5px solid #dde4ea;
     border-radius:12px; padding:12px 14px; margin-bottom:10px; cursor:pointer;
@@ -3001,8 +3084,14 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
         <p class="err" id="err1" style="display:none"></p>
       </div>
 
+      <!-- ШАГ ТАРИФОВ: выбор варианта участия (когда тарифы заданы) -->
+      <div class="step-tariffs" id="step-tariffs">
+        {tariffs_block}
+      </div>
+
       <!-- ШАГ 2: данные + согласия -->
       <div class="step2" id="step2">
+        <div class="picked" id="picked-box"></div>
         <p class="lead">Заполните данные, чтобы организатор мог
           прислать материалы и подтвердить регистрацию.</p>
         <div class="field">
@@ -3098,7 +3187,52 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
   // выглядел как форма из одного поля. Сразу открываем полную форму;
   // существующий контакт всё равно найдётся по email при отправке.
   document.getElementById('step1').style.display = 'none';
-  document.getElementById('step2').style.display = 'block';
+
+  // ⚠️ Есть тарифы — сначала ВЫБОР тарифа, а не форма с кнопкой
+  // «Зарегистрироваться»: иначе на событии с одним платным тарифом человек
+  // записывался бесплатно в обход оплаты. Нет тарифов — форма как была.
+  var HAS_TARIFFS = {json.dumps(bool(tariffs))};
+  var PICKED_TARIFF = null;   // выбранный бесплатный тариф {{id, title}}
+
+  document.getElementById(HAS_TARIFFS ? 'step-tariffs' : 'step2')
+          .style.display = 'block';
+
+  // Клик по тарифу: платный — на страницу заказа, бесплатный — форма здесь.
+  Array.prototype.forEach.call(document.querySelectorAll('.t-btn'), function(b) {{
+    b.addEventListener('click', function() {{
+      var tid = b.getAttribute('data-tid');
+      var free = b.getAttribute('data-free') === '1';
+      if (!free) {{
+        // ⚠️ Контакт и реф-код тащим с собой, иначе на странице заказа
+        // человек станет «новым», а приведший его — никем.
+        var u = '/e/' + encodeURIComponent(SLUG) + '/order/' + encodeURIComponent(tid);
+        var p = new URLSearchParams();
+        if (CONTACT_ID) p.set('c', String(CONTACT_ID));
+        if (PID) p.set('pid', PID);
+        var utm = qs.get('utm_source');
+        if (utm) p.set('utm_source', utm);
+        var q = p.toString();
+        location.href = q ? (u + '?' + q) : u;
+        return;
+      }}
+      var card = b.closest('.tariff');
+      var tname = card ? (card.querySelector('.t-title') || {{}}).textContent : '';
+      PICKED_TARIFF = {{ id: parseInt(tid, 10), title: (tname || '').trim() }};
+      var pb = document.getElementById('picked-box');
+      pb.innerHTML = 'Вариант участия: <b></b>' +
+        '<button type="button" id="btn-repick">Выбрать другой</button>';
+      pb.querySelector('b').textContent = PICKED_TARIFF.title;
+      pb.style.display = 'block';
+      document.getElementById('step-tariffs').style.display = 'none';
+      document.getElementById('step2').style.display = 'block';
+      document.getElementById('btn-repick').addEventListener('click', function() {{
+        PICKED_TARIFF = null;
+        pb.style.display = 'none';
+        document.getElementById('step2').style.display = 'none';
+        document.getElementById('step-tariffs').style.display = 'block';
+      }});
+    }});
+  }});
 
   // ШАГ 1 — проверка email (только когда контакт неизвестен)
   var btnCheck = document.getElementById('btn-check');
@@ -3171,7 +3305,7 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
 
   // ── Экран «Это вы?» ──
   function showStep(id) {{
-    ['step1','step2','step-choice','step3'].forEach(function(s) {{
+    ['step1','step-tariffs','step2','step-choice','step3'].forEach(function(s) {{
       var el = document.getElementById(s);
       if (el) el.style.display = (s === id) ? 'block' : 'none';
     }});
@@ -3296,7 +3430,18 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
         # Mini App (EventPage.tsx: event.skip_contact_form → registerParticipant без
         # формы). Контакт известен из ссылки бота → регистрируем сразу и уводим в
         # кабинет, форму не показываем. Контакт обязан принадлежать клиенту события.
-        if ev.get("skip_contact_form"):
+        # ⚠️ Но НЕ когда участие платное: «без ввода данных» экономит человеку
+        # заполнение формы, а не оплату. У события с одним платным тарифом эта
+        # ветка записывала пришедшего из бота бесплатно, ещё до показа тарифов.
+        _paid_only = await db.fetchval(
+            """SELECT EXISTS (SELECT 1 FROM event_tariffs
+                               WHERE event_id = $1 AND is_active)
+                  AND NOT EXISTS (SELECT 1 FROM event_tariffs
+                                   WHERE event_id = $1 AND is_active
+                                     AND COALESCE(price, 0) <= 0)""",
+            ev["id"],
+        )
+        if ev.get("skip_contact_form") and not _paid_only:
             own_cid = await db.fetchval(
                 """SELECT id FROM contacts
                     WHERE id = $1 AND client_id = $2 AND merged_into IS NULL
@@ -3377,6 +3522,12 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
                     ORDER BY (eo.client_id = $2) DESC, eo.id""",
                 ev["id"], ev.get("client_id") or 0)
         ]
+
+    # ⚠️ Есть тарифы — человек ВЫБИРАЕТ тариф, а не «регистрируется» кнопкой.
+    # Иначе у события с одним платным тарифом (прод: 8 и 93) форма пускала
+    # бесплатно: человек становился is_registered=TRUE, не заплатив, и в
+    # заказах его не было. Нет тарифов — вход свободный, кнопка как была.
+    ev["_tariffs"] = await _load_event_tariffs(db, ev["id"])
 
     html_str = render_register_page(ev, client, poster_url, prefill=prefill,
                                     pid=pid)
@@ -3653,6 +3804,29 @@ async def event_register_submit(slug: str, request: Request,
         })
 
     # ── ШАГ REGISTER: финальная регистрация ──
+    # ⚠️⚠️ ПЛАТНЫЙ ВХОД НЕ ОБХОДИТСЯ ЧЕРЕЗ ЭТУ ФОРМУ. Если у события есть
+    # тарифы и среди них НЕТ бесплатного — записаться «просто так» нельзя:
+    # участие продаётся, а форма выдавала is_registered=TRUE даром (прод:
+    # события 8 и 93 с единственным платным тарифом). Проверка обязана быть
+    # здесь, а не только на экране: запрос легко повторить мимо интерфейса.
+    has_free = await db.fetchval(
+        """SELECT EXISTS (SELECT 1 FROM event_tariffs
+                           WHERE event_id = $1 AND is_active
+                             AND COALESCE(price, 0) <= 0)""",
+        event_id,
+    )
+    has_any_tariff = await db.fetchval(
+        """SELECT EXISTS (SELECT 1 FROM event_tariffs
+                           WHERE event_id = $1 AND is_active)""",
+        event_id,
+    )
+    if has_any_tariff and not has_free:
+        return JSONResponse(
+            {"detail": "Участие в этом событии платное — выберите тариф "
+                       "и оформите заказ."},
+            status_code=400,
+        )
+
     # ⚠️⚠️ РЕЗОЛВ КОНТАКТА — ТОЛЬКО ОБЩИМИ ФУНКЦИЯМИ (2026-08-28). Здесь жил
     # свой SELECT по email-идентичности: он брал первого попавшегося и не видел
     # человека, найденного по ТЕЛЕФОНУ или TG-нику, — тот заводился вторым
