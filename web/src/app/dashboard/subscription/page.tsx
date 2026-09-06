@@ -168,7 +168,11 @@ export default function SubscriptionPage() {
   }, [])
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    {/* ⚠️ Ширина по экрану, а не max-w-4xl (896px): на широком мониторе
+        карточки жались влево, а справа оставалась пустая треть страницы.
+        Потолок 7xl — чтобы на очень широком мониторе строка списка
+        возможностей не растягивалась в нечитаемую линейку. */}
+    <div className="space-y-6 max-w-7xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <CreditCard size={22} /> Подписка
@@ -288,7 +292,14 @@ export default function SubscriptionPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* ⚠️ Колонок СТОЛЬКО, СКОЛЬКО ТАРИФОВ (не жёстко три): продаваемых
+              тарифа сейчас два, и третья колонка оставалась пустой дырой, а
+              карточки при этом были вдвое уже, чем могли быть.
+              Классы перечислены целиком — Tailwind вырезает те, что собраны
+              склейкой строк, и сетка молча схлопнулась бы в одну колонку. */}
+          <div className={`grid grid-cols-1 gap-4 ${
+            tariffs.length >= 3 ? 'sm:grid-cols-3' : tariffs.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
+          }`}>
             {tariffs.map(t => {
               const isCurrent = me?.subscription?.tariff_slug === t.slug
               // ⚠️ Всё о цене — из периода, посчитанного бэкендом. Своей
