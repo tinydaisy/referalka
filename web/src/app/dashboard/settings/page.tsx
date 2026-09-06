@@ -13,6 +13,7 @@ import ChatGatesTab from '@/components/settings/ChatGatesTab'
 import StorageTab from '@/components/settings/StorageTab'
 import PaymentSettingsTab from '@/components/settings/PaymentSettingsTab'
 import DomainsTab from '@/components/settings/DomainsTab'
+import CallSettingsBlock from '@/components/settings/CallSettingsBlock'
 import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
 // ⚠️ Вкладки 'subscription' здесь БОЛЬШЕ НЕТ — подписка живёт отдельной
@@ -199,7 +200,11 @@ export default function SettingsPage() {
 
   // Раздел «Интеграция» (токен чат-ботов + регистрация партнёров) — по фиче
   // partner_registration (vip + admin). У Профи / Стандарт / Триал — скрыт.
-  const hasPartnerRegistration = clientFeatures.includes('partner_registration')
+  // ⚠️ Плюс фича calls: настройки автообзвонов живут в этой же вкладке, и без
+  // такой проверки клиент с обзвонами, но без partner_registration, не смог бы
+  // до них добраться — вкладки бы просто не было.
+  const hasCalls = clientFeatures.includes('calls')
+  const hasPartnerRegistration = clientFeatures.includes('partner_registration') || hasCalls
   // Стили лендингов — та же фича, что и сам конструктор лендинга (миграция 241).
   const hasLandingTheme = clientFeatures.includes('event_landing')
   // Приём оплаты за тарифы своей платёжной системой (миграция 257).
@@ -993,6 +998,11 @@ function IntegrationTab() {
 
   return (
     <div className="space-y-6">
+      {/* Автообзвоны — подключение Звонопса (миграция 359). Блок сам скрывается,
+          если фичи calls нет: замок на пол-экрана рядом с другими интеграциями
+          был бы шумом. */}
+      <CallSettingsBlock />
+
       {/* МедиаЛифт — карточка клиента в системе автоподписки */}
       {mlCard && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

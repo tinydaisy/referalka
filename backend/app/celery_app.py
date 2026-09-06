@@ -9,7 +9,7 @@ celery = Celery(
     include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
         "app.tasks.webinar_chunks", "app.tasks.webinar_stuck", "app.tasks.webinar_cut",
-        "app.tasks.collab_finish", "app.tasks.bot_webhook_check"]
+        "app.tasks.collab_finish", "app.tasks.bot_webhook_check", "app.tasks.calls"]
 )
 
 celery.conf.update(
@@ -28,6 +28,12 @@ celery.conf.update(
         },
         "check-broadcasts": {
             "task": "app.tasks.broadcast.check_and_send_broadcasts",
+            "schedule": 60.0,
+        },
+        # Раз в минуту — запуск автообзвонов (миграция 359). Тем же тактом, что
+        # рассылки: клиент нажал «Запустить» и ждёт, что звонки пойдут сейчас.
+        "check-call-campaigns": {
+            "task": "app.tasks.calls.check_and_run_campaigns",
             "schedule": 60.0,
         },
         # Раз в минуту — заливаем дописанные куски эфира в хранилище и стираем

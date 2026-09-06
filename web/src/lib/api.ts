@@ -664,6 +664,8 @@ export const api = {
     payout: (id: number) =>
       request(`/api/v1/partner-program/partners/${id}/payout`, { method: 'POST' }),
     people: (id: number) => request(`/api/v1/partner-program/partners/${id}/people`),
+    // Сеть партнёра по уровням — кто под ним стоит и что приносит.
+    network: (id: number) => request(`/api/v1/partner-program/partners/${id}/network`),
     sales: (partnerId?: number) =>
       request(`/api/v1/partner-program/sales${partnerId ? `?partner_id=${partnerId}` : ''}`),
     payouts: () => request('/api/v1/partner-program/payouts'),
@@ -791,6 +793,43 @@ export const api = {
       request('/api/v1/clients/me/payment-settings/check', {
         method: 'POST', body: JSON.stringify(data),
       }),
+  },
+
+  // Автообзвоны через сервис Звонопёс (миграция 359). Гейт — фича calls.
+  // Настройки подключения (ключ + номер + сценарии) и сами кампании обзвона.
+  callSettings: {
+    get: () => request('/api/v1/clients/me/call-settings'),
+    update: (data: any) =>
+      request('/api/v1/clients/me/call-settings', {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    check: (data: any) =>
+      request('/api/v1/clients/me/call-settings/check', {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    phones: () => request('/api/v1/clients/me/call-settings/phones'),
+    templates: () => request('/api/v1/clients/me/call-settings/templates'),
+  },
+
+  calls: {
+    list: (eventId?: number) =>
+      request(`/api/v1/call-campaigns${eventId ? `?event_id=${eventId}` : ''}`),
+    // Сколько человек реально обзвоним — телефон есть далеко не у всех.
+    audienceCount: (data: any) =>
+      request('/api/v1/call-campaigns/audience-count', {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    create: (data: any) =>
+      request('/api/v1/call-campaigns', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/call-campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    start: (id: number) =>
+      request(`/api/v1/call-campaigns/${id}/start`, { method: 'POST' }),
+    cancel: (id: number) =>
+      request(`/api/v1/call-campaigns/${id}/cancel`, { method: 'POST' }),
+    remove: (id: number) =>
+      request(`/api/v1/call-campaigns/${id}`, { method: 'DELETE' }),
+    log: (id: number) => request(`/api/v1/call-campaigns/${id}/log`),
   },
 
   eventTariffs: {
@@ -1623,12 +1662,14 @@ export const api = {
     features: () => request('/api/v1/public/features'),
   },
   subscriptions: {
-    createOrder: (tariff_slug: string, provider: 'prodamus' | 'leadpay' = 'prodamus') =>
-      request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug, provider }) }),
+    // months — 1, 6 или 12 (миграция 359). Длинные сроки только через LeadPay:
+    // у Продамуса нет готовых ссылок на такие суммы.
+    createOrder: (tariff_slug: string, provider: 'prodamus' | 'leadpay' = 'prodamus', months = 1) =>
+      request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug, provider, months }) }),
     getOrder: (id: number) => request(`/api/v1/subscriptions/orders/${id}`),
     listOrders: () => request('/api/v1/subscriptions/orders'),
-    payWithBonus: (tariff_slug: string) =>
-      request('/api/v1/subscriptions/pay-with-bonus', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
+    payWithBonus: (tariff_slug: string, months = 1) =>
+      request('/api/v1/subscriptions/pay-with-bonus', { method: 'POST', body: JSON.stringify({ tariff_slug, months }) }),
   },
   addons: {
     list: () => request('/api/v1/addons'),

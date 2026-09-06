@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList, Package } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList, Package, PhoneCall } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -100,6 +100,9 @@ export default function Sidebar() {
   const hasEventOrganizers = features.includes('event_organizers')
   // Своя партнёрская программа клиента (миграции 346–348). Пока только admin.
   const hasPartnerProgram = features.includes('partner_program')
+  // Автообзвоны через Звонопёс (миграция 359). Пока только admin — пункт СКРЫТ
+  // без фичи, как «Продукты»: раздел клиентам не продаётся.
+  const hasCalls = features.includes('calls')
 
   // Коллаб-событие открывается по тому же пути /dashboard/events/{id}, что и обычное
   // мероприятие. Чтобы в меню подсвечивались «Коллабы», а не «Мероприятия», узнаём
@@ -158,6 +161,15 @@ export default function Sidebar() {
     {
       items: [
         { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },
+        // Автообзвоны — звонки роботом через Звонопёс (миграция 359). Стоят
+        // рядом с рассылками: это тот же выбор аудитории, только вместо
+        // сообщения — звонок.
+        // ⚠️ Пункт СКРЫТ без фичи, а не показан с замком (решение владельца):
+        // фича только у admin, раздел клиентам не продаётся — дразнить незачем.
+        // Тот же приём, что у «Продуктов».
+        ...(hasCalls && !isAssistant ? [{
+          href: '/dashboard/calls', label: 'Автообзвоны', icon: PhoneCall,
+        }] : []),
         // Аналитика — про источники и воронки рассылок, поэтому стоит рядом
         // с ними, а не в разделе базы (решение владельца 2026-08-12).
         { href: '/dashboard/analytics', label: t.nav.analytics, icon: BarChart3 },
