@@ -1035,3 +1035,50 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 - CRM события — **всем тарифам**, без гейта по фиче.
 - Анкеты — фича `surveys`, дашборды — `analytics_dashboard` (обе: Экстра + admin).
 - В коллаб-событии CRM отдаёт только контакты **текущего** клиента (`contacts.client_id`).
+
+---
+
+## Автонастройка Telegram «под ключ» — разовая услуга (миграция 364, 07.09.2026)
+
+⚠️ **Ещё не на проде** — миграция написана, не накачена.
+
+Клиент платит **790 ₽** один раз (карточка LeadPay `66205`), и за него делают базовую настройку Telegram: создают бота, привязывают Mini App, заводят закрытую группу уведомлений, прописывают всё в кабинете, передают права. Гейт — фича `tg_autosetup`, пока только `admin`.
+
+### Таблицы
+
+**`services`** — каталог разовых услуг: `slug` UNIQUE, `name`, `tagline`, `description`, `bullet_points` JSONB, `price` (рубли), `coming_soon`, `is_active`, `require_feature`, `leadpay_product_id`, `prodamus_payment_url`, `sort`.
+
+**`tg_setup_accounts`** — живые Telegram-аккаунты (Telethon), от лица которых создаются боты: `phone` UNIQUE, `title`, `username`, `tg_user_id`, `twofa_password`, `proxy`, `session_path`, `max_slots` (по умолчанию 5), `is_active`, `health` (`ok|limited|dead|unknown`), `health_note`, `health_checked_at`.
+
+**`service_orders`** — заказ И состояние процесса в одной строке: `client_id`, `service_id`, `amount`, `status` (`created|paid|failed|cancelled`), `payment_*`, `setup_state` (`new|queued|running|awaiting_user|done|expired|failed`), `setup_error`, `setup_log` JSONB, `bot_username`, `bot_title`, `setup_account_id`, `bot_token`, `bot_channel_id`, `group_chat_id`, `group_invite_link`, `client_tg_user_id`, восемь отметок шагов (`bot_created_at` … `channel_linked_at`), `claim_deadline`, `reminders_sent`.
+
+⚠️ **Своя пара таблиц, а не `client_addons`:** у аддона есть срок (`expires_at`, `months`), а у разовой услуги его нет — иначе у клиента «истекала бы настройка».
+
+⚠️ **Заказ и процесс — одна строка:** у услуги ровно один прогон, разносить на две таблицы значило бы джойнить их на каждом экране ради связи 1:1.
+
+### Эндпоинты
+
+| Метод + путь | Что делает |
+|---|---|
+| `GET /clients/me/tg-autosetup` | услуга, активный заказ, место в очереди, подсказки имени бота |
+| `POST /clients/me/tg-autosetup/check-name` | свободен ли ник бота — спрашиваем у BotFather ДО оплаты |
+| `POST /clients/me/tg-autosetup/start` | запуск: новый заказ + ссылка на оплату, либо бесплатный перезапуск оплаченного |
+| `POST /integrations/leadpay/service-webhook` | оплата услуги (LeadPay), префикс `svc-` |
+| `POST /integrations/prodamus/service-webhook` | оплата услуги (Продамус) |
+| `GET /public/services` | публичный каталог услуг (для витрины и лендинга) |
+| `GET/POST/PATCH/DELETE /admin/tg-setup/accounts[/{id}]` | сервисные аккаунты |
+| `POST /admin/tg-setup/accounts/{id}/session` | загрузка файла сессии Telethon (multipart) |
+| `POST /admin/tg-setup/accounts/{id}/check` | проверка вживую: @SpamBot + число ботов |
+| `GET /admin/tg-setup/orders` | все заказы |
+| `POST /admin/tg-setup/orders/{id}/{retry\|mark-paid}` | вернуть в очередь / отметить оплаченным |
+| `GET/PATCH /admin/tg-setup/services[/{slug}]` | цена, «СКОРО», карточка оплаты |
+
+### Правила
+
+- **Оплата разовая**, префикс номера заказа **`svc-`** (рядом с `evt-`, `prd-`, `addon-`).
+- **Очередь по слотам**: слот занимает непереданный бот, освобождает — передача клиенту.
+- **Услуга оказана, когда бот создан.** Не забрал за 3 дня — бот удаляется, слот освобождается, оплата сохраняется (перезапуск бесплатный).
+- **Только `health='ok'`** аккаунты берутся в работу: спам-блок запрещает и создание ботов.
+- **Передача бота** требует: двухфакторка ≥7 дней, `/start` от получателя, облачный пароль.
+- **ID клиента** узнаётся только из его захода в бота — иначе неоткуда.
+- Ассистенту запись закрыта общим middleware; админские эндпоинты — по роли админа платформы.

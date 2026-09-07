@@ -309,6 +309,25 @@ async def handle_start(message: Message, command: CommandObject):
     # Дорастить пустышки `@username` -> реальный tg_id (любой вход в бот, до ветвления)
     await _upgrade_pseudo_identities(user)
 
+    # АВТОНАСТРОЙКА (миграция 364): клиент зашёл в СВОЕГО свежесозданного бота.
+    # ⚠️ Это единственный момент, когда мы узнаём его числовой Telegram-id:
+    # по токену бота Telegram отдаёт данные бота, но не владельца, а передача
+    # владения идёт по @нику и id не возвращает. Плюс сам факт захода —
+    # обязательное условие BotFather для передачи бота.
+    try:
+        from app.services.tg_setup_events import on_client_started_bot
+        _me = await message.bot.get_me()
+        _pool = await get_pool()
+        if _pool and _me and _me.username:
+            async with _pool.acquire() as _db:
+                await on_client_started_bot(
+                    _db, bot_token_id=None, bot_username=_me.username,
+                    tg_user_id=(user.id if user else 0),
+                    tg_username=(user.username if user else "") or "",
+                )
+    except Exception:
+        pass
+
     # Возврат с формы связки ПЛЮСОН (/pluson_connect → форма → сюда). Просто
     # подтверждаем — привязка уже записана на форме по подписанному токену.
     if args == "pluson_connected":

@@ -118,6 +118,35 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
     return {"features": out}
 
 
+@router.get("/services", summary="Разовые услуги (для лендинга и страницы подписки)")
+async def public_services(db: asyncpg.Connection = Depends(get_db)):
+    """Каталог разовых услуг ПЛЮСОНа (миграция 364).
+
+    ⚠️ Это НЕ модули и НЕ тарифы: у услуги нет срока действия, она разовая.
+    Отдаём и те, у которых `coming_soon=TRUE` — они показываются с пометкой
+    «СКОРО» и без кнопки оплаты.
+    """
+    rows = await db.fetch(
+        """SELECT slug, name, tagline, description, bullet_points, price,
+                  coming_soon, require_feature
+             FROM services
+            WHERE is_active = TRUE
+            ORDER BY coming_soon ASC, sort, id"""
+    )
+    out = []
+    for r in rows:
+        d = dict(r)
+        bp = d.get("bullet_points")
+        if isinstance(bp, str):
+            try:
+                d["bullet_points"] = json.loads(bp)
+            except Exception:
+                d["bullet_points"] = []
+        d["coming_soon"] = bool(r["coming_soon"])
+        out.append(d)
+    return {"services": out}
+
+
 @router.get("/promotions/active", summary="Активные акции (для счётчиков на лендинге)")
 async def public_active_promotions(db: asyncpg.Connection = Depends(get_db)):
     """Возвращает все активные не исчерпавшиеся акции с оставшимися местами.

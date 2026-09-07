@@ -2,13 +2,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const adminNav = [
   { href: '/admin', label: 'Обзор', icon: BarChart2 },
   { href: '/admin/clients', label: 'Клиенты', icon: Users },
   { href: '/admin/system-channels', label: 'Системные каналы', icon: Radio },
+  { href: '/admin/tg-setup', label: 'Автонастройка', icon: Sparkles },
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
   { href: '/admin/promotions', label: 'Акции', icon: Tag },

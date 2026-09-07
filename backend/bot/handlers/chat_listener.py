@@ -146,6 +146,17 @@ async def on_added_to_chat(update: ChatMemberUpdated):
         )
         log.info("chat_listener: бот %s в чате %s (%s), status=%s",
                  bot.id, update.chat.id, update.chat.title, new_status)
+
+        # АВТОНАСТРОЙКА (миграция 364): третий шаг услуги — «добавьте бота в
+        # свой канал». Раньше клиент узнавал id канала командой и вписывал
+        # руками; теперь узнаём его в момент добавления и записываем сами.
+        from app.services.tg_setup_events import on_bot_added_to_channel
+        async with pool.acquire() as db:
+            await on_bot_added_to_channel(
+                db, bot_id=bot.id, chat_id=update.chat.id,
+                title=update.chat.title or "", chat_type=update.chat.type,
+                is_admin=can_read,
+            )
     except Exception as e:  # noqa: BLE001
         log.warning("chat_listener on_added_to_chat failed: %s", e)
 
@@ -181,6 +192,16 @@ async def on_member_changed(update: ChatMemberUpdated):
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
+            # АВТОНАСТРОЙКА (миграция 364): клиент вступил в созданную для него
+            # группу уведомлений → отмечаем, дальше Celery сделает его админом.
+            # ⚠️ Только на вход: выход из группы шагов услуги не отменяет.
+            if is_in:
+                from app.services.tg_setup_events import on_member_joined_group
+                await on_member_joined_group(
+                    db, chat_id=update.chat.id, tg_user_id=member.user.id,
+                    tg_username=member.user.username or "",
+                )
+
             # Все события, чей Telegram-чат = этот чат (через ref на базу чатов).
             event_ids = await db.fetch(
                 """SELECT e.id

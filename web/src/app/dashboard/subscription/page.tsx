@@ -443,6 +443,9 @@ export default function SubscriptionPage() {
       {/* Модули-аддоны поверх тарифа */}
       <ModulesBlock />
 
+      {/* Разовые услуги — не подписка и не модуль, срока действия нет */}
+      <ServicesBlock />
+
       {/* Партнёрская */}
       <Link
         href="/dashboard/partner-program"
@@ -656,6 +659,72 @@ function SubscriptionHistoryBlock() {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+
+/**
+ * Разовые услуги ПЛЮСОНа (миграция 364).
+ *
+ * ⚠️ Это НЕ модуль и НЕ тариф: у услуги нет срока действия, её не продлевают.
+ * Поэтому и сущность своя (`services`), и блок отдельный — иначе клиент решил бы,
+ * что через месяц «настройка истечёт».
+ *
+ * ⚠️ У услуги с `coming_soon` кнопки оплаты нет вовсе — только пометка «СКОРО».
+ * Рычаг переключается в админке, без релиза.
+ */
+function ServicesBlock() {
+  const [services, setServices] = useState<any[]>([])
+
+  useEffect(() => {
+    api.services.list().then((r: any) => setServices(r.services || [])).catch(() => {})
+  }, [])
+
+  if (services.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h3 id="services" className="scroll-mt-24 font-semibold text-gray-800 mb-1">Услуги</h3>
+      <p className="text-sm text-gray-500 mb-5">
+        Разовые — платите один раз, продлевать не нужно.
+      </p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {services.map(s => (
+          <div key={s.slug}
+               id={`service-${s.slug}`}
+               className={`scroll-mt-24 rounded-xl border p-4 flex flex-col ${
+                 s.coming_soon ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
+            <h4 className="font-semibold text-gray-900">{s.name}</h4>
+            {s.tagline && <p className="text-xs text-gray-500 mt-0.5">{s.tagline}</p>}
+
+            <div className="mt-3 mb-1 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-[#25455D]">
+                {Number(s.price).toLocaleString('ru-RU')} ₽
+              </span>
+              <span className="text-xs text-gray-400">разово</span>
+            </div>
+
+            <ul className="mt-3 space-y-1.5 text-xs text-gray-600 flex-1">
+              {(s.bullet_points || []).slice(0, 5).map((b: string, i: number) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <CheckCircle2 size={12} className="text-emerald-500 shrink-0 mt-0.5" />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+
+            {s.coming_soon ? (
+              <p className="mt-4 text-xs font-semibold text-amber-600">🔜 Скоро будет</p>
+            ) : (
+              <Link href="/dashboard/channels"
+                    className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
+                Подключить
+              </Link>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

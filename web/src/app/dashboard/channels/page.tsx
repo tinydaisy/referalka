@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
+import AutoSetupTab from '@/components/channels/AutoSetupTab'
 import QrLinkButton from '@/components/QrLinkButton'
 import LockedOverlay from '@/components/LockedOverlay'
 
@@ -100,7 +101,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 export default function ChannelsPage() {
-  const [tab, setTab] = useState<'bots' | 'chats'>('bots')
+  const [tab, setTab] = useState<'bots' | 'chats' | 'autosetup'>('bots')
   const [me, setMe] = useState<Me | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
@@ -179,6 +180,8 @@ export default function ChannelsPage() {
 
   const isVip = (me?.features || []).includes('channels')
   // Автонастройка «под ключ» — пока только у владельца платформы (фича admin).
+  const hasAutoSetup = (me?.features || []).includes('tg_autosetup')
+  // Автонастройка «под ключ» — пока только у владельца платформы (фича admin).
   // Системный сервисный аккаунт ПЛЮСОНа (client 3): для него системный @pluson_bot
   // (и системные VK/MAX) — это фактически ЕГО собственные боты. Поэтому апсейл
   // «подключите свой бот» и красный баннер ему не показываем.
@@ -240,6 +243,13 @@ export default function ChannelsPage() {
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
         <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
+        {/* ⚠️ СКРЫТА без фичи, а не показана с замком: услуга клиентам пока
+            не продаётся, дразнить незачем (как «Автообзвоны» в сайдбаре). */}
+        {hasAutoSetup && (
+          <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
+            Автонастройка
+          </TabBtn>
+        )}
       </div>
 
 
@@ -268,6 +278,8 @@ export default function ChannelsPage() {
       )}
 
       {tab === 'chats' && <BroadcastChatsTab />}
+
+      {tab === 'autosetup' && <AutoSetupTab />}
 
       {(creating || editing) && (
         <ChannelModal
