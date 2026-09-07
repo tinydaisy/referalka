@@ -85,7 +85,14 @@ def _signature_ok(body: bytes, header: str | None) -> bool:
 async def receive(request: Request, background: BackgroundTasks):
     body = await request.body()
     if not _signature_ok(body, request.headers.get("X-Hub-Signature-256")):
-        log.warning("Instagram webhook: неверная подпись")
+        # ⚠️ Тело отвергнутого события — в лог. Запрос при этом всё равно
+        # отбрасывается: защита не ослаблена, но по одной лишь строке «подпись
+        # не сошлась» невозможно понять, ЧТО именно прислали — событие нашего
+        # аккаунта, чужого приложения или проверочный образец Meta.
+        log.warning(
+            "Instagram webhook ОТВЕРГНУТ: %s",
+            body.decode("utf-8", "replace")[:800],
+        )
         return Response(content="bad signature", status_code=403, media_type="text/plain")
 
     try:
