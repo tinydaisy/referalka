@@ -267,17 +267,67 @@ async def exchange_long_lived(short_token: str) -> tuple[str, int]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def list_pages(user_token: str) -> list[dict[str, Any]]:
-    """Страницы Facebook, которыми управляет человек.
+    """Страницы Facebook, доступные человеку.
 
     У каждой — СВОЙ `access_token` страницы: именно им дальше работаем с
     Instagram, а не токеном пользователя.
+
+    ⚠️⚠️ Ищем в ДВУХ местах, и второе обязательно. `me/accounts` отдаёт только
+    страницы, которыми человек владеет ЛИЧНО. Страницы, принадлежащие
+    бизнес-портфолио, туда не попадают — приходит пустой список при полностью
+    выданных правах, и со стороны это неотличимо от «страниц нет вовсе».
+    На это уже потрачено время 2026-09-07: у владельца страницы лежали именно
+    в портфолио, и подключение обрывалось без внятной причины.
+
+    Поэтому при пустом ответе идём через `me/businesses` → страницы каждого
+    портфолио. Порядок именно такой: личные страницы дешевле одним запросом,
+    портфолио требует обхода.
     """
     data = await graph_get(
         "me/accounts",
         token=user_token,
         params={"fields": "id,name,access_token", "limit": 100},
     )
-    return list(data.get("data") or [])
+    pages = list(data.get("data") or [])
+    if pages:
+        return pages
+
+    # Личных страниц нет — пробуем бизнес-портфолио.
+    try:
+        biz = await graph_get(
+            "me/businesses", token=user_token, params={"fields": "id,name", "limit": 50}
+        )
+    except InstagramApiError as e:
+        logger.warning("list_pages: портфолио спросить не удалось — %s", e)
+        return []
+
+    seen: set[str] = set()
+    for b in (biz.get("data") or []):
+        bid = str(b.get("id") or "")
+        if not bid:
+            continue
+        # ⚠️ Два разных списка: owned_pages — страницы самого портфолио,
+        # client_pages — чужие страницы, переданные ему в управление
+        # (агентствами так и работают). Нужны оба, иначе часть клиентов
+        # упрётся в ту же пустоту.
+        for edge in ("owned_pages", "client_pages"):
+            try:
+                res = await graph_get(
+                    f"{bid}/{edge}",
+                    token=user_token,
+                    params={"fields": "id,name,access_token", "limit": 100},
+                )
+            except InstagramApiError as e:
+                logger.warning("list_pages: %s/%s — %s", bid, edge, e)
+                continue
+            for pg in (res.get("data") or []):
+                pid = str(pg.get("id") or "")
+                if pid and pid not in seen:
+                    seen.add(pid)
+                    pages.append(pg)
+
+    logger.info("list_pages: через портфолио найдено страниц: %s", len(pages))
+    return pages
 
 
 async def instagram_account_of_page(page_id: str, page_token: str) -> dict[str, Any] | None:
