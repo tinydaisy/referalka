@@ -281,7 +281,7 @@ async def deliver(db, funnel: dict, run: dict, ch: dict, igsid: str,
 
     text = f"{head}\n\n{body}".strip()
     try:
-        await ig.send_message(ch["ig_user_id"], igsid, text, ch["token"])
+        await ig.send_message(ch["page_id"], igsid, text, ch["token"])
     except ig.InstagramApiError as e:
         log.warning("Instagram: не удалось выдать материал (run %s): %s", run["id"], e)
         return False
@@ -334,7 +334,7 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
             return
         text_repeat = await pick_reply(db, funnel["id"], "dm_repeat")
         try:
-            await ig.private_reply(comment_id, text_repeat, ch["token"])
+            await ig.private_reply(comment_id, text_repeat, ch["token"], ch["page_id"])
         except ig.InstagramApiError:
             pass
         await deliver(db, funnel, run, ch, from_igsid, repeat=True)
@@ -350,7 +350,7 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
         intro = await pick_reply(db, funnel["id"], "dm_delivered")
 
     try:
-        await ig.private_reply(comment_id, intro, ch["token"])
+        await ig.private_reply(comment_id, intro, ch["token"], ch["page_id"])
     except ig.InstagramApiError as e:
         log.warning("Instagram: приватный ответ не ушёл (%s): %s", comment_id, e)
         return
@@ -412,7 +412,7 @@ async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
     if sub is False:
         try:
             await ig.send_message(
-                ch["ig_user_id"], from_igsid,
+                ch["page_id"], from_igsid,
                 await pick_reply(db, funnel["id"], "dm_not_subscribed"), ch["token"],
             )
         except ig.InstagramApiError:
@@ -468,7 +468,7 @@ async def send_reminder(db, run_id: int) -> bool:
 
     try:
         await ig.send_message(
-            ch["ig_user_id"], igsid,
+            ch["page_id"], igsid,
             await pick_reply(db, funnel["id"], "dm_reminder"), ch["token"],
         )
     except ig.InstagramApiError as e:

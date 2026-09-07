@@ -108,14 +108,29 @@ async def graph_post(
     *,
     token: str,
     data: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
     timeout: float = 15.0,
 ) -> dict[str, Any]:
-    """POST к Graph API."""
+    """POST к Graph API.
+
+    ⚠️ Два способа передать тело, и они не взаимозаменяемы:
+    `data` — обычная форма, `json_body` — настоящий JSON. Отправка сообщений
+    требует именно JSON: у неё вложенные объекты (`recipient`, `message`), а
+    формой они уходят строками, и Meta их не разбирает.
+
+    ⚠️ При `json_body` токен идёт в АДРЕСЕ, а не в теле: иначе он попал бы в
+    JSON отдельным полем, которого Meta там не ждёт.
+    """
     url = f"{_base()}/{path.lstrip('/')}"
-    body = dict(data or {})
-    body["access_token"] = token
     async with httpx.AsyncClient(timeout=timeout) as cli:
-        resp = await cli.post(url, data=body)
+        if json_body is not None:
+            resp = await cli.post(
+                url, params={"access_token": token}, json=json_body
+            )
+        else:
+            body = dict(data or {})
+            body["access_token"] = token
+            resp = await cli.post(url, data=body)
     return _unwrap(resp, path)
 
 
@@ -409,34 +424,60 @@ async def reply_to_comment(comment_id: str, text: str, page_token: str) -> dict[
     return await graph_post(f"{comment_id}/replies", token=page_token, data={"message": text})
 
 
-async def private_reply(comment_id: str, text: str, page_token: str) -> dict[str, Any]:
+async def private_reply(comment_id: str, text: str, page_token: str,
+                        page_id: str = "") -> dict[str, Any]:
     """Первое сообщение в директ — в ответ на комментарий.
 
     ⚠️ Meta разрешает это РОВНО ОДИН РАЗ на комментарий и в течение 7 дней.
     Второй раз тем же способом не написать: дальше только обычная отправка в
     24-часовом окне (`send_message`). Новый комментарий человека — новая
     возможность.
+
+    ⚠️⚠️ АДРЕС — `POST /{page-id}/messages` с `recipient.comment_id`, а НЕ
+    `POST /{comment-id}/private_replies`. Второй способ Meta отклоняет:
+    «Object with ID … does not exist, cannot be loaded due to missing
+    permissions, or does not support this operation» — и это выглядит как
+    нехватка прав, хотя дело в устаревшем адресе. Проверено живой отправкой
+    2026-09-07: правильный адрес возвращает message_id и сообщение доходит,
+    причём разрешение `pages_messaging` для этого НЕ нужно.
+
+    ⚠️ Через `ig_user_id` тот же запрос отвечает «(#3) Application does not
+    have the capability» — нужен именно id СТРАНИЦЫ.
     """
+    import json as _json
+    if not page_id:
+        # ⚠️ Без страницы отправить нельзя вовсе. Явная ошибка лучше запроса
+        # по заведомо неверному адресу: тот вернёт «нет прав» и уведёт
+        # разбираться не туда.
+        raise InstagramApiError("Не задан page_id — некуда отправлять сообщение")
     return await graph_post(
-        f"{comment_id}/private_replies", token=page_token, data={"message": text}
+        f"{page_id}/messages",
+        token=page_token,
+        json_body={
+            "recipient": {"comment_id": comment_id},
+            "message": {"text": text},
+        },
     )
 
 
-async def send_message(ig_user_id: str, recipient_igsid: str, text: str,
+async def send_message(page_id: str, recipient_igsid: str, text: str,
                        page_token: str) -> dict[str, Any]:
     """Сообщение в директ.
 
     ⚠️⚠️ Работает только в пределах 24 ЧАСОВ с последнего сообщения человека.
     Вне окна Meta отклоняет запрос, а серия отказов портит репутацию
     приложения — поэтому окно проверяется ДО отправки, а не по факту ошибки.
+
+    ⚠️⚠️ Первым аргументом идёт id СТРАНИЦЫ, а не аккаунта Instagram: через
+    `ig_user_id` Meta отвечает «(#3) Application does not have the capability»
+    (проверено 2026-09-07).
     """
-    import json as _json
     return await graph_post(
-        f"{ig_user_id}/messages",
+        f"{page_id}/messages",
         token=page_token,
-        data={
-            "recipient": _json.dumps({"id": recipient_igsid}),
-            "message": _json.dumps({"text": text}),
+        json_body={
+            "recipient": {"id": recipient_igsid},
+            "message": {"text": text},
         },
     )
 
