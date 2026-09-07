@@ -51,9 +51,21 @@ export default function CabinetMaterialPage() {
         if (res.status === 401) { setError('auth'); return }
         if (!res.ok) { setError('no-access'); return }
         setData(await res.json())
+
+        // ⚠️ Отметка «человек открыл этот материал» — для истории у
+        // организатора. Содержимое всех уроков приходит одним запросом на
+        // страницу продукта, поэтому по нему нельзя понять, какой именно урок
+        // человек открыл: без этой отметки история показывала бы только заходы.
+        //
+        // ⚠️ Не ждём ответа и глушим ошибку: статистика не может мешать
+        // человеку читать урок.
+        fetch(
+          `${apiBase}/api/v1/public/product-cabinet/me/${encodeURIComponent(slug)}/opened/${lid}`,
+          { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+        ).catch(() => {})
       } finally { setLoading(false) }
     })()
-  }, [slug])
+  }, [slug, lid])
 
   const items: any[] = useMemo(() => data?.items || [], [data])
   const idx = items.findIndex((i: any) => i.link_id === lid)

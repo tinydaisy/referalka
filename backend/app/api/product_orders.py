@@ -132,16 +132,36 @@ async def grant_product_access(db, *, product_id: int, contact_id: int,
     Идемпотентно: повторная выдача обновляет тариф, а не плодит строки.
     ⚠️ Доступ — отдельная сущность от заказа: его можно выдать и вручную
     (подарок, бартер, перенос базы), поэтому пишем сюда, а не помечаем заказ.
+
+    ⚠️ Срок берётся ИЗ ТАРИФА (`access_days`, миграция 369) и считается от
+    момента оплаты. Не задан — доступ бессрочный, как было всегда.
     """
-    await db.execute(
-        """INSERT INTO product_access
-               (product_id, contact_id, tariff_id, order_id, source)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (product_id, contact_id)
-           DO UPDATE SET tariff_id = EXCLUDED.tariff_id,
-                         order_id  = COALESCE(EXCLUDED.order_id, product_access.order_id)""",
-        product_id, contact_id, tariff_id, order_id, source,
+    from app.services.product_access import (
+        expires_from_days, tariff_access_days, log_access_event,
     )
+    expires = expires_from_days(await tariff_access_days(db, tariff_id))
+
+    # ⚠️ Оплата СНИМАЕТ закрытие: человек заплатил заново — доступ обязан
+    # открыться, а не остаться закрытым от прошлого раза.
+    row = await db.fetchrow(
+        """INSERT INTO product_access
+               (product_id, contact_id, tariff_id, order_id, source, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (product_id, contact_id)
+           DO UPDATE SET tariff_id  = EXCLUDED.tariff_id,
+                         order_id   = COALESCE(EXCLUDED.order_id, product_access.order_id),
+                         expires_at = EXCLUDED.expires_at,
+                         revoked_at = NULL,
+                         expiry_warned_at = NULL
+           RETURNING id""",
+        product_id, contact_id, tariff_id, order_id, source, expires,
+    )
+    if row:
+        await log_access_event(
+            db, row["id"], "granted", actor="payment",
+            detail=("оплата, бессрочно" if expires is None
+                    else f"оплата, до {expires:%d.%m.%Y}"),
+        )
 
 
 @router.post("/create", summary="Оформить заказ продукта")

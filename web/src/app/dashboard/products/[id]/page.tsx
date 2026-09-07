@@ -47,7 +47,8 @@ export default function ProductCardPage() {
 
   const [product, setProduct] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'main' | 'tariffs' | 'content' | 'landing' | 'buyers'>('main')
+  const [tab, setTab] = useState<
+    'main' | 'tariffs' | 'content' | 'landing' | 'buyers' | 'orders'>('main')
 
   const load = async () => {
     try { setProduct(await api.products.get(productId)) } finally { setLoading(false) }
@@ -88,6 +89,7 @@ export default function ProductCardPage() {
           ['content', 'Материалы', Layers],
           ['landing', 'Лендинг', LayoutTemplate],
           ['buyers', 'Клиенты', Users],
+          ['orders', 'Заказы', Wallet],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
@@ -118,6 +120,7 @@ export default function ProductCardPage() {
         <ProductLandingTab productId={productId} product={product} readOnly={isAssistant} />
       )}
       {tab === 'buyers' && <BuyersTab productId={productId} readOnly={isAssistant} />}
+      {tab === 'orders' && <OrdersTab productId={productId} />}
     </div>
   )
 }
@@ -583,6 +586,9 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
     tariff?.partner_reward_kind || 'percent')
   const [rewardValue, setRewardValue] = useState<string>(
     tariff?.partner_reward_value != null ? String(tariff.partner_reward_value) : '')
+  // Срок доступа после оплаты (миграция 369). Пусто = навсегда.
+  const [accessDays, setAccessDays] = useState<string>(
+    tariff?.access_days != null ? String(tariff.access_days) : '')
   const [payProductId, setPayProductId] = useState(tariff?.pay_product_id || '')
   const [payUrl, setPayUrl] = useState(tariff?.pay_url || '')
   const [isActive, setIsActive] = useState(tariff?.is_active ?? true)
@@ -634,6 +640,8 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
         // кабинета. Пара пишется целиком — половина не пройдёт проверку.
         partner_reward_kind: rewardValue.trim() ? rewardKind : null,
         partner_reward_value: rewardValue.trim() ? Number(rewardValue) : null,
+        // Пусто или 0 = доступ бессрочный (так работали все тарифы до 369).
+        access_days: accessDays.trim() ? Number(accessDays) : null,
       }
       if (tariff) await api.products.updateTariff(productId, tariff.id, data)
       else await api.products.createTariff(productId, data)
@@ -714,6 +722,23 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
               <p className="mt-1 text-xs text-gray-400">Пусто — скидки нет</p>
             )}
           </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-gray-600">
+            Доступ на, дней
+          </label>
+          <input value={accessDays}
+                 onChange={e => setAccessDays(e.target.value.replace(/[^0-9]/g, ''))}
+                 inputMode="numeric" placeholder="Пусто — навсегда"
+                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <p className="mt-1 text-xs text-gray-400">
+            {accessDays.trim() && Number(accessDays) > 0
+              ? `После оплаты доступ откроется на ${accessDays} дн. — до ${
+                  new Date(Date.now() + Number(accessDays) * 86400000)
+                    .toLocaleDateString('ru-RU')}, если купить сегодня.`
+              : 'Пусто — доступ бессрочный. Заполните, если продаёте доступ на время.'}
+          </p>
         </div>
 
         <div>
@@ -1500,6 +1525,24 @@ function PickMaterialModal({ productId, sectionId, onClose, onAdded }: {
 /* ────────────────────── Выдача доступа вручную ──────────────────────────── */
 
 /**
+ * Строка контактов человека в результатах поиска.
+ *
+ * ⚠️⚠️ НИК МЕССЕНДЖЕРА ОБЯЗАТЕЛЕН. Поиск ищет и по нику (`pu.username` в
+ * `/contacts`), но раньше в строке показывались только почта и телефон — и
+ * человек, нашедший контакт по нику «margo_forbs», видел строку без единого
+ * совпадения с тем, что набрал, и не понимал, тот ли это человек и нашёлся ли
+ * он вообще (жалоба владельца 07.09.2026).
+ */
+function contactLine(c: any): string {
+  // Бэкенд кладёт ник и плоским полем `username`, и в списке `identities` —
+  // берём первое непустое, чтобы строка не зависела от порядка площадок.
+  const nick = c?.username
+    || (c?.identities || []).find((i: any) => i.username)?.username
+  return [nick ? `@${nick}` : null, c?.email, c?.phone]
+    .filter(Boolean).join(' · ') || 'без контактов'
+}
+
+/**
  * Открыть доступ без заказа и без денег: подарок, бартер, перенос учеников
  * из GetCourse.
  *
@@ -1525,6 +1568,9 @@ function GrantAccessForm({
   const [tariffId, setTariffId] = useState<string>('')
   const [searching, setSearching] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Срок: по умолчанию бессрочно — так доступ выдавали всегда.
+  const [unlimited, setUnlimited] = useState(true)
+  const [until, setUntil] = useState('')
 
   // Ищем по мере ввода, но не на каждую букву — иначе на каждый символ
   // уходит запрос по всей базе контактов.
@@ -1543,11 +1589,14 @@ function GrantAccessForm({
 
   const grant = async () => {
     if (!picked) return
+    if (!unlimited && !until) { alert('Укажите дату или отметьте «бессрочно»'); return }
     setSaving(true)
     try {
       await api.products.grantAccess(productId, {
         contact_id: picked.id,
         tariff_id: tariffId ? Number(tariffId) : null,
+        // Конец дня: «до 12.11» человек понимает как «весь день 12-го».
+        expires_at: unlimited ? null : `${until}T23:59:59`,
       })
       onDone()
     } catch (e: any) {
@@ -1587,7 +1636,7 @@ function GrantAccessForm({
                     {c.name || 'Без имени'}
                   </div>
                   <div className="truncate text-xs text-gray-400">
-                    {[c.email, c.phone].filter(Boolean).join(' · ') || 'без контактов'}
+                    {contactLine(c)}
                   </div>
                 </div>
               </button>
@@ -1602,7 +1651,7 @@ function GrantAccessForm({
                 {picked.name || 'Без имени'}
               </div>
               <div className="truncate text-xs text-gray-400">
-                {[picked.email, picked.phone].filter(Boolean).join(' · ') || 'без контактов'}
+                {contactLine(picked)}
               </div>
             </div>
             <button onClick={() => setPicked(null)}
@@ -1627,6 +1676,25 @@ function GrantAccessForm({
               Тариф решает, какие материалы человек увидит.
             </p>
           </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Срок доступа
+            </label>
+            <label className="mb-2 flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={unlimited}
+                     onChange={e => setUnlimited(e.target.checked)} />
+              Бессрочно
+            </label>
+            {!unlimited && (
+              <input type="date" value={until} onChange={e => setUntil(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none" />
+            )}
+            <p className="mt-1 text-xs text-gray-400">
+              За 3 дня до окончания человеку уйдёт письмо. После даты материалы
+              закроются, а запись останется в списке.
+            </p>
+          </div>
         </>
       )}
 
@@ -1649,22 +1717,68 @@ function GrantAccessForm({
 
 /* ─────────────────────────────── Клиенты ────────────────────────────────── */
 
+/** Дата без времени: в таблице секунды только шумят. */
+function fmtDate(v?: string | null): string {
+  if (!v) return '—'
+  return new Date(v).toLocaleDateString('ru-RU',
+    { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Moscow' })
+}
+
+function fmtDateTime(v?: string | null): string {
+  if (!v) return '—'
+  return new Date(v).toLocaleString('ru-RU',
+    { day: '2-digit', month: '2-digit', year: '2-digit',
+      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
+}
+
+// ⚠️ Подписи статуса — в ОДНОМ месте: те же слова в таблице, в фильтре и в
+// истории. Разные формулировки в трёх местах читались бы как разные состояния.
+const ACCESS_STATUS: Record<string, { label: string; cls: string }> = {
+  active:  { label: 'Открыт',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  expired: { label: 'Истёк',    cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  revoked: { label: 'Закрыт',   cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+}
+
+function StatusChip({ status }: { status: string }) {
+  const s = ACCESS_STATUS[status] || ACCESS_STATUS.active
+  return (
+    <span className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${s.cls}`}>
+      {s.label}
+    </span>
+  )
+}
+
+/**
+ * Вкладка «Клиенты» — таблица выданных доступов.
+ *
+ * ⚠️⚠️ Доступ здесь НЕ УДАЛЯЕТСЯ (07.09.2026): «Закрыть» ставит статус, строка
+ * остаётся навсегда. Раньше кнопка удаляла запись — и вопрос «у кого доступ был
+ * и когда кончился» оставался без ответа: человек исчезал вместе с фактом
+ * покупки.
+ *
+ * ⚠️ Таблица, а не карточки: клиент сравнивает людей между собой по сроку и
+ * тарифу, а в карточках такое сравнение делается только глазами по всей ленте.
+ */
 function BuyersTab({ productId, readOnly }: { productId: number; readOnly: boolean }) {
   const [buyers, setBuyers] = useState<any[]>([])
-  const [orders, setOrders] = useState<any[]>([])
   const [tariffs, setTariffs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<any>(null)
+  const [historyOf, setHistoryOf] = useState<any>(null)
+  const [busy, setBusy] = useState<number | null>(null)
+
+  const [fStatus, setFStatus] = useState<string>('all')
+  const [fTariff, setFTariff] = useState<string>('all')
+  const [q, setQ] = useState('')
 
   const load = async () => {
     try {
-      const [b, o, t] = await Promise.all([
+      const [b, t] = await Promise.all([
         api.products.buyers(productId),
-        api.products.orders(productId),
         api.products.tariffs(productId),
       ])
       setBuyers(b.buyers || [])
-      setOrders(o.orders || [])
       setTariffs(t.tariffs || [])
     } finally { setLoading(false) }
   }
@@ -1672,78 +1786,578 @@ function BuyersTab({ productId, readOnly }: { productId: number; readOnly: boole
 
   if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
 
-  const unpaid = orders.filter(o => o.status === 'unpaid')
+  const rows = buyers.filter(b => {
+    if (fStatus !== 'all' && b.status !== fStatus) return false
+    if (fTariff !== 'all') {
+      if (fTariff === 'none' ? b.tariff_id : String(b.tariff_id) !== fTariff) return false
+    }
+    if (q.trim()) {
+      const s = q.trim().toLowerCase()
+      const hay = [b.name, b.email, b.phone].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(s)) return false
+    }
+    return true
+  })
+
+  const counts = {
+    all: buyers.length,
+    active: buyers.filter(b => b.status === 'active').length,
+    expired: buyers.filter(b => b.status === 'expired').length,
+    revoked: buyers.filter(b => b.status === 'revoked').length,
+  }
+
+  const resend = async (b: any) => {
+    setBusy(b.id)
+    try {
+      const r: any = await api.products.resendAccess(productId, b.id)
+      const where = [r?.email && 'на почту', r?.bot && 'в бот'].filter(Boolean).join(' и ')
+      alert(where ? `Отправили ${where}.`
+                  : 'Отправить не получилось: нет почты и бота у этого человека.')
+      load()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось отправить')
+    } finally { setBusy(null) }
+  }
 
   return (
-    <div className="max-w-3xl space-y-6">
-      {unpaid.length > 0 && (
-        <div>
-          <h3 className="mb-2 font-semibold text-gray-900">Не оплачено — {unpaid.length}</h3>
-          <div className="space-y-2">
-            {unpaid.map(o => (
-              <div key={o.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
-                <div className="font-medium text-gray-900">{o.contact_name || 'Без имени'}</div>
-                <div className="text-xs text-gray-500">
-                  {o.tariff_title}
-                  {o.amount ? ` · ${o.amount} ₽` : ''}
-                  {o.email ? ` · ${o.email}` : ''}
-                </div>
-              </div>
-            ))}
-          </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-semibold text-gray-900">Клиенты — {buyers.length}</h3>
+        {!readOnly && !adding && (
+          <button onClick={() => setAdding(true)} className="btn-gold px-4 py-2 text-sm">
+            + Открыть доступ
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <GrantAccessForm
+          productId={productId}
+          tariffs={tariffs}
+          onClose={() => setAdding(false)}
+          onDone={() => { setAdding(false); load() }}
+        />
+      )}
+
+      {/* Фильтры: по статусу доступа и по тарифу. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {([
+          ['all', `Все · ${counts.all}`],
+          ['active', `Открыт · ${counts.active}`],
+          ['expired', `Истёк · ${counts.expired}`],
+          ['revoked', `Закрыт · ${counts.revoked}`],
+        ] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setFStatus(k)}
+            className={`rounded-full border px-3 py-1.5 text-xs transition ${
+              fStatus === k
+                ? 'border-[#25455D] bg-[#25455D] text-white'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
+            {label}
+          </button>
+        ))}
+
+        <span className="mx-1 h-5 w-px bg-gray-200" />
+
+        <select value={fTariff} onChange={e => setFTariff(e.target.value)}
+          className="rounded-full border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:border-brand focus:outline-none">
+          <option value="all">Все тарифы</option>
+          {tariffs.map(t => <option key={t.id} value={String(t.id)}>{t.title}</option>)}
+          <option value="none">Без тарифа</option>
+        </select>
+
+        <input value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Имя, почта, телефон"
+          className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs focus:border-brand focus:outline-none" />
+      </div>
+
+      {!rows.length ? (
+        <p className="text-sm text-gray-400">
+          {buyers.length ? 'Под фильтры никто не подошёл.' : 'Пока никого.'}
+        </p>
+      ) : (
+        // ⚠️ Таблица прокручивается внутри своего контейнера: страница кабинета
+        // не должна ехать вбок на узком экране.
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
+                <th className="px-3 py-2.5 font-medium">Человек</th>
+                <th className="px-3 py-2.5 font-medium">Открыт</th>
+                <th className="px-3 py-2.5 font-medium">До</th>
+                <th className="px-3 py-2.5 font-medium">Статус</th>
+                <th className="px-3 py-2.5 font-medium">Контакты</th>
+                <th className="px-3 py-2.5 font-medium">Тариф</th>
+                <th className="px-3 py-2.5 font-medium">Откуда</th>
+                <th className="px-3 py-2.5 font-medium">Заходил</th>
+                <th className="px-3 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(b => (
+                <tr key={b.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium text-gray-900">{b.name || 'Без имени'}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-gray-600">
+                    {fmtDate(b.granted_at)}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-gray-600">
+                    {/* ⚠️ Бессрочный — знаком ∞, а не пустой клеткой: пустота
+                        читается как «забыли заполнить». */}
+                    {b.expires_at ? fmtDate(b.expires_at)
+                      : <span title="Бессрочно" className="text-gray-400">∞</span>}
+                  </td>
+                  <td className="px-3 py-2.5"><StatusChip status={b.status} /></td>
+                  <td className="px-3 py-2.5 text-xs text-gray-500">
+                    <div className="truncate max-w-[200px]">{b.email || '—'}</div>
+                    {b.phone && <div className="text-gray-400">{b.phone}</div>}
+                  </td>
+                  <td className="px-3 py-2.5 text-gray-700">{b.tariff_title || '—'}</td>
+                  <td className="px-3 py-2.5 text-xs text-gray-500">
+                    {b.source === 'manual'
+                      ? 'выдан вручную'
+                      : (b.amount ? `оплатил ${Number(b.amount).toLocaleString('ru-RU')} ₽`
+                                  : 'по заказу')}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-500">
+                    {b.last_login_at ? fmtDateTime(b.last_login_at)
+                      : <span className="text-gray-300">не заходил</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                    <button onClick={() => setHistoryOf(b)}
+                      className="mr-2 text-xs text-gray-500 underline-offset-2 hover:text-[#25455D] hover:underline">
+                      История
+                    </button>
+                    {!readOnly && (
+                      <>
+                        <button onClick={() => resend(b)} disabled={busy === b.id}
+                          className="mr-2 text-xs text-gray-500 underline-offset-2 hover:text-[#25455D] hover:underline disabled:opacity-40"
+                          title="Отправить письмо о доступе повторно">
+                          {busy === b.id ? '…' : 'Письмо'}
+                        </button>
+                        <button onClick={() => setEditing(b)}
+                          className="mr-2 text-xs text-gray-500 underline-offset-2 hover:text-[#25455D] hover:underline">
+                          Изменить
+                        </button>
+                        {b.status !== 'revoked' && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(
+                                `Закрыть доступ «${b.name || 'без имени'}»?\n\n` +
+                                'Человек перестанет видеть материалы. Запись останется ' +
+                                'в списке — вы увидите, что доступ был.')) return
+                              await api.products.revokeAccess(productId, b.id)
+                              load()
+                            }}
+                            className="text-xs text-gray-400 hover:text-red-600">
+                            Закрыть
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">Доступ открыт — {buyers.length}</h3>
-          {!readOnly && !adding && (
-            <button onClick={() => setAdding(true)} className="btn-gold px-4 py-2 text-sm">
-              + Открыть доступ
-            </button>
+      {editing && (
+        <EditAccessModal
+          productId={productId} access={editing} tariffs={tariffs}
+          onClose={() => setEditing(null)}
+          onDone={() => { setEditing(null); load() }}
+        />
+      )}
+      {historyOf && (
+        <AccessHistoryModal
+          productId={productId} access={historyOf}
+          onClose={() => setHistoryOf(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Правка выданного доступа: тариф, срок, заметка.
+ *
+ * ⚠️ Нужна ровно потому, что доступ живёт долго: человек доплатил за старший
+ * тариф или попросил продлить. Без правки единственный путь — закрыть и выдать
+ * заново, то есть испортить историю ради смены даты.
+ */
+function EditAccessModal({
+  productId, access, tariffs, onClose, onDone,
+}: {
+  productId: number; access: any; tariffs: any[]
+  onClose: () => void; onDone: () => void
+}) {
+  const [tariffId, setTariffId] = useState<string>(
+    access.tariff_id ? String(access.tariff_id) : '')
+  const [unlimited, setUnlimited] = useState(!access.expires_at)
+  const [until, setUntil] = useState<string>(
+    access.expires_at ? String(access.expires_at).slice(0, 10) : '')
+  const [note, setNote] = useState(access.note || '')
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    if (!unlimited && !until) { alert('Укажите дату или отметьте «бессрочно»'); return }
+    setSaving(true)
+    try {
+      await api.products.updateAccess(productId, access.id, {
+        tariff_id: tariffId ? Number(tariffId) : null,
+        note: note.trim() || null,
+        ...(unlimited
+          ? { unlimited: true }
+          // ⚠️ Конец дня, а не полночь: «до 12.11» человек понимает как «весь
+          // день 12-го», и доступ, пропавший утром, читается как обман.
+          : { expires_at: `${until}T23:59:59` }),
+      })
+      onDone()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось сохранить')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      {/* ⚠️ Клик по фону НЕ закрывает — правило проекта для форм. */}
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+           onClick={e => e.stopPropagation()}>
+        <h3 className="mb-1 font-semibold text-gray-900">
+          {access.name || 'Без имени'}
+        </h3>
+        <p className="mb-4 text-xs text-gray-400">
+          Доступ открыт {fmtDate(access.granted_at)}
+        </p>
+
+        <label className="mb-1 block text-sm font-medium text-gray-700">Тариф</label>
+        <select value={tariffId} onChange={e => setTariffId(e.target.value)}
+          className="mb-4 w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none">
+          <option value="">Без тарифа — открыто всё</option>
+          {tariffs.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+        </select>
+
+        <label className="mb-1 block text-sm font-medium text-gray-700">Срок доступа</label>
+        <label className="mb-2 flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={unlimited}
+                 onChange={e => setUnlimited(e.target.checked)} />
+          Бессрочно
+        </label>
+        {!unlimited && (
+          <input type="date" value={until} onChange={e => setUntil(e.target.value)}
+            className="mb-1 w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none" />
+        )}
+        <p className="mb-4 text-xs text-gray-400">
+          За 3 дня до окончания человеку уйдёт письмо. После даты материалы
+          закроются, а запись останется в списке.
+        </p>
+
+        <label className="mb-1 block text-sm font-medium text-gray-700">Заметка</label>
+        <input value={note} onChange={e => setNote(e.target.value)}
+          placeholder="Для себя: бартер, промо, продление"
+          className="mb-4 w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-brand focus:outline-none" />
+
+        <div className="flex gap-2">
+          <button onClick={save} disabled={saving}
+            className="btn-gold px-4 py-2 text-sm disabled:opacity-40">
+            {saving ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+          <button onClick={onClose}
+            className="rounded-xl px-4 py-2 text-sm text-gray-500 hover:bg-gray-100">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Подписи событий доступа — понятными словами, а не служебными ключами. */
+const EVENT_LABEL: Record<string, string> = {
+  granted: 'Доступ открыт',
+  restored: 'Доступ открыт заново',
+  extended: 'Доступ изменён',
+  revoked: 'Доступ закрыт',
+  expired: 'Срок истёк',
+  email_sent: 'Отправлено письмо',
+}
+
+const VISIT_LABEL: Record<string, string> = {
+  login: 'Зашёл в кабинет',
+  code_requested: 'Запросил код входа',
+  product: 'Открыл продукт',
+  material: 'Открыл материал',
+}
+
+/**
+ * История по одному человеку: события доступа + заходы в кабинет + материалы.
+ *
+ * ⚠️ Две ленты сведены в ОДНУ по времени: клиент задаёт вопрос «что вообще было
+ * с этим человеком», а не «покажи отдельно заходы». Две колонки рядом пришлось
+ * бы сопоставлять глазами по датам.
+ */
+function AccessHistoryModal({
+  productId, access, onClose,
+}: { productId: number; access: any; onClose: () => void }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    (async () => {
+      try { setData(await api.products.accessHistory(productId, access.id)) }
+      finally { setLoading(false) }
+    })()
+  }, [productId, access.id])
+
+  const items = [
+    ...(data?.events || []).map((e: any) => ({
+      at: e.created_at,
+      title: EVENT_LABEL[e.kind] || e.kind,
+      detail: e.detail,
+      kind: 'event' as const,
+    })),
+    ...(data?.visits || []).map((v: any) => ({
+      at: v.created_at,
+      title: VISIT_LABEL[v.kind] || v.kind,
+      detail: v.title,
+      kind: 'visit' as const,
+    })),
+  ].sort((a, b) => (a.at < b.at ? 1 : -1))
+
+  const logins = (data?.visits || []).filter((v: any) => v.kind === 'login').length
+  const opened = (data?.visits || []).filter((v: any) => v.kind === 'material').length
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl"
+           onClick={e => e.stopPropagation()}>
+        <div className="border-b border-gray-100 p-5">
+          <h3 className="font-semibold text-gray-900">{access.name || 'Без имени'}</h3>
+          <p className="mt-0.5 text-xs text-gray-400">
+            {[access.email, access.phone].filter(Boolean).join(' · ') || 'без контактов'}
+          </p>
+          {!loading && (
+            <p className="mt-2 text-xs text-gray-500">
+              Заходов в кабинет: <b>{logins}</b> · открыто материалов: <b>{opened}</b>
+            </p>
           )}
         </div>
 
-        {adding && (
-          <GrantAccessForm
-            productId={productId}
-            tariffs={tariffs}
-            onClose={() => setAdding(false)}
-            onDone={() => { setAdding(false); load() }}
-          />
-        )}
-
-        {!buyers.length && !adding && (
-          <p className="text-sm text-gray-400">Пока никого.</p>
-        )}
-        <div className="space-y-2">
-          {buyers.map(b => (
-            <div key={b.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3">
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-gray-900">{b.name || 'Без имени'}</div>
-                <div className="text-xs text-gray-400">
-                  {b.tariff_title || 'Без тарифа'}
-                  {b.email ? ` · ${b.email}` : ''}
-                  {b.source === 'manual' && ' · выдан вручную'}
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <p className="text-sm text-gray-400">Загружаем…</p>
+          ) : !items.length ? (
+            <p className="text-sm text-gray-400">
+              Пока пусто. Заходы записываются с момента появления этой страницы —
+              за прошлое данных нет.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {items.map((it, i) => (
+                <div key={i} className="flex gap-3 text-sm">
+                  <div className="w-28 shrink-0 text-xs text-gray-400">
+                    {fmtDateTime(it.at)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={it.kind === 'event' ? 'text-gray-900' : 'text-gray-700'}>
+                      {it.title}
+                    </div>
+                    {it.detail && (
+                      <div className="truncate text-xs text-gray-400">{it.detail}</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {!readOnly && (
-                <button
-                  onClick={async () => {
-                    if (!confirm(`Забрать доступ у «${b.name || 'без имени'}»?`)) return
-                    await api.products.revokeAccess(productId, b.id)
-                    load()
-                  }}
-                  className="text-gray-400 hover:text-red-600"
-                  title="Забрать доступ"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
+              ))}
             </div>
-          ))}
+          )}
+        </div>
+
+        <div className="border-t border-gray-100 p-4">
+          <button onClick={onClose}
+            className="rounded-xl px-4 py-2 text-sm text-gray-500 hover:bg-gray-100">
+            Закрыть
+          </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────── Заказы ─────────────────────────────────── */
+
+const ORDER_STATUS: Record<string, { label: string; cls: string }> = {
+  paid:      { label: 'Оплачен',    cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  unpaid:    { label: 'Не оплачен', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  cancelled: { label: 'Отменён',    cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+}
+
+/**
+ * Вкладка «Заказы» — кто сколько заплатил и от какого партнёра пришёл.
+ *
+ * ⚠️ Отдельной вкладкой, а не блоком внутри «Клиентов»: заказ и доступ — разные
+ * сущности (заказ может навсегда остаться неоплаченным, а доступ выдаётся и
+ * без заказа). Смешивать их в одном списке — значит запутать оба.
+ *
+ * ⚠️ Эндпоинт `/orders` был написан давно и фронтом НЕ использовался: у событий
+ * заказы видно, у продуктов — нет, хотя данные лежали.
+ */
+function OrdersTab({ productId }: { productId: number }) {
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [fStatus, setFStatus] = useState('all')
+  const [q, setQ] = useState('')
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.products.orders(productId)
+        setOrders(r.orders || [])
+      } finally { setLoading(false) }
+    })()
+  }, [productId])
+
+  if (loading) return <p className="text-sm text-gray-400">Загружаем…</p>
+
+  const rows = orders.filter(o => {
+    if (fStatus !== 'all' && o.status !== fStatus) return false
+    if (q.trim()) {
+      const s = q.trim().toLowerCase()
+      const hay = [o.contact_name, o.email, o.tariff_title, o.referrer_ref_code]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(s)) return false
+    }
+    return true
+  })
+
+  const paidSum = orders
+    .filter(o => o.status === 'paid')
+    .reduce((s, o) => s + Number(o.amount || 0), 0)
+
+  // ⚠️ CSV с `;` и BOM — иначе Excel открывает файл одной колонкой и с
+  // кракозябрами вместо русских букв (так же сделана выгрузка контактов).
+  const exportCsv = () => {
+    const head = ['Имя', 'Почта', 'Тариф', 'Сумма', 'Статус', 'Партнёр',
+                  'Заказан', 'Оплачен', 'Заметка']
+    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const lines = [head.map(esc).join(';')]
+    for (const o of rows) {
+      lines.push([
+        o.contact_name || '', o.email || '', o.tariff_title || '',
+        o.amount ?? '', ORDER_STATUS[o.status]?.label || o.status,
+        o.referrer_ref_code || '', fmtDate(o.ordered_at), fmtDate(o.paid_at),
+        o.note || '',
+      ].map(esc).join(';'))
+    }
+    const blob = new Blob(['﻿' + lines.join('\r\n')],
+                          { type: 'text/csv;charset=utf-8;' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `zakazy-produkta-${productId}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  const counts = {
+    all: orders.length,
+    paid: orders.filter(o => o.status === 'paid').length,
+    unpaid: orders.filter(o => o.status === 'unpaid').length,
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-gray-900">Заказы — {orders.length}</h3>
+          <p className="text-xs text-gray-500">
+            Оплачено на {paidSum.toLocaleString('ru-RU')} ₽
+          </p>
+        </div>
+        {orders.length > 0 && (
+          <button onClick={exportCsv}
+            className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:border-gray-300">
+            Экспорт CSV
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {([
+          ['all', `Все · ${counts.all}`],
+          ['paid', `Оплачены · ${counts.paid}`],
+          ['unpaid', `Не оплачены · ${counts.unpaid}`],
+        ] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setFStatus(k)}
+            className={`rounded-full border px-3 py-1.5 text-xs transition ${
+              fStatus === k
+                ? 'border-[#25455D] bg-[#25455D] text-white'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
+            {label}
+          </button>
+        ))}
+        <input value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Имя, почта, тариф, партнёр"
+          className="min-w-[180px] flex-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs focus:border-brand focus:outline-none" />
+      </div>
+
+      {!rows.length ? (
+        <p className="text-sm text-gray-400">
+          {orders.length ? 'Под фильтры ничего не подошло.' : 'Заказов пока нет.'}
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
+                <th className="px-3 py-2.5 font-medium">Человек</th>
+                <th className="px-3 py-2.5 font-medium">Контакт</th>
+                <th className="px-3 py-2.5 font-medium">Тариф</th>
+                <th className="px-3 py-2.5 font-medium">Сумма</th>
+                <th className="px-3 py-2.5 font-medium">Статус</th>
+                <th className="px-3 py-2.5 font-medium">Партнёр</th>
+                <th className="px-3 py-2.5 font-medium">Дата</th>
+                <th className="px-3 py-2.5 font-medium">Заметка</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(o => {
+                const s = ORDER_STATUS[o.status] || ORDER_STATUS.unpaid
+                return (
+                  <tr key={o.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                    <td className="px-3 py-2.5 font-medium text-gray-900">
+                      {o.contact_name || 'Без имени'}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-500">
+                      <div className="max-w-[190px] truncate">{o.email || '—'}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-700">{o.tariff_title}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-gray-900">
+                      {o.amount ? `${Number(o.amount).toLocaleString('ru-RU')} ₽` : '—'}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${s.cls}`}>
+                        {s.label}
+                      </span>
+                    </td>
+                    {/* ⚠️ Реф-код, а не имя: партнёрское имя резолвится не всегда,
+                        а код всегда однозначен и по нему клиент узнаёт партнёра. */}
+                    <td className="px-3 py-2.5 text-xs text-gray-500">
+                      {o.referrer_ref_code || <span className="text-gray-300">сам</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-500">
+                      {fmtDate(o.paid_at || o.ordered_at)}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-500">
+                      <div className="max-w-[160px] truncate">{o.note || '—'}</div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

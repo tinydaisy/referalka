@@ -123,6 +123,12 @@ export default function TariffsTab({
   const [offers, setOffers] = useState<{ id: number; title: string }[]>([])
   const [savingOffer, setSavingOffer] = useState(false)
 
+  // ⚠️ Оферта нужна только там, где берут ДЕНЬГИ: у события с одними
+  // бесплатными тарифами требовать её незачем — красная плашка на пустом месте
+  // приучает не обращать на неё внимания.
+  const offerMissing = !offerId && !offerUrl.trim()
+    && items.some(t => t.is_active && (t.price ?? 0) > 0)
+
   // форма создания/редактирования
   const [editing, setEditing] = useState<Tariff | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -356,16 +362,39 @@ export default function TariffsTab({
         </div>
       )}
 
-      {/* Оферта события */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-5">
+      {/* Оферта события.
+          ⚠️⚠️ ПУСТАЯ ОФЕРТА ПРИ ПЛАТНЫХ ТАРИФАХ ПОДСВЕЧИВАЕТСЯ КРАСНЫМ
+          (08.09.2026). Раньше блок выглядел как обычное необязательное поле —
+          и клиент продавал платный тариф без оферты, не замечая этого:
+          галочка «Принимаю условия» на форме заказа просто не появлялась.
+          Ошибка юридическая, поэтому она обязана бросаться в глаза. */}
+      <div className={`rounded-2xl border p-5 ${
+        offerMissing ? 'border-red-300 bg-red-50/60' : 'border-gray-200 bg-white'}`}>
         <div className="flex items-center gap-2 mb-1">
-          <FileText size={18} className="text-brand" />
-          <h3 className="font-semibold text-gray-800">Оферта мероприятия</h3>
+          <FileText size={18} className={offerMissing ? 'text-red-600' : 'text-brand'} />
+          <h3 className={`font-semibold ${offerMissing ? 'text-red-700' : 'text-gray-800'}`}>
+            Оферта мероприятия
+          </h3>
+          {offerMissing && (
+            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+              не выбрана
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-400 mb-3">
-          Одна на всё событие. Появится галочкой «Принимаю условия оферты» на форме
-          заказа платного тарифа и ссылкой внизу лендинга.
-        </p>
+        {offerMissing ? (
+          // ⚠️ Говорим, ЧТО именно не так и чем это грозит: «заполните поле»
+          // человек пролистывает, «продаёте без оферты» — нет.
+          <p className="mb-3 text-xs leading-relaxed text-red-700">
+            У события есть платные тарифы, а оферта не задана. Значит на форме
+            заказа не будет галочки «Принимаю условия оферты» — люди платят,
+            не приняв ваших условий. Выберите документ или укажите ссылку.
+          </p>
+        ) : (
+          <p className="text-xs text-gray-400 mb-3">
+            Одна на всё событие. Появится галочкой «Принимаю условия оферты» на форме
+            заказа платного тарифа и ссылкой внизу лендинга.
+          </p>
+        )}
 
         <label className="mb-1 block text-sm font-medium text-gray-700">
           Документ из раздела «Оферты»
@@ -373,7 +402,8 @@ export default function TariffsTab({
         <select
           value={offerId ?? ''}
           onChange={e => setOfferId(e.target.value ? Number(e.target.value) : null)}
-          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:border-brand"
+          className={`w-full px-4 py-2.5 rounded-xl border bg-white text-sm focus:outline-none focus:border-brand ${
+            offerMissing ? 'border-red-300' : 'border-gray-200'}`}
         >
           <option value="">Не выбрана</option>
           {offers.map(o => (

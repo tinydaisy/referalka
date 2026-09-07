@@ -32,6 +32,7 @@ API (JWT владельца кабинета; ассистенту write — 403
 import json
 import re
 import secrets
+from datetime import datetime
 from typing import Optional, List
 
 import asyncpg
@@ -43,6 +44,9 @@ from app.auth import get_current_client
 from app.services.features import client_has_feature
 from app.services.assistant_access import assistant_is_restricted
 from app.services.tariff_discount import with_discount
+from app.services.product_access import (
+    STATUS_SQL, expires_from_days, tariff_access_days, log_access_event,
+)
 
 router = APIRouter(tags=["Продукты/услуги"])
 
@@ -176,6 +180,9 @@ class TariffIn(BaseModel):
     # NULL = действует умолчание кабинета.
     partner_reward_kind: Optional[str] = None
     partner_reward_value: Optional[float] = None
+    # На сколько дней открывается доступ после оплаты (миграция 369).
+    # NULL = навсегда, как было у всех тарифов до этого.
+    access_days: Optional[int] = None
 
 
 class TariffPatch(BaseModel):
@@ -194,6 +201,7 @@ class TariffPatch(BaseModel):
     is_featured: Optional[bool] = None
     partner_reward_kind: Optional[str] = None
     partner_reward_value: Optional[float] = None
+    access_days: Optional[int] = None
 
 
 def _norm_partner_reward(kind, value):
@@ -648,14 +656,16 @@ async def create_tariff(
             (product_id, code, title, description, excluded_description,
              price, discount_kind, discount_value, pay_url, pay_product_id, order_hint,
              sort_order, is_active, is_featured,
-             partner_reward_kind, partner_reward_value)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             partner_reward_kind, partner_reward_value, access_days)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
         RETURNING *
         """,
         product_id, code, data.title, data.description, data.excluded_description,
         data.price, d_kind, d_value, data.pay_url, data.pay_product_id, data.order_hint,
         sort_order, data.is_active, data.is_featured,
         *_norm_partner_reward(data.partner_reward_kind, data.partner_reward_value),
+        # 0 и отрицательное — это «навсегда», а не «доступ на ноль дней».
+        (data.access_days if (data.access_days or 0) > 0 else None),
     )
     return with_discount(row)
 
@@ -730,6 +740,10 @@ async def update_tariff(
                 "is_active", "is_featured"):
         if col in fs:
             put(col, getattr(data, col))
+
+    # Срок доступа: 0 и пусто — это «навсегда», а не «ноль дней».
+    if "access_days" in fs:
+        put("access_days", data.access_days if (data.access_days or 0) > 0 else None)
 
     # Скидка — пара полей: прислали одно, дописываем второе из текущего
     # состояния, иначе в базе осталась бы половина и упёрлись бы в CHECK.
@@ -992,15 +1006,22 @@ async def list_buyers(
     await _assert_feature(db, client_id)
     await _get_product(db, client_id, product_id)
 
+    # ⚠️ Статус считается тем же выражением, что и в подписи строки
+    # (`STATUS_SQL`) — иначе фильтр «истёкшие» покажет не тех, у кого в строке
+    # написано «истёк».
     rows = await db.fetch(
-        """
+        f"""
         SELECT pa.id, pa.granted_at, pa.source, pa.order_id,
+               pa.expires_at, pa.revoked_at, pa.note,
+               {STATUS_SQL} AS status,
                c.id AS contact_id, c.name, c.phone,
                (SELECT pe.platform_user_id FROM platform_users pe
                  WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
                  ORDER BY pe.id LIMIT 1) AS email,
                t.id AS tariff_id, t.title AS tariff_title,
-               o.status AS order_status, o.amount
+               o.status AS order_status, o.amount,
+               (SELECT MAX(v.created_at) FROM product_cabinet_visits v
+                 WHERE v.contact_id = c.id AND v.kind = 'login') AS last_login_at
           FROM product_access pa
           JOIN contacts c            ON c.id = pa.contact_id
      LEFT JOIN product_tariffs t     ON t.id = pa.tariff_id
@@ -1043,6 +1064,21 @@ async def list_orders(
 class GrantIn(BaseModel):
     contact_id: int
     tariff_id: Optional[int] = None
+    # Срок: точная дата, либо «на N дней», либо ничего = бессрочно.
+    expires_at: Optional[datetime] = None
+    access_days: Optional[int] = None
+    note: Optional[str] = None
+
+
+def _resolve_expires(data) -> Optional[datetime]:
+    """Дата окончания из того, что прислал интерфейс.
+
+    ⚠️ Точная дата главнее числа дней: если клиент выбрал в календаре
+    конкретный день, считать от «N дней» — значит молча сдвинуть его выбор.
+    """
+    if getattr(data, "expires_at", None):
+        return data.expires_at
+    return expires_from_days(getattr(data, "access_days", None))
 
 
 @router.post("/products/{product_id}/buyers", summary="Выдать доступ вручную")
@@ -1073,36 +1109,250 @@ async def grant_access(
         if not t_ok:
             raise HTTPException(status_code=400, detail="Тариф не найден в этом продукте")
 
+    expires = _resolve_expires(data)
+    # Срок не задан руками — берём из тарифа («доступ на N дней»).
+    if expires is None and data.tariff_id:
+        expires = expires_from_days(await tariff_access_days(db, data.tariff_id))
+
+    # ⚠️ Повторная выдача СНИМАЕТ закрытие (`revoked_at = NULL`): клиент открыл
+    # доступ заново, и строка должна снова работать, а не остаться закрытой.
     row = await db.fetchrow(
         """
-        INSERT INTO product_access (product_id, contact_id, tariff_id, source)
-        VALUES ($1, $2, $3, 'manual')
+        INSERT INTO product_access
+               (product_id, contact_id, tariff_id, source, expires_at, note)
+        VALUES ($1, $2, $3, 'manual', $4, $5)
         ON CONFLICT (product_id, contact_id)
-        DO UPDATE SET tariff_id = EXCLUDED.tariff_id
-        RETURNING *
+        DO UPDATE SET tariff_id  = EXCLUDED.tariff_id,
+                      expires_at = EXCLUDED.expires_at,
+                      note       = COALESCE(EXCLUDED.note, product_access.note),
+                      revoked_at = NULL,
+                      expiry_warned_at = NULL
+        RETURNING *, (xmax = 0) AS is_new
         """,
-        product_id, data.contact_id, data.tariff_id,
+        product_id, data.contact_id, data.tariff_id, expires, data.note,
     )
+    await log_access_event(
+        db, row["id"], "granted" if row["is_new"] else "restored",
+        detail=("бессрочно" if expires is None
+                else f"до {expires:%d.%m.%Y}"),
+    )
+    out = dict(row)
+    out.pop("is_new", None)
+    return out
+
+
+class AccessPatchIn(BaseModel):
+    """Правка уже выданного доступа. Присланное поле — то, что меняем."""
+    tariff_id: Optional[int] = None
+    expires_at: Optional[datetime] = None
+    access_days: Optional[int] = None
+    note: Optional[str] = None
+    # Бессрочный доступ задаётся явно — отличить «убрать срок» от «поле не
+    # прислали» иначе нечем, и снять срок было бы невозможно.
+    unlimited: Optional[bool] = None
+
+
+@router.patch("/products/{product_id}/buyers/{access_id}",
+              summary="Изменить выданный доступ")
+async def update_access(
+    product_id: int,
+    access_id: int,
+    data: AccessPatchIn,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Поменять тариф, срок или заметку у уже выданного доступа.
+
+    ⚠️ Нужна ровно потому, что доступ живёт долго: человек доплатил за старший
+    тариф или попросил продлить — заводить ради этого второй доступ нельзя
+    (UNIQUE не даст), а удалять и выдавать заново — значит стереть историю.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    cur = await db.fetchrow(
+        "SELECT * FROM product_access WHERE id = $1 AND product_id = $2",
+        access_id, product_id,
+    )
+    if not cur:
+        raise HTTPException(status_code=404, detail="Доступ не найден")
+
+    fs = data.model_fields_set
+    sets, args = [], []
+
+    if "tariff_id" in fs:
+        if data.tariff_id:
+            t_ok = await db.fetchval(
+                "SELECT 1 FROM product_tariffs WHERE id = $1 AND product_id = $2",
+                data.tariff_id, product_id,
+            )
+            if not t_ok:
+                raise HTTPException(status_code=400,
+                                    detail="Тариф не найден в этом продукте")
+        args.append(data.tariff_id)
+        sets.append(f"tariff_id = ${len(args)}")
+
+    new_expires = None
+    if data.unlimited:
+        args.append(None)
+        sets.append(f"expires_at = ${len(args)}")
+    elif "expires_at" in fs or "access_days" in fs:
+        new_expires = _resolve_expires(data)
+        args.append(new_expires)
+        sets.append(f"expires_at = ${len(args)}")
+
+    if "note" in fs:
+        args.append(data.note)
+        sets.append(f"note = ${len(args)}")
+
+    if not sets:
+        return dict(cur)
+
+    # ⚠️ Срок отодвинули вперёд — снимаем отметку об отправленном письме, иначе
+    # предупреждение о новом окончании не уйдёт вовсе (оно шлётся один раз).
+    sets.append("expiry_warned_at = NULL")
+
+    args.extend([access_id, product_id])
+    row = await db.fetchrow(
+        f"""UPDATE product_access SET {', '.join(sets)}
+             WHERE id = ${len(args) - 1} AND product_id = ${len(args)}
+         RETURNING *""",
+        *args,
+    )
+
+    if data.unlimited:
+        detail = "срок снят — доступ бессрочный"
+    elif new_expires is not None:
+        detail = f"срок до {new_expires:%d.%m.%Y}"
+    else:
+        detail = "правка доступа"
+    await log_access_event(db, access_id, "extended", detail=detail)
     return dict(row)
 
 
-@router.delete("/products/{product_id}/buyers/{access_id}", summary="Забрать доступ")
+@router.delete("/products/{product_id}/buyers/{access_id}", summary="Закрыть доступ")
 async def revoke_access(
     product_id: int,
     access_id: int,
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    """Закрыть доступ.
+
+    ⚠️⚠️ СТРОКУ НЕ УДАЛЯЕМ (решение владельца, 07.09.2026) — ставим `revoked_at`.
+    Раньше здесь был DELETE, и после него нельзя было ответить на вопрос «у кого
+    доступ был и когда кончился»: человек исчезал из списка вместе с фактом
+    покупки. Открыть заново — повторная выдача, она снимает `revoked_at`.
+    """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
     await _assert_can_write(user)
     await _get_product(db, client_id, product_id)
 
-    await db.execute(
-        "DELETE FROM product_access WHERE id = $1 AND product_id = $2",
+    row = await db.fetchrow(
+        """UPDATE product_access SET revoked_at = NOW()
+            WHERE id = $1 AND product_id = $2 AND revoked_at IS NULL
+        RETURNING id""",
         access_id, product_id,
     )
+    if row:
+        await log_access_event(db, access_id, "revoked", detail="доступ закрыт")
     return {"ok": True}
+
+
+@router.post("/products/{product_id}/buyers/{access_id}/resend",
+             summary="Отправить письмо о доступе повторно")
+async def resend_access_email(
+    product_id: int,
+    access_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Повторить письмо и сообщение в бот со ссылкой на кабинет.
+
+    ⚠️ Нужна не «на всякий случай»: письмо теряется в спаме, и человек пишет
+    «мне ничего не пришло». Без кнопки единственный способ — закрыть доступ и
+    выдать заново, то есть испортить историю ради отправки письма.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _assert_can_write(user)
+    await _get_product(db, client_id, product_id)
+
+    row = await db.fetchrow(
+        "SELECT contact_id, tariff_id FROM product_access WHERE id = $1 AND product_id = $2",
+        access_id, product_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Доступ не найден")
+
+    from app.services.product_notify import notify_product_access
+    sent = await notify_product_access(
+        db, client_id=client_id, contact_id=row["contact_id"],
+        product_id=product_id, tariff_id=row["tariff_id"],
+    )
+    where = ", ".join(
+        [n for n, ok in (("почта", sent.get("email")), ("бот", sent.get("bot"))) if ok]
+    ) or "никуда"
+    await log_access_event(db, access_id, "email_sent", detail=f"повторно: {where}")
+    return {"ok": True, **sent}
+
+
+@router.get("/products/{product_id}/buyers/{access_id}/history",
+            summary="История доступа и заходов человека")
+async def access_history(
+    product_id: int,
+    access_id: int,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Всё по одному человеку: события доступа + заходы в кабинет + материалы.
+
+    ⚠️ Заходы отбираются ПО КОНТАКТУ, а не по доступу: человек входит в кабинет
+    целиком, вход не привязан к конкретному продукту. Открытые материалы при
+    этом сужаем до этого продукта — иначе в историю попадут чужие курсы.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    await _get_product(db, client_id, product_id)
+
+    acc = await db.fetchrow(
+        f"""SELECT pa.*, {STATUS_SQL} AS status,
+                   c.id AS contact_id, c.name, c.phone,
+                   (SELECT pe.platform_user_id FROM platform_users pe
+                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                     ORDER BY pe.id LIMIT 1) AS email,
+                   t.title AS tariff_title
+              FROM product_access pa
+              JOIN contacts c        ON c.id = pa.contact_id
+         LEFT JOIN product_tariffs t ON t.id = pa.tariff_id
+             WHERE pa.id = $1 AND pa.product_id = $2""",
+        access_id, product_id,
+    )
+    if not acc:
+        raise HTTPException(status_code=404, detail="Доступ не найден")
+
+    events = await db.fetch(
+        """SELECT kind, detail, actor, created_at
+             FROM product_access_events
+            WHERE access_id = $1 ORDER BY created_at DESC LIMIT 300""",
+        access_id,
+    )
+    visits = await db.fetch(
+        """SELECT kind, title, product_id, material_id, created_at
+             FROM product_cabinet_visits
+            WHERE client_id = $1 AND contact_id = $2
+              AND (kind IN ('login', 'code_requested') OR product_id = $3)
+            ORDER BY created_at DESC LIMIT 500""",
+        client_id, acc["contact_id"], product_id,
+    )
+    return {
+        "access": dict(acc),
+        "events": [dict(r) for r in events],
+        "visits": [dict(r) for r in visits],
+    }
 
 
 # ══ Библиотека материалов ═════════════════════════════════════════════════

@@ -1263,6 +1263,16 @@ export const api = {
       request(`/api/v1/products/${id}/buyers`, { method: 'POST', body: JSON.stringify(data) }),
     revokeAccess: (id: number, accessId: number) =>
       request(`/api/v1/products/${id}/buyers/${accessId}`, { method: 'DELETE' }),
+    // Правка уже выданного доступа: тариф, срок, заметка.
+    updateAccess: (id: number, accessId: number, data: any) =>
+      request(`/api/v1/products/${id}/buyers/${accessId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    // Повторное письмо со ссылкой на кабинет — люди теряют первое в спаме.
+    resendAccess: (id: number, accessId: number) =>
+      request(`/api/v1/products/${id}/buyers/${accessId}/resend`, { method: 'POST' }),
+    accessHistory: (id: number, accessId: number) =>
+      request(`/api/v1/products/${id}/buyers/${accessId}/history`),
     orders: (id: number) => request(`/api/v1/products/${id}/orders`),
   },
 

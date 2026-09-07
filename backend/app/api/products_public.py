@@ -275,10 +275,15 @@ async def request_code(
     if not contact_id:
         return no_access
 
+    # ⚠️ Закрытый и истёкший доступ входа не дают: строка остаётся навсегда
+    # (миграция 369), поэтому «есть запись» больше не значит «доступ открыт».
     has_access = await db.fetchval(
         """SELECT 1 FROM product_access pa
             JOIN products p ON p.id = pa.product_id
-           WHERE pa.contact_id = $1 AND p.client_id = $2 LIMIT 1""",
+           WHERE pa.contact_id = $1 AND p.client_id = $2
+             AND pa.revoked_at IS NULL
+             AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
+           LIMIT 1""",
         contact_id, cid,
     )
     if not has_access:
@@ -293,6 +298,9 @@ async def request_code(
 
     try:
         from app.services.product_notify import send_cabinet_code
+        from app.services.product_access import log_cabinet_visit
+        await log_cabinet_visit(db, client_id=cid, contact_id=contact_id,
+                                kind="code_requested", dedup_minutes=5)
         await send_cabinet_code(db, client_id=cid, contact_id=contact_id,
                                 email=email, code=code)
     except Exception as e:
@@ -369,9 +377,19 @@ async def cabinet_me(
         LEFT JOIN product_tariffs t ON t.id = pa.tariff_id
             WHERE pa.contact_id = $1 AND p.client_id = $2
               AND p.status <> 'archived'
+              AND pa.revoked_at IS NULL
+              AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
             ORDER BY pa.granted_at DESC""",
         sess["contact_id"], sess["client_id"],
     )
+
+    # Заход в кабинет — в историю. ⚠️ Пишем здесь, а не на входе по коду:
+    # человек возвращается по сохранённой ссылке без повторного ввода кода, и
+    # такие заходы иначе не попали бы в историю вовсе.
+    from app.services.product_access import log_cabinet_visit
+    await log_cabinet_visit(db, client_id=sess["client_id"],
+                            contact_id=sess["contact_id"], kind="login")
+
     return {"products": [dict(r) for r in rows],
             "brand": await _brand(db, sess["client_id"])}
 
@@ -390,7 +408,8 @@ async def cabinet_product(
     _cors(response)
 
     access = await db.fetchrow(
-        """SELECT pa.tariff_id, p.id AS product_id, p.title, p.slug,
+        """SELECT pa.tariff_id, pa.expires_at, pa.revoked_at,
+                  p.id AS product_id, p.title, p.slug,
                   p.wording_preset, t.sort_order AS tariff_rank
              FROM product_access pa
              JOIN products p ON p.id = pa.product_id
@@ -400,6 +419,24 @@ async def cabinet_product(
     )
     if not access:
         raise HTTPException(status_code=404, detail="У вас нет доступа к этому продукту")
+
+    # ⚠️ Срок и закрытие проверяем ОТДЕЛЬНЫМ сообщением, а не через 404: человек
+    # покупал и заходил сюда раньше — «страница не найдена» он прочтёт как
+    # поломку и напишет клиенту, вместо того чтобы продлить доступ.
+    if access["revoked_at"] is not None:
+        raise HTTPException(status_code=403, detail="Доступ к этим материалам закрыт")
+    if access["expires_at"] is not None and access["expires_at"] <= datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Срок доступа истёк {access['expires_at']:%d.%m.%Y}. "
+                   f"Напишите организатору, чтобы продлить.",
+        )
+
+    from app.services.product_access import log_cabinet_visit
+    await log_cabinet_visit(db, client_id=sess["client_id"],
+                            contact_id=sess["contact_id"], kind="product",
+                            product_id=access["product_id"],
+                            title=access["title"])
 
     sections = await db.fetch(
         "SELECT id, parent_id, title, description, sort_order "
@@ -454,6 +491,49 @@ async def cabinet_product(
         "sections": [dict(s) for s in sections],
         "items": out_items,
     }
+
+
+@router.post("/product-cabinet/me/{slug}/opened/{link_id}",
+             summary="Отметить открытый материал")
+async def cabinet_material_opened(
+    slug: str, link_id: int, response: Response,
+    sess: dict = Depends(_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Отметка «человек открыл этот материал» — для истории у организатора.
+
+    ⚠️ Отдельной ручкой, а не внутри выдачи материалов: содержимое всех уроков
+    приходит одним запросом на страницу продукта, и по нему нельзя понять, какой
+    именно урок человек открыл. Без этой отметки история показывала бы только
+    заходы, а вопрос «дошёл ли он до материалов» оставался бы без ответа.
+
+    ⚠️ Материал сверяется с продуктом и доступом человека — иначе чужой link_id
+    из браузера попал бы в историю как открытый.
+    """
+    _cors(response)
+    row = await db.fetchrow(
+        """SELECT pm.material_id, p.id AS product_id,
+                  COALESCE(pm.title_override, m.title) AS title
+             FROM product_materials pm
+             JOIN products p   ON p.id = pm.product_id
+             JOIN materials m  ON m.id = pm.material_id
+             JOIN product_access pa ON pa.product_id = p.id
+                                   AND pa.contact_id = $1
+                                   AND pa.revoked_at IS NULL
+                                   AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
+            WHERE pm.id = $2 AND p.slug = $3 AND p.client_id = $4""",
+        sess["contact_id"], link_id, slug, sess["client_id"],
+    )
+    if not row:
+        return {"ok": False}
+
+    from app.services.product_access import log_cabinet_visit
+    await log_cabinet_visit(
+        db, client_id=sess["client_id"], contact_id=sess["contact_id"],
+        kind="material", product_id=row["product_id"],
+        material_id=row["material_id"], title=row["title"],
+    )
+    return {"ok": True}
 
 
 # ── Мой профиль ───────────────────────────────────────────────────────────
