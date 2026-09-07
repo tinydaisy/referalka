@@ -1701,7 +1701,19 @@ async def instagram_oauth_callback(
         return RedirectResponse(f"{back}?ig_error={_up.quote(e.user_message)}", status_code=302)
 
     if not pages:
-        _ig_log.warning("Instagram OAuth: клиент %s — Meta не вернула ни одной страницы", client_id)
+        # ⚠️ Диагностика: пустой список страниц бывает по двум РАЗНЫМ причинам —
+        # человеку нечего было выбрать, либо токену не выдали pages_show_list.
+        # Без этой записи их не различить, и мы уже трижды чинили не то.
+        try:
+            _dbg = await ig.graph_get("me/permissions", token=long_token)
+            _granted = [x.get("permission") for x in (_dbg.get("data") or [])
+                        if x.get("status") == "granted"]
+        except Exception as _e:
+            _granted = [f"(не удалось спросить: {_e})"]
+        _ig_log.warning(
+            "Instagram OAuth: клиент %s — Meta не вернула ни одной страницы. Выданные разрешения: %s",
+            client_id, _granted,
+        )
         return RedirectResponse(
             # ⚠️ Формулировка важна: «у вас нет страниц» — НЕПРАВДА в самом
             # частом случае. Список страниц не приходит, когда приложению не
