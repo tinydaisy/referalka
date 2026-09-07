@@ -516,7 +516,7 @@ async def send_message(page_id: str, recipient_igsid: str, text: str,
 
 
 async def list_conversations(page_id: str, page_token: str,
-                             limit: int = 5) -> list[dict[str, Any]]:
+                             limit: int = 3) -> list[dict[str, Any]]:
     """Переписки в директе — чтобы забрать ответы людей опросом.
 
     ⚠️ Нужна, пока Meta не одобрила вебхуки: нажатие «Готово» приходит
@@ -532,13 +532,18 @@ async def list_conversations(page_id: str, page_token: str,
     сначала список без сообщений, потом сообщения по каждой переписке
     отдельно.
 
-    ⚠️ Пяти свежих достаточно: список идёт по времени последнего сообщения,
-    а опрос крутится раз в минуту — ответивший человек всегда наверху.
+    ⚠️⚠️ ПРЕДЕЛ — 3 ПЕРЕПИСКИ, и он проверен опытом: `limit=3` проходит,
+    `limit=5` уже отвечает «Please reduce the amount of data». Причём предел
+    не про число полей — даже голый `fields=id` на пяти переписках падает.
+    Не поднимать «для запаса»: опрос молча перестанет забирать ответы.
+
+    ⚠️ Трёх достаточно: список идёт по времени последнего сообщения, а опрос
+    крутится раз в минуту — только что ответивший человек всегда наверху.
     """
     data = await graph_get(
         f"{page_id}/conversations",
         token=page_token,
-        params={"platform": "instagram", "fields": "id,updated_time", "limit": limit},
+        params={"platform": "instagram", "fields": "id", "limit": limit},
     )
     out: list[dict[str, Any]] = []
     for conv in (data.get("data") or []):

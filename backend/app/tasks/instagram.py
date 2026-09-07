@@ -191,7 +191,14 @@ def poll_comments():
                 try:
                     convs = await ig.list_conversations(meta.get("page_id") or "", token)
                 except Exception as e:
-                    log.warning("Instagram опрос: переписки канала %s — %s", ch["id"], e)
+                    # ⚠️ `%s` у InstagramApiError бывает ПУСТЫМ — тогда в логе
+                    # висит «переписки канала 102 —» без причины, и разбирать
+                    # нечего. Печатаем тип и user_message как запасной вариант.
+                    log.warning(
+                        "Instagram опрос: переписки канала %s — %s: %s | %s",
+                        ch["id"], type(e).__name__, e,
+                        getattr(e, "user_message", ""),
+                    )
                     convs = []
 
                 for conv in convs:
