@@ -70,7 +70,12 @@ export default function TariffPicker({
 }: Props) {
   const [picked, setPicked] = useState<Tariff | null>(null)
   // Экран заявки: человек заполняет анкету, а не покупает.
-  const [onRequest, setOnRequest] = useState(false)
+  // ⚠️ ТАРИФОВ НЕТ — заявку открываем СРАЗУ, без промежуточной кнопки:
+  // выбирать не из чего, и лишний экран «нажмите, чтобы оставить заявку»
+  // только добавляет шаг. Кнопка нужна лишь когда рядом есть тарифы и
+  // человеку правда надо выбрать между «купить» и «оставить заявку».
+  const [onRequest, setOnRequest] = useState(
+    !!requestForm && tariffs.length === 0)
   const [answers, setAnswers] = useState<Record<string, any>>({})
   const [sentText, setSentText] = useState<string | null>(null)
   // ⚠️ В простой форме заявка идёт КВИЗОМ — по одному вопросу за шаг.
@@ -270,12 +275,18 @@ export default function TariffPicker({
             `dvh` для webview с плавающими панелями — второе правило
             перекрывает первое там, где поддерживается). */}
         <div className="modal-sheet modal-sheet-tall">
-          <h2>{requestForm.title || 'Оставить заявку'}</h2>
-          {requestForm.subtitle && step === 0 && (
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14, lineHeight: 1.45 }}>
-              {requestForm.subtitle}
-            </p>
-          )}
+          {/* ⚠️ Заголовок и подпись — ТОЛЬКО НА ПЕРВОМ ШАГЕ. Дальше человек
+              уже внутри квиза, и повторять их на каждом шаге незачем: они
+              съедают экран, а нужен вопрос. В режиме «все вопросы сразу»
+              шаг один, поэтому шапка видна всегда. */}
+          {(!isQuiz || step === 0) && (<>
+            <h2>{requestForm.title || 'Оставить заявку'}</h2>
+            {requestForm.subtitle && (
+              <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14, lineHeight: 1.45 }}>
+                {requestForm.subtitle}
+              </p>
+            )}
+          </>)}
 
           {/* Полоса прогресса — только в квизе: человек должен видеть,
               сколько осталось. При показе всех вопросов сразу она бессмысленна. */}
