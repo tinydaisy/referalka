@@ -17,9 +17,17 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
 import MaterialBlockView from '@/components/products/MaterialBlockView'
-import CabinetBrand from '@/components/products/CabinetBrand'
+import CabinetShell from '@/components/products/CabinetShell'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+
+/** ⚠️ Сохраняем номер кабинета в ссылках: без него `/my` отдаёт «Не удалось
+ *  определить кабинет» (свой домен есть не у каждого клиента). */
+function myHref(path: string): string {
+  if (typeof window === 'undefined') return path
+  const cid = new URLSearchParams(window.location.search).get('client_id')
+  return cid ? `${path}${path.includes('?') ? '&' : '?'}client_id=${cid}` : path
+}
 const TOKEN_KEY = 'product_cabinet_token'
 
 export default function CabinetMaterialPage() {
@@ -89,7 +97,7 @@ export default function CabinetMaterialPage() {
       <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
         <div className="text-center">
           <p className="mb-4 text-gray-600">Материал недоступен</p>
-          <Link href={`/my/${slug}`} className="btn-primary">К списку материалов</Link>
+          <Link href={myHref(`/my/${slug}`)} className="btn-primary">К списку материалов</Link>
         </div>
       </div>
     )
@@ -101,10 +109,9 @@ export default function CabinetMaterialPage() {
   const next = idx < items.length - 1 ? items[idx + 1] : null
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <CabinetBrand brand={data?.brand} href={`/my/${slug}`} />
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <Link href={`/my/${slug}`}
+    <CabinetShell brand={data?.brand} active="materials">
+      <div>
+        <Link href={myHref(`/my/${slug}`)}
               className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
           <ArrowLeft size={15} /> {data?.product?.title || 'К материалам'}
         </Link>
@@ -128,14 +135,14 @@ export default function CabinetMaterialPage() {
         {(prev || next) && (
           <div className="mt-6 flex items-center justify-between gap-3">
             {prev ? (
-              <Link href={`/my/${slug}/m/${prev.link_id}`}
+              <Link href={myHref(`/my/${slug}/m/${prev.link_id}`)}
                     className="inline-flex min-w-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:border-gray-300">
                 <ChevronLeft size={15} className="shrink-0" />
                 <span className="truncate">{prev.title}</span>
               </Link>
             ) : <span />}
             {next && (
-              <Link href={`/my/${slug}/m/${next.link_id}`}
+              <Link href={myHref(`/my/${slug}/m/${next.link_id}`)}
                     className="inline-flex min-w-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:border-gray-300">
                 <span className="truncate">{next.title}</span>
                 <ChevronRight size={15} className="shrink-0" />
@@ -144,6 +151,6 @@ export default function CabinetMaterialPage() {
           </div>
         )}
       </div>
-    </div>
+    </CabinetShell>
   )
 }

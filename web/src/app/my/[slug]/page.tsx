@@ -14,9 +14,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, ChevronDown, ChevronRight } from 'lucide-react'
-import CabinetBrand from '@/components/products/CabinetBrand'
+import CabinetShell from '@/components/products/CabinetShell'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+
+/** ⚠️ Сохраняем номер кабинета в ссылках: без него `/my` отдаёт «Не удалось
+ *  определить кабинет» (свой домен есть не у каждого клиента). */
+function myHref(path: string): string {
+  if (typeof window === 'undefined') return path
+  const cid = new URLSearchParams(window.location.search).get('client_id')
+  return cid ? `${path}${path.includes('?') ? '&' : '?'}client_id=${cid}` : path
+}
 const TOKEN_KEY = 'product_cabinet_token'
 
 function wording(preset: string) {
@@ -87,10 +95,9 @@ export default function CabinetProductPage() {
   const W = wording(data.product.wording_preset)
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <CabinetBrand brand={data.brand} />
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <Link href="/my"
+    <CabinetShell brand={data.brand} active="materials">
+      <div>
+        <Link href={myHref('/my')}
               className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
           <ArrowLeft size={15} /> Мои материалы
         </Link>
@@ -109,7 +116,7 @@ export default function CabinetProductPage() {
           ))}
         </div>
       </div>
-    </div>
+    </CabinetShell>
   )
 }
 

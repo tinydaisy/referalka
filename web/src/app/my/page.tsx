@@ -12,8 +12,8 @@
  */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, Handshake, LifeBuoy, LogOut, User } from 'lucide-react'
-import CabinetBrand, { type Brand } from '@/components/products/CabinetBrand'
+import { type Brand } from '@/components/products/CabinetBrand'
+import CabinetShell from '@/components/products/CabinetShell'
 import PartnerCabinet from './PartnerCabinet'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
@@ -194,66 +194,11 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
     )
   }
 
-  // ⚠️ Цвета кабинета — ТЕМА КЛИЕНТА (`clients.lp_*`), как на его лендингах:
-  // человек купил у конкретного эксперта, и кабинет должен быть его, а не
-  // безымянным серым. Где у нас тёмно-синее меню — там фон клиента, где
-  // персиковый акцент — его акцент, белое остаётся белым.
-  const c1 = brand?.lp_bg_color || '#25455D'
-  const c2 = brand?.lp_bg_color_2 || '#0a1520'
+  // ⚠️ Акцент нужен подразделу «Поддержка» — плитки красятся им.
   const accent = brand?.lp_color_heading || '#FFCFA4'
-  const navBg = `linear-gradient(160deg, ${c1}, ${c2})`
-
-  const NAV = [
-    { key: 'materials', label: 'Мои материалы', icon: BookOpen },
-    { key: 'partner', label: 'Партнёрский кабинет', icon: Handshake },
-    { key: 'support', label: 'Поддержка', icon: LifeBuoy },
-    { key: 'profile', label: 'Мой профиль', icon: User },
-  ] as const
-
-  const NavList = ({ onPick }: { onPick?: () => void }) => (
-    <nav className="flex flex-col gap-1">
-      {NAV.map(({ key, label, icon: Icon }) => {
-        const on = tab === key
-        return (
-          <button
-            key={key}
-            onClick={() => { setTab(key as any); onPick?.() }}
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition"
-            style={on
-              ? { background: 'rgba(255,255,255,.14)', color: accent, fontWeight: 600 }
-              : { color: 'rgba(255,255,255,.78)' }}
-          >
-            <Icon size={17} className="shrink-0" />
-            <span className="truncate">{label}</span>
-          </button>
-        )
-      })}
-      {/* ⚠️ «Выйти» — пункт меню, а не мелкая ссылка в углу: человек ищет
-          выход там же, где остальные разделы. */}
-      <button
-        onClick={onLogout}
-        className="mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition"
-        style={{ color: 'rgba(255,255,255,.55)' }}
-      >
-        <LogOut size={17} className="shrink-0" />
-        <span>Выйти</span>
-      </button>
-    </nav>
-  )
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <CabinetBrand brand={brand} />
-
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:flex-row md:py-10">
-        {/* Меню слева — на телефоне уезжает наверх и прокручивается вбок. */}
-        <aside className="w-full shrink-0 md:w-64">
-          <div className="rounded-2xl p-3 shadow-sm" style={{ background: navBg }}>
-            <NavList />
-          </div>
-        </aside>
-
-        <section className="min-w-0 flex-1">
+    <CabinetShell brand={brand} active={tab} onPick={setTab} onLogout={onLogout}>
           {tab === 'materials' && (
             <>
               <h1 className="mb-5 text-2xl font-bold text-gray-900">Мои материалы</h1>
@@ -297,11 +242,9 @@ function CabinetList({ token, onLogout }: { token: string; onLogout: () => void 
             </>
           )}
 
-          {tab === 'support' && <SupportTab token={token} accent={accent} />}
-          {tab === 'profile' && <ProfileTab token={token} />}
-        </section>
-      </div>
-    </div>
+      {tab === 'support' && <SupportTab token={token} accent={accent} />}
+      {tab === 'profile' && <ProfileTab token={token} />}
+    </CabinetShell>
   )
 }
 
