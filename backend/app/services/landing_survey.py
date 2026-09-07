@@ -62,12 +62,20 @@ async def collect_landing_surveys(db, blocks, client_id: int,
     """
     # Анкета формы заявки владельца — она главнее того, что осталось в блоке.
     form_survey_id = None
+    form_title = None
+    form_subtitle = None
     if owner_type and owner_id:
         try:
-            form_survey_id = await db.fetchval(
-                """SELECT survey_id FROM request_forms
+            form_row = await db.fetchrow(
+                """SELECT survey_id, title, subtitle FROM request_forms
                     WHERE owner_type = $1 AND owner_id = $2 AND is_active""",
                 owner_type, owner_id)
+            if form_row:
+                form_survey_id = form_row["survey_id"]
+                # ⚠️ Заголовок и подпись задаются В ФОРМЕ ЗАЯВКИ, а не в блоке
+                # (07.09.2026): в конструкторе их полей больше нет.
+                form_title = form_row["title"]
+                form_subtitle = form_row["subtitle"]
         except Exception:
             form_survey_id = None   # таблицы ещё нет — работаем по-старому
 
@@ -148,5 +156,9 @@ async def collect_landing_surveys(db, blocks, client_id: int,
             "thanks_text": s["thanks_text"], "redirect_url": s["redirect_url"],
             "privacy_url": privacy_url,
             "questions": questions,
+            # Заголовок и подпись секции — из формы заявки; пусто → рендерер
+            # возьмёт название самой анкеты.
+            "form_title": form_title,
+            "form_subtitle": form_subtitle,
         }
     return out

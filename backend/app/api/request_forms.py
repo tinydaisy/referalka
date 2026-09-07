@@ -32,6 +32,11 @@ import asyncpg
 from app.database import get_db
 from app.auth import get_current_client
 
+# ⚠️ `get_current_client` отдаёт ДЕКОДИРОВАННЫЙ ТОКЕН, а не карточку клиента:
+# id кабинета лежит в `sub` СТРОКОЙ. Ключа `client_id` там нет — обращение к
+# нему даёт KeyError и 500 «что-то пошло не так» (так и было: форма заявки не
+# сохранялась вовсе). Везде брать `int(user["sub"])`, как в event_tariffs.
+
 event_router = APIRouter(prefix="/events/{owner_id}/request-form",
                          tags=["Формы заявки"])
 product_router = APIRouter(prefix="/products/{owner_id}/request-form",
@@ -90,14 +95,14 @@ async def _get_form(db, owner_type: str, owner_id: int):
 
 
 async def _list_form(owner_type, owner_id, user, db):
-    await _assert_owner(db, user["client_id"], owner_type, owner_id)
+    await _assert_owner(db, int(user["sub"]), owner_type, owner_id)
     row = await _get_form(db, owner_type, owner_id)
     return {"form": dict(row) if row else None}
 
 
 async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
-    await _assert_owner(db, user["client_id"], owner_type, owner_id)
-    await _assert_survey_owned(db, user["client_id"], data.survey_id)
+    await _assert_owner(db, int(user["sub"]), owner_type, owner_id)
+    await _assert_survey_owned(db, int(user["sub"]), data.survey_id)
 
     # ⚠️ UPSERT по владельцу — форма одна, второй раз не плодим.
     row = await db.fetchrow(
@@ -113,7 +118,7 @@ async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
                is_active    = EXCLUDED.is_active,
                updated_at   = NOW()
          RETURNING id""",
-        user["client_id"], owner_type, owner_id, data.survey_id,
+        int(user["sub"]), owner_type, owner_id, data.survey_id,
         (data.title or "").strip() or None,
         (data.subtitle or "").strip() or None,
         (data.success_text or "").strip() or None,
@@ -124,7 +129,7 @@ async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
 
 
 async def _delete_form(owner_type, owner_id, user, db):
-    await _assert_owner(db, user["client_id"], owner_type, owner_id)
+    await _assert_owner(db, int(user["sub"]), owner_type, owner_id)
     await db.execute(
         "DELETE FROM request_forms WHERE owner_type = $1 AND owner_id = $2",
         owner_type, owner_id)
