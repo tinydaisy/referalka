@@ -1037,7 +1037,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
             borderBottom: `2px solid ${PEACH}`,
             boxShadow: '0 4px 12px rgba(37,69,93,0.15)',
           }}>
-            Ведут мероприятие
+            Организатор
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
             {coOrganizers.map(c => (
