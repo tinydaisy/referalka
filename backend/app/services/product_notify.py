@@ -91,7 +91,8 @@ async def send_cabinet_code(db, *, client_id: int, contact_id: int,
 
     await _send_to_bot(
         db, client_id, contact_id,
-        f"🔑 Код для входа: <b>{code}</b>\n\nОн действует 15 минут.",
+        f"🔑 Код для входа в ваш личный кабинет: <b>{code}</b>\n\n"
+        f"Он действует 15 минут.",
     )
 
     channel = await _email_channel(db, client_id)
@@ -114,8 +115,12 @@ async def send_cabinet_code(db, *, client_id: int, contact_id: int,
             channel=channel_dict,
             client_brand_name=brand,
             to_email=email,
-            subject=f"Код для входа: {code}",
-            body_text=(f"Ваш код для входа: {code}\n\n"
+            # ⚠️ «В ваш личный кабинет», а не просто «Код для входа»: письмо
+            # общее для покупателя и партнёра, и человек должен сразу понять,
+            # куда этот код — иначе в почте он выглядит как код неизвестно от
+            # чего и теряется среди других писем.
+            subject=f"Код для входа в ваш личный кабинет: {code}",
+            body_text=(f"Код для входа в ваш личный кабинет: {code}\n\n"
                        f"Он действует 15 минут.\n\n"
                        f"Если вы не запрашивали код — просто не отвечайте на письмо.\n\n"
                        f"{brand}"),

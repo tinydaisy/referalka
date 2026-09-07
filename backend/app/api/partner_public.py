@@ -445,6 +445,22 @@ async def partner_request_code(data: CodeIn, request: Request, response: Respons
 
     email = (data.email or "").strip().lower()
     ok = {"ok": True, "sent": True}
+    # ⚠️⚠️ ЧЕЛОВЕКУ ГОВОРИМ ПРАВДУ: письма не будет. Раньше здесь во всех
+    # ветках возвращалось `sent: True`, экран писал «Код отправлен», и человек
+    # ждал письмо, которого система не слала вовсе. Так на проде 07.09.2026
+    # владелец не мог войти в свой же кабинет: почта в базе была записана без
+    # точки (`имя2017@`), а вводил он свою настоящую — с точкой (`имя.2017@`).
+    # Для Gmail это один ящик, для базы — разные люди.
+    #
+    # ⚠️ Перебор базы этим НЕ открывается: ответ один и тот же и когда почты
+    # нет вовсе, и когда она есть, но доступа нет. Отличить «чужой клиент» от
+    # «свой без доступа» по нему нельзя — а человек понимает, что делать.
+    no_access = {
+        "ok": True, "sent": False,
+        "message": ("На этой почте нет доступа в кабинет. Проверьте написание "
+                    "адреса — важны точки и раскладка. Если ошибки нет, "
+                    "напишите тому, у кого вы покупали: доступ откроют."),
+    }
     if "@" not in email:
         raise HTTPException(status_code=400, detail="Проверьте адрес почты")
 
@@ -456,7 +472,7 @@ async def partner_request_code(data: CodeIn, request: Request, response: Respons
         cid, email,
     )
     if not contact_id:
-        return ok
+        return no_access
 
     is_partner = await db.fetchval(
         "SELECT 1 FROM client_partners WHERE client_id = $1 AND contact_id = $2",
@@ -467,7 +483,7 @@ async def partner_request_code(data: CodeIn, request: Request, response: Respons
             WHERE pa.contact_id = $1 AND p.client_id = $2 LIMIT 1""",
         contact_id, cid)
     if not is_partner and not has_access:
-        return ok
+        return no_access
 
     code = f"{secrets.randbelow(1000000):06d}"
     await db.execute(

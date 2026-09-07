@@ -253,6 +253,15 @@ async def request_code(
 
     email = (data.email or "").strip().lower()
     ok = {"ok": True, "sent": True}
+    # ⚠️⚠️ Говорим правду, когда письма не будет — см. тот же приём в
+    # partner_public.request_code. Молчаливое «Код отправлен» заставляло
+    # человека ждать письмо, которого никто не слал.
+    no_access = {
+        "ok": True, "sent": False,
+        "message": ("На этой почте нет доступа в кабинет. Проверьте написание "
+                    "адреса — важны точки и раскладка. Если ошибки нет, "
+                    "напишите тому, у кого вы покупали: доступ откроют."),
+    }
     if "@" not in email:
         raise HTTPException(status_code=400, detail="Проверьте адрес почты")
 
@@ -264,7 +273,7 @@ async def request_code(
         cid, email,
     )
     if not contact_id:
-        return ok
+        return no_access
 
     has_access = await db.fetchval(
         """SELECT 1 FROM product_access pa
@@ -273,7 +282,7 @@ async def request_code(
         contact_id, cid,
     )
     if not has_access:
-        return ok
+        return no_access
 
     code = f"{secrets.randbelow(1000000):06d}"
     await db.execute(

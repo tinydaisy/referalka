@@ -65,6 +65,14 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.detail || 'Не получилось')
+      // ⚠️ Письма может не быть — на этой почте нет доступа. Тогда НЕ уводим
+      // на экран ввода кода: человек сидел бы и ждал письмо, которого нет
+      // (так владелец не мог войти в свой кабинет, прод 07.09.2026). Причина
+      // почти всегда — описка в адресе: точка, лишняя буква, раскладка.
+      if (data?.sent === false) {
+        setError(data?.message || 'На этой почте нет доступа в кабинет.')
+        return
+      }
       setStep('code')
     } catch (e: any) {
       setError(e?.message || 'Что-то пошло не так')
