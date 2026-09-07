@@ -9,7 +9,9 @@ celery = Celery(
     include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
         "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
         "app.tasks.webinar_chunks", "app.tasks.webinar_stuck", "app.tasks.webinar_cut",
-        "app.tasks.collab_finish", "app.tasks.bot_webhook_check", "app.tasks.calls"]
+        "app.tasks.collab_finish", "app.tasks.bot_webhook_check", "app.tasks.calls",
+        "app.tasks.instagram",
+        "app.tasks.tg_setup"]
 )
 
 celery.conf.update(
@@ -36,6 +38,27 @@ celery.conf.update(
             "task": "app.tasks.calls.check_and_run_campaigns",
             "schedule": 60.0,
         },
+        # Раз в минуту — двигаем очередь автонастройки Telegram (миграция 364).
+        # Клиент оплатил и смотрит на экран с живым статусом: реже — и он
+        # решит, что услуга не работает.
+        "tg-setup-tick": {
+            "task": "app.tasks.tg_setup.tick",
+            "schedule": 60.0,
+        },
+        # Раз в час — напоминаем забрать бота и гасим просроченные заказы.
+        # ⚠️ Не чаще: непереданный бот занимает слот и держит очередь, но
+        # долбить человека уведомлениями каждые пять минут нельзя.
+        "tg-setup-remind": {
+            "task": "app.tasks.tg_setup.remind",
+            "schedule": 3600.0,
+        },
+        # Раз в 6 часов — спрашиваем у @SpamBot, живы ли сервисные аккаунты.
+        # ⚠️ Аккаунт под спам-блоком НЕ создаёт ботов вовсе, но внешне выглядит
+        # рабочим — без этой проверки очередь молча падала бы на клиентах.
+        "tg-setup-health": {
+            "task": "app.tasks.tg_setup.health_check",
+            "schedule": 6 * 3600.0,
+        },
         # Раз в минуту — заливаем дописанные куски эфира в хранилище и стираем
         # их с диска. Реже нельзя: диск копит гигабайты, а несколько
         # параллельных эфиров забили бы его целиком и положили ВСЮ платформу.
@@ -50,6 +73,14 @@ celery.conf.update(
         "close-stuck-webinars": {
             "task": "app.tasks.webinar_stuck.close_stuck_sessions",
             "schedule": 600.0,
+        },
+        # Раз в сутки — продление токенов Instagram.
+        # ⚠️⚠️ Токен живёт 60 дней. Без этой задачи воронка через два месяца
+        # молча перестаёт отвечать людям: не ломается заметно, а просто
+        # затихает — и клиент узнаёт об этом от подписчиков, а не от нас.
+        "refresh-instagram-tokens": {
+            "task": "app.tasks.instagram.refresh_tokens",
+            "schedule": 24 * 3600.0,
         },
         # Раз в час — помечаем истёкшие подписки + паузим их будущие рассылки
         "expire-overdue-subscriptions": {

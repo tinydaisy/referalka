@@ -393,3 +393,139 @@ async def check_token(page_token: str) -> dict[str, Any]:
     не столкнулся бы с молчащей воронкой.
     """
     return await graph_get("me", token=page_token, params={"fields": "id,name"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Комментарии и директ
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def reply_to_comment(comment_id: str, text: str, page_token: str) -> dict[str, Any]:
+    """Публичный ответ под комментарием.
+
+    ⚠️ Текст брать ТОЛЬКО из набора вариаций: Instagram считает спамом
+    повторяющиеся одинаковые публичные ответы и режет охваты вплоть до
+    блокировки аккаунта.
+    """
+    return await graph_post(f"{comment_id}/replies", token=page_token, data={"message": text})
+
+
+async def private_reply(comment_id: str, text: str, page_token: str) -> dict[str, Any]:
+    """Первое сообщение в директ — в ответ на комментарий.
+
+    ⚠️ Meta разрешает это РОВНО ОДИН РАЗ на комментарий и в течение 7 дней.
+    Второй раз тем же способом не написать: дальше только обычная отправка в
+    24-часовом окне (`send_message`). Новый комментарий человека — новая
+    возможность.
+    """
+    return await graph_post(
+        f"{comment_id}/private_replies", token=page_token, data={"message": text}
+    )
+
+
+async def send_message(ig_user_id: str, recipient_igsid: str, text: str,
+                       page_token: str) -> dict[str, Any]:
+    """Сообщение в директ.
+
+    ⚠️⚠️ Работает только в пределах 24 ЧАСОВ с последнего сообщения человека.
+    Вне окна Meta отклоняет запрос, а серия отказов портит репутацию
+    приложения — поэтому окно проверяется ДО отправки, а не по факту ошибки.
+    """
+    import json as _json
+    return await graph_post(
+        f"{ig_user_id}/messages",
+        token=page_token,
+        data={
+            "recipient": _json.dumps({"id": recipient_igsid}),
+            "message": _json.dumps({"text": text}),
+        },
+    )
+
+
+async def user_profile(igsid: str, page_token: str) -> dict[str, Any]:
+    """Профиль написавшего человека.
+
+    ⚠️ Поле `is_user_follow_business` — это и есть «подписан ли на ваш аккаунт»,
+    на нём держится вся проверка подписки. Получить список подписчиков или
+    проверить подписку на ЧУЖОЙ аккаунт нельзя — для нашей воронки и не нужно.
+
+    ⚠️ Профиль доступен только по человеку, с которым УЖЕ есть переписка:
+    до его ответа Meta ничего не отдаёт. Отсюда порядок в воронке —
+    комментарий → директ → человек нажал кнопку → только теперь проверяем.
+    """
+    return await graph_get(
+        igsid,
+        token=page_token,
+        params={"fields": "name,username,profile_pic,is_user_follow_business"},
+    )
+
+
+async def is_follower(igsid: str, page_token: str) -> bool | None:
+    """Подписан ли человек. None — спросить не удалось.
+
+    ⚠️ Три состояния, а не два. `None` (сбой, нет прав, Meta молчит) НЕ равно
+    «не подписан»: правило проекта — сбой проверки не лишает человека подарка.
+    Вызывающий обязан различать.
+    """
+    try:
+        data = await user_profile(igsid, page_token)
+    except InstagramApiError as e:
+        logger.warning("is_follower(%s): %s", igsid, e)
+        return None
+    val = data.get("is_user_follow_business")
+    return bool(val) if val is not None else None
+
+
+async def list_media(ig_user_id: str, page_token: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Публикации аккаунта — для выбора рилса в настройке воронки.
+
+    ⚠️ Отдаём с обложкой и подписью: выбирать рилс по «id 178451…» человек не
+    может, ему нужно узнать свою публикацию глазами.
+    """
+    data = await graph_get(
+        f"{ig_user_id}/media",
+        token=page_token,
+        params={
+            "fields": "id,caption,media_type,media_product_type,permalink,thumbnail_url,media_url,timestamp",
+            "limit": limit,
+        },
+    )
+    return list(data.get("data") or [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Вебхуки
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def subscribe_page(page_id: str, page_token: str) -> dict[str, Any]:
+    """Подписать страницу на вебхуки о комментариях и сообщениях.
+
+    ⚠️ Без этого Meta не пришлёт НИЧЕГО: приложение подписано на события, но
+    конкретная страница — нет. Ошибка молчаливая: воронка просто не срабатывает.
+    """
+    return await graph_post(
+        f"{page_id}/subscribed_apps",
+        token=page_token,
+        data={"subscribed_fields": "comments,messages,message_reactions"},
+    )
+
+
+async def refresh_long_lived(token: str) -> tuple[str, int]:
+    """Продлить токен. Возвращает (токен, срок в секундах).
+
+    ⚠️⚠️ Токен живёт 60 дней. Без продления воронка через два месяца молча
+    перестаёт отвечать людям — не ломается заметно, а просто затихает.
+    """
+    data = await graph_get(
+        "oauth/access_token",
+        token="",
+        params={
+            "grant_type": "fb_exchange_token",
+            "client_id": settings.ig_app_id,
+            "client_secret": settings.ig_app_secret,
+            "fb_exchange_token": token,
+        },
+    )
+    tok = data.get("access_token")
+    if not tok:
+        raise InstagramApiError("refresh_long_lived: в ответе нет access_token")
+    return tok, int(data.get("expires_in") or 60 * 24 * 3600)

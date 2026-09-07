@@ -1938,6 +1938,30 @@ async def instagram_connect(
         # временная запись больше не нужна — в ней лежат токены страниц
         await db.execute("DELETE FROM channels WHERE id = $1", row["id"])
 
+    # ⚠️⚠️ Подписываем страницу на вебхуки. БЕЗ ЭТОГО Meta не пришлёт ничего:
+    # приложение подписано на события, но конкретная страница — нет, и воронка
+    # просто не срабатывает. Ошибка молчаливая, поэтому делаем сразу при
+    # подключении, а не отдельной кнопкой, которую забудут нажать.
+    #
+    # ⚠️ Сбой подписки НЕ отменяет подключение: аккаунт уже привязан, токен
+    # рабочий. Пишем в лог и в канал — кабинет покажет, что нужно переподключить.
+    from app.services import instagram_api as _ig
+    try:
+        await _ig.subscribe_page(str(chosen["page_id"]), chosen["page_token"])
+    except Exception as _e:
+        _ig_log.warning("Instagram: страница %s не подписана на вебхуки — %s",
+                        chosen.get("page_id"), _e)
+        try:
+            meta_now = await db.fetchval("SELECT platform_meta FROM channels WHERE id=$1", channel_id)
+            if isinstance(meta_now, str):
+                meta_now = _json.loads(meta_now)
+            meta_now = dict(meta_now or {})
+            meta_now["webhook_subscribe_failed"] = True
+            await db.execute("UPDATE channels SET platform_meta=$2::jsonb WHERE id=$1",
+                             channel_id, _json.dumps(meta_now))
+        except Exception:
+            pass
+
     return {
         "ok": True,
         "channel_id": channel_id,

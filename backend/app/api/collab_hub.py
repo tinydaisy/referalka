@@ -62,7 +62,13 @@ def _media_tier(total_subs: int):
 # Площадки, чьи цифры считает САМА система (базы ПЛЮСОНа). Их значения —
 # в штуках и приходят из подсчёта, а не из введённого поля.
 _AUTO_PLATFORMS = ('plusson_tg', 'plusson_email', 'plusson_max', 'plusson_vk',
-                   'plusson_tg_ch', 'plusson_max_ch', 'plusson_vk_ch')
+                   'plusson_tg_ch', 'plusson_max_ch', 'plusson_vk_ch',
+                   # ⚠️ Instagram считается САМ, если аккаунт подключён: число
+                   # подписчиков отдаёт Meta при подключении и обновляет при
+                   # проверке связи. Введённое руками устаревает и завышается,
+                   # а подключённый аккаунт даёт правду без участия человека.
+                   # Не подключён — остаётся обычным полем ввода.
+                   'instagram')
 
 
 def _sum_subscribers(media_assets, auto_counts: dict | None = None) -> int:

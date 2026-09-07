@@ -797,6 +797,46 @@ export const api = {
 
   // Автообзвоны через сервис Звонопёс (миграция 359). Гейт — фича calls.
   // Настройки подключения (ключ + номер + сценарии) и сами кампании обзвона.
+  // Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).
+  tgAutosetup: {
+    get: () => request('/api/v1/clients/me/tg-autosetup'),
+    checkName: (username: string) =>
+      request('/api/v1/clients/me/tg-autosetup/check-name', {
+        method: 'POST', body: JSON.stringify({ username }),
+      }),
+    start: (bot_username: string, bot_title?: string) =>
+      request('/api/v1/clients/me/tg-autosetup/start', {
+        method: 'POST', body: JSON.stringify({ bot_username, bot_title }),
+      }),
+  },
+
+  // Админская панель автонастройки — сервисные аккаунты и заказы.
+  adminTgSetup: {
+    accounts: () => request('/api/v1/admin/tg-setup/accounts'),
+    createAccount: (data: any) =>
+      request('/api/v1/admin/tg-setup/accounts', {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    updateAccount: (id: number, data: any) =>
+      request(`/api/v1/admin/tg-setup/accounts/${id}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    deleteAccount: (id: number) =>
+      request(`/api/v1/admin/tg-setup/accounts/${id}`, { method: 'DELETE' }),
+    checkAccount: (id: number) =>
+      request(`/api/v1/admin/tg-setup/accounts/${id}/check`, { method: 'POST' }),
+    orders: () => request('/api/v1/admin/tg-setup/orders'),
+    retryOrder: (id: number) =>
+      request(`/api/v1/admin/tg-setup/orders/${id}/retry`, { method: 'POST' }),
+    markPaid: (id: number) =>
+      request(`/api/v1/admin/tg-setup/orders/${id}/mark-paid`, { method: 'POST' }),
+    services: () => request('/api/v1/admin/tg-setup/services'),
+    updateService: (slug: string, data: any) =>
+      request(`/api/v1/admin/tg-setup/services/${slug}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+  },
+
   callSettings: {
     get: () => request('/api/v1/clients/me/call-settings'),
     update: (data: any) =>
@@ -881,6 +921,19 @@ export const api = {
     remove: (eventId: number, greetingId: number) =>
       request(`/api/v1/events/${eventId}/chat-greetings/${greetingId}`, { method: 'DELETE' }),
   },
+  // Воронки Instagram: комментарий под рилсом → директ → лид-магнит.
+  // ⚠️ Своих материалов у воронки нет — она надстройка над лид-магнитами.
+  instagramFunnels: {
+    list: () => request('/api/v1/instagram-funnels'),
+    get: (id: number) => request(`/api/v1/instagram-funnels/${id}`),
+    create: (data: any) =>
+      request('/api/v1/instagram-funnels', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/instagram-funnels/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/instagram-funnels/${id}`, { method: 'DELETE' }),
+  },
+
   channels: {
     list: () => request('/api/v1/channels'),
     get: (id: number) => request(`/api/v1/channels/${id}`),
@@ -934,6 +987,9 @@ export const api = {
       }),
     instagramCheck: (channel_id: number) =>
       request(`/api/v1/channels/instagram/${channel_id}/check`, { method: 'POST' }),
+    // Публикации аккаунта — для выбора рилса в настройке воронки.
+    instagramMedia: (channel_id: number) =>
+      request(`/api/v1/instagram-funnels/media/${channel_id}`),
     vkOauthUrl: (channel_id: number) =>
       request(`/api/v1/channels/vk/oauth-url?channel_id=${channel_id}`),
     vkDeleteAdminToken: (channel_id: number) =>
@@ -1700,6 +1756,10 @@ export const api = {
     createOrder: (feature_slug: string, months: number, provider: 'prodamus' | 'leadpay' = 'prodamus', bundle = false) =>
       request('/api/v1/addons/order', { method: 'POST', body: JSON.stringify({ feature_slug, months, provider, bundle }) }),
     getOrder: (id: number) => request(`/api/v1/addons/orders/${id}`),
+  },
+  // Разовые услуги (миграция 364) — не подписка и не модуль, срока действия нет.
+  services: {
+    list: () => request('/api/v1/public/services'),
   },
   referrals: {
     // Акцепт партнёрской оферты кнопкой «Стать партнёром» (миграция 318).

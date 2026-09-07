@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download, Eye } from 'lucide-react'
+import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download, Eye, Instagram } from 'lucide-react'
 import { api } from '@/lib/api'
+import InstagramFunnelsTab from '@/components/InstagramFunnelsTab'
 import FileUploader from '@/components/FileUploader'
 import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import { useMe } from '@/hooks/useMe'
@@ -12,7 +13,7 @@ function inferMediaType(url: string | null | undefined): 'photo' | 'video' | nul
   return VIDEO_EXT_RE.test(url) ? 'video' : 'photo'
 }
 
-type Tab = 'magnets' | 'packages' | 'template'
+type Tab = 'magnets' | 'packages' | 'template' | 'instagram'
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -78,7 +79,7 @@ export default function LeadMagnetsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'magnets'
     const t = new URLSearchParams(window.location.search).get('tab')
-    return (t === 'packages' || t === 'template') ? t as Tab : 'magnets'
+    return (t === 'packages' || t === 'template' || t === 'instagram') ? t as Tab : 'magnets'
   })
   // Канал(ы) основателя для воронки — массив (миграция 114).
   // null = ещё не загружено или загружено и пусто; [] = загружено и пусто; [..] = есть.
@@ -241,6 +242,7 @@ export default function LeadMagnetsPage() {
           { id: 'magnets', label: 'Лид-магниты', icon: FileText },
           { id: 'packages', label: 'Пакеты', icon: Package },
           { id: 'template', label: 'Шаблон воронки', icon: Pencil },
+          { id: 'instagram', label: 'Instagram', icon: Instagram },
         ].map(({ id, label, icon: Icon }) => {
           const active = tab === (id as Tab)
           return (
@@ -264,6 +266,7 @@ export default function LeadMagnetsPage() {
       {tab === 'magnets' && <MagnetsList />}
       {tab === 'packages' && <PackagesList />}
       {tab === 'template' && <TemplateEditor />}
+      {tab === 'instagram' && <InstagramFunnelsTab />}
     </div>
   )
 }

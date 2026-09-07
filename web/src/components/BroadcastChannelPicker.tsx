@@ -19,7 +19,10 @@ type Channel = {
  * WhatsApp — рассылки через мост не идут, скрыт всегда.
  * Email — только по фиче `email_broadcasts` (см. EMAIL_FEATURE ниже).
  */
-const HIDDEN_PLATFORMS = new Set(['whatsapp'])
+// ⚠️ Instagram скрыт: рассылок по базе он не допускает вовсе — Meta
+// разрешает писать человеку только 24 часа с его последнего сообщения.
+// Показать площадку значило бы пообещать то, чего не бывает.
+const HIDDEN_PLATFORMS = new Set(['whatsapp', 'instagram'])
 
 /**
  * Фича «Рассылки по email». Есть у клиента → площадка Email показывается в

@@ -130,5 +130,38 @@ async def channel_audience(db, client_id: int, social: Optional[dict]) -> dict:
         "plusson_max_ch": sum(nums[tg_n:tg_n + max_n]),
         "plusson_vk_ch":  sum(nums[tg_n + max_n:]),
     }
+
+    # Instagram — подписчики подключённых аккаунтов.
+    #
+    # ⚠️ Берём цифру ИЗ БАЗЫ (`platform_meta.followers`), а не запросом к Meta:
+    # эта функция вызывается на каждой карточке каталога, и поход в сеть сделал
+    # бы страницу медленной. Значение кладёт подключение и обновляет кнопка
+    # «Проверить связь».
+    #
+    # ⚠️ Складываем ВСЕ аккаунты клиента: у человека их бывает несколько
+    # (личный и проектный), охват у него суммарный.
+    try:
+        ig_rows = await db.fetch(
+            """SELECT ch.platform_meta FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE cc.client_id = $1 AND ch.platform_slug = 'instagram'""",
+            client_id,
+        )
+        ig_total = 0
+        for r in ig_rows:
+            meta = r["platform_meta"] or {}
+            if isinstance(meta, str):
+                import json as _json
+                meta = _json.loads(meta)
+            try:
+                ig_total += int((meta or {}).get("followers") or 0)
+            except (TypeError, ValueError):
+                pass
+        if ig_total:
+            out["instagram"] = ig_total
+    except Exception:
+        # Сбой не должен ронять карточку — просто не покажем цифру.
+        pass
+
     _CACHE[client_id] = (time.time(), out)
     return out

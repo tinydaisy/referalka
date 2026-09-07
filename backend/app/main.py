@@ -10,9 +10,10 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms, instagram_webhook, instagram_funnels
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api import client_call_settings, call_campaigns
+from app.api import tg_autosetup, admin_tg_setup
 from app.api import partner_program, partner_public
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
@@ -116,6 +117,8 @@ app.include_router(collaborator_posters.router)                                #
 app.include_router(event.router,        prefix="/api/v1")  # POST /api/v1/event
 app.include_router(vk_event.router,     prefix="/api/v1")  # POST /api/v1/vk/event (миграция 2026-05-19)
 app.include_router(max_event.router,    prefix="/api/v1")  # POST /api/v1/max/event (миграция 2026-05-20)
+app.include_router(instagram_webhook.router)   # вебхук Meta: у него свой префикс внутри
+app.include_router(instagram_funnels.router)   # CRUD воронок Instagram
 app.include_router(max_webhook.router,  prefix="/api/v1")  # POST /api/v1/max/webhook/{secret}
 app.include_router(referral.router)     # /api/v1/referral/conversion
 app.include_router(integrations.router, prefix="/api/v1")
@@ -195,6 +198,11 @@ app.include_router(client_payment_settings.router,  prefix="/api/v1")           
 app.include_router(client_call_settings.router,     prefix="/api/v1")           # /api/v1/clients/me/call-settings
 app.include_router(call_campaigns.router,           prefix="/api/v1")           # /api/v1/call-campaigns
 app.include_router(call_campaigns.public_router,    prefix="/api/v1")           # /api/v1/public/calls/webhook
+# Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).
+app.include_router(tg_autosetup.router,             prefix="/api/v1")           # /api/v1/clients/me/tg-autosetup
+app.include_router(tg_autosetup.leadpay_webhook_router,  prefix="/api/v1")      # оплата услуги (LeadPay)
+app.include_router(tg_autosetup.prodamus_webhook_router, prefix="/api/v1")      # оплата услуги (Продамус)
+app.include_router(admin_tg_setup.router,           prefix="/api/v1")           # /api/v1/admin/tg-setup/*
 app.include_router(event_orders.router)                                         # /api/v1/public/event-orders — заказ тарифа события с лендинга
 app.include_router(event_orders.webhook_router)                                 # /api/v1/integrations/client-pay/leadpay — оплата тарифа пришла
 app.include_router(partner_program.router,          prefix="/api/v1")           # /api/v1/partner-program — раздел клиента «Моя партнёрка» (миграции 346-348)
