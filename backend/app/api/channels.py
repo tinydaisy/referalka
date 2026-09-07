@@ -1586,6 +1586,12 @@ async def whatsapp_logout(client=Depends(get_current_client), db=Depends(get_db)
 
 _IG_STATE_AUD = "instagram-oauth"
 
+# ⚠️ Свой логгер: без него отказы подключения уходили в тишину — на экране
+# у клиента текст был, а в логах ни строки, и причину приходилось выяснять
+# повторным прохождением всего входа.
+import logging as _logging
+_ig_log = _logging.getLogger("instagram.oauth")
+
 
 async def _assert_instagram_feature(db, client_id: int):
     from app.services.features import client_has_feature
@@ -1678,8 +1684,10 @@ async def instagram_oauth_callback(
     if error:
         # Человек нажал «Отмена» в окне Facebook — это не поломка.
         msg = error_description or "Подключение отменено"
+        _ig_log.warning("Instagram OAuth: отказ от Facebook — %s / %s", error, error_description)
         return RedirectResponse(f"{back}?ig_error={_up.quote(msg)}", status_code=302)
     if not code or not state:
+        _ig_log.warning("Instagram OAuth: Facebook вернулся без code/state")
         return RedirectResponse(f"{back}?ig_error={_up.quote('Facebook не передал код подключения')}", status_code=302)
 
     client_id = _ig_read_state(state)
@@ -1689,9 +1697,11 @@ async def instagram_oauth_callback(
         long_token, expires_in = await ig.exchange_long_lived(short)
         pages = await ig.list_pages(long_token)
     except ig.InstagramApiError as e:
+        _ig_log.warning("Instagram OAuth: Graph API отказал — %s", e)
         return RedirectResponse(f"{back}?ig_error={_up.quote(e.user_message)}", status_code=302)
 
     if not pages:
+        _ig_log.warning("Instagram OAuth: клиент %s — Meta не вернула ни одной страницы", client_id)
         return RedirectResponse(
             f"{back}?ig_error=" + _up.quote(
                 "У вашего аккаунта Facebook нет страниц. Instagram подключается через страницу — "
@@ -1726,6 +1736,10 @@ async def instagram_oauth_callback(
             })
 
     if not found:
+        _ig_log.warning(
+            "Instagram OAuth: клиент %s — страниц %s, но Instagram не привязан ни к одной: %s",
+            client_id, len(pages), [p.get("name") for p in pages],
+        )
         return RedirectResponse(
             f"{back}?ig_error=" + _up.quote(
                 "Ни к одной из ваших страниц Facebook не привязан Instagram. "
@@ -1751,6 +1765,7 @@ async def instagram_oauth_callback(
             "pending_pages": found,
         }),
     )
+    _ig_log.info("Instagram OAuth: клиент %s — найдено аккаунтов: %s", client_id, len(found))
     return RedirectResponse(f"{back}?ig_pick={key}", status_code=302)
 
 
