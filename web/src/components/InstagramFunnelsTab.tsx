@@ -14,7 +14,7 @@ import { api } from '@/lib/api'
 interface Funnel {
   id: number
   name: string
-  channel_id: number
+  channel_id: number | null
   account_handle?: string | null
   trigger_kind: string
   media_scope: string
@@ -182,7 +182,14 @@ export default function InstagramFunnelsTab() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-semibold text-gray-900">{f.name}</span>
-                    {!f.is_active && (
+                    {/* ⚠️ Воронка без аккаунта — не поломка: аккаунт удалили,
+                        а настройка (слова, тексты, подарок) сохранилась.
+                        Говорим прямо, что делать, иначе выглядит как сбой. */}
+                    {!f.channel_id ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                        аккаунт отключён — выберите заново
+                      </span>
+                    ) : !f.is_active && (
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">выключена</span>
                     )}
                   </div>
@@ -267,7 +274,14 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
   useEffect(() => {
     if (!initial.id) return
     api.instagramFunnels.get(initial.id)
-      .then((r: any) => setF({ ...r, keywords: r.keywords?.length ? r.keywords : [''] }))
+      .then((r: any) => setF({
+        ...r,
+        keywords: r.keywords?.length ? r.keywords : [''],
+        // ⚠️ Аккаунт мог быть удалён — тогда в воронке пусто (миграция 368).
+        // Подставляем первый подключённый, чтобы клиенту осталось только
+        // сохранить, а не разбираться, почему поле пустое.
+        channel_id: r.channel_id || accounts[0]?.id,
+      }))
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить'))
       .finally(() => setLoading(false))
   }, [initial.id])
@@ -327,7 +341,7 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
           </div>
 
-          {accounts.length > 1 && (
+          {(accounts.length > 1 || !f.channel_id) && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">Аккаунт</label>
               <select value={f.channel_id} onChange={e => { set('channel_id', +e.target.value); setMedia(null) }}

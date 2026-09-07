@@ -34,7 +34,9 @@ async def _assert_write(db, client_id: int):
 
 
 class FunnelIn(BaseModel):
-    channel_id: int
+    # ⚠️ Может быть пустым: аккаунт удалили, но настройка воронки осталась
+    # (миграция 368). Сохранить такую воронку можно только вместе с аккаунтом.
+    channel_id: Optional[int] = None
     name: str
     trigger_kind: str = "comment"
     media_scope: str = "any"
@@ -65,6 +67,8 @@ def _validate(data: FunnelIn) -> None:
         raise HTTPException(400, "Неизвестный способ выдачи")
     if data.match_mode not in ("contains", "exact"):
         raise HTTPException(400, "Неизвестный режим сравнения слова")
+    if not data.channel_id:
+        raise HTTPException(400, "Выберите аккаунт Instagram")
     if (data.lead_magnet_id is None) == (data.package_id is None):
         raise HTTPException(400, "Выберите ровно одно: лид-магнит или пакет")
 
