@@ -41,6 +41,7 @@ class FunnelIn(BaseModel):
     media_ids: list[str] = []
     keyword_mode: str = "any"
     keywords: list[str] = []
+    match_mode: str = "contains"
     lead_magnet_id: Optional[int] = None
     package_id: Optional[int] = None
     delivery_mode: str = "direct"
@@ -62,6 +63,8 @@ def _validate(data: FunnelIn) -> None:
         raise HTTPException(400, "Неизвестный триггер")
     if data.delivery_mode not in ("direct", "telegram"):
         raise HTTPException(400, "Неизвестный способ выдачи")
+    if data.match_mode not in ("contains", "exact"):
+        raise HTTPException(400, "Неизвестный режим сравнения слова")
     if (data.lead_magnet_id is None) == (data.package_id is None):
         raise HTTPException(400, "Выберите ровно одно: лид-магнит или пакет")
 
@@ -192,8 +195,8 @@ async def create_funnel(data: FunnelIn, client=Depends(get_current_client), db=D
                  (client_id, channel_id, name, trigger_kind, media_scope, media_ids,
                   keyword_mode, keywords, lead_magnet_id, package_id, delivery_mode,
                   require_subscription, public_reply_enabled, reminder_enabled,
-                  reminder_delay_min, is_active)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                  reminder_delay_min, is_active, match_mode)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
                RETURNING id""",
             client_id, data.channel_id, data.name.strip() or "Воронка",
             data.trigger_kind, data.media_scope, data.media_ids,
@@ -201,6 +204,7 @@ async def create_funnel(data: FunnelIn, client=Depends(get_current_client), db=D
             data.lead_magnet_id, data.package_id, data.delivery_mode,
             data.require_subscription, data.public_reply_enabled,
             data.reminder_enabled, data.reminder_delay_min, data.is_active,
+            data.match_mode,
         )
         await _save_replies(db, fid, data.replies)
     return {"id": fid}
@@ -226,7 +230,8 @@ async def update_funnel(funnel_id: int, data: FunnelIn,
                  channel_id=$2, name=$3, trigger_kind=$4, media_scope=$5, media_ids=$6,
                  keyword_mode=$7, keywords=$8, lead_magnet_id=$9, package_id=$10,
                  delivery_mode=$11, require_subscription=$12, public_reply_enabled=$13,
-                 reminder_enabled=$14, reminder_delay_min=$15, is_active=$16, updated_at=now()
+                 reminder_enabled=$14, reminder_delay_min=$15, is_active=$16,
+                 match_mode=$17, updated_at=now()
                WHERE id=$1""",
             funnel_id, data.channel_id, data.name.strip() or "Воронка",
             data.trigger_kind, data.media_scope, data.media_ids,
@@ -234,6 +239,7 @@ async def update_funnel(funnel_id: int, data: FunnelIn,
             data.lead_magnet_id, data.package_id, data.delivery_mode,
             data.require_subscription, data.public_reply_enabled,
             data.reminder_enabled, data.reminder_delay_min, data.is_active,
+            data.match_mode,
         )
         await _save_replies(db, funnel_id, data.replies)
     return {"ok": True}

@@ -97,14 +97,27 @@ def _norm(s: str) -> str:
     return re.sub(r"[^\w\s]", " ", (s or "").lower(), flags=re.UNICODE).strip()
 
 
-def _keyword_hit(text: str, keywords: list[str]) -> bool:
+def _keyword_hit(text: str, keywords: list[str], mode: str = "contains") -> bool:
     """Есть ли кодовое слово в тексте.
 
-    ⚠️ Ищем по ВХОЖДЕНИЮ слова, а не по совпадению всего комментария: люди
-    пишут «хочу!!», «Хочу гайд», «хочу 🙏» — требовать точного равенства
-    значило бы терять почти всех.
+    ⚠️ РЕГИСТР НЕ УЧИТЫВАЕТСЯ ВСЕГДА (`_norm` приводит к нижнему) — «ХОЧУ»,
+    «Хочу» и «хочу» одно и то же. Отдельной настройки для этого нет: выбор
+    «учитывать ли регистр» только запутал бы, полезного применения у него нет.
+
+    Два режима сравнения:
+
+    `contains` (по умолчанию) — слово где-то внутри комментария. Люди пишут
+    «хочу!!», «Хочу гайд», «хочу 🙏»: требовать точного равенства значило бы
+    терять почти всех.
+
+    `exact` — комментарий целиком равен слову. Нужен, когда слово короткое и
+    встречается в чужом смысле: «хочу» есть и в «не хочу», и в «хочу спросить
+    совсем про другое».
     """
-    hay = f" {_norm(text)} "
+    t = _norm(text)
+    if mode == "exact":
+        return any(_norm(kw) and _norm(kw) == t for kw in keywords)
+    hay = f" {t} "
     for kw in keywords:
         k = _norm(kw)
         if k and (f" {k} " in hay or k in hay):
@@ -132,7 +145,7 @@ async def find_funnel(db, channel_id: int, *, trigger_kind: str,
             if not media_id or media_id not in (f["media_ids"] or []):
                 continue
         if f["keyword_mode"] == "specific":
-            if not _keyword_hit(text, f["keywords"] or []):
+            if not _keyword_hit(text, f["keywords"] or [], f.get("match_mode") or "contains"):
                 continue
         return f
     return None

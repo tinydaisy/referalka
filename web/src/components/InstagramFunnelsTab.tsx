@@ -8,7 +8,7 @@
  * План и решения — documentation/INSTAGRAM-FUNNEL-PLAN.md
  */
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, Pencil, Instagram, AlertTriangle, X, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Pencil, Instagram, AlertTriangle, X, Loader2, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Funnel {
@@ -245,6 +245,7 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
     media_ids: [],
     keyword_mode: 'specific',
     keywords: [''],
+    match_mode: 'contains',
     lead_magnet_id: null,
     package_id: null,
     delivery_mode: 'direct',
@@ -391,7 +392,15 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
                           className={`relative rounded-lg overflow-hidden border-2 ${on ? 'border-[#25455D]' : 'border-transparent'}`}>
                           <img src={m.thumbnail_url || m.media_url} alt=""
                                className="w-full aspect-square object-cover" />
-                          {on && <div className="absolute inset-0 bg-[#25455D]/20" />}
+                          {/* ⚠️ Галочка обязательна: по одной рамке не видно,
+                              что выбрано — особенно на тёмных обложках. */}
+                          {on && <>
+                            <div className="absolute inset-0 bg-[#25455D]/30" />
+                            <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-[#25455D]
+                                             flex items-center justify-center shadow">
+                              <Check size={12} className="text-white" strokeWidth={3} />
+                            </span>
+                          </>}
                         </button>
                       )
                     })}
@@ -413,6 +422,19 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
               </div>
             )}
             {f.keyword_mode === 'specific' && (
+              <>
+              <div className="flex gap-2 mb-2">
+                {[['contains', 'Содержит слово'], ['exact', 'Точная фраза']].map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => set('match_mode', v)}
+                    className={`px-3 py-1.5 text-xs rounded-lg border ${(f.match_mode || 'contains') === v
+                      ? 'border-[#25455D] bg-[#25455D] text-white' : 'border-gray-200 text-gray-600'}`}>{l}</button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mb-2">
+                {(f.match_mode || 'contains') === 'contains'
+                  ? 'Сработает, если слово есть где-то в комментарии: «хочу», «Хочу гайд», «хочу 🙏». Регистр не важен.'
+                  : 'Сработает, только если комментарий равен слову целиком. Нужно, когда слово короткое и встречается в другом смысле — «не хочу», «хочу спросить про другое».'}
+              </p>
               <div className="space-y-1.5">
                 {(f.keywords || ['']).map((k: string, i: number) => (
                   <div key={i} className="flex gap-2">
@@ -426,6 +448,7 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
                 <button type="button" onClick={() => set('keywords', [...(f.keywords || []), ''])}
                   className="text-xs text-[#25455D] hover:underline">+ добавить слово</button>
               </div>
+              </>
             )}
           </div>
 
