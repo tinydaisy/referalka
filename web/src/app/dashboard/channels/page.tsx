@@ -8,7 +8,6 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
-import AutoSetupTab from '@/components/channels/AutoSetupTab'
 import QrLinkButton from '@/components/QrLinkButton'
 import LockedOverlay from '@/components/LockedOverlay'
 
@@ -101,7 +100,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 export default function ChannelsPage() {
-  const [tab, setTab] = useState<'bots' | 'chats' | 'autosetup'>('bots')
+  const [tab, setTab] = useState<'bots' | 'chats'>('bots')
   const [me, setMe] = useState<Me | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
@@ -180,7 +179,6 @@ export default function ChannelsPage() {
 
   const isVip = (me?.features || []).includes('channels')
   // Автонастройка «под ключ» — пока только у владельца платформы (фича admin).
-  const hasAutoSetup = (me?.features || []).includes('tg_autosetup')
   // Системный сервисный аккаунт ПЛЮСОНа (client 3): для него системный @pluson_bot
   // (и системные VK/MAX) — это фактически ЕГО собственные боты. Поэтому апсейл
   // «подключите свой бот» и красный баннер ему не показываем.
@@ -242,14 +240,8 @@ export default function ChannelsPage() {
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
         <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
-        {hasAutoSetup && (
-          <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
-            Автонастройка
-          </TabBtn>
-        )}
       </div>
 
-      {tab === 'autosetup' && <AutoSetupTab />}
 
       {tab === 'bots' && (
         !isVip ? (
