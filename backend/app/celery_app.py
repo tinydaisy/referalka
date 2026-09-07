@@ -11,6 +11,7 @@ celery = Celery(
         "app.tasks.webinar_chunks", "app.tasks.webinar_stuck", "app.tasks.webinar_cut",
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check", "app.tasks.calls",
         "app.tasks.instagram",
+        "app.tasks.product_access_expiry",
         "app.tasks.tg_setup"]
 )
 
@@ -74,6 +75,20 @@ celery.conf.update(
             "task": "app.tasks.webinar_stuck.close_stuck_sessions",
             "schedule": 600.0,
         },
+        # Раз в минуту — забираем комментарии Instagram САМИ.
+        #
+        # ⚠️⚠️ ВРЕМЕННО, вместо вебхуков: Meta шлёт их только опубликованному
+        # приложению, а для поля `comments` требует Advanced Access — это
+        # App Review длиной в недели. Запросы к API работают уже сейчас,
+        # поэтому до одобрения опрашиваем. После одобрения — убрать отсюда и
+        # вернуться на вебхуки (они мгновенные и не тратят лимит запросов).
+        #
+        # ⚠️ Раз в минуту, а не чаще: человек ждёт ответа на комментарий, но
+        # каждый заход — это запрос на каждую отслеживаемую публикацию.
+        "poll-instagram-comments": {
+            "task": "app.tasks.instagram.poll_comments",
+            "schedule": 60.0,
+        },
         # Раз в сутки — продление токенов Instagram.
         # ⚠️⚠️ Токен живёт 60 дней. Без этой задачи воронка через два месяца
         # молча перестаёт отвечать людям: не ломается заметно, а просто
@@ -104,6 +119,13 @@ celery.conf.update(
         # (Конференции, Премии/Турниры, Коллабораторная). Миграция 276.
         "notify-expiring-addons": {
             "task": "app.tasks.addon_expiry.notify_expiring_addons",
+            "schedule": 3600.0,
+        },
+        # Раз в час — письмо покупателю за 3 дня до окончания доступа к
+        # продукту (миграция 369). Иначе доступ пропадает молча, и человек
+        # читает это как поломку кабинета.
+        "notify-expiring-product-access": {
+            "task": "app.tasks.product_access_expiry.notify_expiring_access",
             "schedule": 3600.0,
         },
         # Раз в час — не увели ли бота клиента в сторонний сервис. Чужой

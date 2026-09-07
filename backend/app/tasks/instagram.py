@@ -55,6 +55,154 @@ def send_reminder(run_id: int):
         return False
 
 
+@celery.task(name="app.tasks.instagram.poll_comments")
+def poll_comments():
+    """Забрать свежие комментарии САМИ — временная замена вебхукам.
+
+    ⚠️⚠️ ЗАЧЕМ ЭТО ЕСТЬ. Meta шлёт вебхуки о комментариях только
+    ОПУБЛИКОВАННОМУ приложению, а для поля `comments` требует ещё и Advanced
+    Access, то есть App Review длиной в недели. Проверено 2026-09-07: подписки
+    настроены, права выданы, комментарии читаются запросом — а событий нет ни
+    одного. Запросы к API при этом работают уже сейчас, поэтому до одобрения
+    забираем комментарии опросом.
+
+    ⚠️ ВРЕМЕННЫЙ режим. После одобрения Meta выключить (убрать из beat) и
+    вернуться на вебхуки: они мгновенные и не тратят лимит запросов. Движок,
+    тексты и выдача общие — меняется только источник события.
+    """
+    async def _go():
+        import json
+        from ..services import instagram_api as ig
+        from ..services import instagram_funnel as funnel
+
+        conn = await asyncpg.connect(settings.database_url)
+        seen_new = handled = 0
+        try:
+            # Опрашиваем только каналы, у которых есть ЧТО опрашивать: без
+            # активной воронки поход в Meta бессмыслен и тратит лимит.
+            channels = await conn.fetch(
+                """SELECT DISTINCT ch.id, ch.bot_token, ch.platform_meta, ch.ig_polled_at
+                     FROM channels ch
+                     JOIN instagram_funnels f
+                       ON f.channel_id = ch.id AND f.is_active
+                                        AND f.trigger_kind = 'comment'
+                    WHERE ch.platform_slug = 'instagram'
+                      AND COALESCE(ch.bot_token, '') <> ''"""
+            )
+            for ch in channels:
+                meta = ch["platform_meta"] or {}
+                if isinstance(meta, str):
+                    meta = json.loads(meta)
+                ig_user_id = str(meta.get("ig_user_id") or "")
+                if not ig_user_id:
+                    continue
+                token = ch["bot_token"]
+
+                # Какие публикации смотреть: если все воронки канала настроены
+                # на конкретные рилсы — только их, иначе последние из ленты.
+                #
+                # ⚠️ Лента ограничена намеренно: комментарии под старыми
+                # публикациями воронку не запускают, а каждый лишний рилс —
+                # это лишний запрос к Meta каждую минуту.
+                rows = await conn.fetch(
+                    """SELECT media_scope, media_ids FROM instagram_funnels
+                        WHERE channel_id=$1 AND is_active AND trigger_kind='comment'""",
+                    ch["id"],
+                )
+                media_ids: list[str] = []
+                need_recent = False
+                for r in rows:
+                    if r["media_scope"] == "specific":
+                        media_ids.extend(r["media_ids"] or [])
+                    else:
+                        need_recent = True
+                if need_recent:
+                    try:
+                        for m in await ig.list_media(ig_user_id, token, limit=10):
+                            media_ids.append(str(m.get("id")))
+                    except Exception as e:
+                        log.warning("Instagram опрос: список публикаций канала %s — %s", ch["id"], e)
+
+                for media_id in dict.fromkeys(media_ids):  # без повторов, порядок сохранён
+                    try:
+                        data = await ig.graph_get(
+                            f"{media_id}/comments",
+                            token=token,
+                            params={"fields": "id,text,from,timestamp", "limit": 25},
+                        )
+                    except Exception as e:
+                        log.warning("Instagram опрос: комментарии %s — %s", media_id, e)
+                        continue
+
+                    for c in (data.get("data") or []):
+                        cid = str(c.get("id") or "")
+                        if not cid:
+                            continue
+                        frm = c.get("from") or {}
+                        sender = str(frm.get("id") or "")
+                        # ⚠️ Свои комментарии пропускаем: иначе ответ бота под
+                        # публикацией сам запустит воронку — бесконечный круг.
+                        if not sender or sender == ig_user_id:
+                            continue
+
+                        # ⚠️⚠️ Отметка ставится ДО обработки и по первичному
+                        # ключу: если задача упадёт на середине или Celery
+                        # выполнит её повторно, человек не получит материал
+                        # дважды. Цена — при сбое один комментарий останется
+                        # без ответа; это меньшее зло, чем сообщения по кругу.
+                        marked = await conn.fetchval(
+                            """INSERT INTO instagram_seen_comments (comment_id, channel_id, media_id)
+                                    VALUES ($1, $2, $3)
+                               ON CONFLICT (comment_id) DO NOTHING
+                                 RETURNING comment_id""",
+                            cid, ch["id"], str(media_id),
+                        )
+                        if not marked:
+                            continue  # уже видели
+                        seen_new += 1
+
+                        # ⚠️⚠️ ПЕРВЫЙ опрос канала НИЧЕГО НЕ ВЫДАЁТ, только
+                        # запоминает. Иначе всем, кто комментировал за месяцы
+                        # до подключения, разом улетит материал — от лица
+                        # клиента, без всякого повода с их стороны.
+                        if ch["ig_polled_at"] is None:
+                            continue
+
+                        try:
+                            await funnel.handle_comment(
+                                conn, ch["id"],
+                                comment_id=cid,
+                                media_id=str(media_id),
+                                text=c.get("text") or "",
+                                from_igsid=sender,
+                                from_username=frm.get("username") or "",
+                            )
+                            handled += 1
+                        except Exception:
+                            log.exception("Instagram опрос: обработка комментария %s сорвалась", cid)
+
+                await conn.execute(
+                    "UPDATE channels SET ig_polled_at = now() WHERE id = $1", ch["id"]
+                )
+
+            # ⚠️ Уборка: таблица растёт на каждый комментарий под
+            # отслеживаемыми публикациями, а нужна только чтобы не ответить
+            # дважды. Месяца с запасом хватает — столько один комментарий в
+            # ленте живым поводом не бывает.
+            await conn.execute(
+                "DELETE FROM instagram_seen_comments WHERE created_at < now() - interval '30 days'"
+            )
+        finally:
+            await conn.close()
+        return {"new": seen_new, "handled": handled}
+
+    try:
+        return _run(_go())
+    except Exception:
+        log.exception("Instagram: опрос комментариев сорвался")
+        return {"new": 0, "handled": 0}
+
+
 @celery.task(name="app.tasks.instagram.refresh_tokens")
 def refresh_tokens():
     """Продлить токены, которым осталось меньше 10 дней.
