@@ -321,8 +321,12 @@ export default function PublicLinks({
               className="px-4 rounded-lg text-white text-sm font-medium disabled:opacity-40 flex items-center gap-1.5"
               style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
             >
+              {/* ⚠️ «Применить», а не «Сохранить»: внизу той же страницы есть
+                  общая кнопка «Сохранить», и две одинаковые надписи читались
+                  как одно действие — клиент не понимал, какая из них сохраняет
+                  событие, а какая только код ссылки. */}
               <Save size={14} />
-              {saving ? 'Сохраняю…' : 'Сохранить'}
+              {saving ? 'Применяю…' : 'Применить'}
             </button>
           </div>
           {err && <p className="text-xs text-red-500 mt-2">{err}</p>}

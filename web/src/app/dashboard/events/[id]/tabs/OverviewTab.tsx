@@ -391,9 +391,12 @@ export default function OverviewTab({
       {/* Save bar — в самом низу страницы */}
       {err && <div className="text-sm text-red-600">{err}</div>}
       <div className="flex items-center gap-3">
+        {/* ⚠️ Золотая `.btn-gold` — главное действие экрана (правило проекта:
+            цвет живёт в CSS, а не в style каждой страницы). Была тёмной и
+            терялась рядом с «Применить» у кода ссылки: две тёмные кнопки
+            выглядели одинаково важными, хотя сохраняет событие только эта. */}
         <button onClick={handleSave} disabled={saving}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
-                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                className="btn-gold flex items-center gap-2 px-5 py-2 text-sm disabled:opacity-50">
           <Save size={16} />
           {saving ? 'Сохраняю…' : 'Сохранить'}
         </button>
