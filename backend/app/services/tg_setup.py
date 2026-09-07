@@ -122,16 +122,26 @@ class SetupAccount:
 
 
 def parse_proxy(url: str) -> Optional[dict]:
-    """socks5://логин:пароль@хост:порт → словарь для Telethon.
+    """socks5://логин:пароль@хост:порт → словарь прокси для Telethon.
 
-    ⚠️ Строка прокси у сервисов часто приходит с хвостом вида
-    «:Страна - Город[https://api...refresh-ip]» — его надо отрезать,
-    иначе порт не распарсится.
+    ⚠️⚠️ ТРЕБУЕТСЯ `python-socks`, а не PySocks. Telethon 1.43 берёт прокси
+    через python-socks, и `proxy_type` там — СТРОКА («socks5»), а не константа
+    PySocks. Если python-socks не установлен, Telethon пишет в лог
+    «proxy argument will be ignored» и идёт НАПРЯМУЮ — молча, без ошибки.
+    Поймано на проде 07.09.2026: узбекский номер подключался с российского
+    IP, то есть ровно то, за что Telegram блокирует аккаунты.
+
+    ⚠️ Строку он принимает только как словарь или кортеж — голый URL даёт
+    «Proxy of unknown format: <class 'str'>» (тоже проверено).
+
+    ⚠️ Строка прокси у сервисов приходит с человекочитаемым хвостом вида
+    «:Страна - Город[https://api...refresh-ip]» — его надо отрезать, иначе
+    порт не распарсится.
     """
     s = (url or "").strip()
     if not s:
         return None
-    # Отрезаем человекочитаемый хвост после порта.
+    # Отрезаем всё после порта: и «[…refresh-ip]», и «:Страна - Город».
     s = re.split(r"\[", s)[0]
     m = re.match(
         r"^(?P<scheme>socks5|socks4|http)://"
@@ -141,12 +151,9 @@ def parse_proxy(url: str) -> Optional[dict]:
     )
     if not m:
         return None
-    import socks  # PySocks, ставится вместе с telethon[socks]
-
-    kinds = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
     d = m.groupdict()
     out = {
-        "proxy_type": kinds[d["scheme"]],
+        "proxy_type": d["scheme"],   # именно строкой — так ждёт python-socks
         "addr": d["host"],
         "port": int(d["port"]),
         "rdns": True,

@@ -619,7 +619,11 @@ async def _health_check():
                 """UPDATE tg_setup_accounts
                       SET health=$2, health_note=$3, health_checked_at=NOW(),
                           username=COALESCE(NULLIF($4,''), username),
-                          tg_user_id=COALESCE(NULLIF($5,0), tg_user_id),
+                          -- ⚠️ ::bigint ОБЯЗАТЕЛЕН: без него asyncpg выводит тип
+                          -- литерала 0 как int32, а Telegram id давно длиннее
+                          -- (8741578822 > 2^31) — запрос падает «value out of
+                          -- int32 range». Поймано на живом аккаунте 07.09.2026.
+                          tg_user_id=COALESCE(NULLIF($5::bigint, 0::bigint), tg_user_id),
                           updated_at=NOW()
                     WHERE id=$1""",
                 row["id"], health.state, health.note,

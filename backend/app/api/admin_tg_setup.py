@@ -192,7 +192,10 @@ async def check_account(account_id: int,
         """UPDATE tg_setup_accounts
               SET health=$2, health_note=$3, health_checked_at=NOW(),
                   username=COALESCE(NULLIF($4,''), username),
-                  tg_user_id=COALESCE(NULLIF($5,0), tg_user_id), updated_at=NOW()
+                  -- ⚠️ ::bigint ОБЯЗАТЕЛЕН — см. пояснение в tasks/tg_setup.py:
+                  -- без него asyncpg считает 0 за int32, а Telegram id длиннее.
+                  tg_user_id=COALESCE(NULLIF($5::bigint, 0::bigint), tg_user_id),
+                  updated_at=NOW()
             WHERE id=$1""",
         account_id, health.state, health.note, health.username, health.tg_user_id,
     )
