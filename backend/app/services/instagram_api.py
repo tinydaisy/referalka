@@ -502,11 +502,28 @@ async def subscribe_page(page_id: str, page_token: str) -> dict[str, Any]:
     ⚠️ Без этого Meta не пришлёт НИЧЕГО: приложение подписано на события, но
     конкретная страница — нет. Ошибка молчаливая: воронка просто не срабатывает.
     """
-    return await graph_post(
-        f"{page_id}/subscribed_apps",
-        token=page_token,
-        data={"subscribed_fields": "comments,messages,message_reactions"},
-    )
+    # ⚠️⚠️ Имена полей проверены ЖИВЫМ запросом 2026-09-07, документации тут
+    # верить нельзя: она называет поле `comments`, но Meta его отвергает
+    # («must be one of {feed, mention, …}») — для СТРАНИЦЫ комментарии
+    # Instagram приходят через `feed`.
+    #
+    # ⚠️ `messages` требует отдельного разрешения `pages_messaging`. Если его
+    # нет, подписка падает ЦЕЛИКОМ и не подписывается даже на комментарии.
+    # Поэтому подписываемся по одному полю: комментарии — основа воронки, и
+    # терять их из-за недостающего разрешения на директ нельзя.
+    results: dict[str, Any] = {}
+    for field in ("feed", "messages"):
+        try:
+            await graph_post(
+                f"{page_id}/subscribed_apps",
+                token=page_token,
+                data={"subscribed_fields": field},
+            )
+            results[field] = True
+        except InstagramApiError as e:
+            logger.warning("subscribe_page(%s): поле %s — %s", page_id, field, e)
+            results[field] = False
+    return results
 
 
 async def refresh_long_lived(token: str) -> tuple[str, int]:

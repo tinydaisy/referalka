@@ -85,6 +85,11 @@ async def _process(payload: dict) -> None:
     """Разобрать событие и передать в движок воронки."""
     from ..services import instagram_funnel as funnel
 
+    # ⚠️ Сырое событие в лог: имена полей у Meta различаются между способами
+    # подписки и меняются со временем. Без записи разбирать пришлось бы
+    # вслепую, гоняя человека писать комментарии по десять раз.
+    log.info("Instagram webhook: %s", json.dumps(payload, ensure_ascii=False)[:1200])
+
     pool = await get_pool()
     async with pool.acquire() as db:
         for entry in (payload.get("entry") or []):
@@ -104,10 +109,20 @@ async def _process(payload: dict) -> None:
             channel_id = ch["id"]
 
             # Комментарии
+            #
+            # ⚠️⚠️ Поле называется по-РАЗНОМУ в зависимости от того, как
+            # подписана страница: документация Meta говорит `comments`, но при
+            # подписке страницы Facebook принимается только `feed` — проверено
+            # живым запросом 2026-09-07. Принимаем оба: имена у Meta меняются,
+            # а пропущенное событие выглядит как «воронка не работает».
             for ch_item in (entry.get("changes") or []):
-                if ch_item.get("field") != "comments":
+                if ch_item.get("field") not in ("comments", "feed"):
                     continue
                 v = ch_item.get("value") or {}
+                # ⚠️ В `feed` приходят ВСЕ события ленты — публикации, лайки,
+                # реакции. Нам нужны только комментарии.
+                if ch_item.get("field") == "feed" and v.get("item") not in (None, "comment"):
+                    continue
                 frm = v.get("from") or {}
                 sender = str(frm.get("id") or "")
                 # ⚠️ Свои же комментарии пропускаем: иначе ответ бота под
@@ -115,15 +130,19 @@ async def _process(payload: dict) -> None:
                 # самих себя — бесконечный круг.
                 if not sender or sender == ig_user_id:
                     continue
-                media = (v.get("media") or {}).get("id") or ""
+                # ⚠️ Поля различаются: в `comments` публикация лежит в
+                # media.id и текст в text; в `feed` — post_id и message.
+                media = (v.get("media") or {}).get("id") or v.get("post_id") or v.get("media_id") or ""
+                comment_id = str(v.get("comment_id") or v.get("id") or "")
+                text = v.get("text") or v.get("message") or ""
                 try:
                     await funnel.handle_comment(
                         db, channel_id,
-                        comment_id=str(v.get("id") or ""),
+                        comment_id=comment_id,
                         media_id=str(media),
-                        text=v.get("text") or "",
+                        text=text,
                         from_igsid=sender,
-                        from_username=frm.get("username") or "",
+                        from_username=frm.get("username") or frm.get("name") or "",
                     )
                 except Exception:
                     log.exception("Instagram: обработка комментария сорвалась")
