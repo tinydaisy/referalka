@@ -65,6 +65,18 @@ class Settings(BaseSettings):
     wa_bridge_url: str = "http://127.0.0.1:8790"
     wa_bridge_token: str = ""  # общий секрет с мостом (заголовок X-Bridge-Token)
 
+    # Автонастройка Telegram «под ключ» (услуга): работа от лица живого
+    # аккаунта через Telethon — только так можно говорить с @BotFather.
+    # ⚠️ Это ключи ПРИЛОЖЕНИЯ Telegram (my.telegram.org), общие на все
+    # сервисные аккаунты. Телефон, пароль двухфакторки и прокси у каждого
+    # аккаунта свои и лежат в таблице tg_setup_accounts (их правит админ
+    # в панели, а не в конфиге — аккаунты меняются, конфиг ради этого
+    # перевыпускать не надо).
+    tg_setup_api_id: int = 0
+    tg_setup_api_hash: str = ""
+    # Куда класть файлы сессий Telethon на сервере.
+    tg_setup_sessions_dir: str = "/var/lib/plusson/tg_sessions"
+
     # Media-сервер вебинарных комнат (MediaMTX, RTMP→HLS, отдельный процесс).
     # RTMP-адрес клиенту: rtmp://{webinar_rtmp_host}/live/{stream_key}
     # HLS зрителю:        https://{домен}/hls/{stream_key}/index.m3u8

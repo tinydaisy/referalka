@@ -1,0 +1,628 @@
+"""Автонастройка Telegram «под ключ» — работа от лица живого аккаунта.
+
+ЗАЧЕМ ЭТОТ ФАЙЛ.
+Клиент оплачивает услугу, и вместо получасовой переписки с поддержкой всё
+делается само: создаётся бот, к нему привязывается Mini App, заводится
+закрытая группа уведомлений, туда добавляется бот, а клиенту передаются права.
+
+⚠️ ПОЧЕМУ ЗДЕСЬ TELETHON, А НЕ BOT API.
+Bot API не умеет ничего из перечисленного: ботов создаёт только @BotFather в
+переписке, и говорить с ним может лишь живой аккаунт-человек (MTProto).
+Поэтому здесь Telethon и файл сессии, а не токен.
+
+⚠️ ПОЧЕМУ КОД ЖИВЁТ В ПЛЮСОНЕ, А НЕ В МЕЙЛЕРЕ.
+У мейлера нет машинного API (только веб-кабинет со входом по паролю), и он
+стоит на другом сервере. Связь между двумя серверами была бы лишней точкой
+отказа, а очередь и заказы всё равно живут в базе ПЛЮСОНа.
+
+⚠️ ОДНА СЕССИЯ — ОДИН СЕРВЕР.
+Файл сессии Telethon нельзя использовать с двух машин одновременно: Telegram
+ломает ключ авторизации (`AuthKeyDuplicatedError`), и аккаунт приходится
+логинить заново. Поэтому аккаунт, отданный сюда, обязан быть выведен из мейлера.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+log = logging.getLogger(__name__)
+
+BOTFATHER = "BotFather"
+SPAMBOT = "SpamBot"
+
+# Сколько ждём ответ BotFather. Он отвечает быстро, но под нагрузкой бывает
+# задержка; лучше подождать лишнюю секунду, чем принять молчание за отказ.
+REPLY_WAIT_SEC = 7
+REPLY_POLL_SEC = 0.7
+
+# Куда ведёт Mini App клиента. Адрес всегда на pluson.ru — он вбивается
+# в BotFather намертво и на домен клиента не переезжает (см. CLAUDE.md,
+# раздел про свой домен клиента).
+MINIAPP_SHORT_NAME = "pluson"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Транслитерация — чтобы предложить клиенту ник бота из названия его бренда
+# ─────────────────────────────────────────────────────────────────────────
+_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+
+
+def translit(text: str) -> str:
+    """«Клуб МедиаЛифт» → «klub_medialift». Только латиница, цифры и _."""
+    out = []
+    for ch in (text or "").lower():
+        if ch in _TRANSLIT:
+            out.append(_TRANSLIT[ch])
+        elif ch.isalnum() and ch.isascii():
+            out.append(ch)
+        elif ch in " -_":
+            out.append("_")
+    slug = re.sub(r"_+", "_", "".join(out)).strip("_")
+    return slug
+
+
+def suggest_bot_usernames(brand: str, limit: int = 4) -> list[str]:
+    """Варианты ника бота из названия бренда.
+
+    ⚠️ Ник обязан заканчиваться на `bot` и укладываться в 5..32 символа —
+    это требование Telegram, иначе BotFather просто откажет.
+    """
+    base = translit(brand)[:24].strip("_")
+    if not base:
+        base = "pluson"
+    variants = [f"{base}_bot"]
+    for suffix in ("plus", "club", "team", "pro"):
+        v = f"{base}_{suffix}_bot"
+        if len(v) <= 32:
+            variants.append(v)
+    # Короткий запасной вариант — если база длинная, к ней ничего не приклеить.
+    short = base[:20].strip("_")
+    if short and f"{short}_bot" not in variants:
+        variants.append(f"{short}_bot")
+    return [v for v in variants if 5 <= len(v) <= 32][:limit]
+
+
+def validate_bot_username(username: str) -> Optional[str]:
+    """Проверка ника по правилам Telegram. Возвращает текст ошибки или None."""
+    u = (username or "").strip().lstrip("@")
+    if not u:
+        return "Введите имя бота"
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", u):
+        return ("Имя может состоять только из латинских букв, цифр и знака _, "
+                "начинаться с буквы и быть длиной от 5 до 32 символов")
+    if not u.lower().endswith("bot"):
+        return "Имя должно заканчиваться на «bot» — этого требует Telegram"
+    if "__" in u:
+        return "Два знака _ подряд Telegram не принимает"
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Подключение к аккаунту
+# ─────────────────────────────────────────────────────────────────────────
+@dataclass
+class SetupAccount:
+    """Аккаунт, от лица которого идёт настройка (строка tg_setup_accounts)."""
+    id: int
+    phone: str
+    twofa_password: str = ""
+    proxy: str = ""
+    session_path: str = ""
+    username: str = ""
+    tg_user_id: int = 0
+
+
+def parse_proxy(url: str) -> Optional[dict]:
+    """socks5://логин:пароль@хост:порт → словарь для Telethon.
+
+    ⚠️ Строка прокси у сервисов часто приходит с хвостом вида
+    «:Страна - Город[https://api...refresh-ip]» — его надо отрезать,
+    иначе порт не распарсится.
+    """
+    s = (url or "").strip()
+    if not s:
+        return None
+    # Отрезаем человекочитаемый хвост после порта.
+    s = re.split(r"\[", s)[0]
+    m = re.match(
+        r"^(?P<scheme>socks5|socks4|http)://"
+        r"(?:(?P<user>[^:@]+):(?P<password>[^@]*)@)?"
+        r"(?P<host>[^:/]+):(?P<port>\d+)",
+        s,
+    )
+    if not m:
+        return None
+    import socks  # PySocks, ставится вместе с telethon[socks]
+
+    kinds = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
+    d = m.groupdict()
+    out = {
+        "proxy_type": kinds[d["scheme"]],
+        "addr": d["host"],
+        "port": int(d["port"]),
+        "rdns": True,
+    }
+    if d.get("user"):
+        out["username"] = d["user"]
+        out["password"] = d.get("password") or ""
+    return out
+
+
+async def connect(acc: SetupAccount):
+    """Поднимает клиент Telethon для аккаунта. Возвращает подключённый клиент.
+
+    Бросает RuntimeError с текстом по-русски, если сессия мертва — этот текст
+    уходит владельцу платформы в админку, а не клиенту.
+    """
+    from telethon import TelegramClient
+
+    from app.config import settings
+
+    api_id = int(getattr(settings, "tg_setup_api_id", 0) or 0)
+    api_hash = getattr(settings, "tg_setup_api_hash", "") or ""
+    if not api_id or not api_hash:
+        raise RuntimeError(
+            "Не заданы TG_SETUP_API_ID / TG_SETUP_API_HASH в настройках сервера"
+        )
+
+    session = acc.session_path or ""
+    if session.endswith(".session"):
+        session = session[: -len(".session")]
+    if not session:
+        raise RuntimeError(f"У аккаунта {acc.phone} не указан файл сессии")
+    if not Path(session + ".session").exists():
+        raise RuntimeError(f"Файл сессии не найден: {session}.session")
+
+    client = TelegramClient(
+        session, api_id, api_hash,
+        proxy=parse_proxy(acc.proxy),
+        # ⚠️ catch_up=False — не догонять пропущенные апдейты за оффлайн.
+        # Иначе Telethon может залипнуть на разборе истории вместо работы.
+        catch_up=False,
+    )
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        raise RuntimeError(
+            f"Сессия аккаунта {acc.phone} мертва — нужен повторный вход по SMS"
+        )
+    return client
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Разговор с BotFather
+# ─────────────────────────────────────────────────────────────────────────
+async def _ask(client, peer: str, text: str, wait: float = REPLY_WAIT_SEC) -> str:
+    """Пишет собеседнику и ждёт НОВЫЙ ответ.
+
+    ⚠️ Ждём именно новое сообщение, а не «последнее в диалоге»: если просто
+    поспать и прочитать последнее, можно принять прошлый ответ за свежий и
+    пойти по ветке дальше с чужим текстом. Поэтому запоминаем id до отправки.
+    """
+    before = await client.get_messages(peer, limit=1)
+    last_id = before[0].id if before else 0
+
+    await client.send_message(peer, text)
+
+    waited = 0.0
+    while waited < wait:
+        await asyncio.sleep(REPLY_POLL_SEC)
+        waited += REPLY_POLL_SEC
+        msgs = await client.get_messages(peer, limit=1)
+        if msgs and msgs[0].id > last_id and not msgs[0].out:
+            return msgs[0].message or ""
+    return ""
+
+
+_TOKEN_RE = re.compile(r"\b(\d{6,12}:[A-Za-z0-9_-]{30,})")
+
+
+def extract_bot_token(text: str) -> Optional[str]:
+    """Достаёт токен из ответа BotFather «Use this token to access the HTTP API»."""
+    m = _TOKEN_RE.search(text or "")
+    return m.group(1) if m else None
+
+
+class BotFatherError(RuntimeError):
+    """Ошибка в разговоре с BotFather — с текстом, понятным человеку."""
+
+    def __init__(self, message: str, *, retryable: bool = False, raw: str = ""):
+        super().__init__(message)
+        self.retryable = retryable   # можно ли повторить с другим именем
+        self.raw = raw               # дословный ответ, для лога владельцу
+
+
+async def check_username_free(client, username: str) -> tuple[bool, str]:
+    """Свободен ли ник бота. Спрашиваем у BotFather ДО оплаты и до создания.
+
+    Возвращает (свободен, пояснение).
+
+    ⚠️ Проверка не даёт гарантии: между ней и созданием имя может занять
+    кто-то другой. Тогда клиент просто вводит другое — оплата не сгорает.
+    """
+    u = username.lstrip("@")
+    await _ask(client, BOTFATHER, "/cancel", wait=3)
+    r = await _ask(client, BOTFATHER, "/newbot")
+    low = r.lower()
+    if "cannot create new bots" in low or "too many attempts" in low:
+        # Аккаунт под спам-блоком либо упёрся в лимит — не вина клиента.
+        await _ask(client, BOTFATHER, "/cancel", wait=3)
+        return False, "__account_blocked__"
+
+    # BotFather просит сначала имя, потом ник.
+    await _ask(client, BOTFATHER, f"Check {u}")
+    r = await _ask(client, BOTFATHER, u, wait=8)
+    low = r.lower()
+
+    # Что бы ни ответил — начатое создание отменяем, бот нам сейчас не нужен.
+    free = False
+    note = r.strip()
+    if "already taken" in low or "is already in use" in low:
+        note = "Это имя уже занято — придумайте другое"
+    elif "invalid" in low or "must end in" in low:
+        note = "Telegram не принимает такое имя. Оно должно заканчиваться на «bot»"
+    elif extract_bot_token(r):
+        # Бот СОЗДАЛСЯ — значит имя было свободно. Немедленно удаляем:
+        # на этом шаге мы только проверяли.
+        free = True
+        note = "Имя свободно"
+        await _delete_bot(client, u)
+    else:
+        note = "Не удалось проверить имя — попробуйте ещё раз"
+
+    await _ask(client, BOTFATHER, "/cancel", wait=3)
+    return free, note
+
+
+async def _delete_bot(client, username: str) -> bool:
+    """Удаляет бота через BotFather. Возвращает, получилось ли."""
+    u = username.lstrip("@")
+    await _ask(client, BOTFATHER, "/cancel", wait=3)
+    await _ask(client, BOTFATHER, "/deletebot")
+    await _ask(client, BOTFATHER, f"@{u}")
+    r = await _ask(client, BOTFATHER, "Yes, I am totally sure.", wait=8)
+    return "gone" in (r or "").lower()
+
+
+async def create_bot(client, username: str, title: str) -> str:
+    """Создаёт бота и возвращает его токен.
+
+    ⚠️ Порядок шагов задаёт сам BotFather: /newbot → отображаемое имя → ник.
+    Менять местами нельзя, он не поймёт.
+    """
+    u = username.lstrip("@")
+    await _ask(client, BOTFATHER, "/cancel", wait=3)
+
+    r = await _ask(client, BOTFATHER, "/newbot")
+    low = r.lower()
+    if "cannot create new bots" in low:
+        raise BotFatherError(
+            "Сервисный аккаунт временно не может создавать ботов",
+            retryable=False, raw=r,
+        )
+    if "how are we going to call it" not in low and "choose a name" not in low:
+        raise BotFatherError(
+            "Telegram не ответил на запрос создания бота",
+            retryable=True, raw=r,
+        )
+
+    await _ask(client, BOTFATHER, title[:64])
+    r = await _ask(client, BOTFATHER, u, wait=10)
+    token = extract_bot_token(r)
+    if token:
+        return token
+
+    low = r.lower()
+    if "already taken" in low or "is already in use" in low:
+        raise BotFatherError(
+            "Пока мы дошли до вашей очереди, это имя заняли. "
+            "Выберите другое — платить повторно не нужно",
+            retryable=True, raw=r,
+        )
+    raise BotFatherError(
+        "Не удалось создать бота. Попробуйте другое имя",
+        retryable=True, raw=r,
+    )
+
+
+async def link_mini_app(client, bot_username: str, url: str, title: str) -> bool:
+    """Привязывает Mini App к боту (/newapp).
+
+    ⚠️ BotFather требует картинку 640x360 и (иногда) GIF-демо. На вопрос про
+    картинку отвечаем ссылкой на наш логотип, на GIF — /empty.
+    Если что-то пошло не так — не роняем всю настройку: бот уже создан и
+    полезен сам по себе, Mini App клиент сможет привязать позже.
+    """
+    u = bot_username.lstrip("@")
+    try:
+        await _ask(client, BOTFATHER, "/cancel", wait=3)
+        r = await _ask(client, BOTFATHER, "/newapp")
+        if "choose a bot" not in (r or "").lower():
+            return False
+        await _ask(client, BOTFATHER, f"@{u}")
+        await _ask(client, BOTFATHER, title[:32])              # название приложения
+        await _ask(client, BOTFATHER, title[:64])              # короткое описание
+        # Картинка 640x360 — обязательна.
+        from app.config import settings
+        base = (getattr(settings, "frontend_url", "") or "https://pluson.ru").rstrip("/")
+        await _ask(client, BOTFATHER, f"{base}/miniapp-cover.png", wait=10)
+        await _ask(client, BOTFATHER, "/empty", wait=6)        # GIF-демо не нужно
+        await _ask(client, BOTFATHER, url, wait=8)             # адрес приложения
+        r = await _ask(client, BOTFATHER, MINIAPP_SHORT_NAME, wait=10)
+        return "success" in (r or "").lower() or "t.me/" in (r or "")
+    except Exception as e:  # noqa: BLE001 — шаг необязательный
+        log.warning("mini app link failed for @%s: %s", u, e)
+        return False
+
+
+async def transfer_bot(client, bot_username: str, to_username: str,
+                       twofa_password: str) -> bool:
+    """Передаёт бота новому владельцу по его @нику.
+
+    ⚠️ ТРИ УСЛОВИЯ TELEGRAM, без которых передача невозможна:
+      1) у нашего аккаунта включена двухфакторка, и включена ≥7 дней назад;
+      2) получатель уже написал этому боту (иначе его нельзя выбрать);
+      3) подтверждение — облачным паролем нашего аккаунта.
+    """
+    u = bot_username.lstrip("@")
+    to = to_username.lstrip("@")
+
+    await _ask(client, BOTFATHER, "/cancel", wait=3)
+    r = await _ask(client, BOTFATHER, "/mybots")
+    if "no bots" in (r or "").lower():
+        raise BotFatherError("Бот не найден на сервисном аккаунте", raw=r)
+
+    # Дальше BotFather работает кнопками, а не текстом: нажимаем их.
+    ok = await _click(client, BOTFATHER, f"@{u}")
+    if not ok:
+        raise BotFatherError("Не удалось открыть бота в BotFather")
+    if not await _click(client, BOTFATHER, "Transfer Ownership"):
+        # У кнопки бывает другое название в зависимости от версии.
+        if not await _click(client, BOTFATHER, "Transfer"):
+            raise BotFatherError("В BotFather нет кнопки передачи владения")
+    if not await _click(client, BOTFATHER, "Choose Recipient"):
+        await _click(client, BOTFATHER, "Choose recipient")
+
+    r = await _ask(client, BOTFATHER, f"@{to}", wait=10)
+    low = (r or "").lower()
+    if "hasn't messaged" in low or "must start" in low or "never" in low:
+        raise BotFatherError(
+            "Вы ещё не заходили в своего бота. Откройте его и нажмите «Запустить»",
+            retryable=True, raw=r,
+        )
+    if "password" in low or "2-step" in low or "two-step" in low:
+        r = await _ask(client, BOTFATHER, twofa_password, wait=10)
+        low = (r or "").lower()
+
+    if "success" in low or "transferred" in low or "now owned" in low:
+        return True
+    if "invalid password" in low or "wrong password" in low:
+        raise BotFatherError("Неверный пароль сервисного аккаунта", raw=r)
+    raise BotFatherError("Передача не подтвердилась", retryable=True, raw=r)
+
+
+async def _click(client, peer: str, button_text: str, wait: float = 5) -> bool:
+    """Нажимает кнопку под последним сообщением собеседника.
+
+    ⚠️ BotFather управляется кнопками, а не текстом: «Transfer Ownership»
+    отправленное сообщением он не поймёт.
+    """
+    msgs = await client.get_messages(peer, limit=1)
+    if not msgs:
+        return False
+    msg = msgs[0]
+    markup = getattr(msg, "reply_markup", None)
+    if not markup or not getattr(markup, "rows", None):
+        return False
+    needle = button_text.lower().lstrip("@")
+    for row in markup.rows:
+        for btn in row.buttons:
+            label = (getattr(btn, "text", "") or "").lower().lstrip("@")
+            if needle in label:
+                try:
+                    await msg.click(text=getattr(btn, "text", ""))
+                    await asyncio.sleep(wait)
+                    return True
+                except Exception as e:  # noqa: BLE001
+                    log.warning("botfather click '%s' failed: %s", button_text, e)
+                    return False
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Группа уведомлений
+# ─────────────────────────────────────────────────────────────────────────
+@dataclass
+class CreatedGroup:
+    chat_id: int
+    invite_link: str = ""
+    title: str = ""
+
+
+async def create_notifications_group(client, title: str, bot_username: str) -> CreatedGroup:
+    """Создаёт закрытую группу и добавляет туда бота полным админом.
+
+    ⚠️ megagroup=True — именно группа, а не канал. В канале нельзя переписываться,
+    а уведомления клиент читает и обсуждает с командой.
+
+    ⚠️ Бот обязан быть АДМИНОМ: без этого Telegram не присылает ему события
+    о вступлении участников, и мы не узнаем, что клиент вошёл.
+    """
+    from telethon.tl.functions.channels import (
+        CreateChannelRequest, EditAdminRequest, InviteToChannelRequest,
+    )
+    from telethon.tl.functions.messages import ExportChatInviteRequest
+    from telethon.tl.types import ChatAdminRights
+
+    res = await client(CreateChannelRequest(
+        title=title[:128],
+        about="Уведомления от платформы ПЛЮСОН",
+        megagroup=True,     # группа, не канал
+        broadcast=False,
+    ))
+    chat = res.chats[0]
+
+    bot = bot_username.lstrip("@")
+    await client(InviteToChannelRequest(channel=chat, users=[bot]))
+    await client(EditAdminRequest(
+        channel=chat, user_id=bot,
+        admin_rights=ChatAdminRights(
+            change_info=True, post_messages=True, edit_messages=True,
+            delete_messages=True, ban_users=True, invite_users=True,
+            pin_messages=True, add_admins=False, manage_call=False,
+            anonymous=False, other=True,
+        ),
+        rank="ПЛЮСОН",
+    ))
+
+    invite = ""
+    try:
+        exported = await client(ExportChatInviteRequest(peer=chat))
+        invite = getattr(exported, "link", "") or ""
+    except Exception as e:  # noqa: BLE001
+        log.warning("export invite failed: %s", e)
+
+    # ⚠️ id супергруппы в Bot API имеет вид -100XXXXXXXXXX, а Telethon отдаёт
+    # «голый» id. Приводим к тому виду, в котором его ждут наши боты.
+    raw_id = int(chat.id)
+    chat_id = raw_id if str(raw_id).startswith("-100") else int(f"-100{raw_id}")
+
+    return CreatedGroup(chat_id=chat_id, invite_link=invite, title=title)
+
+
+async def promote_in_group(client, chat_id: int, user_ref, *, full: bool = True) -> bool:
+    """Делает человека админом группы.
+
+    full=True даёт право назначать других админов — это и есть «передача
+    управления»: клиент дальше сам решает, кто в его группе главный.
+    """
+    from telethon.tl.functions.channels import EditAdminRequest
+    from telethon.tl.types import ChatAdminRights
+
+    try:
+        entity = await client.get_entity(chat_id)
+        await client(EditAdminRequest(
+            channel=entity, user_id=user_ref,
+            admin_rights=ChatAdminRights(
+                change_info=True, post_messages=True, edit_messages=True,
+                delete_messages=True, ban_users=True, invite_users=True,
+                pin_messages=True, add_admins=full, manage_call=True,
+                anonymous=False, other=True,
+            ),
+            rank="владелец",
+        ))
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("promote in %s failed: %s", chat_id, e)
+        return False
+
+
+async def invite_to_group(client, chat_id: int, username: str) -> tuple[bool, str]:
+    """Пробует добавить человека в группу по нику.
+
+    ⚠️ Часто НЕ получается: у большинства людей закрыты настройки приватности,
+    и Telegram запрещает добавлять их в чаты. Это не ошибка — тогда человек
+    вступает сам по ссылке-приглашению. Поэтому возвращаем причину, а не
+    бросаем исключение.
+    """
+    from telethon.tl.functions.channels import InviteToChannelRequest
+
+    try:
+        entity = await client.get_entity(chat_id)
+        await client(InviteToChannelRequest(channel=entity, users=[username.lstrip("@")]))
+        return True, ""
+    except Exception as e:  # noqa: BLE001
+        name = type(e).__name__
+        if "Privacy" in name or "privacy" in str(e).lower():
+            return False, "приватность"
+        return False, name
+
+
+async def leave_group(client, chat_id: int) -> bool:
+    """Выходит из группы — после того, как клиент стал в ней полным админом.
+
+    ⚠️ Зовётся ТОЛЬКО когда клиент уже админ с правом назначать админов.
+    Иначе группа осталась бы без управления вовсе.
+    """
+    try:
+        entity = await client.get_entity(chat_id)
+        await client.delete_dialog(entity)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("leave group %s failed: %s", chat_id, e)
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Здоровье аккаунта
+# ─────────────────────────────────────────────────────────────────────────
+@dataclass
+class Health:
+    state: str = "unknown"        # ok | limited | dead | unknown
+    note: str = ""
+    username: str = ""
+    tg_user_id: int = 0
+    bots_count: int = 0
+    extra: dict = field(default_factory=dict)
+
+
+async def check_health(acc: SetupAccount) -> Health:
+    """Спрашивает у @SpamBot, не ограничен ли аккаунт.
+
+    ⚠️ ЗАЧЕМ ЭТО ВООБЩЕ. Спам-блок Telegram запрещает не только писать людям,
+    но и СОЗДАВАТЬ БОТОВ: BotFather отвечает «Unfortunately, you cannot create
+    new bots at this time» (проверено на живых аккаунтах 07.09.2026).
+    Без такой проверки очередь молча падала бы на каждом клиенте.
+    """
+    out = Health()
+    try:
+        client = await connect(acc)
+    except Exception as e:  # noqa: BLE001
+        out.state = "dead"
+        out.note = str(e)
+        return out
+
+    try:
+        me = await client.get_me()
+        out.username = me.username or ""
+        out.tg_user_id = int(me.id)
+
+        r = await _ask(client, SPAMBOT, "/start", wait=8)
+        out.note = (r or "").strip()[:500]
+        low = out.note.lower()
+        if "no limits" in low or "free as a bird" in low:
+            out.state = "ok"
+        elif "limited" in low or "restricted" in low:
+            out.state = "limited"
+        else:
+            out.state = "unknown"
+
+        # Сколько ботов уже на аккаунте — по кнопкам в /mybots.
+        r = await _ask(client, BOTFATHER, "/mybots", wait=8)
+        if "no bots" in (r or "").lower():
+            out.bots_count = 0
+        else:
+            msgs = await client.get_messages(BOTFATHER, limit=1)
+            if msgs and getattr(msgs[0], "reply_markup", None):
+                count = 0
+                for row in (msgs[0].reply_markup.rows or []):
+                    for btn in row.buttons:
+                        if (getattr(btn, "text", "") or "").startswith("@"):
+                            count += 1
+                out.bots_count = count
+    except Exception as e:  # noqa: BLE001
+        out.state = "unknown"
+        out.note = f"{type(e).__name__}: {e}"
+    finally:
+        await client.disconnect()
+
+    return out

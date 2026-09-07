@@ -1,0 +1,445 @@
+"""Автонастройка Telegram — API кабинета клиента (миграция 364).
+
+Клиент вводит имя будущего бота, оплачивает разовую услугу и смотрит на живой
+статус: создаём бота → привязываем приложение → заводим группу → передаём права.
+
+Гейт — фича `tg_autosetup` (никогда по tariff_slug), сейчас только admin.
+Ассистенту запись закрыта общим middleware.
+
+⚠️ УСЛУГА СЧИТАЕТСЯ ОКАЗАННОЙ, КОГДА БОТ СОЗДАН. Всё, что дальше, зависит от
+действий клиента (зайти в бота, вступить в группу). Не забрал за 3 дня — бот
+удаляется, но оплата НЕ сгорает: настройка запускается заново бесплатно.
+"""
+import json
+import logging
+
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from typing import Optional
+
+from app.auth import get_current_client
+from app.database import get_db
+from app.services import tg_setup as tgs
+from app.services.features import client_has_feature
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/clients/me/tg-autosetup", tags=["Автонастройка Telegram"])
+
+# Вебхуки платёжных систем — свои роутеры без авторизации, как у аддонов.
+leadpay_webhook_router = APIRouter(prefix="/integrations/leadpay", tags=["Услуги"])
+prodamus_webhook_router = APIRouter(prefix="/integrations/prodamus", tags=["Услуги"])
+
+SERVICE_SLUG = "tg_autosetup"
+FEATURE_SLUG = "tg_autosetup"
+
+
+async def _assert_feature(db, client_id: int):
+    if not await client_has_feature(db, client_id, FEATURE_SLUG):
+        raise HTTPException(403, "Услуга пока недоступна")
+
+
+async def _service(db):
+    row = await db.fetchrow(
+        "SELECT * FROM services WHERE slug=$1 AND is_active=TRUE", SERVICE_SLUG
+    )
+    if not row:
+        raise HTTPException(404, "Услуга не найдена")
+    return row
+
+
+def _order_out(row, service=None) -> dict:
+    """Собирает то, что видит клиент. Токен бота наружу НЕ отдаём.
+
+    ⚠️ bot_token — это полный доступ к боту. Пока бот не передан клиенту,
+    он живёт на нашем сервисном аккаунте, и светить токен в браузере незачем:
+    бот и так подключён к кабинету автоматически.
+    """
+    if not row:
+        return {}
+    log = row["setup_log"]
+    if isinstance(log, str):
+        import json
+        try:
+            log = json.loads(log)
+        except Exception:  # noqa: BLE001
+            log = []
+    return {
+        "id": row["id"],
+        "status": row["status"],
+        "setup_state": row["setup_state"],
+        "setup_error": row["setup_error"],
+        "setup_log": log or [],
+        "bot_username": row["bot_username"],
+        "bot_title": row["bot_title"],
+        "group_invite_link": row["group_invite_link"],
+        "group_chat_id": row["group_chat_id"],
+        "amount": row["amount"],
+        "paid_at": row["paid_at"],
+        "claim_deadline": row["claim_deadline"],
+        # Галочки шагов — по ним фронт рисует чек-лист.
+        "steps": {
+            "bot_created": bool(row["bot_created_at"]),
+            "miniapp_linked": bool(row["miniapp_linked_at"]),
+            "group_created": bool(row["group_created_at"]),
+            "client_joined": bool(row["client_joined_at"]),
+            "client_started_bot": bool(row["client_started_bot_at"]),
+            "bot_transferred": bool(row["bot_transferred_at"]),
+            "group_transferred": bool(row["group_transferred_at"]),
+            "channel_linked": bool(row["channel_linked_at"]),
+        },
+        "created_at": row["created_at"],
+    }
+
+
+@router.get("")
+async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
+    """Текущее состояние: услуга, активный заказ, место в очереди."""
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    svc = await _service(db)
+    order = await db.fetchrow(
+        """SELECT * FROM service_orders
+            WHERE client_id=$1 AND service_id=$2
+              AND setup_state NOT IN ('done')
+            ORDER BY id DESC LIMIT 1""",
+        client_id, svc["id"],
+    )
+
+    # Место в очереди — сколько оплаченных заказов стоит перед этим.
+    queue_position = None
+    if order and order["setup_state"] == "queued":
+        queue_position = await db.fetchval(
+            """SELECT COUNT(*) + 1 FROM service_orders
+                WHERE setup_state IN ('queued','running')
+                  AND status='paid'
+                  AND (paid_at < $1 OR (paid_at = $1 AND id < $2))""",
+            order["paid_at"], order["id"],
+        )
+
+    # Ник клиента в Telegram — без него передать права некому.
+    tg_nick = await db.fetchval(
+        "SELECT telegram_username FROM clients WHERE id=$1", client_id
+    )
+    brand = await db.fetchval(
+        "SELECT COALESCE(NULLIF(brand_name,''), name) FROM clients WHERE id=$1",
+        client_id,
+    )
+
+    bullets = svc["bullet_points"]
+    if isinstance(bullets, str):
+        import json
+        try:
+            bullets = json.loads(bullets)
+        except Exception:  # noqa: BLE001
+            bullets = []
+
+    return {
+        "service": {
+            "slug": svc["slug"],
+            "name": svc["name"],
+            "tagline": svc["tagline"],
+            "description": svc["description"],
+            "bullet_points": bullets or [],
+            "price": svc["price"],
+            # ⚠️ coming_soon=TRUE — карточка видна, кнопки оплаты нет.
+            "coming_soon": bool(svc["coming_soon"]),
+            "payable": (not svc["coming_soon"]) and bool(
+                svc["leadpay_product_id"] or svc["prodamus_payment_url"]
+            ),
+        },
+        "order": _order_out(order, svc),
+        "queue_position": queue_position,
+        "telegram_username": tg_nick,
+        "suggestions": tgs.suggest_bot_usernames(brand or ""),
+        "claim_days": 3,
+    }
+
+
+class CheckNameRequest(BaseModel):
+    username: str
+
+
+@router.post("/check-name")
+async def check_name(data: CheckNameRequest,
+                     user=Depends(get_current_client), db=Depends(get_db)):
+    """Свободно ли имя бота. Спрашиваем у BotFather ДО оплаты.
+
+    ⚠️ Проверка не даёт гарантии: между ней и созданием имя может занять
+    кто-то другой. Тогда клиент вводит другое — оплата не сгорает.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    err = tgs.validate_bot_username(data.username)
+    if err:
+        return {"ok": False, "free": False, "message": err}
+
+    acc_row = await db.fetchrow(
+        "SELECT * FROM tg_setup_accounts "
+        " WHERE is_active=TRUE AND health='ok' ORDER BY id LIMIT 1"
+    )
+    if not acc_row:
+        # Аккаунтов нет — не врём клиенту, что имя свободно.
+        return {"ok": False, "free": False,
+                "message": "Проверка временно недоступна, попробуйте позже"}
+
+    acc = tgs.SetupAccount(
+        id=acc_row["id"], phone=acc_row["phone"],
+        twofa_password=acc_row["twofa_password"] or "",
+        proxy=acc_row["proxy"] or "", session_path=acc_row["session_path"] or "",
+    )
+    client = None
+    try:
+        client = await tgs.connect(acc)
+        free, note = await tgs.check_username_free(client, data.username)
+        if note == "__account_blocked__":
+            return {"ok": False, "free": False,
+                    "message": "Проверка временно недоступна, попробуйте позже"}
+        return {"ok": True, "free": free, "message": note}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "free": False,
+                "message": "Не удалось проверить имя, попробуйте ещё раз"}
+    finally:
+        if client:
+            try:
+                await client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+class StartRequest(BaseModel):
+    bot_username: str
+    bot_title: Optional[str] = None
+
+
+@router.post("/start")
+async def start_setup(data: StartRequest,
+                      user=Depends(get_current_client), db=Depends(get_db)):
+    """Запускает настройку.
+
+    Два случая:
+      * есть оплаченный заказ, который сгорел или сорвался → перезапускаем
+        БЕСПЛАТНО (оплата привязана к заказу, а не к попытке);
+      * оплаченного нет → создаём новый и отдаём ссылку на оплату.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+    svc = await _service(db)
+
+    err = tgs.validate_bot_username(data.bot_username)
+    if err:
+        raise HTTPException(400, err)
+
+    tg_nick = await db.fetchval(
+        "SELECT telegram_username FROM clients WHERE id=$1", client_id
+    )
+    if not tg_nick:
+        raise HTTPException(
+            400,
+            "Сначала укажите свой ник в Telegram в настройках — "
+            "без него мы не сможем передать вам права",
+        )
+
+    username = data.bot_username.strip().lstrip("@")
+    title = (data.bot_title or "").strip() or username
+
+    # ── перезапуск уже оплаченного ──
+    existing = await db.fetchrow(
+        """SELECT * FROM service_orders
+            WHERE client_id=$1 AND service_id=$2 AND status='paid'
+              AND setup_state IN ('expired','failed','new')
+            ORDER BY id DESC LIMIT 1""",
+        client_id, svc["id"],
+    )
+    if existing:
+        await db.execute(
+            """UPDATE service_orders
+                  SET bot_username=$2, bot_title=$3, setup_state='queued',
+                      setup_error=NULL, setup_log='[]'::jsonb,
+                      claim_deadline=NULL, reminders_sent=0, last_reminder_at=NULL,
+                      setup_account_id=NULL, updated_at=NOW()
+                WHERE id=$1""",
+            existing["id"], username, title,
+        )
+        return {"ok": True, "order_id": existing["id"], "paid": True,
+                "message": "Настройка запущена — платить повторно не нужно"}
+
+    # ── идёт прямо сейчас ──
+    active = await db.fetchrow(
+        """SELECT * FROM service_orders
+            WHERE client_id=$1 AND service_id=$2
+              AND setup_state IN ('queued','running','awaiting_user')
+            ORDER BY id DESC LIMIT 1""",
+        client_id, svc["id"],
+    )
+    if active:
+        raise HTTPException(409, "Настройка уже идёт")
+
+    # ── новый заказ ──
+    # ⚠️ coming_soon — оплату не открываем вовсе. Услуга видна, но не продаётся.
+    if svc["coming_soon"]:
+        raise HTTPException(400, "Услуга скоро появится")
+
+    order_id = await db.fetchval(
+        """INSERT INTO service_orders (client_id, service_id, amount,
+                                       bot_username, bot_title, status, setup_state)
+                VALUES ($1, $2, $3, $4, $5, 'created', 'new')
+             RETURNING id""",
+        client_id, svc["id"], svc["price"], username, title,
+    )
+
+    pay_url = await _payment_link(db, svc, order_id, client_id)
+    if not pay_url:
+        raise HTTPException(500, "Оплата временно недоступна")
+    return {"ok": True, "order_id": order_id, "paid": False, "payment_url": pay_url}
+
+
+async def _payment_link(db, svc, order_id: int, client_id: int) -> Optional[str]:
+    """Ссылка на оплату услуги.
+
+    ⚠️ Префикс номера заказа — `svc-`, рядом с evt- / prd- / addon-.
+    По нему вебхук отличает оплату услуги от всего остального.
+    """
+    from app.services.client_domains import platform_base_url
+
+    base = platform_base_url().rstrip("/")
+    if svc["leadpay_product_id"]:
+        from app.services import leadpay
+
+        return await leadpay.create_payment_link(
+            order_id=order_id,
+            product_id=svc["leadpay_product_id"],
+            notification_url=f"{base}/api/v1/integrations/leadpay/service-webhook",
+            order_id_prefix="svc-",
+        )
+    if svc["prodamus_payment_url"]:
+        url = svc["prodamus_payment_url"]
+        sep = "&" if "?" in url else "?"
+        return (f"{url}{sep}order_id=svc-{order_id}"
+                f"&customer_extra=client:{client_id};service:{svc['slug']}")
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Оплата: вебхуки
+# ─────────────────────────────────────────────────────────────────────────
+#
+# ⚠️ ПРЕФИКС `svc-` — им вебхук отличает оплату услуги от подписки (голое
+# число), заказа события (evt-), продукта (prd-) и модуля (addon-).
+# Чужой префикс → отвечаем «ок, не наше», а не ошибкой: платёжная система
+# иначе будет слать повторы сутки.
+
+async def _mark_service_paid(db, order_id: int, *, provider: str,
+                             order_num: str = "", raw: dict | None = None) -> dict:
+    """Помечает заказ оплаченным и ставит в очередь автонастройки.
+
+    Идемпотентно: повторный вебхук (норма для платёжек) ничего не ломает.
+    """
+    order = await db.fetchrow(
+        "SELECT id, client_id, status, setup_state, bot_username "
+        "  FROM service_orders WHERE id=$1", order_id,
+    )
+    if not order:
+        return {"ok": True, "ignored": "order not found"}
+    if order["status"] == "paid":
+        return {"ok": True, "already_paid": True}
+
+    # ⚠️ В очередь ставим только если клиент уже назвал имя бота. Без имени
+    # создавать нечего — заказ подождёт, пока клиент его введёт.
+    next_state = "queued" if order["bot_username"] else "new"
+
+    await db.execute(
+        """UPDATE service_orders
+              SET status='paid', paid_at=NOW(), payment_provider=$2,
+                  payment_order_num=$3, payment_raw=$4::jsonb,
+                  setup_state=$5, updated_at=NOW()
+            WHERE id=$1""",
+        order_id, provider, order_num or None,
+        json.dumps(raw or {}, ensure_ascii=False), next_state,
+    )
+    logger.info("service order %s paid via %s → %s", order_id, provider, next_state)
+    return {"ok": True, "status": "paid"}
+
+
+def _parse_svc_order_id(raw: str) -> Optional[int]:
+    if not raw.startswith("svc-"):
+        return None
+    try:
+        return int(raw[len("svc-"):])
+    except (ValueError, TypeError):
+        return None
+
+
+@leadpay_webhook_router.post("/service-webhook", summary="Оплата услуги (LeadPay)")
+async def leadpay_service_webhook(request: Request,
+                                  db: asyncpg.Connection = Depends(get_db)):
+    from app.services import leadpay
+
+    form = await request.form()
+    data = {k: str(v) for k, v in form.items()}
+    order_id_raw = (data.get("order_id") or "").strip()
+    status = (data.get("status") or "").strip().lower()
+
+    logger.info("LeadPay service webhook: order_id=%s status=%s", order_id_raw, status)
+
+    if not leadpay.verify_webhook(data):
+        logger.warning("LeadPay service webhook: invalid hash (%s)", order_id_raw)
+        raise HTTPException(status_code=401, detail="Invalid hash")
+
+    order_id = _parse_svc_order_id(order_id_raw)
+    if order_id is None:
+        return {"ok": True, "ignored": "not a service order"}
+
+    if status not in ("success", "ok", "paid", "completed"):
+        await db.execute(
+            "UPDATE service_orders SET status='failed', payment_raw=$2::jsonb, "
+            "       updated_at=NOW() WHERE id=$1 AND status <> 'paid'",
+            order_id, json.dumps(data, ensure_ascii=False),
+        )
+        return {"ok": True, "status": "failed"}
+
+    return await _mark_service_paid(
+        db, order_id, provider="leadpay",
+        order_num=data.get("card_id") or "", raw=data,
+    )
+
+
+@prodamus_webhook_router.post("/service-webhook", summary="Оплата услуги (Продамус)")
+async def prodamus_service_webhook(request: Request,
+                                   db: asyncpg.Connection = Depends(get_db)):
+    from app.api.subscriptions import (
+        PRODAMUS_VERIFY_SIGNATURE, _verify_prodamus_signature,
+    )
+
+    # ⚠️ Подпись Продамуса считается по СЫРОМУ телу запроса, а не по разобранному
+    # словарю: пересборка формы меняет порядок и экранирование, и подпись не
+    # сходится. Поэтому читаем body ДО разбора формы.
+    raw_body = await request.body()
+    form = await request.form()
+    data = {k: str(v) for k, v in form.items()}
+    order_id_raw = (data.get("order_num") or data.get("order_id") or "").strip()
+
+    logger.info("Prodamus service webhook: order=%s", order_id_raw)
+
+    if PRODAMUS_VERIFY_SIGNATURE:
+        sign = request.headers.get("Sign") or request.headers.get("sign") or ""
+        if not _verify_prodamus_signature(raw_body, sign):
+            logger.warning("Prodamus service webhook: bad signature (%s)", order_id_raw)
+            raise HTTPException(status_code=401, detail="Invalid signature")
+
+    order_id = _parse_svc_order_id(order_id_raw)
+    if order_id is None:
+        return {"ok": True, "ignored": "not a service order"}
+
+    # ⚠️ Продамус шлёт оповещение и о НЕЗАВЕРШЁННОЙ оплате — оплаченным
+    # считаем только явный успех.
+    if (data.get("payment_status") or "").strip().lower() != "success":
+        return {"ok": True, "status": "pending"}
+
+    return await _mark_service_paid(
+        db, order_id, provider="prodamus",
+        order_num=data.get("payment_init") or "", raw=data,
+    )
