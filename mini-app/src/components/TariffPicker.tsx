@@ -149,15 +149,6 @@ export default function TariffPicker({
             {isFree ? 'Участие бесплатное' : money(picked.price)}
           </p>
 
-          {/* Подсказка при оплате — клиент задаёт её у тарифа в кабинете. */}
-          {picked.order_hint && (
-            <div style={{
-              background: 'rgba(var(--peach-rgb), .18)', borderRadius: 12,
-              padding: '11px 13px', fontSize: 13, lineHeight: 1.5,
-              color: 'var(--text)', margin: '12px 0 16px',
-            }}>{picked.order_hint}</div>
-          )}
-
           <div className="field">
             <label>Имя и фамилия</label>
             <input className="input-dark" value={name}
@@ -212,6 +203,22 @@ export default function TariffPicker({
                 рассылок. Отказаться можно в любой момент.</span>
             </label>
           </div>
+
+          {/* Подсказка при оплате (`event_tariffs.order_hint`) — прямо НАД
+              кнопкой: она про то, что произойдёт ПОСЛЕ нажатия («вернитесь
+              после оплаты в бот»). Сверху формы её пролистывали мимо.
+              ⚠️ Красная (#dc2626 — красный проекта, как LIVE-бейдж), но НЕ
+              как ошибка: у ошибки ниже голый красный текст без плашки, здесь
+              заливка и полоса слева — читается как «обрати внимание». */}
+          {picked.order_hint && (
+            <div style={{
+              background: 'rgba(220, 38, 38, .10)',
+              borderLeft: '3px solid #dc2626',
+              borderRadius: 10, padding: '11px 13px', fontSize: 13,
+              lineHeight: 1.5, color: '#a01b1b', fontWeight: 600,
+              margin: '0 0 12px', whiteSpace: 'pre-wrap',
+            }}>{picked.order_hint}</div>
+          )}
 
           {error && (
             <p style={{ color: '#d9483b', fontSize: 13, margin: '0 0 12px', lineHeight: 1.4 }}>{error}</p>
