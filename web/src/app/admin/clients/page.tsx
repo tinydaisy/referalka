@@ -270,7 +270,8 @@ export default function AdminClientsPage() {
                     <div className="flex items-center gap-1.5">
                       {(c.features || []).includes('channels') && <Crown size={12} className="text-amber-500" />}
                       <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
-                        c.tariff_slug === 'vip' ? 'bg-amber-50 text-amber-700'
+                        c.tariff_slug === 'business_beta' ? 'bg-violet-50 text-violet-700'
+                        : c.tariff_slug === 'vip' ? 'bg-amber-50 text-amber-700'
                         : c.tariff_slug === 'pro' ? 'bg-blue-50 text-blue-700'
                         : c.tariff_slug === 'start' ? 'bg-emerald-50 text-emerald-700'
                         : 'bg-gray-100 text-gray-600'
@@ -511,7 +512,7 @@ function ManageClientModal({ client, onClose, onDone }: {
         <div className="mb-5">
           <div className="text-sm font-medium text-gray-800 mb-2">Сменить тариф</div>
           <div className="flex flex-wrap gap-2 mb-2">
-            {['trial', 'pro', 'vip', 'admin'].map(s => (
+            {['trial', 'pro', 'vip', 'business_beta', 'admin'].map(s => (
               <button
                 key={s}
                 onClick={() => setTariff(s)}
@@ -519,7 +520,8 @@ function ManageClientModal({ client, onClose, onDone }: {
                   tariff === s ? 'border-[#25455D] bg-[#25455D] text-white' : 'border-gray-200 text-gray-700'
                 }`}
               >
-                {s === 'trial' ? 'Триал' : s === 'pro' ? 'Профи' : s === 'vip' ? 'Экстра' : 'Админ'}
+                {s === 'trial' ? 'Триал' : s === 'pro' ? 'Профи' : s === 'vip' ? 'Экстра'
+                  : s === 'business_beta' ? 'Бизнес Beta' : 'Админ'}
               </button>
             ))}
           </div>

@@ -44,7 +44,9 @@ ALLOWED_USERNAMES: frozenset[str] = frozenset({
 # Тарифы «Профи и выше» + модули, ради которых человек считается действующим
 # клиентом. ⚠️ Модуль может быть и в тарифе (tariff_features), и куплен отдельно
 # (client_addons) — учитываем оба источника, как client_has_feature.
-PAID_TARIFFS: tuple[str, ...] = ("pro", "vip", "admin")
+# ⚠️ Новый платный тариф добавлять СЮДА, иначе его клиенты не попадут
+# в выгрузку `/clients` — самые дорогие окажутся невидимыми.
+PAID_TARIFFS: tuple[str, ...] = ("pro", "vip", "business_beta", "admin")
 MODULE_FEATURES: tuple[str, ...] = ("conference", "tournaments", "awards")
 
 

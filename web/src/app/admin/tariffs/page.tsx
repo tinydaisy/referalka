@@ -45,6 +45,7 @@ export default function AdminTariffsPage() {
         {tariffs.map(t => (
           <div key={t.id}
             className={`bg-white rounded-2xl border shadow-sm p-6 cursor-pointer hover:shadow-md transition-shadow ${
+              t.slug === 'business_beta' ? 'border-violet-200 ring-2 ring-violet-100' :
               t.slug === 'vip' ? 'border-amber-200 ring-2 ring-amber-100' :
               t.slug === 'pro' ? 'border-blue-200' :
               t.slug === 'start' ? 'border-emerald-200' :
