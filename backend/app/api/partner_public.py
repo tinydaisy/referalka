@@ -81,6 +81,50 @@ async def _partner_row(db, client_id: int, contact_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
+async def _issue_login_code(db, client_id: int, contact_id: int) -> bool:
+    """Одноразовый код входа в кабинет — сразу, без просьбы человека.
+
+    ⚠️⚠️ Зовётся ПРИ РЕГИСТРАЦИИ партнёра, а не только из формы входа. Экран
+    после регистрации обещает «вход по коду, который придёт на почту» — а
+    отправляла его лишь отдельная ручка `/request-code`, то есть письмо
+    приходило, только если человек сам догадается нажать «Открыть кабинет» и
+    запросить код. Первый живой партнёр (клиент 1, 07.09.2026) прождал письмо,
+    которого система не слала вовсе: кода в `product_cabinet_codes` не было
+    создано ни одного.
+
+    ⚠️ Почту берём ИЗ БАЗЫ (идентичность `email`), а не из формы: человек мог
+    прийти из бота и не вводить её — там она уже есть. Нет почты вовсе →
+    молча выходим: код уйдёт в бот из `send_cabinet_code`, если бот есть.
+
+    ⚠️ Сбой отправки НЕ ломает регистрацию — партнёр уже создан, и падать
+    из-за письма нельзя: человек увидел бы ошибку на успешном шаге.
+    """
+    email = await db.fetchval(
+        """SELECT pu.platform_user_id FROM platform_users pu
+            WHERE pu.contact_id = $1 AND pu.platform_slug = 'email'
+            ORDER BY pu.id LIMIT 1""",
+        contact_id,
+    )
+    if not email:
+        return False
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    try:
+        await db.execute(
+            """INSERT INTO product_cabinet_codes (client_id, contact_id, code_hash, expires_at)
+               VALUES ($1, $2, $3, NOW() + INTERVAL '15 minutes')""",
+            client_id, contact_id, hashlib.sha256(code.encode()).hexdigest(),
+        )
+        from app.services.product_notify import send_cabinet_code
+        await send_cabinet_code(db, client_id=client_id, contact_id=contact_id,
+                                email=email, code=code)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Партнёрка: код входа не отправлен контакту %s: %s",
+                       contact_id, e)
+        return False
+
+
 async def _effective_mode(db, client_id: int, partner: dict) -> str:
     """Режим выплат, который реально действует для этого партнёра.
 
@@ -341,8 +385,12 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
 
     existing = await _partner_row(db, cid, contact_id)
     if existing:
+        # ⚠️ Код шлём и тут: человек нажал «стать партнёром» повторно, увидит
+        # «Вы уже партнёр» и то же обещание про письмо. Промолчать — оставить
+        # его ровно в том тупике, из-за которого правка и делается.
+        sent = await _issue_login_code(db, cid, contact_id)
         return {"ok": True, "already": True, "partner_id": existing["id"],
-                "ref_code": existing["ref_code"]}
+                "ref_code": existing["ref_code"], "code_sent": sent}
 
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
         or (request.client.host if request.client else None)
@@ -356,17 +404,20 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
     )
     if not partner_id:
         row = await _partner_row(db, cid, contact_id)
+        sent = await _issue_login_code(db, cid, contact_id)
         return {"ok": True, "already": True, "partner_id": row["id"] if row else None,
-                "ref_code": row["ref_code"] if row else None}
+                "ref_code": row["ref_code"] if row else None, "code_sent": sent}
 
     # ⚠️ РЕТРОАКТИВНОГО ЗАКРЕПЛЕНИЯ НЕТ (№ 28). Здесь сознательно нет прохода
     # по истории: прошлые заслуги не засчитываются. Отсутствие такого кода —
     # и есть реализация правила.
 
     ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", contact_id)
-    logger.info("Партнёрка: клиент %s, новый партнёр %s (контакт %s)",
-                cid, partner_id, contact_id)
-    return {"ok": True, "partner_id": partner_id, "ref_code": ref_code}
+    sent = await _issue_login_code(db, cid, contact_id)
+    logger.info("Партнёрка: клиент %s, новый партнёр %s (контакт %s), код входа: %s",
+                cid, partner_id, contact_id, "отправлен" if sent else "не отправлен")
+    return {"ok": True, "partner_id": partner_id, "ref_code": ref_code,
+            "code_sent": sent}
 
 
 # ─── Вход в кабинет партнёра ──────────────────────────────────────────────────
