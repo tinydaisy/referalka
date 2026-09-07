@@ -319,3 +319,11 @@ body {
 .modal-sheet h2 { color: var(--text); font-size: 18px; margin-bottom: 16px; font-weight: 700; }
 .modal-sheet label { color: var(--muted); font-size: 12px; display: block; margin-bottom: 6px; font-weight: 500; }
 .modal-sheet .field { margin-bottom: 14px; }
+
+/* ⚠️ Высокое окно — для анкеты заявки: вопросов бывает десяток, и при
+   стандартных 85vh содержимое обрывалось, кнопка «Отправить» уезжала за край.
+   Сначала `vh` (понимают все), затем `dvh` — он учитывает плавающие панели
+   webview и потому точнее; где не поддерживается, правило просто игнорируется
+   и остаётся `vh`. Отступ сверху оставляем, чтобы было видно, что это окно. */
+.modal-sheet-tall { max-height: calc(100vh - 56px); }
+.modal-sheet-tall { max-height: calc(100dvh - 56px); }

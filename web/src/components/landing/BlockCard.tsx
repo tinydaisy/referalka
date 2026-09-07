@@ -416,37 +416,13 @@ export default function BlockCard({
                       поменял анкету в форме заявки, а на лендинге осталась
                       старая. Здесь — только заголовок и оформление. */}
                   <p className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-gray-600 leading-relaxed">
-                    Анкета подтянется <b>автоматически</b> из формы заявки —
-                    настроить её можно в разделе{' '}
+                    Анкета, заголовок и способ показа (квиз или все вопросы
+                    сразу) берутся <b>из формы заявки</b> — настроить их можно
+                    в разделе{' '}
                     <a href="?tab=request_form" className="underline">«Платежи/Заявки» → «Формы заявки»</a>.
-                    Здесь задаются только заголовок и оформление секции.
+                    Здесь — только оформление секции: фон, отступы, положение
+                    и вид заголовка.
                   </p>
-
-                  <div className="mt-3">
-                      <label className="mb-1 block text-sm font-medium text-gray-700">
-                        Как показывать
-                      </label>
-                      <div className="flex gap-2">
-                        {[
-                          { v: 'form', t: 'Все вопросы сразу' },
-                          { v: 'quiz', t: 'По одному, квизом' },
-                        ].map(o => (
-                          <button key={o.v} type="button"
-                            onClick={() => onPatch({ survey_view: o.v })}
-                            className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
-                              (block.survey_view || 'form') === o.v
-                                ? 'border-[#25455D] bg-[#25455D] text-white'
-                                : 'border-gray-300 bg-white text-gray-700'
-                            }`}
-                          >{o.t}</button>
-                        ))}
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500">
-                        Квизом человек отвечает шаг за шагом и видит прогресс —
-                        длинную анкету так заполняют охотнее. Вопросы и ответы
-                        одни и те же, меняется только показ.
-                      </p>
-                    </div>
 
                   <p className="mt-2 text-xs text-gray-500">
                     Заявки придут в раздел «Анкеты» → «Ответы». Оплата и доступ

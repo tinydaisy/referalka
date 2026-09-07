@@ -64,10 +64,12 @@ async def collect_landing_surveys(db, blocks, client_id: int,
     form_survey_id = None
     form_title = None
     form_subtitle = None
+    form_view = None
     if owner_type and owner_id:
         try:
             form_row = await db.fetchrow(
-                """SELECT survey_id, title, subtitle FROM request_forms
+                """SELECT survey_id, title, subtitle, survey_view
+                     FROM request_forms
                     WHERE owner_type = $1 AND owner_id = $2 AND is_active""",
                 owner_type, owner_id)
             if form_row:
@@ -76,6 +78,9 @@ async def collect_landing_surveys(db, blocks, client_id: int,
                 # (07.09.2026): в конструкторе их полей больше нет.
                 form_title = form_row["title"]
                 form_subtitle = form_row["subtitle"]
+                # Режим показа тоже задаётся в форме заявки (мигр. 364):
+                # в блоке лендинга этой настройки больше нет.
+                form_view = form_row["survey_view"]
         except Exception:
             form_survey_id = None   # таблицы ещё нет — работаем по-старому
 
@@ -160,5 +165,6 @@ async def collect_landing_surveys(db, blocks, client_id: int,
             # возьмёт название самой анкеты.
             "form_title": form_title,
             "form_subtitle": form_subtitle,
+            "form_view": form_view,
         }
     return out

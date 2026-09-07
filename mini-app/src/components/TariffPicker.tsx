@@ -2,9 +2,15 @@
  * Выбор тарифа и оформление заказа — ВНУТРИ Mini App.
  *
  * Открывается по кнопке участия, когда способ регистрации «простая форма» и
- * у события заданы тарифы. Два шага в одном окне:
- *   1) список тарифов (что входит, что не входит, цена со скидкой);
- *   2) форма контактов + три галочки согласий → заказ.
+ * у события заданы тарифы и/или форма заявки:
+ *   1) список тарифов (что входит, что не входит, цена со скидкой) и ниже
+ *      карточка «Оставить заявку», если форма заявки настроена;
+ *   2а) выбран тариф → форма контактов + три галочки согласий → заказ;
+ *   2б) выбрана заявка → анкета КВИЗОМ, по одному вопросу за шаг, контакты
+ *       и согласие последним шагом — ровно как на лендинге.
+ *
+ * ⚠️ Заявка идёт КВИЗОМ, а не всеми вопросами сразу: в узком окне мессенджера
+ * десяток полей превращается в простыню, и человек закрывает окно, не начав.
  *
  * ⚠️⚠️ ИЗ MINI APP НИКУДА НЕ УХОДИМ. Веб-страница заказа `/e/{slug}/order/{id}`
  * остаётся для веб-витрины и лендинга; Mini App показывает свою форму окном.
@@ -33,6 +39,8 @@ export interface RequestForm {
   subtitle?: string | null
   success_text?: string | null
   survey_slug?: string | null
+  /** 'quiz' (по умолчанию) | 'form' — задаётся в форме заявки (мигр. 364). */
+  survey_view?: string | null
   survey?: { questions?: any[] } | null
 }
 
@@ -65,6 +73,10 @@ export default function TariffPicker({
   const [onRequest, setOnRequest] = useState(false)
   const [answers, setAnswers] = useState<Record<string, any>>({})
   const [sentText, setSentText] = useState<string | null>(null)
+  // ⚠️ В простой форме заявка идёт КВИЗОМ — по одному вопросу за шаг.
+  // Все вопросы сразу в узком окне мессенджера превращаются в простыню:
+  // человек видит десятки полей и закрывает окно, не начав.
+  const [step, setStep] = useState(0)
   const [name, setName] = useState(
     prefill?.name
     || (tgUser?.first_name
@@ -175,6 +187,9 @@ export default function TariffPicker({
     })
     if (miss.length) {
       unlock()
+      // ⚠️ В квизе мало сказать «заполните» — надо ВЕРНУТЬ на тот вопрос,
+      // иначе человек видит ошибку про поле, которого на экране нет.
+      setStep(questions.indexOf(miss[0]))
       setError('Заполните: ' + miss.map((q: any) => q.title).slice(0, 3).join('; '))
       return
     }
@@ -225,35 +240,77 @@ export default function TariffPicker({
     )
   }
 
-  // ── ЭКРАН ЗАЯВКИ: вопросы анкеты ──
+  // ── ЭКРАН ЗАЯВКИ: анкета КВИЗОМ, по одному вопросу ──
   if (onRequest && requestForm) {
+    // ⚠️ КОНТАКТЫ — ОТДЕЛЬНЫЙ ПОСЛЕДНИЙ ШАГ, а не довесок к последнему
+    // вопросу: иначе на одном экране и вопрос, и три поля с согласием —
+    // шаг перестаёт быть «одним вопросом», ради чего квиз и нужен.
+    // ⚠️ Режим показа задаёт КЛИЕНТ в форме заявки; по умолчанию квиз.
+    const isQuiz = (requestForm.survey_view || 'quiz') !== 'form'
+    const total = questions.length
+    // Все вопросы сразу — контакты на том же экране, шагов нет.
+    const onContacts = !isQuiz || step >= total
+    const shown = isQuiz
+      ? (onContacts ? [] : questions.slice(step, step + 1))
+      : questions
+    const steps = total + 1               // вопросы + экран контактов
+    const current = shown[0]
+
+    // Шагнуть вперёд можно, только ответив на обязательный вопрос.
+    const canNext = !current?.is_required || (() => {
+      const v = answers[String(current.id)]
+      return Array.isArray(v) ? !!v.length : String(v ?? '').trim() !== ''
+    })()
+
     return (
       <div className="modal-bg">
-        <div className="modal-sheet">
+        {/* ⚠️ Анкета длиннее окна — стандартных 85vh не хватает, и содержимое
+            ОБРЫВАЛОСЬ: кнопка «Отправить» уезжала за край. Класс `tall`
+            поднимает потолок до почти всей высоты (в CSS сначала `vh`, затем
+            `dvh` для webview с плавающими панелями — второе правило
+            перекрывает первое там, где поддерживается). */}
+        <div className="modal-sheet modal-sheet-tall">
           <h2>{requestForm.title || 'Оставить заявку'}</h2>
-          {requestForm.subtitle && (
+          {requestForm.subtitle && step === 0 && (
             <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14, lineHeight: 1.45 }}>
               {requestForm.subtitle}
             </p>
           )}
 
-          <div className="field">
-            <label>Имя</label>
-            <input className="input-dark" value={name}
-                   onChange={e => setName(e.target.value)} placeholder="Ваше имя" />
-          </div>
-          <div className="field">
-            <label>Email</label>
-            <input className="input-dark" type="email" value={email}
-                   onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
-          </div>
-          <div className="field">
-            <label>Телефон</label>
-            <input className="input-dark" type="tel" value={phone}
-                   onChange={e => setPhone(e.target.value)} placeholder="+7 999 123-45-67" />
-          </div>
+          {/* Полоса прогресса — только в квизе: человек должен видеть,
+              сколько осталось. При показе всех вопросов сразу она бессмысленна. */}
+          {isQuiz && <div style={{ margin: '4px 0 16px' }}>
+            <div style={{ height: 4, borderRadius: 4, background: 'rgba(0,0,0,.08)' }}>
+              <div style={{
+                height: 4, borderRadius: 4, background: 'var(--peach)',
+                width: `${Math.round(((step + 1) / steps) * 100)}%`,
+                transition: 'width .2s',
+              }} />
+            </div>
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
+              Шаг {Math.min(step + 1, steps)} из {steps}
+            </p>
+          </div>}
 
-          {questions.map((q: any) => (
+          {onContacts && (<>
+            <div className="field">
+              <label>Имя</label>
+              <input className="input-dark" value={name}
+                     onChange={e => setName(e.target.value)} placeholder="Ваше имя" />
+            </div>
+            <div className="field">
+              <label>Email</label>
+              <input className="input-dark" type="email" value={email}
+                     onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+            </div>
+            <div className="field">
+              <label>Телефон</label>
+              <input className="input-dark" type="tel" value={phone}
+                     onChange={e => setPhone(e.target.value)} placeholder="+7 999 123-45-67" />
+            </div>
+          </>)}
+
+          {shown.map((q: any) => (
             <div className="field" key={q.id}>
               <label>{q.title}{q.is_required ? ' *' : ''}</label>
               {q.kind === 'textarea' ? (
@@ -302,37 +359,58 @@ export default function TariffPicker({
             </div>
           ))}
 
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)', margin: '12px 0 16px' }}>
-            <input type="checkbox" checked={pd} onChange={e => setPd(e.target.checked)}
-                   style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
-            <span>
-              Я согласен на обработку моих персональных данных.{' '}
-              {privacyUrl ? (
-                <>С <a href={privacyUrl} target="_blank" rel="noreferrer"
-                       style={{ color: 'var(--peach)' }}>Политикой обработки
-                  персональных данных</a> ознакомлен.</>
-              ) : 'С Политикой обработки персональных данных ознакомлен.'}
-            </span>
-          </label>
+          {/* Согласие — только на последнем шаге, вместе с контактами. */}
+          {onContacts && (
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)', margin: '12px 0 16px' }}>
+              <input type="checkbox" checked={pd} onChange={e => setPd(e.target.checked)}
+                     style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
+              <span>
+                Я согласен на обработку моих персональных данных.{' '}
+                {privacyUrl ? (
+                  <>С <a href={privacyUrl} target="_blank" rel="noreferrer"
+                         style={{ color: 'var(--peach)' }}>Политикой обработки
+                    персональных данных</a> ознакомлен.</>
+                ) : 'С Политикой обработки персональных данных ознакомлен.'}
+              </span>
+            </label>
+          )}
 
           {error && (
             <p style={{ color: '#d9483b', fontSize: 13, margin: '0 0 12px', lineHeight: 1.4 }}>{error}</p>
           )}
 
-          <button className="btn btn-primary" disabled={busy} onClick={submitRequest}>
-            {busy ? 'Отправляем…' : 'Отправить заявку'}
-          </button>
-          {tariffs.length > 0 && (
+          {onContacts ? (
+            <button className="btn btn-primary" disabled={busy} onClick={submitRequest}>
+              {busy ? 'Отправляем…' : 'Отправить заявку'}
+            </button>
+          ) : (
             <button
-              onClick={() => { setOnRequest(false); setError(null) }}
-              disabled={busy}
-              style={{
-                width: '100%', marginTop: 8, padding: 12, background: 'none',
-                border: 'none', color: 'var(--muted)', fontSize: 14,
-                cursor: 'pointer', fontFamily: 'inherit',
+              className="btn btn-primary"
+              disabled={!canNext}
+              onClick={() => {
+                if (!canNext) return
+                setError(null)
+                setStep(s => s + 1)
               }}
-            >Назад к вариантам участия</button>
+            >Далее</button>
           )}
+
+          {/* Назад: к предыдущему вопросу, а с первого — к вариантам участия. */}
+          <button
+            onClick={() => {
+              setError(null)
+              if (isQuiz && step > 0) setStep(s => s - 1)
+              else setOnRequest(false)
+            }}
+            disabled={busy}
+            style={{
+              width: '100%', marginTop: 8, padding: 12, background: 'none',
+              border: 'none', color: 'var(--muted)', fontSize: 14,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >{isQuiz && step > 0
+              ? 'Назад'
+              : (tariffs.length > 0 ? 'Назад к вариантам участия' : 'Отмена')}</button>
         </div>
       </div>
     )
@@ -523,7 +601,7 @@ export default function TariffPicker({
             <button
               className="btn btn-primary"
               style={{ marginTop: 12 }}
-              onClick={() => { setOnRequest(true); setError(null) }}
+              onClick={() => { setOnRequest(true); setStep(0); setError(null) }}
             >Оставить заявку</button>
           </div>
         )}

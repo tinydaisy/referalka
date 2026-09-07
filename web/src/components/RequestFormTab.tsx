@@ -31,6 +31,8 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
   const [successText, setSuccessText] = useState('')
+  // Как показывать вопросы: квизом (по умолчанию) или все сразу.
+  const [surveyView, setSurveyView] = useState<'quiz' | 'form'>('quiz')
 
   async function load() {
     setLoading(true)
@@ -47,6 +49,7 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
         setTitle(f.form.title || '')
         setSubtitle(f.form.subtitle || '')
         setSuccessText(f.form.success_text || '')
+        setSurveyView(f.form.survey_view === 'form' ? 'form' : 'quiz')
       }
     } finally {
       setLoading(false)
@@ -64,6 +67,7 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
         title: title.trim() || null,
         subtitle: subtitle.trim() || null,
         success_text: successText.trim() || null,
+        survey_view: surveyView,
         is_active: true,
       })
       await load()
@@ -152,6 +156,32 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
             <input value={subtitle} onChange={e => setSubtitle(e.target.value)}
                    maxLength={160}
                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Как показывать вопросы
+            </label>
+            <div className="flex gap-2">
+              {[
+                { v: 'quiz' as const, t: 'По одному, квизом' },
+                { v: 'form' as const, t: 'Все вопросы сразу' },
+              ].map(o => (
+                <button key={o.v} type="button" onClick={() => setSurveyView(o.v)}
+                  className={`flex-1 rounded-xl border px-3 py-2.5 text-sm ${
+                    surveyView === o.v
+                      ? 'border-[#25455D] bg-[#25455D] text-white'
+                      : 'border-gray-200 bg-white text-gray-700'
+                  }`}
+                >{o.t}</button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+              Квизом человек отвечает шаг за шагом и видит прогресс — длинную
+              анкету так заполняют охотнее. Вопросы и ответы одни и те же,
+              меняется только показ. Настройка действует и на лендинге, и на
+              странице события.
+            </p>
           </div>
 
           <div>

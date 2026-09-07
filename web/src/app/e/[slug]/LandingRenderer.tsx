@@ -695,7 +695,15 @@ function Section({
   // ⚠️ У ШАПКИ заголовок рисует она сама (крупным, с металликом, вместе с
   // надзаголовком и пилюльками). Обёртка секции его показывать НЕ должна —
   // иначе один и тот же текст выводится на странице дважды подряд.
-  const title = block.kind === 'hero' ? '' : block.title
+  // ⚠️ У БЛОКА ЗАЯВКИ заголовок и подпись задаются В ФОРМЕ ЗАЯВКИ
+  // («Платежи/Заявки» → «Формы заявки»), а не в конструкторе — там их полей
+  // больше нет (07.09.2026). Но РИСУЮТСЯ они штатным оформлением секции:
+  // положение, размер, цвет и металлик берутся из настроек блока, как у всех
+  // остальных заголовков. Иначе текст из формы выпал бы из оформления страницы.
+  const _sv = block.kind === 'survey' ? (content?.surveys || {})[String(block.id)] : null
+  const title = block.kind === 'hero'
+    ? ''
+    : (block.kind === 'survey' ? (_sv?.form_title || block.title) : block.title)
   const body = block.body
 
   // Свечение карточек: класс на контейнер сетки + переменные цвета.
@@ -815,13 +823,16 @@ function Section({
 
   // ⚠️ У шапки подзаголовок, как и заголовок, рисует она сама — иначе он
   // выводится дважды подряд.
-  const subtitle = (block.subtitle && block.kind !== 'hero') ? (
+  const _subtitleText = block.kind === 'survey'
+    ? (_sv?.form_subtitle || block.subtitle)
+    : block.subtitle
+  const subtitle = (_subtitleText && block.kind !== 'hero') ? (
     <p className="mt-3 opacity-80"
        style={{
          textAlign: (block.title_align || 'left') as any,
          fontSize: block.subtitle_size ? `${block.subtitle_size}px` : undefined,
        }}>
-      {block.subtitle}
+      {_subtitleText}
     </p>
   ) : null
 
@@ -1596,7 +1607,10 @@ function BlockBody(props: any) {
         <div className="mx-auto max-w-xl p-5 sm:p-7" style={cardStyle}>
         <SurveyBlock
           survey={sv}
-          view={block.survey_view}
+          /* ⚠️ Режим показа задаётся В ФОРМЕ ЗАЯВКИ (мигр. 364) — в блоке
+             этой настройки больше нет. `block.survey_view` остаётся запасным
+             значением для блоков, созданных до правки. По умолчанию квиз. */
+          view={sv.form_view || block.survey_view || 'quiz'}
           contactId={typeof window !== 'undefined'
             ? new URLSearchParams(window.location.search).get('c')
             : null}

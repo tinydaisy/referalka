@@ -48,6 +48,8 @@ class RequestFormIn(BaseModel):
     title: Optional[str] = None
     subtitle: Optional[str] = None
     success_text: Optional[str] = None
+    # Как показывать вопросы: 'quiz' (по одному, по умолчанию) | 'form' (все сразу).
+    survey_view: Optional[str] = None
     is_active: Optional[bool] = True
 
 
@@ -87,7 +89,8 @@ async def _assert_survey_owned(db, client_id: int, survey_id: int):
 async def _get_form(db, owner_type: str, owner_id: int):
     return await db.fetchrow(
         """SELECT f.id, f.survey_id, f.title, f.subtitle, f.success_text,
-                  f.is_active, s.title AS survey_title, s.slug AS survey_slug
+                  f.survey_view, f.is_active,
+                  s.title AS survey_title, s.slug AS survey_slug
              FROM request_forms f
              JOIN surveys s ON s.id = f.survey_id
             WHERE f.owner_type = $1 AND f.owner_id = $2""",
@@ -108,13 +111,14 @@ async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
     row = await db.fetchrow(
         """INSERT INTO request_forms
                (client_id, owner_type, owner_id, survey_id,
-                title, subtitle, success_text, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                title, subtitle, success_text, survey_view, is_active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (owner_type, owner_id) DO UPDATE
            SET survey_id    = EXCLUDED.survey_id,
                title        = EXCLUDED.title,
                subtitle     = EXCLUDED.subtitle,
                success_text = EXCLUDED.success_text,
+               survey_view  = EXCLUDED.survey_view,
                is_active    = EXCLUDED.is_active,
                updated_at   = NOW()
          RETURNING id""",
@@ -122,6 +126,9 @@ async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
         (data.title or "").strip() or None,
         (data.subtitle or "").strip() or None,
         (data.success_text or "").strip() or None,
+        # ⚠️ Мусор приводим к дефолту, а не роняем запрос — как у btn_width
+        # и card_style. По умолчанию КВИЗ.
+        "form" if data.survey_view == "form" else "quiz",
         data.is_active if data.is_active is not None else True,
     )
     saved = await _get_form(db, owner_type, owner_id)
@@ -187,6 +194,7 @@ async def load_request_form(db, owner_type: str, owner_id: int,
     """
     row = await db.fetchrow(
         """SELECT f.survey_id, f.title, f.subtitle, f.success_text,
+                  f.survey_view,
                   s.slug AS survey_slug, s.title AS survey_title
              FROM request_forms f
              JOIN surveys s ON s.id = f.survey_id
