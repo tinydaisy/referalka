@@ -314,7 +314,10 @@ function SupportTab({ token, accent }: { token: string; accent: string }) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${apiBase}/api/v1/public/product-cabinet/me/support`, {
+        // ⚠️ Хвост `/list` обязателен: ручка `/me/{slug}` ловит любой сегмент
+        // как slug продукта, и голый `/me/support` уходил в неё — 404 «нет
+        // доступа к этому продукту» вместо списка каналов.
+        const res = await fetch(`${apiBase}/api/v1/public/product-cabinet/me/support/list`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) setData(await res.json())

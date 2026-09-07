@@ -611,7 +611,7 @@ async def cabinet_email_confirm(
     return {"ok": True, "email": email}
 
 
-@router.get("/product-cabinet/me/support", summary="Каналы поддержки клиента")
+@router.get("/product-cabinet/me/support/list", summary="Каналы поддержки клиента")
 async def cabinet_support(
     response: Response,
     sess: dict = Depends(_session),
