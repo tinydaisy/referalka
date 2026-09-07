@@ -214,6 +214,13 @@ async def _ask(client, peer: str, text: str, wait: float = REPLY_WAIT_SEC) -> st
     ⚠️ Ждём именно новое сообщение, а не «последнее в диалоге»: если просто
     поспать и прочитать последнее, можно принять прошлый ответ за свежий и
     пойти по ветке дальше с чужим текстом. Поэтому запоминаем id до отправки.
+
+    ⚠️⚠️ ЖДЁМ ДОЛГО И НЕ СДАЁМСЯ РАНЬШЕ ВРЕМЕНИ. BotFather отвечает за
+    доли секунды, когда с ним говорят впервые, но после серии команд подряд
+    (а у нас именно так: проверка имени → создание → Mini App → передача)
+    задержка доходит до десятка секунд. Пустой ответ при этом неотличим от
+    отказа: код решал, что «Telegram не ответил», и ронял всю настройку на
+    ровном месте — поймано на сквозной проверке 07.09.2026.
     """
     before = await client.get_messages(peer, limit=1)
     last_id = before[0].id if before else 0
@@ -230,6 +237,32 @@ async def _ask(client, peer: str, text: str, wait: float = REPLY_WAIT_SEC) -> st
     return ""
 
 
+async def _ask_expect(client, peer: str, text: str, expect: tuple[str, ...],
+                      *, wait: float = REPLY_WAIT_SEC, tries: int = 3) -> str:
+    """То же, что `_ask`, но ждёт ОСМЫСЛЕННЫЙ ответ и повторяет попытку.
+
+    ⚠️ Нужен там, где по ответу принимается решение (создать бота, передать
+    владение). Пустая строка означает «не дождались», а не «отказ» — и
+    отличить одно от другого можно только повторив вопрос.
+
+    `expect` — куски текста, любой из которых означает «ответ по делу».
+    Возвращает последний полученный ответ (пустой, если так и не дождались).
+    """
+    last = ""
+    for attempt in range(tries):
+        last = await _ask(client, peer, text, wait=wait)
+        low = last.lower()
+        if any(e in low for e in expect):
+            return last
+        if last:
+            # Ответ пришёл, но не тот, что ждали — это осмысленный отказ
+            # («имя занято», «cannot create»), повторять бессмысленно.
+            return last
+        # Пусто — BotFather не успел. Ждём дольше и спрашиваем снова.
+        await asyncio.sleep(2 + attempt * 2)
+    return last
+
+
 _TOKEN_RE = re.compile(r"\b(\d{6,12}:[A-Za-z0-9_-]{30,})")
 
 
@@ -239,13 +272,104 @@ def extract_bot_token(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+_WAIT_RE = re.compile(r"try again in (\d+)\s*(second|minute|hour)", re.I)
+
+
+def _too_many_message(raw: str) -> str:
+    """Человеческий текст про ограничение частоты BotFather.
+
+    Достаём срок из ответа («try again in 129 seconds») и переводим в минуты —
+    иначе клиент читает секунды и не понимает, что делать.
+    """
+    m = _WAIT_RE.search(raw or "")
+    if not m:
+        return "Telegram просит подождать — попробуем ещё раз через несколько минут"
+    n, unit = int(m.group(1)), m.group(2).lower()
+    secs = n * {"second": 1, "minute": 60, "hour": 3600}[unit]
+    if secs <= 90:
+        when = "меньше минуты"
+    elif secs < 3600:
+        when = f"около {max(1, round(secs / 60))} мин."
+    else:
+        when = f"около {max(1, round(secs / 3600))} ч."
+    return f"Telegram просит подождать {when} — мы продолжим сами, ничего делать не нужно"
+
+
+def parse_retry_after(raw: str) -> int:
+    """Сколько секунд просит подождать BotFather. 0 — если не сказал.
+
+    ⚠️⚠️ ЛИМИТ БЫВАЕТ СУТОЧНЫМ, А НЕ «ПАРА МИНУТ». Проверено на проде
+    07.09.2026: после нескольких созданий подряд BotFather ответил
+    «try again in 61470 seconds» — это 17 часов. Поэтому отсрочку берём из
+    самого ответа, а не ставим фиксированную: пять минут при суточном лимите
+    означали бы, что поллер долбится в закрытую дверь весь день.
+    """
+    m = _WAIT_RE.search(raw or "")
+    if not m:
+        return 0
+    n, unit = int(m.group(1)), m.group(2).lower()
+    return n * {"second": 1, "minute": 60, "hour": 3600}[unit]
+
+
 class BotFatherError(RuntimeError):
     """Ошибка в разговоре с BotFather — с текстом, понятным человеку."""
 
-    def __init__(self, message: str, *, retryable: bool = False, raw: str = ""):
+    def __init__(self, message: str, *, retryable: bool = False, raw: str = "",
+                 retry_after_sec: int = 0):
         super().__init__(message)
         self.retryable = retryable   # можно ли повторить с другим именем
         self.raw = raw               # дословный ответ, для лога владельцу
+        # Сколько ждать до следующей попытки (0 — сразу можно).
+        self.retry_after_sec = retry_after_sec
+
+
+def proxy_to_url(raw: str) -> Optional[str]:
+    """Прокси из базы → строка URL для httpx (у Telethon свой формат, словарь)."""
+    p = parse_proxy(raw)
+    if not p:
+        return None
+    auth = f"{p['username']}:{p.get('password','')}@" if p.get("username") else ""
+    return f"{p['proxy_type']}://{auth}{p['addr']}:{p['port']}"
+
+
+async def username_looks_taken(username: str,
+                               proxy_url: Optional[str] = None) -> Optional[bool]:
+    """Занято ли имя — по публичной странице t.me, БЕЗ участия BotFather.
+
+    ⚠️⚠️ ЗАЧЕМ НЕ ЧЕРЕЗ BOTFATHER. Спросить у него — значит начать `/newbot`,
+    а он считает попытки создания и выдаёт лимит, причём СУТОЧНЫЙ (проверено
+    на проде: «try again in 61470 seconds» = 17 часов). Каждая проверка имени
+    отъедала бы у клиента саму возможность создать бота.
+
+    Возвращает True (занято), False (свободно) или None (не смогли проверить —
+    тогда не мешаем, окончательный ответ даст BotFather при создании).
+
+    ⚠️ У занятого имени страница содержит карточку профиля (`tgme_page_title`),
+    у свободного — только заглушку. Проверено на проде.
+
+    ⚠️⚠️ ХОДИМ ЧЕРЕЗ ПРОКСИ. С российского IP t.me отвечает через раз
+    («Network is unreachable») — поймано на проде 07.09.2026. Прокси берём тот
+    же, что у сервисного аккаунта: он и куплен под работу с Telegram.
+    """
+    u = (username or "").strip().lstrip("@")
+    if not u:
+        return None
+    try:
+        import httpx
+
+        kwargs = {"timeout": 12, "follow_redirects": True}
+        if proxy_url:
+            # httpx принимает готовый URL прокси строкой.
+            kwargs["proxy"] = proxy_url
+        async with httpx.AsyncClient(**kwargs) as c:
+            r = await c.get(f"https://t.me/{u}")
+        if r.status_code != 200:
+            return None
+        html = r.text
+        return "tgme_page_title" in html or "tgme_page_photo" in html
+    except Exception as e:  # noqa: BLE001
+        log.warning("username check for @%s failed: %s", u, e)
+        return None
 
 
 async def check_username_free(client, username: str) -> tuple[bool, str]:
@@ -258,19 +382,34 @@ async def check_username_free(client, username: str) -> tuple[bool, str]:
     """
     u = username.lstrip("@")
     await _ask(client, BOTFATHER, "/cancel", wait=3)
-    r = await _ask(client, BOTFATHER, "/newbot")
+    r = await _ask_expect(client, BOTFATHER, "/newbot",
+                          ("choose a name", "how are we going to call it",
+                           "cannot create new bots", "too many attempts"))
     low = r.lower()
-    if "cannot create new bots" in low or "too many attempts" in low:
-        # Аккаунт под спам-блоком либо упёрся в лимит — не вина клиента.
+    if "cannot create new bots" in low:
+        # Аккаунт под спам-блоком — ботов он не создаст вовсе.
         await _ask(client, BOTFATHER, "/cancel", wait=3)
         return False, "__account_blocked__"
+    if "too many attempts" in low:
+        # ⚠️ Ограничение ЧАСТОТЫ, а не блокировка: проверять имя сейчас нечем,
+        # но услуга работает. Клиенту говорим подождать, а не «имя занято» —
+        # иначе он начнёт менять хорошее имя на худшее.
+        await _ask(client, BOTFATHER, "/cancel", wait=3)
+        return False, _too_many_message(r)
 
     # BotFather просит сначала имя, потом ник.
-    await _ask(client, BOTFATHER, f"Check {u}")
-    r = await _ask(client, BOTFATHER, u, wait=8)
+    await _ask_expect(client, BOTFATHER, f"Check {u}", ("username",))
+    r = await _ask_expect(client, BOTFATHER, u,
+                          ("congratulations", "already taken", "invalid",
+                           "must end in", "sorry"),
+                          wait=12)
     low = r.lower()
 
-    # Что бы ни ответил — начатое создание отменяем, бот нам сейчас не нужен.
+    # ⚠️⚠️ BotFather отвечает «занято» ЕЩЁ ДО создания — проверено вживую
+    # 07.09.2026 («Sorry, this username is already taken»). Поэтому свободное
+    # имя мы НЕ доводим до создания: иначе каждая проверка плодила бы боты,
+    # которые тут же приходится удалять — это лишний расход слотов, лишние
+    # команды BotFather (он их считает) и мусор, если удаление сорвётся.
     free = False
     note = r.strip()
     if "already taken" in low or "is already in use" in low:
@@ -278,11 +417,13 @@ async def check_username_free(client, username: str) -> tuple[bool, str]:
     elif "invalid" in low or "must end in" in low:
         note = "Telegram не принимает такое имя. Оно должно заканчиваться на «bot»"
     elif extract_bot_token(r):
-        # Бот СОЗДАЛСЯ — значит имя было свободно. Немедленно удаляем:
-        # на этом шаге мы только проверяли.
+        # Бот всё-таки создался (BotFather принял имя сразу) — значит имя было
+        # свободно. Удаляем: на этом шаге мы только проверяли.
         free = True
         note = "Имя свободно"
         await _delete_bot(client, u)
+    elif "sorry" in low:
+        note = "Telegram не принял это имя — попробуйте другое"
     else:
         note = "Не удалось проверить имя — попробуйте ещё раз"
 
@@ -309,12 +450,24 @@ async def create_bot(client, username: str, title: str) -> str:
     u = username.lstrip("@")
     await _ask(client, BOTFATHER, "/cancel", wait=3)
 
-    r = await _ask(client, BOTFATHER, "/newbot")
+    r = await _ask_expect(client, BOTFATHER, "/newbot",
+                          ("choose a name", "how are we going to call it",
+                           "cannot create new bots", "too many attempts"))
     low = r.lower()
     if "cannot create new bots" in low:
         raise BotFatherError(
             "Сервисный аккаунт временно не может создавать ботов",
             retryable=False, raw=r,
+        )
+    # ⚠️⚠️ BotFather ОГРАНИЧИВАЕТ ЧАСТОТУ создания ботов и говорит об этом
+    # прямо: «Sorry, too many attempts. Please try again in 129 seconds».
+    # Это не поломка и не вина клиента — просто надо подождать. Раньше код
+    # выдавал невнятное «Telegram не ответил» и заказ уходил в ошибку;
+    # поймано на сквозной проверке 07.09.2026.
+    if "too many attempts" in low:
+        raise BotFatherError(
+            _too_many_message(r), retryable=True, raw=r,
+            retry_after_sec=parse_retry_after(r),
         )
     if "how are we going to call it" not in low and "choose a name" not in low:
         raise BotFatherError(
@@ -322,8 +475,11 @@ async def create_bot(client, username: str, title: str) -> str:
             retryable=True, raw=r,
         )
 
-    await _ask(client, BOTFATHER, title[:64])
-    r = await _ask(client, BOTFATHER, u, wait=10)
+    await _ask_expect(client, BOTFATHER, title[:64], ("username", "choose a username"))
+    r = await _ask_expect(client, BOTFATHER, u,
+                          ("congratulations", "already taken", "invalid",
+                           "must end in", "sorry"),
+                          wait=12)
     token = extract_bot_token(r)
     if token:
         return token

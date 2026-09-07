@@ -158,6 +158,11 @@ CREATE TABLE IF NOT EXISTS service_orders (
     reminders_sent  INTEGER NOT NULL DEFAULT 0,  -- сколько напоминаний уже ушло
     last_reminder_at TIMESTAMPTZ,
 
+    -- ⚠️ Отсрочка следующей попытки. BotFather ограничивает ЧАСТОТУ создания
+    -- ботов («too many attempts, try again in N seconds»). Без отсрочки поллер
+    -- бился бы в закрытую дверь каждую минуту и только продлевал ограничение.
+    retry_after     TIMESTAMPTZ,
+
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -170,6 +175,17 @@ COMMENT ON COLUMN service_orders.claim_deadline IS
     'До какого момента клиент должен забрать бота. Просрочил — бот удаляется, оплата остаётся';
 COMMENT ON COLUMN service_orders.setup_log IS
     'Живой лог шагов для экрана клиента: [{at, step, ok, text}]';
+
+-- ⚠️ Отдельным ALTER, потому что CREATE TABLE IF NOT EXISTS новую колонку в
+-- уже созданную таблицу не добавляет: на проде таблица появилась раньше,
+-- чем понадобилась отсрочка.
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS retry_after TIMESTAMPTZ;
+
+-- ⚠️⚠️ Отдых аккаунта после лимита BotFather. Лимит бывает СУТОЧНЫМ: на проде
+-- 07.09.2026 он ответил «try again in 61470 seconds» — 17 часов. Пока идёт
+-- отдых, очередь берёт ДРУГОЙ аккаунт, иначе один исчерпанный останавливал бы
+-- услугу целиком, хотя рядом есть живые.
+ALTER TABLE tg_setup_accounts ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_service_orders_client
     ON service_orders (client_id, created_at DESC);

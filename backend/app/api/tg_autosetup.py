@@ -165,10 +165,19 @@ class CheckNameRequest(BaseModel):
 @router.post("/check-name")
 async def check_name(data: CheckNameRequest,
                      user=Depends(get_current_client), db=Depends(get_db)):
-    """Свободно ли имя бота. Спрашиваем у BotFather ДО оплаты.
+    """Проверка имени бота — ФОРМАТ и занятость через публичный Telegram.
 
-    ⚠️ Проверка не даёт гарантии: между ней и созданием имя может занять
-    кто-то другой. Тогда клиент вводит другое — оплата не сгорает.
+    ⚠️⚠️ У BOTFATHER ИМЯ НЕ СПРАШИВАЕМ. Проверка через него означает команду
+    `/newbot`, а BotFather считает попытки создания и выдаёт лимит — причём
+    СУТОЧНЫЙ: на проде 07.09.2026 он ответил «try again in 61470 seconds»
+    (17 часов) после нескольких прогонов подряд. То есть каждая проверка имени
+    отъедала бы у клиента возможность создать бота, а две проверки подряд
+    гарантированно упирались в отказ.
+
+    Поэтому: формат проверяем сами, занятость — обычным обращением к
+    `t.me/<имя>` (существующий бот там отвечает страницей с профилем).
+    Окончательный ответ всё равно даст BotFather при создании — и это ОДНА
+    попытка вместо двух.
     """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
@@ -177,37 +186,24 @@ async def check_name(data: CheckNameRequest,
     if err:
         return {"ok": False, "free": False, "message": err}
 
-    acc_row = await db.fetchrow(
-        "SELECT * FROM tg_setup_accounts "
+    # ⚠️ Через прокси сервисного аккаунта: с российского IP t.me отвечает
+    # через раз («Network is unreachable»).
+    proxy_raw = await db.fetchval(
+        "SELECT proxy FROM tg_setup_accounts "
         " WHERE is_active=TRUE AND health='ok' ORDER BY id LIMIT 1"
     )
-    if not acc_row:
-        # Аккаунтов нет — не врём клиенту, что имя свободно.
-        return {"ok": False, "free": False,
-                "message": "Проверка временно недоступна, попробуйте позже"}
-
-    acc = tgs.SetupAccount(
-        id=acc_row["id"], phone=acc_row["phone"],
-        twofa_password=acc_row["twofa_password"] or "",
-        proxy=acc_row["proxy"] or "", session_path=acc_row["session_path"] or "",
+    taken = await tgs.username_looks_taken(
+        data.username, tgs.proxy_to_url(proxy_raw or "")
     )
-    client = None
-    try:
-        client = await tgs.connect(acc)
-        free, note = await tgs.check_username_free(client, data.username)
-        if note == "__account_blocked__":
-            return {"ok": False, "free": False,
-                    "message": "Проверка временно недоступна, попробуйте позже"}
-        return {"ok": True, "free": free, "message": note}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "free": False,
-                "message": "Не удалось проверить имя, попробуйте ещё раз"}
-    finally:
-        if client:
-            try:
-                await client.disconnect()
-            except Exception:  # noqa: BLE001
-                pass
+    if taken is True:
+        return {"ok": True, "free": False,
+                "message": "Это имя уже занято — придумайте другое"}
+    if taken is False:
+        return {"ok": True, "free": True, "message": "Имя свободно"}
+    # Не смогли проверить (сеть) — не врём, но и не мешаем: занятость всё
+    # равно окончательно выяснится при создании.
+    return {"ok": True, "free": True,
+            "message": "Имя выглядит подходящим — проверим при создании"}
 
 
 class StartRequest(BaseModel):

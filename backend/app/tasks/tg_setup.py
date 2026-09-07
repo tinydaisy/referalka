@@ -104,6 +104,9 @@ async def _pick_account(db):
                    AND so.setup_state IN ('running','awaiting_user')) AS busy
           FROM tg_setup_accounts a
          WHERE a.is_active = TRUE AND a.health = 'ok'
+           -- ⚠️ Аккаунт, упёршийся в лимит BotFather, отдыхает: он физически
+           -- не создаст бота, пока срок не пройдёт. Берём следующий свободный.
+           AND (a.cooldown_until IS NULL OR a.cooldown_until <= NOW())
          ORDER BY busy ASC, a.id ASC
          LIMIT 1
         """
@@ -239,13 +242,38 @@ async def _run_setup(db, order) -> None:
 
     except tgs.BotFatherError as e:
         state = "queued" if e.retryable else "failed"
+        # ⚠️⚠️ BotFather ограничивает создание ботов, и лимит бывает СУТОЧНЫМ:
+        # на проде он ответил «try again in 61470 seconds» — 17 часов. Срок
+        # берём из его же ответа, иначе поллер весь день бьётся в закрытую
+        # дверь. Заказ при этом ждёт в очереди, а не сгорает.
+        wait_sec = int(getattr(e, "retry_after_sec", 0) or 0)
         await db.execute(
-            "UPDATE service_orders SET setup_state=$2, setup_error=$3, updated_at=NOW() "
-            " WHERE id=$1", order_id, state, str(e),
+            "UPDATE service_orders SET setup_state=$2, setup_error=$3, "
+            "       setup_account_id = CASE WHEN $4 > 0 THEN NULL ELSE setup_account_id END, "
+            "       retry_after = CASE WHEN $4 > 0 "
+            "                          THEN NOW() + ($4 || ' seconds')::interval "
+            "                          ELSE NULL END, "
+            "       updated_at=NOW() WHERE id=$1",
+            order_id, state, str(e), wait_sec,
         )
         await _log_step(db, order_id, "error", str(e), ok=False)
         logger.warning("tg_setup order %s: %s (raw=%s)", order_id, e, e.raw[:200])
-        if not e.retryable:
+
+        if wait_sec > 0:
+            # ⚠️ Лимит у ЭТОГО аккаунта, а не у услуги: помечаем его отдыхающим,
+            # и очередь возьмёт следующий свободный. Иначе один исчерпанный
+            # аккаунт останавливал бы работу целиком, хотя рядом есть живые.
+            await db.execute(
+                "UPDATE tg_setup_accounts "
+                "   SET cooldown_until = NOW() + ($2 || ' seconds')::interval, "
+                "       updated_at = NOW() WHERE id=$1",
+                acc.id, wait_sec,
+            )
+            # Заказ отвязываем от аккаунта — пусть выберется заново.
+            await db.execute(
+                "UPDATE service_orders SET retry_after = NULL WHERE id=$1", order_id
+            )
+        elif not e.retryable:
             # Аккаунт, похоже, заболел — пусть проверка здоровья разберётся.
             await db.execute(
                 "UPDATE tg_setup_accounts SET health='unknown', updated_at=NOW() "
@@ -418,9 +446,13 @@ async def _tick():
         )
 
         # 2. Очередь — по одному заказу за тик, чтобы не нагружать аккаунт.
+        # ⚠️ `retry_after` — отсрочка после ограничения частоты BotFather.
+        # Пока она не прошла, заказ пропускаем: попытка всё равно упрётся в
+        # то же ограничение и только продлит его.
         order = await db.fetchrow(
             "SELECT * FROM service_orders "
             " WHERE setup_state='queued' AND status='paid' "
+            "   AND (retry_after IS NULL OR retry_after <= NOW()) "
             " ORDER BY paid_at NULLS LAST, id LIMIT 1"
         )
         if order:
