@@ -2965,6 +2965,25 @@ function InstagramConnectInline() {
             Instagram подключается входом через Facebook — токен выдаёт сама Meta,
             вводить ничего не нужно.
           </p>
+
+          {/* ⚠️ Сначала ЗАЧЕМ, потом что нужно. Раньше первым блоком шли
+              требования (профессиональный аккаунт, страница, VPN) — человек
+              видел список условий, не понимая, ради чего их выполнять. */}
+          <div className="rounded-lg border border-[#FFCFA4] bg-[#FFF8F1] p-3 mb-3">
+            <p className="text-xs font-semibold text-gray-900 mb-1.5">Что это даёт</p>
+            <ul className="text-xs text-gray-700 space-y-1.5 list-disc pl-4">
+              <li>
+                <strong>Комментарии под рилсами и ответы на сторис работают как воронка.</strong>{' '}
+                Человек пишет кодовое слово — бот отвечает ему под комментарием и присылает
+                лид-магнит в личные сообщения. При желании сначала проверяет подписку на аккаунт.
+              </li>
+              <li>
+                <strong>Автопостинг афиш и анонсов</strong> — посты, карусели, рилсы и сторис
+                прямо из ПЛЮСОНа. <span className="text-gray-500">Сейчас в разработке.</span>
+              </li>
+            </ul>
+          </div>
+
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 mb-3">
             <p className="text-xs text-amber-900 font-semibold mb-1">Что нужно до подключения</p>
             <ul className="text-xs text-amber-900 space-y-1 list-disc pl-4">
