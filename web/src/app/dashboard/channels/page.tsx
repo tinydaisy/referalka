@@ -114,6 +114,14 @@ export default function ChannelsPage() {
   const [importingChannel, setImportingChannel] = useState<Channel | null>(null)
   // Кто держит TG-ботов: мы или сторонний сервис (webhook). channel_id → health
   const [health, setHealth] = useState<Record<number, BotHealth>>({})
+  // Результат возврата из Facebook (подключение Instagram).
+  //
+  // ⚠️⚠️ Читается ЗДЕСЬ, на уровне страницы, а не внутри формы «Добавить
+  // канал»: после возврата из Facebook форма закрыта, и её обработчик не
+  // выполняется вовсе — человек попадал в пустой список каналов без единого
+  // слова о том, получилось или нет. Поймано 2026-09-07.
+  const [igResult, setIgResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [igPickKey, setIgPickKey] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -140,6 +148,17 @@ export default function ChannelsPage() {
       setLoading(false)
     }
   }
+
+  // Разбираем возврат из Facebook. Адрес чистим сразу, чтобы обновление
+  // страницы не показывало то же окно повторно.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    const err = p.get('ig_error')
+    const pick = p.get('ig_pick')
+    if (err) setIgResult({ ok: false, text: err })
+    if (pick) setIgPickKey(pick)
+    if (err || pick) window.history.replaceState({}, '', window.location.pathname)
+  }, [])
 
   // Спрашиваем Telegram, не перехватил ли ботов сторонний сервис. Отдельно от
   // load() — идёт в Telegram по сети, страницу ждать не заставляем.
@@ -288,6 +307,22 @@ export default function ChannelsPage() {
           channel={deletingChannel}
           onClose={() => setDeletingChannel(null)}
           onDone={() => { setDeletingChannel(null); load() }}
+        />
+      )}
+
+      {/* Результат подключения Instagram — окном, а не молчаливым возвратом.
+          ⚠️ Без него человек после Facebook попадал в список каналов, где
+          ничего не появилось, и не понимал: не получилось или ещё грузится. */}
+      {igResult && (
+        <IgResultModal result={igResult} onClose={() => setIgResult(null)} />
+      )}
+      {igPickKey && (
+        <IgPickModal
+          pickKey={igPickKey}
+          onClose={() => setIgPickKey(null)}
+          onDone={() => { setIgPickKey(null); load() }}
+          onError={(t) => { setIgPickKey(null); setIgResult({ ok: false, text: t }) }}
+          onOk={(t) => { setIgPickKey(null); setIgResult({ ok: true, text: t }); load() }}
         />
       )}
 
@@ -2951,6 +2986,106 @@ function InstagramConnectInline() {
           </p>
         </>
       )}
+    </div>
+  )
+}
+
+
+// Окно результата подключения Instagram.
+//
+// ⚠️ Ошибку показываем ЦЕЛИКОМ, включая список выданных прав: причина отказа
+// у Meta почти всегда в правах, и без этого текста человек чинит не то.
+function IgResultModal({ result, onClose }: {
+  result: { ok: boolean; text: string }
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start gap-3">
+          {result.ok
+            ? <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0 mt-0.5" />
+            : <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />}
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">
+              {result.ok ? 'Instagram подключён' : 'Подключить не удалось'}
+            </h3>
+            <p className="text-sm text-gray-700 whitespace-pre-line break-words">{result.text}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button onClick={onClose} className="btn-gold px-5">Понятно</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Выбор аккаунта Instagram после возврата из Facebook.
+function IgPickModal({ pickKey, onClose, onOk, onError }: {
+  pickKey: string
+  onClose: () => void
+  onDone: () => void
+  onOk: (text: string) => void
+  onError: (text: string) => void
+}) {
+  const [accounts, setAccounts] = useState<any[] | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.channels.instagramPending(pickKey)
+      .then((r: any) => setAccounts(r.accounts || []))
+      .catch((e: any) => onError(e?.message || 'Подключение устарело, начните заново'))
+  }, [pickKey])
+
+  const connect = async (page_id: string) => {
+    setBusy(true)
+    try {
+      const r: any = await api.channels.instagramConnect(pickKey, page_id)
+      onOk(`Аккаунт ${r.username ? '@' + r.username : ''} подключён и появился в списке каналов.`)
+    } catch (e: any) {
+      onError(e?.message || 'Не удалось подключить аккаунт')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-900 mb-1">Выберите аккаунт</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Эти аккаунты Instagram найдены среди ваших страниц Facebook.
+        </p>
+        {!accounts ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 py-6">
+            <Loader2 className="w-4 h-4 animate-spin" /> Загружаем…
+          </div>
+        ) : accounts.length === 0 ? (
+          <p className="text-sm text-gray-600 py-4">Подходящих аккаунтов не нашлось.</p>
+        ) : (
+          <div className="space-y-2">
+            {accounts.map((a) => (
+              <button key={a.page_id} onClick={() => connect(a.page_id)} disabled={busy}
+                className="w-full flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-gray-300 disabled:opacity-50">
+                {a.avatar
+                  ? <img src={a.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                  : <div className="w-10 h-10 rounded-full bg-gray-100" />}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-gray-900 truncate">
+                    @{a.username || a.name || 'аккаунт'}
+                  </div>
+                  <div className="text-xs text-gray-500 truncate">
+                    {a.followers != null ? `${a.followers} подписчиков · ` : ''}страница «{a.page_name}»
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="mt-5 flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Отмена</button>
+        </div>
+      </div>
     </div>
   )
 }
