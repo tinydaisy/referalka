@@ -1,14 +1,23 @@
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
+# ⚠️⚠️ Версии здесь ДОЛЖНЫ совпадать с тем, что реально стоит на проде.
+# Файл полтора года жил своей жизнью: пакеты на сервере обновляли, сюда не
+# записывали. Конфликт вылез 2026-09-07 при первой же переустановке —
+# aiogram 3.4.1 требует pydantic<2.6, а закреплён был 2.6.4, и deploygit
+# встал на ResolutionImpossible, не выкатив ничего.
+#
+# ⚠️ Правило: обновил пакет на сервере — впиши сюда. Проверить расхождение:
+#   pip show fastapi pydantic aiogram | grep -E '^(Name|Version)'
+
+fastapi==0.135.1
+uvicorn[standard]==0.42.0
 asyncpg==0.29.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
 httpx==0.27.0
-pydantic==2.6.4
-pydantic-settings==2.2.1
+pydantic==2.12.5
+pydantic-settings==2.13.1
 python-dotenv==1.0.1
-aiogram==3.4.1
+aiogram==3.26.0
 celery==5.3.6
 redis==5.0.3
 nanoid==2.0.0
