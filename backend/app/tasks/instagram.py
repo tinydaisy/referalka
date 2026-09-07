@@ -181,6 +181,56 @@ def poll_comments():
                         except Exception:
                             log.exception("Instagram опрос: обработка комментария %s сорвалась", cid)
 
+                # ── Ответы людей в директе ────────────────────────────────
+                #
+                # ⚠️⚠️ Без этого воронка останавливается на полпути: человек
+                # получил «подпишитесь и нажмите Готово», нажал — а нажатие
+                # приходит вебхуком `messages`, которого у нас нет. Материал
+                # не выдаётся никогда, и снаружи это выглядит так, будто бот
+                # обманул.
+                try:
+                    convs = await ig.list_conversations(meta.get("page_id") or "", token)
+                except Exception as e:
+                    log.warning("Instagram опрос: переписки канала %s — %s", ch["id"], e)
+                    convs = []
+
+                for conv in convs:
+                    for m in ((conv.get("messages") or {}).get("data") or []):
+                        mid = str(m.get("id") or "")
+                        sender = str((m.get("from") or {}).get("id") or "")
+                        # ⚠️ Свои сообщения пропускаем: иначе бот ответит сам
+                        # себе на собственное «подпишитесь и нажмите Готово».
+                        if not mid or not sender or sender == ig_user_id:
+                            continue
+
+                        marked = await conn.fetchval(
+                            """INSERT INTO instagram_seen_comments (comment_id, channel_id, media_id)
+                                    VALUES ($1, $2, 'dm')
+                               ON CONFLICT (comment_id) DO NOTHING
+                                 RETURNING comment_id""",
+                            mid, ch["id"],
+                        )
+                        if not marked:
+                            continue
+                        seen_new += 1
+
+                        # ⚠️ Первый опрос канала только запоминает — иначе на
+                        # старую переписку разом уйдут ответы (то же правило,
+                        # что у комментариев выше).
+                        if ch["ig_polled_at"] is None:
+                            continue
+
+                        try:
+                            await funnel.handle_message(
+                                conn, ch["id"],
+                                from_igsid=sender,
+                                text=m.get("message") or "",
+                                from_username=(m.get("from") or {}).get("username") or "",
+                            )
+                            handled += 1
+                        except Exception:
+                            log.exception("Instagram опрос: обработка сообщения %s сорвалась", mid)
+
                 await conn.execute(
                     "UPDATE channels SET ig_polled_at = now() WHERE id = $1", ch["id"]
                 )

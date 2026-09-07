@@ -482,6 +482,29 @@ async def send_message(page_id: str, recipient_igsid: str, text: str,
     )
 
 
+async def list_conversations(page_id: str, page_token: str,
+                             limit: int = 20) -> list[dict[str, Any]]:
+    """Переписки в директе — чтобы забрать ответы людей опросом.
+
+    ⚠️ Нужна, пока Meta не одобрила вебхуки: нажатие «Готово» приходит
+    событием `messages`, а без вебхуков его никто не увидит, и человек
+    остаётся с сообщением «подпишитесь и нажмите» навсегда.
+
+    ⚠️ `platform=instagram` обязателен: у страницы Facebook есть и свои
+    переписки в Messenger, к воронке отношения не имеющие.
+    """
+    data = await graph_get(
+        f"{page_id}/conversations",
+        token=page_token,
+        params={
+            "platform": "instagram",
+            "fields": "id,updated_time,messages.limit(5){id,created_time,from,message}",
+            "limit": limit,
+        },
+    )
+    return list(data.get("data") or [])
+
+
 async def user_profile(igsid: str, page_token: str) -> dict[str, Any]:
     """Профиль написавшего человека.
 
