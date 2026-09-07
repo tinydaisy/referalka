@@ -109,7 +109,13 @@ function BecomePartner({ token }: { token: string }) {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetch(`${apiBase}/api/v1/public/partner/offer`)
+    // ⚠️ client_id обязателен: без него ручка отдаёт 400 «Не удалось
+    // определить кабинет» — по Host кабинет узнаётся, только когда у клиента
+    // есть СВОЙ домен страниц. Без параметра оферта не приходила вовсе, и
+    // список налоговых статусов в форме оставался ПУСТЫМ: партнёром нельзя
+    // было стать в принципе (прод, 07.09.2026).
+    const cid = new URLSearchParams(window.location.search).get('client_id')
+    fetch(`${apiBase}/api/v1/public/partner/offer${cid ? `?client_id=${cid}` : ''}`)
       .then(r => r.json()).then(setOffer).catch(() => setOffer(null))
   }, [])
 

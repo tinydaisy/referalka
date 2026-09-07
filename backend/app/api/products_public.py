@@ -454,3 +454,206 @@ async def cabinet_product(
         "sections": [dict(s) for s in sections],
         "items": out_items,
     }
+
+
+# ── Мой профиль ───────────────────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class EmailChangeRequest(BaseModel):
+    email: str
+
+
+class EmailChangeConfirm(BaseModel):
+    email: str
+    code: str
+
+
+@router.get("/product-cabinet/me/profile/data", summary="Мои данные")
+async def cabinet_profile(
+    response: Response,
+    sess: dict = Depends(_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Имя, почта и телефон человека — для раздела «Мой профиль».
+
+    ⚠️ Путь с хвостом `/data`: ручка `/me/{slug}` ловит любой сегмент как slug
+    продукта, и `/me/profile` ушёл бы в неё, а не сюда.
+    """
+    _cors(response)
+    row = await db.fetchrow(
+        """SELECT c.id, c.name, c.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email
+             FROM contacts c WHERE c.id = $1""",
+        sess["contact_id"],
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+    return dict(row)
+
+
+@router.patch("/product-cabinet/me/profile", summary="Правка имени и телефона")
+async def cabinet_profile_save(
+    data: ProfileUpdate, response: Response,
+    sess: dict = Depends(_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Правка идёт В КОНТАКТ клиента — это одна и та же запись.
+
+    ⚠️ Почта здесь НЕ меняется: она логин входа, и опечатка отрезала бы
+    человека от купленного. Смена — отдельной парой ручек с подтверждением
+    кодом на НОВЫЙ адрес (см. ниже).
+
+    ⚠️ Телефон пишем только через `set_contact_phone`: рядом обязан
+    обновляться `phone_normalized`, по нему ищутся дубли (правило проекта).
+    """
+    _cors(response)
+    name = (data.name or "").strip()
+    if name:
+        await db.execute(
+            "UPDATE contacts SET name = $2, updated_at = NOW() WHERE id = $1",
+            sess["contact_id"], name[:200],
+        )
+    if data.phone is not None:
+        from app.services.contact_merge import set_contact_phone
+        await set_contact_phone(db, sess["contact_id"], data.phone,
+                                only_if_empty=False)
+    return {"ok": True}
+
+
+@router.post("/product-cabinet/me/email/request", summary="Код на новую почту")
+async def cabinet_email_request(
+    data: EmailChangeRequest, response: Response,
+    sess: dict = Depends(_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Код подтверждения уходит на НОВЫЙ адрес.
+
+    ⚠️⚠️ Именно так почта защищена от опечатки: не подтвердил — не сменилась.
+    Иначе описка в адресе (лишняя точка, чужая раскладка) навсегда отрезала бы
+    человека от купленного, а чинить пришлось бы вручную в базе.
+    """
+    _cors(response)
+    email = (data.email or "").strip().lower()
+    if "@" not in email or len(email) < 5:
+        raise HTTPException(status_code=400, detail="Проверьте адрес почты")
+
+    busy = await db.fetchval(
+        """SELECT c.id FROM contacts c
+             JOIN platform_users pu ON pu.contact_id = c.id
+                  AND pu.platform_slug = 'email' AND pu.platform_user_id = $2
+            WHERE c.client_id = $1 AND c.merged_into IS NULL AND c.id <> $3
+            LIMIT 1""",
+        sess["client_id"], email, sess["contact_id"],
+    )
+    if busy:
+        raise HTTPException(
+            status_code=409,
+            detail="Эта почта уже занята другим человеком в базе.")
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    await db.execute(
+        """INSERT INTO product_cabinet_codes
+                (client_id, contact_id, code_hash, expires_at, new_email)
+           VALUES ($1, $2, $3, NOW() + INTERVAL '15 minutes', $4)""",
+        sess["client_id"], sess["contact_id"],
+        hashlib.sha256(code.encode()).hexdigest(), email,
+    )
+    try:
+        from app.services.product_notify import send_email_change_code
+        await send_email_change_code(db, client_id=sess["client_id"],
+                                     email=email, code=code)
+    except Exception as e:
+        logger.warning("Код смены почты не отправлен: %s", e)
+        raise HTTPException(status_code=502,
+                            detail="Не удалось отправить письмо. Попробуйте позже.")
+    return {"ok": True}
+
+
+@router.post("/product-cabinet/me/email/confirm", summary="Подтвердить новую почту")
+async def cabinet_email_confirm(
+    data: EmailChangeConfirm, response: Response,
+    sess: dict = Depends(_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    _cors(response)
+    email = (data.email or "").strip().lower()
+    code_hash = hashlib.sha256((data.code or "").strip().encode()).hexdigest()
+
+    row = await db.fetchrow(
+        """SELECT id FROM product_cabinet_codes
+            WHERE client_id = $1 AND contact_id = $2 AND code_hash = $3
+              AND new_email = $4 AND used_at IS NULL AND expires_at > NOW()
+            ORDER BY id DESC LIMIT 1""",
+        sess["client_id"], sess["contact_id"], code_hash, email,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Код неверен или устарел")
+
+    async with db.transaction():
+        await db.execute(
+            "UPDATE product_cabinet_codes SET used_at = NOW() WHERE id = $1",
+            row["id"])
+        # ⚠️ Почта — идентичность, а не колонка контакта (правило проекта:
+        # `contacts.email` дропнута миграцией 282).
+        await db.execute(
+            """INSERT INTO platform_users (contact_id, platform_slug, platform_user_id)
+               VALUES ($1, 'email', $2)
+               ON CONFLICT (contact_id, platform_slug)
+               DO UPDATE SET platform_user_id = EXCLUDED.platform_user_id""",
+            sess["contact_id"], email,
+        )
+    return {"ok": True, "email": email}
+
+
+@router.get("/product-cabinet/me/support", summary="Каналы поддержки клиента")
+async def cabinet_support(
+    response: Response,
+    sess: dict = Depends(_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Куда написать за помощью — площадки, где у клиента есть аккаунт.
+
+    ⚠️ Отдаём только заполненные: пустая плитка «ВКонтакте», ведущая никуда,
+    хуже её отсутствия.
+    """
+    _cors(response)
+    row = await db.fetchrow(
+        """SELECT work_tg_username, work_vk, work_max, phone,
+                  COALESCE(NULLIF(brand_name, ''), name) AS brand
+             FROM clients WHERE id = $1""",
+        sess["client_id"],
+    )
+    if not row:
+        return {"items": []}
+
+    def _link(value: str, kind: str) -> Optional[str]:
+        v = (value or "").strip()
+        if not v:
+            return None
+        if v.startswith("http"):
+            return v
+        nick = v.lstrip("@")
+        if kind == "telegram":
+            return f"https://telegram.me/{nick}"
+        if kind == "vk":
+            return f"https://vk.com/{nick}"
+        if kind == "max":
+            return f"https://max.ru/{nick}"
+        return v
+
+    items = []
+    for kind, label, value in (
+        ("telegram", "Telegram", row["work_tg_username"]),
+        ("max", "MAX", row["work_max"]),
+        ("vk", "ВКонтакте", row["work_vk"]),
+    ):
+        url = _link(value, kind)
+        if url:
+            items.append({"kind": kind, "label": label, "url": url})
+    return {"items": items, "brand": row["brand"]}

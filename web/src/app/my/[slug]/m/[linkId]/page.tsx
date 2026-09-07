@@ -60,11 +60,25 @@ export default function CabinetMaterialPage() {
   }
 
   if (error === 'auth') {
+    // ⚠️ Ссылку на урок пересылают и открывают из письма — человек попадает
+    // сюда, ещё не войдя. Раньше он видел голое «Нужно войти» посреди пустой
+    // страницы, а кнопка вела на /my БЕЗ client_id, то есть на ошибку «Не
+    // удалось определить кабинет»: выйти из тупика было нечем.
+    const cid = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('client_id') : null
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="text-center">
-          <p className="mb-4 text-gray-600">Нужно войти</p>
-          <Link href="/my" className="btn-gold">Войти</Link>
+        <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm">
+          <h1 className="mb-2 text-xl font-bold text-gray-900">
+            Доступ к материалу закрыт
+          </h1>
+          <p className="mb-5 text-sm text-gray-600">
+            Чтобы открыть материал, войдите в личный кабинет — код придёт на
+            вашу почту.
+          </p>
+          <Link href={cid ? `/my?client_id=${cid}` : '/my'} className="btn-gold w-full">
+            Войти
+          </Link>
         </div>
       </div>
     )

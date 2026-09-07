@@ -265,3 +265,51 @@ async def _send_email(db, client_id: int, contact_id: int, info: dict,
     except Exception as e:
         logger.warning("Письмо о доступе к продукту %s не ушло: %s", info["id"], e)
         return False
+
+
+async def send_email_change_code(db, *, client_id: int, email: str, code: str) -> bool:
+    """Код подтверждения НОВОЙ почты — уходит на неё же.
+
+    ⚠️ В бот НЕ шлём и на старый адрес тоже: смысл проверки в том, что человек
+    имеет доступ именно к новому ящику. Код, пришедший куда-то ещё, ничего не
+    подтверждает — опечатка в адресе прошла бы насквозь.
+    """
+    brand_row = await db.fetchrow(
+        "SELECT name, brand_name FROM clients WHERE id = $1", client_id)
+    brand = (brand_row["brand_name"] or brand_row["name"]) if brand_row else "ПЛЮСОН"
+
+    channel = await _email_channel(db, client_id)
+    if not channel:
+        return False
+    try:
+        from app.services.email_sender import EmailSender
+        from app.services.client_domains import client_mail_domain
+
+        channel_dict = dict(channel)
+        mail = await client_mail_domain(db, client_id)
+        if mail:
+            channel_dict["email_domain"] = mail["domain"]
+            channel_dict["email_from_local"] = mail["local"]
+            if mail["from_name"]:
+                channel_dict["email_from_name"] = mail["from_name"]
+
+        EmailSender().send(
+            channel=channel_dict,
+            client_brand_name=brand,
+            to_email=email,
+            subject=f"Подтверждение новой почты: {code}",
+            body_text=(f"Код подтверждения новой почты: {code}\n\n"
+                       f"Введите его в личном кабинете, чтобы этот адрес стал "
+                       f"вашим логином для входа.\n\n"
+                       f"Он действует 15 минут.\n\n"
+                       f"Если вы этого не запрашивали — просто не отвечайте на "
+                       f"письмо, почта останется прежней.\n\n"
+                       f"{brand}"),
+            # ⚠️ Токена отписки нет намеренно: это служебное письмо
+            # подтверждения, а не рассылка. Отписываться тут не от чего, и
+            # ссылка «отписаться» в нём выглядела бы ошибкой.
+        )
+        return True
+    except Exception as e:
+        logger.warning("Код смены почты не отправлен: %s", e)
+        return False
