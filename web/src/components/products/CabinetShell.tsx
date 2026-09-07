@@ -60,15 +60,20 @@ export default function CabinetShell({
     'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition no-underline'
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <CabinetBrand brand={brand} href={withClientId('/my')} />
+    // ⚠️⚠️ МЕНЮ — СПЛОШНАЯ ПОЛОСА ВО ВСЮ ВЫСОТУ СЛЕВА, как в кабинете клиента
+    // (07.09.2026). Раньше это была карточка со скруглением, висевшая посреди
+    // страницы под отдельной шапкой: два тёмных куска в разных местах, и
+    // кабинет выглядел чужим рядом с основным. Логотип переехал внутрь полосы,
+    // наверх — отдельная шапка над контентом больше не нужна.
+    <div className="min-h-screen bg-gray-50 md:flex">
+      <aside
+        className="w-full shrink-0 md:min-h-screen md:w-64"
+        style={{ background: `linear-gradient(160deg, ${c1}, ${c2})` }}
+      >
+        {/* Логотип бренда — в самом верху полосы, как в кабинете клиента. */}
+        <CabinetBrand brand={brand} href={withClientId('/my')} inSidebar />
 
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:flex-row md:py-10">
-        <aside className="w-full shrink-0 md:w-64">
-          <div
-            className="rounded-2xl p-3 shadow-sm md:sticky md:top-6"
-            style={{ background: `linear-gradient(160deg, ${c1}, ${c2})` }}
-          >
+        <div className="p-3 md:sticky md:top-0">
             <nav className="flex flex-col gap-1">
               {NAV.map(({ key, label, icon: Icon }) => {
                 const on = active === key
@@ -105,11 +110,13 @@ export default function CabinetShell({
                 </Link>
               )}
             </nav>
-          </div>
-        </aside>
+        </div>
+      </aside>
 
-        <section className="min-w-0 flex-1">{children}</section>
-      </div>
+      {/* Контент — своей колонкой; отступы те же, что были у страницы. */}
+      <section className="min-w-0 flex-1 px-4 py-6 md:py-10">
+        <div className="mx-auto max-w-4xl">{children}</div>
+      </section>
     </div>
   )
 }

@@ -23,10 +23,13 @@ export interface Brand {
   lp_color_heading?: string | null
 }
 
-export default function CabinetBrand({ brand, href = '/my' }: {
+export default function CabinetBrand({ brand, href = '/my', inSidebar = false }: {
   brand?: Brand | null
   /** Куда ведёт клик по логотипу. */
   href?: string
+  /** Логотип стоит ВНУТРИ левой полосы меню (кабинет покупателя): свой фон и
+   *  ограничение ширины тогда не нужны — их задаёт сама полоса. */
+  inSidebar?: boolean
 }) {
   const title = brand?.brand_name || brand?.name || ''
   const logo = brand?.brand_logo_url || brand?.brand_logo_light_url || ''
@@ -37,9 +40,12 @@ export default function CabinetBrand({ brand, href = '/my' }: {
   return (
     <div
       className="w-full"
-      style={{ background: `linear-gradient(100deg, ${c1}, ${c2})` }}
+      style={inSidebar
+        ? undefined
+        : { background: `linear-gradient(100deg, ${c1}, ${c2})` }}
     >
-      <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
+      <div className={`flex items-center gap-3 px-4 py-4 ${
+        inSidebar ? '' : 'mx-auto max-w-3xl'}`}>
         <Link href={href} className="flex items-center gap-3 no-underline">
           {logo
             ? <img src={logo} alt={title} className="h-9 w-auto object-contain" />
