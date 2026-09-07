@@ -45,7 +45,8 @@ export default function InstagramSetupPage() {
         { id: 'requirements', title: 'Шаг 6. Требования' },
         { id: 'finish', title: 'Шаг 7. Создать приложение' },
         { id: 'role', title: 'Шаг 8. Роли — кто ещё может работать' },
-        { id: 'keys', title: 'Шаг 9. Передать ключи' },
+        { id: 'config', title: 'Шаг 9. Создать конфигурацию входа' },
+        { id: 'keys', title: 'Шаг 10. Передать ключи' },
         { id: 'next', title: 'Что дальше — в кабинете ПЛЮСОНа' },
         { id: 'faq', title: 'Частые вопросы' },
       ]} />
@@ -279,13 +280,40 @@ export default function InstagramSetupPage() {
         </Note>
       </Step>
 
-      <Step step="9" title="Передать ключи" id="keys">
+      <Step step="9" title="Создать конфигурацию входа" id="config">
+        <p className="text-sm text-gray-700 mb-3">
+          В приложении: <strong>«Вход через Facebook» → «Конфигурации» → «Создать конфигурацию»</strong>.
+        </p>
+        <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5">
+          <li>название — любое, например «Instagram»;</li>
+          <li>тип токена — <strong>«Маркер доступа пользователя»</strong>;</li>
+          <li>активы — <strong>Страницы Facebook</strong> и <strong>Аккаунты Instagram</strong>;</li>
+          <li>разрешения — <code className="px-1 bg-gray-100 rounded text-xs">instagram_basic</code>,{' '}
+            <code className="px-1 bg-gray-100 rounded text-xs">instagram_manage_comments</code>,{' '}
+            <code className="px-1 bg-gray-100 rounded text-xs">instagram_manage_messages</code>,{' '}
+            <code className="px-1 bg-gray-100 rounded text-xs">pages_show_list</code>,{' '}
+            <code className="px-1 bg-gray-100 rounded text-xs">pages_read_engagement</code>,{' '}
+            <code className="px-1 bg-gray-100 rounded text-xs">pages_manage_metadata</code>.</li>
+        </ul>
+        <p className="text-sm text-gray-700 mt-3">
+          После создания скопируйте <strong>Configuration ID</strong> — он понадобится вместе с ключами.
+        </p>
+
+        <Warn title="Без этого шага подключение не заработает">
+          В «Входе через Facebook для компаний» разрешения задаются только здесь —
+          передать их иначе нельзя. Если конфигурации нет, окно Facebook откроется,
+          но выдаст ошибку «Invalid Scopes» либо не даст доступа ни к чему.
+        </Warn>
+      </Step>
+
+      <Step step="10" title="Передать ключи" id="keys">
         <p className="text-sm text-gray-700 mb-3">
           В приложении: <strong>«Настройки» → «Основное»</strong>. Там два значения:
         </p>
         <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5">
           <li><strong>Идентификатор приложения</strong> (App ID)</li>
           <li><strong>Секрет приложения</strong> (App Secret) — виден по кнопке «Показать»</li>
+          <li><strong>Configuration ID</strong> — из предыдущего шага, в разделе «Конфигурации»</li>
         </ul>
 
         <Warn title="Секрет приложения — это пароль">
