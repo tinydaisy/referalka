@@ -978,6 +978,9 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
   const [search, setSearch] = useState('')
   // Фильтр по оплате: показать только оплативших или только без оплаты.
   const [paidFilter, setPaidFilter] = useState<'all' | 'yes' | 'no'>('all')
+  // ⚠️ Фильтр «кто пришёл по чьей-то ссылке»: клиенту нужно быстро увидеть,
+  // кого привели рефералы, а кто пришёл сам. Признак — заполненный реф-код.
+  const [refFilter, setRefFilter] = useState<'all' | 'yes' | 'no'>('all')
   // Фильтр по площадке × этапу (управляется кликами по таблице статистики)
   const [pFilter, setPFilter] = useState<ParticipantFilter>({ platform: 'all', stage: 'landed' })
   const [showAdd, setShowAdd] = useState(false)
@@ -1084,6 +1087,11 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
       // Оплатившие — у кого сумма по оплаченным тарифам больше нуля.
       if (paidFilter === 'yes' && !(Number(p.paid_amount) > 0)) return false
       if (paidFilter === 'no' && Number(p.paid_amount) > 0) return false
+      // Пришёл по ссылке = есть реф-код (имя приводившего может быть пустым,
+      // если контакт удалили, — поэтому смотрим именно на код).
+      const byRef = !!p.referrer_ref_code
+      if (refFilter === 'yes' && !byRef) return false
+      if (refFilter === 'no' && byRef) return false
       if (!q) return true
       const name = [p.first_name, p.last_name].filter(Boolean).join(' ').toLowerCase()
       const username = (p.username || '').toLowerCase().replace(/^@+/, '')
@@ -1098,7 +1106,7 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
         (p.salebot_id || '').includes(q)
       )
     })
-  }, [participants, search, pFilter, paidFilter])
+  }, [participants, search, pFilter, paidFilter, refFilter])
 
   if (loading && participants.length === 0) {
     return <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
@@ -1230,6 +1238,26 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
             </b>
           </span>
         )}
+
+        {/* ⚠️ Фильтр «кто пришёл по чьей-то ссылке» — отдельной группой через
+            разделитель, чтобы не слипался с оплатой: это разные срезы, и их
+            комбинируют («оплатили И пришли по ссылке»). */}
+        <span className="mx-1 h-5 w-px bg-gray-200" />
+        {([
+          ['all', 'Все'], ['yes', 'По ссылке'], ['no', 'Сами'],
+        ] as const).map(([k, label]) => (
+          <button
+            key={`ref-${k}`}
+            onClick={() => setRefFilter(k as any)}
+            className={`rounded-lg border px-3 py-1.5 text-sm ${
+              refFilter === k
+                ? 'border-brand bg-brand/5 font-medium text-brand'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
