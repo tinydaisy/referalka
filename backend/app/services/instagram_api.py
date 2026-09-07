@@ -425,7 +425,8 @@ async def reply_to_comment(comment_id: str, text: str, page_token: str) -> dict[
 
 
 async def private_reply(comment_id: str, text: str, page_token: str,
-                        page_id: str = "") -> dict[str, Any]:
+                        page_id: str = "",
+                        buttons: list[str] | None = None) -> dict[str, Any]:
     """Первое сообщение в директ — в ответ на комментарий.
 
     ⚠️ Meta разрешает это РОВНО ОДИН РАЗ на комментарий и в течение 7 дней.
@@ -444,7 +445,6 @@ async def private_reply(comment_id: str, text: str, page_token: str,
     ⚠️ Через `ig_user_id` тот же запрос отвечает «(#3) Application does not
     have the capability» — нужен именно id СТРАНИЦЫ.
     """
-    import json as _json
     if not page_id:
         # ⚠️ Без страницы отправить нельзя вовсе. Явная ошибка лучше запроса
         # по заведомо неверному адресу: тот вернёт «нет прав» и уведёт
@@ -455,13 +455,46 @@ async def private_reply(comment_id: str, text: str, page_token: str,
         token=page_token,
         json_body={
             "recipient": {"comment_id": comment_id},
-            "message": {"text": text},
+            "message": _message_body(text, buttons),
         },
     )
 
 
+# Кнопки под сообщением (quick replies).
+#
+# ⚠️ Ограничения Meta: до 13 кнопок, заголовок до 20 символов (дальше
+# обрезается), только текст.
+#
+# ⚠️⚠️ НА ДЕСКТОПЕ КНОПКИ НЕ ПОКАЗЫВАЮТСЯ — только в приложении на телефоне.
+# Поэтому текст сообщения обязан работать и БЕЗ них: человек с компьютера
+# кнопку не увидит, и если текст просит «нажмите», он окажется в тупике.
+_QR_TITLE_LIMIT = 20
+_QR_MAX = 13
+
+
+def _message_body(text: str, buttons: list[str] | None) -> dict[str, Any]:
+    """Тело сообщения: текст и, если заданы, кнопки под ним."""
+    body: dict[str, Any] = {"text": text}
+    titles = [b.strip() for b in (buttons or []) if (b or "").strip()][:_QR_MAX]
+    if titles:
+        body["quick_replies"] = [
+            {
+                "content_type": "text",
+                "title": t[:_QR_TITLE_LIMIT],
+                # ⚠️ payload одинаковый и не разбирается: нажатие приходит
+                # обычным сообщением с текстом кнопки, и движку достаточно
+                # самого факта ответа — подписку он проверяет запросом к Meta,
+                # а не по содержимому нажатия.
+                "payload": "IG_FUNNEL_DONE",
+            }
+            for t in titles
+        ]
+    return body
+
+
 async def send_message(page_id: str, recipient_igsid: str, text: str,
-                       page_token: str) -> dict[str, Any]:
+                       page_token: str,
+                       buttons: list[str] | None = None) -> dict[str, Any]:
     """Сообщение в директ.
 
     ⚠️⚠️ Работает только в пределах 24 ЧАСОВ с последнего сообщения человека.
@@ -477,13 +510,13 @@ async def send_message(page_id: str, recipient_igsid: str, text: str,
         token=page_token,
         json_body={
             "recipient": {"id": recipient_igsid},
-            "message": {"text": text},
+            "message": _message_body(text, buttons),
         },
     )
 
 
 async def list_conversations(page_id: str, page_token: str,
-                             limit: int = 20) -> list[dict[str, Any]]:
+                             limit: int = 5) -> list[dict[str, Any]]:
     """Переписки в директе — чтобы забрать ответы людей опросом.
 
     ⚠️ Нужна, пока Meta не одобрила вебхуки: нажатие «Готово» приходит
@@ -492,17 +525,38 @@ async def list_conversations(page_id: str, page_token: str,
 
     ⚠️ `platform=instagram` обязателен: у страницы Facebook есть и свои
     переписки в Messenger, к воронке отношения не имеющие.
+
+    ⚠️⚠️ БЕРЁМ МАЛО И В ДВА ЗАХОДА. Запрос «20 переписок сразу с вложенными
+    сообщениями» Meta отклоняет: «Please reduce the amount of data you're
+    asking for» — у живого аккаунта переписок накоплены сотни. Поэтому
+    сначала список без сообщений, потом сообщения по каждой переписке
+    отдельно.
+
+    ⚠️ Пяти свежих достаточно: список идёт по времени последнего сообщения,
+    а опрос крутится раз в минуту — ответивший человек всегда наверху.
     """
     data = await graph_get(
         f"{page_id}/conversations",
         token=page_token,
-        params={
-            "platform": "instagram",
-            "fields": "id,updated_time,messages.limit(5){id,created_time,from,message}",
-            "limit": limit,
-        },
+        params={"platform": "instagram", "fields": "id,updated_time", "limit": limit},
     )
-    return list(data.get("data") or [])
+    out: list[dict[str, Any]] = []
+    for conv in (data.get("data") or []):
+        cid = conv.get("id")
+        if not cid:
+            continue
+        try:
+            msgs = await graph_get(
+                str(cid),
+                token=page_token,
+                params={"fields": "messages.limit(5){id,created_time,from,message}"},
+            )
+        except InstagramApiError:
+            # ⚠️ Одна недоступная переписка не должна ронять весь опрос:
+            # остальные люди ждут ответа.
+            continue
+        out.append({**conv, "messages": msgs.get("messages") or {}})
+    return out
 
 
 async def user_profile(igsid: str, page_token: str) -> dict[str, Any]:
