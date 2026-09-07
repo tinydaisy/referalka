@@ -337,13 +337,43 @@ async def instagram_account_of_page(page_id: str, page_token: str) -> dict[str, 
     есть, а Instagram к ней не привязан. Возвращаем None, а не ошибку —
     вызывающий покажет человеку, что именно надо сделать в Instagram.
     """
-    data = await graph_get(
-        page_id,
-        token=page_token,
-        params={"fields": "instagram_business_account{id,username,name,followers_count,profile_picture_url}"},
-    )
+    # ⚠️⚠️ Поле instagram_business_account требует разрешения `instagram_basic`.
+    # Без него Meta молча отдаёт страницу БЕЗ этого поля — и связка выглядит
+    # отсутствующей, хотя Instagram к странице привязан. Отличить одно от
+    # другого по ответу нельзя, поэтому при пустом поле пробуем ещё раз, забрав
+    # у страницы всё сразу: в ответе видно, пришло ли поле вообще.
+    # Поймано 2026-09-07: три страницы нашлись, связка «не найдена» — не было
+    # instagram_basic.
+    try:
+        data = await graph_get(
+            page_id,
+            token=page_token,
+            params={"fields": "instagram_business_account{id,username,name,followers_count,profile_picture_url}"},
+        )
+    except InstagramApiError as e:
+        # Нет прав на это поле — Meta отвечает ошибкой, а не пустотой.
+        logger.warning("instagram_account_of_page(%s): %s", page_id, e)
+        return None
+
     acc = data.get("instagram_business_account")
-    return acc if isinstance(acc, dict) and acc.get("id") else None
+    if isinstance(acc, dict) and acc.get("id"):
+        return acc
+
+    # Второй заход: старое поле connected_instagram_account. У части страниц
+    # связка лежит именно в нём (аккаунт подключён как «связанный», а не как
+    # «бизнес-аккаунт страницы») — и тогда первый запрос честно пуст.
+    try:
+        data2 = await graph_get(
+            page_id,
+            token=page_token,
+            params={"fields": "connected_instagram_account{id,username,name,followers_count,profile_picture_url}"},
+        )
+    except InstagramApiError as e:
+        logger.warning("instagram_account_of_page(%s) connected: %s", page_id, e)
+        return None
+
+    acc2 = data2.get("connected_instagram_account")
+    return acc2 if isinstance(acc2, dict) and acc2.get("id") else None
 
 
 async def account_info(ig_user_id: str, page_token: str) -> dict[str, Any]:
