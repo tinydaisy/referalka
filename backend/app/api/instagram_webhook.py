@@ -55,13 +55,30 @@ def _signature_ok(body: bytes, header: str | None) -> bool:
     публичный. Поэтому неподписанный запрос отбрасываем всегда.
     """
     if not header or not header.startswith("sha256="):
+        log.warning("Instagram webhook: заголовка подписи нет вовсе (header=%r)", header)
         return False
     expected = hmac.new(
         settings.ig_app_secret.encode(), body, hashlib.sha256
     ).hexdigest()
+    got = header.split("=", 1)[1]
     # ⚠️ Сравнение в постоянное время: обычное `==` подсказывает подбирающему,
     # сколько символов уже угадано.
-    return hmac.compare_digest(expected, header.split("=", 1)[1])
+    if hmac.compare_digest(expected, got):
+        return True
+
+    # ⚠️ Расхождение подписи диагностировать вслепую невозможно: причин
+    # несколько (не тот секрет, изменённое посредником тело, другая кодировка),
+    # а снаружи все они выглядят одинаково — «403 и тишина». Поэтому пишем в
+    # лог НАЧАЛА обеих подписей и длину тела.
+    #
+    # ⚠️ Сам секрет в лог не попадает: подпись его не раскрывает, а по первым
+    # символам видно, сходится она или нет. Логи читают люди, которым доступ к
+    # ключам приложения не нужен.
+    log.warning(
+        "Instagram webhook: подпись не сошлась. ждали sha256=%s…, пришло sha256=%s…, тело %d байт",
+        expected[:12], got[:12], len(body),
+    )
+    return False
 
 
 @router.post("/webhook", include_in_schema=False)
