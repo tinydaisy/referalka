@@ -195,11 +195,17 @@ async def _get_or_create_run(db, funnel: dict, contact_id: int, igsid: str) -> d
         return dict(row)
 
     new_id = await db.fetchval(
-        """INSERT INTO funnel_runs (client_id, lead_magnet_id, package_id, contact_id,
+        # ⚠️ `type` — NOT NULL без значения по умолчанию, и его легко не
+        # заметить: движок Instagram его пропускал, и КАЖДЫЙ забег падал с
+        # NotNullViolationError уже после того, как человеку ушёл публичный
+        # ответ и создался контакт. Значение то же, что у остальных воронок
+        # ('lead_magnet'): Instagram — способ раздать лид-магнит, а не
+        # отдельный вид забега.
+        """INSERT INTO funnel_runs (client_id, type, lead_magnet_id, package_id, contact_id,
                                     platform_slug, platform_user_id, stage,
                                     instagram_funnel_id, ig_last_user_message_at,
                                     landed_at, started_at)
-           VALUES ($1,$2,$3,$4,'instagram',$5,'started',$6, now(), now(), now())
+           VALUES ($1,'lead_magnet',$2,$3,$4,'instagram',$5,'started',$6, now(), now(), now())
            RETURNING id""",
         funnel["client_id"], funnel["lead_magnet_id"], funnel["package_id"],
         contact_id, igsid, funnel["id"],
