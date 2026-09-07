@@ -129,8 +129,9 @@ async def get_product_landing(
     # анкеты каждой странице по-своему нельзя: разъедутся.
     if "survey" in kinds:
         from app.services.landing_survey import collect_landing_surveys
+        # ⚠️ Владельца передаём — анкета берётся из формы заявки продукта.
         data["surveys"] = await collect_landing_surveys(
-            db, blocks, product["client_id"])
+            db, blocks, product["client_id"], "product", product["id"])
 
     # ── Состав продукта ──
     if "product_content" in kinds:

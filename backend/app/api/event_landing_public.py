@@ -174,7 +174,10 @@ async def get_public_landing(
         from app.services.landing_survey import collect_landing_surveys
         # Событие не коллаба — владелец ровно один, и анкета может быть только
         # его (при сохранении блока это проверено `assert_survey_owned`).
-        data["surveys"] = await collect_landing_surveys(db, blocks, owner["id"])
+        # ⚠️ Владельца передаём, чтобы анкета взялась из ФОРМЫ ЗАЯВКИ
+        # события (мигр. 363) — в блоке её больше не выбирают.
+        data["surveys"] = await collect_landing_surveys(
+            db, blocks, owner["id"], "event", event["id"])
 
     # ── Осталось мест ─────────────────────────────────────────────────────
     # Считаем и для отдельной секции `seats`, и когда счётчик встроен в шапку

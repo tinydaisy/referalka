@@ -40,21 +40,41 @@ def _jsonb(value: Any) -> Any:
     return value if value is not None else []
 
 
-async def collect_landing_surveys(db, blocks, client_id: int) -> dict:
+async def collect_landing_surveys(db, blocks, client_id: int,
+                                  owner_type: str | None = None,
+                                  owner_id: int | None = None) -> dict:
     """`{ "<block_id>": {анкета с вопросами} }` для блоков `kind='survey'`.
 
     Пустой словарь, если таких блоков нет или анкета не выбрана — рендерер
     тогда секцию не рисует.
+
+    ⚠️⚠️ АНКЕТА БЕРЁТСЯ ИЗ «ФОРМЫ ЗАЯВКИ» ВЛАДЕЛЬЦА (миграция 363), а свой
+    `survey_id` у блока больше не задаётся — выбор из конструктора убран
+    07.09.2026. Два места, задающих одно и то же, разъезжались: клиент менял
+    анкету в форме заявки, а на лендинге оставалась старая.
+    Собственный `survey_id` блока оставлен как запасной вариант — у блоков,
+    созданных до этой правки, он заполнен, и терять их нельзя.
 
     ⚠️ Ссылку на политику ПД кладём В КАЖДУЮ анкету, а не берём из подвала:
     подвал собирается, только когда блок подвала включён, — а клиент вправе
     его выключить. Форма сбора данных без ссылки на политику существовать не
     должна, поэтому она не может зависеть от чужой секции.
     """
+    # Анкета формы заявки владельца — она главнее того, что осталось в блоке.
+    form_survey_id = None
+    if owner_type and owner_id:
+        try:
+            form_survey_id = await db.fetchval(
+                """SELECT survey_id FROM request_forms
+                    WHERE owner_type = $1 AND owner_id = $2 AND is_active""",
+                owner_type, owner_id)
+        except Exception:
+            form_survey_id = None   # таблицы ещё нет — работаем по-старому
+
     wanted = {
-        b["id"]: b["survey_id"]
+        b["id"]: (form_survey_id or b["survey_id"])
         for b in blocks
-        if b["kind"] == "survey" and b["survey_id"]
+        if b["kind"] == "survey" and (form_survey_id or b["survey_id"])
     }
     if not wanted:
         return {}

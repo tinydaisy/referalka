@@ -400,6 +400,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   // Тарифы события — от них зависит, что открывает кнопка участия при способе
   // регистрации «простая форма»: выбор тарифа или сразу форму.
   const tariffs: any[] = Array.isArray(event?.tariffs) ? event.tariffs : []
+  // Форма заявки (мигр. 363): «оставить заявку» вместо регистрации.
+  const requestForm = event?.request_form || null
 
   // Кастомные названия вкладок из настроек клиента (пусто → дефолт из константы NAV_*).
   const tabLabels: Record<string, string | undefined> = {
@@ -713,7 +715,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
     // вместо формы показываем выбор варианта участия, форма откроется уже
     // после выбора бесплатного (платный уходит на оплату). Иначе человек
     // записывался бесплатно на событие, где вход продаётся.
-    if (tariffs.length > 0) { setShowTariffs(true); return }
+    if (tariffs.length > 0 || requestForm) { setShowTariffs(true); return }
 
     // Клиент в дашборде включил «Регистрировать без ввода контактных данных»:
     // регистрируем по tg_id без формы, имя из Telegram, email/phone пустые.
@@ -958,6 +960,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         <TariffPicker
           event={event}
           tariffs={tariffs}
+          requestForm={requestForm}
           tgUser={tgUser}
           partnerId={partnerId}
           utmSource={utmSource}

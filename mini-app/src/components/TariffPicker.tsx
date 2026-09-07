@@ -28,9 +28,19 @@ export interface Tariff {
   discount_percent?: number | null
 }
 
+export interface RequestForm {
+  title?: string | null
+  subtitle?: string | null
+  success_text?: string | null
+  survey_slug?: string | null
+  survey?: { questions?: any[] } | null
+}
+
 interface Props {
   event: any
   tariffs: Tariff[]
+  /** Форма заявки (мигр. 363) — «оставить заявку» вместо регистрации. */
+  requestForm?: RequestForm | null
   tgUser: any
   /** Реф-код приведшего и метка источника — их нельзя терять при заказе. */
   partnerId?: string
@@ -47,9 +57,14 @@ function money(v: number) {
 }
 
 export default function TariffPicker({
-  event, tariffs, tgUser, partnerId, utmSource, contactId, prefill, onClose, onDone,
+  event, tariffs, requestForm, tgUser, partnerId, utmSource, contactId,
+  prefill, onClose, onDone,
 }: Props) {
   const [picked, setPicked] = useState<Tariff | null>(null)
+  // Экран заявки: человек заполняет анкету, а не покупает.
+  const [onRequest, setOnRequest] = useState(false)
+  const [answers, setAnswers] = useState<Record<string, any>>({})
+  const [sentText, setSentText] = useState<string | null>(null)
   const [name, setName] = useState(
     prefill?.name
     || (tgUser?.first_name
@@ -137,6 +152,190 @@ export default function TariffPicker({
       setBusy(false)
       unlock()
     }
+  }
+
+  const questions: any[] = requestForm?.survey?.questions || []
+
+  async function submitRequest() {
+    if (sending.current) return
+    sending.current = true
+    const unlock = () => { sending.current = false }
+
+    if (!name.trim())  { unlock(); setError('Напишите, как вас зовут'); return }
+    if (!email.trim()) { unlock(); setError('Укажите email'); return }
+    if (!pd) {
+      unlock(); setError('Без согласия на обработку персональных данных заявку отправить нельзя'); return
+    }
+    // Обязательные вопросы — до отправки, иначе сервер ответит ошибкой уже
+    // после того, как человек нажал кнопку и ждёт.
+    const miss = questions.filter((q: any) => {
+      if (!q.is_required) return false
+      const v = answers[String(q.id)]
+      return Array.isArray(v) ? !v.length : String(v ?? '').trim() === ''
+    })
+    if (miss.length) {
+      unlock()
+      setError('Заполните: ' + miss.map((q: any) => q.title).slice(0, 3).join('; '))
+      return
+    }
+
+    setError(null); setBusy(true)
+    try {
+      // ⚠️ Отправка идёт в ТУ ЖЕ ручку, что и публичная страница анкеты
+      // `/f/{slug}`. Своего приёма ответов не заводим: разъедутся проверка
+      // обязательных, «Это вы?», согласие ПД и уведомления клиенту.
+      const apiUrl = (import.meta as any).env?.VITE_API_URL || ''
+      const r = await fetch(
+        `${apiUrl}/api/v1/public/surveys/${requestForm?.survey_slug}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          answers,
+          contact_id: contactId ?? null,
+          name: name.trim() || null,
+          email: email.trim() || null,
+          phone: phone.trim() || null,
+          consent_pd: true,
+        }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data?.detail || 'Не удалось отправить заявку')
+      setSentText(requestForm?.success_text || 'Спасибо! Мы свяжемся с вами.')
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось отправить заявку')
+      setBusy(false)
+    } finally {
+      unlock()
+    }
+  }
+
+  // ── Заявка отправлена ──
+  if (sentText) {
+    return (
+      <div className="modal-bg">
+        <div className="modal-sheet" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
+          <h2 style={{ marginBottom: 10 }}>Заявка отправлена</h2>
+          <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5, marginBottom: 18 }}>
+            {sentText}
+          </p>
+          <button className="btn btn-primary" onClick={onClose}>Закрыть</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── ЭКРАН ЗАЯВКИ: вопросы анкеты ──
+  if (onRequest && requestForm) {
+    return (
+      <div className="modal-bg">
+        <div className="modal-sheet">
+          <h2>{requestForm.title || 'Оставить заявку'}</h2>
+          {requestForm.subtitle && (
+            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14, lineHeight: 1.45 }}>
+              {requestForm.subtitle}
+            </p>
+          )}
+
+          <div className="field">
+            <label>Имя</label>
+            <input className="input-dark" value={name}
+                   onChange={e => setName(e.target.value)} placeholder="Ваше имя" />
+          </div>
+          <div className="field">
+            <label>Email</label>
+            <input className="input-dark" type="email" value={email}
+                   onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+          </div>
+          <div className="field">
+            <label>Телефон</label>
+            <input className="input-dark" type="tel" value={phone}
+                   onChange={e => setPhone(e.target.value)} placeholder="+7 999 123-45-67" />
+          </div>
+
+          {questions.map((q: any) => (
+            <div className="field" key={q.id}>
+              <label>{q.title}{q.is_required ? ' *' : ''}</label>
+              {q.kind === 'textarea' ? (
+                <textarea className="input-dark" rows={3}
+                          value={answers[String(q.id)] || ''}
+                          onChange={e => setAnswers(a => ({ ...a, [String(q.id)]: e.target.value }))} />
+              ) : (q.kind === 'select' || q.kind === 'multiselect') ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {(q.options || []).map((o: any, i: number) => {
+                    const val = typeof o === 'string' ? o : (o?.value ?? o?.title ?? '')
+                    const multi = q.kind === 'multiselect'
+                    const cur = answers[String(q.id)]
+                    const on = multi ? (Array.isArray(cur) && cur.includes(val)) : cur === val
+                    return (
+                      <label key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text)' }}>
+                        <input type={multi ? 'checkbox' : 'radio'} checked={!!on}
+                               onChange={() => setAnswers(a => {
+                                 if (!multi) return { ...a, [String(q.id)]: val }
+                                 const arr = Array.isArray(a[String(q.id)]) ? [...a[String(q.id)]] : []
+                                 const ix = arr.indexOf(val)
+                                 if (ix >= 0) arr.splice(ix, 1); else arr.push(val)
+                                 return { ...a, [String(q.id)]: arr }
+                               })}
+                               style={{ marginTop: 2, flexShrink: 0, width: 16, height: 16 }} />
+                        <span>{val}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              ) : q.kind === 'bool' ? (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <input type="checkbox" checked={answers[String(q.id)] === 'Да'}
+                         onChange={e => setAnswers(a => ({ ...a, [String(q.id)]: e.target.checked ? 'Да' : '' }))}
+                         style={{ width: 16, height: 16 }} />
+                  <span>Да</span>
+                </label>
+              ) : (
+                <input className="input-dark"
+                       type={q.kind === 'number' ? 'number' : q.kind === 'date' ? 'date' : 'text'}
+                       value={answers[String(q.id)] || ''}
+                       onChange={e => setAnswers(a => ({ ...a, [String(q.id)]: e.target.value }))} />
+              )}
+              {q.hint && (
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{q.hint}</p>
+              )}
+            </div>
+          ))}
+
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)', margin: '12px 0 16px' }}>
+            <input type="checkbox" checked={pd} onChange={e => setPd(e.target.checked)}
+                   style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
+            <span>
+              Я согласен на обработку моих персональных данных.{' '}
+              {privacyUrl ? (
+                <>С <a href={privacyUrl} target="_blank" rel="noreferrer"
+                       style={{ color: 'var(--peach)' }}>Политикой обработки
+                  персональных данных</a> ознакомлен.</>
+              ) : 'С Политикой обработки персональных данных ознакомлен.'}
+            </span>
+          </label>
+
+          {error && (
+            <p style={{ color: '#d9483b', fontSize: 13, margin: '0 0 12px', lineHeight: 1.4 }}>{error}</p>
+          )}
+
+          <button className="btn btn-primary" disabled={busy} onClick={submitRequest}>
+            {busy ? 'Отправляем…' : 'Отправить заявку'}
+          </button>
+          {tariffs.length > 0 && (
+            <button
+              onClick={() => { setOnRequest(false); setError(null) }}
+              disabled={busy}
+              style={{
+                width: '100%', marginTop: 8, padding: 12, background: 'none',
+                border: 'none', color: 'var(--muted)', fontSize: 14,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >Назад к вариантам участия</button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   // ── ШАГ 2: форма контактов ──
@@ -304,6 +503,30 @@ export default function TariffPicker({
             </div>
           )
         })}
+
+        {/* ⚠️ Форма заявки — НИЖЕ тарифов, отдельной карточкой. Тарифы
+            регистрируют (за деньги или бесплатно), заявка — нет: человек
+            оставляет контакты, с ним свяжутся. Показываем оба варианта
+            вместе, чтобы он выбрал сам. */}
+        {requestForm && (
+          <div style={{
+            border: '1.5px dashed var(--border)', borderRadius: 14,
+            padding: 14, marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>
+              {requestForm.title || 'Оставить заявку'}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: 'var(--muted)' }}>
+              {requestForm.subtitle
+                || 'Не готовы решить сейчас — оставьте контакты, и мы свяжемся с вами.'}
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ marginTop: 12 }}
+              onClick={() => { setOnRequest(true); setError(null) }}
+            >Оставить заявку</button>
+          </div>
+        )}
 
         <button
           onClick={onClose}

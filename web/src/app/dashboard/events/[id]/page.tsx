@@ -10,6 +10,7 @@ import CoOrganizersTab from './tabs/CoOrganizersTab'
 import CollabOrganizersTab from './tabs/CollabOrganizersTab'
 import NurtureTab from './tabs/NurtureTab'
 import WelcomeTab from './tabs/WelcomeTab'
+import RequestFormTab from '@/components/RequestFormTab'
 import TariffsTab from './tabs/TariffsTab'
 import LandingTab from './tabs/LandingTab'
 import EventParticipants from '@/components/EventParticipants'
@@ -30,7 +31,7 @@ import CollabReportTab from './tabs/CollabReportTab'
 import DashboardView from '@/components/analytics/DashboardView'
 import EventCrmTab from '@/components/analytics/EventCrmTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard' | 'crm'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'request_form' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard' | 'crm'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -137,9 +138,12 @@ export default function EventPage() {
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
     // ⚠️ У КОЛЛАБ-события платежей нет — раздел скрыт.
     ...((isVip && !event.is_collab) ? [{
-      key: 'payments' as GroupKey, label: 'Платежи',
+      key: 'payments' as GroupKey, label: 'Платежи/Заявки',
       tabs: [
         { key: 'tariffs' as TabKey, label: 'Тарифы' },
+        // «Формы заявки» (мигр. 363): заявка НЕ регистрирует и не берёт
+        // денег — человек заполняет анкету, ответ идёт в её заявки.
+        { key: 'request_form' as TabKey, label: 'Формы заявки' },
         { key: 'tariff_orders' as TabKey, label: 'Заказы' },
       ],
     }] : []),
@@ -254,6 +258,7 @@ export default function EventPage() {
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} isCollab={!!event.is_collab} />}
       {activeTab === 'welcome' && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'tariffs'       && isVip && !event.is_collab && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
+      {activeTab === 'request_form' && isVip && !event.is_collab && <RequestFormTab ownerType="events" ownerId={eventId} />}
       {activeTab === 'tariff_orders' && isVip && !event.is_collab && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} isCollab={!!event.is_collab} />}
     </div>

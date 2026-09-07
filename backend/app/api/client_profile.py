@@ -1227,6 +1227,17 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
     except Exception:
         pass          # тарифы не должны ронять страницу события
 
+    # ⚠️ Форма заявки (мигр. 363) — «оставить заявку» вместо регистрации и
+    # оплаты. Показывается по кнопке участия рядом с тарифами: тарифы
+    # регистрируют, заявка — нет, человек просто оставляет контакты.
+    d["request_form"] = None
+    try:
+        from app.api.request_forms import load_request_form
+        d["request_form"] = await load_request_form(
+            db, "event", row["id"], d.get("client_id"))
+    except Exception:
+        pass          # форма заявки не должна ронять страницу события
+
     # ⚠️ Оферта и политика ПД — для галочек согласия в форме заказа ВНУТРИ
     # Mini App. Уводить человека из мессенджера на веб-страницу заказа нельзя:
     # Mini App живёт в Mini App. Политика — на домене того клиента, в чью базу

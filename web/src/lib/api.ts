@@ -1083,6 +1083,17 @@ export const api = {
     delete: (id: number) =>
       request(`/api/v1/contact-fields/${id}`, { method: 'DELETE' }),
   },
+  // Формы заявки (миграция 363): «оставить заявку» вместо регистрации и
+  // оплаты. Одна форма на владельца — событие или продукт.
+  requestForms: {
+    get: (ownerType: 'events' | 'products', ownerId: number) =>
+      request(`/api/v1/${ownerType}/${ownerId}/request-form`),
+    save: (ownerType: 'events' | 'products', ownerId: number, data: any) =>
+      request(`/api/v1/${ownerType}/${ownerId}/request-form`,
+              { method: 'PUT', body: JSON.stringify(data) }),
+    remove: (ownerType: 'events' | 'products', ownerId: number) =>
+      request(`/api/v1/${ownerType}/${ownerId}/request-form`, { method: 'DELETE' }),
+  },
   surveys: {
     list: () => request('/api/v1/surveys'),
     // Сколько заявок ждут обработки по всем анкетам — цифра у пункта меню.

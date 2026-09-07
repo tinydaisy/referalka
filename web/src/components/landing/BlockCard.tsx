@@ -408,34 +408,21 @@ export default function BlockCard({
               )}
 
               {has('survey') && !isCollab && (
-                <Field label="Какая анкета">
-                  <select
-                    value={block.survey_id ?? ''}
-                    onChange={e => onPatch({
-                      survey_id: e.target.value ? Number(e.target.value) : null,
-                    })}
-                    className="input bg-white"
-                  >
-                    <option value="">— выберите анкету —</option>
-                    {(surveys || []).map((s: any) => (
-                      <option key={s.id} value={s.id}>{s.title}</option>
-                    ))}
-                  </select>
+                <Field label="Форма заявки">
+                  {/* ⚠️⚠️ ВЫБОРА АНКЕТЫ ЗДЕСЬ БОЛЬШЕ НЕТ (07.09.2026).
+                      Анкета берётся из «Формы заявки» владельца
+                      («Платежи/Заявки» → «Формы заявки»). Два места,
+                      задающих одно и то же, неминуемо разъезжаются: клиент
+                      поменял анкету в форме заявки, а на лендинге осталась
+                      старая. Здесь — только заголовок и оформление. */}
+                  <p className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-gray-600 leading-relaxed">
+                    Анкета подтянется <b>автоматически</b> из формы заявки —
+                    настроить её можно в разделе{' '}
+                    <a href="?tab=request_form" className="underline">«Платежи/Заявки» → «Формы заявки»</a>.
+                    Здесь задаются только заголовок и оформление секции.
+                  </p>
 
-                  {/* ⚠️ Пустой список — это не поломка, а «анкет ещё нет».
-                      Без этой подсказки клиент видит пустой выпадающий список
-                      и не понимает, что делать. */}
-                  {!(surveys || []).length && (
-                    <p className="mt-1 text-xs text-amber-700">
-                      У вас пока нет анкет. Создайте её в разделе{' '}
-                      <a href="/dashboard/surveys" target="_blank"
-                         className="underline">Анкеты</a> — для заявки хватит
-                      двух вопросов: имя и как связаться.
-                    </p>
-                  )}
-
-                  {!!block.survey_id && (
-                    <div className="mt-3">
+                  <div className="mt-3">
                       <label className="mb-1 block text-sm font-medium text-gray-700">
                         Как показывать
                       </label>
@@ -460,7 +447,6 @@ export default function BlockCard({
                         одни и те же, меняется только показ.
                       </p>
                     </div>
-                  )}
 
                   <p className="mt-2 text-xs text-gray-500">
                     Заявки придут в раздел «Анкеты» → «Ответы». Оплата и доступ
