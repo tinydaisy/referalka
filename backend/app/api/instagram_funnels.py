@@ -47,7 +47,7 @@ class FunnelIn(BaseModel):
     require_subscription: bool = True
     public_reply_enabled: bool = True
     reminder_enabled: bool = True
-    reminder_delay_min: int = 180
+    reminder_delay_min: int = 10
     is_active: bool = True
     replies: dict[str, list[str]] = {}
 

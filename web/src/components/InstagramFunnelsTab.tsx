@@ -251,7 +251,7 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
     require_subscription: true,
     public_reply_enabled: true,
     reminder_enabled: true,
-    reminder_delay_min: 180,
+    reminder_delay_min: 10,
     is_active: true,
     // ⚠️ Готовые тексты подставляем сразу, а не оставляем пусто: пустые поля
     // человек чаще всего так и оставляет, а нам важно, чтобы вариантов было
@@ -471,7 +471,7 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
             {[
               ['require_subscription', 'Требовать подписку на аккаунт'],
               ['public_reply_enabled', 'Отвечать публично под комментарием'],
-              ['reminder_enabled', 'Напомнить, если человек не ответил'],
+              ['reminder_enabled', 'Напомнить, если человек не забрал материал'],
               ['is_active', 'Воронка включена'],
             ].map(([k, l]) => (
               <label key={k as string} className="flex items-center gap-2 text-sm text-gray-700">
@@ -488,6 +488,11 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
               <input type="number" min={5} max={1380} value={f.reminder_delay_min}
                 onChange={e => set('reminder_delay_min', +e.target.value)}
                 className="w-32 px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+              <p className="text-xs text-gray-500 mt-1">
+                Человек написал кодовое слово, получил в директ просьбу подписаться —
+                и пропал. Через это время ему уйдёт одно напоминание. Если он к тому
+                моменту подпишется, но не нажмёт кнопку — сразу отправим материал.
+              </p>
               <p className="text-xs text-gray-500 mt-1">
                 Instagram разрешает писать только сутки с последнего сообщения человека —
                 если срок вышел, напоминание не уйдёт.
