@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
-from ..celery_app import celery_app
+from app.celery_app import celery
 from ..config import settings
 
 log = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def _run(coro):
         asyncio.set_event_loop(None)
 
 
-@celery_app.task(name="app.tasks.instagram.send_reminder")
+@celery.task(name="app.tasks.instagram.send_reminder")
 def send_reminder(run_id: int):
     """Напоминание человеку, который не забрал материал.
 
@@ -55,7 +55,7 @@ def send_reminder(run_id: int):
         return False
 
 
-@celery_app.task(name="app.tasks.instagram.refresh_tokens")
+@celery.task(name="app.tasks.instagram.refresh_tokens")
 def refresh_tokens():
     """Продлить токены, которым осталось меньше 10 дней.
 
