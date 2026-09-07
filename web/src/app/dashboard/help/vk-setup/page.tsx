@@ -734,6 +734,10 @@ export default function VkSetupInstructionPage() {
               Если бот молчит — зайдите в настройки чата → участники → у сообщества назначьте права
               <strong> администратора</strong> и повторите <code>/getmyid</code>.
             </div>
+            <div className="text-xs text-amber-700 mt-1">
+              Обратите внимание: пишите команду <strong>от своего имени</strong>, а не от имени
+              сообщества — иначе отправителя не видно и ваш личный ID узнать не получится.
+            </div>
           </li>
           <li>
             <strong>Впишите ID в ПЛЮСОН.</strong> <Link href="/dashboard/settings?tab=tech" className="text-blue-600 hover:underline font-medium">Настройки → Техническое</Link> →
