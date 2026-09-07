@@ -35,6 +35,31 @@ interface Funnel {
   delivered?: number
 }
 
+/** На что срабатывает воронка — одной строкой, без открытия карточки.
+ *
+ * ⚠️ Пишем ИМЕННО «под любым» / «под выбранными»: раньше стояло просто
+ * «Комментарий под публикацией», и по списку из нескольких воронок нельзя
+ * было понять, какая ловит всё подряд, а какая — конкретный рилс. Разница
+ * между ними решающая: воронка «на любой» перехватывает почти всё.
+ */
+function triggerLabel(f: Funnel): string {
+  if (f.trigger_kind === 'story_reply') return 'Ответ на любую сторис'
+  if (f.media_scope === 'specific') {
+    const n = f.media_ids?.length || 0
+    // Число говорим всегда: «выбранные» без количества не отличает одну
+    // публикацию от десяти, а это ровно то, что человек и проверяет.
+    return `Комментарий под ${n} ${plural(n, 'выбранной публикацией', 'выбранными публикациями', 'выбранными публикациями')}`
+  }
+  return 'Комментарий под любой публикацией'
+}
+
+function plural(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10, m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few
+  return many
+}
+
 // Готовые тексты — те же, что в движке ([instagram_funnel.py](backend)).
 //
 // ⚠️ Подставляются в новую воронку сразу, чтобы клиенту было что править, а не
@@ -194,7 +219,7 @@ export default function InstagramFunnelsTab() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500">
-                    {f.trigger_kind === 'story_reply' ? 'Ответ на сторис' : 'Комментарий под публикацией'}
+                    {triggerLabel(f)}
                     {f.keyword_mode === 'specific' && f.keywords?.length
                       ? ` · слова: ${f.keywords.join(', ')}` : ' · любое слово'}
                     {' · выдаём: '}
