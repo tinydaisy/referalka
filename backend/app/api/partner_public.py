@@ -789,7 +789,9 @@ async def partner_materials(response: Response, sess: dict = Depends(_session),
     # ⚠️ Показываем ТОЛЬКО те площадки, где у клиента есть свой бот и где
     # написан разбор метки: ссылка без разбора хуже её отсутствия — реф-код
     # молча теряется, и человек ни за кем не закрепляется.
-    from app.services.share_links import build_funnel_landing_links
+    from app.services.share_links import (
+        build_funnel_landing_links, build_share_links, resolve_event_link_mode,
+    )
 
     async def _platform_links(kind: str, slug: str) -> dict:
         try:
@@ -798,10 +800,29 @@ async def partner_materials(response: Response, sess: dict = Depends(_session),
         except Exception:  # noqa: BLE001
             return {}
 
+    # ⚠️⚠️ У СОБЫТИЙ площадочных ссылок не было вовсе — партнёру отдавали
+    # только веб-адрес `/l/{slug}`. У клиента с настройкой «Mini App» это
+    # неверно: он раздаёт ссылки, которые открываются не так, как он настроил
+    # свой кабинет. Режим спрашиваем у общего резолвера, своего условия по
+    # `link_mode` здесь не пишем — оно разъедется с остальным проектом.
+    async def _event_platform_links(slug: str) -> dict:
+        try:
+            mode = await resolve_event_link_mode(db, client_id=cid,
+                                                 platform="telegram")
+            return await build_share_links(
+                db, client_id=cid, event_slug=slug, partner_id=ref,
+                link_mode=mode)
+        except Exception:  # noqa: BLE001
+            return {}
+
     return {
         "ref_code": ref,
-        "events": [{**dict(e), "link": _link(f"/l/{e['slug']}"),
-                    "start_at": e["start_at"]} for e in events],
+        "events": [
+            {**dict(e), "link": _link(f"/l/{e['slug']}"),
+             "start_at": e["start_at"],
+             "platform_links": await _event_platform_links(e["slug"])}
+            for e in events
+        ],
         "products": [
             {**dict(p), "link": _link(f"/pr/{p['slug']}"),
              "platform_links": await _platform_links("pr", p["slug"])}
