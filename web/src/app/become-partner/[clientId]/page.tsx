@@ -35,7 +35,6 @@ export default function BecomePartnerPage() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [tax, setTax] = useState('')
-  const [accept, setAccept] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState<any>(null)
@@ -174,31 +173,39 @@ export default function BecomePartnerPage() {
           </p>
         </div>
 
+        {/* ⚠️ Оферта — РАЗВОРАЧИВАЕТСЯ ПРЯМО ЗДЕСЬ, а не только ссылкой.
+            Согласие юридически значимо: человек должен иметь возможность
+            прочитать текст, не уходя со страницы и не теряя заполненную форму. */}
         {offer?.body && (
           <details className="rounded-xl bg-gray-50 p-3">
             <summary className="cursor-pointer text-sm font-medium text-gray-700">
               {offer.title || 'Условия участия'}
             </summary>
-            <div className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-gray-600">
+            <div className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap
+                            text-xs leading-relaxed text-gray-600">
               {offer.body}
             </div>
           </details>
         )}
 
-        <label className="flex gap-2 text-sm text-gray-700">
-          <input type="checkbox" checked={accept} className="mt-1"
-                 onChange={e => setAccept(e.target.checked)} />
-          <span>Принимаю условия участия в партнёрской программе</span>
-        </label>
-
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <button onClick={submit}
-                disabled={busy || !accept || !tax
-                          || (!email.trim() && !phone.trim())}
+                disabled={busy || !tax || (!email.trim() && !phone.trim())}
                 className="btn-gold w-full">
           {busy ? 'Отправляем…' : 'Стать партнёром'}
         </button>
+
+        {/* ⚠️ Согласие — САМИМ НАЖАТИЕМ кнопки (решение владельца), галочки нет.
+            Поэтому фраза стоит ПОД кнопкой и до неё: человек обязан прочитать,
+            на что соглашается, ДО того как нажал, — после нажатия поздно. */}
+        <p className="-mt-1 text-center text-xs leading-relaxed text-gray-500">
+          Нажимая «Стать партнёром», вы принимаете{' '}
+          <a href="/partner-offer" target="_blank" rel="noopener noreferrer"
+             className="underline">
+            оферту об участии в партнёрской программе
+          </a>
+        </p>
         <p className="text-center text-xs text-gray-400">
           Уже партнёр? <a href={`/my?client_id=${clientId}`} className="underline">Войти в кабинет</a>
         </p>

@@ -104,20 +104,31 @@ export default function PartnerCabinet({ token }: { token: string }) {
 function BecomePartner({ token }: { token: string }) {
   const [offer, setOffer] = useState<any>(null)
   const [tax, setTax] = useState('')
-  const [accept, setAccept] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  // ⚠️⚠️ КАБИНЕТ БЕРЁМ ИЗ ТОКЕНА, адрес — только запасной вариант. Человек уже
+  // вошёл, номер кабинета в его сессии; полагаться на `?client_id=` в адресе
+  // нельзя — по «голой» ссылке `/my` (а её и дают в боте и в переписке) его нет.
+  // Из-за этого оферта не приходила (список статусов пустой), а «Стать
+  // партнёром» отвечало «Не удалось определить кабинет» человеку, который
+  // стоит в своём же кабинете (прод, 07–08.09.2026).
+  const clientId = (() => {
+    try {
+      // ⚠️ В токене поле называется `cl_id` (products_public._token), а не
+      // `client_id` — то появляется только после разбора на сервере.
+      const payload = JSON.parse(atob(token.split('.')[1] || ''))
+      if (payload?.cl_id) return String(payload.cl_id)
+    } catch { /* битый токен — упадём на адрес */ }
+    return typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('client_id')
+      : null
+  })()
+
   useEffect(() => {
-    // ⚠️ client_id обязателен: без него ручка отдаёт 400 «Не удалось
-    // определить кабинет» — по Host кабинет узнаётся, только когда у клиента
-    // есть СВОЙ домен страниц. Без параметра оферта не приходила вовсе, и
-    // список налоговых статусов в форме оставался ПУСТЫМ: партнёром нельзя
-    // было стать в принципе (прод, 07.09.2026).
-    const cid = new URLSearchParams(window.location.search).get('client_id')
-    fetch(`${apiBase}/api/v1/public/partner/offer${cid ? `?client_id=${cid}` : ''}`)
+    fetch(`${apiBase}/api/v1/public/partner/offer${clientId ? `?client_id=${clientId}` : ''}`)
       .then(r => r.json()).then(setOffer).catch(() => setOffer(null))
-  }, [])
+  }, [clientId])
 
   const submit = async () => {
     setBusy(true); setError('')
@@ -128,7 +139,12 @@ function BecomePartner({ token }: { token: string }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ tax_status: tax, accept: true }),
+        // ⚠️ client_id шлём ЯВНО, хотя бэкенд теперь достаёт его из токена:
+        // страховка на случай токена без кабинета (старая сессия в браузере).
+        body: JSON.stringify({
+          tax_status: tax, accept: true,
+          client_id: clientId ? Number(clientId) : null,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.detail || 'Не получилось')
@@ -148,12 +164,15 @@ function BecomePartner({ token }: { token: string }) {
         Человек покупает по вашей ссылке — вам начисляется вознаграждение.
       </p>
 
+      {/* ⚠️ Оферта разворачивается ПРЯМО ЗДЕСЬ: согласие юридически значимо,
+          человек должен прочитать текст, не уходя со страницы. */}
       {offer?.body && (
         <details className="mb-4 rounded-xl bg-gray-50 p-3">
           <summary className="cursor-pointer text-sm font-medium text-gray-700">
             {offer.title || 'Условия участия'}
           </summary>
-          <div className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-gray-600">
+          <div className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap
+                          text-xs leading-relaxed text-gray-600">
             {offer.body}
           </div>
         </details>
@@ -174,17 +193,21 @@ function BecomePartner({ token }: { token: string }) {
         ))}
       </select>
 
-      <label className="mb-4 flex gap-2 text-sm text-gray-700">
-        <input type="checkbox" checked={accept} className="mt-1"
-               onChange={e => setAccept(e.target.checked)} />
-        <span>Принимаю условия участия в партнёрской программе</span>
-      </label>
-
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
-      <button onClick={submit} disabled={busy || !accept || !tax} className="btn-gold w-full">
+      <button onClick={submit} disabled={busy || !tax} className="btn-gold w-full">
         {busy ? 'Отправляем…' : 'Стать партнёром'}
       </button>
+
+      {/* ⚠️ Согласие — САМИМ НАЖАТИЕМ кнопки (решение владельца), галочки нет.
+          Фраза обязана быть видна ДО нажатия, иначе соглашаться вслепую. */}
+      <p className="mt-2 text-center text-xs leading-relaxed text-gray-500">
+        Нажимая «Стать партнёром», вы принимаете{' '}
+        <a href="/partner-offer" target="_blank" rel="noopener noreferrer"
+           className="underline">
+          оферту об участии в партнёрской программе
+        </a>
+      </p>
     </div>
   )
 }

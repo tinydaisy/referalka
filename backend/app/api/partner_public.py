@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/partner", tags=["Кабинет партнёра"])
 
+# ⚠️ `individual` («Физическое лицо») убран из ВЫБОРА по решению владельца, но
+# ОСТАЁТСЯ в списке допустимых: у уже зарегистрированных партнёров этот статус
+# мог быть записан, и запрет сломал бы им сохранение профиля.
 _TAX_STATUSES = ("self_employed", "ip", "individual", "company")
 
 
@@ -175,11 +178,13 @@ async def partner_offer(request: Request, response: Response,
         "title": (doc["title"] if doc else "Оферта об участии в партнёрской программе"),
         "body": (doc["body"] if doc else ""),
         "brand": client["brand"] if client else "",
+        # ⚠️ «Физическое лицо» из выбора УБРАНО (решение владельца): выплата
+        # физлицу требует от клиента удержать НДФЛ и сдать отчётность, а платит
+        # партнёрам он сам — предлагать этот путь в форме нельзя.
         "tax_statuses": [
             {"value": "self_employed", "label": "Самозанятый"},
             {"value": "ip", "label": "ИП"},
             {"value": "company", "label": "Юридическое лицо"},
-            {"value": "individual", "label": "Физическое лицо"},
         ],
     }
 
@@ -273,7 +278,20 @@ async def register_partner(data: RegisterIn, request: Request, response: Respons
     UNIQUE (client_id, contact_id) этого и не позволит.
     """
     _cors(response)
-    cid = await _client_by_host(db, request) or data.client_id
+
+    # ⚠️⚠️ ВОШЕДШИЙ ЧЕЛОВЕК — КАБИНЕТ ИЗ ЕГО ТОКЕНА, и это ПЕРВЫЙ источник.
+    # Раньше кабинет искали только по домену и по `client_id` из тела, а кабинет
+    # партнёра (`/my`) его не присылал — человек, УЖЕ вошедший в свой кабинет,
+    # жал «Стать партнёром» и получал «Не удалось определить кабинет» (прод,
+    # 08.09.2026). Токен надёжнее любого параметра: он выдан этому кабинету.
+    session_cid: Optional[int] = None
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            session_cid = _session(authorization).get("client_id")
+        except HTTPException:
+            session_cid = None
+
+    cid = session_cid or await _client_by_host(db, request) or data.client_id
     if not cid:
         raise HTTPException(status_code=400, detail="Не удалось определить кабинет")
 
