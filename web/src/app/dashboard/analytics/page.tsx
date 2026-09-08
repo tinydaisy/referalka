@@ -1,8 +1,9 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { BarChart3, TrendingUp, Users, LayoutGrid } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useMe } from '@/hooks/useMe'
 import DashboardView from '@/components/analytics/DashboardView'
 
@@ -40,13 +41,17 @@ interface UtmResponse {
 }
 
 type SubTab = 'dashboard' | 'media' | 'utm'
+// ⚠️ Держать в синхроне с типом: по списку useUrlTab отсеивает мусор в ?sub=
+const SUB_TABS: readonly SubTab[] = ['dashboard', 'media', 'utm']
 
-export default function AnalyticsPage() {
+function AnalyticsPageInner() {
   const { me } = useMe()
   const [data, setData] = useState<UtmResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [sub, setSub] = useState<SubTab>('dashboard')
+  // ⚠️ Вкладка живёт в адресе через общий useUrlTab: с обычным useState
+  // обновление страницы (F5) сбрасывало выбор на «Дашборд».
+  const [sub, setSub] = useUrlTab<SubTab>('sub', 'dashboard', SUB_TABS)
 
   const [groupBy, setGroupBy] = useState('utm_source')
   // Фильтр по источнику: '' = все, 'm:<id>' = лид-магнит, 'p:<id>' = пакет.
@@ -284,6 +289,19 @@ export default function AnalyticsPage() {
     </div>
   )
 }
+
+// ⚠️⚠️ Обёртка ОБЯЗАТЕЛЬНА: useUrlTab внутри зовёт useSearchParams, а у
+// страницы нет динамического сегмента — Next пререндерит такие на сборке и
+// падает целиком «useSearchParams() should be wrapped in a suspense boundary».
+// ⚠️ tsc эту ошибку НЕ видит — проверять только сборкой.
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AnalyticsPageInner />
+    </Suspense>
+  )
+}
+
 
 function StatTile({ label, value, accent }: { label: string; value: number | string; accent?: boolean }) {
   return (

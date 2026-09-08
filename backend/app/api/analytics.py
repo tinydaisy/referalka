@@ -186,7 +186,13 @@ async def platforms_summary(client=Depends(get_current_client), db=Depends(get_d
     ch = await channel_audience(db, client_id, social or {})
     ch_titles = {"plusson_tg_ch": "Telegram-каналы",
                  "plusson_max_ch": "МАКС-каналы",
-                 "plusson_vk_ch": "ВК-сообщества"}
+                 "plusson_vk_ch": "ВК-сообщества",
+                 # ⚠️ Instagram считается ИНАЧЕ остальных: у него нет базы в
+                 # `platform_users` — подписчики живут у Meta, и в наши боты
+                 # они не попадают. Цифру отдаёт сама Meta (сохранена при
+                 # подключении аккаунта). Без этой строки площадка не
+                 # показывалась вовсе, хотя аккаунт подключён.
+                 "instagram": "Instagram"}
     channel_rows = [
         {"slug": k, "title": t, "total": ch.get(k, 0), "subscribed": ch.get(k, 0), "unsubscribed": 0}
         for k, t in ch_titles.items() if ch.get(k, 0) > 0
