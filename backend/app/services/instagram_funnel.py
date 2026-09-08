@@ -130,15 +130,19 @@ async def material_name(db, funnel: dict) -> str:
 
 
 async def pick_reply(db, funnel_id: int, kind: str, handle: str = "",
-                     material: str = "") -> str:
+                     material: str = "", name: str = "") -> str:
     """Случайная фраза нужного вида. Свои у клиента — приоритет, иначе наши.
 
-    ⚠️ Плейсхолдеры подставляются и в СВОИ фразы клиента: он вправе написать
-    свой текст, и `{handle}` с `{material}` нужны там ровно так же.
+    Плейсхолдеры: `{handle}` — ник аккаунта клиента, `{material}` — название
+    подарка, `{name}` — ник написавшего человека.
 
-    ⚠️ Значения нет → убираем плейсхолдер вместе с предлогом и кавычками,
-    иначе человек получит «подпишитесь на @» или «материал «» готов» —
-    выглядит как поломка.
+    ⚠️ Подставляются и в СВОИ фразы клиента: он вправе написать свой текст, и
+    плейсхолдеры нужны там ровно так же.
+
+    ⚠️⚠️ Значения нет → убираем плейсхолдер ВМЕСТЕ с предлогом, кавычками и
+    висящей запятой. Иначе человек получит «подпишитесь на @», «материал «»
+    готов» или «Привет, !» — каждое читается как поломка. У `{name}` это
+    случается часто: Instagram отдаёт ник не всегда.
     """
     rows = await db.fetch(
         "SELECT text FROM instagram_funnel_replies WHERE funnel_id=$1 AND kind=$2",
@@ -165,6 +169,15 @@ async def pick_reply(db, funnel_id: int, kind: str, handle: str = "",
                     .replace("«{material}»", "")
                     .replace(" {material}", "")
                     .replace("{material}", ""))
+
+    if name:
+        text = text.replace("{name}", name.lstrip("@"))
+    else:
+        # ⚠️ Вместе с запятой и лишним пробелом: «Привет, {name}!» без имени
+        # должно стать «Привет!», а не «Привет, !».
+        text = (text.replace(", {name}", "")
+                    .replace(" {name}", "")
+                    .replace("{name}", ""))
     return text
 
 
@@ -421,7 +434,8 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
             # ⚠️ В пределах часа в директ повторно НЕ пишем — только публичный
             # ответ выше. Десять комментариев подряд иначе дадут десять писем.
             return
-        text_repeat = await pick_reply(db, funnel["id"], "dm_repeat", ch["handle"])
+        text_repeat = await pick_reply(db, funnel["id"], "dm_repeat", ch["handle"],
+                                       await material_name(db, funnel), from_username)
         try:
             await ig.private_reply(comment_id, text_repeat, ch["token"], ch["page_id"])
         except ig.InstagramApiError:
@@ -434,7 +448,8 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
     # ⚠️ Только `private_reply` — обычной отправкой человеку, который нам ещё
     # не писал, написать нельзя: 24-часового окна с ним не существует.
     if funnel["require_subscription"]:
-        intro = await pick_reply(db, funnel["id"], "dm_intro", ch["handle"], await material_name(db, funnel))
+        intro = await pick_reply(db, funnel["id"], "dm_intro", ch["handle"],
+                                 await material_name(db, funnel), from_username)
     else:
         intro = await pick_reply(db, funnel["id"], "dm_delivered", ch["handle"])
 
@@ -503,7 +518,8 @@ async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
         try:
             await ig.send_message(
                 ch["page_id"], from_igsid,
-                await pick_reply(db, funnel["id"], "dm_not_subscribed", ch["handle"], await material_name(db, funnel)), ch["token"],
+                await pick_reply(db, funnel["id"], "dm_not_subscribed", ch["handle"],
+                                 await material_name(db, funnel), from_username), ch["token"],
                 buttons=[DONE_BUTTON],
             )
         except ig.InstagramApiError:

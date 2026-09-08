@@ -113,11 +113,23 @@ const DEFAULT_REPLIES: Record<string, string[]> = {
 
 const REPLY_KINDS: { key: string; title: string; hint: string }[] = [
   { key: 'public_comment',    title: 'Ответ под комментарием', hint: 'Видят все. Пишите несколько вариантов — одинаковые ответы Instagram считает спамом' },
-  { key: 'dm_intro',          title: 'Первое сообщение в директ', hint: '{handle} — ваш ник, Instagram сделает его ссылкой на профиль. Под сообщением появится кнопка «Готово»' },
-  { key: 'dm_not_subscribed', title: 'Если подписки не видно', hint: '{handle} — ваш ник' },
+  { key: 'dm_intro',          title: 'Первое сообщение в директ', hint: 'Под сообщением появится кнопка «Готово»' },
+  { key: 'dm_not_subscribed', title: 'Если подписки не видно', hint: '' },
   { key: 'dm_delivered',      title: 'Выдача материала', hint: 'Перед ссылками на материалы' },
   { key: 'dm_repeat',         title: 'Если написал повторно', hint: '«Уже отправляли — вот ещё раз»' },
   { key: 'dm_reminder',       title: 'Напоминание молчащему', hint: '' },
+]
+
+// Что можно вставить в тексты.
+//
+// ⚠️ Пояснение общее, а не в подсказке к каждому полю: плейсхолдеры работают
+// во ВСЕХ текстах одинаково, и повторять их у каждого — шум. Без пояснения
+// «{handle}» в готовом тексте выглядит как случайный набор символов, и его
+// стирают.
+const PLACEHOLDERS: { code: string; what: string }[] = [
+  { code: '{handle}',   what: 'ваш ник в Instagram — станет ссылкой на профиль, подписаться можно в один тап' },
+  { code: '{material}', what: 'название подарка, который выдаёт воронка' },
+  { code: '{name}',     what: 'ник написавшего человека' },
 ]
 
 export default function InstagramFunnelsTab() {
@@ -600,6 +612,31 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
               Пишите по несколько вариантов на каждый пункт — Instagram считает спамом
               повторяющиеся одинаковые ответы и режет охваты. Оставите пусто — используем свои.
             </p>
+
+            {/* ⚠️ Пояснение к плейсхолдерам — ОДНО на весь блок: они работают
+                во всех текстах одинаково, и повторять у каждого поля значит
+                зашумлять форму. Без пояснения «{handle}» читается как мусор
+                и его стирают. */}
+            <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 mb-3">
+              <p className="text-xs font-semibold text-gray-700 mb-1.5">
+                Что можно вставить в текст — подставится автоматически:
+              </p>
+              <ul className="space-y-1">
+                {PLACEHOLDERS.map(({ code, what }) => (
+                  <li key={code} className="text-xs text-gray-600">
+                    <code className="px-1 py-0.5 rounded bg-white border border-gray-200 text-gray-800">
+                      {code}
+                    </code>
+                    {' — '}{what}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Если значения нет (например, Instagram не отдал ник), строка соберётся без него —
+                лишних скобок и пустых кавычек человек не увидит.
+              </p>
+            </div>
+
             <div className="space-y-3">
               {REPLY_KINDS.map(({ key, title, hint }) => (
                 <div key={key}>

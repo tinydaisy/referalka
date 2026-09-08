@@ -350,6 +350,18 @@ export default function ChannelsPage() {
           onDone={() => { setImportingChannel(null); load() }}
         />
       )}
+
+      {/* Юридическая сноска про Meta.
+          ⚠️ Показывается ТОЛЬКО тем, у кого Instagram вообще доступен: у
+          остальных площадка скрыта (см. фильтр по `instagram_funnel` выше), и
+          сноска про непоказанную площадку читалась бы как случайный текст.
+          ⚠️ Внизу и мелким шрифтом — это пометка, а не сообщение клиенту. */}
+      {(me?.features || []).includes('instagram_funnel') && (
+        <p className="mt-8 pt-4 border-t border-gray-100 text-[11px] leading-relaxed text-gray-400">
+          Instagram принадлежит компании Meta, признанной экстремистской организацией
+          и запрещённой на территории Российской Федерации.
+        </p>
+      )}
     </div>
   )
 }

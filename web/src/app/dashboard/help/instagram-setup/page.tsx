@@ -22,9 +22,9 @@ export default function InstagramSetupPage() {
   return (
     <div className="pb-24 max-w-3xl">
       <Crumbs section="Первичная настройка" sectionHref="/dashboard/help/s/setup"
-              title="Как подключить Instagram" />
+              title="Как подключить Instagram*" />
       <Hero
-        title="Подключение Instagram"
+        title="Подключение Instagram*"
         subtitle="Разовая подготовка на стороне Meta, чтобы заработали ответы на комментарии под рилсами и выдача материалов в личные сообщения. 20–30 минут, делается один раз."
       />
 
@@ -398,6 +398,14 @@ export default function InstagramSetupPage() {
           чем на скриншотах.
         </p>
       </Step>
+
+      {/* ⚠️ Юридическая сноска к звёздочке в заголовке — внизу и мелким
+          шрифтом: это пометка, а не сообщение читателю, наверху она мешала бы
+          читать саму инструкцию. */}
+      <p className="mt-8 pt-4 border-t border-gray-100 text-[11px] leading-relaxed text-gray-400">
+        * Instagram принадлежит компании Meta, признанной экстремистской организацией
+        и запрещённой на территории Российской Федерации.
+      </p>
     </div>
   )
 }
