@@ -730,7 +730,7 @@ export default function TariffsTab({
                     onChange={e => setForm({ ...form, bonus_trial: e.target.checked })}
                   />
                   <span className="text-xs text-amber-900">
-                    Дарить доступ в iViSiON: ПЛЮСОН
+                    Подарить Триал-доступ в iViSiON: ПЛЮСОН
                     <span className="block text-amber-800/70">
                       Новому пользователю — полный бесплатный период, у кого кабинет
                       уже есть — 3 дня продления. Покупатель закрепится за вами,

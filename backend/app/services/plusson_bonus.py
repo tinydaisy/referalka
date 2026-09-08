@@ -218,6 +218,24 @@ async def activate_coupon(db: asyncpg.Connection, token: str) -> dict:
             await _grant_module_days(db, client_id=client_id,
                                      feature_id=row["feature_id"],
                                      days=int(row["days"] or 30))
+            # Уроки по модулю. Срок читаем У ВЫДАННОГО МОДУЛЯ, а не считаем от
+            # row["days"]: у клиента модуль мог быть, и дни прибавились к его
+            # сроку — доступ к урокам обязан совпасть с ним, а не начаться заново.
+            _mod = await db.fetchrow(
+                """SELECT ca.expires_at, f.slug
+                     FROM client_addons ca JOIN features f ON f.id = ca.feature_id
+                    WHERE ca.client_id = $1 AND ca.feature_id = $2
+                      AND ca.status = 'active'
+                    ORDER BY ca.expires_at DESC LIMIT 1""",
+                client_id, row["feature_id"])
+            if _mod:
+                from app.services.module_product_access import (
+                    grant_module_product_access,
+                )
+                await grant_module_product_access(
+                    db, client_id=client_id, feature_slug=_mod["slug"],
+                    expires_at=_mod["expires_at"],
+                )
 
         await db.execute(
             """UPDATE plusson_bonus_coupons
