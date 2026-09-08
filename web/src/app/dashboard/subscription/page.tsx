@@ -299,8 +299,14 @@ export default function SubscriptionPage() {
           <div className={`grid grid-cols-1 gap-4 ${
             tariffs.length >= 3 ? 'sm:grid-cols-3' : tariffs.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
           }`}>
-            {tariffs.map(t => {
+            {tariffs.map((t, idx) => {
               const isCurrent = me?.subscription?.tariff_slug === t.slug
+              // Что уже было в тарифе подешевле — эти строки оставляем обычными,
+              // а всё остальное подсвечиваем как «за это и доплата».
+              // ⚠️ У самого дешёвого предыдущего нет: там ничего не выделяем,
+              // иначе весь список окажется жирным и подсветка перестанет значить.
+              const prevFeatures = new Set<string>(
+                idx > 0 ? (tariffs[idx - 1].feature_slugs || []) : [])
               // ⚠️ Всё о цене — из периода, посчитанного бэкендом. Своей
               // арифметики тут нет: сумма в кнопке обязана совпадать с суммой
               // в платёжке до копейки.
@@ -385,9 +391,23 @@ export default function SubscriptionPage() {
                       ? `До ${t.contact_limit.toLocaleString('ru-RU')} контактов на канал`
                       : 'Неограниченное количество контактов'}</div>
                     <div>{t.broadcasts_daily_limit ? `${t.broadcasts_daily_limit.toLocaleString('ru-RU')} рассылок/сутки` : 'Безлимит рассылок'}</div>
-                    {(t.feature_slugs || []).filter((slug: string) => !hiddenFeatures.has(slug)).map((slug: string) => (
-                      <div key={slug}>· {featureLabels[slug] || slug}</div>
-                    ))}
+                    {/* ⚠️ Выделяем то, чего НЕ БЫЛО в предыдущем тарифе — иначе
+                        карточки читаются как три почти одинаковых списка, и за
+                        что доплачиваешь, глазами не найти. Тарифы приходят с
+                        бэкенда по возрастанию цены (ORDER BY t.price), поэтому
+                        «предыдущий» — это соседний слева. */}
+                    {(t.feature_slugs || []).filter((slug: string) => !hiddenFeatures.has(slug)).map((slug: string) => {
+                      // У самого дешёвого тарифа (idx = 0) не выделяем ничего:
+                      // сравнивать не с чем, а жирный список целиком означал бы
+                      // ровно то же, что обычный.
+                      const isNew = idx > 0 && !prevFeatures.has(slug)
+                      return (
+                        <div key={slug}
+                             className={isNew ? 'font-semibold text-[#25455D]' : undefined}>
+                          · {featureLabels[slug] || slug}
+                        </div>
+                      )
+                    })}
                   </div>
 
                   {/* ⚠️ На ТЕКУЩЕМ тарифе это ПРОДЛЕНИЕ, а не покупка: слово
