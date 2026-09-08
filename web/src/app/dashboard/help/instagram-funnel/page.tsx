@@ -38,7 +38,7 @@ export default function InstagramFunnelPage() {
         { id: 'limits', title: 'Ограничения Instagram' },
       ]} />
 
-      <Step id="before" n={1} title="Что нужно до начала">
+      <Step id="before" step="1" title="Что нужно до начала">
         <p className="text-sm text-gray-600 mb-3">
           Аккаунт Instagram должен быть уже подключён в разделе «Каналы». Если ещё нет —
           сначала пройдите{' '}
@@ -52,7 +52,7 @@ export default function InstagramFunnelPage() {
         </p>
       </Step>
 
-      <Step id="create" n={2} title="Создать воронку">
+      <Step id="create" step="2" title="Создать воронку">
         <p className="text-sm text-gray-600 mb-3">
           «Лид-магниты» → вкладка <b>«Instagram*-воронка»</b> → «Добавить воронку».
         </p>
@@ -69,7 +69,7 @@ export default function InstagramFunnelPage() {
         </Note>
       </Step>
 
-      <Step id="words" n={3} title="Кодовые слова">
+      <Step id="words" step="3" title="Кодовые слова">
         <p className="text-sm text-gray-600 mb-3">
           Слово, по которому воронка узнаёт «этот человек хочет подарок». Можно несколько —
           например «хочу», «гайд», «дай».
@@ -79,14 +79,14 @@ export default function InstagramFunnelPage() {
           <li><b>«Содержит»</b> (по умолчанию) — сработает и на «хочу!!», и на «очень хочу гайд».</li>
           <li><b>«Точное совпадение»</b> — только если комментарий равен слову целиком.</li>
         </ul>
-        <Warn>
+        <Warn title="Когда нужно точное совпадение">
           «Точное совпадение» нужно, когда слово короткое и встречается в другом смысле:
           «хочу» есть и в «не хочу», и в «хочу спросить про другое». В остальных случаях
           берите «содержит» — иначе потеряете большинство людей, они редко пишут ровно одно слово.
         </Warn>
       </Step>
 
-      <Step id="gift" n={4} title="Что выдаём и как">
+      <Step id="gift" step="4" title="Что выдаём и как">
         <p className="text-sm text-gray-600 mb-3">
           Выберите лид-магнит или пакет — и способ выдачи:
         </p>
@@ -107,7 +107,7 @@ export default function InstagramFunnelPage() {
         </Note>
       </Step>
 
-      <Step id="texts" n={5} title="Тексты сообщений">
+      <Step id="texts" step="5" title="Тексты сообщений">
         <p className="text-sm text-gray-600 mb-3">
           Готовые тексты уже вписаны — их можно оставить как есть или переписать под себя.
           В любой текст можно вставить:
@@ -117,19 +117,19 @@ export default function InstagramFunnelPage() {
           <li><code className="px-1 bg-gray-100 rounded">{'{material}'}</code> — название подарка</li>
           <li><code className="px-1 bg-gray-100 rounded">{'{name}'}</code> — ник написавшего человека</li>
         </ul>
-        <Warn>
+        <Warn title="Пишите по несколько вариантов">
           На каждый шаг пишите <b>несколько вариантов</b> — это не для красоты. Instagram
           считает спамом одинаковые повторяющиеся ответы под комментариями и режет охваты
           вплоть до блокировки аккаунта. Из списка каждый раз берётся случайная фраза.
         </Warn>
       </Step>
 
-      <Step id="check" n={6} title="Проверить на себе">
+      <Step id="check" step="6" title="Проверить на себе">
         <p className="text-sm text-gray-600 mb-3">
           Снимите галочку <b>«Одному человеку — не чаще раза в час»</b>, напишите кодовое
           слово под своим рилсом и посмотрите, что придёт. Ответ приходит в течение минуты.
         </p>
-        <Warn>
+        <Warn title="Каждый раз — новый комментарий">
           Проверять на <b>новом</b> комментарии каждый раз. Instagram разрешает написать
           в личные сообщения <b>только один раз на один комментарий</b> — на том, где бот
           уже отвечал, второй раз ничего не придёт, и это не поломка.
@@ -140,7 +140,7 @@ export default function InstagramFunnelPage() {
         </p>
       </Step>
 
-      <Step id="stats" n={7} title="Кто пришёл и кто забрал">
+      <Step id="stats" step="7" title="Кто пришёл и кто забрал">
         <p className="text-sm text-gray-600 mb-3">
           В списке воронок у каждой стоит плитка с тремя цифрами: <b>написали / забрали /
           не забрали</b>. Нажмите на неё — откроется список людей: ник ссылкой на профиль,
@@ -152,7 +152,7 @@ export default function InstagramFunnelPage() {
         </Note>
       </Step>
 
-      <Step id="limits" n={8} title="Что Instagram не разрешает">
+      <Step id="limits" step="8" title="Что Instagram не разрешает">
         <ul className="text-sm text-gray-600 space-y-2 mb-3 list-disc pl-5">
           <li>
             <b>Писать первым нельзя.</b> Ответить человеку можно только <b>24 часа</b> после
