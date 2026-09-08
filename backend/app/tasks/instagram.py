@@ -264,6 +264,7 @@ def poll_comments():
                                 from_igsid=sender,
                                 text=m.get("message") or "",
                                 from_username=(m.get("from") or {}).get("username") or "",
+                                message_id=mid,
                             )
                             handled += 1
                         except Exception:

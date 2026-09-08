@@ -183,7 +183,8 @@ async def _process(payload: dict) -> None:
                 text = (m.get("message") or {}).get("text") or ""
                 try:
                     await funnel.handle_message(
-                        db, channel_id, from_igsid=sender, text=text
+                        db, channel_id, from_igsid=sender, text=text,
+                        message_id=str((m.get("message") or {}).get("mid") or ""),
                     )
                 except Exception:
                     log.exception("Instagram: обработка сообщения сорвалась")

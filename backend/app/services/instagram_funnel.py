@@ -548,7 +548,8 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
 
 
 async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
-                         from_username: str = "") -> None:
+                         from_username: str = "",
+                         message_id: str = "") -> None:
     """Человек написал в директ (в том числе нажал кнопку). Точка входа из вебхука."""
     # Ищем незавершённый забег этого человека.
     run = await db.fetchrow(
@@ -577,6 +578,11 @@ async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
                 client_id=cl_id, platform="instagram", channel_id=channel_id,
                 platform_user_id=from_igsid, text=text,
                 contact_id=(run["contact_id"] if run else None),
+                # ⚠️⚠️ Без id сообщения не работает защита от дублей
+                # (частичный UNIQUE `direct_messages_dedup_uq` по нему).
+                # Одно и то же сообщение приходит ДВАЖДЫ — вебхуком и
+                # опросом, — и в переписке появлялось два раза.
+                platform_message_id=(message_id or None),
             )
     except Exception:
         log.exception("Instagram: не удалось записать входящее в диалоги")
