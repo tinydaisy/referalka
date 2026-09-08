@@ -124,7 +124,17 @@ async def share_contact_with_all_owners(db, *, event_id: int, contact_id: int) -
     Идемпотентно; ошибки глушим — это дополнение к регистрации, а не её часть.
     """
     try:
-        if not await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id):
+        # ⚠️ Галочка на СОБЫТИИ (миграция 371). Снята — контакт остаётся только
+        # у того, кто привёл: партнёры не всегда готовы отдавать свою базу, и
+        # решать это за них платформа не должна. По умолчанию TRUE — как
+        # работало до появления настройки.
+        ev = await db.fetchrow(
+            "SELECT is_collab, collab_share_contacts FROM events WHERE id = $1",
+            event_id,
+        )
+        if not ev or not ev["is_collab"]:
+            return
+        if ev["collab_share_contacts"] is False:
             return
         owner_ids = await event_owner_client_ids(db, event_id)
         if len(owner_ids) < 2:

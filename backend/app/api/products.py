@@ -1018,6 +1018,16 @@ async def list_buyers(
                (SELECT pe.platform_user_id FROM platform_users pe
                  WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
                  ORDER BY pe.id LIMIT 1) AS email,
+               -- ⚠️ Мессенджеры в ОДНОЙ колонке «Контакты» рядом с почтой и
+               -- телефоном: клиент пишет человеку туда, где тот есть, и не
+               -- должен для этого открывать карточку контакта.
+               (SELECT json_agg(json_build_object(
+                          'platform', pu.platform_slug,
+                          'username', pu.username,
+                          'user_id', pu.platform_user_id) ORDER BY pu.platform_slug)
+                  FROM platform_users pu
+                 WHERE pu.contact_id = c.id
+                   AND pu.platform_slug IN ('telegram', 'vk', 'max')) AS identities,
                t.id AS tariff_id, t.title AS tariff_title,
                o.status AS order_status, o.amount,
                (SELECT MAX(v.created_at) FROM product_cabinet_visits v
@@ -1031,7 +1041,17 @@ async def list_buyers(
         """,
         product_id,
     )
-    return {"buyers": [dict(r) for r in rows]}
+    # ⚠️ asyncpg отдаёт `json_agg` СТРОКОЙ — без разворота фронт получит текст
+    # вместо списка и не нарисует мессенджеры (та же грабля, что с `options`
+    # у анкет).
+    out = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d.get("identities"), str):
+            d["identities"] = json.loads(d["identities"])
+        d["identities"] = d.get("identities") or []
+        out.append(d)
+    return {"buyers": out}
 
 
 @router.get("/products/{product_id}/orders", summary="Заказы продукта")

@@ -1,5 +1,4 @@
 """
-from app.services.share_links import TG_DOMAIN
 Контекстное приветствие в бота при открытии события из Mini App.
 
 Вызывается из двух мест:
@@ -30,6 +29,12 @@ from ..config import settings
 from .channels import get_client_telegram_token
 from .contact_merge import upsert_contact_with_identity, resolve_ref_code
 from .message_builder import RU_MONTHS
+# ⚠️ Домен TG-ссылок берём из общей точки, а НЕ литералом (правило проекта).
+# Строка эта уже была в файле, но лежала ВНУТРИ докстроки модуля — Питон видел
+# её как текст, импорт не выполнялся, и открытие события из Mini App падало
+# 500 на `NameError: TG_DOMAIN` (прод, 07.09.2026). Приветствие при этом не
+# уходило никому: ошибка возникала до отправки.
+from .share_links import TG_DOMAIN
 
 logger = logging.getLogger(__name__)
 

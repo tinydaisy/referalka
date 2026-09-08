@@ -50,6 +50,17 @@ async def _client_by_host(db, request: Request) -> Optional[int]:
     return await resolve(db, request)
 
 
+async def _client_by_email(db, email: str) -> Optional[int]:
+    """Кабинет по почте — та же функция, что у кабинета покупателя.
+
+    ⚠️ Партнёр чаще всех входит «голым» адресом `/my`: ссылку ему дают в боте
+    и в переписке, а номер кабинета несёт только кнопка из письма. Без этого
+    он упирался в «Не удалось определить кабинет» на ровном месте.
+    """
+    from app.api.products_public import _client_by_email as resolve
+    return await resolve(db, email)
+
+
 def _cors(response: Response) -> None:
     from app.api.products_public import _cors as apply
     apply(response)
@@ -439,11 +450,9 @@ async def partner_request_code(data: CodeIn, request: Request, response: Respons
     форме входа перебором вычисляется база клиента.
     """
     _cors(response)
-    cid = await _client_by_host(db, request) or data.client_id
-    if not cid:
-        raise HTTPException(status_code=400, detail="Не удалось определить кабинет")
-
     email = (data.email or "").strip().lower()
+    cid = (await _client_by_host(db, request) or data.client_id
+           or await _client_by_email(db, email))
     ok = {"ok": True, "sent": True}
     # ⚠️⚠️ ЧЕЛОВЕКУ ГОВОРИМ ПРАВДУ: письма не будет. Раньше здесь во всех
     # ветках возвращалось `sent: True`, экран писал «Код отправлен», и человек
@@ -463,6 +472,10 @@ async def partner_request_code(data: CodeIn, request: Request, response: Respons
     }
     if "@" not in email:
         raise HTTPException(status_code=400, detail="Проверьте адрес почты")
+    # Кабинет не определился (чужая почта либо покупки у двух разных
+    # экспертов) — отвечаем как «доступа нет», а не технической ошибкой.
+    if not cid:
+        return no_access
 
     contact_id = await db.fetchval(
         """SELECT c.id FROM contacts c

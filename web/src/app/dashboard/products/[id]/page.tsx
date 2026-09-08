@@ -1733,10 +1733,26 @@ function fmtDateTime(v?: string | null): string {
 
 // ⚠️ Подписи статуса — в ОДНОМ месте: те же слова в таблице, в фильтре и в
 // истории. Разные формулировки в трёх местах читались бы как разные состояния.
+//
+// ⚠️ ЗАКРЫТЫЙ — КРАСНЫМ, а не серым (решение владельца 07.09.2026). Серый
+// читается как «неважно, архив», а это как раз то, что нужно заметить: человек
+// материалы больше не видит.
 const ACCESS_STATUS: Record<string, { label: string; cls: string }> = {
   active:  { label: 'Открыт',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   expired: { label: 'Истёк',    cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  revoked: { label: 'Закрыт',   cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+  revoked: { label: 'Закрыт',   cls: 'bg-red-50 text-red-700 border-red-200' },
+}
+
+/** Мессенджеры человека строкой: `@ник` либо площадка с числовым id. */
+function messengerLine(identities: any[]): string {
+  const NAMES: Record<string, string> = { telegram: 'TG', vk: 'VK', max: 'MAX' }
+  return (identities || [])
+    .map(i => {
+      const who = i.username ? `@${i.username}` : String(i.user_id || '').replace(/^@/, '')
+      return who ? `${NAMES[i.platform] || i.platform}: ${who}` : ''
+    })
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function StatusChip({ status }: { status: string }) {
@@ -1909,8 +1925,15 @@ function BuyersTab({ productId, readOnly }: { productId: number; readOnly: boole
                   </td>
                   <td className="px-3 py-2.5"><StatusChip status={b.status} /></td>
                   <td className="px-3 py-2.5 text-xs text-gray-500">
-                    <div className="truncate max-w-[200px]">{b.email || '—'}</div>
+                    <div className="truncate max-w-[210px]">{b.email || '—'}</div>
                     {b.phone && <div className="text-gray-400">{b.phone}</div>}
+                    {/* Мессенджеры здесь же: писать человеку удобнее оттуда,
+                        где он есть, а лезть за этим в карточку контакта долго. */}
+                    {!!(b.identities || []).length && (
+                      <div className="truncate max-w-[210px] text-gray-400">
+                        {messengerLine(b.identities)}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-gray-700">{b.tariff_title || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-gray-500">
@@ -1919,9 +1942,13 @@ function BuyersTab({ productId, readOnly }: { productId: number; readOnly: boole
                       : (b.amount ? `оплатил ${Number(b.amount).toLocaleString('ru-RU')} ₽`
                                   : 'по заказу')}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-500">
-                    {b.last_login_at ? fmtDateTime(b.last_login_at)
-                      : <span className="text-gray-300">не заходил</span>}
+                  {/* ⚠️ Заходил — зелёным, не заходил — красным: по этой
+                      колонке решают, кого дожимать, и бледно-серое «не
+                      заходил» глазом не цеплялось вовсе. */}
+                  <td className="whitespace-nowrap px-3 py-2.5 text-xs">
+                    {b.last_login_at
+                      ? <span className="text-emerald-600">{fmtDateTime(b.last_login_at)}</span>
+                      : <span className="font-medium text-red-600">не заходил</span>}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right">
                     <button onClick={() => setHistoryOf(b)}

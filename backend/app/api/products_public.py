@@ -108,6 +108,43 @@ async def _client_by_host(db, request: Request) -> Optional[int]:
         return None
 
 
+async def _client_by_email(db, email: str) -> Optional[int]:
+    """Кабинет по почте покупателя — когда его не задали ни домен, ни адрес.
+
+    ⚠️⚠️ Раньше вход на `pluson.ru/my` без `?client_id=` отвечал «Не удалось
+    определить кабинет» — то есть человек, честно купивший, войти не мог
+    вовсе: параметр несёт только кнопка из письма, а закладка, ссылка из бота
+    или адрес, набранный руками, его теряют. Домен клиента спасает лишь тех,
+    у кого он подключён (`client_domains`), а таких единицы.
+
+    ⚠️ Отвечаем ТОЛЬКО когда кабинет однозначен: почта нашлась ровно у одного
+    клиента. Нашлась у двух (человек купил у разных экспертов) — молча выбрать
+    любой нельзя, это вход не в тот кабинет; тогда пусть решает адрес.
+
+    ⚠️ Смотрим на ЖИВОЙ доступ, а не на факт контакта: строка `product_access`
+    остаётся навсегда (миграция 369), и закрытый доступ кабинета не открывает.
+    Партнёр учитывается отдельно — он мог ничего не покупать.
+    """
+    if not email:
+        return None
+    rows = await db.fetch(
+        """SELECT DISTINCT c.client_id
+             FROM contacts c
+             JOIN platform_users pu ON pu.contact_id = c.id
+                  AND pu.platform_slug = 'email' AND pu.platform_user_id = $1
+            WHERE c.merged_into IS NULL
+              AND (EXISTS (SELECT 1 FROM product_access pa
+                            WHERE pa.contact_id = c.id
+                              AND pa.revoked_at IS NULL
+                              AND (pa.expires_at IS NULL OR pa.expires_at > NOW()))
+                OR EXISTS (SELECT 1 FROM client_partners cp
+                            WHERE cp.contact_id = c.id))
+            LIMIT 2""",
+        email,
+    )
+    return rows[0]["client_id"] if len(rows) == 1 else None
+
+
 # ── Витрина продукта ──────────────────────────────────────────────────────
 
 @router.get("/products/{slug}", summary="Витрина продукта")
@@ -247,11 +284,25 @@ async def request_code(
     входа можно было бы перебором узнать, кто у него покупал.
     """
     _cors(response)
-    cid = await _client_by_host(db, request) or data.client_id
-    if not cid:
-        raise HTTPException(status_code=400, detail="Не удалось определить кабинет")
-
     email = (data.email or "").strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Проверьте адрес почты")
+
+    # Кабинет: домен клиента → номер в адресе → по самой почте (см. `_client_by_email`).
+    cid = (await _client_by_host(db, request) or data.client_id
+           or await _client_by_email(db, email))
+    if not cid:
+        # ⚠️ Кабинет не определился — это либо чужая почта, либо покупки у
+        # ДВУХ разных экспертов. В обоих случаях отвечаем как «доступа нет»:
+        # прежняя техническая ошибка «Не удалось определить кабинет» человеку
+        # ничего не объясняла, а разное поведение выдавало бы наличие покупки.
+        return {
+            "ok": True, "sent": False,
+            "message": ("На этой почте нет доступа в кабинет. Проверьте написание "
+                        "адреса — важны точки и раскладка. Если ошибки нет, "
+                        "напишите тому, у кого вы покупали: доступ откроют."),
+        }
+
     ok = {"ok": True, "sent": True}
     # ⚠️⚠️ Говорим правду, когда письма не будет — см. тот же приём в
     # partner_public.request_code. Молчаливое «Код отправлен» заставляло
@@ -262,8 +313,6 @@ async def request_code(
                     "адреса — важны точки и раскладка. Если ошибки нет, "
                     "напишите тому, у кого вы покупали: доступ откроют."),
     }
-    if "@" not in email:
-        raise HTTPException(status_code=400, detail="Проверьте адрес почты")
 
     contact_id = await db.fetchval(
         """SELECT c.id FROM contacts c
@@ -314,11 +363,14 @@ async def cabinet_auth(
     db: asyncpg.Connection = Depends(get_db),
 ):
     _cors(response)
-    cid = await _client_by_host(db, request) or data.client_id
-    if not cid:
-        raise HTTPException(status_code=400, detail="Не удалось определить кабинет")
-
     email = (data.email or "").strip().lower()
+    # ⚠️ Кабинет определяем ТЕМ ЖЕ правилом, что при выдаче кода, — иначе код
+    # на почту придёт, а войти по нему будет нельзя.
+    cid = (await _client_by_host(db, request) or data.client_id
+           or await _client_by_email(db, email))
+    if not cid:
+        raise HTTPException(status_code=400, detail="Код неверен или устарел")
+
     code_hash = hashlib.sha256((data.code or "").strip().encode()).hexdigest()
 
     row = await db.fetchrow(

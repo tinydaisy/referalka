@@ -45,6 +45,10 @@ export default function OverviewTab({
     event.sub_check_at_chat === undefined ? true : !!event.sub_check_at_chat)
   const [subCheckAtReg, setSubCheckAtReg] = useState<boolean>(!!event.sub_check_at_registration)
   const [requireAllOwners, setRequireAllOwners] = useState<boolean>(!!event.require_subscribe_all_owners)
+  // Коллаба: раздавать ли почту и телефон зарегистрировавшегося всем
+  // организаторам (миграция 371). По умолчанию TRUE — как работало раньше.
+  const [shareContacts, setShareContacts] = useState<boolean>(
+    event.collab_share_contacts !== false)
   const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
   // Способ регистрации и галочка регистрации на нашем лендинге (миграция 262).
   const [regMode, setRegMode] = useState<string | null>(event.registration_mode || null)
@@ -127,6 +131,8 @@ export default function OverviewTab({
       if (subCheckAtReg !== !!event.sub_check_at_registration)
         payload.sub_check_at_registration = subCheckAtReg
       if (requireAllOwners !== !!event.require_subscribe_all_owners) payload.require_subscribe_all_owners = requireAllOwners
+      if (shareContacts !== (event.collab_share_contacts !== false))
+        payload.collab_share_contacts = shareContacts
       if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
       if (regMode !== (event.registration_mode || null))         payload.registration_mode = regMode
       const lcl = landingCtaLabel.trim()
@@ -333,6 +339,39 @@ export default function OverviewTab({
               <p className="text-xs text-gray-400 mt-0.5">
                 Это совместное событие. Участник должен подписаться на Telegram-каналы
                 каждого организатора-совладельца (проверяется ботом каждого) перед входом в чат.
+              </p>
+            </div>
+          </label>
+        )}
+
+        {/* Коллаба: делиться ли контактами участников.
+            ⚠️ Раньше раздача была безусловной — почта и телефон
+            зарегистрировавшегося появлялись в базе каждого организатора. Но
+            партнёры договариваются по-разному: где-то база общая, где-то каждый
+            ведёт свою. Теперь это их выбор, а не решение платформы. */}
+        {event.is_collab && (
+          <label
+            className={`mt-3 flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              shareContacts
+                ? 'border-[#25455D] bg-[#25455D]/5'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+            <input type="checkbox" checked={shareContacts}
+              onChange={(e) => setShareContacts(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                Делиться контактами участников со всеми организаторами
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Почта и телефон зарегистрировавшегося попадут в базу каждого
+                организатора — чтобы партнёр мог написать тем, кого привёл не он.
+                Снимите галочку, если каждый ведёт свою базу: тогда контакт
+                останется только у того, через чью ссылку человек пришёл.
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Аккаунты мессенджеров не передаются никогда — только почта и телефон.
+                Уже переданные контакты снятие галочки не отзывает.
               </p>
             </div>
           </label>
