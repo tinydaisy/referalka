@@ -46,6 +46,9 @@ class FunnelIn(BaseModel):
     match_mode: str = "contains"
     lead_magnet_id: Optional[int] = None
     package_id: Optional[int] = None
+    # ⚠️ Продукт вместо подарка: в директ уходит ССЫЛКА на его
+    # страницу, материалы продукта лежат за оплатой.
+    product_id: Optional[int] = None
     delivery_mode: str = "direct"
     require_subscription: bool = True
     # ⚠️ Тест-режим: отвечать на КАЖДЫЙ комментарий, не соблюдая
@@ -73,8 +76,10 @@ def _validate(data: FunnelIn) -> None:
         raise HTTPException(400, "Неизвестный режим сравнения слова")
     if not data.channel_id:
         raise HTTPException(400, "Выберите аккаунт Instagram")
-    if (data.lead_magnet_id is None) == (data.package_id is None):
-        raise HTTPException(400, "Выберите ровно одно: лид-магнит или пакет")
+    targets = sum(x is not None for x in
+                  (data.lead_magnet_id, data.package_id, data.product_id))
+    if targets != 1:
+        raise HTTPException(400, "Выберите ровно одно: лид-магнит, пакет или продукт")
 
     # ⚠️ У СТОРИС конкретную публикацию выбрать нельзя: она живёт 24 часа, и
     # привязку пришлось бы переназначать каждый день. Кодовое слово при этом
@@ -121,6 +126,13 @@ async def _assert_owns(db, client_id: int, data: FunnelIn) -> None:
                                data.package_id, client_id)
         if not ok:
             raise HTTPException(404, "Пакет не найден")
+    if data.product_id:
+        # ⚠️ Иначе, зная чужой id, можно раздавать в своей воронке чужой
+        # продукт — тот же принцип, что у лид-магнита выше.
+        ok = await db.fetchval("SELECT 1 FROM products WHERE id=$1 AND client_id=$2",
+                               data.product_id, client_id)
+        if not ok:
+            raise HTTPException(404, "Продукт не найден")
 
 
 async def _save_replies(db, funnel_id: int, replies: dict[str, list[str]]) -> None:
@@ -153,10 +165,12 @@ async def list_funnels(client=Depends(get_current_client), db=Depends(get_db)):
     client_id = int(client["sub"])
     rows = await db.fetch(
         """SELECT f.*, lm.name AS lead_magnet_name, p.name AS package_name,
+                  pr.title AS product_name,
                   ch.handle AS account_handle
              FROM instagram_funnels f
              LEFT JOIN lead_magnets lm ON lm.id = f.lead_magnet_id
              LEFT JOIN lead_magnet_packages p ON p.id = f.package_id
+             LEFT JOIN products pr ON pr.id = f.product_id
              LEFT JOIN channels ch ON ch.id = f.channel_id
             WHERE f.client_id = $1
          ORDER BY f.sort_order, f.id""",
@@ -203,8 +217,8 @@ async def create_funnel(data: FunnelIn, client=Depends(get_current_client), db=D
                  (client_id, channel_id, name, trigger_kind, media_scope, media_ids,
                   keyword_mode, keywords, lead_magnet_id, package_id, delivery_mode,
                   require_subscription, public_reply_enabled, reminder_enabled,
-                  reminder_delay_min, is_active, match_mode, test_mode)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                  reminder_delay_min, is_active, match_mode, test_mode, product_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
                RETURNING id""",
             client_id, data.channel_id, data.name.strip() or "Воронка",
             data.trigger_kind, data.media_scope, data.media_ids,
@@ -212,7 +226,7 @@ async def create_funnel(data: FunnelIn, client=Depends(get_current_client), db=D
             data.lead_magnet_id, data.package_id, data.delivery_mode,
             data.require_subscription, data.public_reply_enabled,
             data.reminder_enabled, data.reminder_delay_min, data.is_active,
-            data.match_mode, data.test_mode,
+            data.match_mode, data.test_mode, data.product_id,
         )
         await _save_replies(db, fid, data.replies)
     return {"id": fid}
@@ -239,7 +253,7 @@ async def update_funnel(funnel_id: int, data: FunnelIn,
                  keyword_mode=$7, keywords=$8, lead_magnet_id=$9, package_id=$10,
                  delivery_mode=$11, require_subscription=$12, public_reply_enabled=$13,
                  reminder_enabled=$14, reminder_delay_min=$15, is_active=$16,
-                 match_mode=$17, test_mode=$18, updated_at=now()
+                 match_mode=$17, test_mode=$18, product_id=$19, updated_at=now()
                WHERE id=$1""",
             funnel_id, data.channel_id, data.name.strip() or "Воронка",
             data.trigger_kind, data.media_scope, data.media_ids,
@@ -247,7 +261,7 @@ async def update_funnel(funnel_id: int, data: FunnelIn,
             data.lead_magnet_id, data.package_id, data.delivery_mode,
             data.require_subscription, data.public_reply_enabled,
             data.reminder_enabled, data.reminder_delay_min, data.is_active,
-            data.match_mode, data.test_mode,
+            data.match_mode, data.test_mode, data.product_id,
         )
         await _save_replies(db, funnel_id, data.replies)
     return {"ok": True}

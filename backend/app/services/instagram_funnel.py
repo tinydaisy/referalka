@@ -124,6 +124,11 @@ async def material_name(db, funnel: dict) -> str:
     elif funnel.get("package_id"):
         row = await db.fetchrow("SELECT name FROM lead_magnet_packages WHERE id=$1",
                                 funnel["package_id"])
+    elif funnel.get("product_id"):
+        # ⚠️ У продукта колонка называется `title`, а не `name` — выравниваем
+        # алиасом, чтобы дальше читать одинаково.
+        row = await db.fetchrow("SELECT title AS name FROM products WHERE id=$1",
+                                funnel["product_id"])
     else:
         return ""
     return (row["name"] if row else "") or ""
@@ -366,13 +371,37 @@ async def _telegram_link(db, run: dict, funnel: dict) -> str:
     return (links or {}).get("telegram") or ""
 
 
+async def _product_link(db, funnel: dict) -> str:
+    """Ссылка на страницу продукта.
+
+    ⚠️⚠️ У продукта в директ уходит ССЫЛКА, а не материалы: они лежат за
+    оплатой, и слать их нельзя. Человек читает страницу и покупает там.
+
+    ⚠️ Адрес строим общим `client_public_link` — у клиента может быть свой
+    домен, и литералов `pluson.ru` в коде быть не должно (правило проекта).
+    """
+    from .client_domains import client_public_link
+
+    row = await db.fetchrow(
+        "SELECT slug FROM products WHERE id=$1", funnel["product_id"],
+    )
+    if not row or not row["slug"]:
+        return ""
+    return await client_public_link(db, funnel["client_id"], f"/pr/{row['slug']}")
+
+
 async def deliver(db, funnel: dict, run: dict, ch: dict, igsid: str,
                   *, repeat: bool = False) -> bool:
     """Выдать материал в директ. True — отправлено."""
     kind = "dm_repeat" if repeat else "dm_delivered"
     head = await pick_reply(db, funnel["id"], kind)
 
-    if funnel["delivery_mode"] == "telegram":
+    if funnel.get("product_id"):
+        # ⚠️ Продукт проверяется ПЕРВЫМ: у такой воронки нет ни лид-магнита,
+        # ни пакета, и `_materials_text` вернул бы пусто — человек получил бы
+        # сообщение без единой ссылки.
+        body = await _product_link(db, funnel)
+    elif funnel["delivery_mode"] == "telegram":
         link = await _telegram_link(db, run, funnel)
         body = link or await _materials_text(db, run)
     else:

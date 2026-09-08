@@ -23,8 +23,10 @@ interface Funnel {
   keywords: string[]
   lead_magnet_id: number | null
   package_id: number | null
+  product_id: number | null
   lead_magnet_name?: string | null
   package_name?: string | null
+  product_name?: string | null
   delivery_mode: string
   require_subscription: boolean
   public_reply_enabled: boolean
@@ -172,6 +174,7 @@ export default function InstagramFunnelsTab() {
   const [accounts, setAccounts] = useState<any[]>([])
   const [magnets, setMagnets] = useState<any[]>([])
   const [packages, setPackages] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<any | null>(null)
   // Воронка, по которой открыт список людей (null — окно закрыто).
@@ -180,16 +183,21 @@ export default function InstagramFunnelsTab() {
   const load = async () => {
     setLoading(true)
     try {
-      const [f, ch, lm, pk] = await Promise.all([
+      const [f, ch, lm, pk, pr] = await Promise.all([
         api.instagramFunnels.list(),
         api.channels.list(),
         api.leadMagnets.list(),
         api.leadMagnetPackages.list(),
+        // ⚠️ Продукты может не быть в тарифе — тогда список просто пустой,
+        // и кнопка «Продукт» покажется без счётчика. Ошибку глушим, чтобы
+        // недоступный раздел не ломал форму воронки целиком.
+        api.products.list().catch(() => ({ items: [] })),
       ])
       setItems(f.items || [])
       setAccounts((ch.items || []).filter((c: any) => c.platform_slug === 'instagram'))
       setMagnets(lm.items || [])
       setPackages(pk.items || [])
+      setProducts(pr.items || [])
     } catch (e) {
       console.error(e)
     } finally {
@@ -274,7 +282,7 @@ export default function InstagramFunnelsTab() {
                     {f.keyword_mode === 'specific' && f.keywords?.length
                       ? ` · слова: ${f.keywords.join(', ')}` : ' · любое слово'}
                     {' · выдаём: '}
-                    {f.lead_magnet_name || f.package_name || '—'}
+                    {f.lead_magnet_name || f.package_name || f.product_name || '—'}
                     {f.account_handle ? ` · @${f.account_handle}` : ''}
                   </p>
                 </div>
@@ -318,6 +326,7 @@ export default function InstagramFunnelsTab() {
           accounts={accounts}
           magnets={magnets}
           packages={packages}
+          products={products}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load() }}
         />
@@ -327,14 +336,23 @@ export default function InstagramFunnelsTab() {
 }
 
 
-function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }: {
+function FunnelModal({ initial, accounts, magnets, packages, products, onClose, onSaved }: {
   initial: any
   accounts: any[]
   magnets: any[]
   packages: any[]
+  products: any[]
   onClose: () => void
   onSaved: () => void
 }) {
+  // Какой ТИП подарка выбран сейчас: лид-магнит / пакет / продукт.
+  //
+  // ⚠️ При открытии существующей воронки восстанавливаем по тому, что в ней
+  // реально стоит: иначе форма открылась бы на «лид-магните», а в списке был
+  // бы выбран продукт — и клиент решил бы, что настройка слетела.
+  const [giftKind, setGiftKind] = useState<string>(
+    initial?.product_id ? 'pr' : initial?.package_id ? 'p' : 'm'
+  )
   const [f, setF] = useState<any>({
     channel_id: initial.channel_id || accounts[0]?.id,
     name: '',
@@ -346,6 +364,7 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
     match_mode: 'contains',
     lead_magnet_id: null,
     package_id: null,
+    product_id: null,
     delivery_mode: 'direct',
     require_subscription: true,
     public_reply_enabled: true,
@@ -369,14 +388,20 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
   useEffect(() => {
     if (!initial.id) return
     api.instagramFunnels.get(initial.id)
-      .then((r: any) => setF({
-        ...r,
-        keywords: r.keywords?.length ? r.keywords : [''],
-        // ⚠️ Аккаунт мог быть удалён — тогда в воронке пусто (миграция 368).
-        // Подставляем первый подключённый, чтобы клиенту осталось только
-        // сохранить, а не разбираться, почему поле пустое.
-        channel_id: r.channel_id || accounts[0]?.id,
-      }))
+      .then((r: any) => {
+        setF({
+          ...r,
+          keywords: r.keywords?.length ? r.keywords : [''],
+          // ⚠️ Аккаунт мог быть удалён — тогда в воронке пусто (миграция 368).
+          // Подставляем первый подключённый, чтобы клиенту осталось только
+          // сохранить, а не разбираться, почему поле пустое.
+          channel_id: r.channel_id || accounts[0]?.id,
+        })
+        // ⚠️ Тип подарка выставляем ПОСЛЕ загрузки: при открытии в `initial`
+        // лежит только {id}, и без этого форма всегда показывала бы
+        // «Лид-магнит» — даже у воронки с продуктом.
+        setGiftKind(r.product_id ? 'pr' : r.package_id ? 'p' : 'm')
+      })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить'))
       .finally(() => setLoading(false))
   }, [initial.id])
@@ -563,22 +588,55 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
 
           <div>
             <label className="block text-xs text-gray-500 mb-1">Что выдаём</label>
+            {/* ⚠️ Сначала ТИП, потом список внутри него. Схлопнуть группы в
+                обычном <select> нельзя — браузер этого не умеет, а список из
+                лид-магнитов, пакетов и продуктов подряд становится длинным, и
+                до нижней группы приходится листать вслепую. Переключатель
+                решает то же самое одним кликом. */}
+            <div className="flex gap-2 mb-2">
+              {([
+                ['m', 'Лид-магнит', magnets.length],
+                ['p', 'Пакет', packages.length],
+                ['pr', 'Продукт', products.length],
+              ] as [string, string, number][]).map(([k, label, n]) => (
+                <button
+                  key={k} type="button"
+                  onClick={() => {
+                    // ⚠️ Прежний выбор сбрасываем: в базе разрешено ровно одно
+                    // из трёх (CHECK), и оставленный «хвост» не сохранится.
+                    set('lead_magnet_id', null)
+                    set('package_id', null)
+                    set('product_id', null)
+                    setGiftKind(k)
+                  }}
+                  className={`px-3 py-1.5 text-xs rounded-lg border ${giftKind === k
+                    ? 'border-[#25455D] bg-[#25455D] text-white'
+                    : 'border-gray-200 text-gray-700'}`}>
+                  {label} {n > 0 && <span className="opacity-60">· {n}</span>}
+                </button>
+              ))}
+            </div>
             <select
-              value={f.lead_magnet_id ? `m${f.lead_magnet_id}` : f.package_id ? `p${f.package_id}` : ''}
+              value={f.lead_magnet_id || f.package_id || f.product_id || ''}
               onChange={e => {
-                const v = e.target.value
-                set('lead_magnet_id', v.startsWith('m') ? +v.slice(1) : null)
-                set('package_id', v.startsWith('p') ? +v.slice(1) : null)
+                const v = e.target.value ? +e.target.value : null
+                set('lead_magnet_id', giftKind === 'm' ? v : null)
+                set('package_id', giftKind === 'p' ? v : null)
+                set('product_id', giftKind === 'pr' ? v : null)
               }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg">
               <option value="">— выберите —</option>
-              {magnets.length > 0 && <optgroup label="Лид-магниты">
-                {magnets.map((m: any) => <option key={m.id} value={`m${m.id}`}>{m.name}</option>)}
-              </optgroup>}
-              {packages.length > 0 && <optgroup label="Пакеты">
-                {packages.map((p: any) => <option key={p.id} value={`p${p.id}`}>{p.name}</option>)}
-              </optgroup>}
+              {(giftKind === 'm' ? magnets : giftKind === 'p' ? packages : products)
+                .map((it: any) => (
+                  <option key={it.id} value={it.id}>{it.name || it.title}</option>
+                ))}
             </select>
+            {giftKind === 'pr' && (
+              <p className="text-[11px] text-gray-400 mt-1">
+                В личные сообщения уйдёт ссылка на страницу продукта — материалы там
+                открываются после оплаты.
+              </p>
+            )}
           </div>
 
           <div>
