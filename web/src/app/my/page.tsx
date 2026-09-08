@@ -49,9 +49,33 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Почта подставлена из подписи бота — говорим об этом человеку явно.
+  const [prefilled, setPrefilled] = useState(false)
 
   const clientId = () =>
     new URLSearchParams(window.location.search).get('client_id')
+
+  // ⚠️⚠️ ПРИШЁЛ ИЗ БОТА — ПОЧТУ НЕ СПРАШИВАЕМ, ОНА У НАС ЕСТЬ. В боте человек
+  // уже опознан аккаунтом площадки, и ссылка «Открыть кабинет» несёт его номер
+  // контакта с подписью нашего бота (`?c=` + `?t=`). Заставлять его вспоминать,
+  // «под какой почтой я регистрировалась», — верный способ получить другую
+  // почту и отказ во входе.
+  //
+  // ⚠️ Полную почту отдаёт ТОЛЬКО подпись (`verified`): номер контакта виден в
+  // адресе и подбирается перебором, по чужому номеру утекла бы чужая почта.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const c = sp.get('c')
+    const t = sp.get('t')
+    if (!c || !t) return
+    fetch(`${apiBase}/api/v1/public/partner/prefill?client_id=${clientId() || ''}`
+          + `&c=${encodeURIComponent(c)}&t=${encodeURIComponent(t)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.verified && d?.email) { setEmail(d.email); setPrefilled(true) }
+      })
+      .catch(() => {})
+  }, [])
 
   const requestCode = async () => {
     setBusy(true); setError('')
@@ -107,7 +131,9 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
             // ⚠️ Не «почту от заказа»: в этот кабинет входят и партнёры,
             // которые ничего не покупали. Формулировка про заказ ставила их
             // в тупик — «какой заказ?».
-            ? 'Введите вашу почту — пришлём код для входа.'
+            ? (prefilled
+                ? 'Это ваша почта — пришлём на неё код для входа.'
+                : 'Введите вашу почту — пришлём код для входа.')
             : 'Код отправлен. Он действует 15 минут.'}
         </p>
 

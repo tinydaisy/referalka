@@ -118,7 +118,15 @@ export default function BecomePartnerPage() {
               ? 'Код для входа уже отправили на вашу почту — он действует 15 минут. Если письма нет, загляните в «Спам».'
               : 'Вход по коду: откройте кабинет и запросите код на почту.'}
           </p>
-          <a href={`/my?client_id=${clientId}`} className="btn-gold inline-block">Открыть кабинет</a>
+          {/* ⚠️ Метку бота (`?c=`+`?t=`) несём ДАЛЬШЕ, в кабинет: там форма
+              входа подставит почту сама. Без неё человек, только что
+              зарегистрировавшийся из бота, снова вводит почту руками — и
+              впишет другую. */}
+          <a href={`/my?client_id=${clientId}`
+                   + (contactId && inviteToken
+                      ? `&c=${encodeURIComponent(contactId)}&t=${encodeURIComponent(inviteToken)}`
+                      : '')}
+             className="btn-gold inline-block">Открыть кабинет</a>
         </div>
       </Shell>
     )
@@ -207,7 +215,11 @@ export default function BecomePartnerPage() {
           </a>
         </p>
         <p className="text-center text-xs text-gray-400">
-          Уже партнёр? <a href={`/my?client_id=${clientId}`} className="underline">Войти в кабинет</a>
+          Уже партнёр? <a href={`/my?client_id=${clientId}`
+                                 + (contactId && inviteToken
+                                    ? `&c=${encodeURIComponent(contactId)}&t=${encodeURIComponent(inviteToken)}`
+                                    : '')}
+                            className="underline">Войти в кабинет</a>
         </p>
       </div>
     </Shell>

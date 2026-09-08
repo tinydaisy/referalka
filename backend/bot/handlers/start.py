@@ -2038,7 +2038,7 @@ async def _start_partner_invite(message: Message, payload: str) -> bool:
             log.warning("bpr_: контакт не резолвлен: %s", e)
 
         if await already_partner(db, client_id, contact_id):
-            msg = await build_cabinet_message(db, client_id)
+            msg = await build_cabinet_message(db, client_id, contact_id=contact_id)
         else:
             msg = await build_invite_message(db, client_id, contact_id=contact_id)
         if not msg:

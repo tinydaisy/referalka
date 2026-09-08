@@ -137,7 +137,8 @@ async def already_partner(db, client_id: int, contact_id: Optional[int]) -> bool
     ))
 
 
-async def build_cabinet_message(db, client_id: int) -> dict:
+async def build_cabinet_message(db, client_id: int,
+                                contact_id: Optional[int] = None) -> dict:
     """Приглашение для того, кто УЖЕ партнёр: ведём в кабинет, а не по кругу."""
     from app.services.client_domains import client_public_link
 
@@ -145,6 +146,12 @@ async def build_cabinet_message(db, client_id: int) -> dict:
     # определить клиента нечем, и вход отвечал «Не удалось определить кабинет»
     # — человек упирался в тупик, не понимая, при чём тут кабинет.
     url = await client_public_link(db, client_id, f"/my?client_id={client_id}")
+    if contact_id:
+        # ⚠️ ТА ЖЕ ПОДПИСЬ, что у ссылки регистрации: в боте человек уже опознан
+        # аккаунтом площадки, и заставлять его вспоминать почту незачем — он
+        # впишет другую и не войдёт вовсе. Форма входа подставит её сама.
+        token = make_invite_token(client_id, contact_id)
+        url = f"{url}&c={contact_id}&t={token}"
     return {
         "text": ("<b>Вы уже партнёр</b>\n\n"
                  "Ваши ссылки, продажи и приведённые люди — в личном кабинете."),

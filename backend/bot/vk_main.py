@@ -354,7 +354,7 @@ async def _vk_handle_partner_invite(client_id_from_ref: int, vk_user_id: int,
         logger.warning("VK bpr_: контакт не резолвлен: %s", e)
 
     if await already_partner(db, client_id, contact_id):
-        msg = await build_cabinet_message(db, client_id)
+        msg = await build_cabinet_message(db, client_id, contact_id=contact_id)
     else:
         msg = await build_invite_message(db, client_id, contact_id=contact_id)
     if not msg:

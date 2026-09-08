@@ -1072,7 +1072,7 @@ async def _handle_max_partner_invite(
             logger.warning(f"MAX bpr_: контакт не резолвлен: {e}")
 
         if await already_partner(conn, client_id, contact_id):
-            msg = await build_cabinet_message(conn, client_id)
+            msg = await build_cabinet_message(conn, client_id, contact_id=contact_id)
         else:
             msg = await build_invite_message(conn, client_id, contact_id=contact_id)
         if not msg:
