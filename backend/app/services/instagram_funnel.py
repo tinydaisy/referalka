@@ -25,8 +25,13 @@ log = logging.getLogger(__name__)
 # Сколько Meta разрешает писать человеку после его последнего сообщения.
 _WINDOW_HOURS = 24
 # Повторная выдача тому же человеку — не чаще этого срока.
-# ⚠️ Иначе десять комментариев подряд превращаются в десять сообщений в личку,
-# и это уже спам со стороны аккаунта клиента.
+#
+# ⚠️ Это ОСТОРОЖНОСТЬ, а не защита от известной кары Meta. Подтверждённый
+# факт — Instagram режет охваты за повторяющиеся одинаковые ПУБЛИЧНЫЕ ответы
+# (отсюда вариации фраз). Про частоту сообщений в директ такого подтверждения
+# нет; ограничение стоит из соображения «десять комментариев подряд не должны
+# давать десять писем в личку». Если мешает — величину можно менять свободно,
+# ничего не сломается.
 _REPEAT_COOLDOWN_MIN = 60
 
 # Надпись на кнопке под просьбой подписаться.
@@ -68,13 +73,13 @@ DEFAULT_REPLIES: dict[str, list[str]] = {
     # показывает на десктопе: там человек увидит только текст, и если тот
     # просит нажать несуществующую кнопку, он окажется в тупике.
     "dm_intro": [
-        "Привет! Материал готов. Подпишитесь на @{handle} и нажмите «Готово» "
+        "Привет! Материал «{material}» готов. Подпишитесь на @{handle} и нажмите «Готово» "
         "(или напишите это слово в ответ) — сразу отправим.",
-        "Здравствуйте! Остался один шаг: подпишитесь на @{handle} и нажмите «Готово» "
-        "(или напишите в ответ).",
+        "Здравствуйте! Чтобы забрать «{material}», остался один шаг: подпишитесь на @{handle} "
+        "и нажмите «Готово» (или напишите в ответ).",
         "Привет! Рады, что заинтересовало. Подпишитесь на @{handle} и нажмите «Готово» "
-        "(или напишите это слово) — отправим материал.",
-        "Здравствуйте! Чтобы забрать материал, подпишитесь на @{handle} и нажмите «Готово» "
+        "(или напишите это слово) — отправим «{material}».",
+        "Здравствуйте! «{material}» уже ждёт вас. Подпишитесь на @{handle} и нажмите «Готово» "
         "(или напишите в ответ).",
     ],
     "dm_not_subscribed": [
@@ -97,22 +102,43 @@ DEFAULT_REPLIES: dict[str, list[str]] = {
         "Держите ещё раз, чтобы не потерялось 👇",
     ],
     "dm_reminder": [
-        "Напоминаем: материал ждёт вас. Подпишитесь на @{handle} и нажмите «Готово».",
-        "Вы не забрали материал — подпишитесь на @{handle} и нажмите «Готово», сразу отправим.",
-        "Материал всё ещё за вами. Подпишитесь на @{handle} и нажмите «Готово».",
-        "Не хотим, чтобы вы потеряли материал — подпишитесь на @{handle} и нажмите «Готово».",
+        "Напоминаем: «{material}» ждёт вас. Подпишитесь на @{handle} и нажмите «Готово».",
+        "Вы не забрали «{material}» — подпишитесь на @{handle} и нажмите «Готово», сразу отправим.",
+        "«{material}» всё ещё за вами. Подпишитесь на @{handle} и нажмите «Готово».",
+        "Не хотим, чтобы вы потеряли «{material}» — подпишитесь на @{handle} и нажмите «Готово».",
     ],
 }
 
 
-async def pick_reply(db, funnel_id: int, kind: str, handle: str = "") -> str:
+async def material_name(db, funnel: dict) -> str:
+    """Название материала, который раздаёт воронка.
+
+    ⚠️ Нужно в самом первом сообщении: человек пишет комментарий под рилсом,
+    а в директ ему приходит «материал готов» — и он уже не помнит, о чём речь,
+    особенно если комментировал несколько разных публикаций. Без названия
+    сообщение читается как спам от незнакомого аккаунта.
+    """
+    if funnel.get("lead_magnet_id"):
+        row = await db.fetchrow("SELECT name FROM lead_magnets WHERE id=$1",
+                                funnel["lead_magnet_id"])
+    elif funnel.get("package_id"):
+        row = await db.fetchrow("SELECT name FROM lead_magnet_packages WHERE id=$1",
+                                funnel["package_id"])
+    else:
+        return ""
+    return (row["name"] if row else "") or ""
+
+
+async def pick_reply(db, funnel_id: int, kind: str, handle: str = "",
+                     material: str = "") -> str:
     """Случайная фраза нужного вида. Свои у клиента — приоритет, иначе наши.
 
-    ⚠️ `{handle}` подставляется и в СВОИ фразы клиента: он вправе написать свой
-    текст, и ник там нужен ровно так же.
+    ⚠️ Плейсхолдеры подставляются и в СВОИ фразы клиента: он вправе написать
+    свой текст, и `{handle}` с `{material}` нужны там ровно так же.
 
-    ⚠️ Ника нет → убираем «@{handle}» вместе с предлогом, иначе человек получит
-    «подпишитесь на @» — выглядит как поломка.
+    ⚠️ Значения нет → убираем плейсхолдер вместе с предлогом и кавычками,
+    иначе человек получит «подпишитесь на @» или «материал «» готов» —
+    выглядит как поломка.
     """
     rows = await db.fetch(
         "SELECT text FROM instagram_funnel_replies WHERE funnel_id=$1 AND kind=$2",
@@ -122,12 +148,24 @@ async def pick_reply(db, funnel_id: int, kind: str, handle: str = "") -> str:
     if not texts:
         texts = DEFAULT_REPLIES.get(kind) or [""]
     text = random.choice(texts)
+
     if handle:
-        return text.replace("{handle}", handle.lstrip("@"))
-    return (text.replace(" на @{handle}", "")
-                .replace(" @{handle}", "")
-                .replace("@{handle}", "")
-                .replace("{handle}", ""))
+        text = text.replace("{handle}", handle.lstrip("@"))
+    else:
+        text = (text.replace(" на @{handle}", "")
+                    .replace(" @{handle}", "")
+                    .replace("@{handle}", "")
+                    .replace("{handle}", ""))
+
+    if material:
+        text = text.replace("{material}", material)
+    else:
+        # ⚠️ Убираем вместе с кавычками: иначе останется «материал «» готов».
+        text = (text.replace(" «{material}»", "")
+                    .replace("«{material}»", "")
+                    .replace(" {material}", "")
+                    .replace("{material}", ""))
+    return text
 
 
 def _norm(s: str) -> str:
@@ -304,7 +342,14 @@ async def _telegram_link(db, run: dict, funnel: dict) -> str:
     )
     if not slug_row:
         return ""
-    links = await build_funnel_landing_links(db, funnel["client_id"], kind, slug_row["slug"])
+    # ⚠️ Аргументы ТОЛЬКО именованные — у функции `*` после `db`. Позиционный
+    # вызов падал с «takes 1 positional argument but 4 were given», причём в
+    # самый последний момент: человек уже подписался и ждал материал, а выдача
+    # срывалась. Ошибку не поймал ни один тест — путь `delivery_mode='telegram'`
+    # проверяется только живой выдачей.
+    links = await build_funnel_landing_links(
+        db, client_id=funnel["client_id"], slug=slug_row["slug"], kind=kind,
+    )
     return (links or {}).get("telegram") or ""
 
 
@@ -369,7 +414,10 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
     # 3. Уже получал этот материал?
     if run.get("ig_last_delivered_at"):
         since = datetime.now(timezone.utc) - run["ig_last_delivered_at"]
-        if since < timedelta(minutes=_REPEAT_COOLDOWN_MIN):
+        # ⚠️ Тест-режим снимает ограничение частоты: при настройке воронки
+        # клиент пишет проверочные комментарии подряд и должен видеть ответ на
+        # каждый, иначе не отличит поломку от сработавшей защиты.
+        if not funnel.get("test_mode") and since < timedelta(minutes=_REPEAT_COOLDOWN_MIN):
             # ⚠️ В пределах часа в директ повторно НЕ пишем — только публичный
             # ответ выше. Десять комментариев подряд иначе дадут десять писем.
             return
@@ -386,7 +434,7 @@ async def handle_comment(db, channel_id: int, *, comment_id: str, media_id: str,
     # ⚠️ Только `private_reply` — обычной отправкой человеку, который нам ещё
     # не писал, написать нельзя: 24-часового окна с ним не существует.
     if funnel["require_subscription"]:
-        intro = await pick_reply(db, funnel["id"], "dm_intro", ch["handle"])
+        intro = await pick_reply(db, funnel["id"], "dm_intro", ch["handle"], await material_name(db, funnel))
     else:
         intro = await pick_reply(db, funnel["id"], "dm_delivered", ch["handle"])
 
@@ -455,7 +503,7 @@ async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
         try:
             await ig.send_message(
                 ch["page_id"], from_igsid,
-                await pick_reply(db, funnel["id"], "dm_not_subscribed", ch["handle"]), ch["token"],
+                await pick_reply(db, funnel["id"], "dm_not_subscribed", ch["handle"], await material_name(db, funnel)), ch["token"],
                 buttons=[DONE_BUTTON],
             )
         except ig.InstagramApiError:
@@ -512,7 +560,7 @@ async def send_reminder(db, run_id: int) -> bool:
     try:
         await ig.send_message(
             ch["page_id"], igsid,
-            await pick_reply(db, funnel["id"], "dm_reminder", ch["handle"]), ch["token"],
+            await pick_reply(db, funnel["id"], "dm_reminder", ch["handle"], await material_name(db, funnel)), ch["token"],
             # ⚠️ Кнопка нужна и в напоминании: человек уже один раз не понял,
             # что от него хотят, — второй раз просить его печатать тем более
             # бессмысленно.

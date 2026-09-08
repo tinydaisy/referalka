@@ -31,6 +31,8 @@ interface Funnel {
   reminder_enabled: boolean
   reminder_delay_min: number
   is_active: boolean
+  // Ограничение частоты повторной выдачи снято (галочка «не чаще раза в час»).
+  test_mode: boolean
   runs?: number
   delivered?: number
 }
@@ -286,6 +288,10 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
     reminder_enabled: true,
     reminder_delay_min: 10,
     is_active: true,
+    // ⚠️ Ограничение «раз в час» по умолчанию ВКЛЮЧЕНО (test_mode=false):
+    // новая воронка сразу ведёт себя как в бою, а снимают ограничение
+    // осознанно, на время настройки.
+    test_mode: false,
     // ⚠️ Готовые тексты подставляем сразу, а не оставляем пусто: пустые поля
     // человек чаще всего так и оставляет, а нам важно, чтобы вариантов было
     // несколько — Instagram режет охваты за одинаковые повторяющиеся ответы.
@@ -542,6 +548,30 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
                 {l}
               </label>
             ))}
+          </div>
+
+          {/* Ограничение повторной выдачи — отдельным блоком с объяснением.
+              ⚠️ Формулировка НЕ «тест-режим»: это постоянная настройка, а не
+              временный режим, и называть её тестовой значит подталкивать
+              выключить её «после проверки», хотя нужна она как раз в работе.
+              ⚠️ В общем списке галочек потерялась бы: последствие (человек
+              получает письмо на каждый свой комментарий) слишком заметное. */}
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <label className="flex items-start gap-2 text-sm text-gray-800">
+              <input type="checkbox" className="mt-0.5" checked={!f.test_mode}
+                     onChange={e => set('test_mode', !e.target.checked)} />
+              <span>
+                <span className="font-semibold">Одному человеку — не чаще раза в час</span>
+                <span className="block text-xs mt-1 font-normal text-gray-600">
+                  Включено: если человек уже получил материал и пишет снова <b>в течение часа</b>,
+                  в личные сообщения ему ничего не уйдёт — только публичный ответ под комментарием.
+                  Так один человек не получит десяток писем подряд.
+                  <br />
+                  Выключено: материал уходит на <b>каждый</b> комментарий. Удобно, пока настраиваете
+                  и проверяете воронку на себе.
+                </span>
+              </span>
+            </label>
           </div>
 
           {f.reminder_enabled && (
