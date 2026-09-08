@@ -305,10 +305,6 @@ function SettingsTab() {
 function PartnersTab() {
   const [items, setItems] = useState<any[] | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
-  // ⚠️ Сеть раскрывается ПО КЛИКУ, а не грузится списком: у клиента партнёров
-  // могут быть сотни, и рекурсивный запрос на каждого при открытии вкладки
-  // положил бы страницу.
-  const [openNet, setOpenNet] = useState<number | null>(null)
 
   const load = () =>
     api.partnerProgram.partners()
@@ -342,8 +338,14 @@ function PartnersTab() {
         <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="flex flex-wrap gap-4 justify-between items-start">
             <div className="min-w-0">
+              {/* ⚠️ Имя — ссылка на карточку партнёра. Сеть по уровням
+                  разворотом ПРЯМО В СПИСКЕ не показываем (решение владельца):
+                  партнёров бывают сотни, и гармошка внутри строки превращает
+                  список в простыню. */}
               <div className="font-semibold text-[#25455D]">
-                {p.name || 'Без имени'}
+                <a href={`/dashboard/my-partners/${p.id}`} className="hover:underline">
+                  {p.name || 'Без имени'}
+                </a>
                 {!p.is_active && (
                   <span className="ml-2 text-xs text-slate-400">отключён</span>
                 )}
@@ -372,99 +374,14 @@ function PartnersTab() {
             </div>
           </div>
 
-          <button
-            onClick={() => setOpenNet(openNet === p.id ? null : p.id)}
-            className="mt-3 text-xs text-[#25455D] underline decoration-dotted hover:no-underline"
+          <a
+            href={`/dashboard/my-partners/${p.id}`}
+            className="mt-3 inline-block text-xs text-[#25455D] underline decoration-dotted hover:no-underline"
           >
-            {openNet === p.id ? 'Скрыть сеть' : 'Показать сеть партнёра'}
-          </button>
-          {openNet === p.id && <PartnerNetwork partnerId={p.id} />}
+            Открыть карточку и сеть партнёра
+          </a>
         </div>
       ))}
-    </div>
-  )
-}
-
-/**
- * Сеть конкретного партнёра по уровням — то же, что видит он сам в своём
- * кабинете. ⚠️ Клиент должен видеть тот же разрез: иначе разговор «почему мне
- * начислено столько» вести не с чем.
- */
-function PartnerNetwork({ partnerId }: { partnerId: number }) {
-  const [data, setData] = useState<{ levels: number; network: any[] } | null>(null)
-  const [level, setLevel] = useState(1)
-
-  useEffect(() => {
-    api.partnerProgram.network(partnerId)
-      .then(r => setData({ levels: Number(r.levels) || 1, network: r.network || [] }))
-      .catch(() => setData({ levels: 1, network: [] }))
-  }, [partnerId])
-
-  if (!data) return <div className="mt-3 text-xs text-slate-400">Загружаем сеть…</div>
-  if (!data.network.length) {
-    return (
-      <div className="mt-3 text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
-        Под этим партнёром пока никого нет.
-      </div>
-    )
-  }
-
-  const rows = data.network.filter(n => Number(n.level) === level)
-
-  return (
-    <div className="mt-3 border-t border-slate-100 pt-3">
-      {/* ⚠️ Уровни показываем ВСЕГДА, даже если на уровне пусто: иначе не
-          видно, что уровень вообще существует и там просто никого нет. */}
-      <div className="flex gap-1.5 flex-wrap mb-3">
-        {Array.from({ length: data.levels }, (_, i) => i + 1).map(n => (
-          <button
-            key={n}
-            onClick={() => setLevel(n)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-              level === n
-                ? 'bg-[#25455D] text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            {n}-й уровень · {data.network.filter(x => Number(x.level) === n).length}
-          </button>
-        ))}
-      </div>
-
-      {!rows.length ? (
-        <div className="text-xs text-slate-500">На этом уровне пока никого нет.</div>
-      ) : (
-        <div className="space-y-1.5">
-          {rows.map(n => (
-            <div key={n.partner_id}
-                 className="flex flex-wrap gap-3 justify-between items-center
-                            bg-slate-50 rounded-lg px-3 py-2">
-              <div className="min-w-0">
-                <div className="text-sm text-[#25455D]">
-                  {n.name || 'Без имени'}
-                  {!n.is_active && (
-                    <span className="ml-2 text-xs text-slate-400">отключён</span>
-                  )}
-                </div>
-                <div className="text-xs text-slate-400 break-all">
-                  {[n.email, n.phone].filter(Boolean).join(' · ') || '—'}
-                  {n.accepted_at && ` · с ${dt(n.accepted_at)}`}
-                </div>
-              </div>
-              <div className="flex gap-4 text-xs shrink-0">
-                <div className="text-right">
-                  <div className="text-slate-400">Принёс</div>
-                  <div className="text-[#25455D] font-medium">{money(n.turnover)}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-slate-400">К выплате</div>
-                  <div className="text-[#25455D] font-medium">{money(n.due)}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

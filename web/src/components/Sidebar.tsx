@@ -180,7 +180,8 @@ export default function Sidebar() {
         // ⚠️ Пункт виден ВСЕГДА, с замком без фичи: скрытый раздел читается
         // как «такого нет» — тот же приём, что у Анкет и Оферт.
         ...(isAssistant ? [] : [{
-          href: '/dashboard/my-partners', label: 'Моя партнёрка',
+          // «(Beta)» — раздел в обкатке, входит только в тариф «Бизнес Beta».
+          href: '/dashboard/my-partners', label: 'Моя партнёрка (Beta)',
           icon: Handshake, locked: !hasPartnerProgram,
         }]),
       ],

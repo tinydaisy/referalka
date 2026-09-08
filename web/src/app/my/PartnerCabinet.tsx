@@ -52,7 +52,9 @@ export default function PartnerCabinet({ token }: { token: string }) {
     ['materials', 'Что рекомендовать'],
     ['sales', 'Мои продажи'],
     ...(me.show_people ? [['people', 'Мои люди'] as [Tab, string]] : []),
-
+    // ⚠️ «Моя сеть» — только при нескольких уровнях: при одном под партнёром
+    // никого быть не может, и пустая вкладка читается как поломка.
+    ...(Number(me.levels) > 1 ? [['network', 'Моя сеть'] as [Tab, string]] : []),
   ]
 
   return (
@@ -74,6 +76,8 @@ export default function PartnerCabinet({ token }: { token: string }) {
         )}
         {me.levels > 1 && <> Уровней вознаграждения: {me.levels}.</>}
       </div>
+
+      <MyAccounts me={me} />
 
       <div className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-200">
         {tabs.map(([key, label]) => (
@@ -502,6 +506,61 @@ function People({ token }: { token: string }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Свои площадки партнёра — ТОЛЬКО ПОКАЗ, без правки (решение владельца).
+ *
+ * ⚠️ Правку не даём намеренно: идентичность (`platform_users`) заводится тем,
+ * что человек зашёл в бота, — и подмена ника в кабинете рождала бы вторую
+ * карточку человека и потерянные начисления. Партнёру нужно другое: понять,
+ * каким аккаунтом он опознан и куда ему напишут.
+ *
+ * ⚠️ Ноль не объясняем (№ 31): нечего показать — блока просто нет.
+ */
+function MyAccounts({ me }: { me: any }) {
+  const platforms: any[] = me.platforms || []
+  if (!platforms.length && !me.email && !me.phone) return null
+
+  return (
+    <div className="mb-5 rounded-xl bg-white p-4 shadow-sm">
+      <div className="mb-2 text-[11px] uppercase tracking-wide text-gray-400">
+        Ваши данные
+      </div>
+      <div className="space-y-1.5 text-sm">
+        {me.email && <Line label="Почта" value={me.email} />}
+        {me.phone && <Line label="Телефон" value={me.phone} />}
+        {platforms.map((p: any) => (
+          <Line
+            key={p.platform}
+            label={PLATFORM_NAME[p.platform] || p.platform}
+            value={p.username ? `@${p.username}` : 'привязан'}
+            href={p.url || undefined}
+          />
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-gray-400">
+        Данные меняются только через организатора — так ваши начисления
+        остаются привязаны к одной карточке.
+      </p>
+    </div>
+  )
+}
+
+function Line({ label, value, href }: { label: string; value: string; href?: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      <span className="w-24 shrink-0 text-xs text-gray-400">{label}</span>
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer"
+           className="break-all text-gray-800 underline decoration-gray-300">
+          {value}
+        </a>
+      ) : (
+        <span className="break-all text-gray-800">{value}</span>
+      )}
     </div>
   )
 }

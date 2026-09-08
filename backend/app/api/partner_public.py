@@ -26,6 +26,8 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from pydantic import BaseModel
 
 from app.database import get_db
+# ⚠️ Ссылки на профили — только общим сервисом, свой формат не выдумывать.
+from app.services.profile_links import profile_url
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +87,10 @@ async def _assert_partner_program(db, client_id: int) -> None:
 
 async def _partner_row(db, client_id: int, contact_id: int) -> Optional[dict]:
     row = await db.fetchrow(
-        """SELECT p.id, p.payout_mode, p.is_active, p.tax_status, p.accepted_at,
-                  c.ref_code, c.name
+        # ⚠️ `contact_id` и `phone` нужны кабинету: по первому собираются
+        # площадки партнёра, второй показывается ему как способ связи.
+        """SELECT p.id, p.contact_id, p.payout_mode, p.is_active, p.tax_status,
+                  p.accepted_at, c.ref_code, c.name, c.phone
              FROM client_partners p
              JOIN contacts c ON c.id = p.contact_id
             WHERE p.client_id = $1 AND p.contact_id = $2""",
@@ -674,11 +678,46 @@ async def partner_me(response: Response, sess: dict = Depends(_session),
                             AND c2.merged_into IS NULL)""",
         partner["id"], cid, partner["contact_id"]) or 0
 
+    # ⚠️ Площадки САМОГО партнёра — ТОЛЬКО ПОКАЗ, без правки (решение владельца).
+    # Он должен видеть, каким аккаунтом опознан: под какой почтой вошёл и какие
+    # мессенджеры к нему привязаны. Правку не даём намеренно — идентичность
+    # заводится входом в бота и подменой в кабинете рождались бы дубли людей.
+    idents = await db.fetch(
+        """SELECT platform_slug, platform_user_id, username
+             FROM platform_users
+            WHERE contact_id = $1 AND platform_slug <> 'email'
+            ORDER BY platform_slug""",
+        partner["contact_id"])
+
+    platforms = []
+    for r in idents:
+        uid = r["platform_user_id"]
+        # ⚠️ Псевдо-запись «@ник» — это НЕ числовой id: человек ещё не заходил
+        # в бота. Ник у неё настоящий, показать его можно, а как id не годится.
+        is_pseudo = isinstance(uid, str) and uid.startswith("@")
+        uname = r["username"] or (uid.lstrip("@") if is_pseudo else None)
+        platforms.append({
+            "platform": r["platform_slug"],
+            "username": uname,
+            "url": profile_url(r["platform_slug"],
+                               user_id=None if is_pseudo else uid,
+                               username=uname),
+        })
+
+    email = await db.fetchval(
+        """SELECT platform_user_id FROM platform_users
+            WHERE contact_id = $1 AND platform_slug = 'email'
+            ORDER BY id LIMIT 1""",
+        partner["contact_id"])
+
     return {
         "is_partner": True,
         "partner_id": partner["id"],
         "ref_code": partner["ref_code"],
         "name": partner["name"],
+        "email": email,
+        "phone": partner["phone"],
+        "platforms": platforms,
         "payout_mode": mode,
         "levels": int(levels),
         "due": float(totals["due"]),
