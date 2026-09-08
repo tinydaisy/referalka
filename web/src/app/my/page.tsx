@@ -18,6 +18,9 @@ import PartnerCabinet from './PartnerCabinet'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 const TOKEN_KEY = 'product_cabinet_token'
+// Последняя почта входа. ⚠️ Это УДОБСТВО, а не авторизация: код всё равно
+// приходит на почту. Храним рядом с токеном, чтобы «Выйти» чистил оба.
+const EMAIL_KEY = 'product_cabinet_email'
 
 export default function CabinetPage() {
   const [token, setToken] = useState<string | null>(null)
@@ -63,6 +66,19 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
   //
   // ⚠️ Полную почту отдаёт ТОЛЬКО подпись (`verified`): номер контакта виден в
   // адресе и подбирается перебором, по чужому номеру утекла бы чужая почта.
+
+  // Своя память прошлого входа — на случай, когда браузер молчит: на телефоне
+  // и во встроенном браузере мессенджера автозаполнение срабатывает не всегда,
+  // а человек заходит сюда редко и почту не помнит.
+  // ⚠️ Ставится ПЕРВОЙ, подпись из бота приходит позже и перекрывает её — так
+  // и надо: подпись знает точно, а память хранит лишь последний ввод.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(EMAIL_KEY)
+      if (saved) setEmail(saved)
+    } catch { /* приватный режим — просто без подстановки */ }
+  }, [])
+
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search)
     const c = sp.get('c')
@@ -98,6 +114,8 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
         setError(data?.message || 'На этой почте нет доступа в кабинет.')
         return
       }
+      // Код ушёл — значит почта рабочая, её и запоминаем.
+      try { localStorage.setItem(EMAIL_KEY, email.trim()) } catch { /* ignore */ }
       setStep('code')
     } catch (e: any) {
       setError(e?.message || 'Что-то пошло не так')
@@ -137,39 +155,53 @@ function LoginForm({ onLogged }: { onLogged: (token: string) => void }) {
             : 'Код отправлен. Он действует 15 минут.'}
         </p>
 
+        {/* ⚠️⚠️ ЭТО НАСТОЯЩАЯ <form>, а не набор полей в div. Браузер предлагает
+            сохранённую почту только внутри формы и только у поля с `name` и
+            `autoComplete` — без этого он не понимает, что перед ним вход, и
+            подсказки не будет вовсе. Отправка по Enter — оттуда же. */}
         {step === 'email' ? (
-          <div className="space-y-3">
+          <form className="space-y-3"
+                onSubmit={e => { e.preventDefault(); requestCode() }}>
             <input
               value={email} onChange={e => setEmail(e.target.value)}
-              type="email" placeholder="Почта"
+              type="email" name="email" autoComplete="email"
+              inputMode="email" autoFocus placeholder="Почта"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
             {error && <p className="text-sm text-red-600">{error}</p>}
             <button
-              onClick={requestCode}
+              type="submit"
               disabled={busy || !email.includes('@')}
               className="btn-gold w-full"
             >
               {busy ? 'Отправляем…' : 'Получить код'}
             </button>
-          </div>
+          </form>
         ) : (
-          <div className="space-y-3">
+          <form className="space-y-3"
+                onSubmit={e => { e.preventDefault(); auth() }}>
+            {/* ⚠️ Почта остаётся в форме скрытым полем: браузер запоминает пару
+                «адрес + вход» в момент ОТПРАВКИ, а на этом шаге видимого поля
+                почты уже нет — без него сохранять было бы нечего. */}
+            <input type="email" name="email" autoComplete="email"
+                   value={email} readOnly hidden />
             <input
               value={code} onChange={e => setCode(e.target.value)}
-              inputMode="numeric" placeholder="Код из письма"
+              inputMode="numeric" autoComplete="one-time-code"
+              name="one-time-code" autoFocus placeholder="Код из письма"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest"
             />
             {error && <p className="text-sm text-red-600">{error}</p>}
-            <button onClick={auth} disabled={busy || code.trim().length < 4}
+            <button type="submit" disabled={busy || code.trim().length < 4}
                     className="btn-gold w-full">
               {busy ? 'Проверяем…' : 'Войти'}
             </button>
-            <button onClick={() => { setStep('email'); setCode(''); setError('') }}
+            <button type="button"
+                    onClick={() => { setStep('email'); setCode(''); setError('') }}
                     className="w-full text-sm text-gray-500 hover:text-gray-700">
               Ввести другую почту
             </button>
-          </div>
+          </form>
         )}
       </div>
     </div>
