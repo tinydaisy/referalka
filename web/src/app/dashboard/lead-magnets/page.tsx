@@ -36,6 +36,7 @@ interface LeadMagnet {
   button_label?: string | null
   /** Анкета-шлагбаум перед выдачей. */
   require_survey_id?: number | null
+  partner_enabled?: boolean
   platform_links?: PlatformLinks
   created_at: string
   updated_at: string
@@ -506,6 +507,12 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   // вовсе: выбор, который всё равно упрётся в 403, только путает.
   const { me: meForSurveys } = useMe()
   const hasSurveys = (meForSurveys?.features || []).includes('surveys')
+  // Участие в партнёрской программе — как у события и продукта.
+  // ⚠️ Без фичи галочку не показываем: настройка, которой некуда примениться,
+  // только путает. Партнёр видит в кабинете ТОЛЬКО отмеченные материалы.
+  const hasPartnerProgram = (meForSurveys?.features || []).includes('partner_program')
+  const [partnerOn, setPartnerOn] = useState<boolean>(
+    !!(initial as any)?.partner_enabled)
   useEffect(() => {
     if (!hasSurveys) return
     api.surveys.list().then(setSurveys).catch(() => setSurveys([]))
@@ -522,6 +529,9 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
         require_survey_id: surveyId ? Number(surveyId) : null,
         link_mode: linkMode,
         button_label: buttonLabel.trim() || null,
+        // ⚠️ Шлём только при подключённой фиче: иначе сохранение формы у
+        // клиента без партнёрки молча сбрасывало бы уже отмеченное.
+        ...(hasPartnerProgram ? { partner_enabled: partnerOn } : {}),
       }
       if (initial) await api.leadMagnets.update(initial.id, payload)
       else await api.leadMagnets.create(payload)
@@ -610,6 +620,22 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
             </p>
           )}
         </Field>}
+        {hasPartnerProgram && (
+          <label className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 cursor-pointer">
+            <input type="checkbox" className="mt-1"
+                   checked={partnerOn}
+                   onChange={e => setPartnerOn(e.target.checked)} />
+            <span>
+              <span className="block text-sm font-medium text-gray-800">
+                Участвует в партнёрской программе
+              </span>
+              <span className="block text-xs text-gray-500">
+                Партнёры увидят этот материал в своём кабинете и получат на него
+                личную ссылку. Не отмечено — материал остаётся только у вас.
+              </span>
+            </span>
+          </label>
+        )}
         {err && <div className="text-sm text-red-600">{err}</div>}
         <FormActions saving={saving} onClose={onClose} />
       </form>

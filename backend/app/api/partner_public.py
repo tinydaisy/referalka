@@ -773,8 +773,12 @@ async def partner_materials(response: Response, sess: dict = Depends(_session),
             LIMIT 100""",
         cid,
     )
+    # ⚠️ ТОЛЬКО отмеченные галочкой, как события и продукты выше. Раньше
+    # фильтра здесь не было вовсе — партнёру уезжали ВСЕ подарки клиента,
+    # включая служебные и те, что он держит под свои воронки.
     magnets = await db.fetch(
-        "SELECT id, name, slug FROM lead_magnets WHERE client_id = $1 ORDER BY name LIMIT 100",
+        "SELECT id, name, slug FROM lead_magnets "
+        " WHERE client_id = $1 AND partner_enabled = TRUE ORDER BY name LIMIT 100",
         cid,
     )
 
@@ -1017,8 +1021,22 @@ async def partner_people(response: Response, sess: dict = Depends(_session),
         item = _row(r)
         # Готовые ссылки «написать человеку» — партнёр не должен собирать их
         # руками из ника. Строим общим хелпером, свой формат не выдумываем.
+        #
+        # ⚠️⚠️ `json_agg` приходит из asyncpg СТРОКОЙ, а не списком. Обход её
+        # как списка даёт `'str' object has no attribute 'get'` — эндпоинт
+        # падал целиком, и партнёр видел ПУСТОЙ раздел «Мои люди» при живых
+        # приведённых. Та же грабля уже ловилась на `options` анкет.
+        idents = item.pop("identities", None)
+        if isinstance(idents, str):
+            import json as _json
+            try:
+                idents = _json.loads(idents)
+            except Exception:  # noqa: BLE001
+                idents = []
         links = {}
-        for ident in (item.pop("identities", None) or []):
+        for ident in (idents or []):
+            if not isinstance(ident, dict):
+                continue
             url = profile_url(ident.get("platform"),
                               user_id=ident.get("user_id"),
                               username=ident.get("username"))
