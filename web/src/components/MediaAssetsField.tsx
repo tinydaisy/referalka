@@ -22,7 +22,11 @@ const PLATFORMS: { slug: string; label: string; auto?: boolean }[] = [
   { slug: 'youtube',   label: 'YouTube' },
   { slug: 'vk',        label: 'VK' },
   { slug: 'tiktok',    label: 'TikTok' },
-  { slug: 'instagram', label: 'Instagram' },
+  // ⚠️ `auto: true` — подписчиков Instagram отдаёт сама Meta при подключении
+  // аккаунта (см. channel_audience). Без этого флага цифра приходила с
+  // бэкенда, но в поле НЕ подставлялась: позиция считалась заполняемой
+  // руками, и клиент видел пусто при подключённом аккаунте.
+  { slug: 'instagram', label: 'Instagram', auto: true },
   { slug: 'max',       label: 'MAX' },
   { slug: 'rutube',    label: 'RuTube' },
   // «Чат-боты» — для ботов в СТОРОННИХ сервисах (у нас свои позиции выше).

@@ -8,7 +8,7 @@
  * План и решения — documentation/INSTAGRAM-FUNNEL-PLAN.md
  */
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, Pencil, Instagram, AlertTriangle, X, Loader2, Check } from 'lucide-react'
+import { Plus, Trash2, Pencil, Instagram, AlertTriangle, X, Loader2, Check, Users, BarChart3 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Funnel {
@@ -132,6 +132,41 @@ const PLACEHOLDERS: { code: string; what: string }[] = [
   { code: '{name}',     what: 'ник написавшего человека' },
 ]
 
+/**
+ * Плитка «зашли / забрали / не забрали» — ТОТ ЖЕ вид, что у лид-магнитов.
+ *
+ * ⚠️ Разделы соседние (соседние вкладки одной страницы), и свой стиль здесь
+ * читался бы как две разные системы. Поэтому цвета, размеры и порядок цифр
+ * повторяют LeadMagnetCounter один в один.
+ *
+ * ⚠️ Пусто → серая плитка «0/0/0», а не скрытая строка: отсутствие цифр само
+ * по себе информация («никто ещё не написал»), и её место должно быть занято.
+ */
+function FunnelCounter({ reached, received, onOpen }: {
+  reached: number; received: number; onOpen: () => void
+}) {
+  if (reached === 0) {
+    return (
+      <span className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-400"
+            title="Никто ещё не написал кодовое слово">
+        <Users size={12} /> 0/0/0
+      </span>
+    )
+  }
+  const notReceived = Math.max(0, reached - received)
+  const cell = 'px-1 rounded hover:bg-white/50 transition-colors cursor-pointer'
+  return (
+    <span className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-[#FFCFA4] text-[#25455D]">
+      <Users size={12} />
+      <button onClick={onOpen} className={cell} title={`${reached} — написали кодовое слово`}>{reached}</button>
+      <span className="text-[#25455D]/40">/</span>
+      <button onClick={onOpen} className={cell} title={`${received} — забрали материал`}>{received}</button>
+      <span className="text-[#25455D]/40">/</span>
+      <button onClick={onOpen} className={cell} title={`${notReceived} — не забрали материал`}>{notReceived}</button>
+    </span>
+  )
+}
+
 export default function InstagramFunnelsTab() {
   const [items, setItems] = useState<Funnel[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
@@ -242,25 +277,28 @@ export default function InstagramFunnelsTab() {
                     {f.lead_magnet_name || f.package_name || '—'}
                     {f.account_handle ? ` · @${f.account_handle}` : ''}
                   </p>
-                  {/* ⚠️ Цифры КЛИКАБЕЛЬНЫ: сами по себе они отвечают «сколько»,
-                      но не «кто». Клиент видел «получили 12» и не мог ни
-                      написать этим людям, ни проверить, дошёл ли материал до
-                      конкретного человека. */}
-                  <button
-                    onClick={() => setPeopleOf(f)}
-                    className="text-xs text-gray-400 mt-1 hover:text-gray-700 underline decoration-dotted underline-offset-2"
-                    title="Посмотреть, кто обращался и кто получил"
-                  >
-                    Обратились: {f.runs ?? 0} · получили: {f.delivered ?? 0}
-                  </button>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {/* ⚠️ Плитка и иконка аналитики — ТОЧНО как у лид-магнитов
+                      (страница lead-magnets): персиковый фон, «зашли/забрали/
+                      не забрали», клик по любой цифре открывает список людей.
+                      Свой стиль тут заводить нельзя — разделы соседние, и
+                      разнобой читается как две разные системы. */}
+                  <FunnelCounter
+                    reached={f.runs ?? 0}
+                    received={f.delivered ?? 0}
+                    onOpen={() => setPeopleOf(f)}
+                  />
+                  <button onClick={() => setPeopleOf(f)} title="Аналитика"
+                          className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
+                    <BarChart3 size={16} />
+                  </button>
                   <button onClick={() => setEditing({ id: f.id })}
-                          className="p-2 text-gray-400 hover:text-gray-700" title="Изменить">
+                          className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100" title="Редактировать">
                     <Pencil size={16} />
                   </button>
                   <button onClick={() => remove(f)}
-                          className="p-2 text-gray-400 hover:text-red-600" title="Удалить">
+                          className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-gray-100" title="Удалить">
                     <Trash2 size={16} />
                   </button>
                 </div>
