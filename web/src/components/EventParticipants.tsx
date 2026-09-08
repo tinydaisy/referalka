@@ -304,7 +304,7 @@ function ParticipantRefLinks({ eventId, refCode }: { eventId: number; refCode: s
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-gray-500 text-xs font-semibold flex items-center gap-1.5">
-          <Link2 size={12} /> Партнёрские ссылки участника
+          <Link2 size={12} /> Реферальная ссылка участника на событие
         </p>
         <button
           type="button"
@@ -316,6 +316,10 @@ function ParticipantRefLinks({ eventId, refCode }: { eventId: number; refCode: s
           {copiedKey === '__all__' ? 'Скопировано' : 'Скопировать все'}
         </button>
       </div>
+      <p className="text-[11px] text-gray-400 -mt-1">
+        Скопируйте и отдайте самому участнику — по ней он зовёт друзей на событие,
+        а приведённые засчитываются ему.
+      </p>
       <div className="space-y-1.5">
         {rows.map(m => (
           <div key={m.key} className="flex items-center gap-2">
@@ -1241,10 +1245,14 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
 
         {/* ⚠️ Фильтр «кто пришёл по чьей-то ссылке» — отдельной группой через
             разделитель, чтобы не слипался с оплатой: это разные срезы, и их
-            комбинируют («оплатили И пришли по ссылке»). */}
+            комбинируют («оплатили И пришли от рефовода»).
+            ⚠️ Подписи именно «От рефоводов» / «Без рефоводов», а не «По ссылке» /
+            «Сами»: ссылка есть у каждого входа (из бота, из календаря, с лендинга),
+            и «по ссылке» читалось как «а остальные пришли без неё». Срез на деле
+            про другое — закреплён за человеком реф-код приведшего или нет. */}
         <span className="mx-1 h-5 w-px bg-gray-200" />
         {([
-          ['all', 'Все'], ['yes', 'По ссылке'], ['no', 'Сами'],
+          ['all', 'Все'], ['yes', 'От рефоводов'], ['no', 'Без рефоводов'],
         ] as const).map(([k, label]) => (
           <button
             key={`ref-${k}`}
