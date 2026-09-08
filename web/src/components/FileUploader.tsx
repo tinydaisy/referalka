@@ -17,7 +17,7 @@ import { Upload, Trash2, Loader2, Copy, Check, ImageIcon, FileText, AlertCircle,
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-export type UploadKind = 'event_poster' | 'pre_reg_poster' | 'certificate' | 'referral_material' | 'lead_magnet' | 'speaker_photo' | 'speaker_cutout' | 'speaker_poster' | 'brand_photo' | 'brand_logo' | 'owner_photo' | 'funnel_media' | 'broadcast_photo' | 'event_video' | 'speaker_video' | 'referral_video' | 'landing_bg' | 'landing_media' | 'survey_media' | 'product_media' | 'material_media'
+export type UploadKind = 'event_poster' | 'pre_reg_poster' | 'certificate' | 'referral_material' | 'lead_magnet' | 'speaker_photo' | 'speaker_cutout' | 'speaker_poster' | 'brand_photo' | 'brand_logo' | 'owner_photo' | 'funnel_media' | 'broadcast_photo' | 'event_video' | 'speaker_video' | 'referral_video' | 'landing_bg' | 'landing_media' | 'survey_media' | 'product_media' | 'material_media' | 'news_media'
 
 const VIDEO_KIND_SET: ReadonlySet<UploadKind> = new Set<UploadKind>(['event_video', 'speaker_video', 'referral_video'])
 

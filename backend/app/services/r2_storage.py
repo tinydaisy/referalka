@@ -160,6 +160,10 @@ def build_key(
     if kind == "survey_media":
         return f"{base}/surveys/media/{fname}"
 
+    # Картинка новости платформы (миграция 374) — к событию не привязана.
+    if kind == "news_media":
+        return f"{base}/news/media/{fname}"
+
     # Продукты (миграции 290, 293) живут вне событий — храним по клиенту.
     # product_media  — картинки лендинга продукта (фоны, галерея);
     # material_media — картинки и файлы внутри материалов.

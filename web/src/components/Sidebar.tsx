@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList, Package, PhoneCall } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone, BarChart3, MessageSquareQuote, FileText, ExternalLink, Lock, ClipboardList, Package, PhoneCall, Megaphone } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -205,6 +205,12 @@ export default function Sidebar() {
         // МедиаЛифт — только сервисный аккаунт. Одно служебное событие (не список),
         // поэтому ведём сразу внутрь его карточки.
         ...(isSystemService ? [{ href: '/dashboard/medialift', label: 'МедиаЛифт', icon: Radio }] : []),
+        // Новости платформы — тоже только сервисный аккаунт (миграция 374).
+        // ⚠️ Это ВЕДЕНИЕ новостей (написать, опубликовать, разослать), а не их
+        // чтение: чтение у всех клиентов — колокольчик в шапке и /dashboard/news.
+        ...(isSystemService && !isAnyAssistant
+          ? [{ href: '/dashboard/platform-news', label: 'Новости ПЛЮСОНа', icon: Megaphone }]
+          : []),
       ],
     },
     {

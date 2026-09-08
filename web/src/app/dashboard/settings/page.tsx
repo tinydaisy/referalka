@@ -14,6 +14,7 @@ import StorageTab from '@/components/settings/StorageTab'
 import PaymentSettingsTab from '@/components/settings/PaymentSettingsTab'
 import DomainsTab from '@/components/settings/DomainsTab'
 import CallSettingsBlock from '@/components/settings/CallSettingsBlock'
+import NewsEmailBlock from '@/components/settings/NewsEmailBlock'
 import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
 // ⚠️ Вкладки 'subscription' здесь БОЛЬШЕ НЕТ — подписка живёт отдельной
@@ -472,6 +473,10 @@ export default function SettingsPage() {
 
         {effectiveTab === 'tech' && (
         <>
+
+        {/* Письма с новостями платформы (миграция 374). Стоит первым: это
+            единственное место, где случайную отписку из письма можно вернуть. */}
+        <NewsEmailBlock />
 
         {/* Notifications channel — первый блок (важнейшая настройка) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

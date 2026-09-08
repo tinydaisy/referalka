@@ -1153,6 +1153,34 @@ export const api = {
     remove: (ownerType: 'events' | 'products', ownerId: number) =>
       request(`/api/v1/${ownerType}/${ownerId}/request-form`, { method: 'DELETE' }),
   },
+  // Новости платформы (миграция 374).
+  // ⚠️ `news` — то, что видит КЛИЕНТ в своём кабинете; `platformNews` — ведение
+  // новостей (админка и кабинет сервисного клиента). Это разные аудитории и
+  // разные права, поэтому и группы разные.
+  news: {
+    list: (limit?: number) => request(`/api/v1/news${limit ? `?limit=${limit}` : ''}`),
+    unreadCount: () => request('/api/v1/news/unread-count'),
+    markRead: (id: number) => request(`/api/v1/news/${id}/read`, { method: 'POST' }),
+    markAllRead: () => request('/api/v1/news/read-all', { method: 'POST' }),
+    emailPreference: () => request('/api/v1/news/email-preference'),
+    setEmailPreference: (enabled: boolean) =>
+      request('/api/v1/news/email-preference', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  },
+
+  platformNews: {
+    list: () => request('/api/v1/platform-news'),
+    create: (data: any) =>
+      request('/api/v1/platform-news', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/platform-news/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/platform-news/${id}`, { method: 'DELETE' }),
+    sendEmail: (id: number) =>
+      request(`/api/v1/platform-news/${id}/send-email`, { method: 'POST' }),
+    sendBot: (id: number) =>
+      request(`/api/v1/platform-news/${id}/send-bot`, { method: 'POST' }),
+  },
+
   surveys: {
     list: () => request('/api/v1/surveys'),
     // Сколько заявок ждут обработки по всем анкетам — цифра у пункта меню.

@@ -15,6 +15,7 @@ from app.api import client_offers, client_testimonials, client_payment_settings,
 from app.api import client_call_settings, call_campaigns
 from app.api import tg_autosetup, admin_tg_setup
 from app.api import partner_program, partner_public
+from app.api import platform_news
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
 from app.api import webinar_public
@@ -178,6 +179,9 @@ app.include_router(event_nurture.router,                  prefix="/api/v1")  # /
 app.include_router(event_nurture_reg.router,              prefix="/api/v1")  # /api/v1/events/{id}/nurture-reg/steps — воронка зарег. (миграция 129)
 app.include_router(email_unsubscribe.router)                                   # /api/v1/email/unsubscribe (миграции 097-098)
 app.include_router(legal.router)                                               # юр-данные клиента + публичная страничка политики (миграция 099)
+app.include_router(platform_news.client_router,  prefix="/api/v1")             # /api/v1/news — новости платформы в кабинете клиента (миграция 374)
+app.include_router(platform_news.manage_router,  prefix="/api/v1")             # /api/v1/platform-news — ведение: админ ИЛИ сервисный кабинет
+app.include_router(platform_news.public_router)                                # /api/v1/news/unsubscribe — отписка от писем с новостями
 app.include_router(platform_legal.router)                                      # правовые документы ПЛАТФОРМЫ: админка (миграция 317)
 app.include_router(platform_legal.public_router)                               # они же публично — /offer, /privacy, /partner-offer
 app.include_router(email_tracking.router)                                      # /api/v1/email/pixel/{token}.gif, /api/v1/email/click (миграция 098)

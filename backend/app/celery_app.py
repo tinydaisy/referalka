@@ -12,6 +12,7 @@ celery = Celery(
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check", "app.tasks.calls",
         "app.tasks.instagram",
         "app.tasks.product_access_expiry",
+        "app.tasks.platform_news",
         "app.tasks.tg_setup"]
 )
 
