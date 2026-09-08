@@ -721,7 +721,7 @@ export default function TariffsTab({
                 кэшбэк. А выбор платного МОДУЛЯ и тарифа «Профи» показывается
                 только тем, у кого есть фича (admin): это уже наши деньги. */}
             <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2.5">
-                <div className="text-sm font-medium text-amber-900">Доступ в ПЛЮСОН за покупку</div>
+                <div className="text-sm font-medium text-amber-900">Триал доступ к ПЛЮСОН за покупку</div>
                 <label className="flex items-start gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -730,7 +730,7 @@ export default function TariffsTab({
                     onChange={e => setForm({ ...form, bonus_trial: e.target.checked })}
                   />
                   <span className="text-xs text-amber-900">
-                    Подарить Триал-доступ в iViSiON: ПЛЮСОН
+                    Подарить Триал доступ к ПЛЮСОН
                     <span className="block text-amber-800/70">
                       Новому пользователю — полный бесплатный период, у кого кабинет
                       уже есть — 3 дня продления. Покупатель закрепится за вами,
