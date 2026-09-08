@@ -932,6 +932,9 @@ export const api = {
       request(`/api/v1/instagram-funnels/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/instagram-funnels/${id}`, { method: 'DELETE' }),
+    // Кто обращался в воронку и что получил — цифры отвечают «сколько», а
+    // список «кто»: без имён клиенту не с кем работать.
+    people: (id: number) => request(`/api/v1/instagram-funnels/${id}/people`),
   },
 
   channels: {

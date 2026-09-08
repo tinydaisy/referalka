@@ -190,6 +190,12 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
               CASE WHEN ch.platform_slug = 'vk'
                    THEN ch.platform_meta->>'vk_group_id'
                    ELSE NULL END AS vk_group_id,
+              -- ⚠️ Подписчики Instagram-аккаунта. Берём из platform_meta, а не
+              -- спрашиваем у Meta на каждой отрисовке: цифра сохраняется при
+              -- подключении и обновляется вместе с токеном.
+              CASE WHEN ch.platform_slug = 'instagram'
+                   THEN (ch.platform_meta->>'followers')::int
+                   ELSE NULL END AS ig_followers,
               ch.bot_token AS _bot_token
              FROM channels ch
              JOIN client_channels cc ON cc.channel_id = ch.id
@@ -212,6 +218,17 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
         )
         for it, n in zip(vk_items, counts):
             it["community_members"] = n if isinstance(n, int) else None
+
+    # ⚠️⚠️ Столбец «подписчики» (`subscribers`) для Instagram ВСЕГДА НОЛЬ, и это
+    # НЕ поломка: он считает тех, кому можно слать рассылку, а Instagram
+    # рассылок не допускает вовсе — Meta разрешает писать только 24 часа после
+    # сообщения человека. Клиент видел ноль при 716 реальных подписчиках и
+    # читал это как «ничего не работает». Показываем цифру аккаунта в том же
+    # поле, что и подписчиков ВК-сообщества.
+    for it in items:
+        if it["platform_slug"] == "instagram":
+            it["community_members"] = it.get("ig_followers")
+        it.pop("ig_followers", None)
 
     # ⚠️ Токен наружу НЕ отдаём — он нужен был только для запроса выше.
     for it in items:

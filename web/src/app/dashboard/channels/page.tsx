@@ -776,20 +776,32 @@ function ChannelCard({ channel: ch, health, onEdit, onDelete, onImport, onRestar
         {typeof ch.community_members === 'number' && (
           <div
             className="flex items-center gap-1.5 text-blue-500"
-            title="Подписаны на сообщество ВКонтакте. Это НЕ база рассылки: чтобы получать ваши сообщения, человек отдельно нажимает «Разрешить сообщения»."
+            title={ch.platform_slug === 'instagram'
+              ? 'Подписаны на ваш аккаунт Instagram. Рассылку им слать нельзя: Instagram разрешает писать человеку только 24 часа после его сообщения.'
+              : 'Подписаны на сообщество ВКонтакте. Это НЕ база рассылки: чтобы получать ваши сообщения, человек отдельно нажимает «Разрешить сообщения».'}
           >
             <Megaphone size={14} />
             <span>{ch.community_members.toLocaleString('ru')}</span>
           </div>
         )}
-        <div className="flex items-center gap-1.5 text-green-600" title="Получают ваши сообщения — это и есть база рассылки">
-          <Users size={14} />
-          <span>{ch.subscribers.toLocaleString('ru')}</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-red-400" title="Отписавшиеся (ваши)">
-          <BellOff size={14} />
-          <span>{ch.unsubscribed.toLocaleString('ru')}</span>
-        </div>
+        {/* ⚠️⚠️ У Instagram эти два счётчика НЕ показываем вовсе.
+            «Получают сообщения» и «отписавшиеся» считают базу рассылки, а
+            рассылок в Instagram нет: Meta разрешает писать только 24 часа
+            после сообщения человека. Там всегда стоял ноль — и клиент читал
+            это как «ничего не работает», хотя у аккаунта 716 подписчиков.
+            Показывать заведомый ноль хуже, чем не показывать ничего. */}
+        {ch.platform_slug !== 'instagram' && (
+          <>
+            <div className="flex items-center gap-1.5 text-green-600" title="Получают ваши сообщения — это и есть база рассылки">
+              <Users size={14} />
+              <span>{ch.subscribers.toLocaleString('ru')}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-red-400" title="Отписавшиеся (ваши)">
+              <BellOff size={14} />
+              <span>{ch.unsubscribed.toLocaleString('ru')}</span>
+            </div>
+          </>
+        )}
       </div>
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         {isSystem ? (

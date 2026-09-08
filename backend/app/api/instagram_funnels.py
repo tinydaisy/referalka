@@ -289,3 +289,66 @@ async def account_media(channel_id: int, client=Depends(get_current_client), db=
     except ig.InstagramApiError as e:
         raise HTTPException(400, e.user_message)
     return {"items": items}
+
+
+@router.get("/{funnel_id}/people", summary="Кто обращался в воронку и что получил")
+async def funnel_people(
+    funnel_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Люди, прошедшие через воронку, — как в аналитике лид-магнитов.
+
+    ⚠️ Цифры в списке воронок отвечают «сколько», но не «кто». Без имён
+    клиенту не с кем работать: он видит «получили 12» и не может ни написать
+    этим людям, ни проверить, дошёл ли материал до конкретного человека.
+
+    ⚠️⚠️ Стадии у Instagram ДВЕ, а не четыре, как в телеграм-воронке:
+    `started` — написал комментарий, `delivered` — получил материал.
+    Отдельной стадии «подписался» НЕТ и быть не может: подписку мы
+    спрашиваем у Meta в момент выдачи и нигде не храним. Но выдача идёт
+    ТОЛЬКО после успешной проверки — поэтому `delivered` и означает
+    «подписался и забрал», если в воронке включено требование подписки.
+    """
+    client_id = int(client["sub"])
+    own = await db.fetchval(
+        "SELECT require_subscription FROM instagram_funnels WHERE id=$1 AND client_id=$2",
+        funnel_id, client_id,
+    )
+    if own is None:
+        raise HTTPException(404, "Воронка не найдена")
+
+    rows = await db.fetch(
+        """SELECT fr.id, fr.stage, fr.platform_user_id,
+                  fr.started_at, fr.delivered_at,
+                  fr.ig_last_user_message_at, fr.ig_last_delivered_at,
+                  fr.contact_id, c.name AS contact_name,
+                  pu.username AS username
+             FROM funnel_runs fr
+        LEFT JOIN contacts c ON c.id = fr.contact_id
+        LEFT JOIN platform_users pu
+               ON pu.contact_id = fr.contact_id AND pu.platform_slug = 'instagram'
+            WHERE fr.instagram_funnel_id = $1
+         ORDER BY COALESCE(fr.delivered_at, fr.started_at) DESC NULLS LAST
+            LIMIT 500""",
+        funnel_id,
+    )
+
+    people = []
+    for r in rows:
+        d = dict(r)
+        # ⚠️ Ник для ссылки на профиль: без него клиент видит только числовой
+        # id, по которому человека не найти.
+        nick = (d.get("username") or "").lstrip("@")
+        d["username"] = nick
+        d["profile_url"] = f"https://www.instagram.com/{nick}/" if nick else None
+        people.append(d)
+
+    return {
+        "require_subscription": bool(own),
+        "counts": {
+            "started": sum(1 for p in people if p["stage"] in ("started", "delivered")),
+            "delivered": sum(1 for p in people if p["stage"] == "delivered"),
+        },
+        "people": people,
+    }

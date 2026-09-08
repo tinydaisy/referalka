@@ -139,6 +139,8 @@ export default function InstagramFunnelsTab() {
   const [packages, setPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<any | null>(null)
+  // Воронка, по которой открыт список людей (null — окно закрыто).
+  const [peopleOf, setPeopleOf] = useState<Funnel | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -240,9 +242,17 @@ export default function InstagramFunnelsTab() {
                     {f.lead_magnet_name || f.package_name || '—'}
                     {f.account_handle ? ` · @${f.account_handle}` : ''}
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  {/* ⚠️ Цифры КЛИКАБЕЛЬНЫ: сами по себе они отвечают «сколько»,
+                      но не «кто». Клиент видел «получили 12» и не мог ни
+                      написать этим людям, ни проверить, дошёл ли материал до
+                      конкретного человека. */}
+                  <button
+                    onClick={() => setPeopleOf(f)}
+                    className="text-xs text-gray-400 mt-1 hover:text-gray-700 underline decoration-dotted underline-offset-2"
+                    title="Посмотреть, кто обращался и кто получил"
+                  >
                     Обратились: {f.runs ?? 0} · получили: {f.delivered ?? 0}
-                  </p>
+                  </button>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => setEditing({ id: f.id })}
@@ -258,6 +268,10 @@ export default function InstagramFunnelsTab() {
             </div>
           ))}
         </div>
+      )}
+
+      {peopleOf && (
+        <PeopleModal funnel={peopleOf} onClose={() => setPeopleOf(null)} />
       )}
 
       {editing && (
@@ -659,6 +673,138 @@ function FunnelModal({ initial, accounts, magnets, packages, onClose, onSaved }:
           <button onClick={save} disabled={busy || loading} className="btn-gold px-5 disabled:opacity-50">
             {busy ? 'Сохраняем…' : 'Сохранить'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Кто обращался в воронку и что получил.
+ *
+ * ⚠️ Цифры в карточке отвечают «сколько», но не «кто». Без имён клиенту не с
+ * кем работать: он видит «получили 12» и не может ни написать этим людям, ни
+ * проверить, дошёл ли материал до конкретного человека.
+ *
+ * ⚠️ Модалка-форма закрывается только крестиком/кнопкой — по фону НЕ
+ * закрываем (правило проекта: иначе теряются данные при случайном клике).
+ */
+function PeopleModal({ funnel, onClose }: { funnel: Funnel; onClose: () => void }) {
+  const [data, setData] = useState<any | null>(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    api.instagramFunnels.people(funnel.id)
+      .then(setData)
+      .catch((e: any) => setErr(e?.message || 'Не удалось загрузить'))
+  }, [funnel.id])
+
+  const people: any[] = data?.people || []
+
+  const when = (v: string | null) => {
+    if (!v) return '—'
+    // ⚠️ Время события показываем по Москве — как везде в кабинете.
+    return new Date(v).toLocaleString('ru', {
+      timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl my-8" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="min-w-0">
+            <p className="font-semibold text-gray-900 truncate">{funnel.name}</p>
+            <p className="text-xs text-gray-500">Кто обращался и что получил</p>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700" title="Закрыть">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5">
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          {!data && !err && (
+            <div className="flex items-center gap-2 text-sm text-gray-500 py-6">
+              <Loader2 className="w-4 h-4 animate-spin" /> Загружаем…
+            </div>
+          )}
+
+          {data && (
+            <>
+              <div className="flex gap-3 mb-4">
+                <div className="flex-1 rounded-xl border border-gray-200 p-3">
+                  <p className="text-xl font-semibold text-gray-900">{data.counts.started}</p>
+                  <p className="text-xs text-gray-500">написали комментарий</p>
+                </div>
+                <div className="flex-1 rounded-xl border border-gray-200 p-3">
+                  <p className="text-xl font-semibold text-gray-900">{data.counts.delivered}</p>
+                  {/* ⚠️ Формулировка зависит от настройки: когда подписка
+                      требуется, выдача идёт ТОЛЬКО после успешной проверки —
+                      значит «получили» и есть «подписались и забрали». Писать
+                      это без учёта галочки нельзя: у воронки без проверки
+                      подписки никто не подписывался. */}
+                  <p className="text-xs text-gray-500">
+                    {data.require_subscription ? 'подписались и забрали' : 'забрали материал'}
+                  </p>
+                </div>
+              </div>
+
+              {people.length === 0 ? (
+                <p className="text-sm text-gray-500 py-4">
+                  Пока никто не обращался. Как только человек напишет кодовое слово
+                  под вашей публикацией, он появится здесь.
+                </p>
+              ) : (
+                <div className="overflow-x-auto -mx-5 px-5">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                        <th className="py-2 pr-3 font-medium">Человек</th>
+                        <th className="py-2 pr-3 font-medium">Написал</th>
+                        <th className="py-2 pr-3 font-medium">Получил</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {people.map(p => (
+                        <tr key={p.id} className="border-b border-gray-50">
+                          <td className="py-2 pr-3">
+                            {/* ⚠️ Ник — ссылкой на профиль: клиенту нужно уметь
+                                написать человеку, а не просто увидеть строку. */}
+                            {p.profile_url ? (
+                              <a href={p.profile_url} target="_blank" rel="noreferrer"
+                                 className="text-blue-600 hover:underline">
+                                @{p.username}
+                              </a>
+                            ) : (
+                              <span className="text-gray-500">
+                                {p.contact_name || `id ${p.platform_user_id}`}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-gray-600 whitespace-nowrap">
+                            {when(p.started_at || p.ig_last_user_message_at)}
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {p.stage === 'delivered' ? (
+                              <span className="text-green-600">{when(p.delivered_at || p.ig_last_delivered_at)}</span>
+                            ) : (
+                              <span className="text-gray-400">не забрал</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+          <button onClick={onClose} className="btn-primary px-4 py-2 text-sm">Закрыть</button>
         </div>
       </div>
     </div>
