@@ -1,11 +1,12 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download, Eye, Instagram } from 'lucide-react'
 import { api } from '@/lib/api'
 import InstagramFunnelsTab from '@/components/InstagramFunnelsTab'
 import FileUploader from '@/components/FileUploader'
 import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import { useMe } from '@/hooks/useMe'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i
 function inferMediaType(url: string | null | undefined): 'photo' | 'video' | null {
@@ -14,6 +15,9 @@ function inferMediaType(url: string | null | undefined): 'photo' | 'video' | nul
 }
 
 type Tab = 'magnets' | 'packages' | 'template' | 'instagram'
+// ⚠️ Держать в синхроне с типом Tab: по этому списку useUrlTab
+// отсеивает мусор в ?tab= (иначе чужая ссылка открыла бы пустоту).
+const TABS: readonly Tab[] = ['magnets', 'packages', 'template', 'instagram']
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -75,12 +79,13 @@ function useFounderChannelsReady(): ChannelsReady {
 // берёт и 128. Держим минимум, чтобы надпись доехала везде одинаковой.
 const BTN_LIMIT = 40
 
-export default function LeadMagnetsPage() {
-  const [tab, setTab] = useState<Tab>(() => {
-    if (typeof window === 'undefined') return 'magnets'
-    const t = new URLSearchParams(window.location.search).get('tab')
-    return (t === 'packages' || t === 'template' || t === 'instagram') ? t as Tab : 'magnets'
-  })
+function LeadMagnetsPageInner() {
+  // ⚠️ Вкладка живёт В АДРЕСЕ страницы (?tab=instagram) через общий useUrlTab.
+  // Раньше здесь стояло самописное чтение: вкладка ЧИТАЛАСЬ из адреса, но при
+  // переключении туда не записывалась — и обновление страницы (F5) сбрасывало
+  // выбор на «Лид-магниты». Хук пишет значение сам, поэтому F5, «назад» и
+  // присланная коллеге ссылка открывают ту же вкладку.
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'magnets', TABS)
   // Канал(ы) основателя для воронки — массив (миграция 114).
   // null = ещё не загружено или загружено и пусто; [] = загружено и пусто; [..] = есть.
   const [tgChannels, setTgChannels] = useState<{ url: string; name?: string }[] | null>(null)
@@ -286,6 +291,18 @@ export default function LeadMagnetsPage() {
         </p>
       )}
     </div>
+  )
+}
+
+// ⚠️⚠️ Обёртка ОБЯЗАТЕЛЬНА: useUrlTab внутри зовёт useSearchParams, а эта
+// страница БЕЗ динамического сегмента — Next пререндерит такие на сборке и
+// падает целиком «useSearchParams() should be wrapped in a suspense boundary».
+// ⚠️ tsc эту ошибку НЕ видит — проверять только сборкой.
+export default function LeadMagnetsPage() {
+  return (
+    <Suspense fallback={null}>
+      <LeadMagnetsPageInner />
+    </Suspense>
   )
 }
 
