@@ -399,9 +399,26 @@ function ContactCard({
   }
 
   return (
-    <div className="border-t border-gray-50 first:border-t-0">
+    /* ⚠️ Раскрытая карточка ОТДЕЛЯЕТСЯ ОТ СПИСКА ЯВНО (08.09.2026).
+       Раньше разворот отличался только фоном `bg-gray-50` и границей
+       `gray-100` — то же самое, чем разделены обычные строки и покрашена
+       шапка списка. Блок с реф-ссылками читался как продолжение таблицы, а не
+       как данные конкретного человека: «сливается в кашу со всем остальным».
+       Теперь у раскрытой строки фирменная синяя рамка `#25455D` вокруг всей
+       карточки (строка + разворот вместе), и сама строка подсвечена — видно,
+       чьи это ссылки. */
+    <div
+      className={
+        open
+          ? 'relative z-10 my-2 mx-2 rounded-xl border-2 overflow-hidden shadow-md'
+          : 'border-t border-gray-50 first:border-t-0'
+      }
+      style={open ? { borderColor: '#25455D' } : undefined}
+    >
       <div
-        className="flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors"
+        className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer transition-colors ${
+          open ? 'bg-[#25455D]/[0.07]' : 'hover:bg-gray-50'
+        }`}
         onClick={() => setOpen(v => !v)}
       >
         {/* Имя — главная колонка.
@@ -606,13 +623,15 @@ function ContactCard({
           )}
         </div>
 
-        <div className="w-4 shrink-0 text-gray-400">
+        <div className={`w-4 shrink-0 ${open ? 'text-[#25455D]' : 'text-gray-400'}`}>
           {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
       </div>
 
       {open && (
-        <div className="px-5 pb-4 bg-gray-50 border-t border-gray-100">
+        /* Граница внутри рамки — синяя, чтобы отделять данные от строки в
+           том же ключе, что и внешняя рамка (серая на сером не видна). */
+        <div className="px-5 pb-4 bg-white border-t-2 border-[#25455D]/20">
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-3 text-xs">
             <Field label="participant_id (для GetCourse-webhook)" value={String(p.id)} mono />
             <Field label="contact_id (для GetCourse-webhook)" value={String(p.contact_id)} mono />
@@ -657,8 +676,10 @@ function ContactCard({
               />
             </div>
           )}
+          {/* Ссылки — на своей подложке: это то, ради чего карточку и
+              раскрывают, и на общем фоне блок терялся среди полей. */}
           {p.ref_code && (
-            <div className="pt-3 mt-3 border-t border-gray-200">
+            <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-3">
               <ParticipantRefLinks eventId={eventId} refCode={p.ref_code} />
             </div>
           )}
