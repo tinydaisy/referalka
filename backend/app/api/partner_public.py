@@ -941,6 +941,118 @@ async def partner_network(response: Response, sess: dict = Depends(_session),
     }
 
 
+@router.get("/me/people/{person_contact_id}", summary="Карточка приведённого")
+async def partner_person(person_contact_id: int, response: Response,
+                         sess: dict = Depends(_session),
+                         db: asyncpg.Connection = Depends(get_db)):
+    """Один приведённый человек: его покупки и — если он сам партнёр — его сеть.
+
+    ⚠️⚠️ ПОКАЗЫВАЕМ ТОЛЬКО СВОИХ. `person_contact_id` приходит из браузера и
+    подбирается перебором: без проверки партнёр читал бы покупки и контакты
+    чужих людей. Свой = закреплён за мной ЛИБО пришёл по моему реф-коду
+    (те же три источника, что в списке «Мои люди»).
+
+    ⚠️ Сеть под человеком строится ТОЙ ЖЕ рекурсией по `contacts.partner_id`,
+    что и «Моя сеть» (№ 44), и с тем же ограничением глубины по
+    `clients.partner_levels`: показать уровни, с которых доход не идёт, значит
+    пообещать несуществующее.
+    """
+    _cors(response)
+    cid, contact_id = sess["client_id"], sess["contact_id"]
+    partner = await _partner_row(db, cid, contact_id)
+    if not partner:
+        raise HTTPException(status_code=403, detail="Вы ещё не партнёр")
+
+    mine = await db.fetchval(
+        """SELECT 1 FROM contacts c
+            WHERE c.id = $4 AND c.client_id = $2 AND c.merged_into IS NULL
+              AND (c.partner_id = $1
+                   OR EXISTS (SELECT 1 FROM event_participants ep
+                                JOIN contacts rc ON rc.id = $3
+                               WHERE ep.contact_id = c.id
+                                 AND ep.referrer_ref_code IS NOT NULL
+                                 AND (ep.referrer_ref_code = rc.ref_code
+                                      OR rc.merged_ref_codes ? ep.referrer_ref_code))
+                   OR EXISTS (SELECT 1 FROM funnel_runs fr
+                               WHERE fr.contact_id = c.id
+                                 AND fr.referrer_contact_id = $3))""",
+        partner["id"], cid, partner["contact_id"], person_contact_id)
+    if not mine:
+        raise HTTPException(status_code=404, detail="Такого человека у вас нет")
+
+    person = await db.fetchrow(
+        """SELECT c.id, c.name, c.phone,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                    ORDER BY pu.id LIMIT 1) AS email
+             FROM contacts c WHERE c.id = $1""", person_contact_id)
+
+    # Его покупки — те, за которые начислено МНЕ: чужие продажи партнёру
+    # видеть незачем, а свои он обязан проверить.
+    sales = await db.fetch(
+        """SELECT a.id, a.level, a.source_kind, a.base_amount, a.amount,
+                  a.created_at, a.payout_id IS NOT NULL AS is_paid,
+                  CASE a.source_kind
+                       WHEN 'event' THEN (SELECT e.title FROM event_participant_tariffs t
+                                            JOIN events e ON e.id = t.event_id
+                                           WHERE t.id = a.source_order_id)
+                       WHEN 'product' THEN (SELECT p2.title FROM product_orders o
+                                              JOIN products p2 ON p2.id = o.product_id
+                                             WHERE o.id = a.source_order_id)
+                  END AS source_title
+             FROM partner_accruals a
+            WHERE a.partner_id = $1 AND a.buyer_contact_id = $2
+            ORDER BY a.created_at DESC LIMIT 200""",
+        partner["id"], person_contact_id)
+
+    # Сам он партнёр? Тогда под ним может быть своя сеть.
+    his_partner_id = await db.fetchval(
+        "SELECT id FROM client_partners WHERE client_id = $1 AND contact_id = $2",
+        cid, person_contact_id)
+
+    max_levels = await db.fetchval(
+        "SELECT COALESCE(partner_levels, 1) FROM clients WHERE id = $1", cid) or 1
+
+    network = []
+    if his_partner_id:
+        network = await db.fetch(
+            """
+            WITH RECURSIVE tree AS (
+                SELECT p.id, p.contact_id, 1 AS level
+                  FROM client_partners p
+                  JOIN contacts c ON c.id = p.contact_id
+                 WHERE p.client_id = $2 AND c.partner_id = $1
+                UNION ALL
+                SELECT p2.id, p2.contact_id, t.level + 1
+                  FROM tree t
+                  JOIN contacts c2 ON c2.partner_id = t.id
+                  JOIN client_partners p2 ON p2.contact_id = c2.id AND p2.client_id = $2
+                 WHERE t.level < $3
+            )
+            SELECT t.level, t.id AS partner_id, c.name, c.phone,
+                   (SELECT pu.platform_user_id FROM platform_users pu
+                     WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                     ORDER BY pu.id LIMIT 1) AS email,
+                   p.accepted_at, p.is_active,
+                   COALESCE((SELECT SUM(a.base_amount) FROM partner_accruals a
+                              WHERE a.partner_id = t.id AND a.level = 1), 0) AS turnover
+              FROM tree t
+              JOIN client_partners p ON p.id = t.id
+              JOIN contacts c ON c.id = t.contact_id
+             ORDER BY t.level, p.accepted_at DESC
+             LIMIT 500""",
+            his_partner_id, cid, int(max_levels))
+
+    from app.api.partner_program import _row
+    return {
+        "person": _row(person) if person else None,
+        "is_partner": bool(his_partner_id),
+        "levels": int(max_levels),
+        "sales": [_row(r) for r in sales],
+        "network": [_row(r) for r in network],
+    }
+
+
 @router.get("/me/people", summary="Мои люди")
 async def partner_people(response: Response, sess: dict = Depends(_session),
                          db: asyncpg.Connection = Depends(get_db)):
@@ -1016,6 +1128,43 @@ async def partner_people(response: Response, sess: dict = Depends(_session),
                -- 0 = интересовался, но не купил.
                COALESCE((SELECT SUM(a.base_amount) FROM partner_accruals a
                           WHERE a.buyer_contact_id = c.id AND a.partner_id = $1), 0) AS spent,
+               -- Сколько партнёр на нём ЗАРАБОТАЛ. Отдельно от `spent`: это
+               -- разные цифры, и партнёру важны обе — сколько человек принёс
+               -- обороту и сколько из этого его.
+               COALESCE((SELECT SUM(a.amount) FROM partner_accruals a
+                          WHERE a.buyer_contact_id = c.id AND a.partner_id = $1), 0) AS reward,
+               -- Уровень, с которого идёт доход по этому человеку.
+               -- 1 — привёл сам; 2 и дальше — привёл его партнёр.
+               (SELECT MIN(a.level) FROM partner_accruals a
+                 WHERE a.buyer_contact_id = c.id AND a.partner_id = $1) AS level,
+               -- ЧЕМ интересовался или что купил. Купил → название покупки;
+               -- не купил → куда заходил по ссылке партнёра.
+               -- ⚠️ Названия берём теми же связями, что и список продаж, —
+               -- иначе один и тот же заказ назывался бы по-разному.
+               COALESCE(
+                 (SELECT COALESCE(e.title, pr.title)
+                    FROM partner_accruals a
+                    LEFT JOIN event_participant_tariffs ept
+                           ON a.source_kind = 'event' AND ept.id = a.source_order_id
+                    LEFT JOIN events e ON e.id = ept.event_id
+                    LEFT JOIN product_orders po
+                           ON a.source_kind = 'product' AND po.id = a.source_order_id
+                    LEFT JOIN products pr ON pr.id = po.product_id
+                   WHERE a.buyer_contact_id = c.id AND a.partner_id = $1
+                   ORDER BY a.id DESC LIMIT 1),
+                 (SELECT e2.title FROM event_participants ep2
+                    JOIN events e2 ON e2.id = ep2.event_id
+                    JOIN contacts rc2 ON rc2.id = $3
+                   WHERE ep2.contact_id = c.id
+                     AND (ep2.referrer_ref_code = rc2.ref_code
+                          OR rc2.merged_ref_codes ? ep2.referrer_ref_code)
+                   ORDER BY ep2.id DESC LIMIT 1),
+                 (SELECT COALESCE(lm.name, lp.name) FROM funnel_runs fr2
+                    LEFT JOIN lead_magnets lm ON lm.id = fr2.lead_magnet_id
+                    LEFT JOIN lead_magnet_packages lp ON lp.id = fr2.package_id
+                   WHERE fr2.contact_id = c.id AND fr2.referrer_contact_id = $3
+                   ORDER BY fr2.id DESC LIMIT 1)
+               ) AS source_title,
                -- Контакты на площадках — чтобы партнёр мог написать человеку.
                (SELECT json_agg(json_build_object(
                           'platform', pu2.platform_slug,

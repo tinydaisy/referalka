@@ -172,6 +172,16 @@ async def try_bind_by_ref_code(
             await notify_binding_taken(
                 db, client_id=client_id, partner_id=partner["id"],
                 contact_id=contact_id)
+        elif bound:
+            # ⚠️ Человек закрепился за партнёром — говорим ему СРАЗУ, пока тот
+            # тёплый. Раньше партнёр не узнавал о переходе вовсе и видел
+            # новичка, только если сам зашёл в кабинет. Ограничение «раз в
+            # сутки на человека» внутри уведомления: по одной ссылке заходят
+            # помногу раз.
+            from app.services.partner_notify import notify_interest
+            await notify_interest(
+                db, client_id=client_id, partner_id=partner["id"],
+                contact_id=contact_id)
 
         return {
             "bound": bound,

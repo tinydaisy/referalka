@@ -318,29 +318,155 @@ function Sales({ token }: { token: string }) {
   if (!items) return <p className="text-sm text-gray-400">Загружаем…</p>
   if (!items.length) return <p className="text-sm text-gray-500">Продаж пока нет.</p>
 
+  // ⚠️ ТАБЛИЦА, а не карточки (решение владельца): продажи сравнивают глазами
+  // по столбцам — дата, что купили, кто, сколько. Карточками это не читается.
   return (
-    <div className="space-y-2">
+    <Table head={['Дата', 'Что купили', 'Покупатель', 'Уровень',
+                  'Сумма покупки', 'Вознаграждение', 'Выплата']}>
       {items.map(s => (
-        <div key={s.id} className="rounded-xl bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="font-medium text-gray-900">{s.source_title || '—'}</div>
-              <div className="text-xs text-gray-500">
-                {dt(s.created_at)}
-                {s.buyer_name && ` · ${s.buyer_name}`}
-                {s.level > 1 && ` · ${s.level}-й уровень`}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="font-semibold text-gray-900">{money(s.amount)}</div>
-              <div className={`text-xs ${s.is_paid ? 'text-emerald-600' : 'text-gray-400'}`}>
-                {s.is_paid ? 'выплачено' : 'ожидает выплаты'}
-              </div>
-            </div>
-          </div>
-        </div>
+        <tr key={s.id} className="border-b border-gray-100 last:border-0">
+          <Td nowrap muted>{dt(s.created_at)}</Td>
+          <Td>{s.source_title || '—'}</Td>
+          <Td>{s.buyer_name || '—'}</Td>
+          <Td nowrap muted>{s.level > 1 ? `${s.level}-й` : '1-й'}</Td>
+          <Td nowrap right muted>{money(s.base_amount)}</Td>
+          <Td nowrap right strong>{money(s.amount)}</Td>
+          <Td nowrap>
+            <span className={s.is_paid ? 'text-emerald-600' : 'text-gray-400'}>
+              {s.is_paid ? 'выплачено' : 'ожидает'}
+            </span>
+          </Td>
+        </tr>
       ))}
+    </Table>
+  )
+}
+
+/* ─── Карточка приведённого: его покупки и его сеть ──────────────────────── */
+
+/**
+ * Разворот строки человека в «Моих людях».
+ *
+ * ⚠️ Показываем ДВЕ вещи: его покупки (за что мне начислено) и — если он сам
+ * стал партнёром — его сеть по уровням. Это разные списки: первое про деньги
+ * с него, второе про деньги с тех, кого привёл он.
+ *
+ * ⚠️ Проверку «мой ли это человек» делает СЕРВЕР: номер контакта виден в
+ * адресе запроса и подбирается перебором.
+ */
+function PersonRow({ token, personId }: { token: string; personId: number }) {
+  const [data, setData] = useState<any>(null)
+
+  useEffect(() => {
+    get(`/me/people/${personId}`, token)
+      .then(setData)
+      .catch(() => setData({ sales: [], network: [] }))
+  }, [token, personId])
+
+  return (
+    <tr>
+      <td colSpan={7} className="bg-gray-50 px-3 py-3">
+        {!data ? (
+          <span className="text-xs text-gray-400">Загружаем…</span>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                Покупки
+              </div>
+              {!data.sales?.length ? (
+                <div className="text-xs text-gray-500">Пока ничего не купил.</div>
+              ) : (
+                <div className="space-y-1">
+                  {data.sales.map((s: any) => (
+                    <div key={s.id} className="flex flex-wrap justify-between gap-2 text-xs">
+                      <span className="text-gray-700">
+                        {dt(s.created_at)} · {s.source_title || '—'}
+                        {s.level > 1 && ` · ${s.level}-й уровень`}
+                      </span>
+                      <span className="text-gray-600">
+                        {money(s.base_amount)} → <b className="text-gray-900">{money(s.amount)}</b>
+                        {s.is_paid ? ' · выплачено' : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ⚠️ Сеть — только у того, кто сам стал партнёром. У обычного
+                покупателя её быть не может, и пустой блок читался бы как
+                поломка. */}
+            {data.is_partner && (
+              <div>
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Его партнёры
+                </div>
+                {!data.network?.length ? (
+                  <div className="text-xs text-gray-500">Под ним пока никого нет.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {data.network.map((n: any) => (
+                      <div key={n.partner_id}
+                           className="flex flex-wrap justify-between gap-2 text-xs">
+                        <span className="text-gray-700">
+                          {n.level}-й уровень · {n.name || 'Без имени'}
+                        </span>
+                        <span className="text-gray-600">
+                          принёс {money(n.turnover)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+/* ─── Таблица: общий вид для «Продаж» и «Моих людей» ─────────────────────── */
+
+/**
+ * ⚠️ ОДИН компонент на оба раздела — иначе таблицы разъедутся по отступам и
+ * поведению на телефоне, как это уже было с карточками.
+ *
+ * ⚠️ Горизонтальная прокрутка ОБЯЗАТЕЛЬНА (`overflow-x-auto`): столбцов много,
+ * и на телефоне таблица иначе растягивает всю страницу.
+ */
+function Table({ head, children }: { head: string[]; children: any }) {
+  return (
+    <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <table className="w-full min-w-[680px] text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 text-left text-xs uppercase
+                         tracking-wide text-gray-400">
+            {head.map((h, i) => (
+              <th key={h} className={`whitespace-nowrap px-3 py-2.5 font-medium
+                                      ${i >= 4 ? 'text-right' : ''}`}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
     </div>
+  )
+}
+
+function Td({ children, nowrap, right, muted, strong }: {
+  children: any; nowrap?: boolean; right?: boolean
+  muted?: boolean; strong?: boolean
+}) {
+  return (
+    <td className={`px-3 py-2.5 align-top
+      ${nowrap ? 'whitespace-nowrap' : ''} ${right ? 'text-right' : ''}
+      ${muted ? 'text-gray-500' : 'text-gray-800'}
+      ${strong ? 'font-semibold text-gray-900' : ''}`}>
+      {children}
+    </td>
   )
 }
 
@@ -430,6 +556,9 @@ const PLATFORM_NAME: Record<string, string> = {
 
 function People({ token }: { token: string }) {
   const [items, setItems] = useState<any[] | null>(null)
+  // Какой человек развёрнут. ⚠️ Грузим его карточку ПО КЛИКУ, а не списком:
+  // у партнёра людей бывают сотни, и запрос на каждого положил бы страницу.
+  const [open, setOpen] = useState<number | null>(null)
   const [only, setOnly] = useState<'all' | 'warm'>('all')
 
   useEffect(() => {
@@ -462,50 +591,63 @@ function People({ token }: { token: string }) {
         </div>
       )}
 
-      <div className="space-y-2">
+      {/* ⚠️ ТАБЛИЦА, а не карточки (решение владельца): столбцы сравнивают
+          глазами — кто, с какого уровня, чем интересовался, сколько заплатил
+          и сколько из этого моё. Карточками это не читается. */}
+      <Table head={['Имя', 'Контакт', 'Уровень', 'Статус',
+                    'Что смотрел / купил', 'Сумма', 'Вознаграждение']}>
         {list.map(p => (
-          <div key={p.id} className="rounded-xl bg-white p-3 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-medium text-gray-900">
-                  {p.name || 'Без имени'}
-                  {p.is_partner && (
-                    <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
-                      партнёр
-                    </span>
-                  )}
+          <tr key={p.id} className="border-b border-gray-100 last:border-0">
+            <Td>
+              {/* ⚠️ Имя — кнопка разворота: под ним показываем ЕГО покупки и,
+                  если он сам партнёр, ЕГО сеть по уровням. Грузим по клику —
+                  людей бывают сотни, запрос на каждого положил бы страницу. */}
+              <button onClick={() => setOpen(open === p.id ? null : p.id)}
+                      className="font-medium text-gray-900 underline decoration-dotted
+                                 underline-offset-2 hover:no-underline">
+                {p.name || 'Без имени'}
+              </button>
+              {p.is_partner && (
+                <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+                  партнёр
+                </span>
+              )}
+              <div className="text-xs text-gray-400">с {dt(p.came_at)}</div>
+            </Td>
+            <Td>
+              {/* ⚠️ Партнёр видит про своих людей ВСЁ (№ 10) — он их привёл. */}
+              <div className="break-all text-xs text-gray-500">
+                {[p.email, p.phone].filter(Boolean).join(' · ') || '—'}
+              </div>
+              {/* Кнопки «написать» — партнёр не должен искать человека вручную. */}
+              {Object.keys(p.links || {}).length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {Object.entries(p.links).map(([platform, url]) => (
+                    <a key={platform} href={url as string} target="_blank" rel="noreferrer"
+                       className="rounded bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-200">
+                      {PLATFORM_NAME[platform] || platform}
+                    </a>
+                  ))}
                 </div>
-                {/* ⚠️ Партнёр видит про своих людей ВСЁ (№ 10) — он их привёл. */}
-                <div className="break-all text-xs text-gray-500">
-                  {[p.email, p.phone].filter(Boolean).join(' · ') || '—'}
-                </div>
-                <div className="text-xs text-gray-400">с {dt(p.came_at)}</div>
-              </div>
-              <div className="text-right">
-                {p.bought ? (
-                  <div className="text-sm text-gray-600">
-                    купил на {money(p.spent)}
-                  </div>
-                ) : (
-                  <div className="text-xs text-amber-700">интересовался</div>
-                )}
-              </div>
-            </div>
-
-            {/* Кнопки «написать» — партнёр не должен искать человека вручную. */}
-            {Object.keys(p.links || {}).length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5 border-t border-gray-100 pt-2">
-                {Object.entries(p.links).map(([platform, url]) => (
-                  <a key={platform} href={url as string} target="_blank" rel="noreferrer"
-                     className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200">
-                    Написать в {PLATFORM_NAME[platform] || platform}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+              )}
+            </Td>
+            <Td nowrap muted>{p.level && Number(p.level) > 1 ? `${p.level}-й` : '1-й'}</Td>
+            <Td nowrap>
+              {p.bought
+                ? <span className="text-emerald-600">купил</span>
+                : <span className="text-amber-700">интересовался</span>}
+            </Td>
+            <Td>{p.source_title || '—'}</Td>
+            <Td nowrap right muted>{money(p.spent)}</Td>
+            <Td nowrap right strong>{money(p.reward)}</Td>
+          </tr>
+        )).flatMap((row: any, i: number) => {
+          const p = list[i]
+          return open === p.id
+            ? [row, <PersonRow key={`d${p.id}`} token={token} personId={p.id} />]
+            : [row]
+        })}
+      </Table>
     </div>
   )
 }

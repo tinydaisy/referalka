@@ -185,6 +185,29 @@ async def _reward_settings(db, *, client_id: int, tariff_kind: str,
 
 # ─── Начисление ───────────────────────────────────────────────────────────────
 
+async def _source_title(db, source_kind: str, source_order_id: int) -> str:
+    """Название купленного — чтобы партнёр видел, ЗА ЧТО ему начислили.
+
+    ⚠️ Берём теми же связями, что и список продаж в кабинете
+    (`partner_public.partner_sales`): иначе письмо и кабинет назовут одну
+    покупку по-разному.
+    """
+    try:
+        if source_kind == "event":
+            return await db.fetchval(
+                """SELECT e.title FROM event_participant_tariffs t
+                     JOIN events e ON e.id = t.event_id
+                    WHERE t.id = $1""", source_order_id) or ""
+        if source_kind == "product":
+            return await db.fetchval(
+                """SELECT p.title FROM product_orders o
+                     JOIN products p ON p.id = o.product_id
+                    WHERE o.id = $1""", source_order_id) or ""
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 async def accrue_for_order(
     db, *, client_id: int, source_kind: str, source_order_id: int,
     buyer_contact_id: Optional[int], amount, tariff_id: Optional[int],
@@ -287,6 +310,24 @@ async def _accrue(db, *, client_id: int, source_kind: str, source_order_id: int,
         )
         if inserted:
             created += 1
+            # ⚠️⚠️ ПАРТНЁР УЗНАЁТ О ПРОДАЖЕ САМ. Раньше уведомления не было
+            # вовсе: деньги начислялись молча, и партнёр видел их, только
+            # зайдя в кабинет, — а молчание после продажи читается как «мне
+            # не начислили». Шлём на КАЖДОЕ начисление, включая верхние
+            # уровни: там свои получатели, и для них это тоже их продажа.
+            #
+            # ⚠️ Сбой уведомления НЕ откатывает начисление: деньги важнее
+            # письма, и падать на нём нельзя.
+            try:
+                from app.services.partner_notify import notify_sale
+                await notify_sale(
+                    db, client_id=client_id, partner_id=current_partner_id,
+                    buyer_contact_id=buyer_contact_id,
+                    source_title=await _source_title(db, source_kind,
+                                                     source_order_id),
+                    base_amount=float(base), reward=float(reward), level=level)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Партнёрка: уведомление о продаже не ушло: %s", e)
 
         # ⚠️ Выходим ДО расчёта следующего уровня: при levels=1 коэффициент
         # затухания может быть не задан вовсе (None), и `reward / decay` упал
