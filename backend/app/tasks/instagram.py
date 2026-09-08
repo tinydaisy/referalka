@@ -202,13 +202,33 @@ def poll_comments():
                     convs = []
 
                 for conv in convs:
-                    for m in ((conv.get("messages") or {}).get("data") or []):
+                    msgs = (conv.get("messages") or {}).get("data") or []
+                    # ⚠️⚠️ Отвечаем ТОЛЬКО НА САМОЕ СВЕЖЕЕ сообщение человека,
+                    # остальные лишь помечаем виденными.
+                    #
+                    # Meta отдаёт переписку целиком, и раньше опрос обрабатывал
+                    # КАЖДОЕ новое сообщение подряд. Человек нажимает «Готово»
+                    # дважды (первый раз не был подписан) — и получает материал,
+                    # а следом два «уже отправляли». Смысла в ответе на каждое
+                    # нажатие нет: человеку важен один ответ на его последнее
+                    # действие.
+                    #
+                    # ⚠️ Meta отдаёт сообщения от НОВЫХ к старым, поэтому
+                    # свежее — первое подходящее в списке.
+                    newest_of_user = next(
+                        (x for x in msgs
+                         if str((x.get("from") or {}).get("id") or "") not in ("", ig_user_id)),
+                        None,
+                    )
+                    for m in msgs:
                         mid = str(m.get("id") or "")
                         sender = str((m.get("from") or {}).get("id") or "")
                         # ⚠️ Свои сообщения пропускаем: иначе бот ответит сам
                         # себе на собственное «подпишитесь и нажмите Готово».
                         if not mid or not sender or sender == ig_user_id:
                             continue
+                        # Не самое свежее — запоминаем, но не отвечаем.
+                        is_newest = newest_of_user is not None and mid == str(newest_of_user.get("id") or "")
 
                         marked = await conn.fetchval(
                             """INSERT INTO instagram_seen_comments (comment_id, channel_id, media_id)
@@ -225,6 +245,11 @@ def poll_comments():
                         # старую переписку разом уйдут ответы (то же правило,
                         # что у комментариев выше).
                         if ch["ig_polled_at"] is None:
+                            continue
+
+                        # ⚠️ Не самое свежее сообщение человека — запомнили и
+                        # молчим (см. пояснение выше про двойное «Готово»).
+                        if not is_newest:
                             continue
 
                         try:

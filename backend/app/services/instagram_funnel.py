@@ -575,6 +575,21 @@ async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
     run = dict(run)
     already = bool(run.get("ig_last_delivered_at"))
 
+    # ⚠️⚠️ ТОЛЬКО ЧТО ВЫДАЛИ — молчим. Каждое нажатие «Готово» остаётся в
+    # переписке отдельным сообщением, и опрос забирает их пачкой: человек
+    # нажал дважды (первый раз не был подписан) — получил материал, а следом
+    # ДВА «уже отправляли». Выглядит как поломка, и справедливо.
+    #
+    # ⚠️ Проверка НЕ зависит от `test_mode`: тот снимает ограничение на новые
+    # КОММЕНТАРИИ, а здесь речь о повторной обработке одного и того же ответа
+    # в директе — это всегда лишнее сообщение.
+    #
+    # ⚠️ Полминуты, а не час: человек, вернувшийся через пару минут и честно
+    # написавший ещё раз, должен получить материал снова — он мог его потерять.
+    last_out = run.get("ig_last_delivered_at")
+    if last_out and (datetime.now(timezone.utc) - last_out) < timedelta(seconds=30):
+        return
+
     if not funnel["require_subscription"]:
         await deliver(db, funnel, run, ch, from_igsid, repeat=already)
         return
