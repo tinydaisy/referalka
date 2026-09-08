@@ -675,7 +675,7 @@ export default function ContactsPage() {
             contactName={getName(selected)}
             availablePlatforms={(selected.identities || [])
               .map((i: any) => i.platform_slug)
-              .filter((p: string) => ['telegram', 'vk', 'max'].includes(p))}
+              .filter((p: string) => ['telegram', 'vk', 'max', 'instagram'].includes(p))}
           />
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-gray-300">
@@ -1370,7 +1370,7 @@ export default function ContactsPage() {
                   contactName={getName(selected)}
                   availablePlatforms={(selected.identities || [])
                     .map((i: any) => i.platform_slug)
-                    .filter((p: string) => ['telegram', 'vk', 'max'].includes(p))}
+                    .filter((p: string) => ['telegram', 'vk', 'max', 'instagram'].includes(p))}
                 />
               </div>
             </div>

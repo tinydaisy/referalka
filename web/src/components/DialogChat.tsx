@@ -25,8 +25,11 @@ const PLATFORM_LABEL: Record<string, string> = {
   telegram: 'Telegram',
   vk: 'ВКонтакте',
   max: 'MAX',
+  instagram: 'Instagram',
 }
-const PLATFORM_SHORT: Record<string, string> = { telegram: 'TG', vk: 'VK', max: 'MAX' }
+const PLATFORM_SHORT: Record<string, string> = {
+  telegram: 'TG', vk: 'VK', max: 'MAX', instagram: 'IG',
+}
 
 function fmtTime(iso: string): string {
   try {
