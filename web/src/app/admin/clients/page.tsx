@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Search, Users, BellOff, Calendar, Crown, UserCheck } from 'lucide-react'
+import { Search, Users, BellOff, Calendar, Crown, UserCheck, Trash2, AlertTriangle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 // Метки налогового статуса партнёра (миграция 319). Выплата партнёрского
@@ -74,6 +74,7 @@ export default function AdminClientsPage() {
   const [syncing, setSyncing] = useState(false)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
   const [manageClient, setManageClient] = useState<Client | null>(null)
+  const [deleteClient, setDeleteClient] = useState<Client | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
   const [qualityModal, setQualityModal] = useState<EmailQuality | null>(null)
 
@@ -350,7 +351,7 @@ export default function AdminClientsPage() {
                     <Calendar size={11} className="inline mr-1" />
                     {new Date(c.created_at).toLocaleDateString('ru')}
                   </td>
-                  <td className="px-3 py-4 text-center">
+                  <td className="px-3 py-4 text-center whitespace-nowrap">
                     <button
                       onClick={() => setManageClient(c)}
                       title="Тариф и бонусы"
@@ -358,6 +359,18 @@ export default function AdminClientsPage() {
                     >
                       Тариф · бонусы
                     </button>
+                    {/* ⚠️ Владельца платформы (id=1) и системный сервисный
+                        аккаунт удалять нельзя — на них держатся общие боты и
+                        рассылки. Бэкенд это тоже проверяет. */}
+                    {c.id !== 1 && (
+                      <button
+                        onClick={() => setDeleteClient(c)}
+                        title="Удалить клиента"
+                        className="ml-1.5 p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-300 align-middle"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               )) : (
@@ -430,6 +443,165 @@ export default function AdminClientsPage() {
         />
       )}
 
+      {deleteClient && (
+        <DeleteClientModal
+          client={deleteClient}
+          onClose={() => setDeleteClient(null)}
+          onDone={() => { setDeleteClient(null); setReloadTick(v => v + 1) }}
+        />
+      )}
+
+    </div>
+  )
+}
+
+
+// ─── Удаление клиента ────────────────────────────────────────────────────────
+//
+// ⚠️⚠️ Самое разрушительное действие в системе: вместе с клиентом уходят его
+// события, контакты, рассылки, продукты, боты и файлы. Восстановить можно
+// только из ночного дампа.
+//
+// ⚠️ Подтверждение — ВВОД СЛОВА, а не «ок» в окне: случайно набрать нельзя.
+// То же слово проверяет бэкенд — запрос легко повторить мимо интерфейса.
+//
+// ⚠️ Сначала показываем ЦИФРЫ. По имени в списке не отличить пустой тестовый
+// кабинет от клиента с базой в семь тысяч контактов.
+
+const DELETE_WORD = 'ПОДТВЕРДИТЬ'
+
+function DeleteClientModal({ client, onClose, onDone }: {
+  client: Client; onClose: () => void; onDone: () => void
+}) {
+  const [preview, setPreview] = useState<any>(null)
+  const [word, setWord] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.admin.clientDeletePreview(client.id)
+      .then((r: any) => setPreview(r))
+      .catch((e: any) => setError(e?.message || 'Не удалось посчитать данные клиента'))
+  }, [client.id])
+
+  const ready = word.trim().toUpperCase() === DELETE_WORD && !busy && preview && !preview.protected
+
+  async function run() {
+    setBusy(true); setError('')
+    try {
+      const r: any = await api.admin.deleteClient(client.id, word.trim().toUpperCase())
+      alert(r?.message || 'Клиент удалён')
+      onDone()
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось удалить')
+      setBusy(false)
+    }
+  }
+
+  const rows: Array<[string, number]> = preview ? [
+    ['События (удалятся)', preview.events_to_delete],
+    ['Контакты', preview.contacts],
+    ['Подключённые боты', preview.channels],
+    ['Продукты', preview.products],
+    ['Лид-магниты', preview.lead_magnets],
+    ['Рассылки', preview.broadcasts],
+    ['Сообщения в переписках', preview.messages],
+    ['Файлы', preview.files],
+  ] : []
+
+  return (
+    // ⚠️ Клик по затемнению НЕ закрывает окно — правило проекта для форм.
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+            <AlertTriangle size={20} className="text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-gray-900">Удалить клиента</h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {client.name} · {client.email}
+            </p>
+          </div>
+        </div>
+
+        {!preview && !error && (
+          <div className="flex items-center gap-2 text-gray-500 py-6">
+            <Loader2 size={16} className="animate-spin" /> Считаем, что удалится…
+          </div>
+        )}
+
+        {preview?.protected && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+            Этого клиента удалить нельзя: это владелец платформы или системный
+            сервисный аккаунт — на нём держатся общие боты и рассылки.
+          </div>
+        )}
+
+        {preview && !preview.protected && (
+          <>
+            <div className="rounded-xl border border-gray-200 overflow-hidden mb-4">
+              {rows.map(([label, value]) => (
+                <div key={label}
+                     className="flex items-center justify-between px-4 py-2 text-sm border-b border-gray-100 last:border-0">
+                  <span className="text-gray-600">{label}</span>
+                  <span className={`font-semibold ${value > 0 ? 'text-gray-900' : 'text-gray-300'}`}>
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {preview.events_shared > 0 && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-900 mb-3">
+                {preview.events_shared} коллаб-{preview.events_shared === 1 ? 'событие останется' : 'событий останутся'} у
+                партнёров — удалится только участие этого клиента.
+              </div>
+            )}
+
+            {preview.referred > 0 && (
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-600 mb-3">
+                {preview.referred} приведённых клиентов останутся, но потеряют
+                привязку к рефоводу.
+              </div>
+            )}
+
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800 mb-4">
+              Данные удаляются <b>безвозвратно</b>. Вернуть можно только из
+              ночной резервной копии.
+            </div>
+
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Введите слово <b>{DELETE_WORD}</b>, чтобы удалить
+            </label>
+            <input
+              value={word}
+              onChange={e => setWord(e.target.value)}
+              placeholder={DELETE_WORD}
+              autoFocus
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-400"
+            />
+          </>
+        )}
+
+        {error && (
+          <div className="mt-3 text-sm text-red-600">{error}</div>
+        )}
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm font-medium hover:border-gray-300">
+            Отмена
+          </button>
+          <button
+            onClick={run}
+            disabled={!ready}
+            className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-red-700"
+          >
+            {busy ? 'Удаляем…' : 'Удалить навсегда'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

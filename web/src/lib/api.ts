@@ -1758,6 +1758,18 @@ export const api = {
       if (data.collab_hub_blocked !== undefined) params.set('collab_hub_blocked', String(data.collab_hub_blocked))
       return request(`/api/v1/admin/clients/${id}?${params.toString()}`, { method: 'PATCH' })
     },
+    // Удаление клиента со всеми данными.
+    // ⚠️ Подтверждение — слово «ПОДТВЕРДИТЬ», проверяется НА СЕРВЕРЕ: запрос
+    // легко повторить мимо интерфейса, и защита только в окне ничего не стоит.
+    clientDeletePreview: (id: number) =>
+      request(`/api/v1/admin/clients/${id}/delete-preview`),
+    // ⚠️ Слово шлём И в адресе, И в теле: тело у DELETE поддержано не везде
+    // (промежуточные прокси его иногда режут), а без подтверждения удаление
+    // просто не сработает. Бэкенд принимает любой из двух источников.
+    deleteClient: (id: number, confirm: string) =>
+      request(`/api/v1/admin/clients/${id}?confirm=${encodeURIComponent(confirm)}`, {
+        method: 'DELETE', body: JSON.stringify({ confirm }),
+      }),
     // Разметить контакты тегами сегментов plusson:* (для рассылок по сегментам)
     syncSegmentTags: (data: { target_client_id: number; exclude_client_ids?: number[] }) =>
       request('/api/v1/admin/clients/sync-segment-tags', { method: 'POST', body: JSON.stringify(data) }),

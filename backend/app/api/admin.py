@@ -414,6 +414,171 @@ async def update_client(
     return {"message": "Обновлено"}
 
 
+# ─── Удаление клиента ─────────────────────────────────────────────────────────
+#
+# ⚠️⚠️ САМОЕ РАЗРУШИТЕЛЬНОЕ ДЕЙСТВИЕ В СИСТЕМЕ. Вместе с клиентом уходят его
+# события, контакты, рассылки, воронки, продукты, боты и файлы — восстановить
+# можно только из ночного дампа. Поэтому:
+#   * подтверждение — ВВОД СЛОВА, а не «ок» в окне (случайно не наберёшь);
+#   * перед удалением показываем, ЧТО именно исчезнет (эндпоинт preview);
+#   * системный клиент и клиент с id=1 (владелец платформы) не удаляются вовсе.
+
+DELETE_CONFIRM_WORD = "ПОДТВЕРДИТЬ"
+
+
+async def _client_delete_summary(db, client_id: int) -> dict:
+    """Что исчезнет вместе с клиентом. Только чтение."""
+    row = await db.fetchrow(
+        """
+        SELECT c.id, c.name, c.email, c.is_system_service,
+               (SELECT count(*) FROM event_owners eo WHERE eo.client_id = c.id)      AS events,
+               (SELECT count(*) FROM contacts ct WHERE ct.client_id = c.id)          AS contacts,
+               (SELECT count(*) FROM client_channels cc WHERE cc.client_id = c.id)   AS channels,
+               (SELECT count(*) FROM client_files cf WHERE cf.client_id = c.id)      AS files,
+               (SELECT count(*) FROM products p WHERE p.client_id = c.id)            AS products,
+               (SELECT count(*) FROM lead_magnets lm WHERE lm.client_id = c.id)      AS lead_magnets,
+               (SELECT count(*) FROM broadcast_schedules bs WHERE bs.client_id = c.id) AS broadcasts,
+               (SELECT count(*) FROM direct_messages dm WHERE dm.client_id = c.id)   AS messages,
+               (SELECT count(*) FROM clients r WHERE r.referred_by_client_id = c.id) AS referred,
+               (SELECT COALESCE(SUM(cf.size_bytes), 0) FROM client_files cf
+                 WHERE cf.client_id = c.id)                                          AS storage_bytes
+          FROM clients c WHERE c.id = $1
+        """,
+        client_id,
+    )
+    if not row:
+        raise HTTPException(404, "Клиент не найден")
+
+    d = dict(row)
+    # ⚠️ Событие принадлежит клиенту через event_owners, своего client_id у него
+    # нет. Значит каскад снесёт только владение, а САМО событие останется
+    # сиротой — его надо удалять отдельно, и только если других владельцев нет
+    # (у коллаб-события их несколько, и оно должно остаться живым у партнёров).
+    d["events_to_delete"] = await db.fetchval(
+        """SELECT count(*) FROM events e
+            WHERE EXISTS (SELECT 1 FROM event_owners eo
+                           WHERE eo.event_id = e.id AND eo.client_id = $1)
+              AND NOT EXISTS (SELECT 1 FROM event_owners eo2
+                               WHERE eo2.event_id = e.id AND eo2.client_id <> $1)""",
+        client_id,
+    )
+    d["events_shared"] = int(d["events"]) - int(d["events_to_delete"])
+    # Кого нельзя удалять ни при каких условиях.
+    d["protected"] = bool(row["is_system_service"]) or client_id == 1
+    return d
+
+
+@router.get("/clients/{client_id}/delete-preview", summary="Что исчезнет вместе с клиентом")
+async def client_delete_preview(
+    client_id: int,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Показывает объём потерь ДО удаления.
+
+    ⚠️ Нужен именно перед удалением: по одному имени в списке невозможно
+    понять, это пустой тестовый кабинет или клиент с базой в семь тысяч
+    контактов. Цифры отрезвляют лучше любого предупреждения.
+    """
+    return await _client_delete_summary(db, client_id)
+
+
+class ClientDeleteRequest(BaseModel):
+    confirm: str
+
+
+@router.delete("/clients/{client_id}", summary="Удалить клиента")
+async def delete_client(
+    client_id: int,
+    confirm: Optional[str] = None,
+    data: Optional[ClientDeleteRequest] = None,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Удаляет клиента со всеми его данными. Подтверждение — слово «ПОДТВЕРДИТЬ».
+
+    ⚠️ Слово проверяется НА СЕРВЕРЕ, а не только в окне браузера: запрос
+    легко повторить мимо интерфейса, и тогда защита не значила бы ничего.
+
+    ⚠️ Принимаем слово и телом, и параметром адреса: тело у DELETE поддержано
+    не везде (промежуточные прокси его иногда режут), а терять подтверждение
+    на ровном месте нельзя — тогда удаление просто не сработает.
+    """
+    word = (confirm or (data.confirm if data else "") or "").strip().upper()
+    summary = await _client_delete_summary(db, client_id)
+
+    if summary["protected"]:
+        raise HTTPException(
+            400,
+            "Этого клиента удалить нельзя: это владелец платформы или системный "
+            "сервисный аккаунт — на нём держатся общие боты и рассылки",
+        )
+
+    if word != DELETE_CONFIRM_WORD:
+        raise HTTPException(
+            400, f"Для удаления введите слово {DELETE_CONFIRM_WORD}"
+        )
+
+    # ⚠️ Ключи файлов забираем ДО удаления: строки уйдут каскадом, а сами файлы
+    # в хранилище останутся навсегда занимать место — их надо стереть отдельно.
+    # Читаем заранее, потому что после транзакции узнать их будет неоткуда.
+    file_keys = [
+        r["r2_key"] for r in await db.fetch(
+            "SELECT r2_key FROM client_files WHERE client_id = $1 AND r2_key <> ''",
+            client_id,
+        )
+    ]
+
+    async with db.transaction():
+        # 1. Боты клиента. ⚠️ У client_channels внешний ключ БЕЗ каскада
+        #    (NO ACTION) — без этой строки удаление просто падало бы с ошибкой
+        #    внешнего ключа у ЛЮБОГО клиента: канал есть у всех.
+        await db.execute("DELETE FROM client_channels WHERE client_id = $1", client_id)
+
+        # 2. События, где он ЕДИНСТВЕННЫЙ владелец.
+        #    ⚠️ Коллаб-события с другими организаторами НЕ трогаем: событие
+        #    общее, партнёры продолжают его вести. Уйдёт только его владение.
+        deleted_events = await db.fetch(
+            """DELETE FROM events e
+                WHERE EXISTS (SELECT 1 FROM event_owners eo
+                               WHERE eo.event_id = e.id AND eo.client_id = $1)
+                  AND NOT EXISTS (SELECT 1 FROM event_owners eo2
+                                   WHERE eo2.event_id = e.id AND eo2.client_id <> $1)
+              RETURNING e.id""",
+            client_id,
+        )
+
+        # 3. Сам клиент — остальное уйдёт каскадом (контакты, рассылки,
+        #    воронки, продукты, файлы, подписки, диалоги и прочее).
+        await db.execute("DELETE FROM clients WHERE id = $1", client_id)
+
+    # 4. Файлы в хранилище — ПОСЛЕ транзакции.
+    # ⚠️ Не внутри: удаление в облаке идёт по сети и необратимо. Сорвись
+    # транзакция после него — клиент остался бы в базе, но уже без файлов.
+    # И сбой чистки не должен отменять удаление: клиента уже нет, а мусорные
+    # файлы — это лишь занятое место, о котором мы пишем в лог.
+    files_deleted = 0
+    if file_keys:
+        from app.services import r2_storage
+        for key in file_keys:
+            try:
+                await r2_storage.delete_object(key)
+                files_deleted += 1
+            except Exception as e:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(
+                    "удаление клиента %s: файл %s не стёрт — %s", client_id, key, e
+                )
+
+    return {
+        "message": f"Клиент «{summary['name']}» удалён",
+        "deleted_events": len(deleted_events),
+        "kept_shared_events": summary["events_shared"],
+        "deleted_contacts": summary["contacts"],
+        "deleted_files": files_deleted,
+    }
+
+
 # ─── Партнёры ─────────────────────────────────────────────────────────────────
 
 class PartnerCreate(BaseModel):
