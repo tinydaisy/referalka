@@ -129,6 +129,9 @@ async def material_name(db, funnel: dict) -> str:
         # алиасом, чтобы дальше читать одинаково.
         row = await db.fetchrow("SELECT title AS name FROM products WHERE id=$1",
                                 funnel["product_id"])
+    elif funnel.get("event_id"):
+        row = await db.fetchrow("SELECT title AS name FROM events WHERE id=$1",
+                                funnel["event_id"])
     else:
         return ""
     return (row["name"] if row else "") or ""
@@ -390,17 +393,51 @@ async def _product_link(db, funnel: dict) -> str:
     return await client_public_link(db, funnel["client_id"], f"/pr/{row['slug']}")
 
 
+async def _event_link(db, funnel: dict) -> str:
+    """Ссылка на страницу события.
+
+    ⚠️⚠️ ВЕБ-ссылка, а не Mini App: сообщение открывают внутри Instagram, где
+    ни телеграмного, ни вэкашного приложения нет. Ссылка на Mini App там
+    просто не откроется.
+
+    ⚠️ Куда именно вести, решает способ регистрации события — то же правило,
+    что во всех остальных точках проекта (`registration_mode`): свой лендинг
+    `/e/{slug}`, сторонний сайт клиента или встроенная форма `/event/{slug}`.
+    Своей развилки тут заводить нельзя — разъедется с остальными.
+    """
+    from .client_domains import client_public_link
+
+    row = await db.fetchrow(
+        "SELECT slug, registration_mode, landing_url FROM events WHERE id=$1",
+        funnel["event_id"],
+    )
+    if not row:
+        return ""
+    if row["registration_mode"] == "external" and (row["landing_url"] or "").strip():
+        return row["landing_url"].strip()
+    path = f"/e/{row['slug']}" if row["registration_mode"] == "landing" else f"/event/{row['slug']}"
+    return await client_public_link(db, funnel["client_id"], path)
+
+
 async def deliver(db, funnel: dict, run: dict, ch: dict, igsid: str,
                   *, repeat: bool = False) -> bool:
     """Выдать материал в директ. True — отправлено."""
     kind = "dm_repeat" if repeat else "dm_delivered"
     head = await pick_reply(db, funnel["id"], kind)
 
-    if funnel.get("product_id"):
-        # ⚠️ Продукт проверяется ПЕРВЫМ: у такой воронки нет ни лид-магнита,
-        # ни пакета, и `_materials_text` вернул бы пусто — человек получил бы
-        # сообщение без единой ссылки.
-        body = await _product_link(db, funnel)
+    if funnel.get("product_id") or funnel.get("event_id"):
+        # ⚠️⚠️ Продукт и событие проверяются ПЕРВЫМИ: у такой воронки нет ни
+        # лид-магнита, ни пакета, и `_materials_text` вернул бы пусто — человек
+        # получил бы сообщение без единой ссылки.
+        #
+        # ⚠️⚠️ Ссылка тут ВСЕГДА ВЕБОВСКАЯ, независимо от «как выдаём».
+        # Сообщение открывают внутри Instagram, где нет ни телеграмного, ни
+        # вэкашного приложения: ссылка на Mini App там не откроется вовсе.
+        # Режим «через телеграм-бота» относится к лид-магнитам — там бот сам
+        # выдаёт файлы; у продукта и события выдавать нечего, есть только
+        # страница.
+        body = (await _product_link(db, funnel) if funnel.get("product_id")
+                else await _event_link(db, funnel))
     elif funnel["delivery_mode"] == "telegram":
         link = await _telegram_link(db, run, funnel)
         body = link or await _materials_text(db, run)

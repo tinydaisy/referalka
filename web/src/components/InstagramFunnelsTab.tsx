@@ -24,9 +24,11 @@ interface Funnel {
   lead_magnet_id: number | null
   package_id: number | null
   product_id: number | null
+  event_id: number | null
   lead_magnet_name?: string | null
   package_name?: string | null
   product_name?: string | null
+  event_name?: string | null
   delivery_mode: string
   require_subscription: boolean
   public_reply_enabled: boolean
@@ -175,6 +177,7 @@ export default function InstagramFunnelsTab() {
   const [magnets, setMagnets] = useState<any[]>([])
   const [packages, setPackages] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
+  const [events, setEvents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<any | null>(null)
   // Воронка, по которой открыт список людей (null — окно закрыто).
@@ -183,7 +186,7 @@ export default function InstagramFunnelsTab() {
   const load = async () => {
     setLoading(true)
     try {
-      const [f, ch, lm, pk, pr] = await Promise.all([
+      const [f, ch, lm, pk, pr, ev] = await Promise.all([
         api.instagramFunnels.list(),
         api.channels.list(),
         api.leadMagnets.list(),
@@ -192,12 +195,19 @@ export default function InstagramFunnelsTab() {
         // и кнопка «Продукт» покажется без счётчика. Ошибку глушим, чтобы
         // недоступный раздел не ломал форму воронки целиком.
         api.products.list().catch(() => ({ items: [] })),
+        api.events.list().catch(() => ({ items: [] })),
       ])
       setItems(f.items || [])
       setAccounts((ch.items || []).filter((c: any) => c.platform_slug === 'instagram'))
       setMagnets(lm.items || [])
       setPackages(pk.items || [])
-      setProducts(pr.items || [])
+      // ⚠️ Эндпоинт продуктов отдаёт поле `products`, а НЕ `items`, как
+      // остальные списки — из-за этого выбор продуктов был пустым при
+      // опубликованных продуктах у клиента.
+      setProducts(pr.products || pr.items || [])
+      // ⚠️ Только опубликованные: вести человека на черновик значит
+      // привести его на «страница не найдена».
+      setEvents((ev.events || ev.items || []).filter((e: any) => e.status === 'published'))
     } catch (e) {
       console.error(e)
     } finally {
@@ -282,7 +292,7 @@ export default function InstagramFunnelsTab() {
                     {f.keyword_mode === 'specific' && f.keywords?.length
                       ? ` · слова: ${f.keywords.join(', ')}` : ' · любое слово'}
                     {' · выдаём: '}
-                    {f.lead_magnet_name || f.package_name || f.product_name || '—'}
+                    {f.lead_magnet_name || f.package_name || f.product_name || f.event_name || '—'}
                     {f.account_handle ? ` · @${f.account_handle}` : ''}
                   </p>
                 </div>
@@ -327,6 +337,7 @@ export default function InstagramFunnelsTab() {
           magnets={magnets}
           packages={packages}
           products={products}
+          events={events}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load() }}
         />
@@ -336,12 +347,13 @@ export default function InstagramFunnelsTab() {
 }
 
 
-function FunnelModal({ initial, accounts, magnets, packages, products, onClose, onSaved }: {
+function FunnelModal({ initial, accounts, magnets, packages, products, events, onClose, onSaved }: {
   initial: any
   accounts: any[]
   magnets: any[]
   packages: any[]
   products: any[]
+  events: any[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -351,7 +363,7 @@ function FunnelModal({ initial, accounts, magnets, packages, products, onClose, 
   // реально стоит: иначе форма открылась бы на «лид-магните», а в списке был
   // бы выбран продукт — и клиент решил бы, что настройка слетела.
   const [giftKind, setGiftKind] = useState<string>(
-    initial?.product_id ? 'pr' : initial?.package_id ? 'p' : 'm'
+    initial?.event_id ? 'ev' : initial?.product_id ? 'pr' : initial?.package_id ? 'p' : 'm'
   )
   const [f, setF] = useState<any>({
     channel_id: initial.channel_id || accounts[0]?.id,
@@ -365,6 +377,7 @@ function FunnelModal({ initial, accounts, magnets, packages, products, onClose, 
     lead_magnet_id: null,
     package_id: null,
     product_id: null,
+    event_id: null,
     delivery_mode: 'direct',
     require_subscription: true,
     public_reply_enabled: true,
@@ -400,7 +413,7 @@ function FunnelModal({ initial, accounts, magnets, packages, products, onClose, 
         // ⚠️ Тип подарка выставляем ПОСЛЕ загрузки: при открытии в `initial`
         // лежит только {id}, и без этого форма всегда показывала бы
         // «Лид-магнит» — даже у воронки с продуктом.
-        setGiftKind(r.product_id ? 'pr' : r.package_id ? 'p' : 'm')
+        setGiftKind(r.event_id ? 'ev' : r.product_id ? 'pr' : r.package_id ? 'p' : 'm')
       })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить'))
       .finally(() => setLoading(false))
@@ -598,6 +611,7 @@ function FunnelModal({ initial, accounts, magnets, packages, products, onClose, 
                 ['m', 'Лид-магнит', magnets.length],
                 ['p', 'Пакет', packages.length],
                 ['pr', 'Продукт', products.length],
+                ['ev', 'Событие', events.length],
               ] as [string, string, number][]).map(([k, label, n]) => (
                 <button
                   key={k} type="button"
@@ -607,6 +621,7 @@ function FunnelModal({ initial, accounts, magnets, packages, products, onClose, 
                     set('lead_magnet_id', null)
                     set('package_id', null)
                     set('product_id', null)
+                    set('event_id', null)
                     setGiftKind(k)
                   }}
                   className={`px-3 py-1.5 text-xs rounded-lg border ${giftKind === k
@@ -617,24 +632,33 @@ function FunnelModal({ initial, accounts, magnets, packages, products, onClose, 
               ))}
             </div>
             <select
-              value={f.lead_magnet_id || f.package_id || f.product_id || ''}
+              value={f.lead_magnet_id || f.package_id || f.product_id || f.event_id || ''}
               onChange={e => {
                 const v = e.target.value ? +e.target.value : null
                 set('lead_magnet_id', giftKind === 'm' ? v : null)
                 set('package_id', giftKind === 'p' ? v : null)
                 set('product_id', giftKind === 'pr' ? v : null)
+                set('event_id', giftKind === 'ev' ? v : null)
               }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg">
               <option value="">— выберите —</option>
-              {(giftKind === 'm' ? magnets : giftKind === 'p' ? packages : products)
+              {(giftKind === 'm' ? magnets : giftKind === 'p' ? packages
+                : giftKind === 'ev' ? events : products)
                 .map((it: any) => (
                   <option key={it.id} value={it.id}>{it.name || it.title}</option>
                 ))}
             </select>
-            {giftKind === 'pr' && (
-              <p className="text-[11px] text-gray-400 mt-1">
-                В личные сообщения уйдёт ссылка на страницу продукта — материалы там
-                открываются после оплаты.
+            {/* ⚠️⚠️ Предупреждение обязательно: у продукта и события в директ
+                уходит ВЕБ-ссылка, а не Mini App — сообщение открывают внутри
+                Instagram, где ни телеграмного, ни вэкашного приложения нет.
+                Без пояснения клиент ждёт, что человек попадёт в бота. */}
+            {(giftKind === 'pr' || giftKind === 'ev') && (
+              <p className="text-[11px] text-gray-500 mt-1">
+                В личные сообщения уйдёт <b>обычная ссылка на страницу</b> — она открывается
+                в браузере прямо из Instagram.
+                {giftKind === 'pr'
+                  ? ' Материалы продукта открываются после оплаты.'
+                  : ' Человек перейдёт и зарегистрируется на событие.'}
               </p>
             )}
           </div>
