@@ -241,8 +241,13 @@ export default function LeadMagnetsPage() {
         {[
           { id: 'magnets', label: 'Лид-магниты', icon: FileText },
           { id: 'packages', label: 'Пакеты', icon: Package },
-          { id: 'template', label: 'Шаблон воронки', icon: Pencil },
-          { id: 'instagram', label: 'Instagram', icon: Instagram },
+          // ⚠️ «Шаблоны воронки-Телеграм», а не просто «Шаблон воронки»:
+          // рядом появилась воронка Instagram, и без указания площадки
+          // непонятно, к какой из двух относится шаблон.
+          { id: 'template', label: 'Шаблоны воронки-Телеграм', icon: Pencil },
+          // ⚠️ Звёздочка ведёт на сноску внизу страницы: Meta признана в РФ
+          // экстремистской организацией, и упоминание требует пометки.
+          { id: 'instagram', label: 'Instagram*-воронка', icon: Instagram },
         ].map(({ id, label, icon: Icon }) => {
           const active = tab === (id as Tab)
           return (
@@ -267,6 +272,19 @@ export default function LeadMagnetsPage() {
       {tab === 'packages' && <PackagesList />}
       {tab === 'template' && <TemplateEditor />}
       {tab === 'instagram' && <InstagramFunnelsTab />}
+
+      {/* Сноска к звёздочке в названии вкладки.
+          ⚠️ Показывается ТОЛЬКО на вкладке Instagram — там, где стоит сама
+          звёздочка. На остальных вкладках Meta не упоминается, и сноска без
+          звёздочки читалась бы как случайный текст.
+          ⚠️ Внизу страницы и мелким шрифтом: это юридическая пометка, а не
+          сообщение клиенту — выносить её наверх значит мешать работе. */}
+      {tab === 'instagram' && (
+        <p className="mt-8 pt-4 border-t border-gray-100 text-[11px] leading-relaxed text-gray-400">
+          * Instagram принадлежит компании Meta, признанной экстремистской организацией
+          и запрещённой на территории Российской Федерации.
+        </p>
+      )}
     </div>
   )
 }
