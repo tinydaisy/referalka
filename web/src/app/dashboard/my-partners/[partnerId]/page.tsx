@@ -70,14 +70,14 @@ export default function PartnerPage() {
 
   if (!hasFeature) {
     return (
-      <div className="p-4 md:p-6 max-w-6xl">
+      <div>
         <FeatureLock anyOf={['partner_program']} />
       </div>
     )
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-4xl">
+    <div>
       <button
         onClick={() => router.push('/dashboard/my-partners?tab=partners')}
         className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#25455D] mb-4"

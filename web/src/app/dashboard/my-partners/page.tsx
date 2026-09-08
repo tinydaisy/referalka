@@ -46,7 +46,7 @@ function MyPartnersPage() {
   const hasFeature = (me?.features || []).includes('partner_program')
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl">
+    <div>
       <div className="flex items-center gap-3 mb-1">
         <Handshake className="text-[#25455D]" size={24} />
         <h1 className="text-2xl font-bold text-[#25455D]">Моя партнёрка</h1>
@@ -139,7 +139,7 @@ function SettingsTab() {
   const platformLinks: Record<string, string> = data.invite_platform_links || {}
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       {/* Ссылка на регистрацию — то, за чем в раздел приходят чаще всего:
           без неё партнёров неоткуда взять. Раньше стать партнёром можно было
           только войдя в кабинет /my по коду на почту — человеку «с улицы»
