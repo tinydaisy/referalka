@@ -281,6 +281,39 @@ curl -s "https://graph.facebook.com/v21.0/<MEDIA_ID>/comments?fields=id,text,fro
 без которого вебхуки о комментариях не приходят. Срок решения — **около
 недели** по документации Meta.
 
+#### ⚠️⚠️ Сначала «Тестирование»: по одному вызову API на каждое разрешение
+
+Кнопка «Опубликовать» неактивна, пока в разделе **«Тестирование»** у
+разрешений висит «Необходимо выполнить 0 из 1 вызовов API». Это НЕ заявка и не
+видео — Meta буквально ждёт, что приложение хоть раз вызовет каждое
+разрешение, которое просит.
+
+⚠️ Годятся ОБЫЧНЫЕ запросы с боевым токеном — Graph API Explorer не нужен.
+Ниже рабочие вызовы, проверенные 2026-09-08 (все, кроме последнего, идут с
+токеном страницы):
+
+| Разрешение | Запрос |
+|---|---|
+| `instagram_basic` | `GET /{ig-user-id}?fields=id,username,followers_count` |
+| `instagram_manage_comments` | `GET /{media-id}/comments?fields=id,text` |
+| `instagram_manage_messages` | `GET /{page-id}/conversations?platform=instagram` |
+| `pages_show_list` | `GET /{page-id}?fields=id,name,access_token` |
+| `pages_read_engagement` | `GET /{page-id}?fields=id,name,fan_count` |
+| `pages_manage_metadata` | `GET /{page-id}/subscribed_apps` |
+| `public_profile` | `GET /me?fields=id,name` |
+| `business_management` | `GET /{page-id}?fields=business` |
+
+⚠️⚠️ **`business_management` — именно `?fields=business` у СТРАНИЦЫ.**
+Очевидные `me/businesses`, `owner_business`, `assigned_business_asset_groups`
+отвечают «Tried accessing nonexisting field» с токеном страницы и вызов НЕ
+засчитывают. На поиск рабочего варианта ушло несколько попыток.
+
+⚠️ **Данные о тестировании появляются до 24 часов** — сделал вызовы, увидел
+всё те же нули, это нормально. Результат каждого теста действует 30 дней.
+
+⚠️ Статус тестирования **через API не читается** (`permissions_and_features`,
+`app_capabilities` → «Unknown path components») — смотреть только в кабинете.
+
 **Шаги (App Review → Permissions and Features):**
 
 | № | Что | Замечание |
