@@ -358,7 +358,7 @@ async def reply_to_contact(
         raise HTTPException(403, "Ассистент не может отвечать в диалогах.")
     client_id = int(client["sub"])
     platform = body.platform.strip().lower()
-    if platform not in ("telegram", "vk", "max"):
+    if platform not in ("telegram", "vk", "max", "instagram"):
         raise HTTPException(400, "Неизвестная платформа")
     text = (body.text or "").strip()
     if not text:
@@ -382,6 +382,8 @@ async def reply_to_contact(
         mid, err = await _tg_send(token, str(pu), text)
     elif platform == "vk":
         mid, err = await _vk_send(token, str(pu), text)
+    elif platform == "instagram":
+        mid, err = await _ig_send(db, channel_id, str(pu), text)
     else:
         mid, err = await _max_send(token, str(pu), text)
 
@@ -394,6 +396,43 @@ async def reply_to_contact(
         # Сообщение записали с пометкой ошибки, но честно сообщаем клиенту.
         raise HTTPException(502, f"Не доставлено: {err}")
     return {"ok": True, "id": row_id, "platform_message_id": mid}
+
+
+async def _ig_send(db, channel_id: Optional[int], igsid: str, text: str):
+    """Отправить сообщение в директ Instagram.
+
+    ⚠️⚠️ ПИСАТЬ МОЖНО ТОЛЬКО 24 ЧАСА после последнего сообщения человека —
+    это правило Meta, обойти его нельзя. Вне окна она отвечает ошибкой, и мы
+    переводим её на человеческий язык: иначе клиент видит «(#10) Сообщение
+    отправлено за пределами допустимого окна» и решает, что сломалась
+    платформа.
+
+    ⚠️ Отправка идёт на id СТРАНИЦЫ Facebook, а не аккаунта Instagram: через
+    ig_user_id Meta отвечает «(#3) Application does not have the capability».
+    """
+    import json as _json
+    from app.services import instagram_api as ig
+
+    row = await db.fetchrow(
+        "SELECT bot_token, platform_meta FROM channels WHERE id=$1", channel_id)
+    if not row:
+        return None, "Аккаунт Instagram не найден"
+    meta = row["platform_meta"] or {}
+    if isinstance(meta, str):
+        meta = _json.loads(meta)
+    page_id = str(meta.get("page_id") or "")
+    if not page_id:
+        return None, "У аккаунта не заполнена страница Facebook — переподключите его"
+
+    try:
+        res = await ig.send_message(page_id, igsid, text, row["bot_token"] or "")
+        return str(res.get("message_id") or "") or None, None
+    except ig.InstagramApiError as e:
+        # Код 10 / подкод 2534022 — это как раз выход за 24-часовое окно.
+        if e.code == 10:
+            return None, ("Instagram разрешает писать только 24 часа после "
+                          "сообщения человека. Дождитесь, когда он напишет снова.")
+        return None, e.user_message
 
 
 # ─────────────────────────────────────────────────────────────────────────────

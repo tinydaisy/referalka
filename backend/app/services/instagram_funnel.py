@@ -567,6 +567,20 @@ async def handle_message(db, channel_id: int, *, from_igsid: str, text: str,
         "UPDATE funnel_runs SET ig_last_user_message_at=now() WHERE id=$1", run["id"]
     )
 
+    # Сохраняем входящее в «Диалоги» — иначе переписка с человеком нигде не
+    # видна, и клиент не может ни прочитать её, ни ответить из кабинета.
+    #
+    # ⚠️ Сбой записи НЕ должен ломать воронку: главное — выдать материал.
+    try:
+        from .dialog_archive import archive_incoming
+        await archive_incoming(
+            client_id=funnel["client_id"], platform="instagram",
+            channel_id=funnel["channel_id"], platform_user_id=from_igsid,
+            text=text, contact_id=run.get("contact_id"),
+        )
+    except Exception:
+        log.exception("Instagram: не удалось записать входящее в диалоги")
+
     funnel = dict(await db.fetchrow("SELECT * FROM instagram_funnels WHERE id=$1", run["f_id"]))
     ch = await _funnel_channel(db, funnel)
     if not ch or not ch["token"]:

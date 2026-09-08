@@ -213,13 +213,19 @@ def poll_comments():
                     # нажатие нет: человеку важен один ответ на его последнее
                     # действие.
                     #
-                    # ⚠️ Meta отдаёт сообщения от НОВЫХ к старым, поэтому
-                    # свежее — первое подходящее в списке.
-                    newest_of_user = next(
-                        (x for x in msgs
-                         if str((x.get("from") or {}).get("id") or "") not in ("", ig_user_id)),
-                        None,
-                    )
+                    # ⚠️⚠️ Свежее ищем ПО ВРЕМЕНИ (`created_time`), а НЕ по
+                    # позиции в списке. Раньше здесь стояло «первое подходящее»
+                    # в расчёте, что Meta отдаёт от новых к старым — оказалось
+                    # ненадёжно: нажатие «Готово» попадало не первым, в одном
+                    # прогоне помечалось молча, а в следующем становилось
+                    # «свежим» и обрабатывалось ПОВТОРНО. Человек получал
+                    # материал, а через минуту «уже отправляли».
+                    def _ts(x: dict) -> str:
+                        return str(x.get("created_time") or "")
+
+                    from_user = [x for x in msgs
+                                 if str((x.get("from") or {}).get("id") or "") not in ("", ig_user_id)]
+                    newest_of_user = max(from_user, key=_ts) if from_user else None
                     for m in msgs:
                         mid = str(m.get("id") or "")
                         sender = str((m.get("from") or {}).get("id") or "")
