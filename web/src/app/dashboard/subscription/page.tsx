@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CreditCard, CheckCircle2, ArrowRight, Wallet } from 'lucide-react'
+import { CreditCard, CheckCircle2, XCircle, ArrowRight, Wallet } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function SubscriptionPage() {
@@ -630,9 +630,22 @@ function ModulesBlock() {
 }
 
 
+/**
+ * История заказов и оплат — ТАБЛИЦЕЙ.
+ *
+ * ⚠️ Раньше это был список строк, где статус лежал мелкой плашкой под суммой:
+ * оплаченные и неоплаченные не различались с одного взгляда, а сравнить две
+ * оплаты между собой было нечем — данные стояли не в колонках. Заказы это
+ * учётный документ, их читают глазами по столбцам.
+ *
+ * ⚠️ Заголовок «История заказов и оплат», а не «История оплат»: неоплаченный
+ * заказ — тоже строка этого списка, и прежнее название ей противоречило.
+ */
 function SubscriptionHistoryBlock() {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  /** Фильтр: все / только оплаченные / только неоплаченные. */
+  const [filter, setFilter] = useState<'all' | 'paid' | 'unpaid'>('all')
 
   useEffect(() => {
     api.subscriptions.listOrders().then((r: any) => {
@@ -644,42 +657,108 @@ function SubscriptionHistoryBlock() {
   if (orders.length === 0) return null
 
   const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-    created:   { label: 'Создан, ждём оплату', color: 'text-amber-700 bg-amber-50' },
-    paid:      { label: 'Оплачен',              color: 'text-green-700 bg-green-50' },
-    failed:    { label: 'Ошибка оплаты',         color: 'text-red-700 bg-red-50' },
-    cancelled: { label: 'Отменён',               color: 'text-gray-600 bg-gray-100' },
+    created:   { label: 'Ждём оплату',   color: 'text-amber-700 bg-amber-50' },
+    paid:      { label: 'Оплачен',       color: 'text-green-700 bg-green-50' },
+    failed:    { label: 'Ошибка оплаты', color: 'text-red-700 bg-red-50' },
+    cancelled: { label: 'Отменён',       color: 'text-gray-600 bg-gray-100' },
   }
+
+  const paidCount = orders.filter(o => o.status === 'paid').length
+  const shown = orders.filter(o =>
+    filter === 'all' ? true : filter === 'paid' ? o.status === 'paid' : o.status !== 'paid')
+
+  const fmtDate = (v: string | null) => v
+    ? new Date(v).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '—'
+
+  const TABS: { key: typeof filter; label: string; count: number }[] = [
+    { key: 'all',    label: 'Все',          count: orders.length },
+    { key: 'paid',   label: 'Оплаченные',   count: paidCount },
+    { key: 'unpaid', label: 'Неоплаченные', count: orders.length - paidCount },
+  ]
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-      <h3 className="font-semibold text-gray-800 mb-4">История оплат</h3>
-      <div className="space-y-2">
-        {orders.map(o => {
-          const st = STATUS_LABEL[o.status] || { label: o.status, color: 'text-gray-600 bg-gray-100' }
-          const amount = (o.amount_paid_card_kopecks || o.amount_paid_bonus_kopecks || o.amount_total_kopecks) / 100
-          return (
-            <div key={o.id} className="flex items-center justify-between text-sm py-2 border-b border-gray-50 last:border-0">
-              <div>
-                {/* Срок в истории обязателен: без него две оплаты одного
-                    тарифа на разные суммы выглядят как ошибка списания. */}
-                <div className="font-medium text-gray-800">
-                  {o.tariff_name}
-                  {o.months > 1 && <span className="text-gray-500 font-normal"> · {o.months} мес.</span>}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {new Date(o.created_at).toLocaleString('ru-RU', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-semibold text-gray-900">{amount.toLocaleString('ru-RU')} ₽</div>
-                <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${st.color}`}>
-                  {st.label}
-                </span>
-              </div>
-            </div>
-          )
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h3 className="font-semibold text-gray-800">История заказов и оплат</h3>
+        <div className="flex gap-1.5">
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setFilter(t.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      filter === t.key
+                        ? 'bg-[#25455D] text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {t.label} <span className="opacity-60">{t.count}</span>
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* ⚠️ Таблица шире телефона — прокрутка внутри своего контейнера,
+          иначе горизонтально едет вся страница. */}
+      <div className="overflow-x-auto -mx-2">
+        <table className="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+              <th className="font-medium px-2 py-2 w-10"></th>
+              <th className="font-medium px-2 py-2">Дата</th>
+              <th className="font-medium px-2 py-2">Тариф</th>
+              <th className="font-medium px-2 py-2">Срок действия</th>
+              <th className="font-medium px-2 py-2">Статус</th>
+              <th className="font-medium px-2 py-2 text-right">Сумма</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map(o => {
+              const st = STATUS_LABEL[o.status]
+                || { label: o.status, color: 'text-gray-600 bg-gray-100' }
+              const isPaid = o.status === 'paid'
+              const amount = (o.amount_paid_card_kopecks || o.amount_paid_bonus_kopecks
+                              || o.amount_total_kopecks) / 100
+              return (
+                <tr key={o.id} className="border-b border-gray-50 last:border-0">
+                  {/* Галочка/крестик — чтобы оплаченность читалась без чтения текста. */}
+                  <td className="px-2 py-2.5">
+                    {isPaid
+                      ? <CheckCircle2 size={17} className="text-green-600" />
+                      : <XCircle size={17} className="text-red-500" />}
+                  </td>
+                  <td className="px-2 py-2.5 text-gray-600 whitespace-nowrap">
+                    {fmtDate(o.paid_at || o.created_at)}
+                  </td>
+                  <td className="px-2 py-2.5 font-medium text-gray-800">
+                    {o.tariff_name}
+                    {o.months > 1 && (
+                      <span className="text-gray-500 font-normal"> · {o.months} мес.</span>
+                    )}
+                  </td>
+                  {/* ⚠️ Срок берётся из созданной заказом подписки. У неоплаченного
+                      его нет вовсе — ставим прочерк, а не выдуманные даты. */}
+                  <td className="px-2 py-2.5 text-gray-600 whitespace-nowrap">
+                    {o.expires_at
+                      ? `${fmtDate(o.started_at)} — ${fmtDate(o.expires_at)}`
+                      : '—'}
+                  </td>
+                  <td className="px-2 py-2.5">
+                    <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded ${st.color}`}>
+                      {st.label}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">
+                    {amount.toLocaleString('ru-RU')} ₽
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {shown.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">
+          {filter === 'paid' ? 'Оплаченных заказов пока нет' : 'Неоплаченных заказов нет'}
+        </p>
+      )}
     </div>
   )
 }
@@ -697,12 +776,32 @@ function SubscriptionHistoryBlock() {
  */
 function ServicesBlock() {
   const [services, setServices] = useState<any[]>([])
+  /**
+   * Состояние заказа услуги у ЭТОГО клиента.
+   *
+   * ⚠️ Каталог услуг приходит из ПУБЛИЧНОГО `/public/services` — он общий для
+   * лендинга и про конкретного человека не знает ничего. Из-за этого клиент с
+   * уже оплаченной услугой видел на своей странице «Скоро будет», как будто
+   * ничего не покупал (поймано у клиента 174: услуга выдана, а карточка это
+   * не показывала). Состояние берём с клиентской ручки автонастройки — там
+   * оно и живёт.
+   *
+   * Ошибку глушим: услуга гейтится фичей, и у клиента без неё ручка отвечает
+   * 403 — это норма, а не сбой, карточка просто останется витриной.
+   */
+  const [autosetup, setAutosetup] = useState<any>(null)
 
   useEffect(() => {
     api.services.list().then((r: any) => setServices(r.services || [])).catch(() => {})
+    api.tgAutosetup.get().then((r: any) => setAutosetup(r)).catch(() => {})
   }, [])
 
   if (services.length === 0) return null
+
+  /** Оплачен ли заказ услуги. Пока услуга одна — сверяем по её слагу. */
+  const paidOrder = (slug: string) =>
+    slug === 'tg_autosetup' && autosetup?.order?.status === 'paid'
+      ? autosetup.order : null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -711,12 +810,22 @@ function ServicesBlock() {
         Разовые — платите один раз, продлевать не нужно.
       </p>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {services.map(s => (
+        {services.map(s => {
+        const paid = paidOrder(s.slug)
+        return (
           <div key={s.slug}
                id={`service-${s.slug}`}
                className={`scroll-mt-24 rounded-xl border p-4 flex flex-col ${
-                 s.coming_soon ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
-            <h4 className="font-semibold text-gray-900">{s.name}</h4>
+                 paid ? 'border-green-300 bg-green-50/40'
+                      : s.coming_soon ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
+            <div className="flex items-start justify-between gap-2">
+              <h4 className="font-semibold text-gray-900">{s.name}</h4>
+              {paid && (
+                <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white">
+                  ОПЛАЧЕНО
+                </span>
+              )}
+            </div>
             {s.tagline && <p className="text-xs text-gray-500 mt-0.5">{s.tagline}</p>}
 
             <div className="mt-3 mb-1 flex items-baseline gap-2">
@@ -735,7 +844,14 @@ function ServicesBlock() {
               ))}
             </ul>
 
-            {s.coming_soon ? (
+            {/* ⚠️ Оплаченная услуга главнее рычага «СКОРО»: он закрывает продажу,
+                а не пользование. Иначе оплативший видит «скоро будет». */}
+            {paid ? (
+              <Link href="/dashboard/channels"
+                    className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
+                {paid.setup_state === 'done' ? 'Настройка завершена' : 'Перейти к настройке'}
+              </Link>
+            ) : s.coming_soon ? (
               <p className="mt-4 text-xs font-semibold text-amber-600">🔜 Скоро будет</p>
             ) : (
               <Link href="/dashboard/channels"
@@ -744,7 +860,7 @@ function ServicesBlock() {
               </Link>
             )}
           </div>
-        ))}
+        )})}
       </div>
     </div>
   )

@@ -28,7 +28,7 @@ from app.services.share_links import TG_DOMAIN
 SUPPORT_INTRO = "Возникли вопросы? Напишите нам в любой удобный вам мессенджер:"
 
 
-def _norm_tg(raw):
+def tg_support_link(raw):
     """work_tg_username → ссылка https://t.me/... Принимает уже-ссылку, @ник, ник."""
     s = (raw or "").strip()
     if not s:
@@ -60,7 +60,7 @@ def _lines(work_tg, work_vk, work_max) -> list[tuple[str, str]]:
     vk = _norm_url(work_vk)
     if vk:
         out.append(("ВКонтакте", vk))
-    tg = _norm_tg(work_tg)
+    tg = tg_support_link(work_tg)
     if tg:
         out.append(("Телеграм", tg))
     mx = _norm_url(work_max)
@@ -105,7 +105,7 @@ def support_url_for_platform(platform: str, work_tg=None, work_vk=None, work_max
     Нет контакта на этой площадке — пусто (плейсхолдер просто исчезает)."""
     p = (platform or "").lower()
     if p == "telegram":
-        return _norm_tg(work_tg)
+        return tg_support_link(work_tg)
     if p == "vk":
         return _norm_url(work_vk)
     if p == "max":

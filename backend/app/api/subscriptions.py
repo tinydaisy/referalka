@@ -185,12 +185,19 @@ async def list_orders(
     db: asyncpg.Connection = Depends(get_db),
 ):
     client_id = int(user["sub"])
+    # ⚠️ Срок действия живёт НЕ в заказе, а в подписке, которую он создал
+    # (`client_subscriptions.subscription_order_id`). В самом заказе есть только
+    # `months` — а клиенту в истории нужны даты: «с какого по какое» отвечает на
+    # вопрос «за что списали», на который одно число месяцев не отвечает.
+    # У неоплаченного заказа подписки нет — там оба поля NULL, и это правильно.
     rows = await db.fetch(
         """SELECT so.id, so.status, so.amount_total_kopecks, so.amount_paid_card_kopecks,
-                  so.months,
-                  so.paid_at, so.created_at, t.slug AS tariff_slug, t.name AS tariff_name
+                  so.amount_paid_bonus_kopecks, so.months,
+                  so.paid_at, so.created_at, t.slug AS tariff_slug, t.name AS tariff_name,
+                  cs.started_at, cs.expires_at
              FROM subscription_orders so
              JOIN tariffs t ON t.id = so.tariff_id
+             LEFT JOIN client_subscriptions cs ON cs.subscription_order_id = so.id
             WHERE so.client_id = $1
             ORDER BY so.created_at DESC
             LIMIT 50""",

@@ -150,8 +150,8 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     # {owner_telegram} — ЛИЧНЫЙ телеграм основателя (clients.telegram_username,
     # указывается при регистрации). ⚠️ Это НЕ служба заботы и НЕ канал основателя.
     # Только Telegram — личных аккаунтов основателя на VK/MAX в базе нет.
-    from app.services.support_message import _lines as _support_lines, _norm_tg, support_url_for_platform
-    owner_tg_personal = _norm_tg(row["telegram_username"])
+    from app.services.support_message import _lines as _support_lines, tg_support_link, support_url_for_platform
+    owner_tg_personal = tg_support_link(row["telegram_username"])
 
     # ── Служба заботы (Настройки → Профиль) ───────────────────────────────────
     support_rows = _support_lines(row["work_tg_username"], row["work_vk"], row["work_max"])

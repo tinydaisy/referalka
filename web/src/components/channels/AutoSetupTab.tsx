@@ -122,6 +122,21 @@ export default function AutoSetupTab() {
   const finished = st === 'done'
   const expired = st === 'expired'
 
+  /**
+   * ⚠️ ОПЛАЧЕННЫЙ ЗАКАЗ ГЛАВНЕЕ РЫЧАГА «СКОРО».
+   *
+   * `coming_soon` закрывает ПРОДАЖУ (нет кнопки оплаты), а не саму услугу.
+   * Раньше по нему пряталась и форма ввода имени бота — и клиент, которому
+   * услугу уже выдали (оплата мимо кассы, отметка админом), видел «Услуга
+   * скоро появится» и не мог ничего запустить. Поймано у клиента 174.
+   *
+   * `status='paid'` — единственный признак, что человеку услуга положена;
+   * `setup_state` тут не годится: у нового заказа он `new`, как и у ещё
+   * не оплаченного.
+   */
+  const paid = order?.status === 'paid'
+  const sellingClosed = state.service.coming_soon && !paid
+
   return (
     <div className="max-w-3xl">
       {/* ─── Шапка услуги ─── */}
@@ -154,10 +169,16 @@ export default function AutoSetupTab() {
                 {state.service.price} ₽
               </div>
               <div className="text-white/60 text-sm">разово</div>
-              {state.service.coming_soon && (
+              {/* Оплатившему «СКОРО» не показываем — у него услуга уже есть. */}
+              {sellingClosed && (
                 <span className="px-2.5 py-1 rounded-lg text-xs font-semibold"
                       style={{ background: '#FFCFA4', color: '#25455D' }}>
                   СКОРО
+                </span>
+              )}
+              {paid && (
+                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-500 text-white">
+                  ОПЛАЧЕНО
                 </span>
               )}
             </div>
@@ -166,7 +187,7 @@ export default function AutoSetupTab() {
       </div>
 
       {/* ─── Скоро: без кнопки оплаты ─── */}
-      {state.service.coming_soon && !order && (
+      {sellingClosed && !order && (
         <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 text-sm text-gray-600">
           Услуга скоро появится. Мы допишем последние детали и включим её —
           пока настроить бота можно вручную на вкладке «Боты».
@@ -174,7 +195,7 @@ export default function AutoSetupTab() {
       )}
 
       {/* ─── Нет ника в Telegram — передать права будет некому ─── */}
-      {!state.telegram_username && !state.service.coming_soon && (
+      {!state.telegram_username && !sellingClosed && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 mb-5 flex gap-3">
           <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
           <div className="text-sm text-amber-900">
@@ -185,12 +206,20 @@ export default function AutoSetupTab() {
       )}
 
       {/* ─── Форма запуска ─── */}
-      {!state.service.coming_soon && !order && (
+      {/*
+        ⚠️ Показываем и ОПЛАЧЕННОМУ заказу, у которого ещё нет имени бота.
+        Так выглядит услуга, выданная админом без денег: заказ есть, статус
+        `paid`, `setup_state='new'` — то есть человеку остаётся только назвать
+        бота. Условие `!order` прятало форму, и запустить настройку было нечем.
+      */}
+      {!sellingClosed && (!order || (paid && !order.bot_username && !inProgress
+                                     && !waitingUser && !finished)) && (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Как назвать бота</h3>
           <p className="text-sm text-gray-500 mb-4">
-            Имя латиницей, заканчивается на «bot». Проверим, свободно ли оно,
-            ещё до оплаты.
+            {paid
+              ? 'Услуга оплачена. Придумайте имя боту — и мы начнём настройку.'
+              : 'Имя латиницей, заканчивается на «bot». Проверим, свободно ли оно, ещё до оплаты.'}
           </p>
 
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -255,7 +284,9 @@ export default function AutoSetupTab() {
             disabled={starting || !nameCheck?.free || !state.telegram_username}
             className="btn-gold w-full mt-4 py-3 disabled:opacity-50"
           >
-            {starting ? 'Открываем оплату…' : `Настроить за ${state.service.price} ₽`}
+            {starting
+              ? (paid ? 'Запускаем…' : 'Открываем оплату…')
+              : (paid ? 'Начать настройку' : `Настроить за ${state.service.price} ₽`)}
           </button>
           {!nameCheck?.free && (
             <p className="text-xs text-gray-400 mt-2 text-center">

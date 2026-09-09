@@ -238,6 +238,18 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
             ref_percent = int(_s["percent"])
             ref_accrual_until = _s["accrual_until"]
 
+        # ⚠️ Служба заботы заполняется САМА из ника, введённого при регистрации.
+        # Раньше поле оставалось пустым, и у нового клиента не работало ничего,
+        # что на нём завязано: команда /support во всех ботах, кнопка
+        # «Тех. поддержка» в меню события и в рассылках, блок поддержки на
+        # лендинге, подпись в письмах о заказе. Человек об этом не знал —
+        # поле лежит в Настройках отдельной вкладкой, и до него не доходили.
+        # Формат — ССЫЛКА (так это поле и заполняется в кабинете), нормализация
+        # общая с остальным проектом. Клиент может поменять её в Настройках:
+        # у части клиентов поддержку ведёт не владелец, а отдельный аккаунт.
+        from app.services.support_message import tg_support_link
+        work_tg = tg_support_link(data.telegram_username)
+
         client = await db.fetchrow(
             """
             INSERT INTO clients (name, last_name, email, phone, telegram_username, password_hash, partner_code, integration_token,
@@ -245,15 +257,16 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
                                  referral_rate_percent, referral_accrual_until,
                                  offer_accepted_at, offer_accepted_version,
                                  privacy_consent_at, privacy_consent_version,
-                                 acceptance_ip)
+                                 acceptance_ip, work_tg_username)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                    NOW(), $13, NOW(), $14, $15)
+                    NOW(), $13, NOW(), $14, $15, $16)
             RETURNING id, name, last_name, email
             """,
             data.name, data.last_name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
             new_referral_code, referred_by_client_id,
             ref_percent, ref_accrual_until,
             OFFER_VERSION, PRIVACY_POLICY_VERSION, _accept_ip,
+            work_tg or None,
         )
 
         # Создаём запись бонусного баланса (NULL не допустим, всегда нулевая запись)
