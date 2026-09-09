@@ -16,6 +16,7 @@ import { CardIcon } from '@/components/landing/icons'
 import LazyVideo from '@/components/LazyVideo'
 import SafeHtml from '@/components/SafeHtml'
 import SurveyBlock from './SurveyBlock'
+import { metallicGradient, shade } from '@/lib/brandStyle'
 
 interface Props {
   data: any
@@ -36,17 +37,10 @@ interface Props {
   pageUrl?: string
 }
 
-/**
- * Металлический градиент — вертикальный перелив из цвета темы.
- * Формула снята с боевого лендинга: тёмный → цвет → светлый блик → цвет →
- * тёмный. Именно вертикаль (180deg) и симметрия дают ощущение металла;
- * диагональный блик выглядит как обычная заливка.
- */
-function metallic(color: string): string {
-  const dark = shade(color, -45)   // #FFCFA4 → примерно #8A5628
-  const light = shade(color, 30)   // #FFCFA4 → примерно #FFE4C9
-  return `linear-gradient(180deg, ${dark}, ${color}, ${light}, ${color}, ${dark})`
-}
+// ⚠️ Формула металла вынесена в @/lib/brandStyle: тем же переливом рисуются
+// обложки записей и материалов. Две копии разъехались бы, и обложка перестала
+// бы совпадать с лендингом.
+const metallic = metallicGradient
 
 /**
  * Заливка кнопки — металл посветлее, чем у заголовков: тёмные края лишь
@@ -75,17 +69,7 @@ function hexToRgba(hex: string, alpha: number): string {
  * Осветление именно «к белому», иначе светлый персик упирается в потолок 255
  * и блик не виден.
  */
-function shade(hex: string, pct: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
-  // Мусор в поле цвета (недописанный HEX) не должен ронять страницу.
-  if (!m) return '#000000'
-  const n = parseInt(m[1], 16)
-  const f = (v: number) => pct >= 0
-    ? Math.round(v + (255 - v) * (pct / 100))
-    : Math.round(v * (1 + pct / 100))
-  return `#${[f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)]
-    .map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`
-}
+// shade — там же, в @/lib/brandStyle.
 
 export default function LandingRenderer({
   data, slug, pid = null, contactId = null, utmSource = null, ownerType = 'event',

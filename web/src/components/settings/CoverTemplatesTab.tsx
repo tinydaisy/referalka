@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 import CoverCanvas, { COVER_W, COVER_H, type CoverTemplate, type CoverTheme } from '@/components/covers/CoverCanvas'
-import { ensureBrandFonts } from '@/lib/brandFonts'
+import { ensureBrandFonts } from '@/lib/brandStyle'
 
 type Kind = 'material' | 'speaker'
 

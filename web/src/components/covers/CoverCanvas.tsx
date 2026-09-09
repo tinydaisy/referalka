@@ -19,7 +19,7 @@
  * подключённое.
  */
 
-import { brandFontCss } from '@/lib/brandFonts'
+import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
 
 export type CoverTemplate = {
   bg_url?: string | null
@@ -53,6 +53,8 @@ export type CoverTheme = {
   lp_font_heading?: string
   lp_font_body?: string
   lp_color_heading?: string
+  /** Металлический перелив на заголовках — та же галочка, что на лендинге. */
+  lp_heading_metallic?: boolean
   lp_color_body?: string
   /** Вырезка самого клиента — образец для предпросмотра. */
   sample_photo_url?: string | null
@@ -213,15 +215,22 @@ export default function CoverCanvas({
           }}>{overline}</div>
         )}
 
+        {/* ⚠️ Металл берётся из ТЕМЫ (галочка «Металлический градиент на
+            заголовках»), а не настраивается отдельно: заголовок обложки и
+            заголовок лендинга — одно фирменное оформление, две галочки
+            разъехались бы. Свой цвет заголовка металл не отменяет — перелив
+            строится из него же. */}
         <div style={{
           fontFamily: titleFont,
           // Кегль в процентах ВЫСОТЫ полотна: на широком и узком тексте
           // заголовок остаётся одного размера, как задумано в шаблоне.
           fontSize: `${(t.title_size ?? 8) * COVER_H / 100}px`,
           lineHeight: 1.05,
-          color: t.title_color || th.lp_color_heading || '#FFCFA4',
           // Длинное слово (ссылка, составной термин) иначе вылезает за край.
           overflowWrap: 'anywhere',
+          ...(th.lp_heading_metallic !== false
+            ? metallicTextStyle(t.title_color || th.lp_color_heading || '#FFCFA4')
+            : { color: t.title_color || th.lp_color_heading || '#FFCFA4' }),
         }}>{title}</div>
 
         {!!subtitle && (

@@ -151,7 +151,7 @@ async def get_template(
     c = await db.fetchrow(
         """SELECT lp_bg_color, lp_bg_color_2, lp_bg_angle, lp_bg_gradient,
                   lp_font_heading, lp_font_body,
-                  lp_color_heading, lp_color_body,
+                  lp_color_heading, lp_color_body, lp_heading_metallic,
                   brand_logo_url, brand_logo_light_url,
                   brand_name, name
              FROM clients WHERE id = $1""",
